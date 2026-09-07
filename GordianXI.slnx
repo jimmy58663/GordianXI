@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Gordian.Addons/Gordian.Addons.csproj" />
+    <Project Path="src/Gordian.App/Gordian.App.csproj" />
+    <Project Path="src/Gordian.Core/Gordian.Core.csproj" />
+  </Folder>
+</Solution>
