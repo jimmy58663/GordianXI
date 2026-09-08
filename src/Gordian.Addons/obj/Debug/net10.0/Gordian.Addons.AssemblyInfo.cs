@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Gordian.Addons")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ecf8ee36d93c1edc853ae8050bd83aca1d038bcb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5656f7d6cf646ff0c0f84b9ed705ebdbb742050a")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gordian.Addons")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gordian.Addons")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

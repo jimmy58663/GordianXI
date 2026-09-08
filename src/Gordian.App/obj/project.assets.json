@@ -690,6 +690,19 @@
           "bin/placeholder/Gordian.Addons.dll": {}
         }
       },
+      "Gordian.Automation/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Gordian.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Gordian.Automation.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Gordian.Automation.dll": {}
+        }
+      },
       "Gordian.Core/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
@@ -1633,6 +1646,11 @@
       "path": "../Gordian.Addons/Gordian.Addons.csproj",
       "msbuildProject": "../Gordian.Addons/Gordian.Addons.csproj"
     },
+    "Gordian.Automation/1.0.0": {
+      "type": "project",
+      "path": "../Gordian.Automation/Gordian.Automation.csproj",
+      "msbuildProject": "../Gordian.Automation/Gordian.Automation.csproj"
+    },
     "Gordian.Core/1.0.0": {
       "type": "project",
       "path": "../Gordian.Core/Gordian.Core.csproj",
@@ -1647,6 +1665,7 @@
       "Avalonia.Themes.Fluent >= 12.1.2",
       "AvaloniaUI.DiagnosticsSupport >= 2.2.3",
       "Gordian.Addons >= 1.0.0",
+      "Gordian.Automation >= 1.0.0",
       "Gordian.Core >= 1.0.0"
     ]
   },
@@ -1685,6 +1704,9 @@
           "projectReferences": {
             "G:\\git\\GordianXI\\src\\Gordian.Addons\\Gordian.Addons.csproj": {
               "projectPath": "G:\\git\\GordianXI\\src\\Gordian.Addons\\Gordian.Addons.csproj"
+            },
+            "G:\\git\\GordianXI\\src\\Gordian.Automation\\Gordian.Automation.csproj": {
+              "projectPath": "G:\\git\\GordianXI\\src\\Gordian.Automation\\Gordian.Automation.csproj"
             },
             "G:\\git\\GordianXI\\src\\Gordian.Core\\Gordian.Core.csproj": {
               "projectPath": "G:\\git\\GordianXI\\src\\Gordian.Core\\Gordian.Core.csproj"

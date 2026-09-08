@@ -20,5 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Gordian.Addons\Gordian.Addons.csproj" />
     <ProjectReference Include="..\Gordian.Core\Gordian.Core.csproj" />
+    <ProjectReference Include="..\Gordian.Automation\Gordian.Automation.csproj" />
   </ItemGroup>
 </Project>
