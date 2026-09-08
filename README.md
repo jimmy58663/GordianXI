@@ -15,29 +15,31 @@ By replacing the legacy 2002 executable entirely, GordianXI cuts through decades
 ## ✨ Core Pillars & Architectural Features
 
 *   **⚡ Permanent 64-Bit Memory Scaling:** Compiling natively as an `x64` application completely eliminates the legacy 32-bit 4 GB RAM ceiling. GordianXI can stream extensive community high-definition texture packages and heavy zone geometries directly into memory simultaneously without encountering allocation crashes.
-*   **👥 Native Single-Process Multi-Boxing:** Bypasses all unstable Windows IPC methods (`//send`) entirely. All characters exist as native entities in a single, unified memory block. While your active viewport gets full 3D rendering rendering, background characters are transitioned into a highly efficient **"headless" state**—processing only their packet streams, positioning, and script logic to minimize hardware overhead.
-*   **🤖 Integrated Group Coordinator:** Eliminates dropped macros and action synchronization lag by embedding core coordination parameters directly into the engine's main execution loop. Background character entities read a shared team data array instantaneously, executing synchronized actions down to the exact millisecond.
+*   **👥 Native Single-Process Multi-Boxing:** Bypasses all unstable Windows IPC methods (`//send`) entirely. All characters exist as native entities in a single, unified memory block. While your active viewport gets full 3D rendering, background characters are transitioned into a highly efficient **"headless" state**—processing only their packet streams, positioning, and script logic to minimize hardware overhead.
+*   **🤖 Integrated Group Coordinator:** Eliminates dropped macros and action synchronization lag by embedding core coordination parameters directly into a dedicated engine subsystem. Background character entities read a shared team data array instantaneously, executing synchronized actions down to the exact millisecond.
+*   **🛑 Server-Authoritative Kill-Switch:** Built with a fully decoupled, optional design. Private server administrators can transmit a feature flag payload to remotely lock down or completely disable the automation engine at runtime. The client natively honors server-enforced rules without breaking core game functionality.
 *   **🧩 Dual Scripting Sandbox & Dear ImGui:** Houses a secure, dual-runtime virtual machine supporting legacy Lua loops (for full backward compatibility with user-built `GearSwap` logic rules) alongside modern, fast JavaScript execution. It includes a native **ImGui.NET** layer to render modern, rounded, translucent HUD overlays with zero Garbage Collection allocation overhead.
-*   **🛠️ Clean Separation of Concerns:** Designed as a clean three-tier project solution workspace mapping to modern software design patterns.
 
 ---
 
 ## 🏗️ Repository Architecture
 
-GordianXI is organized as a unified monorepo solution workspace:
+GordianXI is organized as a unified monorepo solution workspace consisting of 4 decoupled .NET 10 projects:
 
 ```text
 GordianXI/
 ├── GordianXI.sln          # Central .NET Solution configuration compiler
 └── src/
-    ├── Gordian.Core/      # Class Library: Sockets, packet serialization, and multi-box engine
-    ├── Gordian.App/       # Avalonia UI App:       Modern desktop forms, tabs, and 3D graphics viewports
-    └── Gordian.Addons/    # Class Library: Scripting engines (Lua/JS) and type-safe API schemas
+    ├── Gordian.Core/       # Class Library: Pure Network Bus (Blowfish, Sockets, Slicing)
+    ├── Gordian.Automation/ # Class Library: Optional Logic Layer (Gambits, Pathing, Target Sync)
+    ├── Gordian.Addons/     # Class Library: Pure Sandbox Layer (Lua/JS Runtime Environments)
+    └── Gordian.App/        # Avalonia UI App: View Layer (Desktop Forms, Viewports, ImGui Canvas)
 ```
 
-*   **`Gordian.Core`:** The backbone of the application. Manages raw network streams (`TcpClient`), slices binary packet fragments safely via `Span<byte>`, and processes background headless automation routines safely on dedicated worker threads.
-*   **`Gordian.App`:** The graphical user interface built with **Avalonia UI** and **FluentAvalonia**. Handles true desktop-level window scaling, pop-out layout configurations for background characters, and hosts the underlying GPU-accelerated graphics viewport.
+*   **`Gordian.Core`:** The backbone of the application. Manages raw network streams (`TcpClient`), slices binary packet fragments safely via `Span<byte>`, and maintains a neutral, shared memory table of active player telemetry states.
+*   **`Gordian.Automation`:** The tactical logic engine. Houses the FFXII-style Gambit queues, positional multi-box tracking loops, and automation threads. It loops through `Gordian.Core` data profiles as an optional passenger module.
 *   **`Gordian.Addons`:** The extension ecosystem sandbox. Isolates community-built scripts and modules, ensuring that an error or infinite loop inside a user script can never freeze the main client loop or crash the engine.
+*   **`Gordian.App`:** The graphical user interface built with **Avalonia UI** and **FluentAvalonia**. Handles true desktop-level window scaling, pop-out layout configurations for background characters, and hosts the underlying GPU-accelerated graphics viewport.
 
 ---
 
@@ -49,9 +51,9 @@ To maintain a sustainable, incremental implementation velocity, development foll
     *   Establish raw C# `TcpClient` logic to communicate directly with LandSandBoat private servers.
     *   Implement type-safe binary slicing arrays to process the core Blowfish packet encryption handshake.
     *   Simultaneously sustain a stable, 6-character text-based network connection state loop without loading graphics.
-*   **Phase 2: The Unified Event Bus**
-    *   Build internal group management telemetry to sync combat triggers, pathing, and movements across entities.
-    *   Verify packet delivery thresholds to guarantee zero dropped commands under heavy battle data load.
+*   **Phase 2: The Modular Automation Bus**
+    *   Build the `Gordian.Automation` Gambit engine to sync combat triggers, pathing, and movements across entities.
+    *   Implement the internal write-once Server Policy flag to allow network-enforced automation kill-switches.
 *   **Phase 3: The Graphical Viewport**
     *   Introduce Avalonia window layouts and separate pop-out dashboard panels.
     *   Integrate a high-performance 3D graphics backend canvas to read and display local game asset `.dat` directories.

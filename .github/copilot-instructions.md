@@ -11,11 +11,28 @@ GordianXI is a 64-bit cross-platform custom client for Final Fantasy XI built fr
 
 ---
 
-## 🏗️ Repository Architecture
-The solution uses a single-repo Monorepo structure with three distinct .NET 10 project layers:
-1.  `src/Gordian.Core/` (Class Library): High-performance networking core. Manages TcpClient streams, binary serialization, headless character array loops, and automation data states.
-2.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management and hosts the GPU rendering canvas.
+## 🏗️ Repository Architecture & Dependency Rules
+The solution uses a single-repo Monorepo structure with four strictly decoupled project layers. AI tools MUST respect these boundary rules:
+
+```text
+Dependency Tree:
+Gordian.App ──► Gordian.Addons ──► Gordian.Core
+Gordian.App ──► Gordian.Automation ──► Gordian.Core
+```
+
+1.  `src/Gordian.Core/` (Class Library): High-performance networking core. Manages TcpClient streams, Blowfish key handshakes, binary array slicing, and acts as a passive, neutral shared state data bus. Has ZERO awareness of automation or addons.
+2.  `src/Gordian.Automation/` (Class Library): The Gambit and group-coordination engine. Pulls state updates from Core and handles positional tracking. Is an OPTIONAL, separate passenger module.
 3.  `src/Gordian.Addons/` (Class Library): Scripting runtime sandbox layer. Manages virtual machines for legacy Lua (NLua) and JavaScript (QuickJS) plugins.
+4.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
+
+*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Addons` and `Gordian.Automation` must NEVER reference each other. They are completely decoupled. Automation must remain entirely optional and blockable.
+
+---
+
+## 🔒 Security & Server Kill-Switch Policy
+*   `Gordian.Core` exposes an internal write-once configuration flag: `internal set ServerAutomationPolicy AutomationPolicy`.
+*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag.
+*   If a private server transmits an automation restriction packet, the authenticated `PacketParser` inside `Gordian.Core` flips this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep.
 
 ---
 
@@ -31,7 +48,7 @@ The solution uses a single-repo Monorepo structure with three distinct .NET 10 p
 ---
 
 ## 🎨 UI & Addon Standards
-*   **Desktop App Shell:** Handled strictly via Avalonia UI using the MVVM design pattern.
+*   **Desktop App Shell:** Handled strictly via Avalonia UI using the MVVM design pattern. Supporting pop-out windows for character settings is an architectural core layout requirement.
 *   **In-game HUD Overlays:** Handled strictly via **ImGui.NET** inside the 3D viewport thread.
 *   **Visual Aesthetic:** Maintain a dark, sleek, translucent profile with rounded corners (`WindowRounding = 6.0f`) to emulate modern custom automation dashboards.
 
@@ -47,7 +64,7 @@ When executing tasks or testing code changes, run these native .NET CLI commands
 ---
 
 ## 🛑 AI Assistant Prohibitions (NEVER DO THIS)
-1.  **NO Windows-only code:** Do not inject code blocks that lock execution to the Win32 API.
-2.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
-3.  **NO old .NET versions:** Do not use obsolete .NET Framework or .NET Core 3.1 structure patterns. Target .NET 10 constructs.
+1.  **NO Cross-Reference Corruption:** Do not link `Gordian.Addons` directly to `Gordian.Automation`.
+2.  **NO Windows-only code:** Do not inject code blocks that lock execution to the Win32 API.
+3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
