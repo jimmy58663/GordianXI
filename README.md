@@ -1,8 +1,8 @@
 # GordianXI
 
-[![Target Framework](https://shields.io)](https://microsoft.com)
-[![Platform](https://shields.io)]()
-[![License](https://shields.io)](LICENSE)
+[![Target Framework](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![Platform](https://img.shields.io/badge/platform-Avalonia-8A2BE2)](https://avaloniatechnologies.com/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **GordianXI** is a next-generation, open-source custom client architecture for Final Fantasy XI built from scratch in modern **C# (.NET 10)**. 
 
