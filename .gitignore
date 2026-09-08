@@ -1,0 +1,18 @@
+# Target Build Folders
+bin/
+obj/
+
+# Local VS Code Configuration & States
+.vscode/.project
+.vscode/tasks.json
+.vscode/launch.json
+!.vscode/extensions.json
+
+# Local Cursor / IDE User States
+.cursor/state/
+.cursor/history/
+*.user
+
+# Operating System Files
+.DS_Store
+Thumbs.db

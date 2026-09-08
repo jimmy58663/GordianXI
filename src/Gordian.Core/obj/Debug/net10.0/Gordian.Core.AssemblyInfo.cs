@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Gordian.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ecf8ee36d93c1edc853ae8050bd83aca1d038bcb")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gordian.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gordian.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
