@@ -2,8 +2,78 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        xmlns:app="clr-namespace:Gordian.App"
+        xmlns:profiles="clr-namespace:Gordian.Core.Profiles;assembly=Gordian.Core"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
         x:Class="Gordian.App.MainWindow"
-        Title="Gordian.App">
-    Welcome to Avalonia!
+        x:DataType="app:MainWindow"
+        Title="GordianXI Launcher" Width="900" Height="550"
+        Background="#1E1E1E" RequestedThemeVariant="Dark">
+
+    <Grid ColumnDefinitions="350, *">
+
+        <!-- LEFT PANE: Active Profile Modifier Forms -->
+        <Border Grid.Column="0" Background="#252526" Margin="10" CornerRadius="6" Padding="15">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Account Profile Properties" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+
+                <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
+                <TextBox PlaceholderText="e.g. Main Character / Crafting Mule"/>
+
+                <TextBlock Text="Target Bootloader Path:" Foreground="#A0A0A0"/>
+                <Grid ColumnDefinitions="*, Auto">
+                    <TextBox Grid.Column="0" PlaceholderText="pol.exe or xiloader.exe path..."/>
+                    <Button Grid.Column="1" Content="..." Margin="5,0,0,0"/>
+                </Grid>
+
+                <TextBlock Text="Custom Arguments:" Foreground="#A0A0A0"/>
+                <TextBox PlaceholderText="--server server.domain.net --windowed"/>
+
+                <Separator Margin="0,10,0,10" Background="#3E3E42"/>
+
+                <Button Content="Save Profile Configuration" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
+            </StackPanel>
+        </Border>
+
+        <!-- RIGHT PANE: Multi-Box Launch Queue Checklist -->
+        <Grid Grid.Column="1" RowDefinitions="*, Auto" Margin="10">
+
+            <!-- Account Selection Checklist Table -->
+            <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="15">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Multi-Character Launch Checklist" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    <TextBlock Text="Select profiles to queue. Online characters will be automatically detected and skipped." FontSize="11" Foreground="#A0A0A0"/>
+
+                    <Separator Margin="0,5,0,5" Background="#3E3E42"/>
+
+                    <!-- 🔄 DYNAMIC DATA GENERATOR: Loops through all profiles on your disk automatically -->
+                    <ItemsControl ItemsSource="{Binding Profiles}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="profiles:AccountProfile">
+                                <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
+                                    <Grid ColumnDefinitions="200, *">
+                                        <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+
+                                        <!-- Display live generated 2FA token alongside account fields -->
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
+                                            <TextBlock Text="Offline" Foreground="#F44336" FontSize="12"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Launch Core Execution Bar -->
+            <Button Grid.Row="1" Content="Launch Selected Characters (Smart Skip Active)"
+                    Click="OnLaunchSelectedButtonClick"
+                    Height="45" Margin="0,10,0,0" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
+        </Grid>
+    </Grid>
 </Window>
