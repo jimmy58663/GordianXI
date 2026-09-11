@@ -1,4 +1,4 @@
-﻿// src/Gordian.Core/Network/Crypto/LegacyBlowfishCryptoSuite.cs
+// src/Gordian.Core/Network/Crypto/LegacyBlowfishCryptoSuite.cs
 using System;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
@@ -305,6 +305,29 @@ namespace Gordian.Core.Network.Crypto
                 return;
             }
 
+            // In LandSandBoat (MapSession::initBlowfish), if the raw 20-byte session key
+            // is passed from accounts_sessions / xiloader handoff, it is MD5 hashed
+            // and truncated at the first 0x00 byte before blowfish_init.
+            scoped ReadOnlySpan<byte> effectiveKey;
+            Span<byte> hashedKey = stackalloc byte[16];
+            if (key.Length == 20)
+            {
+                MD5.HashData(key, hashedKey);
+                for (int i = 0; i < 16; ++i)
+                {
+                    if (hashedKey[i] == 0)
+                    {
+                        hashedKey.Slice(i).Clear();
+                        break;
+                    }
+                }
+                effectiveKey = hashedKey;
+            }
+            else
+            {
+                effectiveKey = key;
+            }
+
             int keyIndex = 0;
             const int n = 16;
 
@@ -313,8 +336,8 @@ namespace Gordian.Core.Network.Crypto
                 uint data = 0;
                 for (int k = 0; k < 4; ++k)
                 {
-                    data = (data << 8) | key[keyIndex++];
-                    if (keyIndex >= key.Length)
+                    data = (data << 8) | effectiveKey[keyIndex++];
+                    if (keyIndex >= effectiveKey.Length)
                     {
                         keyIndex = 0;
                     }
