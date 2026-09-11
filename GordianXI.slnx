@@ -5,4 +5,10 @@
     <Project Path="src/Gordian.Automation/Gordian.Automation.csproj" />
     <Project Path="src/Gordian.Core/Gordian.Core.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Gordian.Addons.Tests/Gordian.Addons.Tests.csproj" />
+    <Project Path="tests/Gordian.App.Tests/Gordian.App.Tests.csproj" />
+    <Project Path="tests/Gordian.Automation.Tests/Gordian.Automation.Tests.csproj" />
+    <Project Path="tests/Gordian.Core.Tests/Gordian.Core.Tests.csproj" />
+  </Folder>
 </Solution>
