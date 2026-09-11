@@ -8,46 +8,25 @@ namespace Gordian.Core.Profiles
 {
     public sealed class AccountProfile
     {
-        private string _rawPassword = string.Empty;
-        private string _rawOtpSeed = string.Empty;
-
         public string ProfileName { get; set; } = "Default Profile";
         public string BootloaderPath { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the password string. Backed by machine-isolated symmetric encryption.
+        /// Gets or sets the plaintext password in memory.
+        /// Automatically encrypted via AES-GCM when serialized to disk.
         /// </summary>
-        public string Password
-        {
-            get => ProfileCrypto.Decrypt(_rawPassword);
-            set => _rawPassword = ProfileCrypto.Encrypt(value);
-        }
+        [JsonConverter(typeof(EncryptedJsonConverter))]
+        public string Password { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the Time-Based Authenticator seed key string. Backed by machine-isolated symmetric encryption.
+        /// Gets or sets the plaintext Time-Based Authenticator seed key in memory.
+        /// Automatically encrypted via AES-GCM when serialized to disk.
         /// </summary>
-        public string OtpSeed
-        {
-            get => ProfileCrypto.Decrypt(_rawOtpSeed);
-            set => _rawOtpSeed = ProfileCrypto.Encrypt(value);
-        }
+        [JsonConverter(typeof(EncryptedJsonConverter))]
+        public string OtpSeed { get; set; } = string.Empty;
 
-        // Intercept standard serialization tasks to write encrypted blocks to disk
-        [JsonPropertyName("ProtectedPassword")]
-        public string EncryptedPasswordSerialized
-        {
-            get => _rawPassword;
-            set => _rawPassword = value;
-        }
-
-        [JsonPropertyName("ProtectedOtpSeed")]
-        public string EncryptedOtpSeedSerialized
-        {
-            get => _rawOtpSeed;
-            set => _rawOtpSeed = value;
-        }
 
         [JsonIgnore]
         public bool IsSelectedForLaunch { get; set; }
