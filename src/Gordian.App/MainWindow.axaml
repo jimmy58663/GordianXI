@@ -1,88 +1,229 @@
-<Window xmlns="https://github.com/avaloniaui"
+ï»¿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="GordianXI Launcher" Width="900" Height="600"
+        Title="GordianXI - Client and Network Inspector" Width="1100" Height="700"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
-    <Grid ColumnDefinitions="350, *">
+    <TabControl Margin="8" Background="#1E1E1E">
 
-        <!-- LEFT PANE: Active Profile Modifier Forms -->
-        <Border Grid.Column="0" Background="#252526" Margin="10" CornerRadius="6" Padding="15">
-            <StackPanel Spacing="10">
-                <TextBlock Text="Account Profile Properties" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+        <!-- TAB 1: Profiles & Multi-Box Launch -->
+        <TabItem Header="Profiles and Launch" FontSize="14" FontWeight="SemiBold">
+            <Grid ColumnDefinitions="360, *" Margin="0,10,0,0">
 
-                <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
-
-                <TextBlock Text="Username / Account:" Foreground="#A0A0A0"/>
-                <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="e.g. account_user"/>
-
-                <TextBlock Text="Password:" Foreground="#A0A0A0"/>
-                <TextBox Text="{Binding FormPassword, Mode=TwoWay}" PasswordChar="•" PlaceholderText="Account password"/>
-
-                <TextBlock Text="2FA Seed (Optional):" Foreground="#A0A0A0"/>
-                <TextBox Text="{Binding FormOtpSeed, Mode=TwoWay}" PlaceholderText="Base32 TOTP secret"/>
-
-                <TextBlock Text="Target Bootloader Path:" Foreground="#A0A0A0"/>
-                <TextBox Text="{Binding FormBootloaderPath, Mode=TwoWay}" PlaceholderText="xiloader.exe or pol.exe path..."/>
-
-                <TextBlock Text="Custom Arguments:" Foreground="#A0A0A0"/>
-                <TextBox Text="{Binding FormArguments, Mode=TwoWay}" PlaceholderText="--server server.domain.net --windowed"/>
-
-                <Separator Margin="0,5,0,5" Background="#3E3E42"/>
-
-                <Button Content="Save Profile Configuration"
-                        Command="{Binding SaveProfileCommand}"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
-
-                <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
-            </StackPanel>
-        </Border>
-
-        <!-- RIGHT PANE: Multi-Box Launch Queue Checklist -->
-        <Grid Grid.Column="1" RowDefinitions="*, Auto" Margin="10">
-
-            <!-- Account Selection Checklist Table -->
-            <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="15">
-                <StackPanel Spacing="10">
-                    <TextBlock Text="Multi-Character Launch Checklist" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
-                    <TextBlock Text="Select profiles to queue. Online characters will be automatically detected and skipped." FontSize="11" Foreground="#A0A0A0"/>
-
-                    <Separator Margin="0,5,0,5" Background="#3E3E42"/>
-
+                <!-- LEFT PANE: Active Profile Modifier Forms -->
+                <Border Grid.Column="0" Background="#252526" Margin="0,0,8,0" CornerRadius="6" Padding="15">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{Binding Profiles}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ProfileItemViewModel">
-                                    <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
-                                        <Grid ColumnDefinitions="180, *">
-                                            <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Account Profile Properties" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
 
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
-                                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </CheckBox>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
+                            <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
+
+                            <TextBlock Text="Username / Account:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="e.g. account_user"/>
+
+                            <TextBlock Text="Password:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormPassword, Mode=TwoWay}" PasswordChar="*" PlaceholderText="Account password"/>
+
+                            <TextBlock Text="2FA Seed (Optional):" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormOtpSeed, Mode=TwoWay}" PlaceholderText="Base32 TOTP secret"/>
+
+                            <TextBlock Text="Target Bootloader Path:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormBootloaderPath, Mode=TwoWay}" PlaceholderText="xiloader.exe or pol.exe path..."/>
+
+                            <TextBlock Text="Custom Arguments:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormArguments, Mode=TwoWay}" PlaceholderText="--server server.domain.net --windowed"/>
+
+                            <Separator Margin="0,5,0,5" Background="#3E3E42"/>
+
+                            <Button Content="Save Profile Configuration"
+                                    Command="{Binding SaveProfileCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
+
+                            <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
                     </ScrollViewer>
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- Launch Core Execution Bar -->
-            <Button Grid.Row="1" Content="Launch Selected Characters (Smart Skip Active)"
-                    Command="{Binding LaunchSelectedCommand}"
-                    Height="45" Margin="0,10,0,0" HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                    Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
-        </Grid>
-    </Grid>
+                <!-- RIGHT PANE: Multi-Box Launch Queue Checklist -->
+                <Grid Grid.Column="1" RowDefinitions="*, Auto" Margin="8,0,0,0">
+
+                    <!-- Account Selection Checklist Table -->
+                    <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="15">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Multi-Character Launch Checklist" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Select profiles to queue. Online characters will be automatically detected and skipped." FontSize="11" Foreground="#A0A0A0"/>
+
+                            <Separator Margin="0,5,0,5" Background="#3E3E42"/>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Profiles}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ProfileItemViewModel">
+                                            <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
+                                                <Grid ColumnDefinitions="180, *">
+                                                    <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
+                                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Launch Core Execution Bar -->
+                    <Button Grid.Row="1" Content="Launch Selected Characters (Smart Skip Active)"
+                            Command="{Binding LaunchSelectedCommand}"
+                            Height="45" Margin="0,10,0,0" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
+                </Grid>
+            </Grid>
+        </TabItem>
+
+        <!-- TAB 2: Live Network Packet Inspector -->
+        <TabItem Header="Live Packet Inspector" FontSize="14" FontWeight="SemiBold">
+            <Grid RowDefinitions="Auto, *" Margin="0,10,0,0">
+
+                <!-- TOP CONTROLS & FILTER TOOLBAR -->
+                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12" Margin="0,0,0,8">
+                    <Grid ColumnDefinitions="Auto, Auto, *, Auto, Auto, Auto">
+                        <!-- Direction Filter -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="Direction:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
+                            <ComboBox ItemsSource="{Binding Inspector.DirectionOptions}"
+                                      SelectedItem="{Binding Inspector.DirectionFilter, Mode=TwoWay}"
+                                      Width="110"/>
+                        </StackPanel>
+
+                        <!-- Search Filter -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="Filter:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
+                            <TextBox Text="{Binding Inspector.SearchFilter, Mode=TwoWay}"
+                                     PlaceholderText="Search Name or ID (e.g. 0x00A, LOGIN, POS)..."
+                                     Width="260"/>
+                        </StackPanel>
+
+                        <!-- Spacer -->
+                        <TextBlock Grid.Column="2" Text=""/>
+
+                        <!-- Total Packet Count -->
+                        <TextBlock Grid.Column="3"
+                                   Text="{Binding Inspector.TotalPacketCount, StringFormat='Packets: {0}'}"
+                                   Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,16,0"/>
+
+                        <!-- Pause / Resume Toggle Button -->
+                        <Button Grid.Column="4"
+                                Content="Pause / Resume"
+                                Command="{Binding Inspector.TogglePauseCommand}"
+                                Background="#3E3E42" Foreground="White" Margin="0,0,8,0"/>
+
+                        <!-- Clear Button -->
+                        <Button Grid.Column="5"
+                                Content="Clear Log"
+                                Command="{Binding Inspector.ClearCommand}"
+                                Background="#C586C0" Foreground="White"/>
+                    </Grid>
+                </Border>
+
+                <!-- SPLIT PACKET LIST & HEX DUMP INSPECTOR -->
+                <Grid Grid.Row="1" ColumnDefinitions="480, 8, *">
+
+                    <!-- LEFT: Packet Stream List -->
+                    <Border Grid.Column="0" Background="#252526" CornerRadius="6" Padding="8">
+                        <Grid RowDefinitions="Auto, *">
+                            <!-- Table Header -->
+                            <Grid Grid.Row="0" ColumnDefinitions="45, 75, 55, 175, 45" Margin="4,4,4,8">
+                                <TextBlock Grid.Column="0" Text="DIR" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="1" Text="TIME" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="2" Text="ID" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="3" Text="COMMAND" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="4" Text="SIZE" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right"/>
+                            </Grid>
+
+                            <Separator Grid.Row="0" Margin="0,22,0,0" Background="#3E3E42"/>
+
+                            <!-- Packet Items List -->
+                            <ListBox Grid.Row="1"
+                                     ItemsSource="{Binding Inspector.FilteredPackets}"
+                                     SelectedItem="{Binding Inspector.SelectedPacket, Mode=TwoWay}"
+                                     Background="Transparent">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="net:PacketLogEntry">
+                                        <Grid ColumnDefinitions="45, 75, 55, 175, 45" Margin="0,2">
+                                            <!-- Direction Tag -->
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding Direction}"
+                                                       FontSize="11" FontWeight="Bold"
+                                                       Foreground="#4EC9B0"/>
+
+                                            <!-- Timestamp -->
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss.ff}'}"
+                                                       FontSize="11" Foreground="#A0A0A0"
+                                                       FontFamily="Consolas, Courier New, monospace"/>
+
+                                            <!-- Packet ID -->
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding PacketId, StringFormat='0x{0:X3}'}"
+                                                       FontSize="11" Foreground="#CE9178"
+                                                       FontFamily="Consolas, Courier New, monospace"/>
+
+                                            <!-- Packet Name -->
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding PacketName}"
+                                                       FontSize="11" FontWeight="SemiBold"
+                                                       Foreground="#DCDCDC" TextTrimming="CharacterEllipsis"/>
+
+                                            <!-- Size -->
+                                            <TextBlock Grid.Column="4"
+                                                       Text="{Binding Size, StringFormat='{}{0}B'}"
+                                                       FontSize="11" Foreground="#9CDCFE"
+                                                       HorizontalAlignment="Right"
+                                                       FontFamily="Consolas, Courier New, monospace"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <!-- Splitter Bar -->
+                    <GridSplitter Grid.Column="1" Background="#1E1E1E" ResizeDirection="Columns"/>
+
+                    <!-- RIGHT: Dual-Column Hex & ASCII Inspector -->
+                    <Border Grid.Column="2" Background="#252526" CornerRadius="6" Padding="12">
+                        <Grid RowDefinitions="Auto, *">
+                            <TextBlock Grid.Row="0"
+                                       Text="Packet Hex and ASCII Dump"
+                                       FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+
+                            <Border Grid.Row="1" Background="#1E1E1E" CornerRadius="4" Padding="10">
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                    <SelectableTextBlock Text="{Binding Inspector.FormattedDump}"
+                                                         FontFamily="Consolas, Courier New, monospace"
+                                                         FontSize="12"
+                                                         Foreground="#D4D4D4"
+                                                         LineHeight="18"/>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </TabItem>
+    </TabControl>
 </Window>

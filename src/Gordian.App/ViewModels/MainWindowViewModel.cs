@@ -28,6 +28,11 @@ namespace Gordian.App.ViewModels
 
         public ObservableCollection<ProfileItemViewModel> Profiles { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the live network packet inspector tab.
+        /// </summary>
+        public PacketInspectorViewModel Inspector { get; } = new();
+
         public string FormProfileName
         {
             get => _formProfileName;
@@ -215,6 +220,7 @@ namespace Gordian.App.ViewModels
         {
             _sessionRegistry.SessionRegistered -= OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered -= OnSessionRegistryChanged;
+            Inspector.Dispose();
         }
     }
 }
