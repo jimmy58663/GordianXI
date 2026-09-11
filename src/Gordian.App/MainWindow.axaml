@@ -2,37 +2,46 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:app="clr-namespace:Gordian.App"
-        xmlns:profiles="clr-namespace:Gordian.Core.Profiles;assembly=Gordian.Core"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="550"
+        xmlns:vm="clr-namespace:Gordian.App.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
         x:Class="Gordian.App.MainWindow"
-        x:DataType="app:MainWindow"
-        Title="GordianXI Launcher" Width="900" Height="550"
+        x:DataType="vm:MainWindowViewModel"
+        Title="GordianXI Launcher" Width="900" Height="600"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
     <Grid ColumnDefinitions="350, *">
 
         <!-- LEFT PANE: Active Profile Modifier Forms -->
         <Border Grid.Column="0" Background="#252526" Margin="10" CornerRadius="6" Padding="15">
-            <StackPanel Spacing="12">
+            <StackPanel Spacing="10">
                 <TextBlock Text="Account Profile Properties" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
 
                 <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                <TextBox PlaceholderText="e.g. Main Character / Crafting Mule"/>
+                <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
+
+                <TextBlock Text="Username / Account:" Foreground="#A0A0A0"/>
+                <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="e.g. account_user"/>
+
+                <TextBlock Text="Password:" Foreground="#A0A0A0"/>
+                <TextBox Text="{Binding FormPassword, Mode=TwoWay}" PasswordChar="•" PlaceholderText="Account password"/>
+
+                <TextBlock Text="2FA Seed (Optional):" Foreground="#A0A0A0"/>
+                <TextBox Text="{Binding FormOtpSeed, Mode=TwoWay}" PlaceholderText="Base32 TOTP secret"/>
 
                 <TextBlock Text="Target Bootloader Path:" Foreground="#A0A0A0"/>
-                <Grid ColumnDefinitions="*, Auto">
-                    <TextBox Grid.Column="0" PlaceholderText="pol.exe or xiloader.exe path..."/>
-                    <Button Grid.Column="1" Content="..." Margin="5,0,0,0"/>
-                </Grid>
+                <TextBox Text="{Binding FormBootloaderPath, Mode=TwoWay}" PlaceholderText="xiloader.exe or pol.exe path..."/>
 
                 <TextBlock Text="Custom Arguments:" Foreground="#A0A0A0"/>
-                <TextBox PlaceholderText="--server server.domain.net --windowed"/>
+                <TextBox Text="{Binding FormArguments, Mode=TwoWay}" PlaceholderText="--server server.domain.net --windowed"/>
 
-                <Separator Margin="0,10,0,10" Background="#3E3E42"/>
+                <Separator Margin="0,5,0,5" Background="#3E3E42"/>
 
-                <Button Content="Save Profile Configuration" HorizontalAlignment="Stretch"
+                <Button Content="Save Profile Configuration"
+                        Command="{Binding SaveProfileCommand}"
+                        HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
+
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>
 
@@ -47,30 +56,30 @@
 
                     <Separator Margin="0,5,0,5" Background="#3E3E42"/>
 
-                    <!-- ðŸ”„ DYNAMIC DATA GENERATOR: Loops through all profiles on your disk automatically -->
-                    <ItemsControl ItemsSource="{Binding Profiles}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="profiles:AccountProfile">
-                                <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
-                                    <Grid ColumnDefinitions="200, *">
-                                        <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Profiles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ProfileItemViewModel">
+                                    <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
+                                        <Grid ColumnDefinitions="180, *">
+                                            <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
 
-                                        <!-- Display live generated 2FA token alongside account fields -->
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
-                                            <TextBlock Text="Offline" Foreground="#F44336" FontSize="12"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </CheckBox>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
+                                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </CheckBox>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </StackPanel>
             </Border>
 
             <!-- Launch Core Execution Bar -->
             <Button Grid.Row="1" Content="Launch Selected Characters (Smart Skip Active)"
-                    Click="OnLaunchSelectedButtonClick"
+                    Command="{Binding LaunchSelectedCommand}"
                     Height="45" Margin="0,10,0,0" HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                     Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
