@@ -4,32 +4,33 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Gordian.Core.Network;
 
 namespace Gordian.Core.Profiles
 {
     public static class LaunchOrchestrator
     {
         /// <summary>
-        /// Scans active process memory structures to determine which characters are currently online.
+        /// Retrieves the list of character and account names currently active in memory.
+        /// Queries the central SessionRegistry rather than polling operating system processes.
         /// </summary>
-        public static HashSet<string> GetActiveCharacterNames()
+        public static HashSet<string> GetActiveCharacterNames(SessionRegistry? registry = null)
         {
+            var reg = registry ?? SessionRegistry.Default;
             var activeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // In a standard client environment, we scan for active instances of the 
-            // game container process to see who is online before triggering launch commands
-            Process[] processes = Process.GetProcessesByName("pol");
-            foreach (var proc in processes)
+            foreach (var session in reg.ActiveSessions)
             {
-                try
+                if (session.State != SessionState.Disconnected)
                 {
-                    // For an advanced deployment, read the character name string 
-                    // from the memory space or trace the window title strings here.
-                    // For now, we will return a shell placeholder to demonstrate the skip logic.
-                }
-                catch
-                {
-                    // Catch access violations if certain process states are locked down
+                    if (!string.IsNullOrWhiteSpace(session.CharacterName))
+                    {
+                        activeNames.Add(session.CharacterName);
+                    }
+                    if (!string.IsNullOrWhiteSpace(session.AccountUsername))
+                    {
+                        activeNames.Add(session.AccountUsername);
+                    }
                 }
             }
 
@@ -37,30 +38,32 @@ namespace Gordian.Core.Profiles
         }
 
         /// <summary>
-        /// Processes a roster of profiles, filters out accounts that are already running, 
-        /// and launches only the remaining selection.
+        /// Processes a roster of profiles, filters out accounts/characters that are already active in memory,
+        /// and launches only the remaining selected profiles.
         /// </summary>
-        public static void LaunchSelectedProfiles(IEnumerable<AccountProfile> profiles)
+        /// <param name="profiles">The list of account profiles to evaluate.</param>
+        /// <param name="registry">Optional custom SessionRegistry for testing or dependency injection.</param>
+        /// <returns>The number of profiles successfully launched.</returns>
+        public static int LaunchSelectedProfiles(IEnumerable<AccountProfile> profiles, SessionRegistry? registry = null)
         {
-            // 1. Get the list of characters currently active in memory
-            HashSet<string> onlineUsers = GetActiveCharacterNames();
+            var reg = registry ?? SessionRegistry.Default;
+            HashSet<string> onlineUsers = GetActiveCharacterNames(reg);
 
-            // 2. Filter down strictly to what the user wants to launch
             var targetsToLaunch = profiles.Where(p => p.IsSelectedForLaunch);
+            int launchedCount = 0;
 
             foreach (var profile in targetsToLaunch)
             {
-                // 3. THE SMART CHECK: If the account matches an active process footprint, skip it!
-                if (onlineUsers.Contains(profile.Username))
+                // Smart check: If the profile username or character name is already active in memory, skip it!
+                if (onlineUsers.Contains(profile.Username) || onlineUsers.Contains(profile.ProfileName))
                 {
-                    Debug.WriteLine($"[System] Profile '{profile.ProfileName}' is already logged in. Skipping launch sequence.");
+                    Debug.WriteLine($"[System] Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipping launch sequence.");
                     continue;
                 }
 
-                // 4. Execute the specific targeted bootloader handle (pol.exe vs xiloader.exe)
                 if (!File.Exists(profile.BootloaderPath))
                 {
-                    Debug.WriteLine($"[System] Failed to launch profile '{profile.ProfileName}': Executable path not found.");
+                    Debug.WriteLine($"[System] Failed to launch profile '{profile.ProfileName}': Executable path not found at '{profile.BootloaderPath}'.");
                     continue;
                 }
 
@@ -73,7 +76,10 @@ namespace Gordian.Core.Profiles
 
                 Debug.WriteLine($"[System] Spawning bootloader task for profile '{profile.ProfileName}' via {Path.GetFileName(profile.BootloaderPath)}");
                 Process.Start(startInfo);
+                launchedCount++;
             }
+
+            return launchedCount;
         }
     }
 }

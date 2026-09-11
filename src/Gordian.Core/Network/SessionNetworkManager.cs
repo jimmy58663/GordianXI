@@ -49,7 +49,7 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Gets the real-time operational lifecycle status of this active network connection.
         /// </summary>
-        public SessionState CurrentState { get; private set; } = SessionState.Disconnected;
+        public SessionState CurrentState { get; internal set; } = SessionState.Disconnected;
 
         /// <summary>
         /// Gets the packet parser handling this session.

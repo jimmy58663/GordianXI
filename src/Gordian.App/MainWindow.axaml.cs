@@ -111,20 +111,23 @@ namespace Gordian.App
         /// </summary>
         private void OnSessionTokenIntercepted(object? sender, SessionHandoffArgs e)
         {
-            // Marshall onto the Avalonia UI UI thread safely if updating visual components
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            // Marshall onto the Avalonia UI thread safely
+            Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[NET_TRACE] Secure handoff caught for character: {e.TargetCharacterName} | Target Server: {e.ServerIp}:{e.ServerPort}"
                 );
 
-                // 🚀 THE FINAL MULTI-BOX LINKAGE STEP:
-                // Now, you pass 'e.ServerIp', 'e.ServerPort', and 'e.Base64SessionToken' into a new
-                // high-performance instance of 'SessionNetworkManager' to connect the character headless in memory!
-
-                // Example instantiation track:
-                // var networkManager = new SessionNetworkManager(e.ServerIp, e.ServerPort);
-                // networkManager.ConnectAsync();
+                // Register session in the central registry and begin asynchronous connection
+                var session = SessionRegistry.Default.CreateAndRegisterSession(e);
+                try
+                {
+                    await session.NetworkManager.ConnectAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[NET_TRACE] Failed to connect character session for '{e.TargetCharacterName}': {ex.Message}");
+                }
             });
         }
 
@@ -133,6 +136,7 @@ namespace Gordian.App
         {
             _ipcServer.SessionReceived -= OnSessionTokenIntercepted;
             _ipcServer.Dispose();
+            SessionRegistry.Default.Clear();
             base.OnUnloaded(e);
         }
     }

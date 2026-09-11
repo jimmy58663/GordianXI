@@ -11,4 +11,8 @@
     <EmbeddedResource Include="Resources\decompress.dat" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gordian.Core.Tests" />
+  </ItemGroup>
+
 </Project>
