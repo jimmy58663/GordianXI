@@ -37,6 +37,16 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
+        /// </summary>
+        public event EventHandler<PacketLogEntry>? PacketInspected;
+
+        /// <summary>
+        /// Raised when the handshake has fully completed (after GP_SERV_ENTERZONE 0x008 and GP_CLI_NETEND 0x00D).
+        /// </summary>
+        public event Action? HandshakeCompleted;
+
+        /// <summary>
         /// Gets the active cryptographic suite configured for this session.
         /// </summary>
         public IPacketCryptoSuite CryptoSuite => _cryptoSuite;
@@ -47,6 +57,26 @@ namespace Gordian.Core.Network
         public void InitializeSessionCrypto(ReadOnlySpan<byte> key)
         {
             _cryptoSuite.InitializeKey(key);
+        }
+
+        /// <summary>
+        /// Emits an inspected packet event without allocations if no listeners are attached.
+        /// </summary>
+        public void LogPacket(PacketDirection direction, ushort packetId, ushort sequenceId, ReadOnlySpan<byte> fullSubPacket)
+        {
+            if (PacketInspected == null) return;
+
+            var entry = new PacketLogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Direction = direction,
+                PacketId = packetId,
+                PacketName = PacketLogEntry.ResolvePacketName(packetId, direction),
+                SequenceId = sequenceId,
+                Size = fullSubPacket.Length,
+                RawBytes = fullSubPacket.ToArray()
+            };
+            PacketInspected.Invoke(this, entry);
         }
 
         /// <summary>
@@ -123,8 +153,10 @@ namespace Gordian.Core.Network
                 }
 
                 ushort sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(current.Slice(2, 2));
+                ReadOnlySpan<byte> fullSubPacket = current.Slice(0, packetSize);
                 ReadOnlySpan<byte> packetPayload = current.Slice(4, packetSize - 4);
 
+                LogPacket(PacketDirection.Inbound, packetId, sequenceId, fullSubPacket);
                 RoutePacketToCoreState(packetId, sequenceId, packetPayload);
                 offset += packetSize;
             }
@@ -134,15 +166,28 @@ namespace Gordian.Core.Network
         {
             switch (packetId)
             {
-                case 0x015: // SERVER KEEPALIVE PING
-                    // Echo back high-priority keepalive chunk.
-                    // Sub-packet format: [Type & Size (2)][Sequence (2)]
-                    // Type = 0x015, Size = 4 (in bytes, byte1 & 0xFE = 2, so (2*2)=4)
-                    byte[] pongMemory = new byte[4];
-                    BinaryPrimitives.WriteUInt16LittleEndian(pongMemory.AsSpan(0, 2), (ushort)(0x015 | (2 << 9)));
-                    BinaryPrimitives.WriteUInt16LittleEndian(pongMemory.AsSpan(2, 2), sequenceId);
+                case 0x00A: // GP_SERV_LOGIN (Server Login Acknowledgment)
+                    // The server confirmed our initial login and initialized Blowfish.
+                    // Respond with GP_CLI_GAMEOK (0x00C) to request zone entry packets.
+                    byte[] gameOk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
+                    LogPacket(PacketDirection.Outbound, 0x00C, 0, gameOk);
+                    _ = _sendChunkCallback(gameOk, true);
+                    break;
 
-                    _ = _sendChunkCallback(pongMemory, true);
+                case 0x008: // GP_SERV_ENTERZONE
+                    // Server streamed zone entrance data.
+                    // Release the loading state by sending GP_CLI_NETEND (0x00D).
+                    byte[] netEnd = HandshakePackets.BuildNetEndSubPacket(sequenceId: 0);
+                    LogPacket(PacketDirection.Outbound, 0x00D, 0, netEnd);
+                    _ = _sendChunkCallback(netEnd, true);
+                    HandshakeCompleted?.Invoke();
+                    break;
+
+                case 0x015: // SERVER KEEPALIVE PING / POS
+                    // Echo back high-priority keepalive chunk.
+                    byte[] posPong = HandshakePackets.BuildPosPingPongSubPacket(sequenceId: sequenceId);
+                    LogPacket(PacketDirection.Outbound, 0x015, sequenceId, posPong);
+                    _ = _sendChunkCallback(posPong, true);
                     break;
 
                 case 0x0EE: // Server Automation Policy

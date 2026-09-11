@@ -56,6 +56,31 @@ namespace Gordian.Core.Network
         /// </summary>
         public PacketParser Parser => _parser;
 
+        /// <summary>
+        /// Unique Character ID assigned by the server database.
+        /// </summary>
+        public uint CharacterId { get; set; }
+
+        /// <summary>
+        /// Display name of the active character.
+        /// </summary>
+        public string CharacterName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Account login username.
+        /// </summary>
+        public string AccountName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional authentication session ticket.
+        /// </summary>
+        public byte[] Ticket { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
+        /// </summary>
+        public event EventHandler<PacketLogEntry>? PacketInspected;
+
         public SessionNetworkManager(
             string serverAddress,
             int serverPort,
@@ -66,6 +91,8 @@ namespace Gordian.Core.Network
             _serverPort = serverPort;
             _codec = codec ?? FfxiCodec.Default;
             _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec);
+            _parser.PacketInspected += (s, e) => PacketInspected?.Invoke(this, e);
+            _parser.HandshakeCompleted += () => CurrentState = SessionState.ActiveInWorld;
         }
 
         /// <summary>
@@ -103,8 +130,25 @@ namespace Gordian.Core.Network
                 EndPoint localBind = new IPEndPoint(_serverEndpoint.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any, 0);
                 _udpSocket.Bind(localBind);
 
+                // 1. Send the initial unencrypted 0x00A login handshake datagram
+                if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
+                {
+                    byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
+                        CharacterId,
+                        CharacterName,
+                        AccountName,
+                        Ticket,
+                        clientVersion: 1,
+                        clientPacketSeq: 1
+                    );
+
+                    ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
+                    _parser.LogPacket(PacketDirection.Outbound, 0x00A, 0, loginSubPacket);
+
+                    await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, _cts.Token).ConfigureAwait(false);
+                }
+
                 CurrentState = SessionState.ExchangingCryptoKeys;
-                CurrentState = SessionState.LoadingWorldData;
 
                 // Launch parallel background workers
                 _readTask = Task.Run(() => InboundNetworkReadLoopAsync(_udpSocket, _cts.Token), _cts.Token);

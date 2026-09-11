@@ -88,7 +88,12 @@ namespace Gordian.Core.Network
 
             lock (_registrationLock)
             {
-                var networkManager = new SessionNetworkManager(handoff.ServerIp, handoff.ServerPort);
+                var networkManager = new SessionNetworkManager(handoff.ServerIp, handoff.ServerPort)
+                {
+                    CharacterId = handoff.CharacterId,
+                    CharacterName = handoff.TargetCharacterName,
+                    AccountName = accountUsername ?? string.Empty
+                };
 
                 // Initialize crypto key if base64 token provided
                 if (!string.IsNullOrWhiteSpace(handoff.Base64SessionToken))

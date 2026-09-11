@@ -67,7 +67,7 @@ namespace Gordian.Core.Tests.Network
             // Verify keepalive pong was triggered
             Assert.Single(sentChunks);
             byte[] pong = sentChunks[0];
-            Assert.Equal(4, pong.Length);
+            Assert.Equal(HandshakePackets.PosSubPacketSize, pong.Length);
             ushort pongType = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(pong.AsSpan(0, 2)) & 0x1FF);
             ushort pongSeq = BinaryPrimitives.ReadUInt16LittleEndian(pong.AsSpan(2, 2));
 
