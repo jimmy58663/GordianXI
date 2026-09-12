@@ -1,0 +1,146 @@
+﻿name: Package Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-windows:
+    name: Package Windows (x64)
+    runs-on: windows-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag')
+    steps:
+      - name: Determine target release tag
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup MSVC (x86 32-bit tools)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build 32-bit Proxy (FFXiMain.dll)
+        shell: cmd
+        working-directory: src/Gordian.Proxy
+        run: |
+          cl.exe /LD /O2 /Fe:FFXiMain.dll dllmain.cpp user32.lib advapi32.lib /link /MACHINE:X86
+
+      - name: Publish Gordian.App (win-x64, self-contained)
+        run: |
+          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o staging/GordianXI
+
+      - name: Assemble Portable Folder Structure
+        shell: bash
+        run: |
+          mkdir -p staging/GordianXI/proxy
+          mkdir -p staging/GordianXI/addons
+          mkdir -p staging/GordianXI/scripts
+          mkdir -p staging/GordianXI/profiles
+          mkdir -p staging/GordianXI/logs
+
+          # Copy 32-bit proxy DLL into proxy folder
+          cp src/Gordian.Proxy/FFXiMain.dll staging/GordianXI/proxy/
+
+          # Place gitkeep files so empty directories are preserved in the archive
+          touch staging/GordianXI/addons/.gitkeep
+          touch staging/GordianXI/scripts/.gitkeep
+          touch staging/GordianXI/profiles/.gitkeep
+          touch staging/GordianXI/logs/.gitkeep
+
+      - name: Create Zip Archive and SHA256
+        shell: bash
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          mkdir -p dist
+          ARCHIVE_NAME="GordianXI-${TAG}-win-x64.zip"
+          (cd staging && zip -r -9 "../dist/${ARCHIVE_NAME}" GordianXI)
+          (cd dist && sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256")
+
+      - name: Upload Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          gh release upload "$TAG" dist/* --clobber
+
+  package-linux:
+    name: Package Linux (x64)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag')
+    steps:
+      - name: Determine target release tag
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Gordian.App (linux-x64, self-contained)
+        run: |
+          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r linux-x64 --self-contained true -p:PublishReadyToRun=true -o staging/GordianXI
+
+      - name: Assemble Portable Folder Structure
+        shell: bash
+        run: |
+          mkdir -p staging/GordianXI/addons
+          mkdir -p staging/GordianXI/scripts
+          mkdir -p staging/GordianXI/profiles
+          mkdir -p staging/GordianXI/logs
+
+          touch staging/GordianXI/addons/.gitkeep
+          touch staging/GordianXI/scripts/.gitkeep
+          touch staging/GordianXI/profiles/.gitkeep
+          touch staging/GordianXI/logs/.gitkeep
+
+      - name: Create Tarball Archive and SHA256
+        shell: bash
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          mkdir -p dist
+          ARCHIVE_NAME="GordianXI-${TAG}-linux-x64.tar.gz"
+          tar -czvf "dist/${ARCHIVE_NAME}" -C staging GordianXI
+          (cd dist && sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256")
+
+      - name: Upload Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          gh release upload "$TAG" dist/* --clobber
