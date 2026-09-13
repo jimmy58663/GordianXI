@@ -196,5 +196,112 @@ namespace Gordian.App.Tests
             Assert.Equal(0, _vm.TotalPacketCount);
             Assert.Null(_vm.SelectedPacket);
         }
+
+        [Theory]
+        [InlineData("0x015")]
+        [InlineData("0x15")]
+        [InlineData("015")]
+        [InlineData("15")]
+        public void SearchFilter_MatchesHexFormatsFor0x015(string query)
+        {
+            var ping = new PacketLogEntry
+            {
+                Direction = PacketDirection.Inbound,
+                PacketId = 0x015,
+                PacketName = "GP_SERV_PING",
+                Size = 4,
+                RawBytes = new byte[4]
+            };
+            var login = new PacketLogEntry
+            {
+                Direction = PacketDirection.Inbound,
+                PacketId = 0x00A,
+                PacketName = "GP_SERV_LOGIN",
+                Size = 4,
+                RawBytes = new byte[4]
+            };
+
+            _vm.OnPacketInspected(null, ping);
+            _vm.OnPacketInspected(null, login);
+
+            _vm.SearchFilter = query;
+
+            Assert.Single(_vm.FilteredPackets);
+            Assert.Equal(0x015, _vm.FilteredPackets[0].PacketId);
+        }
+
+        [Fact]
+        public void IgnoreFilter_SuppressesIgnoredPacketsFromBufferAndCollection()
+        {
+            _vm.IgnoreFilter = "0x015, 0x00E";
+
+            var posPacket = new PacketLogEntry
+            {
+                Direction = PacketDirection.Outbound,
+                PacketId = 0x015,
+                PacketName = "GP_CLI_POS",
+                Size = 32,
+                RawBytes = new byte[32]
+            };
+            var npcPacket = new PacketLogEntry
+            {
+                Direction = PacketDirection.Inbound,
+                PacketId = 0x00E,
+                PacketName = "GP_SERV_CHAR_NPC",
+                Size = 88,
+                RawBytes = new byte[88]
+            };
+            var loginPacket = new PacketLogEntry
+            {
+                Direction = PacketDirection.Inbound,
+                PacketId = 0x00A,
+                PacketName = "GP_SERV_LOGIN",
+                Size = 12,
+                RawBytes = new byte[12]
+            };
+
+            // Inspecting ignored packets should not add them to buffer or UI
+            _vm.OnPacketInspected(null, posPacket);
+            _vm.OnPacketInspected(null, npcPacket);
+            Assert.Empty(_vm.FilteredPackets);
+            Assert.Equal(0, _vm.TotalPacketCount);
+
+            // Inspecting non-ignored packet should add it
+            _vm.OnPacketInspected(null, loginPacket);
+            Assert.Single(_vm.FilteredPackets);
+            Assert.Equal(1, _vm.TotalPacketCount);
+            Assert.Equal(0x00A, _vm.FilteredPackets[0].PacketId);
+        }
+
+        [Fact]
+        public void IgnoreFilter_RetroactivelyPurgesExistingIgnoredPackets()
+        {
+            var posPacket = new PacketLogEntry
+            {
+                Direction = PacketDirection.Outbound,
+                PacketId = 0x015,
+                PacketName = "GP_CLI_POS",
+                Size = 32,
+                RawBytes = new byte[32]
+            };
+            var loginPacket = new PacketLogEntry
+            {
+                Direction = PacketDirection.Inbound,
+                PacketId = 0x00A,
+                PacketName = "GP_SERV_LOGIN",
+                Size = 12,
+                RawBytes = new byte[12]
+            };
+
+            _vm.OnPacketInspected(null, posPacket);
+            _vm.OnPacketInspected(null, loginPacket);
+            Assert.Equal(2, _vm.TotalPacketCount);
+
+            // Applying ignore filter should purge 0x015 from buffer and UI
+            _vm.IgnoreFilter = "0x015";
+            Assert.Equal(1, _vm.TotalPacketCount);
+            Assert.Single(_vm.FilteredPackets);
+            Assert.Equal(0x00A, _vm.FilteredPackets[0].PacketId);
+        }
     }
 }

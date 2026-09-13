@@ -1,7 +1,7 @@
-// src/Gordian.App/ViewModels/PacketInspectorViewModel.cs
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -12,7 +12,7 @@ namespace Gordian.App.ViewModels
 {
     /// <summary>
     /// ViewModel for live packet stream inspection, dual-column Hex/ASCII dump rendering,
-    /// directional filtering, and search indexing.
+    /// directional filtering, search indexing, and ignored packet suppression.
     /// </summary>
     public sealed class PacketInspectorViewModel : ViewModelBase, IDisposable
     {
@@ -20,10 +20,14 @@ namespace Gordian.App.ViewModels
         private readonly List<PacketLogEntry> _allPackets = new();
         private readonly object _lock = new();
 
+        private readonly HashSet<ushort> _ignoredPacketIds = new();
+        private readonly List<string> _ignoredNames = new();
+
         private PacketLogEntry? _selectedPacket;
         private string _formattedDump = "<Select a packet from the list to view hex/ASCII dump>";
         private string _directionFilter = "All";
         private string _searchFilter = string.Empty;
+        private string _ignoreFilter = string.Empty;
         private bool _isPaused;
         private bool _autoScroll = true;
         private int _totalPacketCount;
@@ -72,6 +76,19 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _searchFilter, value))
                 {
+                    ApplyFilter();
+                }
+            }
+        }
+
+        public string IgnoreFilter
+        {
+            get => _ignoreFilter;
+            set
+            {
+                if (SetProperty(ref _ignoreFilter, value))
+                {
+                    UpdateIgnoreList();
                     ApplyFilter();
                 }
             }
@@ -130,10 +147,18 @@ namespace Gordian.App.ViewModels
             // When paused, newly arriving packets are not appended to the inspection view
             if (IsPaused) return;
 
+            // Ignore filter check before dispatching: dropped entirely to prevent buffer consumption
+            lock (_lock)
+            {
+                if (IsIgnored(entry)) return;
+            }
+
             DispatchToUi(() =>
             {
                 lock (_lock)
                 {
+                    if (IsIgnored(entry)) return;
+
                     _allPackets.Add(entry);
                     if (_allPackets.Count > MaxPackets)
                     {
@@ -178,6 +203,9 @@ namespace Gordian.App.ViewModels
 
         private bool MatchesFilter(PacketLogEntry entry)
         {
+            // Ignore filter check for any existing packets in buffer
+            if (IsIgnored(entry)) return false;
+
             // Direction filter
             if (DirectionFilter == "Inbound" && entry.Direction != PacketDirection.Inbound) return false;
             if (DirectionFilter == "Outbound" && entry.Direction != PacketDirection.Outbound) return false;
@@ -187,12 +215,88 @@ namespace Gordian.App.ViewModels
             {
                 string query = SearchFilter.Trim();
                 bool matchesName = entry.PacketName.Contains(query, StringComparison.OrdinalIgnoreCase);
-                bool matchesId = entry.PacketId.ToString("X").Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                                 entry.PacketId.ToString().Contains(query, StringComparison.OrdinalIgnoreCase);
-                if (!matchesName && !matchesId) return false;
+
+                string hexQuery = query.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    ? query[2..]
+                    : query;
+
+                bool matchesExactHex = ushort.TryParse(hexQuery, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort parsedHex)
+                    && entry.PacketId == parsedHex;
+
+                bool matchesExactDec = ushort.TryParse(query, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort parsedDec)
+                    && entry.PacketId == parsedDec;
+
+                string hex3 = entry.PacketId.ToString("X3");
+                string hexWith0x = $"0x{hex3}";
+                string hexBare = entry.PacketId.ToString("X");
+                string dec = entry.PacketId.ToString(CultureInfo.InvariantCulture);
+
+                bool matchesSubstring = hexWith0x.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                                        hex3.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                                        hexBare.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                                        dec.Contains(query, StringComparison.OrdinalIgnoreCase);
+
+                if (!matchesName && !matchesExactHex && !matchesExactDec && !matchesSubstring)
+                {
+                    return false;
+                }
             }
 
             return true;
+        }
+
+        public bool IsIgnored(PacketLogEntry entry)
+        {
+            if (_ignoredPacketIds.Contains(entry.PacketId)) return true;
+            for (int i = 0; i < _ignoredNames.Count; i++)
+            {
+                if (entry.PacketName.Contains(_ignoredNames[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void UpdateIgnoreList()
+        {
+            lock (_lock)
+            {
+                _ignoredPacketIds.Clear();
+                _ignoredNames.Clear();
+
+                if (!string.IsNullOrWhiteSpace(_ignoreFilter))
+                {
+                    var tokens = _ignoreFilter.Split(new[] { ',', ';', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var rawToken in tokens)
+                    {
+                        string token = rawToken.Trim();
+                        if (string.IsNullOrEmpty(token)) continue;
+
+                        if (token.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (ushort.TryParse(token[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort id))
+                            {
+                                _ignoredPacketIds.Add(id);
+                                continue;
+                            }
+                        }
+                        else if (ushort.TryParse(token, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hexId))
+                        {
+                            _ignoredPacketIds.Add(hexId);
+                            continue;
+                        }
+
+                        _ignoredNames.Add(token);
+                    }
+                }
+
+                if (_ignoredPacketIds.Count > 0 || _ignoredNames.Count > 0)
+                {
+                    _allPackets.RemoveAll(IsIgnored);
+                    TotalPacketCount = _allPackets.Count;
+                }
+            }
         }
 
         private static void DispatchToUi(Action action)

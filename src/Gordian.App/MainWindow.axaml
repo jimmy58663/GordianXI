@@ -149,43 +149,43 @@
             <Grid RowDefinitions="Auto, *" Margin="0,10,0,0">
 
                 <!-- TOP CONTROLS & FILTER TOOLBAR -->
-                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12" Margin="0,0,0,8">
-                    <Grid ColumnDefinitions="Auto, Auto, *, Auto, Auto, Auto">
+                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
+                    <Grid ColumnDefinitions="Auto, 1.3*, 1*, Auto">
                         <!-- Direction Filter -->
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,12,0">
                             <TextBlock Text="Direction:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
                             <ComboBox ItemsSource="{Binding Inspector.DirectionOptions}"
                                       SelectedItem="{Binding Inspector.DirectionFilter, Mode=TwoWay}"
-                                      Width="110"/>
+                                      Width="105"/>
                         </StackPanel>
 
-                        <!-- Search Filter -->
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="Filter:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
-                            <TextBox Text="{Binding Inspector.SearchFilter, Mode=TwoWay}"
-                                     PlaceholderText="Search Name or ID (e.g. 0x00A, LOGIN, POS)..."
-                                     Width="260"/>
+                        <!-- Search Filter (Flexible Width) -->
+                        <Grid Grid.Column="1" ColumnDefinitions="Auto, *" VerticalAlignment="Center" Margin="0,0,12,0">
+                            <TextBlock Grid.Column="0" Text="Filter:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                            <TextBox Grid.Column="1" Text="{Binding Inspector.SearchFilter, Mode=TwoWay}"
+                                     PlaceholderText="Search Name / ID (0x015, POS)..."/>
+                        </Grid>
+
+                        <!-- Ignore Filter (Flexible Width) -->
+                        <Grid Grid.Column="2" ColumnDefinitions="Auto, *" VerticalAlignment="Center" Margin="0,0,14,0">
+                            <TextBlock Grid.Column="0" Text="Ignore:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                            <TextBox Grid.Column="1" Text="{Binding Inspector.IgnoreFilter, Mode=TwoWay}"
+                                     PlaceholderText="Ignore IDs (0x015, 0x00E)..."/>
+                        </Grid>
+
+                        <!-- Action Buttons & Status (Right-Docked) -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Inspector.TotalPacketCount, StringFormat='Packets: {0}'}"
+                                       Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0"/>
+
+                            <Button Content="Pause / Resume"
+                                    Command="{Binding Inspector.TogglePauseCommand}"
+                                    Background="#3E3E42" Foreground="White"/>
+
+                            <Button Content="Clear Log"
+                                    Command="{Binding Inspector.ClearCommand}"
+                                    Background="#C586C0" Foreground="White"/>
                         </StackPanel>
-
-                        <!-- Spacer -->
-                        <TextBlock Grid.Column="2" Text=""/>
-
-                        <!-- Total Packet Count -->
-                        <TextBlock Grid.Column="3"
-                                   Text="{Binding Inspector.TotalPacketCount, StringFormat='Packets: {0}'}"
-                                   Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,16,0"/>
-
-                        <!-- Pause / Resume Toggle Button -->
-                        <Button Grid.Column="4"
-                                Content="Pause / Resume"
-                                Command="{Binding Inspector.TogglePauseCommand}"
-                                Background="#3E3E42" Foreground="White" Margin="0,0,8,0"/>
-
-                        <!-- Clear Button -->
-                        <Button Grid.Column="5"
-                                Content="Clear Log"
-                                Command="{Binding Inspector.ClearCommand}"
-                                Background="#C586C0" Foreground="White"/>
                     </Grid>
                 </Border>
 
