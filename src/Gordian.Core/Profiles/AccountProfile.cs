@@ -49,9 +49,17 @@ namespace Gordian.Core.Profiles
         public static AccountProfile? LoadFromFile(string filePath)
         {
             if (!File.Exists(filePath)) return null;
-            
-            string json = File.ReadAllText(filePath);
-            return JsonSerializer.Deserialize<AccountProfile>(json);
+
+            try
+            {
+                string json = File.ReadAllText(filePath);
+                return JsonSerializer.Deserialize<AccountProfile>(json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AccountProfile] Failed to load profile from '{filePath}': {ex.Message}");
+                return null;
+            }
         }
     }
 }

@@ -19,7 +19,15 @@ namespace Gordian.Core.Profiles
                 return string.Empty;
             }
 
-            return ProfileCrypto.Decrypt(value);
+            try
+            {
+                return ProfileCrypto.Decrypt(value);
+            }
+            catch
+            {
+                // Fallback: If it's not encrypted (e.g. legacy plain text JSON), return as-is
+                return value;
+            }
         }
 
         public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
