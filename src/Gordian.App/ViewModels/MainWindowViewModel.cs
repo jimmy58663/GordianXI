@@ -3,8 +3,10 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Gordian.App.Common;
+using Gordian.App.Services;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Profiles;
@@ -96,6 +98,9 @@ namespace Gordian.App.ViewModels
 
             _sessionRegistry.SessionRegistered += OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered += OnSessionRegistryChanged;
+
+            // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
+            ProxyStager.SelfHealStartup();
 
             LoadProfiles();
         }
@@ -244,10 +249,85 @@ namespace Gordian.App.ViewModels
         private void LaunchSelected()
         {
             var rawProfiles = Profiles.Select(vm => vm.Profile).ToList();
-            int launched = LaunchOrchestrator.LaunchSelectedProfiles(rawProfiles, _sessionRegistry);
+            var targetsToLaunch = rawProfiles.Where(p => p.IsSelectedForLaunch).ToList();
+            if (targetsToLaunch.Count == 0)
+            {
+                StatusMessage = "No profiles selected for launch.";
+                return;
+            }
 
-            StatusMessage = $"Launched {launched} character profile(s).";
+            // 1. Detect game directory from Windows Registry (PlayOnlineUS / EU / JP)
+            string? gameDir = GameDirectoryDetector.DetectGameDirectory();
+
+            // Fallback: check relative to bootloader directory if configured
+            if (string.IsNullOrWhiteSpace(gameDir))
+            {
+                foreach (var p in targetsToLaunch)
+                {
+                    if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
+                    {
+                        string? parent = Path.GetDirectoryName(p.BootloaderPath);
+                        if (parent != null)
+                        {
+                            string candidate = Path.GetFullPath(Path.Combine(parent, "..", "SquareEnix", "FINAL FANTASY XI"));
+                            if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "FFXiMain.dll")))
+                            {
+                                gameDir = candidate;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Ephemeral staging of Gordian proxy
+            bool staged = false;
+            if (!string.IsNullOrWhiteSpace(gameDir))
+            {
+                staged = ProxyStager.StageProxy(gameDir);
+                if (staged)
+                {
+                    StatusMessage = $"Proxy staged in '{Path.GetFileName(gameDir)}'. Spawning bootloader...";
+                }
+            }
+
+            // 3. Launch selected profiles
+            int launched = LaunchOrchestrator.LaunchSelectedProfiles(rawProfiles, _sessionRegistry);
+            StatusMessage = $"Launched {launched} character profile(s). Awaiting handoff...";
             RefreshAllStatuses();
+
+            // 4. If staged, automatically restore original FFXiMain.dll after handoff or timeout
+            if (staged && !string.IsNullOrWhiteSpace(gameDir))
+            {
+                string stagedDir = gameDir;
+                _ = Task.Run(async () =>
+                {
+                    int waitMs = 0;
+                    const int maxWaitMs = 30000;
+                    const int stepMs = 500;
+                    int initialSessionCount = _sessionRegistry.ActiveSessions.Count;
+
+                    while (waitMs < maxWaitMs)
+                    {
+                        await Task.Delay(stepMs).ConfigureAwait(false);
+                        waitMs += stepMs;
+
+                        if (_sessionRegistry.ActiveSessions.Count > initialSessionCount)
+                        {
+                            // Handoff registered, give the proxy process a moment to exit and release file lock
+                            await Task.Delay(500).ConfigureAwait(false);
+                            break;
+                        }
+                    }
+
+                    // Restore original FFXiMain.dll
+                    bool restored = ProxyStager.RestoreOriginal(stagedDir);
+                    if (restored)
+                    {
+                        StatusMessage = "Original FFXiMain.dll restored. Client running.";
+                    }
+                });
+            }
         }
 
         private void TerminateAll()
