@@ -294,9 +294,13 @@ namespace Gordian.App.ViewModels
                         try
                         {
                             string serverHost = ExtractServerHost(profile.Arguments);
+                            int connectPort = ExtractPort(profile.Arguments, "--authport", LsbLoginClient.DefaultConnectPort);
+                            int dataPort = ExtractPort(profile.Arguments, "--dataport", LsbLoginClient.DefaultDataPort);
+                            int viewPort = ExtractPort(profile.Arguments, "--viewport", LsbLoginClient.DefaultViewPort);
+
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
-                                StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}...";
+                                StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}:{connectPort}...";
                             });
 
                             string otp = !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty;
@@ -305,6 +309,9 @@ namespace Gordian.App.ViewModels
                                 username: profile.Username,
                                 password: profile.Password,
                                 otp: otp,
+                                connectPort: connectPort,
+                                dataPort: dataPort,
+                                viewPort: viewPort,
                                 targetCharacterName: profile.ProfileName
                             ).ConfigureAwait(false);
 
@@ -465,6 +472,25 @@ namespace Gordian.App.ViewModels
             }
 
             return "127.0.0.1";
+        }
+
+        private static int ExtractPort(string? arguments, string paramName, int defaultPort)
+        {
+            if (string.IsNullOrWhiteSpace(arguments)) return defaultPort;
+
+            string[] tokens = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                if (string.Equals(tokens[i], paramName, StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
+                {
+                    if (int.TryParse(tokens[i + 1], out int port) && port > 0 && port <= 65535)
+                    {
+                        return port;
+                    }
+                }
+            }
+
+            return defaultPort;
         }
 
         private void TerminateAll()
