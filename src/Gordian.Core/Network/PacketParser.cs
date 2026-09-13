@@ -48,6 +48,12 @@ namespace Gordian.Core.Network
         public event Action? HandshakeCompleted;
 
         /// <summary>
+        /// Raised when player initial position and heading is parsed from GP_SERV_LOGIN (0x00A).
+        /// Parameters: x, y, z, dir, actIndex.
+        /// </summary>
+        public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
+
+        /// <summary>
         /// Gets the active cryptographic suite configured for this session.
         /// </summary>
         public IPacketCryptoSuite CryptoSuite => _cryptoSuite;
@@ -190,6 +196,18 @@ namespace Gordian.Core.Network
             {
                 case 0x00A: // GP_SERV_LOGIN (Server Login Acknowledgment)
                     // The server confirmed our initial login and initialized Blowfish.
+                    // Parse initial player position from PosHead (starts at offset 0 of payload)
+                    if (payload.Length >= 20)
+                    {
+                        ushort actIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+                        byte dir = payload[7];
+                        float x = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
+                        float z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
+                        float y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+                        GordianLog.Debug("PARSER", $"Extracted player initial position: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, ActIndex={actIndex}");
+                        PlayerPositionUpdated?.Invoke(x, y, z, dir, actIndex);
+                    }
+
                     // Respond with GP_CLI_GAMEOK (0x00C) to request zone entry packets.
                     byte[] gameOk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
                     LogPacket(PacketDirection.Outbound, 0x00C, 0, gameOk);

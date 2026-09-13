@@ -97,6 +97,31 @@ namespace Gordian.Core.Network
         public byte[] Ticket { get; set; } = Array.Empty<byte>();
 
         /// <summary>
+        /// Current X position coordinate in world space.
+        /// </summary>
+        public float PositionX { get; set; }
+
+        /// <summary>
+        /// Current Y (altitude/height) position coordinate in world space.
+        /// </summary>
+        public float PositionY { get; set; }
+
+        /// <summary>
+        /// Current Z position coordinate in world space.
+        /// </summary>
+        public float PositionZ { get; set; }
+
+        /// <summary>
+        /// Current character facing direction / rotation (0..255).
+        /// </summary>
+        public byte Direction { get; set; }
+
+        /// <summary>
+        /// Current target index / actor index in zone.
+        /// </summary>
+        public ushort TargetIndex { get; set; }
+
+        /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
         /// </summary>
         public event EventHandler<PacketLogEntry>? PacketInspected;
@@ -113,6 +138,15 @@ namespace Gordian.Core.Network
             _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec);
             _parser.PacketInspected += (s, e) => PacketInspected?.Invoke(this, e);
             _parser.HandshakeCompleted += () => CurrentState = SessionState.ActiveInWorld;
+            _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
+            {
+                PositionX = x;
+                PositionY = y;
+                PositionZ = z;
+                Direction = dir;
+                TargetIndex = actIndex;
+                GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
+            };
         }
 
         /// <summary>
@@ -270,33 +304,50 @@ namespace Gordian.Core.Network
             try
             {
                 using var scratchBuffer = new PacketBuffer(MaxDatagramSize);
+
+                // 1. Advance client packet sequence number
+                ushort clientSeq = ++_clientPacketIdSequence;
+
+                // 2. Patch sequenceId (offset 2..3) of each bundled sub-packet with clientSeq
+                int subOffset = 0;
+                while (subOffset + 4 <= _currentBufferLength)
+                {
+                    int subSize = (_outboundQueueBuffer[subOffset + 1] & 0xFE) * 2;
+                    if (subSize < 4 || subOffset + subSize > _currentBufferLength) break;
+
+                    BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
+                    subOffset += subSize;
+                }
+
                 ReadOnlySpan<byte> bundledChunks = _outboundQueueBuffer.AsSpan(0, _currentBufferLength);
 
-                // 1. Compress the bundled sub-packets starting after 28-byte FFXI header
+                // 3. Compress the bundled sub-packets starting after 28-byte FFXI header
                 Span<byte> compressionDestination = scratchBuffer.WritableData.Slice(FfxiHeaderSize);
                 int compressedBytes = _codec.Compress(bundledChunks, compressionDestination);
 
-                // 2. Build 28-byte FFXI header
+                // 4. Build 28-byte FFXI header
+                // Byte 0..1: ClientPacketId (Client outgoing sequence)
+                // Byte 2..3: ServerPacketId (ACK of last received server packet)
                 Span<byte> headerSpan = scratchBuffer.WritableData.Slice(0, FfxiHeaderSize);
                 headerSpan.Clear();
 
-                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(0, 2), _serverPacketIdSequence);
-                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), ++_clientPacketIdSequence);
+                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(0, 2), clientSeq);
+                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), _serverPacketIdSequence);
 
                 uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
 
-                // 3. Encrypt and sign payload + trailing MD5 hash in-place
+                // 5. Encrypt and sign payload + trailing MD5 hash in-place
                 int datagramLength = _parser.CryptoSuite.EncryptAndSign(
                     scratchBuffer.WritableData,
                     FfxiHeaderSize,
                     compressedBytes
                 );
 
-                // 4. Send datagram over UDP wire
+                // 6. Send datagram over UDP wire
                 ReadOnlyMemory<byte> datagramMemory = scratchBuffer.WritableMemory.Slice(0, datagramLength);
                 await socket.SendToAsync(datagramMemory, SocketFlags.None, remoteEndpoint, token).ConfigureAwait(false);
-                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: {datagramLength} bytes to {remoteEndpoint}");
+                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={_serverPacketIdSequence}, {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
             {
@@ -317,6 +368,22 @@ namespace Gordian.Core.Network
                     await _writeLock.WaitAsync(token).ConfigureAwait(false);
                     try
                     {
+                        // In ActiveInWorld or LoadingWorldData, if no outbound packets are queued,
+                        // generate a 0x015 GP_CLI_POS keepalive heartbeat datagram.
+                        if (_currentBufferLength == 0 && (CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData))
+                        {
+                            byte[] posPacket = HandshakePackets.BuildPosPingPongSubPacket(
+                                sequenceId: 0, // will be stamped to clientSeq in FlushBundledPacketAsync
+                                x: PositionX,
+                                y: PositionY,
+                                z: PositionZ,
+                                dir: Direction
+                            );
+
+                            posPacket.CopyTo(_outboundQueueBuffer.AsSpan());
+                            _currentBufferLength = posPacket.Length;
+                        }
+
                         await FlushBundledPacketAsync(socket, _serverEndpoint, token).ConfigureAwait(false);
                     }
                     finally
@@ -370,9 +437,9 @@ namespace Gordian.Core.Network
 
                         bool parsed = _parser.ProcessIncomingChunk(activeChunk);
 
-                        if (parsed && (CurrentState == SessionState.ExchangingCryptoKeys || CurrentState == SessionState.LoadingWorldData))
+                        if (parsed && CurrentState == SessionState.ExchangingCryptoKeys)
                         {
-                            CurrentState = SessionState.ActiveInWorld;
+                            CurrentState = SessionState.LoadingWorldData;
                         }
                     }
                     catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)

@@ -30,8 +30,8 @@
 
 ### ⏳ Phase 3: Network Engine & Cryptographic Handshake
 - [x] Full Blowfish cipher suite integration (`LegacyBlowfishCryptoSuite` with MD5 key digest and ECB cipher)
-- [ ] Incoming & outgoing UDP packet framing (`0x0A` chunking, sequence tracking, checksum verification)
-- [ ] Session keepalive / ping-pong loop
+- [x] Incoming & outgoing UDP packet framing (`0x0A` chunking, sequence tracking, checksum verification)
+- [x] Session keepalive / ping-pong loop (4Hz `GP_CLI_POS` 0x015 heartbeat & idle timeout prevention)
 - [ ] Zone connection transition handling
 
 ### ⏳ Phase 4: World State, Viewport & Addons
