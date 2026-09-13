@@ -135,14 +135,16 @@ namespace Gordian.Core.Network
             byte[] datagram = new byte[LoginDatagramTotalSize];
 
             // 1. 28-byte FFXI Header
-            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(0, 2), 0); // ServerPacketId = 0
-            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(2, 2), clientPacketSeq); // ClientPacketId
+            // Byte 0..1: ClientPacketId (Client outgoing sequence)
+            // Byte 2..3: ServerPacketId (ACK of last received server packet = 0)
+            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(0, 2), clientPacketSeq);
+            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(2, 2), 0);
             uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             BinaryPrimitives.WriteUInt32LittleEndian(datagram.AsSpan(8, 4), timestamp);
 
             // 2. 92-byte GP_CLI_LOGIN sub-packet at offset 28
             Span<byte> subPacketSpan = datagram.AsSpan(FfxiHeaderSize, LoginSubPacketSize);
-            BuildLoginSubPacket(subPacketSpan, characterId, characterName, accountName, ticket, clientVersion, sequenceId: 0);
+            BuildLoginSubPacket(subPacketSpan, characterId, characterName, accountName, ticket, clientVersion, sequenceId: clientPacketSeq);
 
             // 3. 16-byte MD5 checksum computed over the 92-byte sub-packet at offset 120
             Span<byte> md5Span = datagram.AsSpan(FfxiHeaderSize + LoginSubPacketSize, FfxiChecksumSize);

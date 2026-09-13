@@ -76,16 +76,18 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(HandshakePackets.LoginDatagramTotalSize, datagram.Length);
             Assert.Equal(136, datagram.Length);
 
-            // FFXI Header (28 bytes)
-            ushort serverPacketId = BinaryPrimitives.ReadUInt16LittleEndian(datagram.AsSpan(0, 2));
-            ushort clientPacketId = BinaryPrimitives.ReadUInt16LittleEndian(datagram.AsSpan(2, 2));
-            Assert.Equal(0, serverPacketId);
+            // FFXI Header (28 bytes): Byte 0..1 = ClientPacketId, Byte 2..3 = ServerPacketId (ACK)
+            ushort clientPacketId = BinaryPrimitives.ReadUInt16LittleEndian(datagram.AsSpan(0, 2));
+            ushort serverPacketId = BinaryPrimitives.ReadUInt16LittleEndian(datagram.AsSpan(2, 2));
             Assert.Equal(5, clientPacketId);
+            Assert.Equal(0, serverPacketId);
 
             // Sub-packet offset 28..120
             ReadOnlySpan<byte> subPacketSpan = datagram.AsSpan(28, 92);
             ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(subPacketSpan.Slice(0, 2)) & 0x1FF);
+            ushort subPacketSeq = BinaryPrimitives.ReadUInt16LittleEndian(subPacketSpan.Slice(2, 2));
             Assert.Equal(0x00A, packetId);
+            Assert.Equal(5, subPacketSeq);
 
             // MD5 Checksum offset 120..136
             ReadOnlySpan<byte> datagramHash = datagram.AsSpan(120, 16);

@@ -207,17 +207,18 @@ namespace Gordian.Core.Network
                 // Send the initial unencrypted 0x00A login handshake datagram with retransmission
                 if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
                 {
+                    _clientPacketIdSequence = 1;
                     byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
                         CharacterId,
                         CharacterName,
                         AccountName,
                         Ticket,
                         clientVersion: 1,
-                        clientPacketSeq: 1
+                        clientPacketSeq: _clientPacketIdSequence
                     );
 
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
-                    _parser.LogPacket(PacketDirection.Outbound, 0x00A, 0, loginSubPacket);
+                    _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
 
                     CurrentState = SessionState.ExchangingCryptoKeys;
 
