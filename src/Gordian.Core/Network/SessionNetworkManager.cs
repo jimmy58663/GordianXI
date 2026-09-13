@@ -100,7 +100,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public async Task ConnectAsync()
         {
-            if (CurrentState != SessionState.Disconnected)
+            if (CurrentState != SessionState.Disconnected && CurrentState != SessionState.ConnectingToGameServer)
             {
                 throw new InvalidOperationException("This network session is already active or processing an authentication task.");
             }

@@ -1,5 +1,6 @@
 // src/Gordian.App/ViewModels/MainWindowViewModel.cs
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,7 @@ using Gordian.App.Common;
 using Gordian.App.Services;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
+using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Profiles;
 
 namespace Gordian.App.ViewModels
@@ -256,78 +258,213 @@ namespace Gordian.App.ViewModels
                 return;
             }
 
-            // 1. Detect game directory from Windows Registry (PlayOnlineUS / EU / JP)
-            string? gameDir = GameDirectoryDetector.DetectGameDirectory();
+            // Separate private server profiles (direct native LsbLoginClient) from retail profiles
+            var directLsbProfiles = new List<AccountProfile>();
+            var retailProfiles = new List<AccountProfile>();
 
-            // Fallback: check relative to bootloader directory if configured
-            if (string.IsNullOrWhiteSpace(gameDir))
+            foreach (var p in targetsToLaunch)
             {
-                foreach (var p in targetsToLaunch)
+                if (IsLsbProfile(p))
                 {
-                    if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
+                    directLsbProfiles.Add(p);
+                }
+                else
+                {
+                    retailProfiles.Add(p);
+                }
+            }
+
+            // 1. Launch LandSandBoat private server profiles natively via LsbLoginClient
+            if (directLsbProfiles.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    var client = new LsbLoginClient();
+                    foreach (var profile in directLsbProfiles)
                     {
-                        string? parent = Path.GetDirectoryName(p.BootloaderPath);
-                        if (parent != null)
+                        if (_sessionRegistry.IsAccountActive(profile.Username) || _sessionRegistry.IsCharacterActive(profile.ProfileName))
                         {
-                            string candidate = Path.GetFullPath(Path.Combine(parent, "..", "SquareEnix", "FINAL FANTASY XI"));
-                            if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "FFXiMain.dll")))
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
-                                gameDir = candidate;
-                                break;
+                                StatusMessage = $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+                            });
+                            continue;
+                        }
+
+                        try
+                        {
+                            string serverHost = ExtractServerHost(profile.Arguments);
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}...";
+                            });
+
+                            string otp = !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty;
+                            var ticket = await client.LoginAndSelectAsync(
+                                host: serverHost,
+                                username: profile.Username,
+                                password: profile.Password,
+                                otp: otp,
+                                targetCharacterName: profile.ProfileName
+                            ).ConfigureAwait(false);
+
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] Character selected (ID: {ticket.CharacterId}). Establishing game session to {ticket.ZoneIp}:{ticket.ZonePort}...";
+                            });
+
+                            // Create and register the character session in SessionRegistry
+                            var netManager = new SessionNetworkManager(ticket.ZoneIp, ticket.ZonePort)
+                            {
+                                CharacterId = ticket.CharacterId,
+                                CharacterName = !string.IsNullOrWhiteSpace(ticket.CharacterName) ? ticket.CharacterName : profile.ProfileName,
+                                AccountName = profile.Username,
+                                Ticket = ticket.SessionHash
+                            };
+
+                            // Initialize session Blowfish crypto key from LandSandBoat handshake
+                            netManager.Parser.InitializeSessionCrypto(ticket.BlowfishKey);
+
+                            var session = new CharacterSession(
+                                netManager.CharacterName,
+                                ticket.CharacterId,
+                                profile.Username,
+                                netManager
+                            );
+
+                            _sessionRegistry.RegisterSession(session);
+
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                RefreshAllStatuses();
+                                StatusMessage = $"[{session.CharacterName}] Connected! Session active in world.";
+                            });
+
+                            // Connect UDP socket and transmit 0x00A login handshake
+                            await netManager.ConnectAsync().ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}";
+                                RefreshAllStatuses();
+                            });
+                        }
+                    }
+                });
+            }
+
+            // 2. Retail bootloader / Proxy staging flow (preserved for retail POL)
+            if (retailProfiles.Count > 0)
+            {
+                string? gameDir = GameDirectoryDetector.DetectGameDirectory();
+                if (string.IsNullOrWhiteSpace(gameDir))
+                {
+                    foreach (var p in retailProfiles)
+                    {
+                        if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
+                        {
+                            string? parent = Path.GetDirectoryName(p.BootloaderPath);
+                            if (parent != null)
+                            {
+                                string candidate = Path.GetFullPath(Path.Combine(parent, "..", "SquareEnix", "FINAL FANTASY XI"));
+                                if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "FFXiMain.dll")))
+                                {
+                                    gameDir = candidate;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // 2. Ephemeral staging of Gordian proxy
-            bool staged = false;
-            if (!string.IsNullOrWhiteSpace(gameDir))
-            {
-                staged = ProxyStager.StageProxy(gameDir);
-                if (staged)
+                bool staged = false;
+                if (!string.IsNullOrWhiteSpace(gameDir))
                 {
-                    StatusMessage = $"Proxy staged in '{Path.GetFileName(gameDir)}'. Spawning bootloader...";
+                    staged = ProxyStager.StageProxy(gameDir);
+                    if (staged)
+                    {
+                        StatusMessage = $"Proxy staged in '{Path.GetFileName(gameDir)}'. Spawning bootloader...";
+                    }
+                }
+
+                int launched = LaunchOrchestrator.LaunchSelectedProfiles(retailProfiles, _sessionRegistry);
+                StatusMessage = $"Launched {launched} character profile(s). Awaiting handoff...";
+                RefreshAllStatuses();
+
+                if (staged && !string.IsNullOrWhiteSpace(gameDir))
+                {
+                    string stagedDir = gameDir;
+                    _ = Task.Run(async () =>
+                    {
+                        int waitMs = 0;
+                        const int maxWaitMs = 30000;
+                        const int stepMs = 500;
+                        int initialSessionCount = _sessionRegistry.ActiveSessions.Count;
+
+                        while (waitMs < maxWaitMs)
+                        {
+                            await Task.Delay(stepMs).ConfigureAwait(false);
+                            waitMs += stepMs;
+
+                            if (_sessionRegistry.ActiveSessions.Count > initialSessionCount)
+                            {
+                                await Task.Delay(500).ConfigureAwait(false);
+                                break;
+                            }
+                        }
+
+                        bool restored = ProxyStager.RestoreOriginal(stagedDir);
+                        if (restored)
+                        {
+                            StatusMessage = "Original FFXiMain.dll restored. Client running.";
+                        }
+                    });
+                }
+            }
+        }
+
+        private static bool IsLsbProfile(AccountProfile profile)
+        {
+            if (profile == null) return false;
+            string args = profile.Arguments ?? string.Empty;
+            string bootloader = profile.BootloaderPath ?? string.Empty;
+
+            // Detection criteria for LandSandBoat / private servers:
+            // 1. Arguments contain --server or 127.0.0.1 or localhost
+            // 2. Bootloader is xiloader.exe
+            if (bootloader.Contains("xiloader", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (args.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                args.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
+                args.Contains("--server", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private static string ExtractServerHost(string? arguments)
+        {
+            if (string.IsNullOrWhiteSpace(arguments)) return "127.0.0.1";
+
+            string[] tokens = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                if (string.Equals(tokens[i], "--server", StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
+                {
+                    return tokens[i + 1];
+                }
+                if (string.Equals(tokens[i], "-s", StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
+                {
+                    return tokens[i + 1];
                 }
             }
 
-            // 3. Launch selected profiles
-            int launched = LaunchOrchestrator.LaunchSelectedProfiles(rawProfiles, _sessionRegistry);
-            StatusMessage = $"Launched {launched} character profile(s). Awaiting handoff...";
-            RefreshAllStatuses();
-
-            // 4. If staged, automatically restore original FFXiMain.dll after handoff or timeout
-            if (staged && !string.IsNullOrWhiteSpace(gameDir))
-            {
-                string stagedDir = gameDir;
-                _ = Task.Run(async () =>
-                {
-                    int waitMs = 0;
-                    const int maxWaitMs = 30000;
-                    const int stepMs = 500;
-                    int initialSessionCount = _sessionRegistry.ActiveSessions.Count;
-
-                    while (waitMs < maxWaitMs)
-                    {
-                        await Task.Delay(stepMs).ConfigureAwait(false);
-                        waitMs += stepMs;
-
-                        if (_sessionRegistry.ActiveSessions.Count > initialSessionCount)
-                        {
-                            // Handoff registered, give the proxy process a moment to exit and release file lock
-                            await Task.Delay(500).ConfigureAwait(false);
-                            break;
-                        }
-                    }
-
-                    // Restore original FFXiMain.dll
-                    bool restored = ProxyStager.RestoreOriginal(stagedDir);
-                    if (restored)
-                    {
-                        StatusMessage = "Original FFXiMain.dll restored. Client running.";
-                    }
-                });
-            }
+            return "127.0.0.1";
         }
 
         private void TerminateAll()

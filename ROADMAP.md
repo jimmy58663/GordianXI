@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 54 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 58 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Bootloader Session Handoff & Game Server Interception
 
 ---
@@ -25,10 +25,11 @@
 - [x] COM-compliant 32-bit proxy (`Gordian.Proxy` with `DllGetClassObject`, `DllCanUnloadNow`, `IClassFactory`)
 - [x] Named Pipe IPC bridge (`\\.\pipe\GordianXI_Handoff`)
 - [x] Inspect `xiloader` source repository directly (CLI flags, COM IGameMain invocation, UDP 54230 map port verified)
-- [ ] Verify live handoff in-game: launch `Local (Cybin)` -> named pipe receive -> live UDP packet stream
+- [x] Native LandSandBoat login client (`LsbLoginClient` in `Gordian.Core` with TLS auth on 54231, data on 54230, Blowfish session key derivation, and direct map connection)
+- [ ] Verify live handoff in-game: launch `Local (Cybin)` -> direct LSB login -> live UDP packet stream
 
 ### ⏳ Phase 3: Network Engine & Cryptographic Handshake
-- [ ] Full Blowfish cipher suite integration (`LegacyBlowfishCryptoSuite`)
+- [x] Full Blowfish cipher suite integration (`LegacyBlowfishCryptoSuite` with MD5 key digest and ECB cipher)
 - [ ] Incoming & outgoing UDP packet framing (`0x0A` chunking, sequence tracking, checksum verification)
 - [ ] Session keepalive / ping-pong loop
 - [ ] Zone connection transition handling
