@@ -18,6 +18,7 @@ namespace Gordian.App.ViewModels
     public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         private readonly SessionRegistry _sessionRegistry;
+        private string? _editingOriginalProfileName;
         private string _formProfileName = string.Empty;
         private string _formBootloaderPath = string.Empty;
         private string _formArguments = string.Empty;
@@ -32,6 +33,10 @@ namespace Gordian.App.ViewModels
         /// ViewModel driving the live network packet inspector tab.
         /// </summary>
         public PacketInspectorViewModel Inspector { get; } = new();
+
+        public bool IsEditing => !string.IsNullOrEmpty(_editingOriginalProfileName);
+
+        public string FormTitle => IsEditing ? $"Edit Profile: {_editingOriginalProfileName}" : "New Profile Properties";
 
         public string FormProfileName
         {
@@ -76,6 +81,7 @@ namespace Gordian.App.ViewModels
         }
 
         public ICommand SaveProfileCommand { get; }
+        public ICommand ClearFormCommand { get; }
         public ICommand LaunchSelectedCommand { get; }
         public ICommand TerminateAllCommand { get; }
 
@@ -84,6 +90,7 @@ namespace Gordian.App.ViewModels
             _sessionRegistry = registry ?? SessionRegistry.Default;
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
+            ClearFormCommand = new RelayCommand(ClearForm);
             LaunchSelectedCommand = new RelayCommand(LaunchSelected);
             TerminateAllCommand = new RelayCommand(TerminateAll);
 
@@ -107,7 +114,7 @@ namespace Gordian.App.ViewModels
                     if (profile != null)
                     {
                         profile.IsSelectedForLaunch = true;
-                        Profiles.Add(new ProfileItemViewModel(profile, _sessionRegistry));
+                        AddProfileViewModel(profile);
                     }
                 }
             }
@@ -118,6 +125,66 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        private void AddProfileViewModel(AccountProfile profile)
+        {
+            var vm = new ProfileItemViewModel(profile, _sessionRegistry);
+            vm.EditRequested += OnProfileEditRequested;
+            vm.DeleteRequested += OnProfileDeleteRequested;
+            Profiles.Add(vm);
+        }
+
+        private void OnProfileEditRequested(object? sender, ProfileItemViewModel item)
+        {
+            _editingOriginalProfileName = item.Profile.ProfileName;
+            FormProfileName = item.Profile.ProfileName;
+            FormBootloaderPath = item.Profile.BootloaderPath;
+            FormArguments = item.Profile.Arguments;
+            FormUsername = item.Profile.Username;
+            FormPassword = item.Profile.Password;
+            FormOtpSeed = item.Profile.OtpSeed;
+
+            OnPropertyChanged(nameof(IsEditing));
+            OnPropertyChanged(nameof(FormTitle));
+            StatusMessage = $"Editing profile '{item.Profile.ProfileName}'. Modify fields and click Save.";
+        }
+
+        private void OnProfileDeleteRequested(object? sender, ProfileItemViewModel item)
+        {
+            // Terminate any live session before deleting
+            item.Terminate();
+
+            // Delete file from storage
+            item.Profile.DeleteFile(GordianStorage.ProfilesDirectory);
+
+            // Detach events and remove from collection
+            item.EditRequested -= OnProfileEditRequested;
+            item.DeleteRequested -= OnProfileDeleteRequested;
+            Profiles.Remove(item);
+
+            // If we were editing this profile, clear the form
+            if (string.Equals(_editingOriginalProfileName, item.Profile.ProfileName, StringComparison.OrdinalIgnoreCase))
+            {
+                ClearForm();
+            }
+
+            StatusMessage = $"Deleted profile '{item.Profile.ProfileName}'.";
+        }
+
+        public void ClearForm()
+        {
+            _editingOriginalProfileName = null;
+            FormProfileName = string.Empty;
+            FormBootloaderPath = string.Empty;
+            FormArguments = string.Empty;
+            FormUsername = string.Empty;
+            FormPassword = string.Empty;
+            FormOtpSeed = string.Empty;
+
+            OnPropertyChanged(nameof(IsEditing));
+            OnPropertyChanged(nameof(FormTitle));
+            StatusMessage = string.Empty;
+        }
+
         private void SaveProfile()
         {
             if (string.IsNullOrWhiteSpace(FormProfileName))
@@ -126,9 +193,19 @@ namespace Gordian.App.ViewModels
                 return;
             }
 
+            string targetName = FormProfileName.Trim();
+
+            // If renaming an existing profile, delete the old file
+            if (!string.IsNullOrEmpty(_editingOriginalProfileName) &&
+                !string.Equals(_editingOriginalProfileName, targetName, StringComparison.OrdinalIgnoreCase))
+            {
+                var oldProfile = new AccountProfile { ProfileName = _editingOriginalProfileName };
+                oldProfile.DeleteFile(GordianStorage.ProfilesDirectory);
+            }
+
             var profile = new AccountProfile
             {
-                ProfileName = FormProfileName.Trim(),
+                ProfileName = targetName,
                 BootloaderPath = FormBootloaderPath.Trim(),
                 Arguments = FormArguments.Trim(),
                 Username = FormUsername.Trim(),
@@ -140,28 +217,28 @@ namespace Gordian.App.ViewModels
             profile.SaveToFile(GordianStorage.ProfilesDirectory);
 
             // Update existing or add new
+            string lookupName = _editingOriginalProfileName ?? targetName;
             var existing = Profiles.FirstOrDefault(p =>
-                string.Equals(p.ProfileName, profile.ProfileName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(p.ProfileName, lookupName, StringComparison.OrdinalIgnoreCase));
 
             if (existing != null)
             {
                 int index = Profiles.IndexOf(existing);
-                Profiles[index] = new ProfileItemViewModel(profile, _sessionRegistry);
+                existing.EditRequested -= OnProfileEditRequested;
+                existing.DeleteRequested -= OnProfileDeleteRequested;
+
+                var updatedVm = new ProfileItemViewModel(profile, _sessionRegistry);
+                updatedVm.EditRequested += OnProfileEditRequested;
+                updatedVm.DeleteRequested += OnProfileDeleteRequested;
+                Profiles[index] = updatedVm;
             }
             else
             {
-                Profiles.Add(new ProfileItemViewModel(profile, _sessionRegistry));
+                AddProfileViewModel(profile);
             }
 
+            ClearForm();
             StatusMessage = $"Saved profile '{profile.ProfileName}'.";
-
-            // Clear form
-            FormProfileName = string.Empty;
-            FormBootloaderPath = string.Empty;
-            FormArguments = string.Empty;
-            FormUsername = string.Empty;
-            FormPassword = string.Empty;
-            FormOtpSeed = string.Empty;
         }
 
         private void LaunchSelected()
@@ -222,8 +299,8 @@ namespace Gordian.App.ViewModels
             mainChar.SaveToFile(profilesDir);
             muleChar.SaveToFile(profilesDir);
 
-            Profiles.Add(new ProfileItemViewModel(mainChar, _sessionRegistry));
-            Profiles.Add(new ProfileItemViewModel(muleChar, _sessionRegistry));
+            AddProfileViewModel(mainChar);
+            AddProfileViewModel(muleChar);
         }
 
         public void Dispose()

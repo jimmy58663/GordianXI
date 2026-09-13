@@ -46,6 +46,16 @@ namespace Gordian.Core.Profiles
             File.WriteAllText(targetPath, json);
         }
 
+        public void DeleteFile(string folderPath)
+        {
+            string cleanName = string.Concat(ProfileName.Split(Path.GetInvalidFileNameChars()));
+            string targetPath = Path.Combine(folderPath, $"{cleanName}.json");
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+        }
+
         public static AccountProfile? LoadFromFile(string filePath)
         {
             if (!File.Exists(filePath)) return null;

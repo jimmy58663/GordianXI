@@ -51,6 +51,11 @@ namespace Gordian.App.ViewModels
         public string StatusColor => IsOnline ? "#4CAF50" : "#F44336";
 
         public System.Windows.Input.ICommand TerminateCommand { get; }
+        public System.Windows.Input.ICommand EditCommand { get; }
+        public System.Windows.Input.ICommand DeleteCommand { get; }
+
+        public event EventHandler<ProfileItemViewModel>? EditRequested;
+        public event EventHandler<ProfileItemViewModel>? DeleteRequested;
 
         public ProfileItemViewModel(AccountProfile profile, SessionRegistry? registry = null)
         {
@@ -59,6 +64,8 @@ namespace Gordian.App.ViewModels
             _isSelectedForLaunch = profile.IsSelectedForLaunch;
 
             TerminateCommand = new Gordian.App.Common.RelayCommand(Terminate);
+            EditCommand = new Gordian.App.Common.RelayCommand(() => EditRequested?.Invoke(this, this));
+            DeleteCommand = new Gordian.App.Common.RelayCommand(() => DeleteRequested?.Invoke(this, this));
 
             RefreshOnlineStatus();
         }

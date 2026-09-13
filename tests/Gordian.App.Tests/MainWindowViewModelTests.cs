@@ -92,5 +92,41 @@ namespace Gordian.App.Tests
             Assert.True(item.IsOnline);
             Assert.Equal("Online", item.StatusText);
         }
+
+        [Fact]
+        public void EditProfileCommand_PopulatesFormAndUpdatesOnSave()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            var item = vm.Profiles.First();
+
+            item.EditCommand.Execute(null);
+
+            Assert.True(vm.IsEditing);
+            Assert.Equal(item.ProfileName, vm.FormProfileName);
+
+            vm.FormArguments = "--custom-flag";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.False(vm.IsEditing);
+            Assert.Equal(string.Empty, vm.FormProfileName);
+            Assert.Contains(vm.Profiles, p => p.Profile.Arguments == "--custom-flag");
+        }
+
+        [Fact]
+        public void DeleteProfileCommand_RemovesFromCollectionAndDeletesDiskFile()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            var target = vm.Profiles.First();
+            string profileName = target.ProfileName;
+            int initialCount = vm.Profiles.Count;
+
+            target.DeleteCommand.Execute(null);
+
+            Assert.Equal(initialCount - 1, vm.Profiles.Count);
+            Assert.DoesNotContain(vm.Profiles, p => p.ProfileName == profileName);
+
+            string expectedFile = Path.Combine(_tempProfilesDir, $"{profileName}.json");
+            Assert.False(File.Exists(expectedFile));
+        }
     }
 }

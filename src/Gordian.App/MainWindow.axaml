@@ -20,7 +20,7 @@
                 <Border Grid.Column="0" Background="#252526" Margin="0,0,8,0" CornerRadius="6" Padding="15">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="Account Profile Properties" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="{Binding FormTitle}" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
 
                             <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
                             <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
@@ -42,10 +42,20 @@
 
                             <Separator Margin="0,5,0,5" Background="#3E3E42"/>
 
-                            <Button Content="Save Profile Configuration"
-                                    Command="{Binding SaveProfileCommand}"
-                                    HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
+                            <Grid ColumnDefinitions="*, Auto">
+                                <Button Grid.Column="0"
+                                        Content="Save Profile Configuration"
+                                        Command="{Binding SaveProfileCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
+
+                                <Button Grid.Column="1"
+                                        Content="Cancel"
+                                        Command="{Binding ClearFormCommand}"
+                                        IsVisible="{Binding IsEditing}"
+                                        Margin="6,0,0,0"
+                                        Background="#3E3E42" Foreground="White"/>
+                            </Grid>
 
                             <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                         </StackPanel>
@@ -68,7 +78,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ProfileItemViewModel">
                                             <Border Margin="0,3" Padding="6,4" Background="#2D2D30" CornerRadius="4">
-                                                <Grid ColumnDefinitions="Auto, 180, *, Auto">
+                                                <Grid ColumnDefinitions="Auto, 160, *, Auto">
                                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
@@ -77,15 +87,28 @@
                                                         <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     </StackPanel>
 
-                                                    <!-- Individual Terminate Button (Visible when Online) -->
-                                                    <Button Grid.Column="3"
-                                                            Content="Terminate"
-                                                            Command="{Binding TerminateCommand}"
-                                                            IsVisible="{Binding IsOnline}"
-                                                            Background="#D32F2F" Foreground="White"
-                                                            FontSize="11" FontWeight="Bold"
-                                                            Padding="8,4" CornerRadius="3"
-                                                            VerticalAlignment="Center"/>
+                                                    <!-- Actions: Edit, Delete, Terminate -->
+                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                        <Button Content="Edit"
+                                                                Command="{Binding EditCommand}"
+                                                                Background="#3E3E42" Foreground="#9CDCFE"
+                                                                FontSize="11" FontWeight="SemiBold"
+                                                                Padding="8,4" CornerRadius="3"/>
+
+                                                        <Button Content="Delete"
+                                                                Command="{Binding DeleteCommand}"
+                                                                Background="#3E3E42" Foreground="#CE9178"
+                                                                FontSize="11" FontWeight="SemiBold"
+                                                                Padding="8,4" CornerRadius="3"/>
+
+                                                        <!-- Individual Terminate Button (Visible when Online) -->
+                                                        <Button Content="Terminate"
+                                                                Command="{Binding TerminateCommand}"
+                                                                IsVisible="{Binding IsOnline}"
+                                                                Background="#D32F2F" Foreground="White"
+                                                                FontSize="11" FontWeight="Bold"
+                                                                Padding="8,4" CornerRadius="3"/>
+                                                    </StackPanel>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
