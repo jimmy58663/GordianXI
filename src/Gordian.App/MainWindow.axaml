@@ -210,6 +210,7 @@
                             <ListBox Grid.Row="1"
                                      ItemsSource="{Binding Inspector.FilteredPackets}"
                                      SelectedItem="{Binding Inspector.SelectedPacket, Mode=TwoWay}"
+                                     AutoScrollToSelectedItem="False"
                                      Background="Transparent">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="net:PacketLogEntry">
