@@ -11,11 +11,29 @@
 // Forward declarations
 typedef void(__stdcall* LPFN_DoHardwareCheck)();
 typedef int(__stdcall* LPFN_InitializeInstance)(void* lpParams);
+typedef HRESULT(__stdcall* LPFN_DllGetClassObject)(REFCLSID, REFIID, LPVOID*);
 
 LPFN_DoHardwareCheck Real_DoHardwareCheck = nullptr;
 LPFN_InitializeInstance Real_InitializeInstance = nullptr;
+LPFN_DllGetClassObject Real_DllGetClassObject = nullptr;
 HMODULE hOriginalDll = nullptr;
 static bool g_HandoffDispatched = false;
+
+void LogDebug(const std::string& msg) {
+    wchar_t appData[MAX_PATH] = { 0 };
+    if (GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH) > 0) {
+        std::wstring logDir = std::wstring(appData) + L"\\GordianXI\\logs";
+        CreateDirectoryW(logDir.c_str(), nullptr);
+        std::wstring logFile = logDir + L"\\proxy_debug.log";
+        FILE* f = _wfopen(logFile.c_str(), L"a");
+        if (f) {
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            fprintf(f, "[%02d:%02d:%02d.%03d] [PID %lu] %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, GetCurrentProcessId(), msg.c_str());
+            fclose(f);
+        }
+    }
+}
 
 // REVERSE-ENGINEERED STRUCT MAPPING
 // This memory structure maps to the data layout emitted by bootloaders during session handoff.
@@ -68,6 +86,8 @@ void SendJsonPayloadToPipe(const std::string& jsonPayload) {
     if (g_HandoffDispatched) return;
     g_HandoffDispatched = true;
 
+    LogDebug(std::string("SendJsonPayloadToPipe: Connecting to \\\\.\\pipe\\GordianXI_Handoff with payload: ") + jsonPayload);
+
     // Connect to GordianXI's Named Pipe with resilient retry loop
     HANDLE hPipe = INVALID_HANDLE_VALUE;
     for (int retry = 0; retry < 15; ++retry) {
@@ -93,9 +113,12 @@ void SendJsonPayloadToPipe(const std::string& jsonPayload) {
         WriteFile(hPipe, jsonPayload.c_str(), (DWORD)jsonPayload.length(), &bytesWritten, nullptr);
         FlushFileBuffers(hPipe);
         CloseHandle(hPipe);
+        LogDebug("SendJsonPayloadToPipe: Successfully wrote payload to named pipe. Bootloader exiting in 100ms.");
+    } else {
+        LogDebug("SendJsonPayloadToPipe: Failed to connect to named pipe after retries.");
     }
 
-    // Terminate the dummy bootloader process cleanly so the DLL file is released immediately
+    // Terminate the bootloader process cleanly now that handoff is complete
     Sleep(100);
     ExitProcess(0);
 }
@@ -174,19 +197,39 @@ void NotifySessionFromEnvironment() {
 static const GUID CLSID_GameMain_Local = { 0x1027DC46, 0x750D, 0x4B1F, { 0x88, 0x34, 0x1D, 0x25, 0xB8, 0xBE, 0xBA, 0xB8 } };
 static const GUID IID_IGameMain_Local = { 0x493BF7B9, 0x0C3A, 0x43B5, { 0xBF, 0xA6, 0x28, 0xFB, 0xEE, 0x25, 0x1E, 0x3D } };
 
+MIDL_INTERFACE("493BF7B9-0C3A-43B5-BFA6-28FBEE251E3D")
+IGameMain : public IUnknown
+{
+public:
+    virtual HRESULT __stdcall FFXiGameMain(IUnknown* pPol, IUnknown* pFFXi) = 0;
+    virtual HRESULT __stdcall FFXiParaGet(IUnknown** pFFXiPara) = 0;
+    virtual HRESULT __stdcall PolLogoutInit(void) = 0;
+    virtual HRESULT __stdcall PolLogoutEnd(void) = 0;
+};
+
 // Implementation of IGameMain for FFXi.dll invocation
-class CProxyGameMain : public IUnknown
+class CProxyGameMain : public IGameMain
 {
     LONG m_refCount;
+    IGameMain* m_pRealGameMain;
 public:
-    CProxyGameMain() : m_refCount(1) {}
+    CProxyGameMain(IGameMain* pReal) : m_refCount(1), m_pRealGameMain(pReal) {
+        if (m_pRealGameMain) m_pRealGameMain->AddRef();
+    }
+
+    ~CProxyGameMain() {
+        if (m_pRealGameMain) {
+            m_pRealGameMain->Release();
+            m_pRealGameMain = nullptr;
+        }
+    }
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
     {
         if (!ppv) return E_POINTER;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IGameMain_Local))
         {
-            *ppv = this;
+            *ppv = static_cast<IGameMain*>(this);
             AddRef();
             return S_OK;
         }
@@ -206,20 +249,36 @@ public:
         return count;
     }
 
-    virtual HRESULT __stdcall FFXiGameMain(IUnknown* pPol, IUnknown* pFFXi)
+    virtual HRESULT __stdcall FFXiGameMain(IUnknown* pPol, IUnknown* pFFXi) override
     {
+        LogDebug("CProxyGameMain::FFXiGameMain: Called by FFXi.dll! Character selection complete. Initiating handoff to GordianXI...");
         NotifySessionFromEnvironment();
         return S_OK;
     }
 
-    virtual HRESULT __stdcall FFXiParaGet(IUnknown** pFFXiPara)
+    virtual HRESULT __stdcall FFXiParaGet(IUnknown** pFFXiPara) override
     {
+        LogDebug("CProxyGameMain::FFXiParaGet called");
+        if (m_pRealGameMain) {
+            HRESULT hr = m_pRealGameMain->FFXiParaGet(pFFXiPara);
+            LogDebug(std::string("FFXiParaGet from genuine DLL returned hr=0x") + std::to_string((unsigned long)hr));
+            return hr;
+        }
         if (pFFXiPara) *pFFXiPara = nullptr;
         return S_OK;
     }
 
-    virtual HRESULT __stdcall PolLogoutInit(void) { return S_OK; }
-    virtual HRESULT __stdcall PolLogoutEnd(void) { return S_OK; }
+    virtual HRESULT __stdcall PolLogoutInit(void) override {
+        LogDebug("CProxyGameMain::PolLogoutInit called");
+        if (m_pRealGameMain) return m_pRealGameMain->PolLogoutInit();
+        return S_OK;
+    }
+
+    virtual HRESULT __stdcall PolLogoutEnd(void) override {
+        LogDebug("CProxyGameMain::PolLogoutEnd called");
+        if (m_pRealGameMain) return m_pRealGameMain->PolLogoutEnd();
+        return S_OK;
+    }
 };
 
 // COM Class Factory Implementation
@@ -256,12 +315,28 @@ public:
 
     STDMETHODIMP CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppv) override
     {
+        LogDebug("CProxyClassFactory::CreateInstance called");
         if (pUnkOuter != nullptr) return CLASS_E_NOAGGREGATION;
         if (!ppv) return E_POINTER;
 
-        NotifySessionFromEnvironment();
+        IGameMain* pRealGameMain = nullptr;
+        if (Real_DllGetClassObject) {
+            IClassFactory* pRealFactory = nullptr;
+            HRESULT hrFact = Real_DllGetClassObject(CLSID_GameMain_Local, IID_IClassFactory, (void**)&pRealFactory);
+            if (SUCCEEDED(hrFact) && pRealFactory) {
+                HRESULT hrCreate = pRealFactory->CreateInstance(nullptr, IID_IGameMain_Local, (void**)&pRealGameMain);
+                pRealFactory->Release();
+                if (SUCCEEDED(hrCreate) && pRealGameMain) {
+                    LogDebug("CProxyClassFactory: Successfully created genuine IGameMain from FFXiMain.dll.orig");
+                } else {
+                    LogDebug("CProxyClassFactory: Failed to create genuine IGameMain from genuine factory");
+                }
+            } else {
+                LogDebug("CProxyClassFactory: Failed to get genuine IClassFactory from FFXiMain.dll.orig");
+            }
+        }
 
-        CProxyGameMain* pGame = new CProxyGameMain();
+        CProxyGameMain* pGame = new CProxyGameMain(pRealGameMain);
         HRESULT hr = pGame->QueryInterface(riid, ppv);
         pGame->Release();
         return hr;
@@ -279,10 +354,9 @@ public:
 
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
 {
+    LogDebug("DllGetClassObject called");
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
-
-    NotifySessionFromEnvironment();
 
     CProxyClassFactory* pFactory = new CProxyClassFactory();
     HRESULT hr = pFactory->QueryInterface(riid, ppv);
@@ -312,6 +386,7 @@ extern "C" __declspec(dllexport) void __stdcall DoPlayOnlineHardwareCheck()
 
 extern "C" __declspec(dllexport) int __stdcall InitializeGameInstance(void* lpParams)
 {
+    LogDebug("InitializeGameInstance called");
     if (lpParams != nullptr) {
         FfxiHandoffParams* params = reinterpret_cast<FfxiHandoffParams*>(lpParams);
         ForwardSessionParametersToGordianCore(params);
@@ -323,20 +398,25 @@ extern "C" __declspec(dllexport) int __stdcall InitializeGameInstance(void* lpPa
     return -1;
 }
 
+static HMODULE g_hProxyModule = nullptr;
+
 // Optional link to original DLL if available
 void InterceptAndLinkOriginalDll()
 {
-    // Check if FFXiMain.dll.orig exists next to this proxy
     wchar_t modulePath[MAX_PATH] = { 0 };
-    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) > 0) {
+    if (GetModuleFileNameW(g_hProxyModule, modulePath, MAX_PATH) > 0) {
         std::wstring path(modulePath);
         size_t lastSlash = path.find_last_of(L"\\/");
         if (lastSlash != std::wstring::npos) {
             std::wstring origPath = path.substr(0, lastSlash + 1) + L"FFXiMain.dll.orig";
             hOriginalDll = LoadLibraryW(origPath.c_str());
             if (hOriginalDll) {
+                Real_DllGetClassObject = (LPFN_DllGetClassObject)GetProcAddress(hOriginalDll, "DllGetClassObject");
                 Real_DoHardwareCheck = (LPFN_DoHardwareCheck)GetProcAddress(hOriginalDll, "DoPlayOnlineHardwareCheck");
                 Real_InitializeInstance = (LPFN_InitializeInstance)GetProcAddress(hOriginalDll, "InitializeGameInstance");
+                LogDebug("InterceptAndLinkOriginalDll: Successfully linked genuine FFXiMain.dll.orig");
+            } else {
+                LogDebug(std::string("InterceptAndLinkOriginalDll: Could not load FFXiMain.dll.orig at ") + ConvertWStringToString(origPath));
             }
         }
     }
@@ -345,9 +425,16 @@ void InterceptAndLinkOriginalDll()
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
+        g_hProxyModule = hModule;
         DisableThreadLibraryCalls(hModule);
+        wchar_t hostExe[MAX_PATH] = { 0 };
+        GetModuleFileNameW(nullptr, hostExe, MAX_PATH);
+        char hostNameA[MAX_PATH] = { 0 };
+        WideCharToMultiByte(CP_UTF8, 0, hostExe, -1, hostNameA, MAX_PATH, nullptr, nullptr);
+        LogDebug(std::string("DllMain: DLL_PROCESS_ATTACH by process: ") + hostNameA);
         InterceptAndLinkOriginalDll();
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
+        LogDebug("DllMain: DLL_PROCESS_DETACH");
         if (hOriginalDll) FreeLibrary(hOriginalDll);
     }
     return TRUE;
