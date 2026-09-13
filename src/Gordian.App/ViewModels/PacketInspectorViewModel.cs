@@ -16,7 +16,7 @@ namespace Gordian.App.ViewModels
     /// </summary>
     public sealed class PacketInspectorViewModel : ViewModelBase, IDisposable
     {
-        private const int DefaultMaxPackets = 500;
+        private const int DefaultMaxPackets = 2000;
         private readonly List<PacketLogEntry> _allPackets = new();
         private readonly object _lock = new();
 

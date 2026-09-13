@@ -126,5 +126,45 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(64, mgr.Direction);
             Assert.Equal(101, mgr.TargetIndex);
         }
+
+        [Fact]
+        public async Task SessionNetworkManager_OutboundFlush_FiresPacketInspectedWithClientSeq()
+        {
+            var inspected = new System.Collections.Generic.List<PacketLogEntry>();
+            using var mgr = new SessionNetworkManager("127.0.0.1", 59999);
+            mgr.PacketInspected += (s, e) =>
+            {
+                if (e.Direction == PacketDirection.Outbound)
+                {
+                    lock (inspected)
+                    {
+                        inspected.Add(e);
+                    }
+                }
+            };
+
+            await mgr.ConnectAsync();
+            try
+            {
+                mgr.CurrentState = SessionState.ActiveInWorld;
+
+                byte[] gameOkChunk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
+                await mgr.QueueChunkAsync(gameOkChunk, isHighPriority: true);
+
+                lock (inspected)
+                {
+                    Assert.NotEmpty(inspected);
+                    var entry = inspected.Find(p => p.PacketId == 0x00C);
+                    Assert.NotNull(entry);
+                    Assert.Equal(PacketDirection.Outbound, entry.Direction);
+                    Assert.Equal("GP_CLI_GAMEOK", entry.PacketName);
+                    Assert.True(entry.SequenceId >= 1);
+                }
+            }
+            finally
+            {
+                mgr.Disconnect();
+            }
+        }
     }
 }

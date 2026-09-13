@@ -135,7 +135,10 @@ namespace Gordian.Core.Network
             _serverAddress = serverAddress ?? throw new ArgumentNullException(nameof(serverAddress));
             _serverPort = serverPort;
             _codec = codec ?? FfxiCodec.Default;
-            _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec);
+            _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec)
+            {
+                LogOutboundOnRoute = false
+            };
             _parser.PacketInspected += (s, e) => PacketInspected?.Invoke(this, e);
             _parser.HandshakeCompleted += () => CurrentState = SessionState.ActiveInWorld;
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
@@ -309,7 +312,7 @@ namespace Gordian.Core.Network
                 // 1. Advance client packet sequence number
                 ushort clientSeq = ++_clientPacketIdSequence;
 
-                // 2. Patch sequenceId (offset 2..3) of each bundled sub-packet with clientSeq
+                // 2. Patch sequenceId (offset 2..3) of each bundled sub-packet with clientSeq and log outbound subpacket
                 int subOffset = 0;
                 while (subOffset + 4 <= _currentBufferLength)
                 {
@@ -317,6 +320,12 @@ namespace Gordian.Core.Network
                     if (subSize < 4 || subOffset + subSize > _currentBufferLength) break;
 
                     BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
+
+                    ushort rawTypeAndSize = BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset, 2));
+                    ushort packetId = (ushort)(rawTypeAndSize & 0x1FF);
+                    ReadOnlySpan<byte> fullSubPacket = _outboundQueueBuffer.AsSpan(subOffset, subSize);
+                    _parser.LogPacket(PacketDirection.Outbound, packetId, clientSeq, fullSubPacket);
+
                     subOffset += subSize;
                 }
 

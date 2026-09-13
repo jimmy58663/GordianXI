@@ -54,6 +54,13 @@ namespace Gordian.Core.Network
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
 
         /// <summary>
+        /// Controls whether RoutePacketToCoreState logs outbound response packets directly.
+        /// When false, outbound packets are logged by the network layer on actual transmission.
+        /// Defaults to true for standalone parser testing.
+        /// </summary>
+        public bool LogOutboundOnRoute { get; set; } = true;
+
+        /// <summary>
         /// Gets the active cryptographic suite configured for this session.
         /// </summary>
         public IPacketCryptoSuite CryptoSuite => _cryptoSuite;
@@ -210,7 +217,10 @@ namespace Gordian.Core.Network
 
                     // Respond with GP_CLI_GAMEOK (0x00C) to request zone entry packets.
                     byte[] gameOk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
-                    LogPacket(PacketDirection.Outbound, 0x00C, 0, gameOk);
+                    if (LogOutboundOnRoute)
+                    {
+                        LogPacket(PacketDirection.Outbound, 0x00C, 0, gameOk);
+                    }
                     _ = _sendChunkCallback(gameOk, true);
                     break;
 
@@ -218,7 +228,10 @@ namespace Gordian.Core.Network
                     // Server streamed zone entrance data.
                     // Release the loading state by sending GP_CLI_NETEND (0x00D).
                     byte[] netEnd = HandshakePackets.BuildNetEndSubPacket(sequenceId: 0);
-                    LogPacket(PacketDirection.Outbound, 0x00D, 0, netEnd);
+                    if (LogOutboundOnRoute)
+                    {
+                        LogPacket(PacketDirection.Outbound, 0x00D, 0, netEnd);
+                    }
                     _ = _sendChunkCallback(netEnd, true);
                     HandshakeCompleted?.Invoke();
                     break;
@@ -226,7 +239,10 @@ namespace Gordian.Core.Network
                 case 0x015: // SERVER KEEPALIVE PING / POS
                     // Echo back high-priority keepalive chunk.
                     byte[] posPong = HandshakePackets.BuildPosPingPongSubPacket(sequenceId: sequenceId);
-                    LogPacket(PacketDirection.Outbound, 0x015, sequenceId, posPong);
+                    if (LogOutboundOnRoute)
+                    {
+                        LogPacket(PacketDirection.Outbound, 0x015, sequenceId, posPong);
+                    }
                     _ = _sendChunkCallback(posPong, true);
                     break;
 
