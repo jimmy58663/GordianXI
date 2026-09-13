@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
 
@@ -84,12 +85,15 @@ namespace Gordian.Core.Network
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
         /// and iterative sub-packet dispatching.
         /// </summary>
-        public void ProcessIncomingChunk(Span<byte> rawPacketBuffer)
+        public bool ProcessIncomingChunk(Span<byte> rawPacketBuffer)
         {
+            GordianLog.Debug("PARSER", $"ProcessIncomingChunk: {rawPacketBuffer.Length} bytes received. KeyInitialized={_cryptoSuite.IsKeyInitialized}");
+
             // Minimum FFXI datagram envelope: 28-byte header + 16-byte MD5 checksum
             if (rawPacketBuffer.Length < FfxiHeaderSize + 16)
             {
-                return;
+                GordianLog.Debug("PARSER", $"Raw datagram buffer too short ({rawPacketBuffer.Length} bytes). Minimum: {FfxiHeaderSize + 16}");
+                return false;
             }
 
             // 1. Decrypt and verify packet integrity via pluggable crypto suite
@@ -98,8 +102,20 @@ namespace Gordian.Core.Network
             {
                 if (!_cryptoSuite.TryDecryptAndVerify(rawPacketBuffer, FfxiHeaderSize, out payloadLength))
                 {
-                    System.Diagnostics.Debug.WriteLine("[NET_TRACE] Inbound datagram failed crypto decryption or MD5 checksum verification.");
-                    return;
+                    GordianLog.Warning("PARSER", "Inbound datagram failed Blowfish decryption or MD5 checksum verification.");
+                    // Log undecrypted raw packet to inspector for diagnostic inspection
+                    var undecryptedEntry = new PacketLogEntry
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        Direction = PacketDirection.Inbound,
+                        PacketId = 0,
+                        PacketName = "GP_RAW_UDP_UNDECRYPTED",
+                        SequenceId = 0,
+                        Size = rawPacketBuffer.Length,
+                        RawBytes = rawPacketBuffer.ToArray()
+                    };
+                    PacketInspected?.Invoke(this, undecryptedEntry);
+                    return false;
                 }
             }
             else
@@ -110,7 +126,8 @@ namespace Gordian.Core.Network
 
             if (payloadLength <= 0)
             {
-                return;
+                GordianLog.Debug("PARSER", $"Inbound payload length non-positive ({payloadLength}).");
+                return false;
             }
 
             // 2. Decompress payload starting after 28-byte header
@@ -123,13 +140,14 @@ namespace Gordian.Core.Network
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[NET_TRACE] Payload decompression error: {ex.Message}");
-                return;
+                GordianLog.Warning("PARSER", $"Payload decompression error: {ex.Message}");
+                return false;
             }
 
             if (decompressedBytes < 4)
             {
-                return;
+                GordianLog.Debug("PARSER", $"Decompressed length ({decompressedBytes}) < 4.");
+                return false;
             }
 
             // 3. Iterate concatenated sub-packets
@@ -156,10 +174,14 @@ namespace Gordian.Core.Network
                 ReadOnlySpan<byte> fullSubPacket = current.Slice(0, packetSize);
                 ReadOnlySpan<byte> packetPayload = current.Slice(4, packetSize - 4);
 
+                GordianLog.Debug("PARSER", $"Processed Inbound Sub-Packet: 0x{packetId:X3} ({PacketLogEntry.ResolvePacketName(packetId, PacketDirection.Inbound)}), Size={packetSize}, Seq={sequenceId}");
+
                 LogPacket(PacketDirection.Inbound, packetId, sequenceId, fullSubPacket);
                 RoutePacketToCoreState(packetId, sequenceId, packetPayload);
                 offset += packetSize;
             }
+
+            return true;
         }
 
         private void RoutePacketToCoreState(ushort packetId, ushort sequenceId, ReadOnlySpan<byte> payload)

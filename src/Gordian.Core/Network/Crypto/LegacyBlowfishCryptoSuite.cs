@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.Network.Crypto
 {
@@ -18,7 +19,7 @@ namespace Gordian.Core.Network.Crypto
         private readonly uint[] _p = new uint[18];
         private readonly uint[] _s = new uint[1024]; // 4 S-boxes of 256 uint32s = 1024 uint32s
 
-        private static readonly byte[] FfxiSubkey = new byte[4168]
+        internal static readonly byte[] FfxiSubkey = new byte[4168]
         {
             0x88, 0x6A, 0x3F, 0x24, 0xD3, 0x08, 0xA3, 0x85, 0x2E, 0x8A, 0x19, 0x13, 0x44, 0x73, 0x70, 0x03,
             0x22, 0x38, 0x09, 0xA4, 0xD0, 0x31, 0x9F, 0x29, 0x98, 0xFA, 0x2E, 0x08, 0x89, 0x6C, 0x4E, 0xEC,
@@ -312,6 +313,7 @@ namespace Gordian.Core.Network.Crypto
             Span<byte> hashedKey = stackalloc byte[16];
             if (key.Length == 20)
             {
+                GordianLog.Debug("CRYPTO", $"InitializeKey: raw 20-byte key: {Convert.ToHexString(key)}");
                 MD5.HashData(key, hashedKey);
                 for (int i = 0; i < 16; ++i)
                 {
@@ -321,6 +323,7 @@ namespace Gordian.Core.Network.Crypto
                         break;
                     }
                 }
+                GordianLog.Debug("CRYPTO", $"InitializeKey: MD5-derived effective key (after null truncation): {Convert.ToHexString(hashedKey)}");
                 effectiveKey = hashedKey;
             }
             else
@@ -336,7 +339,13 @@ namespace Gordian.Core.Network.Crypto
                 uint data = 0;
                 for (int k = 0; k < 4; ++k)
                 {
-                    data = (data << 8) | effectiveKey[keyIndex++];
+                    // In LandSandBoat and retail FFXiMain.dll (compiled via MSVC C++), the key parameter
+                    // is typed as `const int8 key[]` (std::int8_t / signed char). Under MSVC integer promotion rules,
+                    // any key byte with the high bit set (>= 0x80) is sign-extended via `movsx` to 0xFFFFFFxx
+                    // before bitwise-ORing into `data`. Replicate this exact hardware behavior:
+#pragma warning disable CS0675 // Bitwise-or operator used on a sign-extended operand (intentional MSVC C++ int8 compatibility)
+                    data = (data << 8) | unchecked((uint)(sbyte)effectiveKey[keyIndex++]);
+#pragma warning restore CS0675
                     if (keyIndex >= effectiveKey.Length)
                     {
                         keyIndex = 0;
@@ -382,10 +391,24 @@ namespace Gordian.Core.Network.Crypto
             numWords -= numWords % 2; // Must be even number of 32-bit words (64-bit blocks)
             int blockCount = numWords / 2;
 
+            // DIAGNOSTIC: log first 32 bytes pre-decryption and last 16 bytes (expected MD5)
+            {
+                int diagPreLen = Math.Min(32, totalCipherRegion);
+                GordianLog.Debug("CRYPTO", $"PRE-DECRYPT [{packetData.Length}b]: header={headerSize}, cipherRegion={totalCipherRegion}b, blocks={blockCount}. " +
+                    $"First {diagPreLen} payload bytes: {Convert.ToHexString(packetData.Slice(headerSize, diagPreLen))}");
+                GordianLog.Debug("CRYPTO", $"EXPECTED MD5 (last 16b of raw packet): {Convert.ToHexString(packetData.Slice(packetData.Length - 16, 16))}");
+            }
+
             if (IsKeyInitialized && blockCount > 0)
             {
                 Span<byte> cipherBytes = packetData.Slice(headerSize, numWords * 4);
                 DecipherBlocks(cipherBytes, blockCount);
+            }
+
+            // DIAGNOSTIC: log first 32 bytes post-decryption
+            {
+                int diagPostLen = Math.Min(32, totalCipherRegion);
+                GordianLog.Debug("CRYPTO", $"POST-DECRYPT first {diagPostLen} payload bytes: {Convert.ToHexString(packetData.Slice(headerSize, diagPostLen))}");
             }
 
             // Verify trailing 16-byte MD5 hash
@@ -395,6 +418,10 @@ namespace Gordian.Core.Network.Crypto
 
             Span<byte> computedHash = stackalloc byte[16];
             MD5.HashData(payloadRegion, computedHash);
+
+            // DIAGNOSTIC: log both MD5 hashes so we can see if they nearly match
+            GordianLog.Debug("CRYPTO", $"COMPUTED MD5 over {payloadRegionLength}b decrypted payload: {Convert.ToHexString(computedHash)}");
+            GordianLog.Debug("CRYPTO", $"RECEIVED MD5 (after decrypt, last 16b): {Convert.ToHexString(receivedHash)}");
 
             if (!CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
             {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using Avalonia;
@@ -12,13 +12,13 @@ namespace Gordian.App
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
         // yet and stuff might break.
         [STAThread]
-            public static void Main(string[] args)
-            {
-                // 📝 Initialize the Platform-Agnostic File Logger
-                InitializeSegmentedLogFiles();
+        public static void Main(string[] args)
+        {
+            // 📝 Initialize the Platform-Agnostic File Logger
+            InitializeSegmentedLogFiles();
 
-                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-            }
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
 
             private static void InitializeSegmentedLogFiles()
         {

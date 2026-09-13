@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.Network.LandSandBoat
 {
@@ -55,6 +56,27 @@ namespace Gordian.Core.Network.LandSandBoat
         public const int DefaultViewPort = 54001;
 
         /// <summary>
+        /// Fires whenever a lobby packet is sent or received, forwarding to the live packet inspector.
+        /// </summary>
+        public event EventHandler<PacketLogEntry>? PacketInspected;
+
+        private void LogLobbyPacket(PacketDirection direction, ushort cmd, ReadOnlySpan<byte> data, string? customName = null)
+        {
+            if (PacketInspected == null) return;
+            var entry = new PacketLogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Direction = direction,
+                PacketId = cmd,
+                PacketName = customName ?? PacketLogEntry.ResolvePacketName(cmd, direction),
+                SequenceId = 0,
+                Size = data.Length,
+                RawBytes = data.ToArray()
+            };
+            PacketInspected.Invoke(this, entry);
+        }
+
+        /// <summary>
         /// Remote server certificate validation callback that accepts self-signed LandSandBoat certificates.
         /// </summary>
         private static bool ValidateRemoteCertificate(
@@ -81,6 +103,7 @@ namespace Gordian.Core.Network.LandSandBoat
         {
             ArgumentNullException.ThrowIfNull(host);
 
+            GordianLog.Info("LSB_LOGIN", $"Connecting to auth server {host}:{port} for user '{username}'...");
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync(host, port, ct).ConfigureAwait(false);
 
@@ -145,6 +168,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 }
             }
 
+            GordianLog.Info("LSB_LOGIN", $"Auth success! Account ID: {accountId}. Session hash acquired ({sessionHash.Length} bytes).");
             return (accountId, sessionHash);
         }
 
@@ -173,15 +197,15 @@ namespace Gordian.Core.Network.LandSandBoat
                 throw new ArgumentException("Session hash must be exactly 16 bytes.", nameof(sessionHash));
             }
 
-            // Generate 20-byte Blowfish key matching LandSandBoat expectations
-            byte[] blowfishKey = new byte[20];
+            // Standard xiloader / retail 20-byte Blowfish key: 16 null bytes followed by 58 E0 5D AD
+            byte[] blowfishKey = new byte[20]
+            {
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0x58, 0xE0, 0x5D, 0xAD
+            };
             if (customBlowfishKey != null && customBlowfishKey.Length == 20)
             {
                 customBlowfishKey.CopyTo(blowfishKey, 0);
-            }
-            else
-            {
-                RandomNumberGenerator.Fill(blowfishKey);
             }
 
             // Step 1: Connect to xi_data (Port 54230, plain TCP, NOT TLS!)
@@ -198,6 +222,7 @@ namespace Gordian.Core.Network.LandSandBoat
             sessionHash.CopyTo(fePacket.AsSpan(12, 16));
             await dataStream.WriteAsync(fePacket, ct).ConfigureAwait(false);
             await dataStream.FlushAsync(ct).ConfigureAwait(false);
+            LogLobbyPacket(PacketDirection.Outbound, 0xFE, fePacket, "GP_LOBBY_CONNECT");
 
             // Step 2: Connect to xi_view (Port 54001, plain TCP, NOT TLS!)
             using var viewTcpClient = new TcpClient();
@@ -224,10 +249,15 @@ namespace Gordian.Core.Network.LandSandBoat
 
             await viewStream.WriteAsync(view26Packet, ct).ConfigureAwait(false);
             await viewStream.FlushAsync(ct).ConfigureAwait(false);
+            LogLobbyPacket(PacketDirection.Outbound, 0x26, view26Packet, "GP_LOBBY_VERSION_CHECK");
 
             // Read 0x05 response from view_session (40 bytes)
             byte[] viewBuffer = new byte[512];
             int viewRead = await viewStream.ReadAsync(viewBuffer, ct).ConfigureAwait(false);
+            if (viewRead > 0)
+            {
+                LogLobbyPacket(PacketDirection.Inbound, (ushort)(viewRead > 8 ? viewBuffer[8] : 0x05), viewBuffer.AsSpan(0, viewRead), "GP_LOBBY_VERSION_REPLY");
+            }
             if (viewRead < 8 || viewBuffer[8] != 0x05)
             {
                 // If the version lock rejected, viewBuffer[8] will be 0x04 (error)
@@ -250,10 +280,15 @@ namespace Gordian.Core.Network.LandSandBoat
             sessionHash.CopyTo(a1Packet.AsSpan(12, 16));
             await dataStream.WriteAsync(a1Packet, ct).ConfigureAwait(false);
             await dataStream.FlushAsync(ct).ConfigureAwait(false);
+            LogLobbyPacket(PacketDirection.Outbound, 0xA1, a1Packet, "GP_LOBBY_AUTH_REQUEST");
 
             // Step 4: Receive 0x03 Character List from xi_data (328 bytes)
             byte[] dataBuffer = new byte[1024];
             int bytesRead = await dataStream.ReadAsync(dataBuffer, ct).ConfigureAwait(false);
+            if (bytesRead > 0)
+            {
+                LogLobbyPacket(PacketDirection.Inbound, (ushort)(bytesRead > 0 ? dataBuffer[0] : 0x03), dataBuffer.AsSpan(0, bytesRead), "GP_LOBBY_CHAR_LIST");
+            }
             if (bytesRead < 2 || dataBuffer[0] != 0x03)
             {
                 throw new InvalidOperationException($"Unexpected response from data server: expected 0x03, received {bytesRead} bytes.");
@@ -291,17 +326,35 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             // Step 4b: Check for 0x20 Character Info response on xi_view (contains in-game character names)
+            // Note: In LandSandBoat, xi_view sends lpkt_chr_info2 which is up to 2272 bytes (16 slots * 140 bytes + 32 header).
+            // We must completely drain this packet from viewStream so subsequent reads (e.g. 0x0B) receive clean data.
             string? viewCharName = null;
             uint viewCharId = 0;
             try
             {
                 using var cts20 = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts20.CancelAfter(2000);
-                int viewBytes = await viewStream.ReadAsync(viewBuffer, cts20.Token).ConfigureAwait(false);
-                if (viewBytes >= 60 && viewBuffer[8] == 0x20)
+                cts20.CancelAfter(3000);
+                byte[] viewChrBuffer = new byte[4096];
+                int viewBytes = await viewStream.ReadAsync(viewChrBuffer, cts20.Token).ConfigureAwait(false);
+
+                if (viewBytes >= 4)
                 {
-                    viewCharId = BinaryPrimitives.ReadUInt32LittleEndian(viewBuffer.AsSpan(32, 4));
-                    string parsedViewName = Encoding.ASCII.GetString(viewBuffer, 44, 16).TrimEnd('\0', ' ');
+                    uint totalExpected = BinaryPrimitives.ReadUInt32LittleEndian(viewChrBuffer.AsSpan(0, 4));
+                    if (totalExpected > 0 && totalExpected <= 4096)
+                    {
+                        while (viewBytes < (int)totalExpected)
+                        {
+                            int chunk = await viewStream.ReadAsync(viewChrBuffer.AsMemory(viewBytes, (int)totalExpected - viewBytes), cts20.Token).ConfigureAwait(false);
+                            if (chunk == 0) break;
+                            viewBytes += chunk;
+                        }
+                    }
+                }
+
+                if (viewBytes >= 60 && viewChrBuffer[8] == 0x20)
+                {
+                    viewCharId = BinaryPrimitives.ReadUInt32LittleEndian(viewChrBuffer.AsSpan(32, 4));
+                    string parsedViewName = Encoding.ASCII.GetString(viewChrBuffer, 44, 16).TrimEnd('\0', ' ');
                     if (!string.IsNullOrWhiteSpace(parsedViewName))
                     {
                         viewCharName = parsedViewName;
@@ -362,8 +415,21 @@ namespace Gordian.Core.Network.LandSandBoat
                 nameBytes.AsSpan(0, copyLen).CopyTo(view07Packet.AsSpan(36, copyLen));
             }
 
+            GordianLog.Debug("LSB_LOGIN", $"Notifying xi_view of character selection (0x07) for '{selectedCharName}' (ID: {selectedCharId})...");
             await viewStream.WriteAsync(view07Packet, ct).ConfigureAwait(false);
             await viewStream.FlushAsync(ct).ConfigureAwait(false);
+            LogLobbyPacket(PacketDirection.Outbound, 0x07, view07Packet, "GP_LOBBY_CHAR_SELECT");
+
+            // Step 5b: Await 5-byte confirmation (0x02) from xi_data to ensure session.requestedCharacterID is populated
+            byte[] data07Confirm = new byte[16];
+            using var cts07 = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts07.CancelAfter(3000);
+            int confirmBytes = await dataStream.ReadAsync(data07Confirm, cts07.Token).ConfigureAwait(false);
+            GordianLog.Debug("LSB_LOGIN", $"xi_data confirmation after 0x07: {confirmBytes} bytes (cmd: 0x{(confirmBytes > 0 ? data07Confirm[0] : 0):X2})");
+            if (confirmBytes > 0)
+            {
+                LogLobbyPacket(PacketDirection.Inbound, (ushort)(confirmBytes > 0 ? data07Confirm[0] : 0x02), data07Confirm.AsSpan(0, confirmBytes), "GP_LOBBY_CHAR_CONFIRM");
+            }
 
             // Step 6: Send 0xA2 Character Selection & Blowfish Key to xi_data (28 bytes)
             // Offset 0: 0xA2
@@ -374,53 +440,62 @@ namespace Gordian.Core.Network.LandSandBoat
             blowfishKey.CopyTo(a2Packet.AsSpan(1, 20));
             BinaryPrimitives.WriteUInt32LittleEndian(a2Packet.AsSpan(21, 4), selectedCharId);
 
+            GordianLog.Debug("LSB_LOGIN", $"Transmitting 0xA2 character selection & Blowfish key to xi_data for char ID {selectedCharId}...");
             await dataStream.WriteAsync(a2Packet, ct).ConfigureAwait(false);
             await dataStream.FlushAsync(ct).ConfigureAwait(false);
+            LogLobbyPacket(PacketDirection.Outbound, 0xA2, a2Packet, "GP_LOBBY_CHAR_SELECT_KEY");
 
             // Step 7: Receive 0x0B Response from xi_view (0x48 = 72 bytes)
             // In LandSandBoat, data_session::read_func (0xA2) writes lpkt_next_login (0x0B) to viewSession!
+            using var cts0B = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts0B.CancelAfter(5000); // Wait up to 5 seconds for 0x0B response
+            byte[] reply0BBuffer = new byte[512];
+            int replyLen = 0;
+            while (replyLen < 72)
+            {
+                int chunk = await viewStream.ReadAsync(reply0BBuffer.AsMemory(replyLen, reply0BBuffer.Length - replyLen), cts0B.Token).ConfigureAwait(false);
+                if (chunk == 0) break;
+                replyLen += chunk;
+            }
+
+            byte replyCmd = replyLen > 8 ? reply0BBuffer[8] : (byte)0;
+            GordianLog.Debug("LSB_LOGIN", $"xi_view response to 0xA2: {replyLen} bytes (command: 0x{replyCmd:X2})");
+            if (replyLen > 0)
+            {
+                LogLobbyPacket(PacketDirection.Inbound, replyCmd != 0 ? replyCmd : (ushort)0x0B, reply0BBuffer.AsSpan(0, replyLen), "GP_LOBBY_ZONE_TICKET");
+            }
+
+            if (replyLen < 72 || reply0BBuffer[8] != 0x0B)
+            {
+                throw new InvalidOperationException($"LandSandBoat character selection failed: server returned {replyLen} bytes with code 0x{replyCmd:X2} (expected 72 bytes with 0x0B). Check LSB server console for details.");
+            }
+
+            // lpkt_next_login:
+            // Offset 28: ffxi_id (uint32)
+            // Offset 32: ffxi_id_world (uint32)
+            // Offset 36: character_name (16 bytes)
+            // Offset 52: server_id (uint32)
+            // Offset 56: server_ip (uint32)
+            // Offset 60: server_port (uint32)
+            uint srvIp = BinaryPrimitives.ReadUInt32LittleEndian(reply0BBuffer.AsSpan(56, 4));
+            uint srvPort = BinaryPrimitives.ReadUInt32LittleEndian(reply0BBuffer.AsSpan(60, 4));
+
             string resolvedZoneIp = host;
-            int resolvedZonePort = DefaultDataPort;
+            if (!reply0BBuffer.AsSpan(56, 4).SequenceEqual(stackalloc byte[4]))
+            {
+                var ipAddr = new IPAddress(reply0BBuffer.AsSpan(56, 4));
+                resolvedZoneIp = ipAddr.ToString();
+            }
+            int resolvedZonePort = srvPort != 0 ? (int)srvPort : DefaultDataPort;
+
             string resolvedCharName = selectedCharName;
-
-            try
+            string parsedName = Encoding.ASCII.GetString(reply0BBuffer, 36, 16).TrimEnd('\0', ' ');
+            if (!string.IsNullOrWhiteSpace(parsedName))
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(3000); // Wait up to 3 seconds for 0x0B response
-                int replyLen = await viewStream.ReadAsync(viewBuffer, cts.Token).ConfigureAwait(false);
-                if (replyLen >= 72 && viewBuffer[8] == 0x0B)
-                {
-                    // lpkt_next_login:
-                    // Offset 28: ffxi_id (uint32)
-                    // Offset 32: ffxi_id_world (uint32)
-                    // Offset 36: character_name (16 bytes)
-                    // Offset 52: server_id (uint32)
-                    // Offset 56: server_ip (uint32)
-                    // Offset 60: server_port (uint32)
-                    uint srvIp = BinaryPrimitives.ReadUInt32LittleEndian(viewBuffer.AsSpan(56, 4));
-                    uint srvPort = BinaryPrimitives.ReadUInt32LittleEndian(viewBuffer.AsSpan(60, 4));
-
-                    if (!viewBuffer.AsSpan(56, 4).SequenceEqual(stackalloc byte[4]))
-                    {
-                        var ipAddr = new IPAddress(viewBuffer.AsSpan(56, 4));
-                        resolvedZoneIp = ipAddr.ToString();
-                    }
-                    if (srvPort != 0)
-                    {
-                        resolvedZonePort = (int)srvPort;
-                    }
-
-                    string parsedName = Encoding.ASCII.GetString(viewBuffer, 36, 16).TrimEnd('\0', ' ');
-                    if (!string.IsNullOrWhiteSpace(parsedName))
-                    {
-                        resolvedCharName = parsedName;
-                    }
-                }
+                resolvedCharName = parsedName;
             }
-            catch (OperationCanceledException)
-            {
-                // Fallback to defaults if 0x0B read times out
-            }
+
+            GordianLog.Info("LSB_LOGIN", $"Character selection SUCCESS! '{resolvedCharName}' (ID: {selectedCharId}). Target zone map server: {resolvedZoneIp}:{resolvedZonePort}");
 
             return new LsbSessionTicket
             {

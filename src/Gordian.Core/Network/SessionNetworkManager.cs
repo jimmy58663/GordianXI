@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Config;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
@@ -47,9 +48,28 @@ namespace Gordian.Core.Network
         public SessionProfile Profile { get; } = new SessionProfile();
 
         /// <summary>
+        /// Raised when the session lifecycle state changes.
+        /// </summary>
+        public event EventHandler<SessionState>? StateChanged;
+
+        private SessionState _currentState = SessionState.Disconnected;
+
+        /// <summary>
         /// Gets the real-time operational lifecycle status of this active network connection.
         /// </summary>
-        public SessionState CurrentState { get; internal set; } = SessionState.Disconnected;
+        public SessionState CurrentState
+        {
+            get => _currentState;
+            internal set
+            {
+                if (_currentState != value)
+                {
+                    _currentState = value;
+                    GordianLog.Debug("NET", $"Session state changed to: {_currentState}");
+                    StateChanged?.Invoke(this, _currentState);
+                }
+            }
+        }
 
         /// <summary>
         /// Gets the packet parser handling this session.
@@ -126,11 +146,31 @@ namespace Gordian.Core.Network
                 _serverEndpoint = new IPEndPoint(targetIp, _serverPort);
                 _udpSocket = new Socket(_serverEndpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 
+                // On Windows, disable SIO_UDP_CONNRESET so ICMP Port Unreachable packets do not trigger WSAECONNRESET (10054)
+                if (OperatingSystem.IsWindows())
+                {
+                    const int SIO_UDP_CONNRESET = -1744830452;
+                    try
+                    {
+                        _udpSocket.IOControl((IOControlCode)SIO_UDP_CONNRESET, new byte[] { 0, 0, 0, 0 }, null);
+                    }
+                    catch
+                    {
+                        // Non-critical if unsupported by network interface
+                    }
+                }
+
                 // Bind client socket to any available local port
                 EndPoint localBind = new IPEndPoint(_serverEndpoint.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any, 0);
                 _udpSocket.Bind(localBind);
 
-                // 1. Send the initial unencrypted 0x00A login handshake datagram
+                GordianLog.Info("NET", $"UDP socket bound to {_udpSocket.LocalEndPoint}. Target map server: {_serverEndpoint}");
+
+                // Launch parallel background workers before transmitting initial datagram
+                _readTask = Task.Run(() => InboundNetworkReadLoopAsync(_udpSocket, _cts.Token), _cts.Token);
+                _writeFlushTask = Task.Run(() => OutboundNetworkFlushLoopAsync(_udpSocket, _cts.Token), _cts.Token);
+
+                // Send the initial unencrypted 0x00A login handshake datagram with retransmission
                 if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
                 {
                     byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
@@ -145,14 +185,38 @@ namespace Gordian.Core.Network
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
                     _parser.LogPacket(PacketDirection.Outbound, 0x00A, 0, loginSubPacket);
 
-                    await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, _cts.Token).ConfigureAwait(false);
+                    CurrentState = SessionState.ExchangingCryptoKeys;
+
+                    // Periodically retransmit 0x00A until server responds or session moves to ActiveInWorld
+                    _ = Task.Run(async () =>
+                    {
+                        int attempt = 0;
+                        while (!_cts.IsCancellationRequested && CurrentState == SessionState.ExchangingCryptoKeys && attempt < 25)
+                        {
+                            attempt++;
+                            GordianLog.Debug("NET", $"Transmitting 0x00A login handshake attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
+                            try
+                            {
+                                await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, _cts.Token).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                GordianLog.Warning("NET", $"Failed to send 0x00A attempt #{attempt}: {ex.Message}");
+                                break;
+                            }
+
+                            // Wait 500ms between attempts for server to process and respond
+                            try
+                            {
+                                await Task.Delay(500, _cts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                break;
+                            }
+                        }
+                    }, _cts.Token);
                 }
-
-                CurrentState = SessionState.ExchangingCryptoKeys;
-
-                // Launch parallel background workers
-                _readTask = Task.Run(() => InboundNetworkReadLoopAsync(_udpSocket, _cts.Token), _cts.Token);
-                _writeFlushTask = Task.Run(() => OutboundNetworkFlushLoopAsync(_udpSocket, _cts.Token), _cts.Token);
             }
             catch (Exception)
             {
@@ -179,7 +243,7 @@ namespace Gordian.Core.Network
             {
                 if (_currentBufferLength + chunkData.Length > _outboundQueueBuffer.Length)
                 {
-                    await FlushBundledPacketAsync(_udpSocket, _serverEndpoint, _cts!.Token).ConfigureAwait(false);
+                    throw new InvalidOperationException("Outbound staging queue buffer overflow.");
                 }
 
                 chunkData.Span.CopyTo(_outboundQueueBuffer.AsSpan(_currentBufferLength));
@@ -232,6 +296,7 @@ namespace Gordian.Core.Network
                 // 4. Send datagram over UDP wire
                 ReadOnlyMemory<byte> datagramMemory = scratchBuffer.WritableMemory.Slice(0, datagramLength);
                 await socket.SendToAsync(datagramMemory, SocketFlags.None, remoteEndpoint, token).ConfigureAwait(false);
+                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
             {
@@ -263,7 +328,7 @@ namespace Gordian.Core.Network
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[NET_TRACE] Outbound UDP flush failure: {ex.Message}");
+                GordianLog.Error("NET", "Outbound UDP flush failure", ex);
             }
         }
 
@@ -273,41 +338,66 @@ namespace Gordian.Core.Network
 
             try
             {
+                EndPoint anySender = new IPEndPoint(IPAddress.Any, 0);
+                GordianLog.Debug("NET", $"InboundNetworkReadLoopAsync started on local endpoint {socket.LocalEndPoint}");
                 while (!token.IsCancellationRequested)
                 {
-                    using var packetBuffer = new PacketBuffer(readBufferSize);
-                    SocketReceiveFromResult result = await socket.ReceiveFromAsync(
-                        packetBuffer.WritableMemory,
-                        SocketFlags.None,
-                        _serverEndpoint!,
-                        token
-                    ).ConfigureAwait(false);
-
-                    if (result.ReceivedBytes == 0) break;
-
-                    Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
-
-                    // Track server packet ID sequence from incoming datagram header
-                    if (activeChunk.Length >= 2)
+                    try
                     {
-                        _serverPacketIdSequence = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+                        using var packetBuffer = new PacketBuffer(readBufferSize);
+                        SocketReceiveFromResult result = await socket.ReceiveFromAsync(
+                            packetBuffer.WritableMemory,
+                            SocketFlags.None,
+                            anySender,
+                            token
+                        ).ConfigureAwait(false);
+
+                        if (result.ReceivedBytes == 0)
+                        {
+                            GordianLog.Warning("NET", $"Inbound UDP datagram of 0 bytes received from {result.RemoteEndPoint}; ignoring.");
+                            continue;
+                        }
+
+                        GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+
+                        Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
+
+                        // Track server packet ID sequence from incoming datagram header
+                        if (activeChunk.Length >= 2)
+                        {
+                            _serverPacketIdSequence = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+                        }
+
+                        bool parsed = _parser.ProcessIncomingChunk(activeChunk);
+
+                        if (parsed && (CurrentState == SessionState.ExchangingCryptoKeys || CurrentState == SessionState.LoadingWorldData))
+                        {
+                            CurrentState = SessionState.ActiveInWorld;
+                        }
                     }
-
-                    _parser.ProcessIncomingChunk(activeChunk);
-
-                    if (CurrentState == SessionState.LoadingWorldData)
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
                     {
-                        CurrentState = SessionState.ActiveInWorld;
+                        // On Windows UDP, ICMP Port Unreachable throws WSAECONNRESET (10054).
+                        // Ignore it and continue waiting for incoming server datagrams.
+                        GordianLog.Debug("NET", "Ignored UDP ICMP ConnectionReset (10054); awaiting server datagram...");
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
+                    {
+                        GordianLog.Error("NET", "Inbound UDP packet processing error inside loop", ex);
                     }
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                GordianLog.Debug("NET", "InboundNetworkReadLoopAsync cancelled via CancellationToken.");
+            }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[NET_TRACE] Inbound UDP read loop failure: {ex.Message}");
+                GordianLog.Error("NET", "Inbound UDP read loop failure", ex);
             }
             finally
             {
+                GordianLog.Debug("NET", $"InboundNetworkReadLoopAsync finally block reached. CurrentState={CurrentState}, TokenCancelled={token.IsCancellationRequested}");
                 CurrentState = SessionState.Disconnecting;
                 ExecuteSocketCleanup();
                 CurrentState = SessionState.Disconnected;
@@ -316,6 +406,7 @@ namespace Gordian.Core.Network
 
         public void Disconnect()
         {
+            GordianLog.Info("NET", $"Disconnect() called directly. CurrentState={CurrentState}");
             if (CurrentState == SessionState.Disconnected) return;
 
             CurrentState = SessionState.Disconnecting;

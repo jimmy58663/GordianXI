@@ -9,6 +9,7 @@ using System.Windows.Input;
 using Gordian.App.Common;
 using Gordian.App.Services;
 using Gordian.Core.Config;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Profiles;
@@ -290,6 +291,10 @@ namespace Gordian.App.ViewModels
                 _ = Task.Run(async () =>
                 {
                     var client = new LsbLoginClient();
+                    client.PacketInspected += (s, entry) =>
+                    {
+                        Inspector.OnPacketInspected(s, entry);
+                    };
                     foreach (var profile in directLsbProfiles)
                     {
                         if (_sessionRegistry.IsAccountActive(profile.Username) ||
@@ -359,19 +364,31 @@ namespace Gordian.App.ViewModels
                                 netManager
                             );
 
-                            _sessionRegistry.RegisterSession(session);
-
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            netManager.StateChanged += (s, state) =>
                             {
-                                RefreshAllStatuses();
-                                StatusMessage = $"[{session.CharacterName}] Connected! Session active in world.";
-                            });
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    RefreshAllStatuses();
+                                    StatusMessage = state switch
+                                    {
+                                        SessionState.ConnectingToGameServer => $"[{session.CharacterName}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
+                                        SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
+                                        SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
+                                        SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
+                                        SessionState.Disconnected => $"[{session.CharacterName}] Session disconnected.",
+                                        _ => StatusMessage
+                                    };
+                                });
+                            };
+
+                            _sessionRegistry.RegisterSession(session);
 
                             // Connect UDP socket and transmit 0x00A login handshake
                             await netManager.ConnectAsync().ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
+                            GordianLog.Error("SESSION", $"Connection error for profile '{profile.ProfileName}'", ex);
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
                                 StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}";

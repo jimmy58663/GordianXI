@@ -64,5 +64,28 @@ namespace Gordian.Core.Tests.Network
             Assert.False(success);
             Assert.Equal(0, decryptedLength);
         }
+
+        [Fact]
+        public void LegacyBlowfish_BinaryKeyWithHighBytes_EncryptAndDecrypt_RoundTrips()
+        {
+            using var suite = new LegacyBlowfishCryptoSuite();
+            // Binary 20-byte key containing bytes >= 0x80
+            byte[] binaryKey = Convert.FromHexString("7CE2BA9C4525C8078DE4FDE134FD83BA40F29BA9");
+            suite.InitializeKey(binaryKey);
+
+            Assert.True(suite.IsKeyInitialized);
+
+            const int headerSize = 28;
+            byte[] payload = Encoding.ASCII.GetBytes("BinaryKeyVerificationPayload1234567890!");
+            byte[] datagram = new byte[headerSize + payload.Length + 64];
+            payload.CopyTo(datagram, headerSize);
+
+            int totalLength = suite.EncryptAndSign(datagram, headerSize, payload.Length);
+            bool success = suite.TryDecryptAndVerify(datagram.AsSpan(0, totalLength), headerSize, out int decryptedLength);
+
+            Assert.True(success);
+            Assert.Equal(payload.Length, decryptedLength);
+            Assert.Equal(payload, datagram.AsSpan(headerSize, decryptedLength).ToArray());
+        }
     }
 }

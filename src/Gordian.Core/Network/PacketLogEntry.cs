@@ -41,6 +41,10 @@ namespace Gordian.Core.Network
             {
                 return packetId switch
                 {
+                    0x000 => "GP_RAW_UDP_UNDECRYPTED",
+                    0x001 => "GP_LOBBY_AUTH_REPLY",
+                    0x002 => "GP_LOBBY_CHAR_CONFIRM",
+                    0x003 => "GP_LOBBY_CHAR_LIST",
                     0x005 => "GP_SERV_PACKETCONTROL",
                     0x006 => "GP_SERV_NARAKU",
                     0x008 => "GP_SERV_ENTERZONE",
