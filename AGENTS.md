@@ -63,8 +63,24 @@ When executing tasks or testing code changes, run these native .NET CLI commands
 
 ---
 
+## 🔄 Bootloader Handoff & Interception Architecture
+GordianXI intercepts game sessions without permanent modifications to user game folders:
+1. **Registry Detection:** `GameDirectoryDetector.cs` queries 32-bit `InstallFolder\0001` across `PlayOnlineUS`, `PlayOnlineEU`, and `PlayOnline`.
+2. **Ephemeral Proxy Swap:** `ProxyStager.cs` renames genuine `FFXiMain.dll` to `FFXiMain.dll.orig`, deploys the COM proxy `FFXiMain.dll`, spawns the bootloader (`xiloader` or `pol`), awaits handoff, and restores the original DLL.
+3. **Startup Self-Healing:** On app startup, `ProxyStager.SelfHealStartup()` immediately checks for and restores any orphaned `FFXiMain.dll.orig`.
+4. **IPC Channel:** The proxy passes session credentials to GordianXI via local Named Pipe `\\.\pipe\GordianXI_Handoff`.
+
+---
+
+## 📋 Context Resumption & Tracking
+*   **Always check `ROADMAP.md`** at the solution root at the start of any new session or feature implementation to verify the current phase, completed tasks, and active priorities.
+*   **Always run `dotnet test`** to confirm all test suites pass before starting new feature development.
+
+---
+
 ## 🛑 AI Assistant Prohibitions (NEVER DO THIS)
 1.  **NO Cross-Reference Corruption:** Do not link `Gordian.Addons` directly to `Gordian.Automation`.
-2.  **NO Windows-only code:** Do not inject code blocks that lock execution to the Win32 API.
+2.  **NO Windows-only code in class libraries:** Keep class libraries cross-platform agnostic. Guard OS-specific calls behind `OperatingSystem.IsWindows()`.
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
+5.  **NO Permanent game modifications:** Never overwrite game directory files without the ephemeral backup/restore pattern managed by `ProxyStager`.
