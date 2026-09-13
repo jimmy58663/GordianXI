@@ -10,7 +10,7 @@ namespace Gordian.Core.Network
     {
         public string TargetCharacterName { get; set; } = string.Empty;
         public string ServerIp { get; set; } = "127.0.0.1";
-        public ushort ServerPort { get; set; } = 54231;
+        public ushort ServerPort { get; set; } = 54230;
         public uint CharacterId { get; set; }
         public string Base64SessionToken { get; set; } = string.Empty;
     }

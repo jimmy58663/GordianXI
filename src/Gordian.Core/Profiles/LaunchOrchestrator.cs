@@ -67,10 +67,20 @@ namespace Gordian.Core.Profiles
                     continue;
                 }
 
+                string args = $"{profile.Arguments} --user \"{profile.Username}\" --pass \"{profile.Password}\"";
+                if (!string.IsNullOrWhiteSpace(profile.OtpSeed))
+                {
+                    string otp = profile.CurrentTwoFactorCode;
+                    if (!string.IsNullOrWhiteSpace(otp))
+                    {
+                        args += $" --otp {otp}";
+                    }
+                }
+
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     FileName = profile.BootloaderPath,
-                    Arguments = $"{profile.Arguments} --user {profile.Username} --pass {profile.Password}",
+                    Arguments = args.Trim(),
                     UseShellExecute = true
                 };
 

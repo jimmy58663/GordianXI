@@ -24,7 +24,7 @@
 - [x] Ephemeral proxy swapping & self-healing startup (`ProxyStager.cs` managing `FFXiMain.dll` $\leftrightarrow$ `FFXiMain.dll.orig`)
 - [x] COM-compliant 32-bit proxy (`Gordian.Proxy` with `DllGetClassObject`, `DllCanUnloadNow`, `IClassFactory`)
 - [x] Named Pipe IPC bridge (`\\.\pipe\GordianXI_Handoff`)
-- [ ] Inspect `xiloader` source repository directly (mounted in next chat session)
+- [x] Inspect `xiloader` source repository directly (CLI flags, COM IGameMain invocation, UDP 54230 map port verified)
 - [ ] Verify live handoff in-game: launch `Local (Cybin)` -> named pipe receive -> live UDP packet stream
 
 ### ⏳ Phase 3: Network Engine & Cryptographic Handshake

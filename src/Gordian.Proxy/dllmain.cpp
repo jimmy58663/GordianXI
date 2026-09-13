@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <unknwn.h>
+#include <shellapi.h>
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -23,7 +24,7 @@ struct FfxiHandoffParams {
     uint32_t CharacterId;         // The unique database index tracking the chosen character
     char CharacterName[24];       // Null-terminated string containing the character name
     char ServerIp[16];            // Null-terminated string containing the Game World target IP
-    uint16_t ServerPort;          // Destination connection port (usually 54231)
+    uint16_t ServerPort;          // Destination connection port (usually 54230 for map server UDP)
     uint32_t SessionKeyLength;    // Sizing metric for the secure login seed token array
     uint8_t SessionKey[128];      // The raw cryptographically secure binary token array
 };
@@ -67,16 +68,25 @@ void SendJsonPayloadToPipe(const std::string& jsonPayload) {
     if (g_HandoffDispatched) return;
     g_HandoffDispatched = true;
 
-    // Connect to GordianXI's Named Pipe
-    HANDLE hPipe = CreateFileW(
-        L"\\\\.\\pipe\\GordianXI_Handoff",
-        GENERIC_WRITE,
-        0,
-        nullptr,
-        OPEN_EXISTING,
-        0,
-        nullptr
-    );
+    // Connect to GordianXI's Named Pipe with resilient retry loop
+    HANDLE hPipe = INVALID_HANDLE_VALUE;
+    for (int retry = 0; retry < 15; ++retry) {
+        hPipe = CreateFileW(
+            L"\\\\.\\pipe\\GordianXI_Handoff",
+            GENERIC_WRITE,
+            0,
+            nullptr,
+            OPEN_EXISTING,
+            0,
+            nullptr
+        );
+        if (hPipe != INVALID_HANDLE_VALUE) break;
+        if (GetLastError() == ERROR_PIPE_BUSY) {
+            WaitNamedPipeW(L"\\\\.\\pipe\\GordianXI_Handoff", 1000);
+        } else {
+            Sleep(100);
+        }
+    }
 
     if (hPipe != INVALID_HANDLE_VALUE) {
         DWORD bytesWritten = 0;
@@ -95,13 +105,14 @@ void ForwardSessionParametersToGordianCore(FfxiHandoffParams* params) {
 
     std::string charName(params->CharacterName);
     std::string serverIp(params->ServerIp);
+    uint16_t serverPort = params->ServerPort != 0 ? params->ServerPort : 54230;
     std::string b64Token = Base64Encode(params->SessionKey, params->SessionKeyLength);
 
     std::ostringstream jsonStream;
     jsonStream << "{"
                << "\"TargetCharacterName\":\"" << EscapeJsonString(charName) << "\","
                << "\"ServerIp\":\"" << EscapeJsonString(serverIp) << "\","
-               << "\"ServerPort\":" << params->ServerPort << ","
+               << "\"ServerPort\":" << serverPort << ","
                << "\"CharacterId\":" << params->CharacterId << ","
                << "\"Base64SessionToken\":\"" << b64Token << "\""
                << "}";
@@ -109,51 +120,42 @@ void ForwardSessionParametersToGordianCore(FfxiHandoffParams* params) {
     SendJsonPayloadToPipe(jsonStream.str());
 }
 
-// Inspect command line parameters from the host process
+static std::string ConvertWStringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), nullptr, 0, nullptr, nullptr);
+    std::string str(sizeNeeded, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &str[0], sizeNeeded, nullptr, nullptr);
+    return str;
+}
+
+// Inspect command line parameters from the host process using standard CommandLineToArgvW
 void NotifySessionFromEnvironment() {
     if (g_HandoffDispatched) return;
 
-    std::wstring cmdLine = GetCommandLineW();
     std::string targetChar = "Player";
     std::string serverIp = "127.0.0.1";
-    uint16_t serverPort = 54231;
+    uint16_t serverPort = 54230; // Aligned with LandSandBoat xi_map UDP port
     uint32_t charId = 1;
     std::string sessionToken = "";
 
-    // Parse simple flags from command line if present:
-    // e.g. --user <username>, --server <ip>, --port <port>, -port <port>
-    auto findArgValue = [&](const std::wstring& key) -> std::string {
-        size_t pos = cmdLine.find(key);
-        if (pos != std::wstring::npos) {
-            size_t valStart = cmdLine.find_first_not_of(L" \t=", pos + key.length());
-            if (valStart != std::wstring::npos) {
-                size_t valEnd = cmdLine.find_first_of(L" \t\"", valStart);
-                if (valEnd == std::wstring::npos) valEnd = cmdLine.length();
-                std::wstring val = cmdLine.substr(valStart, valEnd - valStart);
-                std::string result;
-                result.reserve(val.length());
-                for (wchar_t wc : val) result.push_back(static_cast<char>(wc));
-                return result;
+    int numArgs = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &numArgs);
+    if (argv) {
+        for (int i = 1; i < numArgs; ++i) {
+            if (_wcsicmp(argv[i], L"--user") == 0 || _wcsicmp(argv[i], L"--username") == 0) {
+                if (i + 1 < numArgs) targetChar = ConvertWStringToString(argv[++i]);
+            } else if (_wcsicmp(argv[i], L"--server") == 0) {
+                if (i + 1 < numArgs) serverIp = ConvertWStringToString(argv[++i]);
+            } else if (_wcsicmp(argv[i], L"--dataport") == 0 || _wcsicmp(argv[i], L"--port") == 0 || _wcsicmp(argv[i], L"--gameport") == 0) {
+                if (i + 1 < numArgs) {
+                    try {
+                        int p = std::stoi(argv[++i]);
+                        if (p > 0 && p <= 65535) serverPort = (uint16_t)p;
+                    } catch (...) {}
+                }
             }
         }
-        return "";
-    };
-
-    std::string user = findArgValue(L"--user");
-    if (user.empty()) user = findArgValue(L"--username");
-    if (!user.empty()) targetChar = user;
-
-    std::string srv = findArgValue(L"--server");
-    if (!srv.empty()) serverIp = srv;
-
-    std::string portStr = findArgValue(L"--serverport");
-    if (portStr.empty()) portStr = findArgValue(L"-port");
-    if (portStr.empty()) portStr = findArgValue(L"--port");
-    if (!portStr.empty()) {
-        try {
-            int p = std::stoi(portStr);
-            if (p > 0 && p <= 65535) serverPort = (uint16_t)p;
-        } catch (...) {}
+        LocalFree(argv);
     }
 
     std::ostringstream jsonStream;
@@ -167,6 +169,58 @@ void NotifySessionFromEnvironment() {
 
     SendJsonPayloadToPipe(jsonStream.str());
 }
+
+// FFXI GameMain COM interface UUIDs from ffximain.h
+static const GUID CLSID_GameMain_Local = { 0x1027DC46, 0x750D, 0x4B1F, { 0x88, 0x34, 0x1D, 0x25, 0xB8, 0xBE, 0xBA, 0xB8 } };
+static const GUID IID_IGameMain_Local = { 0x493BF7B9, 0x0C3A, 0x43B5, { 0xBF, 0xA6, 0x28, 0xFB, 0xEE, 0x25, 0x1E, 0x3D } };
+
+// Implementation of IGameMain for FFXi.dll invocation
+class CProxyGameMain : public IUnknown
+{
+    LONG m_refCount;
+public:
+    CProxyGameMain() : m_refCount(1) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv) return E_POINTER;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IGameMain_Local))
+        {
+            *ppv = this;
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    STDMETHODIMP_(ULONG) AddRef() override
+    {
+        return InterlockedIncrement(&m_refCount);
+    }
+
+    STDMETHODIMP_(ULONG) Release() override
+    {
+        LONG count = InterlockedDecrement(&m_refCount);
+        if (count == 0) delete this;
+        return count;
+    }
+
+    virtual HRESULT __stdcall FFXiGameMain(IUnknown* pPol, IUnknown* pFFXi)
+    {
+        NotifySessionFromEnvironment();
+        return S_OK;
+    }
+
+    virtual HRESULT __stdcall FFXiParaGet(IUnknown** pFFXiPara)
+    {
+        if (pFFXiPara) *pFFXiPara = nullptr;
+        return S_OK;
+    }
+
+    virtual HRESULT __stdcall PolLogoutInit(void) { return S_OK; }
+    virtual HRESULT __stdcall PolLogoutEnd(void) { return S_OK; }
+};
 
 // COM Class Factory Implementation
 class CProxyClassFactory : public IClassFactory
@@ -206,8 +260,11 @@ public:
         if (!ppv) return E_POINTER;
 
         NotifySessionFromEnvironment();
-        *ppv = nullptr;
-        return S_OK;
+
+        CProxyGameMain* pGame = new CProxyGameMain();
+        HRESULT hr = pGame->QueryInterface(riid, ppv);
+        pGame->Release();
+        return hr;
     }
 
     STDMETHODIMP LockServer(BOOL fLock) override

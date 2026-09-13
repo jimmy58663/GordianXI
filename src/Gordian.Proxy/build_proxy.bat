@@ -10,7 +10,7 @@ call "%vcvars_path%" x86 >nul
 cd /d "%~dp0"
 
 echo [Compiler] Compiling unmanaged 32-bit FFXiMain.dll proxy...
-cl.exe /LD /O2 /EHsc /Fe:FFXiMain.dll dllmain.cpp user32.lib advapi32.lib ole32.lib /link /MACHINE:X86 /EXPORT:DllGetClassObject /EXPORT:DllCanUnloadNow /EXPORT:DllRegisterServer /EXPORT:DllUnregisterServer /EXPORT:DoPlayOnlineHardwareCheck /EXPORT:InitializeGameInstance
+cl.exe /LD /O2 /EHsc /Fe:FFXiMain.dll dllmain.cpp user32.lib advapi32.lib ole32.lib shell32.lib /link /MACHINE:X86 /EXPORT:DllGetClassObject /EXPORT:DllCanUnloadNow /EXPORT:DllRegisterServer /EXPORT:DllUnregisterServer /EXPORT:DoPlayOnlineHardwareCheck /EXPORT:InitializeGameInstance
 
 if %errorlevel% neq 0 (
     echo [ERROR] Compilation failed.
