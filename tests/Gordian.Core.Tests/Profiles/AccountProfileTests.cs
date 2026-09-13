@@ -138,5 +138,27 @@ namespace Gordian.Core.Tests.Profiles
             Assert.Equal(string.Empty, ProfileCrypto.Encrypt(string.Empty));
             Assert.Equal(string.Empty, ProfileCrypto.Decrypt(string.Empty));
         }
+
+        [Fact]
+        public void CharacterName_DecoupledFromProfileName_SerializesAndDeserializesCorrectly()
+        {
+            var profile = new AccountProfile
+            {
+                ProfileName = "Local (Cybin)",
+                CharacterName = "Cybin",
+                Username = "Cybin",
+                Password = "SecretPassword123"
+            };
+
+            profile.SaveToFile(_tempDirectory);
+            string savedFilePath = Path.Combine(_tempDirectory, "Local (Cybin).json");
+
+            var loaded = AccountProfile.LoadFromFile(savedFilePath);
+
+            Assert.NotNull(loaded);
+            Assert.Equal("Local (Cybin)", loaded.ProfileName);
+            Assert.Equal("Cybin", loaded.CharacterName);
+            Assert.NotEqual(loaded.ProfileName, loaded.CharacterName);
+        }
     }
 }

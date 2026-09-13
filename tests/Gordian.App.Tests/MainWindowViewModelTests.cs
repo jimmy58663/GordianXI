@@ -128,5 +128,27 @@ namespace Gordian.App.Tests
             string expectedFile = Path.Combine(_tempProfilesDir, $"{profileName}.json");
             Assert.False(File.Exists(expectedFile));
         }
+
+        [Fact]
+        public void SaveProfile_WithCharacterName_PersistsAndPopulatesSubtitle()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+
+            vm.FormProfileName = "Local (Cybin)";
+            vm.FormCharacterName = "Cybin";
+            vm.FormUsername = "Cybin";
+            vm.FormPassword = "SecretPassword123";
+            vm.FormBootloaderPath = "xiloader.exe";
+            vm.FormArguments = "--server 127.0.0.1";
+
+            vm.SaveProfileCommand.Execute(null);
+
+            var created = vm.Profiles.FirstOrDefault(p => p.ProfileName == "Local (Cybin)");
+            Assert.NotNull(created);
+            Assert.Equal("Local (Cybin)", created.ProfileName);
+            Assert.Equal("Cybin", created.CharacterName);
+            Assert.True(created.HasCharacterSubtitle);
+            Assert.Equal("Char: Cybin", created.CharacterSubtitle);
+        }
     }
 }

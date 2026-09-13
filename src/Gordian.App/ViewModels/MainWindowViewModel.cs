@@ -24,6 +24,7 @@ namespace Gordian.App.ViewModels
         private readonly SessionRegistry _sessionRegistry;
         private string? _editingOriginalProfileName;
         private string _formProfileName = string.Empty;
+        private string _formCharacterName = string.Empty;
         private string _formBootloaderPath = string.Empty;
         private string _formArguments = string.Empty;
         private string _formUsername = string.Empty;
@@ -46,6 +47,12 @@ namespace Gordian.App.ViewModels
         {
             get => _formProfileName;
             set => SetProperty(ref _formProfileName, value);
+        }
+
+        public string FormCharacterName
+        {
+            get => _formCharacterName;
+            set => SetProperty(ref _formCharacterName, value);
         }
 
         public string FormBootloaderPath
@@ -144,6 +151,7 @@ namespace Gordian.App.ViewModels
         {
             _editingOriginalProfileName = item.Profile.ProfileName;
             FormProfileName = item.Profile.ProfileName;
+            FormCharacterName = item.Profile.CharacterName;
             FormBootloaderPath = item.Profile.BootloaderPath;
             FormArguments = item.Profile.Arguments;
             FormUsername = item.Profile.Username;
@@ -181,6 +189,7 @@ namespace Gordian.App.ViewModels
         {
             _editingOriginalProfileName = null;
             FormProfileName = string.Empty;
+            FormCharacterName = string.Empty;
             FormBootloaderPath = string.Empty;
             FormArguments = string.Empty;
             FormUsername = string.Empty;
@@ -213,6 +222,7 @@ namespace Gordian.App.ViewModels
             var profile = new AccountProfile
             {
                 ProfileName = targetName,
+                CharacterName = FormCharacterName.Trim(),
                 BootloaderPath = FormBootloaderPath.Trim(),
                 Arguments = FormArguments.Trim(),
                 Username = FormUsername.Trim(),
@@ -282,7 +292,9 @@ namespace Gordian.App.ViewModels
                     var client = new LsbLoginClient();
                     foreach (var profile in directLsbProfiles)
                     {
-                        if (_sessionRegistry.IsAccountActive(profile.Username) || _sessionRegistry.IsCharacterActive(profile.ProfileName))
+                        if (_sessionRegistry.IsAccountActive(profile.Username) ||
+                            _sessionRegistry.IsCharacterActive(profile.ProfileName) ||
+                            (!string.IsNullOrWhiteSpace(profile.CharacterName) && _sessionRegistry.IsCharacterActive(profile.CharacterName)))
                         {
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
@@ -304,6 +316,10 @@ namespace Gordian.App.ViewModels
                             });
 
                             string otp = !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty;
+                            string? targetCharName = !string.IsNullOrWhiteSpace(profile.CharacterName)
+                                ? profile.CharacterName
+                                : null;
+
                             var ticket = await client.LoginAndSelectAsync(
                                 host: serverHost,
                                 username: profile.Username,
@@ -312,19 +328,23 @@ namespace Gordian.App.ViewModels
                                 connectPort: connectPort,
                                 dataPort: dataPort,
                                 viewPort: viewPort,
-                                targetCharacterName: profile.ProfileName
+                                targetCharacterName: targetCharName
                             ).ConfigureAwait(false);
+
+                            string resolvedCharName = !string.IsNullOrWhiteSpace(ticket.CharacterName)
+                                ? ticket.CharacterName
+                                : (!string.IsNullOrWhiteSpace(profile.CharacterName) ? profile.CharacterName : profile.ProfileName);
 
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
-                                StatusMessage = $"[{profile.ProfileName}] Character selected (ID: {ticket.CharacterId}). Establishing game session to {ticket.ZoneIp}:{ticket.ZonePort}...";
+                                StatusMessage = $"[{profile.ProfileName}] Character '{resolvedCharName}' selected (ID: {ticket.CharacterId}). Establishing game session to {ticket.ZoneIp}:{ticket.ZonePort}...";
                             });
 
                             // Create and register the character session in SessionRegistry
                             var netManager = new SessionNetworkManager(ticket.ZoneIp, ticket.ZonePort)
                             {
                                 CharacterId = ticket.CharacterId,
-                                CharacterName = !string.IsNullOrWhiteSpace(ticket.CharacterName) ? ticket.CharacterName : profile.ProfileName,
+                                CharacterName = resolvedCharName,
                                 AccountName = profile.Username,
                                 Ticket = ticket.SessionHash
                             };

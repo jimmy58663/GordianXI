@@ -55,7 +55,9 @@ namespace Gordian.Core.Profiles
             foreach (var profile in targetsToLaunch)
             {
                 // Smart check: If the profile username or character name is already active in memory, skip it!
-                if (onlineUsers.Contains(profile.Username) || onlineUsers.Contains(profile.ProfileName))
+                if (onlineUsers.Contains(profile.Username) ||
+                    onlineUsers.Contains(profile.ProfileName) ||
+                    (!string.IsNullOrWhiteSpace(profile.CharacterName) && onlineUsers.Contains(profile.CharacterName)))
                 {
                     Debug.WriteLine($"[System] Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipping launch sequence.");
                     continue;

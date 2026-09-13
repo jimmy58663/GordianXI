@@ -9,6 +9,7 @@ namespace Gordian.Core.Profiles
     public sealed class AccountProfile
     {
         public string ProfileName { get; set; } = "Default Profile";
+        public string CharacterName { get; set; } = string.Empty;
         public string BootloaderPath { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;

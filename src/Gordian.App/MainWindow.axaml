@@ -25,6 +25,9 @@
                             <TextBlock Text="Profile Name:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
                             <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
 
+                            <TextBlock Text="Character Name:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+
                             <TextBlock Text="Username / Account:" Foreground="#A0A0A0"/>
                             <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="e.g. account_user"/>
 
@@ -80,7 +83,10 @@
                                             <Border Margin="0,3" Padding="6,4" Background="#2D2D30" CornerRadius="4">
                                                 <Grid ColumnDefinitions="Auto, 160, *, Auto">
                                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                    <TextBlock Grid.Column="1" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding ProfileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding CharacterSubtitle}" FontSize="11" Foreground="#888888" IsVisible="{Binding HasCharacterSubtitle}"/>
+                                                    </StackPanel>
 
                                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas" VerticalAlignment="Center"/>

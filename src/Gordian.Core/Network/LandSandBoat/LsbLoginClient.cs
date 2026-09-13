@@ -290,7 +290,30 @@ namespace Gordian.Core.Network.LandSandBoat
                 }
             }
 
-            if (characters.Count == 0)
+            // Step 4b: Check for 0x20 Character Info response on xi_view (contains in-game character names)
+            string? viewCharName = null;
+            uint viewCharId = 0;
+            try
+            {
+                using var cts20 = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts20.CancelAfter(2000);
+                int viewBytes = await viewStream.ReadAsync(viewBuffer, cts20.Token).ConfigureAwait(false);
+                if (viewBytes >= 60 && viewBuffer[8] == 0x20)
+                {
+                    viewCharId = BinaryPrimitives.ReadUInt32LittleEndian(viewBuffer.AsSpan(32, 4));
+                    string parsedViewName = Encoding.ASCII.GetString(viewBuffer, 44, 16).TrimEnd('\0', ' ');
+                    if (!string.IsNullOrWhiteSpace(parsedViewName))
+                    {
+                        viewCharName = parsedViewName;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Optional 0x20 read timed out
+            }
+
+            if (characters.Count == 0 && viewCharId == 0)
             {
                 throw new InvalidOperationException("No characters found on this LandSandBoat account. Please create a character first.");
             }
@@ -299,10 +322,21 @@ namespace Gordian.Core.Network.LandSandBoat
             uint selectedCharId = targetCharacterId;
             if (selectedCharId == 0)
             {
-                selectedCharId = characters[0].CharacterId;
+                if (viewCharId != 0)
+                {
+                    selectedCharId = viewCharId;
+                }
+                else if (characters.Count > 0)
+                {
+                    selectedCharId = characters[0].CharacterId;
+                }
             }
 
             string selectedCharName = targetCharacterName ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(selectedCharName) && !string.IsNullOrWhiteSpace(viewCharName))
+            {
+                selectedCharName = viewCharName;
+            }
 
             // Step 5: Notify xi_view of Character Selection (0x07, 64 bytes)
             // Offset 0..3: packet_size = 0x40 (64 bytes)

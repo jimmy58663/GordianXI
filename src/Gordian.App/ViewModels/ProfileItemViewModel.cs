@@ -19,6 +19,9 @@ namespace Gordian.App.ViewModels
         public AccountProfile Profile => _profile;
 
         public string ProfileName => _profile.ProfileName;
+        public string CharacterName => _profile.CharacterName;
+        public bool HasCharacterSubtitle => !string.IsNullOrWhiteSpace(_profile.CharacterName);
+        public string CharacterSubtitle => $"Char: {_profile.CharacterName}";
         public string Username => _profile.Username;
         public string CurrentTwoFactorCode => _profile.CurrentTwoFactorCode;
 
@@ -74,13 +77,18 @@ namespace Gordian.App.ViewModels
         {
             _sessionRegistry.TerminateSession(_profile.Username);
             _sessionRegistry.TerminateSession(_profile.ProfileName);
+            if (!string.IsNullOrWhiteSpace(_profile.CharacterName))
+            {
+                _sessionRegistry.TerminateSession(_profile.CharacterName);
+            }
             RefreshOnlineStatus();
         }
 
         public void RefreshOnlineStatus()
         {
             IsOnline = _sessionRegistry.IsAccountActive(_profile.Username) ||
-                       _sessionRegistry.IsCharacterActive(_profile.ProfileName);
+                       _sessionRegistry.IsCharacterActive(_profile.ProfileName) ||
+                       (!string.IsNullOrWhiteSpace(_profile.CharacterName) && _sessionRegistry.IsCharacterActive(_profile.CharacterName));
         }
     }
 }
