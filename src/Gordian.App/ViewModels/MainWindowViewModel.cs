@@ -77,6 +77,7 @@ namespace Gordian.App.ViewModels
 
         public ICommand SaveProfileCommand { get; }
         public ICommand LaunchSelectedCommand { get; }
+        public ICommand TerminateAllCommand { get; }
 
         public MainWindowViewModel(SessionRegistry? registry = null)
         {
@@ -84,6 +85,7 @@ namespace Gordian.App.ViewModels
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
             LaunchSelectedCommand = new RelayCommand(LaunchSelected);
+            TerminateAllCommand = new RelayCommand(TerminateAll);
 
             _sessionRegistry.SessionRegistered += OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered += OnSessionRegistryChanged;
@@ -168,6 +170,14 @@ namespace Gordian.App.ViewModels
             int launched = LaunchOrchestrator.LaunchSelectedProfiles(rawProfiles, _sessionRegistry);
 
             StatusMessage = $"Launched {launched} character profile(s).";
+            RefreshAllStatuses();
+        }
+
+        private void TerminateAll()
+        {
+            int count = _sessionRegistry.ActiveSessions.Count;
+            _sessionRegistry.Clear();
+            StatusMessage = $"Terminated {count} active session(s).";
             RefreshAllStatuses();
         }
 

@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -67,16 +67,27 @@
                                 <ItemsControl ItemsSource="{Binding Profiles}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ProfileItemViewModel">
-                                            <CheckBox IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" Margin="0,4,0,4">
-                                                <Grid ColumnDefinitions="180, *">
-                                                    <TextBlock Grid.Column="0" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Border Margin="0,3" Padding="6,4" Background="#2D2D30" CornerRadius="4">
+                                                <Grid ColumnDefinitions="Auto, 180, *, Auto">
+                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelectedForLaunch, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding ProfileName}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
-                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas"/>
-                                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold"/>
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding CurrentTwoFactorCode}" Foreground="#E5C07B" FontSize="12" FontFamily="Consolas" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     </StackPanel>
+
+                                                    <!-- Individual Terminate Button (Visible when Online) -->
+                                                    <Button Grid.Column="3"
+                                                            Content="Terminate"
+                                                            Command="{Binding TerminateCommand}"
+                                                            IsVisible="{Binding IsOnline}"
+                                                            Background="#D32F2F" Foreground="White"
+                                                            FontSize="11" FontWeight="Bold"
+                                                            Padding="8,4" CornerRadius="3"
+                                                            VerticalAlignment="Center"/>
                                                 </Grid>
-                                            </CheckBox>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -84,12 +95,22 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Launch Core Execution Bar -->
-                    <Button Grid.Row="1" Content="Launch Selected Characters (Smart Skip Active)"
-                            Command="{Binding LaunchSelectedCommand}"
-                            Height="45" Margin="0,10,0,0" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                            Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
+                    <!-- Launch & Terminate Actions Execution Bar -->
+                    <Grid Grid.Row="1" ColumnDefinitions="*, 8, Auto" Margin="0,10,0,0">
+                        <Button Grid.Column="0"
+                                Content="Launch Selected Characters (Smart Skip Active)"
+                                Command="{Binding LaunchSelectedCommand}"
+                                Height="45" HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                Background="#8A2BE2" Foreground="White" FontSize="14" FontWeight="Bold"/>
+
+                        <Button Grid.Column="2"
+                                Content="Terminate All"
+                                Command="{Binding TerminateAllCommand}"
+                                Height="45" Padding="16,0"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                Background="#D32F2F" Foreground="White" FontSize="13" FontWeight="Bold"/>
+                    </Grid>
                 </Grid>
             </Grid>
         </TabItem>

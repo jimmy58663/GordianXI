@@ -50,12 +50,23 @@ namespace Gordian.App.ViewModels
         public string StatusText => IsOnline ? "Online" : "Offline";
         public string StatusColor => IsOnline ? "#4CAF50" : "#F44336";
 
+        public System.Windows.Input.ICommand TerminateCommand { get; }
+
         public ProfileItemViewModel(AccountProfile profile, SessionRegistry? registry = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sessionRegistry = registry ?? SessionRegistry.Default;
             _isSelectedForLaunch = profile.IsSelectedForLaunch;
 
+            TerminateCommand = new Gordian.App.Common.RelayCommand(Terminate);
+
+            RefreshOnlineStatus();
+        }
+
+        public void Terminate()
+        {
+            _sessionRegistry.TerminateSession(_profile.Username);
+            _sessionRegistry.TerminateSession(_profile.ProfileName);
             RefreshOnlineStatus();
         }
 

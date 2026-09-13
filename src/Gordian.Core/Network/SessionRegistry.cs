@@ -143,6 +143,30 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Attempts to retrieve a session by character name or account username.
+        /// </summary>
+        public bool TryGetSessionByAccountOrName(string identifier, out CharacterSession? session)
+        {
+            session = _sessions.Values.FirstOrDefault(s =>
+                string.Equals(s.CharacterName, identifier, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.AccountUsername, identifier, StringComparison.OrdinalIgnoreCase));
+            return session != null;
+        }
+
+        /// <summary>
+        /// Terminates and unregisters a session by character or account identifier.
+        /// </summary>
+        public bool TerminateSession(string identifier)
+        {
+            if (TryGetSessionByAccountOrName(identifier, out var session) && session != null)
+            {
+                UnregisterSession(session.SessionId);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Unregisters and disconnects a character session.
         /// </summary>
         public void UnregisterSession(Guid sessionId)
