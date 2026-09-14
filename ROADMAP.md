@@ -11,7 +11,7 @@
 ## 🏆 MVP Definition (Minimum Viable Product)
 > **Goal:** A player can launch GordianXI, connect directly to a LandSandBoat private server, authenticate, spawn into a zone with 3D world geometry and character models rendered, control movement and camera using customizable Keyboard/Mouse or Gamepad, execute basic actions and slash commands via an interactive CLI console or hotkeys, view chat/vitals/inventory, and cross zonelines to new map servers without dropping session state.
 > 
-> *MVP includes Phases 1 through 5. Phases 6 through 9 represent Post-MVP extensions.*
+> *MVP includes Phases 1 through 5. Phases 6 through 10 represent Post-MVP extensions.*
 
 ---
 
@@ -139,3 +139,24 @@
   - [ ] Background delta download, changelog presentation, and seamless restart-and-update
 - [ ] **Cross-Platform Packaging:**
   - [ ] Automated CI/CD builds for Windows (x64/ARM64), Linux (x64/ARM64), and macOS (Apple Silicon)
+
+---
+
+### 🚀 Phase 10: Model Context Protocol (MCP) Server & AI Assistant Tooling (Post-MVP)
+*Goal: Build a Model Context Protocol (MCP) server that connects AI coding and reasoning assistants directly to GordianXI schemas, DAT resources, and runtime APIs to assist players with configuration and developers with addon authoring.*
+
+- [ ] **GordianXI MCP Server Core (`Gordian.Mcp`):**
+  - [ ] Standard JSON-RPC 2.0 stdio & SSE transport compliant with the Model Context Protocol (MCP) spec
+  - [ ] Contextual prompt templates, resources, and tool definitions with clean schema discovery
+  - [ ] Read-only state queries and sandbox execution respecting `ServerAutomationPolicy`
+- [ ] **Automation & Gambit Profile Assistant:**
+  - [ ] Natural language to Gambit rule compilation (e.g., priority conditions $\rightarrow$ target $\rightarrow$ action mappings)
+  - [ ] Gambit profile validation, conflict detection, and role simulation for multi-box swarm coordination
+  - [ ] Automated tuning of latency thresholds and animation lock buffers
+- [ ] **Addon Development & Runtime Tooling:**
+  - [ ] API schema inspection, event signature lookup, and template scaffolding for Lua and JS/TS addons
+  - [ ] Addon debugging, log/error diagnostics, and backward-compatibility linting against Windower/Ashita shims
+- [ ] **GearSwap & Native Equipment Automation Assistant:**
+  - [ ] Direct integration with Phase 4 DAT item/equipment database (stat queries, equipment slots, job restrictions, set bonuses)
+  - [ ] GearSwap `.lua` parser, validator, and translator into GordianXI native fast-swap rules
+  - [ ] Rule optimization for precast, midcast, aftercast, and situational macro sets
