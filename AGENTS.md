@@ -78,9 +78,21 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 
 ---
 
+## 🛡️ Workspace Access & Directory Permissions
+*   **Primary Development Workspace (`GordianXI`):**
+    *   Full read and write permissions.
+    *   Automated file creation, modifications, deletions, and standard build/test tasks (`dotnet build`, `dotnet test`) are permitted.
+*   **Reference Workspaces (`LSBserver`, `xiloader`):**
+    *   **Strict Read-Only Enforcement:** Permitted operations are limited to reading, searching, and schema inspection (`view_file`, `grep_search`, `find_by_name`, read-only `git` status/log).
+    *   **NEVER** create, modify, or delete files, or run mutating commands in reference repositories.
+
+---
+
 ## 🛑 AI Assistant Prohibitions (NEVER DO THIS)
 1.  **NO Cross-Reference Corruption:** Do not link `Gordian.Addons` directly to `Gordian.Automation`.
 2.  **NO Windows-only code in class libraries:** Keep class libraries cross-platform agnostic. Guard OS-specific calls behind `OperatingSystem.IsWindows()`.
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
 5.  **NO Permanent game modifications:** Never overwrite game directory files without the ephemeral backup/restore pattern managed by `ProxyStager`.
+6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference workspaces (`LSBserver`, `xiloader`).
+
