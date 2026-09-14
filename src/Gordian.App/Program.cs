@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime;
 using Avalonia;
 
 namespace Gordian.App
@@ -14,8 +15,13 @@ namespace Gordian.App
         [STAThread]
         public static void Main(string[] args)
         {
+            // ⚡ Optimize GC for sustained low latency (suppresses blocking Gen 2 collections during rendering & packet streaming)
+            GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
+
             // 📝 Initialize the Platform-Agnostic File Logger
             InitializeSegmentedLogFiles();
+
+            Debug.WriteLine($"[GordianXI Boot] GC Profile: ServerGC={GCSettings.IsServerGC}, LatencyMode={GCSettings.LatencyMode}");
 
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
