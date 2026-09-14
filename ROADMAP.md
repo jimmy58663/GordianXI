@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 77 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 86 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 3: Complete LSB Packet Engine & Zone Transitions
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -44,11 +44,16 @@
 - [x] Incoming & outgoing UDP packet framing (`0x0A` chunking, sequence tracking, checksum verification)
 - [x] Session keepalive / ping-pong loop (4Hz `GP_CLI_POS` 0x015 heartbeat & idle timeout prevention)
 - [x] Login & handshake sequence (`0x00A` login -> `0x00A` ack -> `0x00C` gameok -> `0x008` enterzone -> `0x00D` netend -> `ActiveInWorld`)
+- [x] **Zero-Allocation Packet Registry & Dispatcher Pipeline:**
+  - [x] Direct-indexed $O(1)$ packet dispatcher architecture (512-slot opcode table, zero heap allocations)
+  - [x] Zero-allocation `readonly ref struct` inbound decoders: `0x00A` (LoginAck), `0x008` (EnterZone), `0x00B` (Logout/ZoneTransition), `0x015` (PosPing), `0x0EE` (Policy)
+  - [x] Zero-allocation outbound builders: `0x00A`, `0x00C` (GameOk), `0x00D` (NetEnd), `0x015` (Pos), `0x05B` (EventEnd), `0x05E` (MapRect)
+  - [x] Decoupled `LifecyclePacketModule` coordinating handshake and lifecycle transitions
 - [ ] **Zone Transition Architecture:**
-  - [ ] Parse `0x00B` `GP_SERV_COMMAND_LOGOUT` (states: `LOGOUT=1`, `ZONECHANGE=2`, `MYROOM=3`, extraction of target IP/Port from `Iwasaki` struct)
+  - [x] Parse `0x00B` `GP_SERV_COMMAND_LOGOUT` (states: `LOGOUT=1`, `ZONECHANGE=2`, `MYROOM=3`, extraction of target IP/Port from `Iwasaki` struct)
   - [ ] Build & transmit `0x05B` / `0x05E` zoneline & mog house transition requests
   - [ ] Dynamic UDP socket re-binding to target map server, resetting sequence numbers, and re-executing handshake seamlessly
-- [ ] **Declarative Zero-Allocation Packet Registry:**
+- [ ] **Declarative Zero-Allocation Packet Registry Expansion:**
   - [ ] **Session & Zone Lifecycle:** S2C `0x00A`, `0x00B`, `0x008`, `0x05B`, `0x065`; C2S `0x00A`, `0x00C`, `0x00D`, `0x011`, `0x015`, `0x05B`, `0x05C`, `0x05E`, `0x0E7`
   - [ ] **Entity & World State:** S2C `0x00D` (PC update), `0x00E` (NPC/Mob update), `0x037` (Char status), `0x061`/`0x062` (Stats), `0x076` (Effects), `0x077` (Vis); C2S `0x00F` (Target interact), `0x016`/`0x017` (Char reqs)
   - [ ] **Communication & Chat:** S2C `0x017` (Chat), `0x009` (SysMsg), `0x047` (Translate), `0x0CC` (LS Msg); C2S `0x0B5` (Chat send), `0x0B6` (Tell), `0x0B7` (Assist), `0x0E0`-`0x0E4` (LS mgmt)

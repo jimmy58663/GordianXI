@@ -1,16 +1,19 @@
 // src/Gordian.Core/Network/PacketParser.cs
 using System;
 using System.Buffers.Binary;
+using System.Net;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
+using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.Network
 {
     /// <summary>
     /// Decrypts, verifies, decompresses, and routes incoming FFXI datagram envelopes and sub-packets.
+    /// Delegates sub-packet routing to a direct-indexed O(1) <see cref="PacketDispatcher"/>.
     /// Operates entirely with zero heap allocation per packet frame.
     /// </summary>
     public class PacketParser
@@ -21,6 +24,8 @@ namespace Gordian.Core.Network
         private readonly FfxiCodec _codec;
         private readonly SessionProfile _profile;
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
+        private readonly PacketDispatcher _dispatcher;
+        private readonly LifecyclePacketModule _lifecycleModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -29,13 +34,36 @@ namespace Gordian.Core.Network
             SessionProfile profile,
             Func<ReadOnlyMemory<byte>, bool, Task> sendChunkCallback,
             IPacketCryptoSuite? cryptoSuite = null,
-            FfxiCodec? codec = null)
+            FfxiCodec? codec = null,
+            PacketDispatcher? dispatcher = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
             _cryptoSuite = cryptoSuite ?? new LegacyBlowfishCryptoSuite();
             _codec = codec ?? FfxiCodec.Default;
+            _dispatcher = dispatcher ?? new PacketDispatcher();
+
+            _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
+            _lifecycleModule.Register(_dispatcher);
+
+            _dispatcher.UnhandledPacket += (header, payload) =>
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[NET_TRACE] Unhandled Packet ID: 0x{header.PacketId:X3} | Seq: 0x{header.SequenceId:X4} | Size: {header.TotalSize} bytes"
+                );
+            };
         }
+
+        /// <summary>
+        /// Gets the direct-indexed packet dispatcher used by this parser.
+        /// Callers can register domain-specific packet handlers into this dispatcher.
+        /// </summary>
+        public IPacketDispatcher Dispatcher => _dispatcher;
+
+        /// <summary>
+        /// Gets the lifecycle and handshake handler module.
+        /// </summary>
+        public LifecyclePacketModule LifecycleModule => _lifecycleModule;
 
         /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
@@ -45,20 +73,42 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Raised when the handshake has fully completed (after GP_SERV_ENTERZONE 0x008 and GP_CLI_NETEND 0x00D).
         /// </summary>
-        public event Action? HandshakeCompleted;
+        public event Action? HandshakeCompleted
+        {
+            add => _lifecycleModule.HandshakeCompleted += value;
+            remove => _lifecycleModule.HandshakeCompleted -= value;
+        }
 
         /// <summary>
         /// Raised when player initial position and heading is parsed from GP_SERV_LOGIN (0x00A).
         /// Parameters: x, y, z, dir, actIndex.
         /// </summary>
-        public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
+        public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated
+        {
+            add => _lifecycleModule.PlayerPositionUpdated += value;
+            remove => _lifecycleModule.PlayerPositionUpdated -= value;
+        }
 
         /// <summary>
-        /// Controls whether RoutePacketToCoreState logs outbound response packets directly.
+        /// Raised when the server responds with a zone transition or logout directive (0x00B).
+        /// Parameters: LogoutState, TargetIp, TargetPort, ErrorCode.
+        /// </summary>
+        public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived
+        {
+            add => _lifecycleModule.ZoneTransitionReceived += value;
+            remove => _lifecycleModule.ZoneTransitionReceived -= value;
+        }
+
+        /// <summary>
+        /// Controls whether the lifecycle module logs outbound response packets directly.
         /// When false, outbound packets are logged by the network layer on actual transmission.
         /// Defaults to true for standalone parser testing.
         /// </summary>
-        public bool LogOutboundOnRoute { get; set; } = true;
+        public bool LogOutboundOnRoute
+        {
+            get => _lifecycleModule.LogOutboundOnRoute;
+            set => _lifecycleModule.LogOutboundOnRoute = value;
+        }
 
         /// <summary>
         /// Gets the active cryptographic suite configured for this session.
@@ -96,7 +146,7 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Processes an incoming raw UDP datagram buffer.
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
-        /// and iterative sub-packet dispatching.
+        /// and iterative sub-packet dispatching via <see cref="PacketDispatcher"/>.
         /// </summary>
         public bool ProcessIncomingChunk(Span<byte> rawPacketBuffer)
         {
@@ -163,7 +213,7 @@ namespace Gordian.Core.Network
                 return false;
             }
 
-            // 3. Iterate concatenated sub-packets
+            // 3. Iterate concatenated sub-packets and dispatch
             ReadOnlySpan<byte> subPackets = _decompressionScratch.AsSpan(0, decompressedBytes);
             int offset = 0;
 
@@ -171,94 +221,24 @@ namespace Gordian.Core.Network
             {
                 ReadOnlySpan<byte> current = subPackets.Slice(offset);
 
-                // In LandSandBoat:
-                // SmallPD_Type = ref<uint16>(ptr, 0) & 0x1FF;
-                // SmallPD_Size = (ref<uint8>(ptr, 1) & 0xFE) * 2;
-                ushort rawTypeAndSize = BinaryPrimitives.ReadUInt16LittleEndian(current.Slice(0, 2));
-                ushort packetId = (ushort)(rawTypeAndSize & 0x1FF);
-                int packetSize = (current[1] & 0xFE) * 2;
-
-                if (packetSize < 4 || offset + packetSize > subPackets.Length)
+                if (!PacketHeader.TryParse(current, out PacketHeader header) ||
+                    header.TotalSize < 4 ||
+                    offset + header.TotalSize > subPackets.Length)
                 {
                     break;
                 }
 
-                ushort sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(current.Slice(2, 2));
-                ReadOnlySpan<byte> fullSubPacket = current.Slice(0, packetSize);
-                ReadOnlySpan<byte> packetPayload = current.Slice(4, packetSize - 4);
+                ReadOnlySpan<byte> fullSubPacket = current.Slice(0, header.TotalSize);
+                ReadOnlySpan<byte> packetPayload = current.Slice(4, header.TotalSize - 4);
 
-                GordianLog.Debug("PARSER", $"Processed Inbound Sub-Packet: 0x{packetId:X3} ({PacketLogEntry.ResolvePacketName(packetId, PacketDirection.Inbound)}), Size={packetSize}, Seq={sequenceId}");
+                GordianLog.Debug("PARSER", $"Processed Inbound Sub-Packet: 0x{header.PacketId:X3} ({PacketLogEntry.ResolvePacketName(header.PacketId, PacketDirection.Inbound)}), Size={header.TotalSize}, Seq={header.SequenceId}");
 
-                LogPacket(PacketDirection.Inbound, packetId, sequenceId, fullSubPacket);
-                RoutePacketToCoreState(packetId, sequenceId, packetPayload);
-                offset += packetSize;
+                LogPacket(PacketDirection.Inbound, header.PacketId, header.SequenceId, fullSubPacket);
+                _dispatcher.Dispatch(header, packetPayload);
+                offset += header.TotalSize;
             }
 
             return true;
-        }
-
-        private void RoutePacketToCoreState(ushort packetId, ushort sequenceId, ReadOnlySpan<byte> payload)
-        {
-            switch (packetId)
-            {
-                case 0x00A: // GP_SERV_LOGIN (Server Login Acknowledgment)
-                    // The server confirmed our initial login and initialized Blowfish.
-                    // Parse initial player position from PosHead (starts at offset 0 of payload)
-                    if (payload.Length >= 20)
-                    {
-                        ushort actIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
-                        byte dir = payload[7];
-                        float x = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-                        float z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-                        float y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
-                        GordianLog.Debug("PARSER", $"Extracted player initial position: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, ActIndex={actIndex}");
-                        PlayerPositionUpdated?.Invoke(x, y, z, dir, actIndex);
-                    }
-
-                    // Respond with GP_CLI_GAMEOK (0x00C) to request zone entry packets.
-                    byte[] gameOk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
-                    if (LogOutboundOnRoute)
-                    {
-                        LogPacket(PacketDirection.Outbound, 0x00C, 0, gameOk);
-                    }
-                    _ = _sendChunkCallback(gameOk, true);
-                    break;
-
-                case 0x008: // GP_SERV_ENTERZONE
-                    // Server streamed zone entrance data.
-                    // Release the loading state by sending GP_CLI_NETEND (0x00D).
-                    byte[] netEnd = HandshakePackets.BuildNetEndSubPacket(sequenceId: 0);
-                    if (LogOutboundOnRoute)
-                    {
-                        LogPacket(PacketDirection.Outbound, 0x00D, 0, netEnd);
-                    }
-                    _ = _sendChunkCallback(netEnd, true);
-                    HandshakeCompleted?.Invoke();
-                    break;
-
-                case 0x015: // SERVER KEEPALIVE PING / POS
-                    // Echo back high-priority keepalive chunk.
-                    byte[] posPong = HandshakePackets.BuildPosPingPongSubPacket(sequenceId: sequenceId);
-                    if (LogOutboundOnRoute)
-                    {
-                        LogPacket(PacketDirection.Outbound, 0x015, sequenceId, posPong);
-                    }
-                    _ = _sendChunkCallback(posPong, true);
-                    break;
-
-                case 0x0EE: // Server Automation Policy
-                    if (payload.Length >= 1)
-                    {
-                        _profile.AutomationPolicy = (ServerAutomationPolicy)payload[0];
-                    }
-                    break;
-
-                default:
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[NET_TRACE] Unhandled Packet ID: 0x{packetId:X3} | Seq: 0x{sequenceId:X4} | Size: {payload.Length + 4} bytes"
-                    );
-                    break;
-            }
         }
     }
 }
