@@ -19,6 +19,13 @@ namespace Gordian.Core.Network.Crypto
         private readonly uint[] _p = new uint[18];
         private readonly uint[] _s = new uint[1024]; // 4 S-boxes of 256 uint32s = 1024 uint32s
 
+        private byte[]? _rawKey;
+        private readonly uint[] _prevP = new uint[18];
+        private readonly uint[] _prevS = new uint[1024];
+        private bool _hasPrevKey;
+
+        public ReadOnlySpan<byte> CurrentRawKey => _rawKey;
+
         internal static readonly byte[] FfxiSubkey = new byte[4168]
         {
             0x88, 0x6A, 0x3F, 0x24, 0xD3, 0x08, 0xA3, 0x85, 0x2E, 0x8A, 0x19, 0x13, 0x44, 0x73, 0x70, 0x03,
@@ -299,6 +306,34 @@ namespace Gordian.Core.Network.Crypto
 
         public void InitializeKey(ReadOnlySpan<byte> key)
         {
+            if (key.Length == 20)
+            {
+                _rawKey = key.ToArray();
+                _hasPrevKey = false;
+            }
+            InitializeKeyCore(key);
+        }
+
+        public bool AdvanceZoneKey()
+        {
+            if (_rawKey == null || _rawKey.Length != 20)
+            {
+                GordianLog.Warning("CRYPTO", "Cannot advance zone key: no 20-byte session key has been initialized.");
+                return false;
+            }
+
+            Array.Copy(_p, _prevP, _p.Length);
+            Array.Copy(_s, _prevS, _s.Length);
+            _hasPrevKey = true;
+
+            _rawKey[4] = (byte)(_rawKey[4] + 2);
+            GordianLog.Info("CRYPTO", $"Advancing session Blowfish key for zone transition. New key[4]=0x{_rawKey[4]:X2} (full: {Convert.ToHexString(_rawKey)})");
+            InitializeKeyCore(_rawKey);
+            return true;
+        }
+
+        private void InitializeKeyCore(ReadOnlySpan<byte> key)
+        {
             ResetToDefaultSubkey();
             if (key.IsEmpty)
             {
@@ -391,12 +426,10 @@ namespace Gordian.Core.Network.Crypto
             numWords -= numWords % 2; // Must be even number of 32-bit words (64-bit blocks)
             int blockCount = numWords / 2;
 
-            // DIAGNOSTIC: log first 32 bytes pre-decryption and last 16 bytes (expected MD5)
+            Span<byte> cipherBackup = stackalloc byte[_hasPrevKey ? numWords * 4 : 0];
+            if (_hasPrevKey && blockCount > 0)
             {
-                int diagPreLen = Math.Min(32, totalCipherRegion);
-                GordianLog.Debug("CRYPTO", $"PRE-DECRYPT [{packetData.Length}b]: header={headerSize}, cipherRegion={totalCipherRegion}b, blocks={blockCount}. " +
-                    $"First {diagPreLen} payload bytes: {Convert.ToHexString(packetData.Slice(headerSize, diagPreLen))}");
-                GordianLog.Debug("CRYPTO", $"EXPECTED MD5 (last 16b of raw packet): {Convert.ToHexString(packetData.Slice(packetData.Length - 16, 16))}");
+                packetData.Slice(headerSize, numWords * 4).CopyTo(cipherBackup);
             }
 
             if (IsKeyInitialized && blockCount > 0)
@@ -405,13 +438,6 @@ namespace Gordian.Core.Network.Crypto
                 DecipherBlocks(cipherBytes, blockCount);
             }
 
-            // DIAGNOSTIC: log first 32 bytes post-decryption
-            {
-                int diagPostLen = Math.Min(32, totalCipherRegion);
-                GordianLog.Debug("CRYPTO", $"POST-DECRYPT first {diagPostLen} payload bytes: {Convert.ToHexString(packetData.Slice(headerSize, diagPostLen))}");
-            }
-
-            // Verify trailing 16-byte MD5 hash
             int payloadRegionLength = packetData.Length - (headerSize + 16);
             ReadOnlySpan<byte> payloadRegion = packetData.Slice(headerSize, payloadRegionLength);
             ReadOnlySpan<byte> receivedHash = packetData.Slice(packetData.Length - 16, 16);
@@ -419,17 +445,32 @@ namespace Gordian.Core.Network.Crypto
             Span<byte> computedHash = stackalloc byte[16];
             MD5.HashData(payloadRegion, computedHash);
 
-            // DIAGNOSTIC: log both MD5 hashes so we can see if they nearly match
-            GordianLog.Debug("CRYPTO", $"COMPUTED MD5 over {payloadRegionLength}b decrypted payload: {Convert.ToHexString(computedHash)}");
-            GordianLog.Debug("CRYPTO", $"RECEIVED MD5 (after decrypt, last 16b): {Convert.ToHexString(receivedHash)}");
-
-            if (!CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
+            if (CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
             {
-                return false;
+                decryptedPayloadLength = payloadRegionLength;
+                return true;
             }
 
-            decryptedPayloadLength = payloadRegionLength;
-            return true;
+            // Fallback: If transitioning zones, attempt decryption with previous subkeys for in-flight packets
+            if (_hasPrevKey && IsKeyInitialized && blockCount > 0)
+            {
+                Span<byte> cipherBytes = packetData.Slice(headerSize, numWords * 4);
+                cipherBackup.CopyTo(cipherBytes);
+                DecipherBlocksCustom(cipherBytes, blockCount, _prevP, _prevS);
+
+                MD5.HashData(payloadRegion, computedHash);
+                if (CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
+                {
+                    GordianLog.Debug("CRYPTO", "Decryption succeeded using fallback previous zone Blowfish key.");
+                    decryptedPayloadLength = payloadRegionLength;
+                    return true;
+                }
+
+                // If still failing, restore original ciphertext
+                cipherBackup.CopyTo(cipherBytes);
+            }
+
+            return false;
         }
 
         public int EncryptAndSign(Span<byte> datagramBuffer, int headerSize, int payloadLength)
@@ -453,24 +494,30 @@ namespace Gordian.Core.Network.Crypto
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private uint TT(uint working)
+        private static uint TT(uint working, uint[] s)
         {
             // (((S[256 + ((working >> 8) & 0xff)] & 1) ^ 32) + ((S[768 + (working >> 24)] & 1) ^ 32) + S[512 + ((working >> 16) & 0xff)] + S[working & 0xff])
-            uint s1 = (_s[256 + ((working >> 8) & 0xFF)] & 1) ^ 32;
-            uint s2 = (_s[768 + (working >> 24)] & 1) ^ 32;
-            uint s3 = _s[512 + ((working >> 16) & 0xFF)];
-            uint s4 = _s[working & 0xFF];
+            uint s1 = (s[256 + ((working >> 8) & 0xFF)] & 1) ^ 32;
+            uint s2 = (s[768 + (working >> 24)] & 1) ^ 32;
+            uint s3 = s[512 + ((working >> 16) & 0xFF)];
+            uint s4 = s[working & 0xFF];
             return s1 + s2 + s3 + s4;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Encipher(ref uint xl, ref uint xr)
         {
+            Encipher(ref xl, ref xr, _p, _s);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void Encipher(ref uint xl, ref uint xr, uint[] p, uint[] s)
+        {
             const int n = 16;
             for (int i = 0; i < n; ++i)
             {
-                xl ^= _p[i];
-                xr = TT(xl) ^ xr;
+                xl ^= p[i];
+                xr = TT(xl, s) ^ xr;
 
                 uint temp = xl;
                 xl = xr;
@@ -481,18 +528,24 @@ namespace Gordian.Core.Network.Crypto
             xl = xr;
             xr = t;
 
-            xr ^= _p[n];
-            xl ^= _p[n + 1];
+            xr ^= p[n];
+            xl ^= p[n + 1];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Decipher(ref uint xl, ref uint xr)
         {
+            Decipher(ref xl, ref xr, _p, _s);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void Decipher(ref uint xl, ref uint xr, uint[] p, uint[] s)
+        {
             const int n = 16;
             for (int i = n + 1; i > 1; --i)
             {
-                xl ^= _p[i];
-                xr = TT(xl) ^ xr;
+                xl ^= p[i];
+                xr = TT(xl, s) ^ xr;
 
                 uint temp = xl;
                 xl = xr;
@@ -503,8 +556,8 @@ namespace Gordian.Core.Network.Crypto
             xl = xr;
             xr = t;
 
-            xr ^= _p[1];
-            xl ^= _p[0];
+            xr ^= p[1];
+            xl ^= p[0];
         }
 
         private void EncipherBlocks(Span<byte> data, int blockCount)
@@ -537,10 +590,29 @@ namespace Gordian.Core.Network.Crypto
             }
         }
 
+        private static void DecipherBlocksCustom(Span<byte> data, int blockCount, uint[] p, uint[] s)
+        {
+            for (int b = 0; b < blockCount; b++)
+            {
+                int offset = b * 8;
+                uint xl = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+                uint xr = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset + 4, 4));
+
+                Decipher(ref xl, ref xr, p, s);
+
+                BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), xl);
+                BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset + 4, 4), xr);
+            }
+        }
+
         public void Dispose()
         {
             Array.Clear(_p, 0, _p.Length);
             Array.Clear(_s, 0, _s.Length);
+            Array.Clear(_prevP, 0, _prevP.Length);
+            Array.Clear(_prevS, 0, _prevS.Length);
+            _rawKey = null;
+            _hasPrevKey = false;
             IsKeyInitialized = false;
         }
     }

@@ -26,6 +26,12 @@ namespace Gordian.Core.Network.Crypto
         void InitializeKey(ReadOnlySpan<byte> key);
 
         /// <summary>
+        /// Advances the session cryptographic key when transitioning zones (e.g. key[4] += 2 in LandSandBoat).
+        /// </summary>
+        /// <returns>True if the key was successfully advanced; false if no underlying key material exists.</returns>
+        bool AdvanceZoneKey();
+
+        /// <summary>
         /// Decrypts and authenticates an incoming packet payload slice in-place.
         /// </summary>
         /// <param name="packetData">The full raw datagram buffer (including the 28-byte FFXI header).</param>
