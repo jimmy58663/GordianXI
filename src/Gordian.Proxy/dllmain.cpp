@@ -37,6 +37,7 @@ void LogDebug(const std::string& msg) {
 
 // REVERSE-ENGINEERED STRUCT MAPPING
 // This memory structure maps to the data layout emitted by bootloaders during session handoff.
+// Struct layout referenced from XILoader research (https://github.com/LandSandBoat/xiloader).
 struct FfxiHandoffParams {
     uint32_t Size;                // Size indicator of this parameter block
     uint32_t CharacterId;         // The unique database index tracking the chosen character

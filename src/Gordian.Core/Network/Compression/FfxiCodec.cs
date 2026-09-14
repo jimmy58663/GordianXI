@@ -9,6 +9,7 @@ namespace Gordian.Core.Network.Compression
     /// Implements the high-performance FFXI custom bitstream compressor and decompressor,
     /// matching LandSandBoat's zlib_compress and zlib_decompress.
     /// Operates entirely in-place with zero managed heap allocations during streaming.
+    /// Bitstream compression algorithms and table layouts referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public sealed class FfxiCodec
     {

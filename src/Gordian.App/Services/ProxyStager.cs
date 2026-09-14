@@ -8,6 +8,7 @@ namespace Gordian.App.Services
     /// <summary>
     /// Manages ephemeral staging and restoration of the GordianXI proxy FFXiMain.dll.
     /// Ensures zero permanent modification to the user's game installation.
+    /// Bootloader handoff and DLL staging flow referenced from XILoader research (https://github.com/LandSandBoat/xiloader).
     /// </summary>
     public static class ProxyStager
     {

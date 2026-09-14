@@ -8,6 +8,7 @@ namespace Gordian.App.Services
     /// <summary>
     /// Detects the Final Fantasy XI game installation directory from the Windows Registry,
     /// supporting US, European, and Japanese client variants.
+    /// Registry key mapping referenced from XILoader research (https://github.com/LandSandBoat/xiloader).
     /// </summary>
     public static class GameDirectoryDetector
     {

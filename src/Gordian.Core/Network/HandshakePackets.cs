@@ -9,6 +9,7 @@ namespace Gordian.Core.Network
     /// <summary>
     /// Factory helpers for constructing binary-accurate client handshake sub-packets
     /// and login datagrams compatible with LandSandBoat (LSB).
+    /// Sub-packet schemas (0x0A, 0x0B, 0x11) referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public static class HandshakePackets
     {

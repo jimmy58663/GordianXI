@@ -10,6 +10,7 @@ namespace Gordian.Core.Network.Crypto
     /// <summary>
     /// Implements the legacy Final Fantasy XI proprietary Blowfish ECB cipher suite
     /// and 16-byte MD5 trailing packet checksum verification matching LandSandBoat.
+    /// Cipher parameters and key permutation sequence referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public sealed class LegacyBlowfishCryptoSuite : IPacketCryptoSuite
     {

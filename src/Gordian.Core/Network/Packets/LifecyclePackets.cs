@@ -13,7 +13,7 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// Logout and Zone Transition states transmitted by the server in S2C 0x00B.
-    /// Matches LandSandBoat GP_GAME_LOGOUT_STATE.
+    /// Matches LandSandBoat GP_GAME_LOGOUT_STATE (https://github.com/LandSandBoat/server).
     /// </summary>
     public enum LogoutState : byte
     {

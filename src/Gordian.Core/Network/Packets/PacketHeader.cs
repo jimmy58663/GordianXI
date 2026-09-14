@@ -9,6 +9,7 @@ namespace Gordian.Core.Network.Packets
     /// Bitfield layout:
     ///   Byte 0..1 (16 bits): bits 0..8 = Packet ID (0..511), bits 9..15 = Size in 4-byte words
     ///   Byte 2..3 (16 bits): Sequence ID
+    /// Wire format referenced from LandSandBoat and DarkStar Project protocol research.
     /// </summary>
     public readonly struct PacketHeader : IEquatable<PacketHeader>
     {
