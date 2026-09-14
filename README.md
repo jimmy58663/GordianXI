@@ -8,7 +8,7 @@
 
 By replacing the legacy 2002 executable entirely, GordianXI cuts through decades of technical debt, shifts multi-boxing from a brittle hacking exercise into a native design feature, and permanently shatters the structural memory constraints of the original client.
 
-> ⚠️ **Disclaimer & Legal Boundary:** GordianXI is an independent, clean-room software preservation project. It does **not** contain, host, or distribute any copyrighted assets, 3D models, textures, or proprietary code belonging to Square Enix. Users must possess a legally installed, official retail copy of Final Fantasy XI. GordianXI functions purely as an alternative execution runtime that reads local resource data files directly from the user's hard drive.
+> ⚠️ **Disclaimer & Legal Boundary:** GordianXI is an independent, clean-room software preservation project. It does **not** contain, host, or distribute any copyrighted assets, 3D models, textures, or proprietary code belonging to Square Enix. Users must possess a legally installed, official retail copy of Final Fantasy XI. GordianXI functions purely as an alternative execution runtime that reads local resource data files directly from the user's hard drive. For comprehensive legal terms, trademark disclaimers, and reverse-engineering statutory protections, see [LEGAL.md](LEGAL.md).
 
 ---
 
@@ -87,10 +87,13 @@ dotnet build
 
 Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments.
 
-## 📄 License
+## 📄 License & Legal
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+* **License:** GordianXI is licensed under the [MIT License](LICENSE).
+* **Credits & Acknowledgements:** We gratefully acknowledge the community research and tooling that made this possible — see [CREDITS.md](CREDITS.md).
+* **Third-Party Notices:** For licenses of bundled libraries and clean-room reference project specifications, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+* **Legal Disclaimers:** For clean-room reverse engineering protections, trademark notices, and asset policies, see [LEGAL.md](LEGAL.md).
 
-## AI Assistance
+## 🤖 AI Assistance
 
-This project is being developed largely with the use of AI agents. All changes are being reviewed and directed by human authors.
+This project is being developed largely with the use of AI agents. All architectural decisions, code modifications, and security reviews are guided and verified by human authors.
