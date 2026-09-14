@@ -9,6 +9,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Config;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
+using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.Network
 {
@@ -22,8 +23,8 @@ namespace Gordian.Core.Network
         private const int MaxDatagramSize = 1360; // FFXI MTU-safe datagram window
         private const int NetworkTickIntervalMs = 250; // 4Hz standard FFXI update tick frequency
 
-        private readonly string _serverAddress;
-        private readonly int _serverPort;
+        private string _serverAddress;
+        private int _serverPort;
         private readonly PacketParser _parser;
         private readonly FfxiCodec _codec;
 
@@ -122,6 +123,27 @@ namespace Gordian.Core.Network
         public ushort TargetIndex { get; set; }
 
         /// <summary>
+        /// Gets the current target map server IP address or hostname.
+        /// </summary>
+        public string ServerAddress => _serverAddress;
+
+        /// <summary>
+        /// Gets the current target map server UDP port.
+        /// </summary>
+        public int ServerPort => _serverPort;
+
+        /// <summary>
+        /// Gets the active remote server endpoint.
+        /// </summary>
+        public EndPoint? CurrentEndpoint => _serverEndpoint;
+
+        /// <summary>
+        /// Raised when a dynamic zone transition to a new map server is triggered.
+        /// Parameters: Target IP, Target Port.
+        /// </summary>
+        public event Action<IPAddress, int>? ZoneTransitionStarted;
+
+        /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
         /// </summary>
         public event EventHandler<PacketLogEntry>? PacketInspected;
@@ -149,6 +171,18 @@ namespace Gordian.Core.Network
                 Direction = dir;
                 TargetIndex = actIndex;
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
+            };
+            _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
+            {
+                GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
+                if (state == LogoutState.ZoneChange || state == LogoutState.MyRoom)
+                {
+                    _ = HandleZoneTransitionAsync(targetIp, targetPort);
+                }
+                else if (state == LogoutState.Logout || state == LogoutState.PolExit || state == LogoutState.End)
+                {
+                    Disconnect();
+                }
             };
         }
 
@@ -479,6 +513,149 @@ namespace Gordian.Core.Network
                 ExecuteSocketCleanup();
                 CurrentState = SessionState.Disconnected;
             }
+        }
+
+        private async Task HandleZoneTransitionAsync(IPAddress targetIp, ushort targetPort)
+        {
+            try
+            {
+                IPAddress resolvedIp = targetIp;
+                if (resolvedIp.Equals(IPAddress.Any) || resolvedIp.ToString() == "0.0.0.0")
+                {
+                    if (_serverEndpoint is IPEndPoint currentIpep)
+                    {
+                        resolvedIp = currentIpep.Address;
+                    }
+                    else if (IPAddress.TryParse(_serverAddress, out var parsed))
+                    {
+                        resolvedIp = parsed;
+                    }
+                }
+
+                int resolvedPort = targetPort != 0 ? targetPort : _serverPort;
+                await PerformZoneTransitionAsync(resolvedIp, resolvedPort).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("NET", "Unhandled exception during zone transition handling", ex);
+            }
+        }
+
+        /// <summary>
+        /// Dynamically transitions the active network session to a target map server:
+        /// re-targeting the UDP endpoint, advancing the Blowfish cipher key, resetting packet sequences,
+        /// and re-executing the 0x00A login handshake seamlessly without dropping session state.
+        /// </summary>
+        public async Task PerformZoneTransitionAsync(IPAddress targetIp, int targetPort, CancellationToken ct = default)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+
+            GordianLog.Info("NET", $"Starting dynamic zone transition to {targetIp}:{targetPort} for character '{CharacterName}'...");
+            CurrentState = SessionState.LoadingWorldData;
+            ZoneTransitionStarted?.Invoke(targetIp, targetPort);
+
+            await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                _serverAddress = targetIp.ToString();
+                _serverPort = targetPort;
+                _serverEndpoint = new IPEndPoint(targetIp, targetPort);
+                _currentBufferLength = 0;
+
+                // Advance cryptographic session key (matching LandSandBoat key[4] += 2)
+                bool advanced = _parser.CryptoSuite.AdvanceZoneKey();
+                GordianLog.Debug("NET", $"Session crypto key advanced for zone transition: {advanced}");
+
+                // Reset packet sequence numbers for new map server
+                _clientPacketIdSequence = 1;
+                _serverPacketIdSequence = 0;
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+
+            // Transmit unencrypted 0x00A login datagram with retransmission loop to target map server
+            if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
+            {
+                byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
+                    CharacterId,
+                    CharacterName,
+                    AccountName,
+                    Ticket,
+                    clientVersion: 1,
+                    clientPacketSeq: _clientPacketIdSequence
+                );
+
+                ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
+                _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
+
+                var token = _cts?.Token ?? ct;
+                _ = Task.Run(async () =>
+                {
+                    int attempt = 0;
+                    while (!token.IsCancellationRequested && CurrentState == SessionState.LoadingWorldData && attempt < 25)
+                    {
+                        attempt++;
+                        GordianLog.Debug("NET", $"Transmitting zone transition 0x00A attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
+                        try
+                        {
+                            if (_udpSocket != null && _serverEndpoint != null)
+                            {
+                                await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, token).ConfigureAwait(false);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            GordianLog.Warning("NET", $"Failed to send zone transition 0x00A attempt #{attempt}: {ex.Message}");
+                            break;
+                        }
+
+                        try
+                        {
+                            await Task.Delay(500, token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
+                }, token);
+            }
+        }
+
+        /// <summary>
+        /// Transmits a C2S 0x05E MapRect packet requesting to cross a zoneline by FourCC tag.
+        /// </summary>
+        public Task RequestZoneTransitionByZonelineAsync(string rectTag)
+        {
+            return _parser.LifecycleModule.RequestZoneChangeAsync(rectTag, PositionX, PositionY, PositionZ, TargetIndex);
+        }
+
+        /// <summary>
+        /// Transmits a C2S 0x05E MapRect packet requesting to cross a zoneline by numeric Rect ID.
+        /// </summary>
+        public Task RequestZoneTransitionByZonelineAsync(uint rectId)
+        {
+            return _parser.LifecycleModule.RequestZoneChangeAsync(rectId, PositionX, PositionY, PositionZ, TargetIndex);
+        }
+
+        /// <summary>
+        /// Transmits a C2S 0x05E MapRect packet requesting to exit Mog House to a specified city area or mode.
+        /// </summary>
+        public Task RequestMogHouseExitAsync(MogHouseExitBit exitBit, MogHouseExitMode exitMode)
+        {
+            return _parser.LifecycleModule.RequestMogHouseExitAsync(exitBit, exitMode, PositionX, PositionY, PositionZ, TargetIndex);
+        }
+
+        /// <summary>
+        /// Transmits a C2S 0x0E7 ReqLogout packet requesting logout or shutdown.
+        /// </summary>
+        public Task RequestLogoutAsync(bool shutdown = false)
+        {
+            var kind = shutdown ? ReqLogoutKind.Shutdown : ReqLogoutKind.Logout;
+            var mode = shutdown ? ReqLogoutMode.ShutdownOn : ReqLogoutMode.LogoutOn;
+            return _parser.LifecycleModule.RequestLogoutAsync(mode, kind);
         }
 
         public void Disconnect()
