@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 97 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 111 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 3: Complete LSB Packet Engine & Zone Transitions
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -55,7 +55,7 @@
   - [x] Dynamic UDP socket re-binding to target map server, resetting sequence numbers, and re-executing handshake seamlessly (`PerformZoneTransitionAsync`)
 - [ ] **Declarative Zero-Allocation Packet Registry Expansion:**
   - [x] **Session & Zone Lifecycle:** S2C `0x00A`, `0x00B`, `0x008`, `0x05B`, `0x065`; C2S `0x00A`, `0x00C`, `0x00D`, `0x011`, `0x015`, `0x05B`, `0x05C`, `0x05E`, `0x0E7`
-  - [ ] **Entity & World State:** S2C `0x00D` (PC update), `0x00E` (NPC/Mob update), `0x037` (Char status), `0x061`/`0x062` (Stats), `0x076` (Effects), `0x077` (Vis); C2S `0x00F` (Target interact), `0x016`/`0x017` (Char reqs)
+  - [x] **Entity & World State:** S2C `0x00D` (PC update), `0x00E` (NPC/Mob update), `0x037` (Char status), `0x061`/`0x062` (Stats), `0x076` (Effects), `0x077` (Vis); C2S `0x00F` (Target interact), `0x016`/`0x017` (Char reqs)
   - [ ] **Communication & Chat:** S2C `0x017` (Chat), `0x009` (SysMsg), `0x047` (Translate), `0x0CC` (LS Msg); C2S `0x0B5` (Chat send), `0x0B6` (Tell), `0x0B7` (Assist), `0x0E0`-`0x0E4` (LS mgmt)
   - [ ] **Combat & Action Pipeline:** S2C `0x028` (Combat action), `0x029`/`0x02D` (Battle msg), `0x030` (Effects), `0x0AA` (Magic), `0x0AC` (Commands), `0x119` (Recasts); C2S `0x01A` (Action req: attack, cast, ability), `0x05D` (Emotes), `0x0F1` (Buff cancel), `0x11D` (Jump)
   - [ ] **Inventory & Economy:** S2C `0x01C`-`0x020` (Inventory items & attrs), `0x021`-`0x025` (Trade), `0x026` (Subcontainers), `0x03C`-`0x03F` (Shops), `0x04C` (AH), `0x050` (Equipment), `0x082`-`0x086` (Guilds), `0x105`-`0x10A` (Bazaar), `0x113`/`0x118` (Currencies), `0x116`/`0x117` (Equip sets); C2S `0x028` (Item dump), `0x029` (Move), `0x032`-`0x034` (Trade), `0x036` (Transfer), `0x037` (Use), `0x03A` (Stack), `0x03B` (Subcontainer), `0x04E` (AH), `0x050`-`0x053` (Equip/Lockstyle), `0x083`-`0x085` (Shops), `0x104`-`0x10B` (Bazaar)
@@ -64,14 +64,14 @@
 ---
 
 ### ⏳ Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
-- [ ] **Thread-Safe Spatial Entity Store (`Gordian.Core/World`):**
-  - [ ] Tracking for LocalPlayer, other PCs, NPCs, Monsters, Pets, and Trusts
-  - [ ] Indexing by Server ID (`uint32`) and Zone Target Index (`uint16`)
-  - [ ] Fast 3D spatial partitioning (Uniform Grid / BVH) for distance, cone, and line-of-sight queries
-  - [ ] Dead-reckoning & position interpolation between 250ms network ticks
+- [x] **Thread-Safe Spatial Entity Store (`Gordian.Core/World`):**
+  - [x] Tracking for LocalPlayer, other PCs, NPCs, Monsters, Pets, and Trusts
+  - [x] Indexing by Server ID (`uint32`) and Zone Target Index (`uint16`)
+  - [x] Fast 3D spatial partitioning (Uniform Grid / BVH) for distance, cone, and line-of-sight queries
+  - [x] Dead-reckoning & position interpolation between 250ms network ticks
 - [ ] **Game State Caches:**
   - [ ] Multi-container inventory cache (Inventory, Wardrobes 1-8, Satchel, Sack, Case, Safe, Storage)
-  - [ ] Active player vitals (HP/MP/TP), base attributes, equipment loadout, buff/debuff timers
+  - [x] Active player vitals (HP/MP/TP), base attributes, equipment loadout, buff/debuff timers
 - [ ] **FFXI DAT Binary Decoders (`Gordian.Core/Resources`):**
   - [ ] Clean-room decoders for ROM directory DAT files (string tables, item tables, spell/ability tables)
   - [ ] Zone collision meshes, terrain geometry, entity models, and animation tables

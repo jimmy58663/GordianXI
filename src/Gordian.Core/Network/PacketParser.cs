@@ -8,6 +8,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Network
 {
@@ -26,6 +27,9 @@ namespace Gordian.Core.Network
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
         private readonly PacketDispatcher _dispatcher;
         private readonly LifecyclePacketModule _lifecycleModule;
+        private readonly WorldState _world;
+        private readonly LocalPlayerState _localPlayer;
+        private readonly EntityPacketModule _entityModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -35,16 +39,23 @@ namespace Gordian.Core.Network
             Func<ReadOnlyMemory<byte>, bool, Task> sendChunkCallback,
             IPacketCryptoSuite? cryptoSuite = null,
             FfxiCodec? codec = null,
-            PacketDispatcher? dispatcher = null)
+            PacketDispatcher? dispatcher = null,
+            WorldState? world = null,
+            LocalPlayerState? localPlayer = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
             _cryptoSuite = cryptoSuite ?? new LegacyBlowfishCryptoSuite();
             _codec = codec ?? FfxiCodec.Default;
             _dispatcher = dispatcher ?? new PacketDispatcher();
+            _world = world ?? new WorldState();
+            _localPlayer = localPlayer ?? new LocalPlayerState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
+
+            _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket);
+            _entityModule.Register(_dispatcher);
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -64,6 +75,21 @@ namespace Gordian.Core.Network
         /// Gets the lifecycle and handshake handler module.
         /// </summary>
         public LifecyclePacketModule LifecycleModule => _lifecycleModule;
+
+        /// <summary>
+        /// Gets the thread-safe active game world state.
+        /// </summary>
+        public WorldState World => _world;
+
+        /// <summary>
+        /// Gets the active character statistics and vitals state.
+        /// </summary>
+        public LocalPlayerState LocalPlayer => _localPlayer;
+
+        /// <summary>
+        /// Gets the entity packet handling module.
+        /// </summary>
+        public EntityPacketModule EntityModule => _entityModule;
 
         /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
@@ -107,7 +133,11 @@ namespace Gordian.Core.Network
         public bool LogOutboundOnRoute
         {
             get => _lifecycleModule.LogOutboundOnRoute;
-            set => _lifecycleModule.LogOutboundOnRoute = value;
+            set
+            {
+                _lifecycleModule.LogOutboundOnRoute = value;
+                _entityModule.LogOutboundOnRoute = value;
+            }
         }
 
         /// <summary>

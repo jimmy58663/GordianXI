@@ -1,0 +1,189 @@
+// src/Gordian.Core/World/LocalPlayerState.cs
+using System;
+using Gordian.Core.Network.Packets;
+
+namespace Gordian.Core.World
+{
+    /// <summary>
+    /// Thread-safe active player character vitals, attributes, progression, and state cache.
+    /// </summary>
+    public sealed class LocalPlayerState
+    {
+        private readonly object _lock = new object();
+
+        #region Vitals
+        public int CurrentHp { get; private set; }
+        public int MaxHp { get; private set; }
+        public int CurrentMp { get; private set; }
+        public int MaxMp { get; private set; }
+        public short CurrentTp { get; private set; }
+        public byte Hpp { get; private set; }
+        #endregion
+
+        #region Jobs & Progression
+        public JobId MainJob { get; private set; } = JobId.None;
+        public byte MainJobLevel { get; private set; }
+        public JobId SubJob { get; private set; } = JobId.None;
+        public byte SubJobLevel { get; private set; }
+        public short ExpNow { get; private set; }
+        public short ExpNext { get; private set; }
+        public ushort TitleId { get; private set; }
+        public ushort Rank { get; private set; }
+        public ushort RankPoints { get; private set; }
+        public ushort HomePointZone { get; private set; }
+        public byte Nation { get; private set; }
+        public byte SuperiorLevel { get; private set; }
+        public byte ItemLevel { get; private set; }
+        public byte HighestItemLevel { get; private set; }
+        public byte UnityFaction { get; private set; }
+        public uint UnityPoints { get; private set; }
+        #endregion
+
+        #region Attributes & Combat Stats
+        // 0:STR, 1:DEX, 2:VIT, 3:AGI, 4:INT, 5:MND, 6:CHR
+        public ushort[] BaseStats { get; } = new ushort[7];
+        public short[] StatModifiers { get; } = new short[7];
+        public short Attack { get; private set; }
+        public short Defense { get; private set; }
+        // 0:Fire, 1:Ice, 2:Wind, 3:Earth, 4:Thunder, 5:Water, 6:Light, 7:Dark
+        public short[] ElementalResistances { get; } = new short[8];
+        #endregion
+
+        #region Skills & Recasts
+        public ushort[] SkillBase { get; } = new ushort[64];
+        public uint[] CommandRecast { get; } = new uint[31];
+        #endregion
+
+        #region Status Effects & Buffs
+        public byte[] BuffIcons { get; } = new byte[32];
+        public byte[] BuffStatusBits { get; } = new byte[8];
+        public ushort PetActorIndex { get; private set; }
+        public byte MountId { get; private set; }
+        public byte WardrobeMask { get; private set; }
+        public ushort CostumeId { get; private set; }
+        public uint DeadCounterSeconds { get; private set; }
+        #endregion
+
+        #region Events
+        public event Action? VitalsUpdated;
+        public event Action? StatsUpdated;
+        public event Action? SkillsUpdated;
+        public event Action? BuffsUpdated;
+        #endregion
+
+        public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
+        {
+            lock (_lock)
+            {
+                Hpp = status.Hpp;
+                PetActorIndex = status.PetActorIndex;
+                MountId = status.MountId;
+                WardrobeMask = status.WardrobeMask;
+                CostumeId = status.CostumeId;
+                DeadCounterSeconds = status.DeadCounterSeconds;
+
+                if (!status.BuffStatus.IsEmpty)
+                {
+                    int copyLen = Math.Min(status.BuffStatus.Length, BuffIcons.Length);
+                    status.BuffStatus.Slice(0, copyLen).CopyTo(BuffIcons);
+                }
+
+                if (!status.BuffStatusBits.IsEmpty)
+                {
+                    int copyLen = Math.Min(status.BuffStatusBits.Length, BuffStatusBits.Length);
+                    status.BuffStatusBits.Slice(0, copyLen).CopyTo(BuffStatusBits);
+                }
+            }
+
+            BuffsUpdated?.Invoke();
+            VitalsUpdated?.Invoke();
+        }
+
+        public void UpdateFromCliStatus(in S2C_0x061_CliStatus cliStatus)
+        {
+            lock (_lock)
+            {
+                MaxHp = cliStatus.HpMax;
+                MaxMp = cliStatus.MpMax;
+                MainJob = cliStatus.MainJob;
+                MainJobLevel = cliStatus.MainJobLevel;
+                SubJob = cliStatus.SubJob;
+                SubJobLevel = cliStatus.SubJobLevel;
+                ExpNow = cliStatus.ExpNow;
+                ExpNext = cliStatus.ExpNext;
+                Attack = cliStatus.Attack;
+                Defense = cliStatus.Defense;
+                TitleId = cliStatus.TitleId;
+                Rank = cliStatus.Rank;
+                RankPoints = cliStatus.RankPoints;
+                HomePointZone = cliStatus.HomePointZone;
+                Nation = cliStatus.Nation;
+                SuperiorLevel = cliStatus.SuperiorLevel;
+                ItemLevel = cliStatus.ItemLevel;
+                HighestItemLevel = cliStatus.HighestItemLevel;
+                UnityFaction = cliStatus.UnityFaction;
+                UnityPoints = cliStatus.UnityPoints;
+
+                for (int i = 0; i < 7; i++)
+                {
+                    BaseStats[i] = cliStatus.GetBaseStat(i);
+                    StatModifiers[i] = cliStatus.GetStatModifier(i);
+                }
+
+                for (int i = 0; i < 8; i++)
+                {
+                    ElementalResistances[i] = cliStatus.GetElementalResistance(i);
+                }
+            }
+
+            StatsUpdated?.Invoke();
+            VitalsUpdated?.Invoke();
+        }
+
+        public void UpdateFromCliStatus2(in S2C_0x062_CliStatus2 cliStatus2)
+        {
+            lock (_lock)
+            {
+                for (int i = 0; i < 31; i++)
+                {
+                    CommandRecast[i] = cliStatus2.GetCommandRecast(i);
+                }
+
+                for (int i = 0; i < 64; i++)
+                {
+                    SkillBase[i] = cliStatus2.GetSkillBase(i);
+                }
+            }
+
+            SkillsUpdated?.Invoke();
+        }
+
+        public void UpdateVitals(int currentHp, int currentMp, short currentTp)
+        {
+            lock (_lock)
+            {
+                CurrentHp = currentHp;
+                CurrentMp = currentMp;
+                CurrentTp = currentTp;
+                if (MaxHp > 0)
+                {
+                    Hpp = (byte)Math.Clamp((CurrentHp * 100) / MaxHp, 0, 100);
+                }
+            }
+
+            VitalsUpdated?.Invoke();
+        }
+
+        public bool HasStatusEffect(byte effectId)
+        {
+            lock (_lock)
+            {
+                for (int i = 0; i < BuffIcons.Length; i++)
+                {
+                    if (BuffIcons[i] == effectId) return true;
+                }
+                return false;
+            }
+        }
+    }
+}

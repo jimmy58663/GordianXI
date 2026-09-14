@@ -1,5 +1,7 @@
 // src/Gordian.Core/Network/CharacterSession.cs
 using System;
+using Gordian.Core.Network.Packets;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Network
 {
@@ -20,6 +22,21 @@ namespace Gordian.Core.Network
         /// Gets the current operational lifecycle state of this character session.
         /// </summary>
         public SessionState State => NetworkManager.CurrentState;
+
+        /// <summary>
+        /// Gets the thread-safe active game world state.
+        /// </summary>
+        public WorldState World => NetworkManager.World;
+
+        /// <summary>
+        /// Gets the active character statistics and vitals state.
+        /// </summary>
+        public LocalPlayerState LocalPlayer => NetworkManager.LocalPlayer;
+
+        /// <summary>
+        /// Gets the entity packet handling module.
+        /// </summary>
+        public EntityPacketModule EntityModule => NetworkManager.EntityModule;
 
         public CharacterSession(
             string characterName,

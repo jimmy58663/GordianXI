@@ -10,6 +10,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Network
 {
@@ -35,7 +36,7 @@ namespace Gordian.Core.Network
         private Task? _writeFlushTask;
         private bool _isDisposed;
 
-        // ?? Outbound Network Buffering
+        //  Outbound Network Buffering
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
         private readonly byte[] _outboundQueueBuffer = new byte[MaxDatagramSize];
         private int _currentBufferLength = 0;
@@ -76,6 +77,21 @@ namespace Gordian.Core.Network
         /// Gets the packet parser handling this session.
         /// </summary>
         public PacketParser Parser => _parser;
+
+        /// <summary>
+        /// Gets the thread-safe active game world state.
+        /// </summary>
+        public WorldState World => _parser.World;
+
+        /// <summary>
+        /// Gets the active character statistics and vitals state.
+        /// </summary>
+        public LocalPlayerState LocalPlayer => _parser.LocalPlayer;
+
+        /// <summary>
+        /// Gets the entity packet handling module.
+        /// </summary>
+        public EntityPacketModule EntityModule => _parser.EntityModule;
 
         /// <summary>
         /// Unique Character ID assigned by the server database.
@@ -177,10 +193,12 @@ namespace Gordian.Core.Network
                 GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
                 if (state == LogoutState.ZoneChange || state == LogoutState.MyRoom)
                 {
+                    World.Clear();
                     _ = HandleZoneTransitionAsync(targetIp, targetPort);
                 }
                 else if (state == LogoutState.Logout || state == LogoutState.PolExit || state == LogoutState.End)
                 {
+                    World.Clear();
                     Disconnect();
                 }
             };
@@ -552,6 +570,7 @@ namespace Gordian.Core.Network
 
             GordianLog.Info("NET", $"Starting dynamic zone transition to {targetIp}:{targetPort} for character '{CharacterName}'...");
             CurrentState = SessionState.LoadingWorldData;
+            World.Clear();
             ZoneTransitionStarted?.Invoke(targetIp, targetPort);
 
             await _writeLock.WaitAsync(ct).ConfigureAwait(false);
