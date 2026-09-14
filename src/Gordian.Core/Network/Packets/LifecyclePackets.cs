@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
@@ -27,6 +28,74 @@ namespace Gordian.Core.Network.Packets
         Timeout = 8,
         GmLogout = 9,
         End = 10
+    }
+
+    /// <summary>
+    /// World position update mode flags sent by server in S2C 0x05B / 0x065 (POSMODE).
+    /// </summary>
+    public enum PosMode : byte
+    {
+        Normal = 0x00,
+        Event = 0x01,
+        Clear = 0x02,
+        Pop = 0x03,
+        Reset = 0x05,
+        Materialize = 0x06,
+        Lock = 0x08,
+        Unlock = 0x09,
+        Rotate = 0x0A
+    }
+
+    /// <summary>
+    /// Logout and Shutdown request mode in C2S 0x0E7 (GP_CLI_COMMAND_REQLOGOUT).
+    /// </summary>
+    public enum ReqLogoutMode : ushort
+    {
+        Toggle = 0x00,
+        LogoutOn = 0x01,
+        Off = 0x02,
+        ShutdownOn = 0x03
+    }
+
+    /// <summary>
+    /// Logout and Shutdown request kind in C2S 0x0E7.
+    /// </summary>
+    public enum ReqLogoutKind : ushort
+    {
+        Logout = 0x01,
+        Shutdown = 0x03
+    }
+
+    /// <summary>
+    /// Mog House city exit target bit in C2S 0x05E (GP_CLI_COMMAND_MAPRECT_MYROOMEXITBIT).
+    /// </summary>
+    public enum MogHouseExitBit : byte
+    {
+        Default = 0,
+        SandOria = 1,
+        Bastok = 2,
+        Windurst = 3,
+        Jeuno = 4,
+        Whitegate = 5,
+        RonfaureFront = 6,
+        GustabergFront = 7,
+        SarutaFront = 8,
+        Adoulin = 9
+    }
+
+    /// <summary>
+    /// Mog House exit mode selection in C2S 0x05E (GP_CLI_COMMAND_MAPRECT_MYROOMEXITMODE).
+    /// </summary>
+    public enum MogHouseExitMode : byte
+    {
+        AreaEnteredFrom = 0,
+        Option1 = 1,
+        Option2 = 2,
+        Option3 = 3,
+        Option4 = 4,
+        Mog2F = 125,
+        Mog1F = 126,
+        MogGarden = 127
     }
 
     #endregion
@@ -195,6 +264,92 @@ namespace Gordian.Core.Network.Packets
         }
     }
 
+    /// <summary>
+    /// S2C 0x05B (GP_SERV_COMMAND_WPOS): Entity World Position / Warp Update.
+    /// Sent by the server to update an entity's position or trigger warp transitions.
+    /// </summary>
+    public readonly ref struct S2C_0x05B_WPos
+    {
+        public const ushort PacketId = 0x05B;
+
+        public float X { get; }
+        public float Y { get; }
+        public float Z { get; }
+        public uint UniqueNo { get; }
+        public ushort ActorIndex { get; }
+        public PosMode Mode { get; }
+        public byte Direction { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x05B_WPos(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 20)
+            {
+                X = 0f;
+                Y = 0f;
+                Z = 0f;
+                UniqueNo = 0;
+                ActorIndex = 0;
+                Mode = PosMode.Normal;
+                Direction = 0;
+                IsValid = false;
+                return;
+            }
+
+            X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
+            ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
+            Mode = (PosMode)payload[18];
+            Direction = payload[19];
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x065 (GP_SERV_COMMAND_WPOS2): Entity World Position / Reset Update (2).
+    /// Sent by the server to reset or update position (e.g. after denied zoneline or zone entrance).
+    /// </summary>
+    public readonly ref struct S2C_0x065_WPos2
+    {
+        public const ushort PacketId = 0x065;
+
+        public float X { get; }
+        public float Y { get; }
+        public float Z { get; }
+        public uint UniqueNo { get; }
+        public ushort ActorIndex { get; }
+        public PosMode Mode { get; }
+        public byte Direction { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x065_WPos2(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 20)
+            {
+                X = 0f;
+                Y = 0f;
+                Z = 0f;
+                UniqueNo = 0;
+                ActorIndex = 0;
+                Mode = PosMode.Normal;
+                Direction = 0;
+                IsValid = false;
+                return;
+            }
+
+            X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
+            ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
+            Mode = (PosMode)payload[18];
+            Direction = payload[19];
+            IsValid = true;
+        }
+    }
+
     #endregion
 
     #region Outbound Builders
@@ -209,6 +364,9 @@ namespace Gordian.Core.Network.Packets
         public const int PosSubPacketSize = 32;
         public const int MapRectSubPacketSize = 24;
         public const int EventEndSubPacketSize = 20;
+        public const int ZoneTransitionSubPacketSize = 8;
+        public const int EventEndXzySubPacketSize = 32;
+        public const int ReqLogoutSubPacketSize = 8;
 
         public static void BuildGameOk(Span<byte> destination, ushort sequenceId = 0, uint clientState = 0, uint debugClientFlg = 0)
         {
@@ -366,6 +524,153 @@ namespace Gordian.Core.Network.Packets
             BuildEventEnd(packet.AsSpan(), uniqueNo, endPara, actIndex, mode, eventNum, eventPara, sequenceId);
             return packet;
         }
+
+        public static uint MakeFourCc(string tag)
+        {
+            if (string.IsNullOrEmpty(tag)) return 0;
+            Span<byte> bytes = stackalloc byte[4];
+            int written = Encoding.ASCII.GetBytes(tag.AsSpan(0, Math.Min(4, tag.Length)), bytes);
+            if (written < 4)
+            {
+                bytes.Slice(written).Clear();
+            }
+            return BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        }
+
+        public static void BuildMapRect(
+            Span<byte> destination,
+            string rectTag,
+            float x,
+            float y,
+            float z,
+            ushort actorIndex = 0,
+            MogHouseExitBit myRoomExitBit = MogHouseExitBit.Default,
+            MogHouseExitMode myRoomExitMode = MogHouseExitMode.AreaEnteredFrom,
+            ushort sequenceId = 0)
+        {
+            BuildMapRect(destination, MakeFourCc(rectTag), x, y, z, actorIndex, (byte)myRoomExitBit, (byte)myRoomExitMode, sequenceId);
+        }
+
+        public static byte[] BuildMapRect(
+            string rectTag,
+            float x,
+            float y,
+            float z,
+            ushort actorIndex = 0,
+            MogHouseExitBit myRoomExitBit = MogHouseExitBit.Default,
+            MogHouseExitMode myRoomExitMode = MogHouseExitMode.AreaEnteredFrom,
+            ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[MapRectSubPacketSize];
+            BuildMapRect(packet.AsSpan(), rectTag, x, y, z, actorIndex, myRoomExitBit, myRoomExitMode, sequenceId);
+            return packet;
+        }
+
+        public static void BuildZoneTransition(
+            Span<byte> destination,
+            byte unknown00 = 2,
+            byte unknown01 = 0,
+            ushort sequenceId = 0)
+        {
+            if (destination.Length < ZoneTransitionSubPacketSize)
+                throw new ArgumentException($"Destination must be at least {ZoneTransitionSubPacketSize} bytes.", nameof(destination));
+
+            destination.Slice(0, ZoneTransitionSubPacketSize).Clear();
+            ushort headerWord = (ushort)(0x011 | (2 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+            destination[4] = unknown00;
+            destination[5] = unknown01;
+            // destination[6..7] remains 0
+        }
+
+        public static byte[] BuildZoneTransition(
+            byte unknown00 = 2,
+            byte unknown01 = 0,
+            ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[ZoneTransitionSubPacketSize];
+            BuildZoneTransition(packet.AsSpan(), unknown00, unknown01, sequenceId);
+            return packet;
+        }
+
+        public static void BuildEventEndXzy(
+            Span<byte> destination,
+            float x,
+            float y,
+            float z,
+            uint uniqueNo,
+            uint endPara,
+            ushort actIndex,
+            byte mode = 0,
+            sbyte dir = 0,
+            ushort eventNum = 0,
+            ushort eventPara = 0,
+            ushort sequenceId = 0)
+        {
+            if (destination.Length < EventEndXzySubPacketSize)
+                throw new ArgumentException($"Destination must be at least {EventEndXzySubPacketSize} bytes.", nameof(destination));
+
+            destination.Slice(0, EventEndXzySubPacketSize).Clear();
+            ushort headerWord = (ushort)(0x05C | (8 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(4, 4), x);
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), y);
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), z);
+            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(16, 4), uniqueNo);
+            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(20, 4), endPara);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(24, 2), eventNum);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(26, 2), eventPara);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(28, 2), actIndex);
+            destination[30] = mode;
+            destination[31] = (byte)dir;
+        }
+
+        public static byte[] BuildEventEndXzy(
+            float x,
+            float y,
+            float z,
+            uint uniqueNo,
+            uint endPara,
+            ushort actIndex,
+            byte mode = 0,
+            sbyte dir = 0,
+            ushort eventNum = 0,
+            ushort eventPara = 0,
+            ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[EventEndXzySubPacketSize];
+            BuildEventEndXzy(packet.AsSpan(), x, y, z, uniqueNo, endPara, actIndex, mode, dir, eventNum, eventPara, sequenceId);
+            return packet;
+        }
+
+        public static void BuildReqLogout(
+            Span<byte> destination,
+            ReqLogoutMode mode = ReqLogoutMode.LogoutOn,
+            ReqLogoutKind kind = ReqLogoutKind.Logout,
+            ushort sequenceId = 0)
+        {
+            if (destination.Length < ReqLogoutSubPacketSize)
+                throw new ArgumentException($"Destination must be at least {ReqLogoutSubPacketSize} bytes.", nameof(destination));
+
+            destination.Slice(0, ReqLogoutSubPacketSize).Clear();
+            ushort headerWord = (ushort)(0x0E7 | (2 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(4, 2), (ushort)mode);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(6, 2), (ushort)kind);
+        }
+
+        public static byte[] BuildReqLogout(
+            ReqLogoutMode mode = ReqLogoutMode.LogoutOn,
+            ReqLogoutKind kind = ReqLogoutKind.Logout,
+            ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[ReqLogoutSubPacketSize];
+            BuildReqLogout(packet.AsSpan(), mode, kind, sequenceId);
+            return packet;
+        }
     }
 
     #endregion
@@ -405,6 +710,8 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x008_EnterZone.PacketId, HandleEnterZone);
             dispatcher.Register(S2C_0x00B_Logout.PacketId, HandleLogout);
             dispatcher.Register(S2C_0x015_PosPing.PacketId, HandlePosPing);
+            dispatcher.Register(S2C_0x05B_WPos.PacketId, HandleWPos);
+            dispatcher.Register(S2C_0x065_WPos2.PacketId, HandleWPos2);
             dispatcher.Register(S2C_0x0EE_Policy.PacketId, HandlePolicy);
         }
 
@@ -430,12 +737,22 @@ namespace Gordian.Core.Network.Packets
             var enterZone = new S2C_0x008_EnterZone(payload);
             GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_ENTERZONE (0x008). Table valid={enterZone.IsValid}");
 
+            // 1. Send 0x00D (NetEnd)
             byte[] netEnd = LifecycleOutboundPackets.BuildNetEnd(sequenceId: 0);
             if (LogOutboundOnRoute)
             {
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x00D, 0, netEnd);
             }
             _ = _sendChunkCallback(netEnd, true);
+
+            // 2. Send 0x011 (ZoneTransition confirmation matching retail/LSB protocol)
+            byte[] zoneTransition = LifecycleOutboundPackets.BuildZoneTransition(sequenceId: 0);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x011, 0, zoneTransition);
+            }
+            _ = _sendChunkCallback(zoneTransition, true);
+
             HandshakeCompleted?.Invoke();
         }
 
@@ -451,6 +768,24 @@ namespace Gordian.Core.Network.Packets
             IPAddress targetIp = logout.GetTargetIpAddress();
             GordianLog.Info("LIFECYCLE", $"Received GP_SERV_COMMAND_LOGOUT (0x00B): State={logout.State}, Target={targetIp}:{logout.TargetPort}, Err={logout.ErrorCode}");
             ZoneTransitionReceived?.Invoke(logout.State, targetIp, logout.TargetPort, logout.ErrorCode);
+        }
+
+        private void HandleWPos(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var wpos = new S2C_0x05B_WPos(payload);
+            if (!wpos.IsValid) return;
+
+            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS (0x05B): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            PlayerPositionUpdated?.Invoke(wpos.X, wpos.Y, wpos.Z, wpos.Direction, wpos.ActorIndex);
+        }
+
+        private void HandleWPos2(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var wpos = new S2C_0x065_WPos2(payload);
+            if (!wpos.IsValid) return;
+
+            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS2 (0x065): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            PlayerPositionUpdated?.Invoke(wpos.X, wpos.Y, wpos.Z, wpos.Direction, wpos.ActorIndex);
         }
 
         private void HandlePosPing(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -471,6 +806,41 @@ namespace Gordian.Core.Network.Packets
                 _profile.AutomationPolicy = policy.Policy;
                 GordianLog.Info("LIFECYCLE", $"Server automation policy updated to: {policy.Policy}");
             }
+        }
+
+        public async Task RequestZoneChangeAsync(uint rectId, float x, float y, float z, ushort actorIndex = 0)
+        {
+            byte[] packet = LifecycleOutboundPackets.BuildMapRect(rectId, x, y, z, actorIndex);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x05E, 0, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+        }
+
+        public Task RequestZoneChangeAsync(string rectTag, float x, float y, float z, ushort actorIndex = 0)
+        {
+            return RequestZoneChangeAsync(LifecycleOutboundPackets.MakeFourCc(rectTag), x, y, z, actorIndex);
+        }
+
+        public async Task RequestMogHouseExitAsync(MogHouseExitBit exitBit, MogHouseExitMode exitMode, float x = 0f, float y = 0f, float z = 0f, ushort actorIndex = 0)
+        {
+            byte[] packet = LifecycleOutboundPackets.BuildMapRect("zmrq", x, y, z, actorIndex, exitBit, exitMode);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x05E, 0, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+        }
+
+        public async Task RequestLogoutAsync(ReqLogoutMode mode = ReqLogoutMode.LogoutOn, ReqLogoutKind kind = ReqLogoutKind.Logout)
+        {
+            byte[] packet = LifecycleOutboundPackets.BuildReqLogout(mode, kind);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x0E7, 0, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
     }
 
