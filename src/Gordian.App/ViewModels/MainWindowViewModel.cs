@@ -381,6 +381,14 @@ namespace Gordian.App.ViewModels
                                 });
                             };
 
+                            netManager.ZoneTransitionStarted += (targetIp, targetPort) =>
+                            {
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{session.CharacterName}] Crossing zoneline... Transitioning to map server {targetIp}:{targetPort}...";
+                                });
+                            };
+
                             _sessionRegistry.RegisterSession(session);
 
                             // Connect UDP socket and transmit 0x00A login handshake
