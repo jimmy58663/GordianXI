@@ -34,6 +34,8 @@ namespace Gordian.Core.Network
         private readonly ChatPacketModule _chatModule;
         private readonly PartyState _party;
         private readonly PartyPacketModule _partyModule;
+        private readonly ProgressionState _progression;
+        private readonly ProgressionPacketModule _progressionModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -46,7 +48,8 @@ namespace Gordian.Core.Network
             PacketDispatcher? dispatcher = null,
             WorldState? world = null,
             LocalPlayerState? localPlayer = null,
-            PartyState? party = null)
+            PartyState? party = null,
+            ProgressionState? progression = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
@@ -56,6 +59,7 @@ namespace Gordian.Core.Network
             _world = world ?? new WorldState();
             _localPlayer = localPlayer ?? new LocalPlayerState();
             _party = party ?? new PartyState();
+            _progression = progression ?? new ProgressionState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
@@ -68,6 +72,9 @@ namespace Gordian.Core.Network
 
             _partyModule = new PartyPacketModule(_party, _sendChunkCallback, LogPacket);
             _partyModule.Register(_dispatcher);
+
+            _progressionModule = new ProgressionPacketModule(_progression, _localPlayer, _sendChunkCallback, LogPacket);
+            _progressionModule.Register(_dispatcher);
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -117,6 +124,16 @@ namespace Gordian.Core.Network
         /// Gets the party packet handling module.
         /// </summary>
         public PartyPacketModule PartyModule => _partyModule;
+
+        /// <summary>
+        /// Gets the active story progression, quest, merit, and minigame state model.
+        /// </summary>
+        public ProgressionState Progression => _progression;
+
+        /// <summary>
+        /// Gets the progression, quest, cutscene, and mog house packet handling module.
+        /// </summary>
+        public ProgressionPacketModule ProgressionModule => _progressionModule;
 
         /// <summary>
         /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.

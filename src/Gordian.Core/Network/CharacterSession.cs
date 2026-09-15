@@ -59,6 +59,16 @@ namespace Gordian.Core.Network
         /// </summary>
         public PartyPacketModule PartyModule => NetworkManager.PartyModule;
 
+        /// <summary>
+        /// Gets the active story progression, quest, merit, and minigame state model.
+        /// </summary>
+        public ProgressionState Progression => NetworkManager.Progression;
+
+        /// <summary>
+        /// Gets the progression, quest, cutscene, and mog house packet handling module.
+        /// </summary>
+        public ProgressionPacketModule ProgressionModule => NetworkManager.ProgressionModule;
+
         public CharacterSession(
             string characterName,
             uint characterId,

@@ -38,6 +38,9 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x0DE_GroupSolicitNo.PacketId, HandleGroupSolicitNo);
             dispatcher.Register(S2C_0x0C8_GroupTbl.PacketId, HandleGroupTbl);
             dispatcher.Register(S2C_0x0DD_GroupList.PacketId, HandleGroupList);
+            dispatcher.Register(S2C_0x0E0_GroupComlink.PacketId, HandleGroupComlink);
+            dispatcher.Register(S2C_0x0E2_GroupList2.PacketId, HandleGroupList2);
+            dispatcher.Register(S2C_0x11D_PartyReq.PacketId, HandlePartyReq);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -48,6 +51,9 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x0DE_GroupSolicitNo.PacketId);
             dispatcher.Unregister(S2C_0x0C8_GroupTbl.PacketId);
             dispatcher.Unregister(S2C_0x0DD_GroupList.PacketId);
+            dispatcher.Unregister(S2C_0x0E0_GroupComlink.PacketId);
+            dispatcher.Unregister(S2C_0x0E2_GroupList2.PacketId);
+            dispatcher.Unregister(S2C_0x11D_PartyReq.PacketId);
         }
 
         private void HandleGroupSolicitReq(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -229,6 +235,96 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.RemoveMember(targetServerId);
             GordianLog.Info("PARTY", $"Kicked member '{name}' (ID: 0x{targetServerId:X8}) from party.");
+        }
+
+        /// <summary>
+        /// Requests updated party member list (C2S 0x076).
+        /// </summary>
+        public async Task SendGroupListReqAsync(byte kind = 0)
+        {
+            ushort seq = ++_sequenceNumber;
+            byte[] packet = PartyPacketBuilder.BuildGroupListReq(kind, seq);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x076, seq, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+            GordianLog.Debug("PARTY", $"Sent GroupListReq (Kind={kind})");
+        }
+
+        /// <summary>
+        /// Changes group settings, e.g. set party leader or level sync (C2S 0x077).
+        /// </summary>
+        public async Task SendGroupChange2Async(string name, byte kind, byte changeKind)
+        {
+            ushort seq = ++_sequenceNumber;
+            byte[] packet = PartyPacketBuilder.BuildGroupChange2(name, kind, changeKind, seq);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x077, seq, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+            GordianLog.Info("PARTY", $"Sent GroupChange2: Name='{name}', Kind={kind}, ChangeKind={changeKind}");
+        }
+
+        /// <summary>
+        /// Requests to join target player's party (/partyrequestcmd) (C2S 0x11C).
+        /// </summary>
+        public async Task SendPartyRequestAsync(uint targetServerId, ushort targetIndex, byte kind = 0)
+        {
+            ushort seq = ++_sequenceNumber;
+            byte[] packet = PartyPacketBuilder.BuildPartyRequest(targetServerId, targetIndex, kind, seq);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x11C, seq, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+            GordianLog.Info("PARTY", $"Sent PartyRequest: TargetServerId=0x{targetServerId:X8}, Kind={kind}");
+        }
+
+        private void HandleGroupComlink(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var comlink = new S2C_0x0E0_GroupComlink(payload);
+            if (!comlink.IsValid) return;
+
+            GordianLog.Debug("PARTY", $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}");
+        }
+
+        private void HandleGroupList2(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var list2 = new S2C_0x0E2_GroupList2(payload);
+            if (!list2.IsValid) return;
+
+            string name = list2.GetName();
+            var member = new PartyMember
+            {
+                ServerId = list2.UniqueNo,
+                TargetIndex = list2.ActIndex,
+                Name = name,
+                Hp = list2.Hp,
+                Mp = list2.Mp,
+                Tp = list2.Tp,
+                Hpp = list2.Hpp,
+                Mpp = list2.Mpp,
+                ZoneId = list2.ZoneNo,
+                MainJob = list2.MainJob,
+                MainJobLevel = list2.MainJobLevel,
+                SubJob = list2.SubJob,
+                SubJobLevel = list2.SubJobLevel,
+                IsLeader = (list2.GAttr & 0x04) != 0,
+                MemberNumber = list2.MemberNumber
+            };
+
+            GordianLog.Debug("PARTY", $"Group member (List2) update: '{name}' (Job: {list2.MainJob}{list2.MainJobLevel})");
+            _partyState.UpsertMember(member);
+        }
+
+        private void HandlePartyReq(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var req = new S2C_0x11D_PartyReq(payload);
+            if (!req.IsValid) return;
+
+            GordianLog.Info("PARTY", $"PartyReq notification received: ServerId=0x{req.UniqueNo:X8}, Result={req.Result}");
         }
     }
 }

@@ -351,5 +351,203 @@ namespace Gordian.Core.Network.Packets
 
             return packet;
         }
+
+        /// <summary>
+        /// Builds C2S 0x076 (GP_CLI_COMMAND_GROUP_LIST_REQ): Request updated party list from server.
+        /// </summary>
+        public static byte[] BuildGroupListReq(byte kind = 0, ushort sequenceId = 0)
+        {
+            var packet = new byte[8];
+            ushort headerWord = (ushort)(0x076 | (2 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
+            packet[4] = kind;
+            return packet;
+        }
+
+        /// <summary>
+        /// Builds C2S 0x077 (GP_CLI_COMMAND_GROUP_CHANGE2): Change group settings (leader, level sync, etc.).
+        /// </summary>
+        public static byte[] BuildGroupChange2(string name, byte kind, byte changeKind, ushort sequenceId = 0)
+        {
+            // Size: 24 bytes (Header: 4, Name: 16, Kind: 1, ChangeKind: 1, Pad: 2)
+            var packet = new byte[24];
+            ushort headerWord = (ushort)(0x077 | (6 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+                int copyLen = Math.Min(nameBytes.Length, 15);
+                Array.Copy(nameBytes, 0, packet, 4, copyLen);
+            }
+
+            packet[20] = kind;
+            packet[21] = changeKind;
+            return packet;
+        }
+
+        /// <summary>
+        /// Builds C2S 0x11C (GP_CLI_COMMAND_PARTY_REQUEST): Request to join player's party (/partyrequestcmd).
+        /// </summary>
+        public static byte[] BuildPartyRequest(uint targetServerId, ushort targetIndex, byte kind = 0, ushort sequenceId = 0)
+        {
+            // Size: 16 bytes (Header: 4, UniqueNo: 4, ActIndex: 2, Kind: 1, Pad: 5)
+            var packet = new byte[16];
+            ushort headerWord = (ushort)(0x11C | (4 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
+
+            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), targetServerId);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(8, 2), targetIndex);
+            packet[10] = kind;
+            return packet;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x0E0 (GP_SERV_COMMAND_GROUP_COMLINK): Equipped Linkshell slot status.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0e0_group_comlink.h).
+    /// </summary>
+    public readonly ref struct S2C_0x0E0_GroupComlink
+    {
+        public const ushort PacketId = 0x0E0;
+
+        public byte LinkshellNum { get; }
+        public byte ItemIndex { get; }
+        public byte Category { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x0E0_GroupComlink(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 3)
+            {
+                LinkshellNum = 0;
+                ItemIndex = 0;
+                Category = 0;
+                IsValid = false;
+                return;
+            }
+
+            LinkshellNum = payload[0];
+            ItemIndex = payload[1];
+            Category = payload[2];
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x0E2 (GP_SERV_COMMAND_GROUP_LIST2): Secondary party member list structure.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0e2_group_list2.h).
+    /// </summary>
+    public readonly ref struct S2C_0x0E2_GroupList2
+    {
+        public const ushort PacketId = 0x0E2;
+
+        public uint UniqueNo { get; }
+        public uint Hp { get; }
+        public uint Mp { get; }
+        public uint Tp { get; }
+        public uint GAttr { get; }
+        public ushort ActIndex { get; }
+        public byte MemberNumber { get; }
+        public byte MoghouseFlg { get; }
+        public byte Kind { get; }
+        public byte Hpp { get; }
+        public byte Mpp { get; }
+        public ushort ZoneNo { get; }
+        public JobId MainJob { get; }
+        public byte MainJobLevel { get; }
+        public JobId SubJob { get; }
+        public byte SubJobLevel { get; }
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x0E2_GroupList2(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < 44)
+            {
+                UniqueNo = 0;
+                Hp = 0;
+                Mp = 0;
+                Tp = 0;
+                GAttr = 0;
+                ActIndex = 0;
+                MemberNumber = 0;
+                MoghouseFlg = 0;
+                Kind = 0;
+                Hpp = 0;
+                Mpp = 0;
+                ZoneNo = 0;
+                MainJob = JobId.None;
+                MainJobLevel = 0;
+                SubJob = JobId.None;
+                SubJobLevel = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            Hp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            Mp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8, 4));
+            Tp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
+            GAttr = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(16, 4));
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(20, 2));
+            MemberNumber = payload[22];
+            MoghouseFlg = payload[23];
+            Kind = payload[24];
+            Hpp = payload[25];
+            Mpp = payload[26];
+            ZoneNo = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(28, 2));
+            MainJob = (JobId)payload[30];
+            MainJobLevel = payload[31];
+            SubJob = (JobId)payload[32];
+            SubJobLevel = payload[33];
+            IsValid = true;
+        }
+
+        public string GetName()
+        {
+            if (!IsValid || _payload.Length < 52) return string.Empty;
+            var nameSlice = _payload.Slice(36, Math.Min(16, _payload.Length - 36));
+            int nullIdx = nameSlice.IndexOf((byte)0);
+            if (nullIdx >= 0) nameSlice = nameSlice.Slice(0, nullIdx);
+            return Encoding.ASCII.GetString(nameSlice);
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x11D (GP_SERV_COMMAND_PARTYREQ): Party seeker search response or join notification.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x11d_partyreq.h).
+    /// </summary>
+    public readonly ref struct S2C_0x11D_PartyReq
+    {
+        public const ushort PacketId = 0x11D;
+
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+        public byte Result { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x11D_PartyReq(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 7)
+            {
+                UniqueNo = 0;
+                ActIndex = 0;
+                Result = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            Result = payload[6];
+            IsValid = true;
+        }
     }
 }
+
