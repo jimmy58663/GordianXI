@@ -42,6 +42,13 @@ namespace Gordian.Core.Network.Packets
             return true;
         }
 
+        public static void Write(Span<byte> destination, ushort packetId, ushort wordCount, ushort sequenceId)
+        {
+            ushort headerWord = (ushort)((packetId & 0x1FF) | (wordCount << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+        }
+
         public bool Equals(PacketHeader other) =>
             PacketId == other.PacketId && TotalSize == other.TotalSize && SequenceId == other.SequenceId;
 

@@ -145,6 +145,16 @@ namespace Gordian.Core.Network
         public ProgressionPacketModule ProgressionModule => _parser.ProgressionModule;
 
         /// <summary>
+        /// Gets the active multi-container inventory, currency, and trade state model.
+        /// </summary>
+        public InventoryState Inventory => _parser.Inventory;
+
+        /// <summary>
+        /// Gets the inventory, trade, shop, and bazaar packet handling module.
+        /// </summary>
+        public InventoryPacketModule InventoryModule => _parser.InventoryModule;
+
+        /// <summary>
         /// Unique Character ID assigned by the server database.
         /// </summary>
         public uint CharacterId { get; set; }

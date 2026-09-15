@@ -69,6 +69,16 @@ namespace Gordian.Core.Network
         /// </summary>
         public ProgressionPacketModule ProgressionModule => NetworkManager.ProgressionModule;
 
+        /// <summary>
+        /// Gets the active multi-container inventory, currency, and trade state model.
+        /// </summary>
+        public InventoryState Inventory => NetworkManager.Inventory;
+
+        /// <summary>
+        /// Gets the inventory, trade, shop, and bazaar packet handling module.
+        /// </summary>
+        public InventoryPacketModule InventoryModule => NetworkManager.InventoryModule;
+
         public CharacterSession(
             string characterName,
             uint characterId,

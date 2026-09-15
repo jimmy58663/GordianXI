@@ -36,6 +36,8 @@ namespace Gordian.Core.Network
         private readonly PartyPacketModule _partyModule;
         private readonly ProgressionState _progression;
         private readonly ProgressionPacketModule _progressionModule;
+        private readonly InventoryState _inventory;
+        private readonly InventoryPacketModule _inventoryModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -49,7 +51,8 @@ namespace Gordian.Core.Network
             WorldState? world = null,
             LocalPlayerState? localPlayer = null,
             PartyState? party = null,
-            ProgressionState? progression = null)
+            ProgressionState? progression = null,
+            InventoryState? inventory = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
@@ -60,6 +63,7 @@ namespace Gordian.Core.Network
             _localPlayer = localPlayer ?? new LocalPlayerState();
             _party = party ?? new PartyState();
             _progression = progression ?? new ProgressionState();
+            _inventory = inventory ?? new InventoryState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
@@ -75,6 +79,9 @@ namespace Gordian.Core.Network
 
             _progressionModule = new ProgressionPacketModule(_progression, _localPlayer, _sendChunkCallback, LogPacket);
             _progressionModule.Register(_dispatcher);
+
+            _inventoryModule = new InventoryPacketModule(_inventory, _localPlayer, _sendChunkCallback, LogPacket);
+            _inventoryModule.Register(_dispatcher);
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -134,6 +141,16 @@ namespace Gordian.Core.Network
         /// Gets the progression, quest, cutscene, and mog house packet handling module.
         /// </summary>
         public ProgressionPacketModule ProgressionModule => _progressionModule;
+
+        /// <summary>
+        /// Gets the active multi-container inventory, currency, and trade state model.
+        /// </summary>
+        public InventoryState Inventory => _inventory;
+
+        /// <summary>
+        /// Gets the inventory, trade, shop, and bazaar packet handling module.
+        /// </summary>
+        public InventoryPacketModule InventoryModule => _inventoryModule;
 
         /// <summary>
         /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.
