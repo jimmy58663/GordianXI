@@ -53,7 +53,7 @@ namespace Gordian.App.ViewModels
         public float Distance
         {
             get => _distance;
-            private set
+            internal set
             {
                 if (SetProperty(ref _distance, value))
                 {
@@ -111,19 +111,21 @@ namespace Gordian.App.ViewModels
             _ => "#A0A0A0"
         };
 
-        public EntityItemViewModel(WorldEntity entity, Vector3 localPlayerPos)
+        public EntityItemViewModel(WorldEntity entity, Vector3 localPlayerPos, uint localPlayerServerId = 0)
         {
-            Update(entity, localPlayerPos);
+            Update(entity, localPlayerPos, localPlayerServerId);
         }
 
-        public void Update(WorldEntity entity, Vector3 localPlayerPos)
+        public void Update(WorldEntity entity, Vector3 localPlayerPos, uint localPlayerServerId = 0)
         {
             TargetIndex = entity.TargetIndex;
             ServerId = entity.ServerId;
             Name = string.IsNullOrEmpty(entity.Name) ? $"<Entity 0x{entity.ServerId:X8}>" : entity.Name;
             Type = entity.Type;
             Position = entity.Position;
-            Distance = Vector3.Distance(localPlayerPos, entity.Position);
+            Distance = (localPlayerServerId != 0 && entity.ServerId == localPlayerServerId)
+                ? 0.0f
+                : Vector3.Distance(localPlayerPos, entity.Position);
             Hpp = entity.Hpp;
             Speed = entity.Speed;
             IsSpawned = entity.IsSpawned;

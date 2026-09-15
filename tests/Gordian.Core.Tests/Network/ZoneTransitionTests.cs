@@ -268,8 +268,8 @@ namespace Gordian.Core.Tests.Network
             dispatcher.Dispatch(header, enterZonePayload);
 
             Assert.True(completedFired);
-            Assert.Equal(2, sentPackets); // First 0x00D (NetEnd), then 0x011 (ZoneTransition)
-            Assert.Equal(0x011, lastSentId);
+            Assert.Equal(3, sentPackets); // First 0x00D (NetEnd), then 0x011 (ZoneTransition), then 0x061 (CliStatus)
+            Assert.Equal(0x061, lastSentId);
         }
 
         [Fact]

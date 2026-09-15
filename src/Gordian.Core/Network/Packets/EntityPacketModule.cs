@@ -51,11 +51,13 @@ namespace Gordian.Core.Network.Packets
             ArgumentNullException.ThrowIfNull(dispatcher);
             dispatcher.Register(S2C_0x00D_CharPc.PacketId, HandleCharPc);
             dispatcher.Register(S2C_0x00E_CharNpc.PacketId, HandleCharNpc);
+            dispatcher.Register(S2C_0x01B_JobInfo.PacketId, HandleJobInfo);
             dispatcher.Register(S2C_0x037_CharStatus.PacketId, HandleCharStatus);
             dispatcher.Register(S2C_0x061_CliStatus.PacketId, HandleCliStatus);
             dispatcher.Register(S2C_0x062_CliStatus2.PacketId, HandleCliStatus2);
             dispatcher.Register(S2C_0x076_GroupEffects.PacketId, HandleGroupEffects);
             dispatcher.Register(S2C_0x077_EntityVis.PacketId, HandleEntityVis);
+            dispatcher.Register(S2C_0x0DF_GroupAttr.PacketId, HandleGroupAttr);
         }
 
         private void HandleCharPc(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -237,6 +239,37 @@ namespace Gordian.Core.Network.Packets
             GordianLog.Debug("ENTITY", $"Received visibility range update for {vis.Count} entities (Flags: {vis.Flags}).");
         }
 
+        private void HandleJobInfo(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var jobInfo = new S2C_0x01B_JobInfo(payload);
+            if (!jobInfo.IsValid) return;
+
+            _localPlayer.UpdateFromJobInfo(jobInfo);
+            GordianLog.Debug("ENTITY", $"Updated job info: {jobInfo.MainJob} Lv{jobInfo.MainJobLevel}/{jobInfo.SubJob} Lv{jobInfo.SubJobLevel}, MaxHP={jobInfo.HpMax}, MaxMP={jobInfo.MpMax}");
+        }
+
+        private void HandleGroupAttr(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var groupAttr = new S2C_0x0DF_GroupAttr(payload);
+            if (!groupAttr.IsValid) return;
+
+            if (_localPlayer.ServerId == 0 || groupAttr.UniqueNo == _localPlayer.ServerId)
+            {
+                if (_localPlayer.ServerId == 0)
+                {
+                    _localPlayer.ServerId = groupAttr.UniqueNo;
+                }
+                _localPlayer.UpdateFromGroupAttr(groupAttr);
+                GordianLog.Debug("ENTITY", $"Updated local player vitals from GroupAttr: HP={groupAttr.Hp}, MP={groupAttr.Mp}, TP={groupAttr.Tp}, HPP={groupAttr.Hpp}%, Job={groupAttr.MainJob} Lv{groupAttr.MainJobLevel}");
+            }
+
+            if (_world.TryGetByServerId(groupAttr.UniqueNo, out var entity) && entity != null)
+            {
+                entity.Hpp = groupAttr.Hpp;
+                entity.LastUpdatedUtc = DateTime.UtcNow;
+            }
+        }
+
         public async Task RequestEntityInfoAsync(ushort actIndex)
         {
             byte[] packet = EntityOutboundPackets.BuildCharReq(actIndex);
@@ -258,6 +291,16 @@ namespace Gordian.Core.Network.Packets
             if (LogOutboundOnRoute)
             {
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x017, 0, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+        }
+
+        public async Task RequestClientStatusAsync()
+        {
+            byte[] packet = EntityOutboundPackets.BuildCliStatus();
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x061, 0, packet);
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }

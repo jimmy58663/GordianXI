@@ -231,6 +231,118 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// S2C 0x01B (GP_SERV_COMMAND_JOB_INFO): General Job &amp; Character Information.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x01b_job_info.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x01B_JobInfo
+    {
+        public const ushort PacketId = 0x01B;
+
+        public ushort FaceNo { get; }
+        public JobId MainJob { get; }
+        public byte HairNo { get; }
+        public byte Size { get; }
+        public JobId SubJob { get; }
+        public uint GetJobFlag { get; }
+        public int HpMax { get; }
+        public int MpMax { get; }
+        public byte SubJobUnlockedFlag { get; }
+        public byte MainJobLevel { get; }
+        public byte SubJobLevel { get; }
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x01B_JobInfo(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < 92) // Minimum size for GP_MYROOM_DANCER struct
+            {
+                FaceNo = 0;
+                MainJob = JobId.None;
+                HairNo = 0;
+                Size = 0;
+                SubJob = JobId.None;
+                GetJobFlag = 0;
+                HpMax = 0;
+                MpMax = 0;
+                SubJobUnlockedFlag = 0;
+                MainJobLevel = 0;
+                SubJobLevel = 0;
+                IsValid = false;
+                return;
+            }
+
+            FaceNo = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(2, 2));
+            MainJob = (JobId)payload[4];
+            HairNo = payload[5];
+            Size = payload[6];
+            SubJob = (JobId)payload[7];
+            GetJobFlag = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8, 4));
+
+            HpMax = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(56, 4));
+            MpMax = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(60, 4));
+            SubJobUnlockedFlag = payload[64];
+
+            byte mJobIdx = (byte)MainJob;
+            if (mJobIdx > 0 && mJobIdx < 24 && payload.Length >= 68 + 24)
+            {
+                MainJobLevel = payload[68 + mJobIdx];
+            }
+            else if (mJobIdx > 0 && mJobIdx < 16)
+            {
+                MainJobLevel = payload[12 + mJobIdx];
+            }
+            else
+            {
+                MainJobLevel = 0;
+            }
+
+            byte sJobIdx = (byte)SubJob;
+            if (sJobIdx > 0 && sJobIdx < 24 && payload.Length >= 68 + 24)
+            {
+                SubJobLevel = payload[68 + sJobIdx];
+            }
+            else if (sJobIdx > 0 && sJobIdx < 16)
+            {
+                SubJobLevel = payload[12 + sJobIdx];
+            }
+            else
+            {
+                SubJobLevel = 0;
+            }
+
+            IsValid = true;
+        }
+
+        public ushort GetBaseStat(int index)
+        {
+            if (index < 0 || index >= 7 || _payload.Length < 42) return 0;
+            return BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(28 + (index * 2), 2));
+        }
+
+        public short GetStatModifier(int index)
+        {
+            if (index < 0 || index >= 7 || _payload.Length < 56) return 0;
+            return BinaryPrimitives.ReadInt16LittleEndian(_payload.Slice(42 + (index * 2), 2));
+        }
+
+        public byte GetJobLevel(JobId job)
+        {
+            byte idx = (byte)job;
+            if (idx > 0 && idx < 24 && _payload.Length >= 68 + 24)
+            {
+                return _payload[68 + idx];
+            }
+            if (idx > 0 && idx < 16 && _payload.Length >= 12 + 16)
+            {
+                return _payload[12 + idx];
+            }
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// S2C 0x00E (GP_SERV_COMMAND_CHAR_NPC): NPC / Monster Update / Spawn / Despawn.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/entity_update.cpp).
     /// </summary>
@@ -678,6 +790,84 @@ namespace Gordian.Core.Network.Packets
         }
     }
 
+    /// <summary>
+    /// S2C 0x0DF (GP_SERV_COMMAND_GROUP_ATTR): Party / Local Player Attributes &amp; Vitals.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0df_group_attr.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x0DF_GroupAttr
+    {
+        public const ushort PacketId = 0x0DF;
+
+        public uint UniqueNo { get; }
+        public uint Hp { get; }
+        public uint Mp { get; }
+        public uint Tp { get; }
+        public ushort ActorIndex { get; }
+        public byte Hpp { get; }
+        public byte Mpp { get; }
+        public byte Kind { get; }
+        public byte MoghouseFlag { get; }
+        public ushort ZoneNo { get; }
+        public ushort MonstrosityFlag { get; }
+        public ushort MonstrosityNameId { get; }
+        public JobId MainJob { get; }
+        public byte MainJobLevel { get; }
+        public JobId SubJob { get; }
+        public byte SubJobLevel { get; }
+        public byte MasterJobLevel { get; }
+        public byte MasterJobFlags { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x0DF_GroupAttr(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 32)
+            {
+                UniqueNo = 0;
+                Hp = 0;
+                Mp = 0;
+                Tp = 0;
+                ActorIndex = 0;
+                Hpp = 0;
+                Mpp = 0;
+                Kind = 0;
+                MoghouseFlag = 0;
+                ZoneNo = 0;
+                MonstrosityFlag = 0;
+                MonstrosityNameId = 0;
+                MainJob = JobId.None;
+                MainJobLevel = 0;
+                SubJob = JobId.None;
+                SubJobLevel = 0;
+                MasterJobLevel = 0;
+                MasterJobFlags = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            Hp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            Mp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8, 4));
+            Tp = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
+            ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
+            Hpp = payload[18];
+            Mpp = payload[19];
+            Kind = payload[20];
+            MoghouseFlag = payload[21];
+            ZoneNo = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(22, 2));
+            MonstrosityFlag = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(24, 2));
+            MonstrosityNameId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(26, 2));
+            MainJob = (JobId)payload[28];
+            MainJobLevel = payload[29];
+            SubJob = (JobId)payload[30];
+            SubJobLevel = payload[31];
+
+            MasterJobLevel = payload.Length >= 33 ? payload[32] : (byte)0;
+            MasterJobFlags = payload.Length >= 34 ? payload[33] : (byte)0;
+
+            IsValid = true;
+        }
+    }
+
     #endregion
 
     #region Outbound Builders
@@ -779,6 +969,31 @@ namespace Gordian.Core.Network.Packets
         {
             byte[] packet = new byte[CharReq2SubPacketSize];
             BuildCharReq2(packet.AsSpan(), actIndex, uniqueNo2, uniqueNo3, flg, flg2, sequenceId);
+            return packet;
+        }
+
+        public const int CliStatusSubPacketSize = 8; // 4-byte header + 4-byte payload
+
+        /// <summary>
+        /// Builds C2S 0x061 (GP_CLI_COMMAND_CLISTATUS): Client Status &amp; Attributes Request.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x061_clistatus.cpp).
+        /// </summary>
+        public static void BuildCliStatus(Span<byte> destination, byte unknown00 = 0, ushort sequenceId = 0)
+        {
+            if (destination.Length < CliStatusSubPacketSize)
+                throw new ArgumentException($"Destination must be at least {CliStatusSubPacketSize} bytes.", nameof(destination));
+
+            destination.Slice(0, CliStatusSubPacketSize).Clear();
+            ushort headerWord = (ushort)(0x061 | (2 << 9)); // size: 8 bytes = 2 words of 4 bytes
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+            destination[4] = unknown00;
+        }
+
+        public static byte[] BuildCliStatus(byte unknown00 = 0, ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[CliStatusSubPacketSize];
+            BuildCliStatus(packet.AsSpan(), unknown00, sequenceId);
             return packet;
         }
     }

@@ -20,7 +20,8 @@ namespace Gordian.Core.World
         public byte Hpp { get; private set; }
         #endregion
 
-        #region Jobs & Progression
+        #region Identity & Progression
+        public uint ServerId { get; set; }
         public JobId MainJob { get; private set; } = JobId.None;
         public byte MainJobLevel { get; private set; }
         public JobId SubJob { get; private set; } = JobId.None;
@@ -71,6 +72,73 @@ namespace Gordian.Core.World
         public event Action? BuffsUpdated;
         #endregion
 
+        public void UpdateFromJobInfo(in S2C_0x01B_JobInfo jobInfo)
+        {
+            lock (_lock)
+            {
+                if (jobInfo.MainJob != JobId.None)
+                {
+                    MainJob = jobInfo.MainJob;
+                    MainJobLevel = jobInfo.MainJobLevel;
+                }
+                if (jobInfo.SubJob != JobId.None)
+                {
+                    SubJob = jobInfo.SubJob;
+                    SubJobLevel = jobInfo.SubJobLevel;
+                }
+                if (jobInfo.HpMax > 0)
+                {
+                    MaxHp = jobInfo.HpMax;
+                }
+                if (jobInfo.MpMax > 0)
+                {
+                    MaxMp = jobInfo.MpMax;
+                }
+                for (int i = 0; i < 7; i++)
+                {
+                    ushort b = jobInfo.GetBaseStat(i);
+                    if (b > 0)
+                    {
+                        BaseStats[i] = b;
+                    }
+                    StatModifiers[i] = jobInfo.GetStatModifier(i);
+                }
+
+                if (CurrentHp == 0 && MaxHp > 0 && Hpp > 0)
+                {
+                    CurrentHp = (MaxHp * Hpp) / 100;
+                }
+            }
+
+            StatsUpdated?.Invoke();
+            VitalsUpdated?.Invoke();
+        }
+
+        public void UpdateFromGroupAttr(in S2C_0x0DF_GroupAttr attr)
+        {
+            lock (_lock)
+            {
+                CurrentHp = (int)attr.Hp;
+                CurrentMp = (int)attr.Mp;
+                CurrentTp = (short)attr.Tp;
+                Hpp = attr.Hpp;
+
+                if (attr.MainJob != JobId.None && (MainJob == JobId.None || attr.MainJobLevel > 0))
+                {
+                    MainJob = attr.MainJob;
+                    MainJobLevel = attr.MainJobLevel;
+                }
+                if (attr.SubJob != JobId.None && (SubJob == JobId.None || attr.SubJobLevel > 0))
+                {
+                    SubJob = attr.SubJob;
+                    SubJobLevel = attr.SubJobLevel;
+                }
+            }
+
+            VitalsUpdated?.Invoke();
+            StatsUpdated?.Invoke();
+        }
+
         public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
         {
             lock (_lock)
@@ -92,6 +160,11 @@ namespace Gordian.Core.World
                 {
                     int copyLen = Math.Min(status.BuffStatusBits.Length, BuffStatusBits.Length);
                     status.BuffStatusBits.Slice(0, copyLen).CopyTo(BuffStatusBits);
+                }
+
+                if (CurrentHp == 0 && MaxHp > 0 && Hpp > 0)
+                {
+                    CurrentHp = (MaxHp * Hpp) / 100;
                 }
             }
 
@@ -133,6 +206,11 @@ namespace Gordian.Core.World
                 for (int i = 0; i < 8; i++)
                 {
                     ElementalResistances[i] = cliStatus.GetElementalResistance(i);
+                }
+
+                if (CurrentHp == 0 && MaxHp > 0 && Hpp > 0)
+                {
+                    CurrentHp = (MaxHp * Hpp) / 100;
                 }
             }
 

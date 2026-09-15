@@ -4,10 +4,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
         xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
-        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="GordianXI - Client and Network Inspector" Width="1100" Height="700"
+        Title="GordianXI - Client and Network Inspector" Width="1180" Height="840" MinWidth="1050" MinHeight="720"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
     <Grid RowDefinitions="Auto, *">
@@ -76,7 +76,11 @@
                                         Background="#3E3E42" Foreground="White"/>
                             </Grid>
 
-                            <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" MinHeight="52" BorderBrush="#333337" BorderThickness="1">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" FontFamily="Consolas, Courier New, monospace" TextWrapping="Wrap"/>
+                                </ScrollViewer>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>

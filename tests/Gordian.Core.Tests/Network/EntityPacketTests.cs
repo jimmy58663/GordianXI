@@ -340,6 +340,183 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(300, BinaryPrimitives.ReadUInt16LittleEndian(charReq2.AsSpan(4, 2)));
             Assert.Equal(0xABCu, BinaryPrimitives.ReadUInt32LittleEndian(charReq2.AsSpan(8, 4)));
             Assert.Equal(0xDEFu, BinaryPrimitives.ReadUInt32LittleEndian(charReq2.AsSpan(12, 4)));
+
+            // 4. CliStatus (0x061)
+            byte[] cliStatus = EntityOutboundPackets.BuildCliStatus(unknown00: 0, sequenceId: 0x44);
+            Assert.Equal(EntityOutboundPackets.CliStatusSubPacketSize, cliStatus.Length);
+            headerWord = BinaryPrimitives.ReadUInt16LittleEndian(cliStatus.AsSpan(0, 2));
+            Assert.Equal(0x061, headerWord & 0x1FF);
+            Assert.Equal(2, headerWord >> 9);
+            Assert.Equal(0x44, BinaryPrimitives.ReadUInt16LittleEndian(cliStatus.AsSpan(2, 2)));
+            Assert.Equal(0, cliStatus[4]);
+        }
+
+        [Fact]
+        public void S2C_0x01B_JobInfo_DecodesValidPayload()
+        {
+            byte[] payload = new byte[128];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2, 2), 0x0101); // FaceNo / race
+            payload[4] = (byte)JobId.Paladin; // MainJob (PLD = 7)
+            payload[5] = 1; // HairNo
+            payload[6] = 2; // Size
+            payload[7] = (byte)JobId.Warrior; // SubJob (WAR = 1)
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8, 4), 0xFFFF); // GetJobFlag
+
+            // job_lev (offset 12..27)
+            payload[12 + (int)JobId.Paladin] = 75;
+            payload[12 + (int)JobId.Warrior] = 37;
+
+            // bp_base at 28..41
+            for (int i = 0; i < 7; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(28 + (i * 2), 2), (ushort)(60 + i));
+            }
+
+            // bp_adj at 42..55
+            for (int i = 0; i < 7; i++)
+            {
+                BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(42 + (i * 2), 2), (short)(5 + i));
+            }
+
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(56, 4), 1250); // HpMax
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(60, 4), 450);  // MpMax
+            payload[64] = 1; // SubJobUnlockedFlag
+
+            // job_lev2 at 68..91
+            payload[68 + (int)JobId.Paladin] = 75;
+            payload[68 + (int)JobId.Warrior] = 37;
+
+            var jobInfo = new S2C_0x01B_JobInfo(payload);
+            Assert.True(jobInfo.IsValid);
+            Assert.Equal(JobId.Paladin, jobInfo.MainJob);
+            Assert.Equal(75, jobInfo.MainJobLevel);
+            Assert.Equal(JobId.Warrior, jobInfo.SubJob);
+            Assert.Equal(37, jobInfo.SubJobLevel);
+            Assert.Equal(1250, jobInfo.HpMax);
+            Assert.Equal(450, jobInfo.MpMax);
+            Assert.Equal(60, jobInfo.GetBaseStat(0));
+            Assert.Equal(5, jobInfo.GetStatModifier(0));
+            Assert.Equal(75, jobInfo.GetJobLevel(JobId.Paladin));
+            Assert.Equal(37, jobInfo.GetJobLevel(JobId.Warrior));
+        }
+
+        [Fact]
+        public void S2C_0x0DF_GroupAttr_DecodesValidPayload()
+        {
+            byte[] payload = new byte[36];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x12345678); // UniqueNo
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 980);         // Hp
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8, 4), 320);         // Mp
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(12, 4), 1500);       // Tp
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(16, 2), 0x400);      // ActIndex
+            payload[18] = 88; // Hpp
+            payload[19] = 71; // Mpp
+            payload[20] = 0;  // Kind
+            payload[21] = 0;  // MoghouseFlag
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(22, 2), 101); // ZoneNo
+            payload[28] = (byte)JobId.WhiteMage; // MainJob (WHM = 3)
+            payload[29] = 75;                    // MainJobLevel
+            payload[30] = (byte)JobId.BlackMage; // SubJob (BLM = 4)
+            payload[31] = 37;                    // SubJobLevel
+
+            var groupAttr = new S2C_0x0DF_GroupAttr(payload);
+            Assert.True(groupAttr.IsValid);
+            Assert.Equal(0x12345678u, groupAttr.UniqueNo);
+            Assert.Equal(980u, groupAttr.Hp);
+            Assert.Equal(320u, groupAttr.Mp);
+            Assert.Equal(1500u, groupAttr.Tp);
+            Assert.Equal(0x400, groupAttr.ActorIndex);
+            Assert.Equal(88, groupAttr.Hpp);
+            Assert.Equal(71, groupAttr.Mpp);
+            Assert.Equal(JobId.WhiteMage, groupAttr.MainJob);
+            Assert.Equal(75, groupAttr.MainJobLevel);
+            Assert.Equal(JobId.BlackMage, groupAttr.SubJob);
+            Assert.Equal(37, groupAttr.SubJobLevel);
+        }
+
+        [Fact]
+        public void LocalPlayerState_UpdateFromJobInfo_PopulatesJobsAndStats()
+        {
+            var state = new Gordian.Core.World.LocalPlayerState();
+            byte[] payload = new byte[128];
+            payload[4] = (byte)JobId.RedMage;
+            payload[7] = (byte)JobId.BlackMage;
+            payload[68 + (int)JobId.RedMage] = 75;
+            payload[68 + (int)JobId.BlackMage] = 37;
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(56, 4), 1000);
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(60, 4), 600);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(28, 2), 65); // STR
+
+            bool vitalsFired = false;
+            bool statsFired = false;
+            state.VitalsUpdated += () => vitalsFired = true;
+            state.StatsUpdated += () => statsFired = true;
+
+            var jobInfo = new S2C_0x01B_JobInfo(payload);
+            state.UpdateFromJobInfo(jobInfo);
+
+            Assert.True(vitalsFired);
+            Assert.True(statsFired);
+            Assert.Equal(JobId.RedMage, state.MainJob);
+            Assert.Equal(75, state.MainJobLevel);
+            Assert.Equal(JobId.BlackMage, state.SubJob);
+            Assert.Equal(37, state.SubJobLevel);
+            Assert.Equal(1000, state.MaxHp);
+            Assert.Equal(600, state.MaxMp);
+            Assert.Equal(65, state.BaseStats[0]);
+        }
+
+        [Fact]
+        public void LocalPlayerState_UpdateFromGroupAttr_PopulatesVitals()
+        {
+            var state = new Gordian.Core.World.LocalPlayerState();
+            byte[] payload = new byte[36];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 850);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8, 4), 300);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(12, 4), 2200);
+            payload[18] = 85; // HPP
+            payload[28] = (byte)JobId.Thief;
+            payload[29] = 99;
+            payload[30] = (byte)JobId.Ninja;
+            payload[31] = 49;
+
+            var groupAttr = new S2C_0x0DF_GroupAttr(payload);
+            state.UpdateFromGroupAttr(groupAttr);
+
+            Assert.Equal(850, state.CurrentHp);
+            Assert.Equal(300, state.CurrentMp);
+            Assert.Equal(2200, state.CurrentTp);
+            Assert.Equal(85, state.Hpp);
+            Assert.Equal(JobId.Thief, state.MainJob);
+            Assert.Equal(99, state.MainJobLevel);
+            Assert.Equal(JobId.Ninja, state.SubJob);
+            Assert.Equal(49, state.SubJobLevel);
+        }
+
+        [Fact]
+        public void LocalPlayerState_FallbackHpEstimation_CalculatesFromMaxHpAndHpp()
+        {
+            var state = new Gordian.Core.World.LocalPlayerState();
+
+            // Set HPP to 88% via CharStatus
+            byte[] charStatusPayload = new byte[96];
+            BinaryPrimitives.WriteUInt32LittleEndian(charStatusPayload.AsSpan(36, 4), 88u << 16); // Flags0: HPP at bits 16..23
+            var charStatus = new S2C_0x037_CharStatus(charStatusPayload);
+            state.UpdateFromCharStatus(charStatus);
+
+            Assert.Equal(88, state.Hpp);
+            Assert.Equal(0, state.CurrentHp); // MaxHp not yet known
+
+            // Now receive 0x01B with MaxHp = 1000
+            byte[] jobInfoPayload = new byte[128];
+            BinaryPrimitives.WriteInt32LittleEndian(jobInfoPayload.AsSpan(56, 4), 1000);
+            var jobInfo = new S2C_0x01B_JobInfo(jobInfoPayload);
+            state.UpdateFromJobInfo(jobInfo);
+
+            // Fallback estimation should set CurrentHp = 1000 * 88 / 100 = 880
+            Assert.Equal(880, state.CurrentHp);
+            Assert.Equal(1000, state.MaxHp);
         }
     }
 }

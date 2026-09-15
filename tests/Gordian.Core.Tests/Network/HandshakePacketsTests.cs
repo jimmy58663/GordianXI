@@ -230,14 +230,17 @@ namespace Gordian.Core.Tests.Network
 
             parser.ProcessIncomingChunk(datagram.AsSpan(0, totalLen));
 
-            // Verify client replied with GP_CLI_NETEND (0x00D) + GP_CLI_ZONE_TRANSITION (0x011) and HandshakeCompleted fired!
-            Assert.Equal(2, sentPackets.Count);
+            // Verify client replied with GP_CLI_NETEND (0x00D) + GP_CLI_ZONE_TRANSITION (0x011) + GP_CLI_CLISTATUS (0x061) and HandshakeCompleted fired!
+            Assert.Equal(3, sentPackets.Count);
             byte[] secondReply = sentPackets[0];
             ushort secondReplyId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(secondReply.AsSpan(0, 2)) & 0x1FF);
             Assert.Equal(0x00D, secondReplyId);
             byte[] thirdReply = sentPackets[1];
             ushort thirdReplyId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(thirdReply.AsSpan(0, 2)) & 0x1FF);
             Assert.Equal(0x011, thirdReplyId);
+            byte[] fourthReply = sentPackets[2];
+            ushort fourthReplyId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(fourthReply.AsSpan(0, 2)) & 0x1FF);
+            Assert.Equal(0x061, fourthReplyId);
             Assert.True(handshakeCompletedFired);
 
             // Verify PacketInspected captured both inbound and outbound sub-packets

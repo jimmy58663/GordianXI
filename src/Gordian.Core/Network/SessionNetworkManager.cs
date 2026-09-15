@@ -196,7 +196,14 @@ namespace Gordian.Core.Network
                 }
                 PacketInspected?.Invoke(this, e);
             };
-            _parser.HandshakeCompleted += () => CurrentState = SessionState.ActiveInWorld;
+            _parser.HandshakeCompleted += () =>
+            {
+                if (CharacterId != 0)
+                {
+                    _parser.LocalPlayer.ServerId = CharacterId;
+                }
+                CurrentState = SessionState.ActiveInWorld;
+            };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
             {
                 PositionX = x;

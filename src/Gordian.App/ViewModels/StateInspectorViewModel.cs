@@ -273,6 +273,11 @@ namespace Gordian.App.ViewModels
 
             if (session != null)
             {
+                if (session.CharacterId != 0 && session.LocalPlayer.ServerId == 0)
+                {
+                    session.LocalPlayer.ServerId = session.CharacterId;
+                }
+
                 session.LocalPlayer.VitalsUpdated += RefreshVitalsOnUi;
                 session.LocalPlayer.StatsUpdated += RefreshStatsOnUi;
                 session.World.EntitySpawned += OnEntitySpawned;
@@ -343,18 +348,19 @@ namespace Gordian.App.ViewModels
             Vector3 playerPos = SelectedSession != null
                 ? new Vector3(SelectedSession.NetworkManager.PositionX, SelectedSession.NetworkManager.PositionY, SelectedSession.NetworkManager.PositionZ)
                 : Vector3.Zero;
+            uint localCharId = SelectedSession?.CharacterId ?? 0;
 
             EntityItemViewModel item;
             lock (_entityLock)
             {
                 if (_entityMap.TryGetValue(entity.ServerId, out var existing))
                 {
-                    existing.Update(entity, playerPos);
+                    existing.Update(entity, playerPos, localCharId);
                     item = existing;
                 }
                 else
                 {
-                    item = new EntityItemViewModel(entity, playerPos);
+                    item = new EntityItemViewModel(entity, playerPos, localCharId);
                     _entityMap[entity.ServerId] = item;
                 }
             }
@@ -374,12 +380,13 @@ namespace Gordian.App.ViewModels
             Vector3 playerPos = SelectedSession != null
                 ? new Vector3(SelectedSession.NetworkManager.PositionX, SelectedSession.NetworkManager.PositionY, SelectedSession.NetworkManager.PositionZ)
                 : Vector3.Zero;
+            uint localCharId = SelectedSession?.CharacterId ?? 0;
 
             lock (_entityLock)
             {
                 if (_entityMap.TryGetValue(entity.ServerId, out var item))
                 {
-                    item.Update(entity, playerPos);
+                    item.Update(entity, playerPos, localCharId);
                 }
             }
         }
@@ -480,6 +487,24 @@ namespace Gordian.App.ViewModels
             OnPropertyChanged(nameof(CoordinatesDisplay));
             OnPropertyChanged(nameof(HeadingDisplay));
             OnPropertyChanged(nameof(SessionStateDisplay));
+
+            // Update tracked entity distances relative to live player coordinates
+            Vector3 playerPos = new Vector3(PositionX, PositionY, PositionZ);
+            uint localCharId = SelectedSession.CharacterId;
+            lock (_entityLock)
+            {
+                foreach (var item in _entityMap.Values)
+                {
+                    if (localCharId != 0 && item.ServerId == localCharId)
+                    {
+                        item.Distance = 0f;
+                    }
+                    else if (playerPos != Vector3.Zero)
+                    {
+                        item.Distance = Vector3.Distance(playerPos, item.Position);
+                    }
+                }
+            }
 
             // Query atomic performance snapshot
             var snapshot = SelectedSession.Performance.GetSnapshot();

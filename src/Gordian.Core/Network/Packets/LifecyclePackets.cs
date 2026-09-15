@@ -753,6 +753,14 @@ namespace Gordian.Core.Network.Packets
             }
             _ = _sendChunkCallback(zoneTransition, true);
 
+            // 3. Send 0x061 (CliStatus request to receive GroupAttr, CliStatus, and CliStatus2 from server)
+            byte[] cliStatus = EntityOutboundPackets.BuildCliStatus();
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x061, 0, cliStatus);
+            }
+            _ = _sendChunkCallback(cliStatus, true);
+
             HandshakeCompleted?.Invoke();
         }
 
