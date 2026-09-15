@@ -132,5 +132,53 @@ namespace Gordian.App.Tests.ViewModels
             mainVm.ShowStateInspector = false;
             Assert.False(mainVm.ShowStateInspector);
         }
+
+        [Fact]
+        public void DispatchLatencyText_DefaultsToPlaceholder()
+        {
+            Assert.Equal("-- µs", _vm.DispatchLatencyText);
+            Assert.Equal("0.0 chunk/s", _vm.PacketsInRateText);
+            Assert.Equal("0.0 chunk/s", _vm.PacketsOutRateText);
+        }
+
+        [Fact]
+        public void EntityTableColumns_HaveValidInitialDefaultsAndSupportResizing()
+        {
+            Assert.Equal(55, _vm.ColWidthType.Value);
+            Assert.Equal(65, _vm.ColWidthIndex.Value);
+            Assert.Equal(95, _vm.ColWidthServerId.Value);
+            Assert.Equal(160, _vm.ColWidthName.Value);
+            Assert.Equal(65, _vm.ColWidthDist.Value);
+            Assert.Equal(140, _vm.ColWidthCoords.Value);
+            Assert.Equal(50, _vm.ColWidthHpp.Value);
+
+            // User resizing column
+            _vm.ColWidthName = new Avalonia.Controls.GridLength(200);
+            Assert.Equal(200, _vm.ColWidthName.Value);
+
+            // Test AdjustColumnWidth: expanding and sizing back down
+            _vm.AdjustColumnWidth("Coords", 30.0);
+            Assert.Equal(170, _vm.ColWidthCoords.Value);
+
+            // Sizing back down
+            _vm.AdjustColumnWidth("Coords", -50.0);
+            Assert.Equal(120, _vm.ColWidthCoords.Value);
+
+            // MinWidth clamping
+            _vm.AdjustColumnWidth("Coords", -500.0);
+            Assert.Equal(80, _vm.ColWidthCoords.Value);
+
+            // MaxWidth clamping
+            _vm.AdjustColumnWidth("Coords", 1000.0);
+            Assert.Equal(350, _vm.ColWidthCoords.Value);
+
+            // HPP sizing up and down
+            _vm.AdjustColumnWidth("Hpp", 25.0);
+            Assert.Equal(75, _vm.ColWidthHpp.Value);
+            _vm.AdjustColumnWidth("Hpp", -30.0);
+            Assert.Equal(45, _vm.ColWidthHpp.Value);
+            _vm.AdjustColumnWidth("Hpp", -100.0);
+            Assert.Equal(40, _vm.ColWidthHpp.Value); // clamped to min
+        }
     }
 }

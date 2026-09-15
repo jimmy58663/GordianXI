@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Net;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
@@ -92,6 +93,11 @@ namespace Gordian.Core.Network
         public EntityPacketModule EntityModule => _entityModule;
 
         /// <summary>
+        /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.
+        /// </summary>
+        public SessionPerformanceTracker? Performance { get; set; }
+
+        /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
         /// </summary>
         public event EventHandler<PacketLogEntry>? PacketInspected;
@@ -180,7 +186,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public bool ProcessIncomingChunk(Span<byte> rawPacketBuffer)
         {
-            GordianLog.Debug("PARSER", $"ProcessIncomingChunk: {rawPacketBuffer.Length} bytes received. KeyInitialized={_cryptoSuite.IsKeyInitialized}");
+            long startTicks = Stopwatch.GetTimestamp();
 
             // Minimum FFXI datagram envelope: 28-byte header + 16-byte MD5 checksum
             if (rawPacketBuffer.Length < FfxiHeaderSize + 16)
@@ -246,6 +252,7 @@ namespace Gordian.Core.Network
             // 3. Iterate concatenated sub-packets and dispatch
             ReadOnlySpan<byte> subPackets = _decompressionScratch.AsSpan(0, decompressedBytes);
             int offset = 0;
+            int inboundSubPacketCount = 0;
 
             while (offset + 4 <= subPackets.Length)
             {
@@ -261,12 +268,19 @@ namespace Gordian.Core.Network
                 ReadOnlySpan<byte> fullSubPacket = current.Slice(0, header.TotalSize);
                 ReadOnlySpan<byte> packetPayload = current.Slice(4, header.TotalSize - 4);
 
-                GordianLog.Debug("PARSER", $"Processed Inbound Sub-Packet: 0x{header.PacketId:X3} ({PacketLogEntry.ResolvePacketName(header.PacketId, PacketDirection.Inbound)}), Size={header.TotalSize}, Seq={header.SequenceId}");
-
                 LogPacket(PacketDirection.Inbound, header.PacketId, header.SequenceId, fullSubPacket);
                 _dispatcher.Dispatch(header, packetPayload);
+                inboundSubPacketCount++;
                 offset += header.TotalSize;
             }
+
+            if (inboundSubPacketCount > 0)
+            {
+                Performance?.RecordInboundPackets(inboundSubPacketCount);
+            }
+
+            long elapsedTicks = Stopwatch.GetTimestamp() - startTicks;
+            Performance?.RecordDispatchLatencyTicks(elapsedTicks);
 
             return true;
         }

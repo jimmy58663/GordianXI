@@ -28,11 +28,34 @@ namespace Gordian.App.ViewModels
         private string _directionFilter = "All";
         private string _searchFilter = string.Empty;
         private string _ignoreFilter = string.Empty;
+        private bool _isCapturing;
         private bool _isPaused;
         private bool _autoScroll = true;
         private int _totalPacketCount;
 
         public int MaxPackets { get; set; } = DefaultMaxPackets;
+
+        /// <summary>
+        /// Indicates whether live packet capture from character network sessions is active.
+        /// Defaults to false (off) to eliminate packet copy allocations during regular gameplay.
+        /// </summary>
+        public bool IsCapturing
+        {
+            get => _isCapturing;
+            private set
+            {
+                if (SetProperty(ref _isCapturing, value))
+                {
+                    OnPropertyChanged(nameof(CaptureButtonText));
+                    OnPropertyChanged(nameof(CaptureButtonBackground));
+                    OnPropertyChanged(nameof(CaptureStatusText));
+                }
+            }
+        }
+
+        public string CaptureButtonText => IsCapturing ? "■ Stop Capture" : "▶ Start Capture";
+        public string CaptureButtonBackground => IsCapturing ? "#C75050" : "#2D7D32";
+        public string CaptureStatusText => IsCapturing ? "[CAPTURING]" : "[IDLE]";
 
         /// <summary>
         /// Filtered packet collection bound directly to the UI DataGrid / ListBox.
@@ -116,28 +139,69 @@ namespace Gordian.App.ViewModels
 
         public ICommand ClearCommand { get; }
         public ICommand TogglePauseCommand { get; }
+        public ICommand ToggleCaptureCommand { get; }
 
         public PacketInspectorViewModel()
         {
             ClearCommand = new RelayCommand(Clear);
             TogglePauseCommand = new RelayCommand(() => IsPaused = !IsPaused);
+            ToggleCaptureCommand = new RelayCommand(ToggleCapture);
 
             // Connect to active session registry
             SessionRegistry.Default.SessionRegistered += OnSessionRegistered;
+        }
+
+        public void StartCapture()
+        {
+            if (IsCapturing) return;
+
             foreach (var session in SessionRegistry.Default.ActiveSessions)
             {
                 HookSession(session);
+            }
+            IsCapturing = true;
+        }
+
+        public void StopCapture()
+        {
+            if (!IsCapturing) return;
+
+            foreach (var session in SessionRegistry.Default.ActiveSessions)
+            {
+                UnhookSession(session);
+            }
+            IsCapturing = false;
+        }
+
+        private void ToggleCapture()
+        {
+            if (IsCapturing)
+            {
+                StopCapture();
+            }
+            else
+            {
+                StartCapture();
             }
         }
 
         private void OnSessionRegistered(object? sender, CharacterSession session)
         {
-            HookSession(session);
+            if (IsCapturing)
+            {
+                HookSession(session);
+            }
         }
 
         private void HookSession(CharacterSession session)
         {
+            session.NetworkManager.PacketInspected -= OnPacketInspected;
             session.NetworkManager.PacketInspected += OnPacketInspected;
+        }
+
+        private void UnhookSession(CharacterSession session)
+        {
+            session.NetworkManager.PacketInspected -= OnPacketInspected;
         }
 
         public void OnPacketInspected(object? sender, PacketLogEntry entry)

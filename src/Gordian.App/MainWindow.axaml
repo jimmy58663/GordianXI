@@ -7,8 +7,24 @@
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="GordianXI - Client and Network Inspector" Width="1180" Height="840" MinWidth="1050" MinHeight="720"
+        Title="GordianXI - Client and Network Inspector" Width="1280" Height="840" MinWidth="1100" MinHeight="720"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
+
+    <Window.Styles>
+        <Style Selector="Thumb.colHeaderThumb">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Cursor" Value="SizeWestEast"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                        <Rectangle Width="1" Fill="#333333" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+    </Window.Styles>
 
     <Grid RowDefinitions="Auto, *">
         <!-- Top Status & Debug Toolbar -->
@@ -196,15 +212,26 @@
                         <!-- Action Buttons & Status (Right-Docked) -->
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock Text="{Binding Inspector.TotalPacketCount, StringFormat='Packets: {0}'}"
-                                       Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                       Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,4,0"/>
 
-                            <Button Content="Pause / Resume"
+                            <!-- On-demand Start / Stop Capture Button -->
+                            <Button Content="{Binding Inspector.CaptureButtonText}"
+                                    Command="{Binding Inspector.ToggleCaptureCommand}"
+                                    Background="{Binding Inspector.CaptureButtonBackground}"
+                                    Foreground="White" FontWeight="Bold"
+                                    Padding="10,5" CornerRadius="4"/>
+
+                            <!-- Pause / Resume Stream (Active during capture) -->
+                            <Button Content="Pause"
                                     Command="{Binding Inspector.TogglePauseCommand}"
-                                    Background="#3E3E42" Foreground="White"/>
+                                    IsVisible="{Binding Inspector.IsCapturing}"
+                                    Background="#3E3E42" Foreground="White"
+                                    Padding="8,5" CornerRadius="4"/>
 
                             <Button Content="Clear Log"
                                     Command="{Binding Inspector.ClearCommand}"
-                                    Background="#C586C0" Foreground="White"/>
+                                    Background="#C586C0" Foreground="White"
+                                    Padding="8,5" CornerRadius="4"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -303,7 +330,7 @@
 
                 <!-- TOP TELEMETRY & ACTIVE SESSION STRIP -->
                 <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
-                    <Grid ColumnDefinitions="Auto, 180, *, Auto">
+                    <Grid ColumnDefinitions="Auto, 150, *">
                         <!-- Active Session Selector -->
                         <TextBlock Grid.Column="0" Text="Session:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
                         <ComboBox Grid.Column="1"
@@ -317,13 +344,10 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
 
-                        <!-- Empty Separator Spacer -->
-                        <Border Grid.Column="2"/>
-
-                        <!-- Real-Time Metrics Badges -->
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <!-- Real-Time Metrics Badges (StackPanel ensures badges remain strictly single-row) -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="0">
                             <!-- Inbound Telemetry -->
-                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="IN:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
                                     <TextBlock Text="{Binding StateInspector.PacketsInRateText}" Foreground="#4EC9B0" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
@@ -332,7 +356,7 @@
                             </Border>
 
                             <!-- Outbound Telemetry -->
-                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="OUT:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
                                     <TextBlock Text="{Binding StateInspector.PacketsOutRateText}" Foreground="#CE9178" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
@@ -341,7 +365,7 @@
                             </Border>
 
                             <!-- Heap Memory -->
-                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="HEAP:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
                                     <TextBlock Text="{Binding StateInspector.HeapMemoryText}" Foreground="#E5C07B" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
@@ -349,7 +373,7 @@
                             </Border>
 
                             <!-- GC Collections -->
-                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="GC(0/1/2):" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
                                     <TextBlock Text="{Binding StateInspector.GcCollectionsText}" Foreground="#DCDCDC" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
@@ -357,10 +381,18 @@
                             </Border>
 
                             <!-- Drops / Sequence gaps -->
-                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="DROPS:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
                                     <TextBlock Text="{Binding StateInspector.SequenceDropsText}" Foreground="#9CDCFE" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Dispatch Latency -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="5,2" Margin="2,0">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="LATENCY:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.DispatchLatencyText}" Foreground="#C586C0" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -475,7 +507,7 @@
 
                     <!-- RIGHT COLUMN: Tracked World Entities Explorer -->
                     <Border Grid.Column="2" Background="#252526" CornerRadius="6" Padding="12">
-                        <Grid RowDefinitions="Auto, Auto, *">
+                        <Grid RowDefinitions="Auto, *">
                             <!-- Entities Toolbar -->
                             <Grid Grid.Row="0" ColumnDefinitions="Auto, 120, *, Auto" Margin="0,0,0,8">
                                 <TextBlock Grid.Column="0" Text="Type:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
@@ -494,56 +526,119 @@
                                            Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="12"/>
                             </Grid>
 
-                            <!-- Table Header -->
-                            <Grid Grid.Row="1" ColumnDefinitions="55, 65, 95, 1.4*, 65, 140, 50" Margin="4,6,4,6">
-                                <TextBlock Grid.Column="0" Text="TYPE" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
-                                <TextBlock Grid.Column="1" Text="INDEX" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
-                                <TextBlock Grid.Column="2" Text="SERVER ID" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
-                                <TextBlock Grid.Column="3" Text="NAME" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
-                                <TextBlock Grid.Column="4" Text="DIST" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right"/>
-                                <TextBlock Grid.Column="5" Text="COORDINATES" Foreground="#808080" FontWeight="Bold" FontSize="11" Margin="10,0,0,0"/>
-                                <TextBlock Grid.Column="6" Text="HPP" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right"/>
-                            </Grid>
+                            <!-- Table Area with Horizontal Scroll for Width Overflow -->
+                            <ScrollViewer Grid.Row="1"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled">
+                                <Grid RowDefinitions="Auto, *">
+                                    <!-- Table Header with User-Resizable Columns via Thumbs -->
+                                    <Grid Grid.Row="0" Margin="4,6,4,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthType, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthIndex, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthServerId, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthName, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthCoords, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthDist, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="{Binding StateInspector.ColWidthHpp, Mode=TwoWay}"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
 
-                            <!-- Entity Rows ListBox -->
-                            <ListBox Grid.Row="2"
-                                     ItemsSource="{Binding StateInspector.FilteredEntities}"
-                                     Background="#1E1E1E" CornerRadius="4">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:EntityItemViewModel">
-                                        <Grid ColumnDefinitions="55, 65, 95, 1.4*, 65, 140, 50" Margin="0,2">
-                                            <!-- Type Badge -->
-                                            <Border Grid.Column="0" Background="#2D2D30" CornerRadius="3" Padding="4,1" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold" Foreground="{Binding TypeColor}"/>
-                                            </Border>
+                                        <!-- Column 0: TYPE -->
+                                        <TextBlock Grid.Column="0" Text="TYPE" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="1" Classes="colHeaderThumb" Tag="Type" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- Target Index -->
-                                            <TextBlock Grid.Column="1" Text="{Binding TargetIndexHex}"
-                                                       FontSize="11" Foreground="#A0A0A0" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                        <!-- Column 2: INDEX -->
+                                        <TextBlock Grid.Column="2" Text="INDEX" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="3" Classes="colHeaderThumb" Tag="Index" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- Server ID -->
-                                            <TextBlock Grid.Column="2" Text="{Binding ServerIdHex}"
-                                                       FontSize="11" Foreground="#888888" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                        <!-- Column 4: SERVER ID -->
+                                        <TextBlock Grid.Column="4" Text="SERVER ID" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="5" Classes="colHeaderThumb" Tag="ServerId" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- Name -->
-                                            <TextBlock Grid.Column="3" Text="{Binding Name}"
-                                                       FontSize="11" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                        <!-- Column 6: NAME -->
+                                        <TextBlock Grid.Column="6" Text="NAME" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="7" Classes="colHeaderThumb" Tag="Name" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- Distance -->
-                                            <TextBlock Grid.Column="4" Text="{Binding DistanceDisplay}"
-                                                       FontSize="11" Foreground="#4EC9B0" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                        <!-- Column 8: COORDINATES -->
+                                        <TextBlock Grid.Column="8" Text="COORDINATES" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="9" Classes="colHeaderThumb" Tag="Coords" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- Coordinates -->
-                                            <TextBlock Grid.Column="5" Text="{Binding PositionDisplay}"
-                                                       FontSize="11" Foreground="#A0A0A0" FontFamily="Consolas, Courier New, monospace" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                        <!-- Column 10: DIST -->
+                                        <TextBlock Grid.Column="10" Text="DIST" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="11" Classes="colHeaderThumb" Tag="Dist" DragDelta="OnColumnHeaderDragDelta"/>
 
-                                            <!-- HPP -->
-                                            <TextBlock Grid.Column="6" Text="{Binding HppDisplay}"
-                                                       FontSize="11" Foreground="#E5C07B" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                        <!-- Column 12: HPP -->
+                                        <TextBlock Grid.Column="12" Text="HPP" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Thumb Grid.Column="13" Classes="colHeaderThumb" Tag="Hpp" DragDelta="OnColumnHeaderDragDelta"/>
+                                    </Grid>
+
+                                    <!-- Entity Rows ListBox -->
+                                    <ListBox Grid.Row="1"
+                                             ItemsSource="{Binding StateInspector.FilteredEntities}"
+                                             Background="#1E1E1E" CornerRadius="4">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EntityItemViewModel">
+                                                <Grid Margin="0,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthType, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthIndex, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthServerId, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthName, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthCoords, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthDist, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="{Binding ((vm:MainWindowViewModel)DataContext).StateInspector.ColWidthHpp, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                        <ColumnDefinition Width="8"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- Type Badge -->
+                                                    <Border Grid.Column="0" Background="#2D2D30" CornerRadius="3" Padding="4,1" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold" Foreground="{Binding TypeColor}"/>
+                                                    </Border>
+
+                                                    <!-- Target Index -->
+                                                    <TextBlock Grid.Column="2" Text="{Binding TargetIndexHex}"
+                                                               FontSize="11" Foreground="#A0A0A0" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                                    <!-- Server ID -->
+                                                    <TextBlock Grid.Column="4" Text="{Binding ServerIdHex}"
+                                                               FontSize="11" Foreground="#888888" HorizontalAlignment="Left" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                                    <!-- Name -->
+                                                    <TextBlock Grid.Column="6" Text="{Binding Name}"
+                                                               FontSize="11" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+
+                                                    <!-- Coordinates -->
+                                                    <TextBlock Grid.Column="8" Text="{Binding PositionDisplay}"
+                                                               FontSize="11" Foreground="#A0A0A0" HorizontalAlignment="Center" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                                    <!-- Distance -->
+                                                    <TextBlock Grid.Column="10" Text="{Binding DistanceDisplay}"
+                                                               FontSize="11" Foreground="#4EC9B0" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                                    <!-- HPP -->
+                                                    <TextBlock Grid.Column="12" Text="{Binding HppDisplay}"
+                                                               FontSize="11" Foreground="#E5C07B" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </ScrollViewer>
                         </Grid>
                     </Border>
                 </Grid>

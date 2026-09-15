@@ -129,7 +129,6 @@ namespace Gordian.Core.Network.Packets
             }
 
             _world.UpsertEntity(player);
-            GordianLog.Debug("ENTITY", $"Updated PC: {player.Name} (ID: 0x{player.ServerId:X8}, Index: {player.TargetIndex}) at {player.Position}");
         }
 
         private void HandleCharNpc(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -191,7 +190,6 @@ namespace Gordian.Core.Network.Packets
             }
 
             _world.UpsertEntity(entity);
-            GordianLog.Debug("ENTITY", $"Updated NPC/Mob: {entity.Name} (ID: 0x{entity.ServerId:X8}, Index: {entity.TargetIndex}) at {entity.Position}");
         }
 
         private void HandleCharStatus(PacketHeader header, ReadOnlySpan<byte> payload)

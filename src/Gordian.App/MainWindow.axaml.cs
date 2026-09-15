@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
@@ -66,6 +67,14 @@ namespace Gordian.App
             _viewModel.Dispose();
             SessionRegistry.Default.Clear();
             base.OnUnloaded(e);
+        }
+
+        private void OnColumnHeaderDragDelta(object? sender, VectorEventArgs e)
+        {
+            if (sender is Control control && control.Tag is string colName && DataContext is MainWindowViewModel mainVm)
+            {
+                mainVm.StateInspector.AdjustColumnWidth(colName, e.Vector.X);
+            }
         }
     }
 }

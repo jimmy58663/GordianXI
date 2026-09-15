@@ -100,5 +100,36 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Equal(ServerAutomationPolicy.StrictVanilla, profile.AutomationPolicy);
         }
+
+        [Fact]
+        public void ProcessIncomingChunk_WithPerformanceTracker_RecordsInboundPacketsAndLatency()
+        {
+            var profile = new SessionProfile();
+            var tracker = new Gordian.Core.Diagnostics.SessionPerformanceTracker();
+            var parser = new PacketParser(profile, (_, _) => Task.CompletedTask)
+            {
+                Performance = tracker
+            };
+
+            // Construct sub-packet 0x015
+            byte[] subPacket = new byte[4];
+            PackSubPacketHeader(subPacket, 0x015, 4, 0x0042);
+
+            byte[] compressed = new byte[64];
+            int compressedBytes = FfxiCodec.Default.Compress(subPacket, compressed);
+
+            const int headerSize = 28;
+            byte[] datagram = new byte[headerSize + compressedBytes + 32];
+            compressed.AsSpan(0, compressedBytes).CopyTo(datagram.AsSpan(headerSize));
+
+            int totalDatagramSize = parser.CryptoSuite.EncryptAndSign(datagram, headerSize, compressedBytes);
+
+            bool result = parser.ProcessIncomingChunk(datagram.AsSpan(0, totalDatagramSize));
+
+            Assert.True(result);
+            var snapshot = tracker.GetSnapshot();
+            Assert.Equal(1, snapshot.PacketsReceivedTotal);
+            Assert.True(snapshot.LastDispatchLatencyMicroseconds >= 0);
+        }
     }
 }

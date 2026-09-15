@@ -28,14 +28,15 @@ namespace Gordian.App.ViewModels
         private string _entityTypeFilter = "All";
 
         // Performance telemetry displays
-        private string _packetsInRateText = "0.0 pkt/s";
-        private string _packetsOutRateText = "0.0 pkt/s";
+        private string _packetsInRateText = "0.0 chunk/s";
+        private string _packetsOutRateText = "0.0 chunk/s";
         private string _bandwidthInText = "0.0 KB/s";
         private string _bandwidthOutText = "0.0 KB/s";
         private string _totalPacketsText = "0 in / 0 out";
         private string _heapMemoryText = "0.0 MB";
         private string _gcCollectionsText = "0 / 0 / 0";
         private string _sequenceDropsText = "0";
+        private string _dispatchLatencyText = "-- µs";
 
         public ObservableCollection<CharacterSession> ActiveSessions { get; } = new();
         public ObservableCollection<EntityItemViewModel> FilteredEntities { get; } = new();
@@ -87,6 +88,90 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        #region Entity Table User-Resizable Column Widths
+        private Avalonia.Controls.GridLength _colWidthType = new Avalonia.Controls.GridLength(55);
+        private Avalonia.Controls.GridLength _colWidthIndex = new Avalonia.Controls.GridLength(65);
+        private Avalonia.Controls.GridLength _colWidthServerId = new Avalonia.Controls.GridLength(95);
+        private Avalonia.Controls.GridLength _colWidthName = new Avalonia.Controls.GridLength(160);
+        private Avalonia.Controls.GridLength _colWidthDist = new Avalonia.Controls.GridLength(65);
+        private Avalonia.Controls.GridLength _colWidthCoords = new Avalonia.Controls.GridLength(140);
+        private Avalonia.Controls.GridLength _colWidthHpp = new Avalonia.Controls.GridLength(50);
+
+        public Avalonia.Controls.GridLength ColWidthType
+        {
+            get => _colWidthType;
+            set => SetProperty(ref _colWidthType, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthIndex
+        {
+            get => _colWidthIndex;
+            set => SetProperty(ref _colWidthIndex, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthServerId
+        {
+            get => _colWidthServerId;
+            set => SetProperty(ref _colWidthServerId, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthName
+        {
+            get => _colWidthName;
+            set => SetProperty(ref _colWidthName, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthDist
+        {
+            get => _colWidthDist;
+            set => SetProperty(ref _colWidthDist, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthCoords
+        {
+            get => _colWidthCoords;
+            set => SetProperty(ref _colWidthCoords, value);
+        }
+
+        public Avalonia.Controls.GridLength ColWidthHpp
+        {
+            get => _colWidthHpp;
+            set => SetProperty(ref _colWidthHpp, value);
+        }
+
+        /// <summary>
+        /// Adjusts the width of a specific entity table column by a horizontal delta from a header thumb drag.
+        /// Constrains width within minimum and maximum limits without affecting other columns.
+        /// </summary>
+        public void AdjustColumnWidth(string columnName, double deltaX)
+        {
+            switch (columnName)
+            {
+                case "Type":
+                    ColWidthType = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthType.Value + deltaX, 35, 160));
+                    break;
+                case "Index":
+                    ColWidthIndex = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthIndex.Value + deltaX, 45, 160));
+                    break;
+                case "ServerId":
+                    ColWidthServerId = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthServerId.Value + deltaX, 60, 200));
+                    break;
+                case "Name":
+                    ColWidthName = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthName.Value + deltaX, 70, 500));
+                    break;
+                case "Dist":
+                    ColWidthDist = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthDist.Value + deltaX, 45, 160));
+                    break;
+                case "Coords":
+                    ColWidthCoords = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthCoords.Value + deltaX, 80, 350));
+                    break;
+                case "Hpp":
+                    ColWidthHpp = new Avalonia.Controls.GridLength(Math.Clamp(ColWidthHpp.Value + deltaX, 40, 160));
+                    break;
+            }
+        }
+        #endregion
+
         #region Performance Telemetry Properties
         public string PacketsInRateText
         {
@@ -134,6 +219,12 @@ namespace Gordian.App.ViewModels
         {
             get => _sequenceDropsText;
             private set => SetProperty(ref _sequenceDropsText, value);
+        }
+
+        public string DispatchLatencyText
+        {
+            get => _dispatchLatencyText;
+            private set => SetProperty(ref _dispatchLatencyText, value);
         }
         #endregion
 
@@ -509,14 +600,20 @@ namespace Gordian.App.ViewModels
             // Query atomic performance snapshot
             var snapshot = SelectedSession.Performance.GetSnapshot();
 
-            PacketsInRateText = $"{snapshot.PacketsReceivedPerSecond:F1} pkt/s";
-            PacketsOutRateText = $"{snapshot.PacketsSentPerSecond:F1} pkt/s";
+            PacketsInRateText = $"{snapshot.PacketsReceivedPerSecond:F1} (avg {snapshot.PacketsReceived30SecAverage:F1}) c/s";
+            PacketsOutRateText = $"{snapshot.PacketsSentPerSecond:F1} (avg {snapshot.PacketsSent30SecAverage:F1}) c/s";
             BandwidthInText = $"{snapshot.KilobytesReceivedPerSecond:F1} KB/s";
             BandwidthOutText = $"{snapshot.KilobytesSentPerSecond:F1} KB/s";
             TotalPacketsText = $"{snapshot.PacketsReceivedTotal:N0} in / {snapshot.PacketsSentTotal:N0} out";
             HeapMemoryText = $"{snapshot.ManagedHeapMegaBytes:F1} MB";
             GcCollectionsText = $"{snapshot.Gen0Collections} / {snapshot.Gen1Collections} / {snapshot.Gen2Collections}";
             SequenceDropsText = $"{snapshot.SequenceDiscrepancies}";
+
+            string lastStr = snapshot.LastDispatchLatencyMicroseconds <= 0 ? "--" :
+                snapshot.LastDispatchLatencyMicroseconds < 1.0 ? "< 1" : $"{snapshot.LastDispatchLatencyMicroseconds:F0}";
+            string avgStr = snapshot.AverageDispatchLatencyMicroseconds <= 0 ? "--" :
+                snapshot.AverageDispatchLatencyMicroseconds < 1.0 ? "< 1" : $"{snapshot.AverageDispatchLatencyMicroseconds:F0}";
+            DispatchLatencyText = $"{lastStr} µs (avg {avgStr})";
         }
 
         public void Dispose()

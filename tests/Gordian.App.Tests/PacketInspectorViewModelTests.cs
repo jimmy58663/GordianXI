@@ -24,6 +24,33 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void DefaultState_IsCapturingIsFalse()
+        {
+            Assert.False(_vm.IsCapturing);
+            Assert.Equal("▶ Start Capture", _vm.CaptureButtonText);
+            Assert.Equal("#2D7D32", _vm.CaptureButtonBackground);
+            Assert.Equal("[IDLE]", _vm.CaptureStatusText);
+        }
+
+        [Fact]
+        public void ToggleCapture_TogglesStateCorrectly()
+        {
+            Assert.False(_vm.IsCapturing);
+
+            _vm.ToggleCaptureCommand.Execute(null);
+            Assert.True(_vm.IsCapturing);
+            Assert.Equal("■ Stop Capture", _vm.CaptureButtonText);
+            Assert.Equal("#C75050", _vm.CaptureButtonBackground);
+            Assert.Equal("[CAPTURING]", _vm.CaptureStatusText);
+
+            _vm.ToggleCaptureCommand.Execute(null);
+            Assert.False(_vm.IsCapturing);
+            Assert.Equal("▶ Start Capture", _vm.CaptureButtonText);
+            Assert.Equal("#2D7D32", _vm.CaptureButtonBackground);
+            Assert.Equal("[IDLE]", _vm.CaptureStatusText);
+        }
+
+        [Fact]
         public void OnPacketInspected_AppendsPacketToCollection()
         {
             var entry = new PacketLogEntry

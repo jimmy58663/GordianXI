@@ -57,9 +57,22 @@ namespace Gordian.App
                     Filter = new PrefixTraceFilter(netToken, rejectIfMatch: false)
                 };
 
-                // Add both diagnostic trace pipes to the process ledger collection
+                // Add diagnostic trace pipes to the process ledger collection
                 Trace.Listeners.Add(systemListener);
-                Trace.Listeners.Add(networkListener);
+
+                // 🛑 Network trace disk logging is disabled by default to prevent high-frequency disk I/O.
+                // Enable on demand via environment variable GORDIAN_LOG_NETWORK_DISK=1 or true.
+                string? netDiskLogging = Environment.GetEnvironmentVariable("GORDIAN_LOG_NETWORK_DISK");
+                if (string.Equals(netDiskLogging, "1", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(netDiskLogging, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    Trace.Listeners.Add(networkListener);
+                    Debug.WriteLine("[GordianXI Boot] High-frequency network packet disk logging ENABLED via GORDIAN_LOG_NETWORK_DISK.");
+                }
+                else
+                {
+                    networkListener.Dispose();
+                }
 
                 Debug.AutoFlush = true;
 

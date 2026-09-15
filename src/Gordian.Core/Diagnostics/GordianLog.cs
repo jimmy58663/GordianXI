@@ -1,7 +1,8 @@
-// src/Gordian.Core/Diagnostics/GordianLog.cs
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 using Gordian.Core.Config;
 
 namespace Gordian.Core.Diagnostics
@@ -26,6 +27,14 @@ namespace Gordian.Core.Diagnostics
 #else
             Environment.GetEnvironmentVariable("GORDIAN_DEBUG") is "1" or "true";
 #endif
+
+        /// <summary>
+        /// Controls whether diagnostic messages are persisted to disk.
+        /// Disabled by default to prevent disk thrashing during live packet streaming.
+        /// Can be enabled via GORDIAN_LOG_TO_DISK environment variable.
+        /// </summary>
+        public static bool EnableFileLogging { get; set; } =
+            Environment.GetEnvironmentVariable("GORDIAN_LOG_TO_DISK") is "1" or "true";
 
         /// <summary>
         /// Absolute path to the persistent network debug log file.
@@ -96,23 +105,26 @@ namespace Gordian.Core.Diagnostics
                 // Silently continue if standard output handle is invalid
             }
 
-            // 3. Persist to network_debug.log file
-            try
+            // 3. Persist to network_debug.log file only when file logging is enabled or custom log path is configured
+            if (EnableFileLogging || _logFilePath != null)
             {
-                lock (_fileLock)
+                try
                 {
-                    string target = LogFilePath;
-                    string? dir = Path.GetDirectoryName(target);
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    lock (_fileLock)
                     {
-                        Directory.CreateDirectory(dir);
+                        string target = LogFilePath;
+                        string? dir = Path.GetDirectoryName(target);
+                        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        {
+                            Directory.CreateDirectory(dir);
+                        }
+                        File.AppendAllText(target, formatted + Environment.NewLine);
                     }
-                    File.AppendAllText(target, formatted + Environment.NewLine);
                 }
-            }
-            catch
-            {
-                // Avoid crashing on log file write contention
+                catch
+                {
+                    // Avoid crashing on log file write contention
+                }
             }
         }
     }

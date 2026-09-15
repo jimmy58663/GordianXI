@@ -169,7 +169,11 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
         /// </summary>
-        public event EventHandler<PacketLogEntry>? PacketInspected;
+        public event EventHandler<PacketLogEntry>? PacketInspected
+        {
+            add => _parser.PacketInspected += value;
+            remove => _parser.PacketInspected -= value;
+        }
 
         public SessionNetworkManager(
             string serverAddress,
@@ -182,19 +186,8 @@ namespace Gordian.Core.Network
             _codec = codec ?? FfxiCodec.Default;
             _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec)
             {
-                LogOutboundOnRoute = false
-            };
-            _parser.PacketInspected += (s, e) =>
-            {
-                if (e.Direction == PacketDirection.Inbound)
-                {
-                    _performance.RecordInboundPacket();
-                }
-                else
-                {
-                    _performance.RecordOutboundPacket();
-                }
-                PacketInspected?.Invoke(this, e);
+                LogOutboundOnRoute = false,
+                Performance = _performance
             };
             _parser.HandshakeCompleted += () =>
             {
@@ -392,6 +385,7 @@ namespace Gordian.Core.Network
 
                 // 2. Patch sequenceId (offset 2..3) of each bundled sub-packet with clientSeq and log outbound subpacket
                 int subOffset = 0;
+                int outboundSubPacketCount = 0;
                 while (subOffset + 4 <= _currentBufferLength)
                 {
                     int subSize = (_outboundQueueBuffer[subOffset + 1] & 0xFE) * 2;
@@ -404,6 +398,7 @@ namespace Gordian.Core.Network
                     ReadOnlySpan<byte> fullSubPacket = _outboundQueueBuffer.AsSpan(subOffset, subSize);
                     _parser.LogPacket(PacketDirection.Outbound, packetId, clientSeq, fullSubPacket);
 
+                    outboundSubPacketCount++;
                     subOffset += subSize;
                 }
 
@@ -436,6 +431,10 @@ namespace Gordian.Core.Network
                 ReadOnlyMemory<byte> datagramMemory = scratchBuffer.WritableMemory.Slice(0, datagramLength);
                 await socket.SendToAsync(datagramMemory, SocketFlags.None, remoteEndpoint, token).ConfigureAwait(false);
                 _performance.RecordOutboundDatagram(datagramLength);
+                if (outboundSubPacketCount > 0)
+                {
+                    _performance.RecordOutboundPackets(outboundSubPacketCount);
+                }
                 GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={_serverPacketIdSequence}, {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
