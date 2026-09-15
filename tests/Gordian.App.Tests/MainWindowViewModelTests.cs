@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Gordian.App.Tests
 {
+    [Collection("StorageTests")]
     public class MainWindowViewModelTests : IDisposable
     {
         private readonly string _tempProfilesDir;

@@ -134,6 +134,33 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
+        /// Attempts to retrieve an entity by character name (case-insensitive).
+        /// </summary>
+        public bool TryGetByName(string name, out WorldEntity? entity)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                entity = null;
+                return false;
+            }
+
+            lock (_syncRoot)
+            {
+                foreach (var e in _byServerId.Values)
+                {
+                    if (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        entity = e;
+                        return true;
+                    }
+                }
+            }
+
+            entity = null;
+            return false;
+        }
+
+        /// <summary>
         /// Retrieves a snapshot array of all active entities.
         /// </summary>
         public WorldEntity[] GetAllEntities()

@@ -45,6 +45,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public StateInspectorViewModel StateInspector { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the live chat and communication window / tab.
+        /// </summary>
+        public ChatViewModel Chat { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -614,6 +619,7 @@ namespace Gordian.App.ViewModels
             _sessionRegistry.SessionUnregistered -= OnSessionRegistryChanged;
             Inspector.Dispose();
             StateInspector.Dispose();
+            Chat.Dispose();
         }
     }
 }

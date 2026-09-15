@@ -31,6 +31,9 @@ namespace Gordian.Core.Network
         private readonly WorldState _world;
         private readonly LocalPlayerState _localPlayer;
         private readonly EntityPacketModule _entityModule;
+        private readonly ChatPacketModule _chatModule;
+        private readonly PartyState _party;
+        private readonly PartyPacketModule _partyModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -42,7 +45,8 @@ namespace Gordian.Core.Network
             FfxiCodec? codec = null,
             PacketDispatcher? dispatcher = null,
             WorldState? world = null,
-            LocalPlayerState? localPlayer = null)
+            LocalPlayerState? localPlayer = null,
+            PartyState? party = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
@@ -51,12 +55,19 @@ namespace Gordian.Core.Network
             _dispatcher = dispatcher ?? new PacketDispatcher();
             _world = world ?? new WorldState();
             _localPlayer = localPlayer ?? new LocalPlayerState();
+            _party = party ?? new PartyState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
 
             _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket);
             _entityModule.Register(_dispatcher);
+
+            _chatModule = new ChatPacketModule(_sendChunkCallback, LogPacket);
+            _chatModule.Register(_dispatcher);
+
+            _partyModule = new PartyPacketModule(_party, _sendChunkCallback, LogPacket);
+            _partyModule.Register(_dispatcher);
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -91,6 +102,21 @@ namespace Gordian.Core.Network
         /// Gets the entity packet handling module.
         /// </summary>
         public EntityPacketModule EntityModule => _entityModule;
+
+        /// <summary>
+        /// Gets the communication and chat packet handling module.
+        /// </summary>
+        public ChatPacketModule ChatModule => _chatModule;
+
+        /// <summary>
+        /// Gets the active party and alliance state model.
+        /// </summary>
+        public PartyState Party => _party;
+
+        /// <summary>
+        /// Gets the party packet handling module.
+        /// </summary>
+        public PartyPacketModule PartyModule => _partyModule;
 
         /// <summary>
         /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.
@@ -143,6 +169,7 @@ namespace Gordian.Core.Network
             {
                 _lifecycleModule.LogOutboundOnRoute = value;
                 _entityModule.LogOutboundOnRoute = value;
+                _partyModule.LogOutboundOnRoute = value;
             }
         }
 

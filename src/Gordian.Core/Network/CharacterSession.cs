@@ -44,6 +44,21 @@ namespace Gordian.Core.Network
         /// </summary>
         public EntityPacketModule EntityModule => NetworkManager.EntityModule;
 
+        /// <summary>
+        /// Gets the communication and chat packet handling module.
+        /// </summary>
+        public ChatPacketModule ChatModule => NetworkManager.ChatModule;
+
+        /// <summary>
+        /// Gets the active party and alliance state model.
+        /// </summary>
+        public PartyState Party => NetworkManager.Party;
+
+        /// <summary>
+        /// Gets the party packet handling module.
+        /// </summary>
+        public PartyPacketModule PartyModule => NetworkManager.PartyModule;
+
         public CharacterSession(
             string characterName,
             uint characterId,

@@ -20,6 +20,24 @@ namespace Gordian.App
             _viewModel = new MainWindowViewModel();
             DataContext = _viewModel;
 
+            _viewModel.Chat.RequestScrollToEnd += (s, e) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    var listBox = this.FindControl<ListBox>("MainChatListBox");
+                    if (listBox != null && listBox.ItemCount > 0)
+                    {
+                        listBox.ScrollIntoView(listBox.ItemCount - 1);
+                    }
+                });
+            };
+
+            _viewModel.Chat.RequestOpenPopOutWindow += (s, e) =>
+            {
+                var chatWin = new ChatWindow(_viewModel.Chat);
+                chatWin.Show(this);
+            };
+
             _ipcServer = new HandoffPipeServer();
             _ipcServer.SessionReceived += OnSessionTokenIntercepted;
             _ipcServer.Start();
@@ -74,6 +92,15 @@ namespace Gordian.App
             if (sender is Control control && control.Tag is string colName && DataContext is MainWindowViewModel mainVm)
             {
                 mainVm.StateInspector.AdjustColumnWidth(colName, e.Vector.X);
+            }
+        }
+
+        private void OnMainChatMessageInputKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && _viewModel.Chat.CanSendMessage())
+            {
+                _ = _viewModel.Chat.ExecuteSendMessageAsync();
+                e.Handled = true;
             }
         }
     }

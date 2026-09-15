@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Gordian.App.Tests.ViewModels
 {
+    [Collection("StorageTests")]
     public sealed class StateInspectorViewModelTests : IDisposable
     {
         private readonly SessionRegistry _registry;

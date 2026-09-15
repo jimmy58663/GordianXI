@@ -23,6 +23,7 @@ namespace Gordian.Core.Diagnostics
         int Gen1Collections,
         int Gen2Collections,
         DateTime TimestampUtc,
+        long DuplicateDatagramsDropped = 0,
         double LastDispatchLatencyMicroseconds = 0,
         double AverageDispatchLatencyMicroseconds = 0,
         double PacketsReceived30SecAverage = 0,
@@ -68,6 +69,7 @@ namespace Gordian.Core.Diagnostics
         private long _bytesReceivedTotal;
         private long _bytesSentTotal;
         private long _sequenceDiscrepancies;
+        private long _duplicateDatagramsDropped;
 
         // Microsecond dispatch latency profiling
         private long _lastDispatchLatencyTicks;
@@ -192,6 +194,19 @@ namespace Gordian.Core.Diagnostics
         }
 
         /// <summary>
+        /// Records a dropped duplicate or retransmitted server UDP datagram.
+        /// </summary>
+        public void RecordDuplicateDatagram()
+        {
+            Interlocked.Increment(ref _duplicateDatagramsDropped);
+        }
+
+        /// <summary>
+        /// Gets the total count of dropped duplicate or retransmitted datagrams.
+        /// </summary>
+        public long DuplicateDatagramsDropped => Interlocked.Read(ref _duplicateDatagramsDropped);
+
+        /// <summary>
         /// Records the high-resolution elapsed stopwatch ticks for a packet decode and dispatch cycle.
         /// Zero-allocation atomic update.
         /// </summary>
@@ -224,6 +239,7 @@ namespace Gordian.Core.Diagnostics
             long bytesIn = Interlocked.Read(ref _bytesReceivedTotal);
             long bytesOut = Interlocked.Read(ref _bytesSentTotal);
             long seqDiscrepancies = Interlocked.Read(ref _sequenceDiscrepancies);
+            long dupDropped = Interlocked.Read(ref _duplicateDatagramsDropped);
 
             long lastTicks = Interlocked.Read(ref _lastDispatchLatencyTicks);
             long totalLatencyTicks = Interlocked.Read(ref _totalDispatchLatencyTicks);
@@ -294,6 +310,7 @@ namespace Gordian.Core.Diagnostics
                 BytesReceivedPerSecond: _bytesInRate,
                 BytesSentPerSecond: _bytesOutRate,
                 SequenceDiscrepancies: seqDiscrepancies,
+                DuplicateDatagramsDropped: dupDropped,
                 ManagedHeapSizeBytes: GC.GetTotalMemory(false),
                 Gen0Collections: GC.CollectionCount(0),
                 Gen1Collections: GC.CollectionCount(1),

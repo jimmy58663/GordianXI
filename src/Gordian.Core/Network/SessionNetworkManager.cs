@@ -43,6 +43,20 @@ namespace Gordian.Core.Network
 
         private ushort _serverPacketIdSequence = 0;
         private ushort _clientPacketIdSequence = 0;
+        private ushort _lastProcessedSequence = 0;
+        private bool _hasProcessedAnySequence = false;
+        private ulong _sequenceHistoryBitmask = 0;
+
+        /// <summary>
+        /// Gets or sets whether duplicate/retransmitted incoming server datagrams should be dropped
+        /// while maintaining updated sequence ACK state. Defaults to true.
+        /// </summary>
+        public bool EnableSequenceDeduplication { get; set; } = true;
+
+        /// <summary>
+        /// Gets the latest acknowledged server packet ID sequence.
+        /// </summary>
+        public ushort ServerPacketIdSequence => Volatile.Read(ref _serverPacketIdSequence);
 
         private readonly SessionPerformanceTracker _performance = new SessionPerformanceTracker();
 
@@ -55,6 +69,11 @@ namespace Gordian.Core.Network
         /// Gets the isolated, instance-level configuration matrix for this specific character session.
         /// </summary>
         public SessionProfile Profile { get; } = new SessionProfile();
+
+        /// <summary>
+        /// Optional test and simulation hook to intercept outbound chunks before UDP staging.
+        /// </summary>
+        public Func<ReadOnlyMemory<byte>, bool, Task>? OutboundChunkOverride { get; set; }
 
         /// <summary>
         /// Raised when the session lifecycle state changes.
@@ -99,6 +118,21 @@ namespace Gordian.Core.Network
         /// Gets the entity packet handling module.
         /// </summary>
         public EntityPacketModule EntityModule => _parser.EntityModule;
+
+        /// <summary>
+        /// Gets the communication and chat packet handling module.
+        /// </summary>
+        public ChatPacketModule ChatModule => _parser.ChatModule;
+
+        /// <summary>
+        /// Gets the active party and alliance state model.
+        /// </summary>
+        public PartyState Party => _parser.Party;
+
+        /// <summary>
+        /// Gets the party packet handling module.
+        /// </summary>
+        public PartyPacketModule PartyModule => _parser.PartyModule;
 
         /// <summary>
         /// Unique Character ID assigned by the server database.
@@ -342,6 +376,12 @@ namespace Gordian.Core.Network
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
 
+            if (OutboundChunkOverride != null)
+            {
+                await OutboundChunkOverride(chunkData, isHighPriority).ConfigureAwait(false);
+                return;
+            }
+
             if (CurrentState == SessionState.Disconnected || _udpSocket == null || _serverEndpoint == null)
             {
                 throw new InvalidOperationException("Cannot queue action payloads; the network socket is disconnected.");
@@ -415,7 +455,7 @@ namespace Gordian.Core.Network
                 headerSpan.Clear();
 
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(0, 2), clientSeq);
-                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), _serverPacketIdSequence);
+                BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), Volatile.Read(ref _serverPacketIdSequence));
 
                 uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
@@ -435,7 +475,7 @@ namespace Gordian.Core.Network
                 {
                     _performance.RecordOutboundPackets(outboundSubPacketCount);
                 }
-                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={_serverPacketIdSequence}, {datagramLength} bytes to {remoteEndpoint}");
+                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={Volatile.Read(ref _serverPacketIdSequence)}, {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
             {
@@ -517,24 +557,7 @@ namespace Gordian.Core.Network
                         _performance.RecordInboundDatagram(result.ReceivedBytes);
 
                         Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
-
-                        // Track server packet ID sequence from incoming datagram header
-                        if (activeChunk.Length >= 2)
-                        {
-                            ushort newSeq = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
-                            if (_serverPacketIdSequence > 0 && (ushort)(newSeq - _serverPacketIdSequence) > 1)
-                            {
-                                _performance.RecordSequenceDiscrepancy();
-                            }
-                            _serverPacketIdSequence = newSeq;
-                        }
-
-                        bool parsed = _parser.ProcessIncomingChunk(activeChunk);
-
-                        if (parsed && CurrentState == SessionState.ExchangingCryptoKeys)
-                        {
-                            CurrentState = SessionState.LoadingWorldData;
-                        }
+                        ProcessInboundDatagram(activeChunk);
                     }
                     catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
                     {
@@ -563,6 +586,95 @@ namespace Gordian.Core.Network
                 ExecuteSocketCleanup();
                 CurrentState = SessionState.Disconnected;
             }
+        }
+
+        /// <summary>
+        /// Handles incoming server UDP datagrams: tracks server sequence IDs, acknowledges packets,
+        /// drops retransmitted duplicates via sliding window bitmask, and dispatches sub-packets.
+        /// Returns true if the datagram was processed and parsed, or false if dropped as a duplicate or invalid.
+        /// </summary>
+        public bool ProcessInboundDatagram(Span<byte> activeChunk)
+        {
+            if (activeChunk.Length < 2)
+            {
+                return false;
+            }
+
+            ushort newSeq = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+            Volatile.Write(ref _serverPacketIdSequence, newSeq);
+
+            if (EnableSequenceDeduplication && CheckAndTrackSequence(newSeq))
+            {
+                _performance.RecordDuplicateDatagram();
+                GordianLog.Debug("NET", $"Dropped retransmitted/duplicate server datagram Seq={newSeq}. ACK updated.");
+                return false;
+            }
+
+            bool parsed = _parser.ProcessIncomingChunk(activeChunk);
+
+            if (parsed && CurrentState == SessionState.ExchangingCryptoKeys)
+            {
+                CurrentState = SessionState.LoadingWorldData;
+            }
+
+            return parsed;
+        }
+
+        private bool CheckAndTrackSequence(ushort seq)
+        {
+            if (!_hasProcessedAnySequence)
+            {
+                _lastProcessedSequence = seq;
+                _sequenceHistoryBitmask = 1UL;
+                _hasProcessedAnySequence = true;
+                return false;
+            }
+
+            short diff = unchecked((short)(seq - _lastProcessedSequence));
+
+            if (diff > 0)
+            {
+                if (diff > 1)
+                {
+                    _performance.RecordSequenceDiscrepancy();
+                }
+
+                if (diff < 64)
+                {
+                    _sequenceHistoryBitmask = (_sequenceHistoryBitmask << diff) | 1UL;
+                }
+                else
+                {
+                    _sequenceHistoryBitmask = 1UL;
+                }
+
+                _lastProcessedSequence = seq;
+                return false;
+            }
+            else
+            {
+                int age = -diff;
+                if (age < 64)
+                {
+                    ulong bit = 1UL << age;
+                    if ((_sequenceHistoryBitmask & bit) != 0)
+                    {
+                        return true; // Already processed! Retransmitted duplicate!
+                    }
+
+                    _sequenceHistoryBitmask |= bit;
+                    return false;
+                }
+
+                return true; // Older than sliding window (age >= 64); treat as obsolete duplicate
+            }
+        }
+
+        private void ResetSequenceTracking()
+        {
+            _lastProcessedSequence = 0;
+            _hasProcessedAnySequence = false;
+            _sequenceHistoryBitmask = 0;
         }
 
         private async Task HandleZoneTransitionAsync(IPAddress targetIp, ushort targetPort)
@@ -619,7 +731,8 @@ namespace Gordian.Core.Network
 
                 // Reset packet sequence numbers for new map server
                 _clientPacketIdSequence = 1;
-                _serverPacketIdSequence = 0;
+                Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
+                ResetSequenceTracking();
             }
             finally
             {
@@ -727,6 +840,9 @@ namespace Gordian.Core.Network
 
             _cts?.Dispose();
             _cts = null;
+
+            ResetSequenceTracking();
+            Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
         }
 
         public void Dispose()
