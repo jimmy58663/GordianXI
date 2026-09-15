@@ -79,6 +79,16 @@ namespace Gordian.Core.Network
         /// </summary>
         public InventoryPacketModule InventoryModule => NetworkManager.InventoryModule;
 
+        /// <summary>
+        /// Gets the active session combat, targeting, recast, and action history state model.
+        /// </summary>
+        public CombatState Combat => NetworkManager.Combat;
+
+        /// <summary>
+        /// Gets the combat, spell casting, ability, and emote packet handling module.
+        /// </summary>
+        public CombatPacketModule CombatModule => NetworkManager.CombatModule;
+
         public CharacterSession(
             string characterName,
             uint characterId,

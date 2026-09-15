@@ -38,6 +38,8 @@ namespace Gordian.Core.Network
         private readonly ProgressionPacketModule _progressionModule;
         private readonly InventoryState _inventory;
         private readonly InventoryPacketModule _inventoryModule;
+        private readonly CombatState _combat;
+        private readonly CombatPacketModule _combatModule;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -52,7 +54,8 @@ namespace Gordian.Core.Network
             LocalPlayerState? localPlayer = null,
             PartyState? party = null,
             ProgressionState? progression = null,
-            InventoryState? inventory = null)
+            InventoryState? inventory = null,
+            CombatState? combat = null)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
@@ -64,6 +67,7 @@ namespace Gordian.Core.Network
             _party = party ?? new PartyState();
             _progression = progression ?? new ProgressionState();
             _inventory = inventory ?? new InventoryState();
+            _combat = combat ?? new CombatState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
@@ -82,6 +86,9 @@ namespace Gordian.Core.Network
 
             _inventoryModule = new InventoryPacketModule(_inventory, _localPlayer, _sendChunkCallback, LogPacket);
             _inventoryModule.Register(_dispatcher);
+
+            _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
+            _combatModule.Register(_dispatcher);
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -151,6 +158,16 @@ namespace Gordian.Core.Network
         /// Gets the inventory, trade, shop, and bazaar packet handling module.
         /// </summary>
         public InventoryPacketModule InventoryModule => _inventoryModule;
+
+        /// <summary>
+        /// Gets the active session combat, targeting, recast, and action history state model.
+        /// </summary>
+        public CombatState Combat => _combat;
+
+        /// <summary>
+        /// Gets the combat, spell casting, ability, and emote packet handling module.
+        /// </summary>
+        public CombatPacketModule CombatModule => _combatModule;
 
         /// <summary>
         /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.

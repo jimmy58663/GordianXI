@@ -53,6 +53,16 @@ namespace Gordian.Core.World
         #region Skills & Recasts
         public ushort[] SkillBase { get; } = new ushort[64];
         public uint[] CommandRecast { get; } = new uint[31];
+        public ushort[] AbilityRecasts { get; } = new ushort[32];
+        public uint MountRecastSeconds { get; private set; }
+        #endregion
+
+        #region Learned Magic & Commands
+        public byte[] LearnedSpells { get; } = new byte[128];
+        public byte[] LearnedWeaponSkills { get; } = new byte[64];
+        public byte[] LearnedJobAbilities { get; } = new byte[64];
+        public byte[] LearnedPetAbilities { get; } = new byte[64];
+        public byte[] LearnedTraits { get; } = new byte[32];
         #endregion
 
         #region Status Effects & Buffs
@@ -70,6 +80,9 @@ namespace Gordian.Core.World
         public event Action? StatsUpdated;
         public event Action? SkillsUpdated;
         public event Action? BuffsUpdated;
+        public event Action? MagicLearnedUpdated;
+        public event Action? CommandsUpdated;
+        public event Action? AbilityRecastsUpdated;
         #endregion
 
         public void UpdateFromJobInfo(in S2C_0x01B_JobInfo jobInfo)
@@ -261,6 +274,104 @@ namespace Gordian.Core.World
                     if (BuffIcons[i] == effectId) return true;
                 }
                 return false;
+            }
+        }
+
+        public void UpdateFromMagicData(in S2C_0x0AA_MagicData magicData)
+        {
+            if (!magicData.IsValid) return;
+
+            lock (_lock)
+            {
+                magicData.MagicDataTbl.CopyTo(LearnedSpells);
+            }
+
+            MagicLearnedUpdated?.Invoke();
+        }
+
+        public void UpdateFromCommandData(in S2C_0x0AC_CommandData commandData)
+        {
+            if (!commandData.IsValid) return;
+
+            lock (_lock)
+            {
+                commandData.WeaponSkills.CopyTo(LearnedWeaponSkills);
+                commandData.JobAbilities.CopyTo(LearnedJobAbilities);
+                commandData.PetAbilities.CopyTo(LearnedPetAbilities);
+                commandData.Traits.CopyTo(LearnedTraits);
+            }
+
+            CommandsUpdated?.Invoke();
+        }
+
+        public void UpdateFromAbilRecast(in S2C_0x119_AbilRecast abilRecast)
+        {
+            if (!abilRecast.IsValid) return;
+
+            lock (_lock)
+            {
+                Array.Clear(AbilityRecasts, 0, AbilityRecasts.Length);
+                for (int i = 0; i < 31; i++)
+                {
+                    var timer = abilRecast.GetTimer(i);
+                    if (timer.TimerId < AbilityRecasts.Length)
+                    {
+                        AbilityRecasts[timer.TimerId] = timer.TimerSeconds;
+                    }
+                }
+                MountRecastSeconds = abilRecast.MountRecast;
+            }
+
+            AbilityRecastsUpdated?.Invoke();
+        }
+
+        public bool HasSpell(ushort spellId)
+        {
+            lock (_lock)
+            {
+                int byteIdx = spellId >> 3;
+                int bitIdx = spellId & 7;
+                return byteIdx >= 0 && byteIdx < LearnedSpells.Length && (LearnedSpells[byteIdx] & (1 << bitIdx)) != 0;
+            }
+        }
+
+        public bool HasWeaponSkill(ushort wsId)
+        {
+            lock (_lock)
+            {
+                int byteIdx = wsId >> 3;
+                int bitIdx = wsId & 7;
+                return byteIdx >= 0 && byteIdx < LearnedWeaponSkills.Length && (LearnedWeaponSkills[byteIdx] & (1 << bitIdx)) != 0;
+            }
+        }
+
+        public bool HasJobAbility(ushort abilityId)
+        {
+            lock (_lock)
+            {
+                int byteIdx = abilityId >> 3;
+                int bitIdx = abilityId & 7;
+                return byteIdx >= 0 && byteIdx < LearnedJobAbilities.Length && (LearnedJobAbilities[byteIdx] & (1 << bitIdx)) != 0;
+            }
+        }
+
+        public bool HasPetAbility(ushort petAbilId)
+        {
+            lock (_lock)
+            {
+                int byteIdx = petAbilId >> 3;
+                int bitIdx = petAbilId & 7;
+                return byteIdx >= 0 && byteIdx < LearnedPetAbilities.Length && (LearnedPetAbilities[byteIdx] & (1 << bitIdx)) != 0;
+            }
+        }
+
+        public bool HasTrait(ushort traitId)
+        {
+            lock (_lock)
+            {
+                int byteIdx = traitId >> 3;
+                int bitIdx = traitId & 7;
+                return byteIdx >= 0 && byteIdx < LearnedTraits.Length && (LearnedTraits[byteIdx] & (1 << bitIdx)) != 0;
             }
         }
     }
