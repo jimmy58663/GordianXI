@@ -19,6 +19,9 @@ GordianXI is an independent, clean-room client architecture for Final Fantasy XI
 * **[Windower](https://github.com/Windower)** & **[Ashita](https://github.com/AshitaXI)**
   * Decades of pioneering work in client hook research, packet structures, UI overlays, and addon scripting ecosystems that established user interface and automation standards across the community.
 
+* **[xi-model-viewer](https://github.com/vekien/xi-model-viewer)** (Licensed under GPLv3)
+  * Extensive documentation and reverse-engineering of FFXI 3D formats, DAT chunk hierarchies, skeletal systems, and animation data.
+
 ---
 
 ## 🛠️ Frameworks, Libraries & Runtime Tools

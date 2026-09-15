@@ -70,3 +70,9 @@ GordianXI does **not** copy, redistribute, or link source code or binary librari
 * **License:** GNU General Public License v2.0 (GPLv2)
 * **Copyright:** Copyright (c) DarkStar Project Contributors
 * **Referenced For:** Historical packet analysis and foundational opcode mapping.
+
+### xi-model-viewer
+* **Repository:** [https://github.com/vekien/xi-model-viewer](https://github.com/vekien/xi-model-viewer)
+* **License:** GNU General Public License v3.0 (GPLv3)
+* **Copyright:** Copyright (c) vekien and xi-model-viewer Contributors
+* **Referenced For:** FFXI ROM `.DAT` chunk structures, 3D entity and zone mesh layouts, vertex encoding, skeletal hierarchies, bone weight layouts, and animation timelines for clean-room resource decoding.

@@ -78,11 +78,12 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 
 ---
 
+
 ## 🛡️ Workspace Access & Directory Permissions
 *   **Primary Development Workspace (`GordianXI`):**
     *   Full read and write permissions.
     *   Automated file creation, modifications, deletions, and standard build/test tasks (`dotnet build`, `dotnet test`) are permitted.
-*   **Reference Workspaces (`LSBserver`, `xiloader`):**
+*   **Reference Workspaces (`LSBserver`, `xiloader`, `xi-model-viewer`):**
     *   **Strict Read-Only Enforcement:** Permitted operations are limited to reading, searching, and schema inspection (`view_file`, `grep_search`, `find_by_name`, read-only `git` status/log).
     *   **NEVER** create, modify, or delete files, or run mutating commands in reference repositories.
 
@@ -94,15 +95,15 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
 5.  **NO Permanent game modifications:** Never overwrite game directory files without the ephemeral backup/restore pattern managed by `ProxyStager`.
-6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference repositories (`LSBserver`, `xiloader`).
-7.  **NO GPL Code Copying:** Never copy or translate verbatim C++ code from reference repositories (`LSBserver`, `xiloader`). GordianXI is an independent, clean-room C# implementation under the MIT license. Wire formats and functional packet schemas may be referenced for interoperability, but must be authored from scratch.
-8.  **NO Undocumented Protocol Additions:** Whenever adding packet definitions, opcode mappings, or crypto/compression routines derived from community research, always add an XML doc-comment citing the reference source.
+6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`).
+7.  **NO GPL Code Copying:** Never copy or translate verbatim C++, Rust, or JavaScript code from reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`). GordianXI is an independent, clean-room C# implementation under the MIT license. Wire formats and functional binary schemas (e.g., packet opcodes, DAT chunk formats) may be referenced for interoperability, but must be authored from scratch.
+8.  **NO Undocumented Protocol Additions:** Whenever adding packet definitions, opcode mappings, crypto/compression routines, or DAT chunk parsers derived from community research, always add an XML doc-comment citing the reference source.
 
 ---
 
 ## 📜 Licensing, Clean-Room & Protocol Attribution Standards
-* **Independent Clean-Room Implementation:** GordianXI is licensed under the **MIT License**. Reference projects (`LSBserver`, `xiloader`) are licensed under **GPLv3**.
-* **Protocol Interoperability Citation:** When implementing packet schemas, opcode mappings, cryptographic steps, or bootloader handoff structures based on community research:
-  * Always document the protocol reference in the class or method XML doc-comment (e.g., `/// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)`).
-  * Never copy or translate C++ source blocks verbatim; implement natively using modern C# (.NET 10) idioms (`Span<byte>`, `ref struct`, BCL cryptography).
+* **Independent Clean-Room Implementation:** GordianXI is licensed under the **MIT License**. Reference projects (`LSBserver`, `xiloader`, `xi-model-viewer`) are licensed under **GPLv3**.
+* **Protocol Interoperability Citation:** When implementing packet schemas, opcode mappings, cryptographic steps, bootloader handoff structures, or DAT chunk decoders based on community research:
+  * Always document the reference source in the class or method XML doc-comment (e.g., `/// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)` or `/// DAT chunk format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer)`).
+  * Never copy or translate source blocks verbatim; implement natively using modern C# (.NET 10) idioms (`Span<byte>`, `ref struct`, BCL cryptography).
 * **Dependency Notice Maintenance:** If introducing any new third-party NuGet package or external library, update `THIRD_PARTY_NOTICES.md` to preserve its copyright notice and license.
