@@ -299,8 +299,20 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        /// <summary>
+        /// Optional delegate to route UI thread dispatches (e.g. for synchronous execution in test suites).
+        /// Defaults to Avalonia's <see cref="Dispatcher.UIThread"/> when null.
+        /// </summary>
+        public static Action<Action>? UiDispatcher { get; set; }
+
         private static void DispatchToUi(Action action)
         {
+            if (UiDispatcher != null)
+            {
+                UiDispatcher(action);
+                return;
+            }
+
             if (Dispatcher.UIThread.CheckAccess())
             {
                 action();

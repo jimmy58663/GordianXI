@@ -1,5 +1,6 @@
 // src/Gordian.Core/Network/CharacterSession.cs
 using System;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
@@ -22,6 +23,11 @@ namespace Gordian.Core.Network
         /// Gets the current operational lifecycle state of this character session.
         /// </summary>
         public SessionState State => NetworkManager.CurrentState;
+
+        /// <summary>
+        /// Gets real-time datagram throughput, packet rates, and memory telemetry tracker for this session.
+        /// </summary>
+        public SessionPerformanceTracker Performance => NetworkManager.Performance;
 
         /// <summary>
         /// Gets the thread-safe active game world state.

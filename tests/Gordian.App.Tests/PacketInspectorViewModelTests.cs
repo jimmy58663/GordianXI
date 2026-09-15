@@ -13,12 +13,14 @@ namespace Gordian.App.Tests
 
         public PacketInspectorViewModelTests()
         {
+            PacketInspectorViewModel.UiDispatcher = a => a();
             _vm = new PacketInspectorViewModel();
         }
 
         public void Dispose()
         {
             _vm.Dispose();
+            PacketInspectorViewModel.UiDispatcher = null;
         }
 
         [Fact]

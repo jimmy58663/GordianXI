@@ -10,7 +10,23 @@
         Title="GordianXI - Client and Network Inspector" Width="1100" Height="700"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
-    <TabControl Margin="8" Background="#1E1E1E">
+    <Grid RowDefinitions="Auto, *">
+        <!-- Top Status & Debug Toolbar -->
+        <Grid Grid.Row="0" Margin="12,6,12,2" ColumnDefinitions="*, Auto">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="GORDIAN XI" FontWeight="Bold" FontSize="13" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                <TextBlock Text="|" Foreground="#555555" VerticalAlignment="Center"/>
+                <TextBlock Text="64-Bit FFXI Client Engine" FontSize="11" Foreground="#888888" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <CheckBox IsChecked="{Binding ShowStateInspector, Mode=TwoWay}"
+                          Content="Debug: State Inspector"
+                          FontSize="11" Foreground="#A0A0A0" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+
+        <TabControl Grid.Row="1" Margin="8,0,8,8" Background="#1E1E1E">
 
         <!-- TAB 1: Profiles & Multi-Box Launch -->
         <TabItem Header="Profiles and Launch" FontSize="14" FontWeight="SemiBold">
@@ -276,5 +292,259 @@
                 </Grid>
             </Grid>
         </TabItem>
+
+        <!-- TAB 3: Character & World State Inspector -->
+        <TabItem Header="State &amp; World Inspector" FontSize="14" FontWeight="SemiBold" IsVisible="{Binding ShowStateInspector}">
+            <Grid RowDefinitions="Auto, *" Margin="0,10,0,0">
+
+                <!-- TOP TELEMETRY & ACTIVE SESSION STRIP -->
+                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
+                    <Grid ColumnDefinitions="Auto, 180, *, Auto">
+                        <!-- Active Session Selector -->
+                        <TextBlock Grid.Column="0" Text="Session:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding StateInspector.ActiveSessions}"
+                                  SelectedItem="{Binding StateInspector.SelectedSession, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="net:CharacterSession">
+                                    <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <!-- Empty Separator Spacer -->
+                        <Border Grid.Column="2"/>
+
+                        <!-- Real-Time Metrics Badges -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <!-- Inbound Telemetry -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="IN:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.PacketsInRateText}" Foreground="#4EC9B0" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                    <TextBlock Text="{Binding StateInspector.BandwidthInText, StringFormat='({0})'}" Foreground="#A0A0A0" FontSize="10" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Outbound Telemetry -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="OUT:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.PacketsOutRateText}" Foreground="#CE9178" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                    <TextBlock Text="{Binding StateInspector.BandwidthOutText, StringFormat='({0})'}" Foreground="#A0A0A0" FontSize="10" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Heap Memory -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="HEAP:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.HeapMemoryText}" Foreground="#E5C07B" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- GC Collections -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="GC(0/1/2):" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.GcCollectionsText}" Foreground="#DCDCDC" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Drops / Sequence gaps -->
+                            <Border Background="#1E1E1E" CornerRadius="4" Padding="6,3">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="DROPS:" Foreground="#888888" FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding StateInspector.SequenceDropsText}" Foreground="#9CDCFE" FontSize="11" FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- SPLIT PLAYER VITALS & WORLD ENTITIES -->
+                <Grid Grid.Row="1" ColumnDefinitions="360, 8, *">
+
+                    <!-- LEFT COLUMN: Player Identity & Vitals Card -->
+                    <Border Grid.Column="0" Background="#252526" CornerRadius="6" Padding="14">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="12">
+                                <!-- Character Header Banner -->
+                                <Border Background="#1E1E1E" CornerRadius="4" Padding="10">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding StateInspector.CharacterName}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                            <TextBlock Text="{Binding StateInspector.CharacterIdDisplay}" FontSize="11" Foreground="#888888" FontFamily="Consolas, Courier New, monospace"/>
+                                            <TextBlock Text="{Binding StateInspector.ServerAddressDisplay, StringFormat='Server: {0}'}" FontSize="11" Foreground="#A0A0A0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Background="#2D2D30" CornerRadius="4" Padding="6,4" VerticalAlignment="Top">
+                                            <TextBlock Text="{Binding StateInspector.SessionStateDisplay}" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Job Badge -->
+                                <Border Background="#2D2D30" CornerRadius="4" Padding="8,6">
+                                    <Grid ColumnDefinitions="Auto, *">
+                                        <TextBlock Grid.Column="0" Text="JOB:" Foreground="#888888" FontSize="12" FontWeight="Bold" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StateInspector.JobDisplay}" Foreground="#9CDCFE" FontSize="13" FontWeight="Bold"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Vitals Gauges (HP, MP, TP) -->
+                                <Border Background="#1E1E1E" CornerRadius="4" Padding="10">
+                                    <StackPanel Spacing="10">
+                                        <!-- HP Bar -->
+                                        <StackPanel Spacing="3">
+                                            <Grid ColumnDefinitions="Auto, *">
+                                                <TextBlock Grid.Column="0" Text="HP" FontWeight="Bold" FontSize="12" Foreground="#E06C75"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding StateInspector.HpText}" HorizontalAlignment="Right" FontSize="11" Foreground="#DCDCDC" FontFamily="Consolas, Courier New, monospace"/>
+                                            </Grid>
+                                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding StateInspector.HpPercent}"
+                                                         Height="12" CornerRadius="3"
+                                                         Foreground="#E06C75" Background="#2D2D30"/>
+                                        </StackPanel>
+
+                                        <!-- MP Bar -->
+                                        <StackPanel Spacing="3">
+                                            <Grid ColumnDefinitions="Auto, *">
+                                                <TextBlock Grid.Column="0" Text="MP" FontWeight="Bold" FontSize="12" Foreground="#61AFEF"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding StateInspector.MpText}" HorizontalAlignment="Right" FontSize="11" Foreground="#DCDCDC" FontFamily="Consolas, Courier New, monospace"/>
+                                            </Grid>
+                                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding StateInspector.MpPercent}"
+                                                         Height="12" CornerRadius="3"
+                                                         Foreground="#61AFEF" Background="#2D2D30"/>
+                                        </StackPanel>
+
+                                        <!-- TP Bar -->
+                                        <StackPanel Spacing="3">
+                                            <Grid ColumnDefinitions="Auto, *">
+                                                <TextBlock Grid.Column="0" Text="TP" FontWeight="Bold" FontSize="12" Foreground="#E5C07B"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding StateInspector.TpText}" HorizontalAlignment="Right" FontSize="11" Foreground="#DCDCDC" FontFamily="Consolas, Courier New, monospace"/>
+                                            </Grid>
+                                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding StateInspector.TpPercent}"
+                                                         Height="12" CornerRadius="3"
+                                                         Foreground="#E5C07B" Background="#2D2D30"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Spatial Position Coordinates -->
+                                <Border Background="#1E1E1E" CornerRadius="4" Padding="10">
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="World Position &amp; Heading" FontWeight="Bold" FontSize="12" Foreground="#A0A0A0"/>
+                                        <TextBlock Text="{Binding StateInspector.CoordinatesDisplay}"
+                                                   FontFamily="Consolas, Courier New, monospace" FontSize="12" Foreground="#9CDCFE"/>
+                                        <TextBlock Text="{Binding StateInspector.HeadingDisplay}"
+                                                   FontFamily="Consolas, Courier New, monospace" FontSize="11" Foreground="#888888"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Combat & Base Attributes Table -->
+                                <Border Background="#1E1E1E" CornerRadius="4" Padding="10">
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="Attributes &amp; Combat Vitals" FontWeight="Bold" FontSize="12" Foreground="#A0A0A0"/>
+                                        <Grid ColumnDefinitions="*, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto" Margin="0,4,0,0">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding StateInspector.StatStr, StringFormat='STR: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StateInspector.StatDex, StringFormat='DEX: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding StateInspector.StatVit, StringFormat='VIT: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding StateInspector.StatAgi, StringFormat='AGI: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding StateInspector.StatInt, StringFormat='INT: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding StateInspector.StatMnd, StringFormat='MND: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding StateInspector.StatChr, StringFormat='CHR: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#DCDCDC" Margin="0,2"/>
+                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StateInspector.AttackDisplay, StringFormat='ATK: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#E06C75" Margin="0,2"/>
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding StateInspector.DefenseDisplay, StringFormat='DEF: {0}'}" FontSize="11" FontFamily="Consolas" Foreground="#61AFEF" Margin="0,2"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- Splitter Bar -->
+                    <GridSplitter Grid.Column="1" Background="#1E1E1E" ResizeDirection="Columns"/>
+
+                    <!-- RIGHT COLUMN: Tracked World Entities Explorer -->
+                    <Border Grid.Column="2" Background="#252526" CornerRadius="6" Padding="12">
+                        <Grid RowDefinitions="Auto, Auto, *">
+                            <!-- Entities Toolbar -->
+                            <Grid Grid.Row="0" ColumnDefinitions="Auto, 120, *, Auto" Margin="0,0,0,8">
+                                <TextBlock Grid.Column="0" Text="Type:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding StateInspector.EntityTypeOptions}"
+                                          SelectedItem="{Binding StateInspector.EntityTypeFilter, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch"/>
+
+                                <TextBox Grid.Column="2"
+                                         Text="{Binding StateInspector.EntitySearchFilter, Mode=TwoWay}"
+                                         PlaceholderText="Search Name / Actor Index (e.g. 0x015, Hare)..."
+                                         Margin="10,0,10,0"/>
+
+                                <TextBlock Grid.Column="3"
+                                           Text="{Binding StateInspector.TotalEntityCount, StringFormat='Entities: {0}'}"
+                                           Foreground="#9CDCFE" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="12"/>
+                            </Grid>
+
+                            <!-- Table Header -->
+                            <Grid Grid.Row="1" ColumnDefinitions="55, 65, 95, 1.4*, 65, 140, 50" Margin="4,6,4,6">
+                                <TextBlock Grid.Column="0" Text="TYPE" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="1" Text="INDEX" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="2" Text="SERVER ID" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="3" Text="NAME" Foreground="#808080" FontWeight="Bold" FontSize="11"/>
+                                <TextBlock Grid.Column="4" Text="DIST" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="COORDINATES" Foreground="#808080" FontWeight="Bold" FontSize="11" Margin="10,0,0,0"/>
+                                <TextBlock Grid.Column="6" Text="HPP" Foreground="#808080" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right"/>
+                            </Grid>
+
+                            <!-- Entity Rows ListBox -->
+                            <ListBox Grid.Row="2"
+                                     ItemsSource="{Binding StateInspector.FilteredEntities}"
+                                     Background="#1E1E1E" CornerRadius="4">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EntityItemViewModel">
+                                        <Grid ColumnDefinitions="55, 65, 95, 1.4*, 65, 140, 50" Margin="0,2">
+                                            <!-- Type Badge -->
+                                            <Border Grid.Column="0" Background="#2D2D30" CornerRadius="3" Padding="4,1" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold" Foreground="{Binding TypeColor}"/>
+                                            </Border>
+
+                                            <!-- Target Index -->
+                                            <TextBlock Grid.Column="1" Text="{Binding TargetIndexHex}"
+                                                       FontSize="11" Foreground="#A0A0A0" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                            <!-- Server ID -->
+                                            <TextBlock Grid.Column="2" Text="{Binding ServerIdHex}"
+                                                       FontSize="11" Foreground="#888888" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                            <!-- Name -->
+                                            <TextBlock Grid.Column="3" Text="{Binding Name}"
+                                                       FontSize="11" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+
+                                            <!-- Distance -->
+                                            <TextBlock Grid.Column="4" Text="{Binding DistanceDisplay}"
+                                                       FontSize="11" Foreground="#4EC9B0" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+
+                                            <!-- Coordinates -->
+                                            <TextBlock Grid.Column="5" Text="{Binding PositionDisplay}"
+                                                       FontSize="11" Foreground="#A0A0A0" FontFamily="Consolas, Courier New, monospace" Margin="10,0,0,0" VerticalAlignment="Center"/>
+
+                                            <!-- HPP -->
+                                            <TextBlock Grid.Column="6" Text="{Binding HppDisplay}"
+                                                       FontSize="11" Foreground="#E5C07B" HorizontalAlignment="Right" FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </TabItem>
     </TabControl>
+    </Grid>
 </Window>

@@ -40,6 +40,23 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public PacketInspectorViewModel Inspector { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the character vitals, world state, and telemetry inspector tab.
+        /// </summary>
+        public StateInspectorViewModel StateInspector { get; } = new();
+
+        private bool _showStateInspector = true;
+
+        /// <summary>
+        /// Gets or sets whether the diagnostic State Inspector tab is visible in the UI.
+        /// Can be toggled or disabled for non-debug runtime builds.
+        /// </summary>
+        public bool ShowStateInspector
+        {
+            get => _showStateInspector;
+            set => SetProperty(ref _showStateInspector, value);
+        }
+
         public bool IsEditing => !string.IsNullOrEmpty(_editingOriginalProfileName);
 
         public string FormTitle => IsEditing ? $"Edit Profile: {_editingOriginalProfileName}" : "New Profile Properties";
@@ -596,6 +613,7 @@ namespace Gordian.App.ViewModels
             _sessionRegistry.SessionRegistered -= OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered -= OnSessionRegistryChanged;
             Inspector.Dispose();
+            StateInspector.Dispose();
         }
     }
 }

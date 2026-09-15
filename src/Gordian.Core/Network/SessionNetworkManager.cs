@@ -44,6 +44,13 @@ namespace Gordian.Core.Network
         private ushort _serverPacketIdSequence = 0;
         private ushort _clientPacketIdSequence = 0;
 
+        private readonly SessionPerformanceTracker _performance = new SessionPerformanceTracker();
+
+        /// <summary>
+        /// Gets the real-time datagram throughput, packet rates, and memory telemetry tracker for this session.
+        /// </summary>
+        public SessionPerformanceTracker Performance => _performance;
+
         /// <summary>
         /// Gets the isolated, instance-level configuration matrix for this specific character session.
         /// </summary>
@@ -177,7 +184,18 @@ namespace Gordian.Core.Network
             {
                 LogOutboundOnRoute = false
             };
-            _parser.PacketInspected += (s, e) => PacketInspected?.Invoke(this, e);
+            _parser.PacketInspected += (s, e) =>
+            {
+                if (e.Direction == PacketDirection.Inbound)
+                {
+                    _performance.RecordInboundPacket();
+                }
+                else
+                {
+                    _performance.RecordOutboundPacket();
+                }
+                PacketInspected?.Invoke(this, e);
+            };
             _parser.HandshakeCompleted += () => CurrentState = SessionState.ActiveInWorld;
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
             {
@@ -288,6 +306,7 @@ namespace Gordian.Core.Network
                             try
                             {
                                 await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, _cts.Token).ConfigureAwait(false);
+                                _performance.RecordOutboundDatagram(loginDatagram.Length);
                             }
                             catch (Exception ex)
                             {
@@ -409,6 +428,7 @@ namespace Gordian.Core.Network
                 // 6. Send datagram over UDP wire
                 ReadOnlyMemory<byte> datagramMemory = scratchBuffer.WritableMemory.Slice(0, datagramLength);
                 await socket.SendToAsync(datagramMemory, SocketFlags.None, remoteEndpoint, token).ConfigureAwait(false);
+                _performance.RecordOutboundDatagram(datagramLength);
                 GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={_serverPacketIdSequence}, {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
@@ -488,13 +508,19 @@ namespace Gordian.Core.Network
                         }
 
                         GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+                        _performance.RecordInboundDatagram(result.ReceivedBytes);
 
                         Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
 
                         // Track server packet ID sequence from incoming datagram header
                         if (activeChunk.Length >= 2)
                         {
-                            _serverPacketIdSequence = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+                            ushort newSeq = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+                            if (_serverPacketIdSequence > 0 && (ushort)(newSeq - _serverPacketIdSequence) > 1)
+                            {
+                                _performance.RecordSequenceDiscrepancy();
+                            }
+                            _serverPacketIdSequence = newSeq;
                         }
 
                         bool parsed = _parser.ProcessIncomingChunk(activeChunk);
