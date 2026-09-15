@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 272 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 283 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 3: Complete LSB Packet Engine & Zone Transitions
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 

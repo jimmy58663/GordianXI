@@ -436,10 +436,10 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void S2C_0x113_Currencies1_DecodesSparksAndAccolades()
         {
-            byte[] payload = new byte[150];
+            byte[] payload = new byte[248];
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(0, 4), 15000);  // Sandy CP
-            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(73, 4), 99999); // Sparks
-            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(128, 4), 45000); // Unity Accolades
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(112, 4), 99999); // Sparks
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(224, 4), 45000); // Unity Accolades
 
             var p = new S2C_0x113_Currencies1(payload);
 
@@ -452,10 +452,10 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void S2C_0x118_Currencies2_DecodesBayldAndSilt()
         {
-            byte[] payload = new byte[140];
+            byte[] payload = new byte[156];
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(0, 4), 50000); // Bayld
-            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(62, 4), 250000); // Silt
-            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(122, 4), 12000); // Gallimaufry
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(72, 4), 250000); // Silt
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(140, 4), 12000); // Gallimaufry
 
             var p = new S2C_0x118_Currencies2(payload);
 

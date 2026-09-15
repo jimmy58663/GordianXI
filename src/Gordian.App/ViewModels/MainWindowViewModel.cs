@@ -50,6 +50,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public ChatViewModel Chat { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the inventory, container items, equipment, and currencies tab.
+        /// </summary>
+        public InventoryViewModel Inventory { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -620,6 +625,7 @@ namespace Gordian.App.ViewModels
             Inspector.Dispose();
             StateInspector.Dispose();
             Chat.Dispose();
+            Inventory.Dispose();
         }
     }
 }

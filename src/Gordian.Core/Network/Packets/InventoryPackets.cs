@@ -390,7 +390,8 @@ namespace Gordian.Core.Network.Packets
             Container = (ContainerId)payload[10];
             Slot = payload[11];
             LockFlag = (ItemLockFlag)payload[12];
-            ExtData = payload.Slice(13, 23);
+            int extLen = Math.Min(24, Math.Max(0, payload.Length - 13));
+            ExtData = payload.Slice(13, extLen);
             IsValid = true;
         }
     }
@@ -1232,7 +1233,7 @@ namespace Gordian.Core.Network.Packets
 
         public S2C_0x113_Currencies1(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 140)
+            if (payload.Length < 28)
             {
                 ConquestSandoria = 0;
                 ConquestBastok = 0;
@@ -1256,24 +1257,24 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
-            ConquestSandoria = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0, 4));
-            ConquestBastok = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(4, 4));
-            ConquestWindurst = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(8, 4));
-            BeastmansSeals = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
-            KindredsSeals = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
-            KindredsCrests = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
-            HighKindredsCrests = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(18, 2));
-            SacredKindredsCrests = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(20, 2));
-            AncientBeastcoins = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(22, 2));
-            ValorPoints = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(24, 2));
-            Scylds = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(26, 2));
-            SparksOfEminence = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(73, 4));
-            ImperialStanding = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(81, 4));
-            AlliedNotes = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(105, 4));
-            LoginPoints = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(111, 2));
-            Cruor = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(113, 4));
-            UnityAccolades = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(128, 4));
-            Deeds = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(148, 2));
+            ConquestSandoria = payload.Length >= 4 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0, 4)) : 0;
+            ConquestBastok = payload.Length >= 8 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(4, 4)) : 0;
+            ConquestWindurst = payload.Length >= 12 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(8, 4)) : 0;
+            BeastmansSeals = payload.Length >= 14 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2)) : (ushort)0;
+            KindredsSeals = payload.Length >= 16 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2)) : (ushort)0;
+            KindredsCrests = payload.Length >= 18 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2)) : (ushort)0;
+            HighKindredsCrests = payload.Length >= 20 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(18, 2)) : (ushort)0;
+            SacredKindredsCrests = payload.Length >= 22 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(20, 2)) : (ushort)0;
+            AncientBeastcoins = payload.Length >= 24 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(22, 2)) : (ushort)0;
+            ValorPoints = payload.Length >= 26 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(24, 2)) : (ushort)0;
+            Scylds = payload.Length >= 28 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(26, 2)) : (ushort)0;
+            SparksOfEminence = payload.Length >= 116 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(112, 4)) : 0;
+            ImperialStanding = payload.Length >= 124 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(120, 4)) : 0;
+            AlliedNotes = payload.Length >= 164 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(160, 4)) : 0;
+            LoginPoints = payload.Length >= 168 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(166, 2)) : (ushort)0;
+            Cruor = payload.Length >= 172 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(168, 4)) : 0;
+            UnityAccolades = payload.Length >= 228 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(224, 4)) : 0;
+            Deeds = payload.Length >= 246 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(244, 2)) : (ushort)0;
             IsValid = true;
         }
     }
@@ -1367,7 +1368,7 @@ namespace Gordian.Core.Network.Packets
 
         public S2C_0x118_Currencies2(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 136)
+            if (payload.Length < 20)
             {
                 Bayld = 0;
                 KineticUnits = 0;
@@ -1387,20 +1388,20 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
-            Bayld = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0, 4));
-            KineticUnits = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
-            CoalitionImprimaturs = payload[6];
-            ObsidianFragments = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(8, 4));
-            MweyaPlasm = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
-            EschaBeads = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(60, 2));
-            EschaSilt = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(62, 4));
-            Potpourri = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(66, 4));
-            Hallmarks = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(70, 4));
-            TotalHallmarks = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(74, 4));
-            BadgesOfGallantry = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(78, 4));
-            DomainPoints = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(110, 4));
-            MogSegments = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(118, 4));
-            Gallimaufry = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(122, 4));
+            Bayld = payload.Length >= 4 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0, 4)) : 0;
+            KineticUnits = payload.Length >= 6 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2)) : (ushort)0;
+            CoalitionImprimaturs = payload.Length >= 7 ? payload[6] : (byte)0;
+            ObsidianFragments = payload.Length >= 12 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(8, 4)) : 0;
+            MweyaPlasm = payload.Length >= 20 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4)) : 0;
+            EschaBeads = payload.Length >= 72 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(70, 2)) : (ushort)0;
+            EschaSilt = payload.Length >= 76 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(72, 4)) : 0;
+            Potpourri = payload.Length >= 80 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(76, 4)) : 0;
+            Hallmarks = payload.Length >= 84 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(80, 4)) : 0;
+            TotalHallmarks = payload.Length >= 88 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(84, 4)) : 0;
+            BadgesOfGallantry = payload.Length >= 92 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(88, 4)) : 0;
+            DomainPoints = payload.Length >= 132 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(128, 4)) : 0;
+            MogSegments = payload.Length >= 140 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(136, 4)) : 0;
+            Gallimaufry = payload.Length >= 144 ? BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(140, 4)) : 0;
             IsValid = true;
         }
     }
