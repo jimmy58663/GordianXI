@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 299 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 313 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -76,12 +76,12 @@
   - [x] Indexing by Server ID (`uint32`) and Zone Target Index (`uint16`)
   - [x] Fast 3D spatial partitioning (Uniform Grid / BVH) for distance, cone, and line-of-sight queries
   - [x] Dead-reckoning & position interpolation between 250ms network ticks
-- [ ] **Game State Caches:**
+- [x] **Game State Caches:**
   - [x] Multi-container inventory cache (Inventory, Wardrobes 1-8, Satchel, Sack, Case, Safe, Storage)
   - [x] Active player vitals (HP/MP/TP), base attributes, equipment loadout, buff/debuff timers
-- [ ] **FFXI DAT Binary Decoders (`Gordian.Core/Resources`):**
-  - [ ] Clean-room decoders for ROM directory DAT files (string tables, item tables, spell/ability tables)
-  - [ ] Zone collision meshes, terrain geometry, entity models, and animation tables
+- [x] **FFXI DAT Binary Decoders (`Gordian.Core/Resources`):**
+  - [x] Clean-room decoders for ROM directory DAT files (string tables, item tables, spell/ability tables)
+  - [x] Zone collision meshes, terrain geometry, entity models, and animation tables
 - [ ] **Modular Virtual File System (VFS) & Asset Overrides (XIPivot Architecture):**
   - [ ] Priority-based asset resolution (`resources/mods/` overrides $\rightarrow$ base FFXI `.DAT` files)
   - [ ] Modern asset format support: **glTF 2.0 / FBX** models, **PNG / DDS (BC7)** high-res textures with normal/PBR maps, **OGG / FLAC** audio
