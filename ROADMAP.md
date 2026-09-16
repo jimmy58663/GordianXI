@@ -2,8 +2,8 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 320 Passing Unit Tests (`dotnet test`)
-- **Active Focus:** Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
+- **Test Status:** 332 Passing Unit Tests (`dotnet test`)
+- **Active Focus:** Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -70,7 +70,7 @@
 
 ---
 
-### ⏳ Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
+### ✅ Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
 - [x] **Thread-Safe Spatial Entity Store (`Gordian.Core/World`):**
   - [x] Tracking for LocalPlayer, other PCs, NPCs, Monsters, Pets, and Trusts
   - [x] Indexing by Server ID (`uint32`) and Zone Target Index (`uint16`)
@@ -89,9 +89,9 @@
   - [x] Master `vfs.json` load order, priority stacking, and pack auto-discovery
   - [x] Safe debounced runtime hot-reloading with master toggle
   - [x] Modder documentation and reference manifests distributed in `resources/`
-- [ ] **State & Memory Health Telemetry:**
-  - [ ] Managed heap & GC pressure counters (.NET 10 Gen 0/1/2 collection tracking, heap allocation velocity)
-  - [ ] Spatial partition & uniform grid query duration tracking with entity dead-reckoning cycle time benchmarking
+- [x] **State & Memory Health Telemetry:**
+  - [x] Managed heap & GC pressure counters (.NET 10 Gen 0/1/2 collection tracking, heap allocation velocity)
+  - [x] Spatial partition & uniform grid query duration tracking with entity dead-reckoning cycle time benchmarking
 
 ---
 

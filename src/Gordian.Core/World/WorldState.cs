@@ -1,7 +1,8 @@
-// src/Gordian.Core/World/WorldState.cs
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.World
 {
@@ -14,9 +15,20 @@ namespace Gordian.Core.World
         private readonly object _syncRoot = new object();
         private readonly Dictionary<uint, WorldEntity> _byServerId = new Dictionary<uint, WorldEntity>();
         private readonly Dictionary<ushort, WorldEntity> _byTargetIndex = new Dictionary<ushort, WorldEntity>();
-        private readonly SpatialPartitionGrid _grid = new SpatialPartitionGrid();
+        private readonly WorldPerformanceTracker _performance = new WorldPerformanceTracker();
+        private readonly SpatialPartitionGrid _grid;
+
+        /// <summary>
+        /// Gets the real-time spatial query and dead-reckoning cycle performance telemetry tracker.
+        /// </summary>
+        public WorldPerformanceTracker Performance => _performance;
 
         public SpatialPartitionGrid Grid => _grid;
+
+        public WorldState()
+        {
+            _grid = new SpatialPartitionGrid(performance: _performance.Spatial);
+        }
         public int Count
         {
             get
@@ -226,6 +238,161 @@ namespace Gordian.Core.World
             float dz = MathF.Sin(heading) * distance;
 
             return new Vector3(entity.Position.X + dx, entity.Position.Y, entity.Position.Z + dz);
+        }
+
+        /// <summary>
+        /// Executes a dead-reckoning extrapolation cycle across all active entities in the world,
+        /// updating their positions according to their velocity, heading, and the elapsed time interval.
+        /// Records cycle duration telemetry to the Performance tracker.
+        /// </summary>
+        /// <param name="elapsed">The elapsed simulation time since the last update tick.</param>
+        /// <param name="updateSpatialGrid">Whether to update spatial hash grid cell positions for moved entities.</param>
+        /// <returns>The number of active entities evaluated during the cycle.</returns>
+        public int ExtrapolateAll(TimeSpan elapsed, bool updateSpatialGrid = false)
+        {
+            long startTicks = Stopwatch.GetTimestamp();
+            int evaluatedCount = 0;
+            try
+            {
+                WorldEntity[] entities = GetAllEntities();
+                evaluatedCount = entities.Length;
+
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    var entity = entities[i];
+                    if (entity.Speed > 0 && elapsed > TimeSpan.Zero)
+                    {
+                        var newPos = ProjectPosition(entity, elapsed);
+                        entity.Position = newPos;
+
+                        if (updateSpatialGrid)
+                        {
+                            _grid.InsertOrUpdate(entity);
+                        }
+                    }
+                }
+
+                return evaluatedCount;
+            }
+            finally
+            {
+                long elapsedTicks = Stopwatch.GetTimestamp() - startTicks;
+                _performance.DeadReckoning.RecordCycle(evaluatedCount, elapsedTicks);
+            }
+        }
+
+        /// <summary>
+        /// Benchmarks dead-reckoning cycle performance across a specified number of simulation iterations.
+        /// </summary>
+        public DeadReckoningBenchmarkResult BenchmarkDeadReckoning(int iterations, TimeSpan elapsed, bool updateSpatialGrid = false)
+        {
+            if (iterations <= 0) throw new ArgumentOutOfRangeException(nameof(iterations), "Iterations must be positive.");
+
+            WorldEntity[] entities = GetAllEntities();
+            int entityCount = entities.Length;
+            double[] cycleMicroseconds = new double[iterations];
+
+            long totalStartTicks = Stopwatch.GetTimestamp();
+
+            for (int i = 0; i < iterations; i++)
+            {
+                long cycleStartTicks = Stopwatch.GetTimestamp();
+
+                for (int j = 0; j < entities.Length; j++)
+                {
+                    var entity = entities[j];
+                    if (entity.Speed > 0 && elapsed > TimeSpan.Zero)
+                    {
+                        var newPos = ProjectPosition(entity, elapsed);
+                        entity.Position = newPos;
+
+                        if (updateSpatialGrid)
+                        {
+                            _grid.InsertOrUpdate(entity);
+                            // Execute localized radius query to benchmark spatial lookup pipeline
+                            _grid.GetEntitiesInRadius(newPos, 15.0f);
+                        }
+                    }
+                }
+
+                long cycleElapsedTicks = Stopwatch.GetTimestamp() - cycleStartTicks;
+                double cycleUs = (double)cycleElapsedTicks * 1_000_000.0 / Stopwatch.Frequency;
+                cycleMicroseconds[i] = cycleUs;
+                _performance.DeadReckoning.RecordCycle(entityCount, cycleElapsedTicks);
+            }
+
+            long totalElapsedTicks = Stopwatch.GetTimestamp() - totalStartTicks;
+            double totalElapsedMs = (double)totalElapsedTicks * 1000.0 / Stopwatch.Frequency;
+
+            Array.Sort(cycleMicroseconds);
+            double minUs = cycleMicroseconds[0];
+            double maxUs = cycleMicroseconds[^1];
+
+            double sumUs = 0;
+            for (int i = 0; i < cycleMicroseconds.Length; i++) sumUs += cycleMicroseconds[i];
+            double avgUs = sumUs / iterations;
+
+            int p95Idx = Math.Min(iterations - 1, (int)Math.Floor(iterations * 0.95));
+            int p99Idx = Math.Min(iterations - 1, (int)Math.Floor(iterations * 0.99));
+            double p95Us = cycleMicroseconds[p95Idx];
+            double p99Us = cycleMicroseconds[p99Idx];
+
+            double totalSeconds = totalElapsedMs / 1000.0;
+            double throughput = totalSeconds > 0 ? (entityCount * (double)iterations) / totalSeconds : 0;
+
+            return new DeadReckoningBenchmarkResult(
+                Iterations: iterations,
+                EntityCount: entityCount,
+                TotalElapsedMilliseconds: totalElapsedMs,
+                MinCycleMicroseconds: minUs,
+                MaxCycleMicroseconds: maxUs,
+                AvgCycleMicroseconds: avgUs,
+                P95CycleMicroseconds: p95Us,
+                P99CycleMicroseconds: p99Us,
+                ThroughputEntitiesPerSecond: throughput
+            );
+        }
+
+        /// <summary>
+        /// Populates this world state with synthetic entities for simulation testing and benchmarks.
+        /// </summary>
+        public void PopulateSyntheticEntities(int entityCount)
+        {
+            var rand = new Random(42);
+
+            for (uint i = 1; i <= (uint)entityCount; i++)
+            {
+                var type = (i % 3) switch
+                {
+                    0 => EntityType.Player,
+                    1 => EntityType.Monster,
+                    _ => EntityType.Npc
+                };
+
+                var entity = new WorldEntity(i, (ushort)i, type)
+                {
+                    Name = $"Synthetic_{i}",
+                    Position = new Vector3(
+                        (float)(rand.NextDouble() * 500.0 - 250.0),
+                        0f,
+                        (float)(rand.NextDouble() * 500.0 - 250.0)
+                    ),
+                    Direction = (byte)rand.Next(0, 256),
+                    Speed = (byte)(i % 5 == 0 ? 0 : 50) // 80% moving at speed 50
+                };
+                UpsertEntity(entity);
+            }
+        }
+
+        /// <summary>
+        /// Executes a synthetic load benchmark by populating the world with the specified number of entities
+        /// and running multiple dead-reckoning cycle iterations.
+        /// </summary>
+        public static DeadReckoningBenchmarkResult BenchmarkSyntheticEntities(int entityCount, int iterations, TimeSpan elapsed)
+        {
+            var testWorld = new WorldState();
+            testWorld.PopulateSyntheticEntities(entityCount);
+            return testWorld.BenchmarkDeadReckoning(iterations, elapsed, updateSpatialGrid: true);
         }
     }
 }

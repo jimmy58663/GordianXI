@@ -119,5 +119,22 @@ namespace Gordian.Core.Tests.Diagnostics
             Assert.True(snapshot.KilobytesReceived30SecAverage > 0);
             Assert.True(snapshot.KilobytesSent30SecAverage > 0);
         }
+
+        [Fact]
+        public void MemoryHealthTelemetry_ReportsHeapAndGcMetrics()
+        {
+            var tracker = new SessionPerformanceTracker();
+            var snapshot = tracker.GetSnapshot();
+
+            Assert.NotNull(tracker.MemoryHealth);
+            Assert.True(snapshot.ManagedHeapSizeBytes > 0);
+            Assert.True(snapshot.ManagedHeapMegaBytes > 0);
+            Assert.True(snapshot.Gen0Collections >= 0);
+            Assert.True(snapshot.Gen1Collections >= 0);
+            Assert.True(snapshot.Gen2Collections >= 0);
+            Assert.True(snapshot.AllocationVelocityBytesPerSecond >= 0);
+            Assert.True(snapshot.AllocationVelocityMegaBytesPerSecond >= 0);
+            Assert.True(snapshot.MemoryLoadPercentage >= 0);
+        }
     }
 }

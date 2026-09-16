@@ -29,7 +29,14 @@ namespace Gordian.Core.Diagnostics
         double PacketsReceived30SecAverage = 0,
         double PacketsSent30SecAverage = 0,
         double BytesReceived30SecAverage = 0,
-        double BytesSent30SecAverage = 0
+        double BytesSent30SecAverage = 0,
+        double AllocationVelocityBytesPerSecond = 0,
+        double Gen0CollectionsPerSecond = 0,
+        double Gen1CollectionsPerSecond = 0,
+        double Gen2CollectionsPerSecond = 0,
+        double MemoryLoadPercentage = 0,
+        double PauseDurationPercentage = 0,
+        long FragmentedBytes = 0
     )
     {
         /// <summary>
@@ -56,6 +63,11 @@ namespace Gordian.Core.Diagnostics
         /// Gets 30-second average outbound throughput in Kilobytes per second.
         /// </summary>
         public double KilobytesSent30SecAverage => BytesSent30SecAverage / 1024.0;
+
+        /// <summary>
+        /// Gets heap allocation velocity formatted in Megabytes per second.
+        /// </summary>
+        public double AllocationVelocityMegaBytesPerSecond => AllocationVelocityBytesPerSecond / (1024.0 * 1024.0);
     }
 
     /// <summary>
@@ -119,6 +131,12 @@ namespace Gordian.Core.Diagnostics
         private double _bytesOut30SecAvg;
 
         private readonly object _rateLock = new object();
+        private readonly MemoryHealthTracker _memoryHealth = new MemoryHealthTracker();
+
+        /// <summary>
+        /// Gets the managed heap and GC pressure telemetry tracker.
+        /// </summary>
+        public MemoryHealthTracker MemoryHealth => _memoryHealth;
 
         public SessionPerformanceTracker()
         {
@@ -300,6 +318,8 @@ namespace Gordian.Core.Diagnostics
                 }
             }
 
+            var memSnapshot = _memoryHealth.GetSnapshot();
+
             return new SessionPerformanceSnapshot(
                 PacketsReceivedTotal: totalIn,
                 PacketsSentTotal: totalOut,
@@ -311,17 +331,24 @@ namespace Gordian.Core.Diagnostics
                 BytesSentPerSecond: _bytesOutRate,
                 SequenceDiscrepancies: seqDiscrepancies,
                 DuplicateDatagramsDropped: dupDropped,
-                ManagedHeapSizeBytes: GC.GetTotalMemory(false),
-                Gen0Collections: GC.CollectionCount(0),
-                Gen1Collections: GC.CollectionCount(1),
-                Gen2Collections: GC.CollectionCount(2),
+                ManagedHeapSizeBytes: memSnapshot.ManagedHeapSizeBytes,
+                Gen0Collections: memSnapshot.Gen0Collections,
+                Gen1Collections: memSnapshot.Gen1Collections,
+                Gen2Collections: memSnapshot.Gen2Collections,
                 TimestampUtc: DateTime.UtcNow,
                 LastDispatchLatencyMicroseconds: lastMicroseconds,
                 AverageDispatchLatencyMicroseconds: avgMicroseconds,
                 PacketsReceived30SecAverage: _packetsIn30SecAvg,
                 PacketsSent30SecAverage: _packetsOut30SecAvg,
                 BytesReceived30SecAverage: _bytesIn30SecAvg,
-                BytesSent30SecAverage: _bytesOut30SecAvg
+                BytesSent30SecAverage: _bytesOut30SecAvg,
+                AllocationVelocityBytesPerSecond: memSnapshot.AllocationVelocityBytesPerSecond,
+                Gen0CollectionsPerSecond: memSnapshot.Gen0CollectionsPerSecond,
+                Gen1CollectionsPerSecond: memSnapshot.Gen1CollectionsPerSecond,
+                Gen2CollectionsPerSecond: memSnapshot.Gen2CollectionsPerSecond,
+                MemoryLoadPercentage: memSnapshot.MemoryLoadPercentage,
+                PauseDurationPercentage: memSnapshot.PauseDurationPercentage,
+                FragmentedBytes: memSnapshot.FragmentedBytes
             );
         }
     }

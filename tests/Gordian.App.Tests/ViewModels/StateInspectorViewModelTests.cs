@@ -181,5 +181,32 @@ namespace Gordian.App.Tests.ViewModels
             _vm.AdjustColumnWidth("Hpp", -100.0);
             Assert.Equal(40, _vm.ColWidthHpp.Value); // clamped to min
         }
+
+        [Fact]
+        public void ExtendedTelemetry_DefaultProperties_Populated()
+        {
+            Assert.Equal("+0.0 MB/s", _vm.AllocationVelocityText);
+            Assert.Equal("0.0% pause", _vm.GcPressureText);
+            Assert.Equal("-- µs", _vm.SpatialQueryText);
+            Assert.Equal("-- µs", _vm.DeadReckoningText);
+            Assert.False(_vm.IsBenchmarking);
+            Assert.NotNull(_vm.RunDeadReckoningBenchmarkCommand);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task RunDeadReckoningBenchmarkCommand_ExecutesAndProducesOutput()
+        {
+            // Without session or with session, benchmark should run on synthetic entities or world
+            Assert.True(_vm.RunDeadReckoningBenchmarkCommand.CanExecute(null));
+
+            _vm.RunDeadReckoningBenchmarkCommand.Execute(null);
+
+            // Give async task brief moment to execute 50 iterations
+            await System.Threading.Tasks.Task.Delay(100);
+
+            Assert.False(_vm.IsBenchmarking);
+            Assert.Contains("iter", _vm.BenchmarkResultText);
+            Assert.Contains("ents/s", _vm.BenchmarkResultText);
+        }
     }
 }

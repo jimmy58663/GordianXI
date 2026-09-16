@@ -83,6 +83,12 @@ dotnet build
 
 ---
 
+## 📊 Performance & Telemetry Reference
+
+GordianXI is engineered with a zero-allocation packet and simulation pipeline. For detailed metrics definitions, operational thresholds (Good 🟢, Warning 🟡, Bad 🔴), and troubleshooting runbooks, see **[docs/PERFORMANCE_TELEMETRY.md](docs/PERFORMANCE_TELEMETRY.md)**.
+
+---
+
 ## 🤝 Contributing
 
 Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments.

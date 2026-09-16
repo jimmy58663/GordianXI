@@ -1,7 +1,8 @@
-// src/Gordian.Core/World/SpatialPartitionGrid.cs
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.World
 {
@@ -24,11 +25,17 @@ namespace Gordian.Core.World
         private readonly Dictionary<uint, (int X, int Y, int Z)> _entityCellMap =
             new Dictionary<uint, (int X, int Y, int Z)>();
 
-        public SpatialPartitionGrid(float cellSize = DefaultCellSize)
+        /// <summary>
+        /// Gets the real-time query and mutation telemetry tracker for this spatial partition grid.
+        /// </summary>
+        public SpatialPerformanceTracker Performance { get; }
+
+        public SpatialPartitionGrid(float cellSize = DefaultCellSize, SpatialPerformanceTracker? performance = null)
         {
             if (cellSize <= 0f) throw new ArgumentOutOfRangeException(nameof(cellSize), "Cell size must be positive.");
             _cellSize = cellSize;
             _inverseCellSize = 1.0f / cellSize;
+            Performance = performance ?? new SpatialPerformanceTracker();
         }
 
         private (int X, int Y, int Z) GetCellCoord(Vector3 pos)
@@ -46,32 +53,40 @@ namespace Gordian.Core.World
         public void InsertOrUpdate(WorldEntity entity)
         {
             ArgumentNullException.ThrowIfNull(entity);
-            var newCell = GetCellCoord(entity.Position);
-
-            lock (_lock)
+            long startTicks = Stopwatch.GetTimestamp();
+            try
             {
-                if (_entityCellMap.TryGetValue(entity.ServerId, out var oldCell))
-                {
-                    if (oldCell == newCell) return; // Still in the same cell
+                var newCell = GetCellCoord(entity.Position);
 
-                    if (_grid.TryGetValue(oldCell, out var oldBucket))
+                lock (_lock)
+                {
+                    if (_entityCellMap.TryGetValue(entity.ServerId, out var oldCell))
                     {
-                        oldBucket.Remove(entity);
-                        if (oldBucket.Count == 0)
+                        if (oldCell == newCell) return; // Still in the same cell
+
+                        if (_grid.TryGetValue(oldCell, out var oldBucket))
                         {
-                            _grid.Remove(oldCell);
+                            oldBucket.Remove(entity);
+                            if (oldBucket.Count == 0)
+                            {
+                                _grid.Remove(oldCell);
+                            }
                         }
                     }
-                }
 
-                if (!_grid.TryGetValue(newCell, out var newBucket))
-                {
-                    newBucket = new HashSet<WorldEntity>();
-                    _grid[newCell] = newBucket;
-                }
+                    if (!_grid.TryGetValue(newCell, out var newBucket))
+                    {
+                        newBucket = new HashSet<WorldEntity>();
+                        _grid[newCell] = newBucket;
+                    }
 
-                newBucket.Add(entity);
-                _entityCellMap[entity.ServerId] = newCell;
+                    newBucket.Add(entity);
+                    _entityCellMap[entity.ServerId] = newCell;
+                }
+            }
+            finally
+            {
+                Performance.RecordOperation(SpatialOperationType.InsertOrUpdate, Stopwatch.GetTimestamp() - startTicks);
             }
         }
 
@@ -81,21 +96,29 @@ namespace Gordian.Core.World
         public bool Remove(WorldEntity entity)
         {
             ArgumentNullException.ThrowIfNull(entity);
-            lock (_lock)
+            long startTicks = Stopwatch.GetTimestamp();
+            try
             {
-                if (_entityCellMap.Remove(entity.ServerId, out var cell))
+                lock (_lock)
                 {
-                    if (_grid.TryGetValue(cell, out var bucket))
+                    if (_entityCellMap.Remove(entity.ServerId, out var cell))
                     {
-                        bucket.Remove(entity);
-                        if (bucket.Count == 0)
+                        if (_grid.TryGetValue(cell, out var bucket))
                         {
-                            _grid.Remove(cell);
+                            bucket.Remove(entity);
+                            if (bucket.Count == 0)
+                            {
+                                _grid.Remove(cell);
+                            }
                         }
+                        return true;
                     }
-                    return true;
+                    return false;
                 }
-                return false;
+            }
+            finally
+            {
+                Performance.RecordOperation(SpatialOperationType.Remove, Stopwatch.GetTimestamp() - startTicks);
             }
         }
 
@@ -116,40 +139,48 @@ namespace Gordian.Core.World
         /// </summary>
         public List<WorldEntity> GetEntitiesInRadius(Vector3 center, float radius)
         {
-            var results = new List<WorldEntity>();
-            float radiusSq = radius * radius;
-
-            int minX = (int)MathF.Floor((center.X - radius) * _inverseCellSize);
-            int maxX = (int)MathF.Floor((center.X + radius) * _inverseCellSize);
-            int minY = (int)MathF.Floor((center.Y - radius) * _inverseCellSize);
-            int maxY = (int)MathF.Floor((center.Y + radius) * _inverseCellSize);
-            int minZ = (int)MathF.Floor((center.Z - radius) * _inverseCellSize);
-            int maxZ = (int)MathF.Floor((center.Z + radius) * _inverseCellSize);
-
-            lock (_lock)
+            long startTicks = Stopwatch.GetTimestamp();
+            try
             {
-                for (int x = minX; x <= maxX; x++)
+                var results = new List<WorldEntity>();
+                float radiusSq = radius * radius;
+
+                int minX = (int)MathF.Floor((center.X - radius) * _inverseCellSize);
+                int maxX = (int)MathF.Floor((center.X + radius) * _inverseCellSize);
+                int minY = (int)MathF.Floor((center.Y - radius) * _inverseCellSize);
+                int maxY = (int)MathF.Floor((center.Y + radius) * _inverseCellSize);
+                int minZ = (int)MathF.Floor((center.Z - radius) * _inverseCellSize);
+                int maxZ = (int)MathF.Floor((center.Z + radius) * _inverseCellSize);
+
+                lock (_lock)
                 {
-                    for (int y = minY; y <= maxY; y++)
+                    for (int x = minX; x <= maxX; x++)
                     {
-                        for (int z = minZ; z <= maxZ; z++)
+                        for (int y = minY; y <= maxY; y++)
                         {
-                            if (_grid.TryGetValue((x, y, z), out var bucket))
+                            for (int z = minZ; z <= maxZ; z++)
                             {
-                                foreach (var entity in bucket)
+                                if (_grid.TryGetValue((x, y, z), out var bucket))
                                 {
-                                    if (Vector3.DistanceSquared(center, entity.Position) <= radiusSq)
+                                    foreach (var entity in bucket)
                                     {
-                                        results.Add(entity);
+                                        if (Vector3.DistanceSquared(center, entity.Position) <= radiusSq)
+                                        {
+                                            results.Add(entity);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            return results;
+                return results;
+            }
+            finally
+            {
+                Performance.RecordQuery(SpatialQueryType.Radius, Stopwatch.GetTimestamp() - startTicks);
+            }
         }
 
         /// <summary>
@@ -157,23 +188,31 @@ namespace Gordian.Core.World
         /// </summary>
         public WorldEntity? GetNearestEntity(Vector3 center, EntityType? filter = null, float maxSearchRadius = 100.0f)
         {
-            var candidates = GetEntitiesInRadius(center, maxSearchRadius);
-            WorldEntity? nearest = null;
-            float nearestDistSq = float.MaxValue;
-
-            foreach (var entity in candidates)
+            long startTicks = Stopwatch.GetTimestamp();
+            try
             {
-                if (filter.HasValue && entity.Type != filter.Value) continue;
+                var candidates = GetEntitiesInRadius(center, maxSearchRadius);
+                WorldEntity? nearest = null;
+                float nearestDistSq = float.MaxValue;
 
-                float distSq = Vector3.DistanceSquared(center, entity.Position);
-                if (distSq < nearestDistSq)
+                foreach (var entity in candidates)
                 {
-                    nearestDistSq = distSq;
-                    nearest = entity;
-                }
-            }
+                    if (filter.HasValue && entity.Type != filter.Value) continue;
 
-            return nearest;
+                    float distSq = Vector3.DistanceSquared(center, entity.Position);
+                    if (distSq < nearestDistSq)
+                    {
+                        nearestDistSq = distSq;
+                        nearest = entity;
+                    }
+                }
+
+                return nearest;
+            }
+            finally
+            {
+                Performance.RecordQuery(SpatialQueryType.Nearest, Stopwatch.GetTimestamp() - startTicks);
+            }
         }
 
         /// <summary>
@@ -181,33 +220,41 @@ namespace Gordian.Core.World
         /// </summary>
         public List<WorldEntity> GetEntitiesInCone(Vector3 origin, Vector3 forward, float maxAngleDegrees, float maxDistance)
         {
-            var results = new List<WorldEntity>();
-            float forwardLen = forward.Length();
-            if (forwardLen <= 0.0001f) return results;
-
-            Vector3 normalizedForward = forward / forwardLen;
-            float minDot = MathF.Cos((maxAngleDegrees * MathF.PI) / 180.0f);
-
-            var candidates = GetEntitiesInRadius(origin, maxDistance);
-            foreach (var entity in candidates)
+            long startTicks = Stopwatch.GetTimestamp();
+            try
             {
-                Vector3 toEntity = entity.Position - origin;
-                float dist = toEntity.Length();
-                if (dist <= 0.0001f)
+                var results = new List<WorldEntity>();
+                float forwardLen = forward.Length();
+                if (forwardLen <= 0.0001f) return results;
+
+                Vector3 normalizedForward = forward / forwardLen;
+                float minDot = MathF.Cos((maxAngleDegrees * MathF.PI) / 180.0f);
+
+                var candidates = GetEntitiesInRadius(origin, maxDistance);
+                foreach (var entity in candidates)
                 {
-                    results.Add(entity);
-                    continue;
+                    Vector3 toEntity = entity.Position - origin;
+                    float dist = toEntity.Length();
+                    if (dist <= 0.0001f)
+                    {
+                        results.Add(entity);
+                        continue;
+                    }
+
+                    Vector3 dir = toEntity / dist;
+                    float dot = Vector3.Dot(normalizedForward, dir);
+                    if (dot >= minDot)
+                    {
+                        results.Add(entity);
+                    }
                 }
 
-                Vector3 dir = toEntity / dist;
-                float dot = Vector3.Dot(normalizedForward, dir);
-                if (dot >= minDot)
-                {
-                    results.Add(entity);
-                }
+                return results;
             }
-
-            return results;
+            finally
+            {
+                Performance.RecordQuery(SpatialQueryType.Cone, Stopwatch.GetTimestamp() - startTicks);
+            }
         }
     }
 }

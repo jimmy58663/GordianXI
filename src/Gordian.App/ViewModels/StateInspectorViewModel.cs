@@ -34,9 +34,15 @@ namespace Gordian.App.ViewModels
         private string _bandwidthOutText = "0.0 KB/s";
         private string _totalPacketsText = "0 in / 0 out";
         private string _heapMemoryText = "0.0 MB";
+        private string _allocationVelocityText = "+0.0 MB/s";
         private string _gcCollectionsText = "0 / 0 / 0";
+        private string _gcPressureText = "0.0% pause";
         private string _sequenceDropsText = "0";
         private string _dispatchLatencyText = "-- µs";
+        private string _spatialQueryText = "-- µs";
+        private string _deadReckoningText = "-- µs";
+        private string _benchmarkResultText = "Click 'Run Benchmark' to profile simulation cycles.";
+        private bool _isBenchmarking;
 
         public ObservableCollection<CharacterSession> ActiveSessions { get; } = new();
         public ObservableCollection<EntityItemViewModel> FilteredEntities { get; } = new();
@@ -226,6 +232,50 @@ namespace Gordian.App.ViewModels
             get => _dispatchLatencyText;
             private set => SetProperty(ref _dispatchLatencyText, value);
         }
+
+        public string AllocationVelocityText
+        {
+            get => _allocationVelocityText;
+            private set => SetProperty(ref _allocationVelocityText, value);
+        }
+
+        public string GcPressureText
+        {
+            get => _gcPressureText;
+            private set => SetProperty(ref _gcPressureText, value);
+        }
+
+        public string SpatialQueryText
+        {
+            get => _spatialQueryText;
+            private set => SetProperty(ref _spatialQueryText, value);
+        }
+
+        public string DeadReckoningText
+        {
+            get => _deadReckoningText;
+            private set => SetProperty(ref _deadReckoningText, value);
+        }
+
+        public string BenchmarkResultText
+        {
+            get => _benchmarkResultText;
+            private set => SetProperty(ref _benchmarkResultText, value);
+        }
+
+        public bool IsBenchmarking
+        {
+            get => _isBenchmarking;
+            private set
+            {
+                if (SetProperty(ref _isBenchmarking, value))
+                {
+                    RunDeadReckoningBenchmarkCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        public RelayCommand RunDeadReckoningBenchmarkCommand { get; }
         #endregion
 
         #region Player State Properties
@@ -323,6 +373,54 @@ namespace Gordian.App.ViewModels
             };
             _telemetryTimer.Tick += OnTelemetryTimerTick;
             _telemetryTimer.Start();
+
+            RunDeadReckoningBenchmarkCommand = new RelayCommand(RunDeadReckoningBenchmark, () => !IsBenchmarking);
+        }
+
+        public async void RunDeadReckoningBenchmark()
+        {
+            if (IsBenchmarking) return;
+            IsBenchmarking = true;
+            BenchmarkResultText = "Benchmarking 50 dead-reckoning & grid iterations...";
+
+            try
+            {
+                var session = SelectedSession;
+                DeadReckoningBenchmarkResult result;
+
+                if (session != null)
+                {
+                    if (session.World.Count == 0)
+                    {
+                        session.World.PopulateSyntheticEntities(50);
+                    }
+                    result = await System.Threading.Tasks.Task.Run(() =>
+                        session.World.BenchmarkDeadReckoning(50, TimeSpan.FromMilliseconds(250), updateSpatialGrid: true));
+
+                    var worldPerf = session.World.Performance.GetSnapshot(session.World.Count);
+                    UpdateWorldTelemetryTexts(worldPerf);
+                }
+                else
+                {
+                    var testWorld = new WorldState();
+                    testWorld.PopulateSyntheticEntities(50);
+                    result = await System.Threading.Tasks.Task.Run(() =>
+                        testWorld.BenchmarkDeadReckoning(50, TimeSpan.FromMilliseconds(250), updateSpatialGrid: true));
+
+                    var worldPerf = testWorld.Performance.GetSnapshot(testWorld.Count);
+                    UpdateWorldTelemetryTexts(worldPerf);
+                }
+
+                BenchmarkResultText = $"{result.EntityCount} ents × {result.Iterations} iter: avg {result.AvgCycleMicroseconds:F1} µs (min {result.MinCycleMicroseconds:F1} µs, max {result.MaxCycleMicroseconds:F1} µs, p95 {result.P95CycleMicroseconds:F1} µs) — {result.ThroughputEntitiesPerSecond:N0} ents/s";
+            }
+            catch (Exception ex)
+            {
+                BenchmarkResultText = $"Benchmark error: {ex.Message}";
+            }
+            finally
+            {
+                IsBenchmarking = false;
+            }
         }
 
         private void OnSessionRegistered(object? sender, CharacterSession session)
@@ -605,8 +703,10 @@ namespace Gordian.App.ViewModels
             BandwidthInText = $"{snapshot.KilobytesReceivedPerSecond:F1} KB/s";
             BandwidthOutText = $"{snapshot.KilobytesSentPerSecond:F1} KB/s";
             TotalPacketsText = $"{snapshot.PacketsReceivedTotal:N0} in / {snapshot.PacketsSentTotal:N0} out";
-            HeapMemoryText = $"{snapshot.ManagedHeapMegaBytes:F1} MB";
+            HeapMemoryText = $"{snapshot.ManagedHeapMegaBytes:F1} MB (+{snapshot.AllocationVelocityMegaBytesPerSecond:F1} MB/s)";
+            AllocationVelocityText = $"+{snapshot.AllocationVelocityMegaBytesPerSecond:F1} MB/s";
             GcCollectionsText = $"{snapshot.Gen0Collections} / {snapshot.Gen1Collections} / {snapshot.Gen2Collections}";
+            GcPressureText = $"{snapshot.PauseDurationPercentage:F1}% pause";
             SequenceDropsText = $"{snapshot.SequenceDiscrepancies}";
 
             string lastStr = snapshot.LastDispatchLatencyMicroseconds <= 0 ? "--" :
@@ -614,6 +714,39 @@ namespace Gordian.App.ViewModels
             string avgStr = snapshot.AverageDispatchLatencyMicroseconds <= 0 ? "--" :
                 snapshot.AverageDispatchLatencyMicroseconds < 1.0 ? "< 1" : $"{snapshot.AverageDispatchLatencyMicroseconds:F0}";
             DispatchLatencyText = $"{lastStr} µs (avg {avgStr})";
+
+            // Query world spatial & dead-reckoning telemetry
+            var worldPerf = SelectedSession.World.Performance.GetSnapshot(SelectedSession.World.Count);
+            UpdateWorldTelemetryTexts(worldPerf);
+        }
+
+        private void UpdateWorldTelemetryTexts(WorldPerformanceSnapshot worldPerf)
+        {
+            if (worldPerf.Spatial.TotalQueries > 0)
+            {
+                string spatialAvgStr = worldPerf.Spatial.OverallAvgQueryMicroseconds < 1.0 ? "< 1" : $"{worldPerf.Spatial.OverallAvgQueryMicroseconds:F0}";
+                string spatialPeakStr = worldPerf.Spatial.OverallPeakQueryMicroseconds < 1.0 ? "< 1" : $"{worldPerf.Spatial.OverallPeakQueryMicroseconds:F0}";
+                SpatialQueryText = $"{spatialAvgStr} µs (peak {spatialPeakStr})";
+            }
+            else if (worldPerf.Spatial.TotalUpdates > 0)
+            {
+                string updateAvgStr = worldPerf.Spatial.UpdateAvgMicroseconds < 1.0 ? "< 1" : $"{worldPerf.Spatial.UpdateAvgMicroseconds:F0}";
+                SpatialQueryText = $"{updateAvgStr} µs ({worldPerf.Spatial.TotalUpdates} upd)";
+            }
+            else
+            {
+                SpatialQueryText = "-- µs";
+            }
+
+            if (worldPerf.DeadReckoning.TotalCycles > 0)
+            {
+                string drAvgStr = worldPerf.DeadReckoning.AverageCycleMicroseconds < 1.0 ? "< 1" : $"{worldPerf.DeadReckoning.AverageCycleMicroseconds:F0}";
+                DeadReckoningText = $"{drAvgStr} µs ({worldPerf.DeadReckoning.TotalCycles} cyc)";
+            }
+            else
+            {
+                DeadReckoningText = "-- µs";
+            }
         }
 
         public void Dispose()
