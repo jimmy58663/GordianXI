@@ -38,6 +38,8 @@ namespace Gordian.Core.World
         public byte HighestItemLevel { get; private set; }
         public byte UnityFaction { get; private set; }
         public uint UnityPoints { get; private set; }
+        public byte GmLevel { get; set; }
+        public bool IsGm => GmLevel > 0;
         #endregion
 
         #region Attributes & Combat Stats

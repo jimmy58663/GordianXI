@@ -524,6 +524,187 @@ namespace Gordian.Core.Actions
             return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Y:F2}, {t.Position.Z:F2})";
         }
 
+        /// <summary>
+        /// Checks whether the local active player holds Game Master (GM) administrative permissions.
+        /// </summary>
+        public bool IsLocalPlayerGm()
+        {
+            if (_localPlayer.IsGm) return true;
+            if (_world.TryGetByServerId(_localPlayer.ServerId, out var ent) && ent is PlayerEntity pe && pe.GmLevel > 0)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns a formatted list of available client commands, dynamically filtered by <see cref="ServerAutomationPolicy"/>.
+        /// </summary>
+        public string GetStandardCommandsSummary(string? filter = null)
+        {
+            var policy = _profile.AutomationPolicy;
+            var sb = new StringBuilder();
+
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                string norm = filter.Trim().TrimStart('/').ToLowerInvariant();
+                switch (norm)
+                {
+                    case "moveto" or "goto":
+                        if (policy == ServerAutomationPolicy.StrictVanilla)
+                            return "Command '/moveto' is blocked by server automation policy (StrictVanilla).";
+                        return "Usage: /moveto <x> <y> [z] - Update position coordinates to target location.";
+                    case "pos" or "where" or "loc":
+                        return "Usage: /pos - Print current player coordinates, heading, and server ID.";
+                    case "target" or "ta":
+                        return "Usage: /target <name|id> - Target entity by name or server ID. Use without args to clear.";
+                    case "targetinfo" or "ti":
+                        return "Usage: /targetinfo - Display detailed stats, HP%, and distance for current target.";
+                    case "vitals" or "hp" or "stats":
+                        return "Usage: /vitals - Display HP, MP, TP, and job progression.";
+                    case "nearby" or "scan" or "entities":
+                        return "Usage: /nearby [radius] - Scan nearby entities within given radius (default 50 yalms).";
+                    case "attack" or "a":
+                        return "Usage: /attack [target] - Engage targeted or specified entity in melee combat.";
+                    case "attackoff" or "disengage" or "aoff":
+                        return "Usage: /attackoff - Disengage from combat.";
+                    case "magic" or "ma" or "cast":
+                        return "Usage: /magic <spell_id> [target] - Cast magic spell on target.";
+                    case "ws" or "weaponskill":
+                        return "Usage: /ws <ws_id> [target] - Execute weapon skill on target.";
+                    case "ja" or "jobability":
+                        return "Usage: /ja <ability_id> [target] - Use job ability on target.";
+                    case "shoot" or "ra":
+                        return "Usage: /shoot [target] - Perform ranged attack on target.";
+                    case "assist" or "as":
+                        return "Usage: /assist [target] - Assist targeted or named player.";
+                    case "cancel":
+                        return "Usage: /cancel <buff_id> - Cancel active player status effect.";
+                    case "jump":
+                        return "Usage: /jump - Perform jump action.";
+                    case "say" or "s":
+                        return "Usage: /say <message> - Send message to local Say channel.";
+                    case "party" or "p":
+                        return "Usage: /party <message> - Send message to Party channel.";
+                    case "shout" or "sh":
+                        return "Usage: /shout <message> - Send message to zone Shout channel.";
+                    case "yell" or "y":
+                        return "Usage: /yell <message> - Send message to Yell channel.";
+                    case "tell" or "t" or "w":
+                        return "Usage: /tell <player> <message> - Send private tell.";
+                    case "linkshell" or "l":
+                        return "Usage: /linkshell <message> - Send message to active Linkshell.";
+                    case "echo":
+                        return "Usage: /echo <message> - Print local message to console.";
+                    case "invite":
+                        return "Usage: /invite <player> - Invite player to party.";
+                    case "join" or "accept":
+                        return "Usage: /accept - Accept party invitation.";
+                    case "decline" or "refuse":
+                        return "Usage: /decline - Decline party invitation.";
+                    case "leave" or "break":
+                        return "Usage: /leave - Leave current party.";
+                    case "disband" or "breakup":
+                        return "Usage: /disband - Disband party (party leader only).";
+                    case "kick":
+                        return "Usage: /kick <player> - Remove player from party.";
+                    case "help" or "commands":
+                        return "Usage: /help [command] - Show available client commands or detailed help.";
+                    case "gmhelp" or "gmcommands":
+                        return "Usage: /gmhelp - Show Game Master administrative commands (requires GM status).";
+                    default:
+                        break;
+                }
+            }
+
+            sb.AppendLine($"--- Available Client Commands [Policy: {policy}] ---");
+            sb.AppendLine("[Navigation & Telemetry]");
+            sb.AppendLine("  /pos                      - Current coordinates, heading, and server ID (/where, /loc)");
+            sb.AppendLine("  /target <name|id>         - Target entity by name or server ID (/ta)");
+            sb.AppendLine("  /targetinfo               - Detailed stats and distance of target (/ti)");
+            sb.AppendLine("  /vitals                   - HP, MP, TP, and job levels (/hp, /stats)");
+            sb.AppendLine("  /nearby [radius]          - Scan nearby entities within radius (default 50y)");
+            if (policy != ServerAutomationPolicy.StrictVanilla)
+            {
+                sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
+            }
+            sb.AppendLine("[Combat & Abilities]");
+            sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
+            sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
+            sb.AppendLine("  /magic <spell_id> [target]- Cast magic spell (/ma, /cast)");
+            sb.AppendLine("  /ws <ws_id> [target]      - Execute weapon skill (/weaponskill)");
+            sb.AppendLine("  /ja <ability_id> [target] - Use job ability (/jobability)");
+            sb.AppendLine("  /shoot [target]           - Perform ranged attack (/ra)");
+            sb.AppendLine("  /assist [target]          - Assist target (/as)");
+            sb.AppendLine("  /cancel <buff_id>         - Cancel active buff");
+            sb.AppendLine("  /jump                     - Perform jump action");
+            sb.AppendLine("[Emotes]");
+            sb.AppendLine("  /emote <name>             - Perform emote (/em)");
+            sb.AppendLine("  /cheer, /wave, /bow, /sit - Standard emote shortcuts");
+            sb.AppendLine("[Communication]");
+            sb.AppendLine("  /say <msg>                - Send chat to Say (/s)");
+            sb.AppendLine("  /party <msg>              - Send chat to Party (/p)");
+            sb.AppendLine("  /shout <msg>              - Send chat to Shout (/sh)");
+            sb.AppendLine("  /yell <msg>               - Send chat to Yell (/y)");
+            sb.AppendLine("  /tell <player> <msg>      - Send private tell (/t, /w)");
+            sb.AppendLine("  /linkshell <msg>          - Send chat to Linkshell (/l, /l1, /l2)");
+            sb.AppendLine("  /echo <msg>               - Print local echo message");
+            sb.AppendLine("[Party Management]");
+            sb.AppendLine("  /invite <player>          - Invite player to party");
+            sb.AppendLine("  /accept                   - Accept party invite (/join)");
+            sb.AppendLine("  /decline                  - Decline party invite (/refuse)");
+            sb.AppendLine("  /leave                    - Leave party (/break)");
+            sb.AppendLine("  /disband                  - Disband party (/breakup)");
+            sb.AppendLine("  /kick <player>            - Kick member from party");
+            sb.AppendLine("[Discovery]");
+            sb.AppendLine("  /help [command]           - Show available commands (/commands)");
+            sb.AppendLine("  /gmhelp                   - Show Game Master commands (GM only)");
+
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Returns a formatted list of Game Master (GM) commands.
+        /// Reports 'You are not a GM.' if the local player does not possess GM privileges.
+        /// </summary>
+        public string GetGmCommandsSummary(string? filter = null)
+        {
+            if (!IsLocalPlayerGm())
+            {
+                return "You are not a GM.";
+            }
+
+            var policy = _profile.AutomationPolicy;
+            var sb = new StringBuilder();
+            sb.AppendLine($"--- Game Master (GM) Commands [Policy: {policy}] ---");
+            sb.AppendLine("[Locomotion & Teleportation]");
+            sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates");
+            sb.AppendLine("  !goto <player>            - Teleport to player");
+            sb.AppendLine("  !bring <player>           - Teleport player to you");
+            sb.AppendLine("  !zone <zone_id>           - Teleport to specified zone");
+            sb.AppendLine("  !wall                     - Toggle noclip / collision");
+            sb.AppendLine("  !speed <val>              - Set movement speed multiplier");
+            sb.AppendLine("[Character & State]");
+            sb.AppendLine("  !heal [hp] [mp]           - Restore or set vitals");
+            sb.AppendLine("  !god                      - Toggle god mode (invulnerable)");
+            sb.AppendLine("  !vanish / !hide           - Toggle GM invisibility");
+            sb.AppendLine("  !level <1-99>             - Set main job level");
+            sb.AppendLine("  !job <job_id>             - Change main job");
+            sb.AppendLine("  !sjob <job_id>            - Change sub job");
+            sb.AppendLine("  !dispel                   - Clear all buffs and status effects");
+            sb.AppendLine("  !costume <id>             - Change model appearance");
+            sb.AppendLine("[Inventory & World]");
+            sb.AppendLine("  !additem <id> [qty]       - Add item to inventory");
+            sb.AppendLine("  !addgil <qty>             - Add gil");
+            sb.AppendLine("  !spawn <mob_id>           - Spawn entity/NPC");
+            sb.AppendLine("  !kill                     - Kill targeted entity");
+            sb.AppendLine("  !weather <id>             - Set zone weather");
+            sb.AppendLine("  !time <hh:mm>             - Set world time");
+            sb.AppendLine("  !reload                   - Reload server scripts");
+
+            return sb.ToString().TrimEnd();
+        }
+
         #endregion
 
         #region Unified Command Router Dispatcher
@@ -554,6 +735,19 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.InspectNearby:
                     return PlayerActionResult.Info(GetNearbySummary(cmd.ParamFloat), cmd.Kind);
+
+                // Command Discovery
+                case ChatCommandResultKind.DiscoverCommands:
+                    return PlayerActionResult.Info(GetStandardCommandsSummary(cmd.Message), cmd.Kind);
+
+                case ChatCommandResultKind.DiscoverGmCommands:
+                {
+                    if (!IsLocalPlayerGm())
+                    {
+                        return PlayerActionResult.Warn("You are not a GM.", cmd.Kind);
+                    }
+                    return PlayerActionResult.Info(GetGmCommandsSummary(cmd.Message), cmd.Kind);
+                }
 
                 // Targeting
                 case ChatCommandResultKind.SetTarget:

@@ -6,24 +6,39 @@ using Xunit;
 
 namespace Gordian.Core.Tests.Diagnostics
 {
+    [CollectionDefinition("LogTests", DisableParallelization = true)]
+    public class LogTestsCollection { }
+
+    [Collection("LogTests")]
     public sealed class GordianLogTests : IDisposable
     {
+        private static readonly object _testLock = new();
         private readonly string _tempLogFile;
 
         public GordianLogTests()
         {
+            System.Threading.Monitor.Enter(_testLock);
             _tempLogFile = Path.Combine(Path.GetTempPath(), $"gordian_log_test_{Guid.NewGuid():N}.log");
             GordianLog.LogFilePath = _tempLogFile;
             GordianLog.EnableDebugLogging = true;
+            GordianLog.EnableFileLogging = true;
         }
 
         public void Dispose()
         {
-            GordianLog.LogFilePath = null!;
-            GordianLog.EnableDebugLogging = true;
-            if (File.Exists(_tempLogFile))
+            try
             {
-                try { File.Delete(_tempLogFile); } catch { }
+                GordianLog.LogFilePath = null!;
+                GordianLog.EnableDebugLogging = true;
+                GordianLog.EnableFileLogging = false;
+                if (File.Exists(_tempLogFile))
+                {
+                    try { File.Delete(_tempLogFile); } catch { }
+                }
+            }
+            finally
+            {
+                System.Threading.Monitor.Exit(_testLock);
             }
         }
 

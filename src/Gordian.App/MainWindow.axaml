@@ -1248,28 +1248,28 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:CommandConsoleItemViewModel">
                                 <Grid ColumnDefinitions="Auto, Auto, *" Margin="0,1">
-                                    <TextBlock Grid.Column="0"
-                                               Text="{Binding TimeDisplay}"
-                                               Foreground="#555555"
-                                               FontFamily="Consolas, Courier New, monospace"
-                                               FontSize="11"
-                                               Margin="0,0,8,0"
-                                               VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding Prefix}"
-                                               Foreground="{Binding PrefixColor}"
-                                               FontFamily="Consolas, Courier New, monospace"
-                                               FontSize="11"
-                                               FontWeight="Bold"
-                                               Margin="0,0,8,0"
-                                               VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2"
-                                               Text="{Binding Message}"
-                                               Foreground="{Binding MessageColor}"
-                                               FontFamily="Consolas, Courier New, monospace"
-                                               FontSize="11"
-                                               TextWrapping="Wrap"
-                                               VerticalAlignment="Center"/>
+                                    <SelectableTextBlock Grid.Column="0"
+                                                         Text="{Binding TimeDisplay}"
+                                                         Foreground="#555555"
+                                                         FontFamily="Consolas, Courier New, monospace"
+                                                         FontSize="11"
+                                                         Margin="0,0,8,0"
+                                                         VerticalAlignment="Center"/>
+                                    <SelectableTextBlock Grid.Column="1"
+                                                         Text="{Binding Prefix}"
+                                                         Foreground="{Binding PrefixColor}"
+                                                         FontFamily="Consolas, Courier New, monospace"
+                                                         FontSize="11"
+                                                         FontWeight="Bold"
+                                                         Margin="0,0,8,0"
+                                                         VerticalAlignment="Center"/>
+                                    <SelectableTextBlock Grid.Column="2"
+                                                         Text="{Binding Message}"
+                                                         Foreground="{Binding MessageColor}"
+                                                         FontFamily="Consolas, Courier New, monospace"
+                                                         FontSize="11"
+                                                         TextWrapping="Wrap"
+                                                         VerticalAlignment="Center"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -1286,7 +1286,7 @@
                             <TextBox Grid.Column="1"
                                      x:Name="ConsoleInputBox"
                                      Text="{Binding Console.InputCommand, Mode=TwoWay}"
-                                     PlaceholderText="Enter command (e.g. /pos, /target &lt;name&gt;, /attack, /magic 1 &lt;t&gt;, /moveto x y z, !pos)..."
+                                     PlaceholderText="Enter command (e.g. /help, /gmhelp, /pos, /target &lt;name&gt;, /attack, /moveto x y z, !pos)..."
                                      FontFamily="Consolas, Courier New, monospace"
                                      FontSize="12"
                                      KeyDown="OnConsoleInputKeyDown"

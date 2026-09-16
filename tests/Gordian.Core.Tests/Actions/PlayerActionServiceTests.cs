@@ -280,5 +280,82 @@ namespace Gordian.Core.Tests.Actions
             Assert.Contains("<Unknown>", summary);
             Assert.Contains("HP: 100%", summary);
         }
+
+        [Fact]
+        public async Task ExecuteCommand_Help_ListsCommands_FilteredByPolicy()
+        {
+            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            var resAllow = await _actionService.ExecuteCommandAsync("/help");
+            Assert.True(resAllow.Success);
+            Assert.Contains("[Policy: AllowAll]", resAllow.Message);
+            Assert.Contains("/pos", resAllow.Message);
+            Assert.Contains("/moveto", resAllow.Message);
+
+            _profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            var resVanilla = await _actionService.ExecuteCommandAsync("/commands");
+            Assert.True(resVanilla.Success);
+            Assert.Contains("[Policy: StrictVanilla]", resVanilla.Message);
+            Assert.Contains("/pos", resVanilla.Message);
+            Assert.DoesNotContain("/moveto", resVanilla.Message);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_Help_SpecificCommand_ReflectsPolicy()
+        {
+            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            var resAllow = await _actionService.ExecuteCommandAsync("/help moveto");
+            Assert.True(resAllow.Success);
+            Assert.Contains("Usage: /moveto", resAllow.Message);
+
+            _profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            var resVanilla = await _actionService.ExecuteCommandAsync("/help moveto");
+            Assert.True(resVanilla.Success);
+            Assert.Contains("blocked by server automation policy (StrictVanilla)", resVanilla.Message);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_GmHelp_NonGm_ReturnsYouAreNotAGm()
+        {
+            _localPlayer.GmLevel = 0;
+            var res = await _actionService.ExecuteCommandAsync("/gmhelp");
+
+            Assert.False(res.Success); // Warn result
+            Assert.Equal("You are not a GM.", res.Message);
+
+            var resCmds = await _actionService.ExecuteCommandAsync("/gmcommands");
+            Assert.Equal("You are not a GM.", resCmds.Message);
+
+            var resHelpGm = await _actionService.ExecuteCommandAsync("/help gm");
+            Assert.Equal("You are not a GM.", resHelpGm.Message);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_GmHelp_GmPlayer_ListsGmCommands()
+        {
+            _localPlayer.GmLevel = 1;
+            var res = await _actionService.ExecuteCommandAsync("/gmhelp");
+
+            Assert.True(res.Success);
+            Assert.Contains("--- Game Master (GM) Commands", res.Message);
+            Assert.Contains("!pos", res.Message);
+            Assert.Contains("!goto", res.Message);
+            Assert.Contains("!zone", res.Message);
+            Assert.Contains("!god", res.Message);
+        }
+
+        [Theory]
+        [InlineData("/moveto 55.5 12.3 88.0")]
+        [InlineData("/moveto 55.5, 12.3, 88.0")]
+        [InlineData("/moveto (55.5, 12.3, 88.0)")]
+        [InlineData("/moveto Pos: (55.5, 12.3, 88.0)")]
+        [InlineData("/moveto X=55.5, Y=12.3, Z=88.0")]
+        public async Task ExecuteCommand_MoveTo_VariousCoordinateFormats_ParsesSuccessfully(string cmd)
+        {
+            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            var res = await _actionService.ExecuteCommandAsync(cmd);
+
+            Assert.True(res.Success);
+            Assert.Contains("X=55.50, Y=12.30, Z=88.00", res.Message);
+        }
     }
 }

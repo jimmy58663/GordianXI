@@ -154,5 +154,33 @@ namespace Gordian.App.Tests.ViewModels
             Assert.False(_vm.HasActiveSession);
             Assert.Null(_vm.SelectedSession);
         }
+
+        [Fact]
+        public async Task ExecuteCommand_Help_AddsInfoEntryWithCommands()
+        {
+            var netManager = new SessionNetworkManager("127.0.0.1", 54230);
+            var session = new CharacterSession("Cybin", 0x01020304, "user1", netManager);
+            _registry.RegisterSession(session);
+
+            await _vm.ExecuteSlashCommandAsync("/help");
+
+            var lastEntry = _vm.Entries[^1];
+            Assert.Equal(ConsoleEntryKind.Info, lastEntry.Kind);
+            Assert.Contains("Available Client Commands", lastEntry.Message);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_GmHelp_WhenNotGm_AddsWarningEntry()
+        {
+            var netManager = new SessionNetworkManager("127.0.0.1", 54230);
+            var session = new CharacterSession("Cybin", 0x01020304, "user1", netManager);
+            _registry.RegisterSession(session);
+
+            await _vm.ExecuteSlashCommandAsync("/gmhelp");
+
+            var lastEntry = _vm.Entries[^1];
+            Assert.Equal(ConsoleEntryKind.Warning, lastEntry.Kind);
+            Assert.Equal("You are not a GM.", lastEntry.Message);
+        }
     }
 }

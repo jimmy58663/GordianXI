@@ -31,6 +31,8 @@ namespace Gordian.Core.Network
         InspectVitals,
         SetTarget,
         SyntheticMoveTo,
+        DiscoverCommands,
+        DiscoverGmCommands,
         LocalEcho,
         LocalNotice,
         ServerCommand,
@@ -140,6 +142,12 @@ namespace Gordian.Core.Network
 
                     // Synthetic Locomotion (Policy-Gated)
                     "moveto" or "goto" => ParseMoveToCommand(args),
+
+                    // Command Discovery & Help
+                    "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)
+                        ? new ChatCommandResult { Kind = ChatCommandResultKind.DiscoverGmCommands, Message = string.Empty }
+                        : new ChatCommandResult { Kind = ChatCommandResultKind.DiscoverCommands, Message = args },
+                    "gmhelp" or "gmcommands" or "gmcmds" => new ChatCommandResult { Kind = ChatCommandResultKind.DiscoverGmCommands, Message = args },
 
                     _ => new ChatCommandResult
                     {
@@ -568,7 +576,25 @@ namespace Gordian.Core.Network
                 };
             }
 
-            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // Sanitize coordinates copied from /nearby or /pos:
+            // Handles formats: "12.3 45.6 78.9", "12.3, 45.6, 78.9", "(12.3, 45.6, 78.9)", "Pos: (12.3, 45.6, 78.9)", "X=12.3, Y=45.6, Z=78.9"
+            string sanitized = args;
+            if (sanitized.StartsWith("Pos:", StringComparison.OrdinalIgnoreCase))
+            {
+                sanitized = sanitized.Substring(4);
+            }
+
+            sanitized = sanitized
+                .Replace("(", " ")
+                .Replace(")", " ")
+                .Replace("[", " ")
+                .Replace("]", " ")
+                .Replace("X=", " ", StringComparison.OrdinalIgnoreCase)
+                .Replace("Y=", " ", StringComparison.OrdinalIgnoreCase)
+                .Replace("Z=", " ", StringComparison.OrdinalIgnoreCase)
+                .Replace(",", " ");
+
+            var parts = sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
             {
                 return new ChatCommandResult

@@ -99,6 +99,10 @@ namespace Gordian.Core.Network.Packets
             player.ClaimServerId = pc.BtTargetId;
 
             player.GmLevel = pc.GmLevel;
+            if (pc.UniqueNo == _localPlayer.ServerId)
+            {
+                _localPlayer.GmLevel = pc.GmLevel;
+            }
             player.IsSeekingParty = pc.IsSeekingParty;
             player.IsAnonymous = pc.IsAnonymous;
             player.IsAway = pc.IsAway;
