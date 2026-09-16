@@ -2,6 +2,7 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Gordian.App.Common;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
 using Gordian.Core.Network;
@@ -16,6 +17,17 @@ namespace Gordian.App
         public MainWindow()
         {
             InitializeComponent();
+
+            var consoleListBox = this.FindControl<ListBox>("ConsoleListBox");
+            if (consoleListBox != null)
+            {
+                AutoCopyBehavior.Attach(consoleListBox);
+            }
+            var chatListBox = this.FindControl<ListBox>("MainChatListBox");
+            if (chatListBox != null)
+            {
+                AutoCopyBehavior.Attach(chatListBox);
+            }
 
             _viewModel = new MainWindowViewModel();
             DataContext = _viewModel;

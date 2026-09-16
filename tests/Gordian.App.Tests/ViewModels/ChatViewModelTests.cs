@@ -359,5 +359,93 @@ namespace Gordian.App.Tests.ViewModels
             Assert.Equal(0x0B5, packetId);
             Assert.Equal((byte)ChatSendKind.Say, sentChunks[0][4]);
         }
+
+        [Fact]
+        public void FilterOptions_ContainsCombatChannel()
+        {
+            Assert.Contains("Combat", _vm.FilterOptions);
+        }
+
+        [Fact]
+        public void CombatAction_Received_AddsCombatItemToLogAndFilters()
+        {
+            var netManager = new SessionNetworkManager("127.0.0.1", 54230);
+            var session = new CharacterSession("Cybin", 12345, "user1", netManager);
+            _registry.RegisterSession(session);
+
+            // Add target entity to world
+            var targetEntity = new WorldEntity(2001, 100, EntityType.Monster) { Name = "Wild Rabbit" };
+            session.World.UpsertEntity(targetEntity);
+
+            var action = new CombatActionRecord
+            {
+                ActorId = session.CharacterId,
+                Category = ActionCategory.BasicAttack,
+                ActionId = 0,
+                Targets = new List<CombatActionTargetRecord>
+                {
+                    new()
+                    {
+                        TargetId = 2001,
+                        Results = new List<CombatActionResult>
+                        {
+                            new()
+                            {
+                                Resolution = ActionResolution.Hit,
+                                Param = 35,
+                                MessageId = 1
+                            }
+                        }
+                    }
+                }
+            };
+
+            session.Combat.RecordAction(action);
+
+            Assert.Single(_vm.AllMessages);
+            var item = _vm.AllMessages[0];
+            Assert.Equal("[Combat]", item.BadgeText);
+            Assert.Equal("Cybin hits Wild Rabbit for 35 points of damage.", item.Message);
+
+            // Test filtering by Combat
+            _vm.ChannelFilter = "Combat";
+            Assert.Single(_vm.FilteredMessages);
+
+            // Test filtering by Say excludes combat
+            _vm.ChannelFilter = "Say";
+            Assert.Empty(_vm.FilteredMessages);
+
+            // Test All includes combat
+            _vm.ChannelFilter = "All";
+            Assert.Single(_vm.FilteredMessages);
+        }
+
+        [Fact]
+        public void BattleMessage_Received_AddsCombatItemToLog()
+        {
+            var netManager = new SessionNetworkManager("127.0.0.1", 54230);
+            var session = new CharacterSession("Cybin", 12345, "user1", netManager);
+            _registry.RegisterSession(session);
+
+            var targetEntity = new WorldEntity(2001, 100, EntityType.Monster) { Name = "Wild Rabbit" };
+            session.World.UpsertEntity(targetEntity);
+
+            var msg = new CombatMessageRecord
+            {
+                CasterId = session.CharacterId,
+                TargetId = 2001,
+                MessageId = 6, // defeats target
+                Param = 0,
+                Value = 0
+            };
+
+            session.Combat.RecordBattleMessage(msg);
+
+            Assert.Single(_vm.AllMessages);
+            var item = _vm.AllMessages[0];
+            Assert.Equal("[Combat]", item.BadgeText);
+            Assert.Equal("Cybin defeats Wild Rabbit.", item.Message);
+        }
     }
 }
+

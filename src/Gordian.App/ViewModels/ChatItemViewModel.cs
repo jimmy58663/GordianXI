@@ -143,6 +143,19 @@ namespace Gordian.App.ViewModels
             );
         }
 
+        public static ChatItemViewModel CreateCombat(string message, DateTime? timestamp = null)
+        {
+            return new ChatItemViewModel(
+                badgeText: "[Combat]",
+                badgeColor: "#E06C75",
+                sender: "Combat",
+                senderColor: "#E06C75",
+                message: message,
+                messageColor: "#FFA07A",
+                timestamp: timestamp ?? DateTime.Now
+            );
+        }
+
         public static ChatItemViewModel FromTranslateMessage(TranslateMessage tr)
         {
             return new ChatItemViewModel(

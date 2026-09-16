@@ -55,7 +55,8 @@ namespace Gordian.App.ViewModels
             "Party",
             "Linkshell",
             "Shout/Yell",
-            "System"
+            "System",
+            "Combat"
         };
 
         public CharacterSession? SelectedSession
@@ -199,6 +200,8 @@ namespace Gordian.App.ViewModels
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;
                 _hookedSession.Party.MemberLeft -= OnPartyMemberLeft;
                 _hookedSession.Party.PartyDisbanded -= OnPartyDisbanded;
+                _hookedSession.Combat.ActionExecuted -= OnCombatActionExecuted;
+                _hookedSession.Combat.BattleMessageReceived -= OnBattleMessageReceived;
                 _hookedSession = null;
             }
 
@@ -213,6 +216,8 @@ namespace Gordian.App.ViewModels
                 session.Party.MemberJoined += OnPartyMemberJoined;
                 session.Party.MemberLeft += OnPartyMemberLeft;
                 session.Party.PartyDisbanded += OnPartyDisbanded;
+                session.Combat.ActionExecuted += OnCombatActionExecuted;
+                session.Combat.BattleMessageReceived += OnBattleMessageReceived;
                 _hookedSession = session;
                 StatusText = $"Connected to chat stream for {session.CharacterName}";
             }
@@ -305,6 +310,65 @@ namespace Gordian.App.ViewModels
             });
         }
 
+        private void OnCombatActionExecuted(CombatActionRecord record)
+        {
+            var session = _hookedSession;
+            if (session == null) return;
+
+            string? ResolveEntityName(uint id)
+            {
+                if (id == session.LocalPlayer.ServerId || id == session.CharacterId)
+                {
+                    return session.CharacterName;
+                }
+                if (session.World.TryGetByServerId(id, out var entity) && !string.IsNullOrEmpty(entity?.Name))
+                {
+                    return entity.Name;
+                }
+                return null;
+            }
+
+            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName);
+            if (lines.Count > 0)
+            {
+                DispatchToUi(() =>
+                {
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        AddMessageItem(ChatItemViewModel.CreateCombat(lines[i]));
+                    }
+                });
+            }
+        }
+
+        private void OnBattleMessageReceived(CombatMessageRecord record)
+        {
+            var session = _hookedSession;
+            if (session == null) return;
+
+            string? ResolveEntityName(uint id)
+            {
+                if (id == session.LocalPlayer.ServerId || id == session.CharacterId)
+                {
+                    return session.CharacterName;
+                }
+                if (session.World.TryGetByServerId(id, out var entity) && !string.IsNullOrEmpty(entity?.Name))
+                {
+                    return entity.Name;
+                }
+                return null;
+            }
+
+            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName);
+            if (!string.IsNullOrEmpty(line))
+            {
+                DispatchToUi(() =>
+                {
+                    AddMessageItem(ChatItemViewModel.CreateCombat(line));
+                });
+            }
+        }
+
         public void AddMessageItem(ChatItemViewModel item)
         {
             AllMessages.Add(item);
@@ -338,6 +402,7 @@ namespace Gordian.App.ViewModels
                                 item.BadgeText.Contains("Yell", StringComparison.OrdinalIgnoreCase),
                 "System" => item.BadgeText.Contains("System", StringComparison.OrdinalIgnoreCase) ||
                             item.BadgeText.Contains("Translate", StringComparison.OrdinalIgnoreCase),
+                "Combat" => item.BadgeText.Contains("Combat", StringComparison.OrdinalIgnoreCase),
                 _ => true // "All"
             };
         }
@@ -683,6 +748,8 @@ namespace Gordian.App.ViewModels
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;
                 _hookedSession.Party.MemberLeft -= OnPartyMemberLeft;
                 _hookedSession.Party.PartyDisbanded -= OnPartyDisbanded;
+                _hookedSession.Combat.ActionExecuted -= OnCombatActionExecuted;
+                _hookedSession.Combat.BattleMessageReceived -= OnBattleMessageReceived;
                 _hookedSession = null;
             }
         }

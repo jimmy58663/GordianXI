@@ -3,6 +3,7 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Gordian.App.Common;
 using Gordian.App.ViewModels;
 
 namespace Gordian.App
@@ -12,6 +13,7 @@ namespace Gordian.App
         public ChatWindow()
         {
             InitializeComponent();
+            AutoCopyBehavior.Attach(ChatListBox);
             DataContextChanged += OnDataContextChanged;
         }
 
