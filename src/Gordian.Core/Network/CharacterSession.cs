@@ -89,6 +89,11 @@ namespace Gordian.Core.Network
         /// </summary>
         public CombatPacketModule CombatModule => NetworkManager.CombatModule;
 
+        /// <summary>
+        /// Gets the unified player action coordinator service.
+        /// </summary>
+        public Actions.PlayerActionService ActionService => NetworkManager.ActionService;
+
         public CharacterSession(
             string characterName,
             uint characterId,

@@ -114,8 +114,8 @@ namespace Gordian.Core.Network.Packets
         public ushort ActorIndex { get; }
         public byte Direction { get; }
         public float X { get; }
-        public float Z { get; }
         public float Y { get; }
+        public float Z { get; }
         public bool IsValid { get; }
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
@@ -126,8 +126,8 @@ namespace Gordian.Core.Network.Packets
                 ActorIndex = 0;
                 Direction = 0;
                 X = 0f;
-                Z = 0f;
                 Y = 0f;
+                Z = 0f;
                 IsValid = false;
                 return;
             }
@@ -136,8 +136,9 @@ namespace Gordian.Core.Network.Packets
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI wire format stores (X, Elevation, North/South) at (+8, +12, +16) relative to payload
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
             IsValid = true;
         }
     }
@@ -424,8 +425,8 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
             BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), z);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), y);
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), y); // Elevation / Height
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), z); // North / South
             destination[20] = dir;
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(22, 2), targetIndex);
             BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(24, 4), (uint)Environment.TickCount);
@@ -691,6 +692,12 @@ namespace Gordian.Core.Network.Packets
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
 
+        /// <summary>
+        /// Optional delegate to retrieve the player's current position and heading when answering server 0x015 PosPing.
+        /// Returns (X, Y [Elevation], Z [North/South], Dir, TargetIndex).
+        /// </summary>
+        public Func<(float X, float Y, float Z, byte Dir, ushort TargetIndex)>? PositionProvider { get; set; }
+
         public bool LogOutboundOnRoute { get; set; } = true;
 
         public LifecyclePacketModule(
@@ -798,7 +805,15 @@ namespace Gordian.Core.Network.Packets
 
         private void HandlePosPing(PacketHeader header, ReadOnlySpan<byte> payload)
         {
-            byte[] posPong = LifecycleOutboundPackets.BuildPos(sequenceId: header.SequenceId);
+            var (x, y, z, dir, targetIdx) = PositionProvider?.Invoke() ?? (0f, 0f, 0f, (byte)0, (ushort)0);
+            byte[] posPong = LifecycleOutboundPackets.BuildPos(
+                sequenceId: header.SequenceId,
+                x: x,
+                y: y,
+                z: z,
+                dir: dir,
+                targetIndex: targetIdx);
+
             if (LogOutboundOnRoute)
             {
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x015, header.SequenceId, posPong);

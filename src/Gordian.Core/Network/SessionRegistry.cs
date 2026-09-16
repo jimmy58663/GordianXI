@@ -182,6 +182,15 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Unregisters and disconnects a character session.
+        /// </summary>
+        public void UnregisterSession(CharacterSession session)
+        {
+            ArgumentNullException.ThrowIfNull(session);
+            UnregisterSession(session.SessionId);
+        }
+
+        /// <summary>
         /// Clears and disposes all registered sessions.
         /// </summary>
         public void Clear()

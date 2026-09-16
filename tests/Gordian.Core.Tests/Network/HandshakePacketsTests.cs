@@ -147,11 +147,11 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(7, seq);
 
             float x = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(4, 4));
-            float z = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4));
-            float y = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4));
+            float y = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4));
+            float z = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4));
             Assert.Equal(10.5f, x);
-            Assert.Equal(100.25f, z);
             Assert.Equal(-2.0f, y);
+            Assert.Equal(100.25f, z);
             Assert.Equal(128, (byte)packet[20]);
         }
 

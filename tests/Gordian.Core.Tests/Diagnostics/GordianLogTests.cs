@@ -19,6 +19,8 @@ namespace Gordian.Core.Tests.Diagnostics
 
         public void Dispose()
         {
+            GordianLog.LogFilePath = null!;
+            GordianLog.EnableDebugLogging = true;
             if (File.Exists(_tempLogFile))
             {
                 try { File.Delete(_tempLogFile); } catch { }
@@ -34,7 +36,7 @@ namespace Gordian.Core.Tests.Diagnostics
             GordianLog.Debug("TEST_NET", testMessage);
 
             Assert.True(File.Exists(_tempLogFile));
-            string content = File.ReadAllText(_tempLogFile);
+            string content = ReadLogFileSafely(_tempLogFile);
             Assert.Contains("[DEBUG] [TEST_NET]", content);
             Assert.Contains(testMessage, content);
         }
@@ -43,13 +45,13 @@ namespace Gordian.Core.Tests.Diagnostics
         public void DebugLogging_WhenDisabled_SuppressesDebugMessages()
         {
             GordianLog.EnableDebugLogging = false;
-            string testMessage = $"Suppressed debug message {Guid.NewGuid()}";
+            string testMessage = $"Suppressed token {Guid.NewGuid()}";
 
             GordianLog.Debug("TEST_NET", testMessage);
 
             if (File.Exists(_tempLogFile))
             {
-                string content = File.ReadAllText(_tempLogFile);
+                string content = ReadLogFileSafely(_tempLogFile);
                 Assert.DoesNotContain(testMessage, content);
             }
         }
@@ -65,11 +67,18 @@ namespace Gordian.Core.Tests.Diagnostics
             GordianLog.Warning("TEST_WARN", warnMsg);
 
             Assert.True(File.Exists(_tempLogFile));
-            string content = File.ReadAllText(_tempLogFile);
+            string content = ReadLogFileSafely(_tempLogFile);
             Assert.Contains("[INFO] [TEST_INFO]", content);
             Assert.Contains(infoMsg, content);
             Assert.Contains("[WARN] [TEST_WARN]", content);
             Assert.Contains(warnMsg, content);
+        }
+
+        private static string ReadLogFileSafely(string path)
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
         }
 
         [Fact]

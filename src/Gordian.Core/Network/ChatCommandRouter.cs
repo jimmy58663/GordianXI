@@ -25,6 +25,12 @@ namespace Gordian.Core.Network
         CombatBuffCancel,
         CombatJump,
         Emote,
+        InspectPos,
+        InspectTargetInfo,
+        InspectNearby,
+        InspectVitals,
+        SetTarget,
+        SyntheticMoveTo,
         LocalEcho,
         LocalNotice,
         ServerCommand,
@@ -42,6 +48,10 @@ namespace Gordian.Core.Network
         public string TargetName { get; init; } = string.Empty;
         public ushort ActionParam { get; init; }
         public EmoteId Emote { get; init; }
+        public float MoveX { get; init; }
+        public float MoveY { get; init; }
+        public float MoveZ { get; init; }
+        public float ParamFloat { get; init; }
     }
 
     /// <summary>
@@ -118,6 +128,18 @@ namespace Gordian.Core.Network
 
                     // Standard Emotes
                     "cheer" or "clap" or "wave" or "bow" or "point" or "salute" or "kneel" or "laugh" or "cry" or "no" or "yes" or "surprised" or "blush" or "sit" or "farewell" or "joy" or "comfort" or "panic" or "disgusted" or "angry" or "shocked" => ParseEmoteDirect(verb, args, world),
+
+                    // Inspection & Telemetry
+                    "pos" or "where" or "loc" => new ChatCommandResult { Kind = ChatCommandResultKind.InspectPos },
+                    "targetinfo" or "ti" => new ChatCommandResult { Kind = ChatCommandResultKind.InspectTargetInfo },
+                    "nearby" or "scan" or "entities" => ParseNearbyCommand(args),
+                    "vitals" or "hp" or "stats" => new ChatCommandResult { Kind = ChatCommandResultKind.InspectVitals },
+
+                    // Targeting
+                    "ta" or "target" => ParseTargetCommand(args, world),
+
+                    // Synthetic Locomotion (Policy-Gated)
+                    "moveto" or "goto" => ParseMoveToCommand(args),
 
                     _ => new ChatCommandResult
                     {
@@ -453,6 +475,131 @@ namespace Gordian.Core.Network
                 TargetServerId = targetId,
                 TargetIndex = targetIndex,
                 TargetName = targetName
+            };
+        }
+
+        private static ChatCommandResult ParseTargetCommand(string args, WorldState? world)
+        {
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                return new ChatCommandResult
+                {
+                    Kind = ChatCommandResultKind.SetTarget,
+                    TargetName = string.Empty
+                };
+            }
+
+            string targetName = args.Trim();
+            if (targetName.StartsWith('<') && targetName.EndsWith('>'))
+            {
+                targetName = targetName.Substring(1, targetName.Length - 2).Trim();
+            }
+
+            if (targetName.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
+                uint.TryParse(targetName.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out uint srvId))
+            {
+                if (world != null && world.TryGetByServerId(srvId, out var hexEntity) && hexEntity != null)
+                {
+                    return new ChatCommandResult
+                    {
+                        Kind = ChatCommandResultKind.SetTarget,
+                        TargetServerId = hexEntity.ServerId,
+                        TargetIndex = hexEntity.TargetIndex,
+                        TargetName = hexEntity.Name
+                    };
+                }
+            }
+
+            if (ushort.TryParse(targetName, out ushort targetIndex))
+            {
+                if (world != null && world.TryGetByTargetIndex(targetIndex, out var entity) && entity != null)
+                {
+                    return new ChatCommandResult
+                    {
+                        Kind = ChatCommandResultKind.SetTarget,
+                        TargetServerId = entity.ServerId,
+                        TargetIndex = entity.TargetIndex,
+                        TargetName = entity.Name
+                    };
+                }
+            }
+
+            if (world != null && world.TryGetByName(targetName, out var targetEntity) && targetEntity != null)
+            {
+                return new ChatCommandResult
+                {
+                    Kind = ChatCommandResultKind.SetTarget,
+                    TargetServerId = targetEntity.ServerId,
+                    TargetIndex = targetEntity.TargetIndex,
+                    TargetName = targetEntity.Name
+                };
+            }
+
+            return new ChatCommandResult
+            {
+                Kind = ChatCommandResultKind.SetTarget,
+                TargetName = targetName
+            };
+        }
+
+        private static ChatCommandResult ParseNearbyCommand(string args)
+        {
+            float radius = 50.0f;
+            if (!string.IsNullOrWhiteSpace(args) && float.TryParse(args.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float r))
+            {
+                radius = Math.Max(1.0f, r);
+            }
+
+            return new ChatCommandResult
+            {
+                Kind = ChatCommandResultKind.InspectNearby,
+                ParamFloat = radius
+            };
+        }
+
+        private static ChatCommandResult ParseMoveToCommand(string args)
+        {
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                return new ChatCommandResult
+                {
+                    Kind = ChatCommandResultKind.LocalNotice,
+                    Message = "Usage: /moveto <x> <y> [z]"
+                };
+            }
+
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                return new ChatCommandResult
+                {
+                    Kind = ChatCommandResultKind.LocalNotice,
+                    Message = "Usage: /moveto <x> <y> [z]"
+                };
+            }
+
+            if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x) ||
+                !float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y))
+            {
+                return new ChatCommandResult
+                {
+                    Kind = ChatCommandResultKind.LocalNotice,
+                    Message = "Invalid coordinates. Usage: /moveto <x> <y> [z]"
+                };
+            }
+
+            float z = 0f;
+            if (parts.Length >= 3)
+            {
+                float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out z);
+            }
+
+            return new ChatCommandResult
+            {
+                Kind = ChatCommandResultKind.SyntheticMoveTo,
+                MoveX = x,
+                MoveY = y,
+                MoveZ = z
             };
         }
     }

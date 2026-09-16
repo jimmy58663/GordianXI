@@ -38,6 +38,18 @@ namespace Gordian.App
                 chatWin.Show(this);
             };
 
+            _viewModel.Console.RequestScrollToEnd += (s, e) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    var listBox = this.FindControl<ListBox>("ConsoleListBox");
+                    if (listBox != null && listBox.ItemCount > 0)
+                    {
+                        listBox.ScrollIntoView(listBox.ItemCount - 1);
+                    }
+                });
+            };
+
             _ipcServer = new HandoffPipeServer();
             _ipcServer.SessionReceived += OnSessionTokenIntercepted;
             _ipcServer.Start();
@@ -100,6 +112,25 @@ namespace Gordian.App
             if (e.Key == Key.Enter && _viewModel.Chat.CanSendMessage())
             {
                 _ = _viewModel.Chat.ExecuteSendMessageAsync();
+                e.Handled = true;
+            }
+        }
+
+        private void OnConsoleInputKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                _ = _viewModel.Console.ExecuteInputAsync();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Up)
+            {
+                _viewModel.Console.HistoryPrevious();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Down)
+            {
+                _viewModel.Console.HistoryNext();
                 e.Handled = true;
             }
         }

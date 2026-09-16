@@ -138,9 +138,9 @@ namespace Gordian.Core.Network.Packets
             UpdateFlags = (EntityUpdateFlags)payload[6];
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            // FFXI wire format stores (X, Z, Y) at (+8, +12, +16) relative to payload start (or +0x0C, +0x10, +0x14 with 4-byte header)
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI wire format stores (X, Elevation, North/South) at (+8, +12, +16) relative to payload start
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));
             Speed = payload[24];
             SpeedBase = payload[25];
@@ -402,8 +402,9 @@ namespace Gordian.Core.Network.Packets
             UpdateFlags = (EntityUpdateFlags)payload[6];
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI wire format stores (X, Elevation, North/South) at (+8, +12, +16) relative to payload start
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));
             Speed = payload[24];
             SpeedBase = payload[25];

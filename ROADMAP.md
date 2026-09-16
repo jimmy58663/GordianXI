@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 332 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 354 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -96,9 +96,12 @@
 ---
 
 ### ⏳ Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
-- [ ] **Interactive Character Command Console (CLI):**
-  - [ ] In-client interactive console tab to control character via slash commands (`/pos`, `/target`, `/attack`, `/ws`, `/magic`, `/item`, `/heal`, `/zone <id>`, `/moveto x y z`)
-  - [ ] Headless/early verification of movement, combat, and zoning without requiring full 3D rendering
+- [x] **Interactive Character Command Console (CLI) & Action Subsystem:**
+  - [x] Unified `PlayerActionService` in `Gordian.Core` (typed methods for combat, magic, abilities, targeting, and locomotion)
+  - [x] In-client interactive console tab in `Gordian.App` with history navigation (Up/Down arrows), color-coded output, autoscroll, and slash commands (`/pos`, `/target`, `/attack`, `/ws`, `/magic`, `/vitals`, `/nearby`, `/moveto x y z`)
+  - [x] Command permission & policy gating: distinction between standard vanilla commands (always allowed), server admin passthrough (`!pos`, `!zone`), and synthetic locomotion gated behind `ServerAutomationPolicy.StrictVanilla`
+  - [x] Headless/early verification of movement, combat, and zoning against live server without requiring 3D rendering
+  - [x] Robust locomotion keepalive synchronization and automated C2S 0x016 CharReq entity discovery for reliable live server and Windower multi-session pairing
 - [ ] **Cross-Platform Input Subsystem:**
   - [ ] **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad)
   - [ ] **Gamepad / Controller:** Full XInput, DirectInput, and SDL/Silk gamepad support (Xbox, PlayStation, generic HID) with deadzone, rumble, and axis calibration
@@ -120,6 +123,10 @@
   - [ ] Lua VM (NLua / KeraLua) with Windower/Ashita API compatibility shims
   - [ ] JavaScript / TypeScript VM (QuickJS / V8)
   - [ ] Strict isolation: Sandboxed I/O, event bus (`on_packet_in`, `on_packet_out`, `on_chat`, `on_zone_change`), zero access to `Gordian.Automation`
+- [ ] **Capability-Based Security & Server Policy Enforcement:**
+  - [ ] Addon manifest permission model (`manifest.json` capabilities: e.g., `ui.draw`, `chat.read`, `world.query` vs restricted `action.inject`, `locomotion.override`)
+  - [ ] Dynamic API gating tied to `ServerAutomationPolicy`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes
+  - [ ] Dual trust tiers: cryptographically signed packages from official addon registry vs unsigned local development scripts
 - [ ] **Addon Ecosystem & Package Manager:**
   - [ ] Central community repository manifest (`gordianxi/addons-index`) tracking verified plugins, versions, and dependencies
   - [ ] In-client Addon Browser: Search, 1-click install, auto-update check, enable/disable toggles

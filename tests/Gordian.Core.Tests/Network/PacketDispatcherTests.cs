@@ -99,8 +99,8 @@ namespace Gordian.Core.Tests.Network
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 42);   // ActIndex
             payload[7] = 128; // Dir
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.5f);  // X
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), -20.2f); // Z
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 5.0f);   // Y
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 5.0f);   // Y (Elevation)
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), -20.2f); // Z (North/South)
 
             var ack = new S2C_0x00A_LoginAck(payload);
 
@@ -109,8 +109,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((ushort)42, ack.ActorIndex);
             Assert.Equal((byte)128, ack.Direction);
             Assert.Equal(10.5f, ack.X);
-            Assert.Equal(-20.2f, ack.Z);
             Assert.Equal(5.0f, ack.Y);
+            Assert.Equal(-20.2f, ack.Z);
         }
 
         [Fact]

@@ -1,8 +1,11 @@
 // tests/Gordian.Core.Tests/Network/EntityPacketTests.cs
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -18,8 +21,8 @@ namespace Gordian.Core.Tests.Network
             payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.Model | EntityUpdateFlags.Name);
             payload[7] = 128; // dir
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.5f);  // X
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 30.5f); // Z
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 20.5f); // Y
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 20.5f); // Y (Elevation)
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 30.5f); // Z (North/South)
             payload[24] = 50;  // Speed
             payload[25] = 50;  // SpeedBase
             payload[26] = 95;  // Hpp
@@ -120,8 +123,8 @@ namespace Gordian.Core.Tests.Network
             payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name);
             payload[7] = 64;
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 100.0f);
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 300.0f);
-            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 200.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 200.0f); // Y (Elevation)
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 300.0f); // Z (North/South)
             payload[24] = 40; // Speed
             payload[26] = 100; // Hpp
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40, 4), 0x11223344); // ClaimId
@@ -517,6 +520,98 @@ namespace Gordian.Core.Tests.Network
             // Fallback estimation should set CurrentHp = 1000 * 88 / 100 = 880
             Assert.Equal(880, state.CurrentHp);
             Assert.Equal(1000, state.MaxHp);
+        }
+
+        [Fact]
+        public void EntityPacketModule_NamelessPc_TriggersCharReqPacket()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var sentPackets = new List<byte[]>();
+            var dispatcher = new PacketDispatcher();
+
+            var module = new EntityPacketModule(world, localPlayer, (chunk, enc) =>
+            {
+                sentPackets.Add(chunk.ToArray());
+                return Task.CompletedTask;
+            });
+            module.Register(dispatcher);
+
+            // PC update (0x00D) without Name flag (only Position and General)
+            byte[] payload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x0123);
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General);
+            payload[26] = 100; // Hpp
+
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(payload.Length + 4), 1), payload);
+
+            // Verify an outbound C2S 0x016 (CharReq) was triggered for ActIndex 0x0123
+            Assert.NotEmpty(sentPackets);
+            var charReq = sentPackets[0];
+            ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(charReq.AsSpan(0, 2)) & 0x1FF);
+            Assert.Equal(0x016, packetId);
+            ushort requestedIndex = BinaryPrimitives.ReadUInt16LittleEndian(charReq.AsSpan(4, 2));
+            Assert.Equal(0x0123, requestedIndex);
+        }
+
+        [Fact]
+        public void EntityPacketModule_DeltaPositionUpdate_PreservesCachedHpp()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (chunk, enc) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            // 1. Initial PC update with General flag and HPP = 85
+            byte[] p1 = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(p1.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(p1.AsSpan(4, 2), 0x0123);
+            p1[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General);
+            p1[26] = 85; // Hpp
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p1.Length + 4), 1), p1);
+
+            Assert.True(world.TryGetByServerId(0x01020304, out var ent));
+            Assert.Equal(85, ent!.Hpp);
+
+            // 2. Subsequent position delta update where General flag is 0 and HPP is 0
+            byte[] p2 = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(p2.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(p2.AsSpan(4, 2), 0x0123);
+            p2[6] = (byte)EntityUpdateFlags.Position; // Position only
+            p2[26] = 0; // Hpp is 0 on position deltas
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p2.Length + 4), 2), p2);
+
+            // Entity Hpp should still be 85!
+            Assert.Equal(85, ent.Hpp);
+        }
+
+        [Fact]
+        public void EntityPacketModule_RateLimitsCharReq()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var sentPackets = new List<byte[]>();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (chunk, enc) =>
+            {
+                sentPackets.Add(chunk.ToArray());
+                return Task.CompletedTask;
+            });
+            module.Register(dispatcher);
+
+            byte[] payload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x0123);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+
+            // Dispatch twice immediately
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(payload.Length + 4), 1), payload);
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(payload.Length + 4), 2), payload);
+
+            // Only 1 CharReq packet should have been sent due to rate-limiting
+            Assert.Single(sentPackets);
         }
     }
 }

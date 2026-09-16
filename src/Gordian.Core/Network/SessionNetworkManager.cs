@@ -165,6 +165,11 @@ namespace Gordian.Core.Network
         public CombatPacketModule CombatModule => _parser.CombatModule;
 
         /// <summary>
+        /// Gets the unified player action coordinator service.
+        /// </summary>
+        public Actions.PlayerActionService ActionService => _parser.ActionService;
+
+        /// <summary>
         /// Unique Character ID assigned by the server database.
         /// </summary>
         public uint CharacterId { get; set; }
@@ -270,6 +275,14 @@ namespace Gordian.Core.Network
                 TargetIndex = actIndex;
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
+            _parser.ActionService.LocalPlayerMoved += (pos, dir) =>
+            {
+                PositionX = pos.X;
+                PositionY = pos.Y;
+                PositionZ = pos.Z;
+                Direction = dir;
+            };
+            _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
                 GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
@@ -530,6 +543,17 @@ namespace Gordian.Core.Network
                         // generate a 0x015 GP_CLI_POS keepalive heartbeat datagram.
                         if (_currentBufferLength == 0 && (CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData))
                         {
+                            // Pull latest position and heading from WorldState if available
+                            if (_parser.LocalPlayer.ServerId != 0 &&
+                                _parser.World.TryGetByServerId(_parser.LocalPlayer.ServerId, out var localEnt) &&
+                                localEnt != null)
+                            {
+                                PositionX = localEnt.Position.X;
+                                PositionY = localEnt.Position.Y;
+                                PositionZ = localEnt.Position.Z;
+                                Direction = localEnt.Direction;
+                            }
+
                             byte[] posPacket = HandshakePackets.BuildPosPingPongSubPacket(
                                 sequenceId: 0, // will be stamped to clientSeq in FlushBundledPacketAsync
                                 x: PositionX,

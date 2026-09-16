@@ -18,6 +18,7 @@ namespace Gordian.Core.Network.Packets
         private readonly LocalPlayerState _localPlayer;
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
         private readonly Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? _logPacketCallback;
+        private readonly Dictionary<ushort, DateTime> _pendingEntityRequests = new();
 
         public bool LogOutboundOnRoute { get; set; } = true;
 
@@ -68,6 +69,7 @@ namespace Gordian.Core.Network.Packets
             if (pc.IsDespawn)
             {
                 GordianLog.Debug("ENTITY", $"PC despawn: ServerId=0x{pc.UniqueNo:X8}, Index={pc.ActorIndex}");
+                _pendingEntityRequests.Remove(pc.ActorIndex);
                 _world.RemoveEntity(pc.UniqueNo);
                 return;
             }
@@ -89,7 +91,10 @@ namespace Gordian.Core.Network.Packets
                 player.SpeedBase = pc.SpeedBase;
             }
 
-            player.Hpp = pc.Hpp;
+            if (pc.Hpp > 0 || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
+            {
+                player.Hpp = pc.Hpp;
+            }
             player.AnimationState = pc.ServerStatus;
             player.ClaimServerId = pc.BtTargetId;
 
@@ -125,7 +130,13 @@ namespace Gordian.Core.Network.Packets
                 if (!string.IsNullOrEmpty(name))
                 {
                     player.Name = name;
+                    _pendingEntityRequests.Remove(pc.ActorIndex);
                 }
+            }
+
+            if (string.IsNullOrEmpty(player.Name))
+            {
+                TryRequestEntityInfo(pc.ActorIndex);
             }
 
             _world.UpsertEntity(player);
@@ -139,6 +150,7 @@ namespace Gordian.Core.Network.Packets
             if (npcPacket.IsDespawn)
             {
                 GordianLog.Debug("ENTITY", $"NPC/Mob despawn: ServerId=0x{npcPacket.UniqueNo:X8}, Index={npcPacket.ActorIndex}");
+                _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 _world.RemoveEntity(npcPacket.UniqueNo);
                 return;
             }
@@ -170,7 +182,10 @@ namespace Gordian.Core.Network.Packets
                 entity.SpeedBase = npcPacket.SpeedBase;
             }
 
-            entity.Hpp = npcPacket.Hpp;
+            if (npcPacket.Hpp > 0 || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
+            {
+                entity.Hpp = npcPacket.Hpp;
+            }
             entity.AnimationState = npcPacket.ServerStatus;
             entity.ClaimServerId = npcPacket.ClaimId;
 
@@ -186,7 +201,13 @@ namespace Gordian.Core.Network.Packets
                 if (!string.IsNullOrEmpty(name))
                 {
                     entity.Name = name;
+                    _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 }
+            }
+
+            if (string.IsNullOrEmpty(entity.Name) && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)
+            {
+                TryRequestEntityInfo(npcPacket.ActorIndex);
             }
 
             _world.UpsertEntity(entity);
@@ -311,6 +332,16 @@ namespace Gordian.Core.Network.Packets
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x00F, 0, packet);
             }
             return _sendChunkCallback(packet, true);
+        }
+
+        private void TryRequestEntityInfo(ushort actorIndex)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (!_pendingEntityRequests.TryGetValue(actorIndex, out var lastReq) || (now - lastReq).TotalSeconds >= 2.0)
+            {
+                _pendingEntityRequests[actorIndex] = now;
+                _ = RequestEntityInfoAsync(actorIndex);
+            }
         }
     }
 }

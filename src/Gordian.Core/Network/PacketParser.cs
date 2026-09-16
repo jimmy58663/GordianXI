@@ -40,6 +40,7 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
+        private readonly Actions.PlayerActionService _actionService;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -90,6 +91,17 @@ namespace Gordian.Core.Network
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
 
+            _actionService = new Actions.PlayerActionService(
+                _profile,
+                _world,
+                _localPlayer,
+                _combatModule,
+                _chatModule,
+                _partyModule,
+                _entityModule,
+                _lifecycleModule,
+                _sendChunkCallback);
+
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
                 System.Diagnostics.Debug.WriteLine(
@@ -97,6 +109,11 @@ namespace Gordian.Core.Network
                 );
             };
         }
+
+        /// <summary>
+        /// Gets the unified player action service for coordinating user commands, combat, movement, and automation.
+        /// </summary>
+        public Actions.PlayerActionService ActionService => _actionService;
 
         /// <summary>
         /// Gets the direct-indexed packet dispatcher used by this parser.

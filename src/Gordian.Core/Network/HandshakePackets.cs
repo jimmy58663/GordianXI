@@ -205,8 +205,8 @@ namespace Gordian.Core.Network
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
 
             BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), z);
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), y);
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), y); // Elevation / Height
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), z); // North / South
 
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(16, 2), 0); // MovTime
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(18, 2), 0); // MoveFlame

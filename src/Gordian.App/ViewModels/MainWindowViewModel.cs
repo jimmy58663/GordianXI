@@ -55,6 +55,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public InventoryViewModel Inventory { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the interactive character command console (CLI) tab.
+        /// </summary>
+        public CommandConsoleViewModel Console { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -626,6 +631,7 @@ namespace Gordian.App.ViewModels
             StateInspector.Dispose();
             Chat.Dispose();
             Inventory.Dispose();
+            Console.Dispose();
         }
     }
 }
