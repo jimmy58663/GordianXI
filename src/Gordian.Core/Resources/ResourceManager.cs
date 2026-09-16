@@ -7,12 +7,14 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.Resources.Vfs;
+using Gordian.Core.Resources.Vfs.Models;
 
 namespace Gordian.Core.Resources
 {
     /// <summary>
     /// Thread-safe client resource manager providing cached, high-speed access to FFXI ROM assets,
-    /// DMsg string tables, item databases, and file table mappings.
+    /// DMsg string tables, item databases, and file table mappings via the Modular VFS.
     /// Derived from community research in xi-model-viewer (https://github.com/vekien/xi-model-viewer)
     /// and LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
@@ -20,38 +22,58 @@ namespace Gordian.Core.Resources
     {
         private readonly object _lock = new();
         private readonly string _gameDirectory;
+        private readonly IVirtualFileSystem _vfs;
         private readonly FileTableResolver _fileTable = new();
 
         private readonly ConcurrentDictionary<uint, ItemRecord> _itemCache = new();
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
 
         public string GameDirectory => _gameDirectory;
+        public IVirtualFileSystem Vfs => _vfs;
         public FileTableResolver FileTable => _fileTable;
 
         public ResourceManager(string gameDirectory)
+            : this(gameDirectory, null, null)
+        {
+        }
+
+        public ResourceManager(string gameDirectory, string? resourcesDirectory, IVirtualFileSystem? vfs = null)
         {
             _gameDirectory = gameDirectory ?? string.Empty;
+            _vfs = vfs ?? new VirtualFileSystem(_gameDirectory, resourcesDirectory);
         }
 
         /// <summary>
-        /// Initializes the master file table resolver by reading FTABLE.DAT and VTABLE.DAT from the game root.
+        /// Initializes the master file table resolver by reading FTABLE.DAT and VTABLE.DAT.
+        /// First checks the Modular VFS for overlays, then falls back to the base game root.
         /// </summary>
         public bool InitializeFileTable()
         {
-            if (string.IsNullOrWhiteSpace(_gameDirectory) || !Directory.Exists(_gameDirectory))
-            {
-                return false;
-            }
-
             try
             {
-                string ftable = Path.Combine(_gameDirectory, "FTABLE.DAT");
-                string vtable = Path.Combine(_gameDirectory, "VTABLE.DAT");
+                byte[]? ftBytes = null;
+                byte[]? vtBytes = null;
 
-                if (File.Exists(ftable) && File.Exists(vtable))
+                if (_vfs.TryResolveDat("FTABLE.DAT", out var ftAsset) &&
+                    _vfs.TryResolveDat("VTABLE.DAT", out var vtAsset))
                 {
-                    byte[] ftBytes = File.ReadAllBytes(ftable);
-                    byte[] vtBytes = File.ReadAllBytes(vtable);
+                    ftBytes = ftAsset!.ReadAllBytes();
+                    vtBytes = vtAsset!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrWhiteSpace(_gameDirectory) && Directory.Exists(_gameDirectory))
+                {
+                    string ftable = Path.Combine(_gameDirectory, "FTABLE.DAT");
+                    string vtable = Path.Combine(_gameDirectory, "VTABLE.DAT");
+
+                    if (File.Exists(ftable) && File.Exists(vtable))
+                    {
+                        ftBytes = File.ReadAllBytes(ftable);
+                        vtBytes = File.ReadAllBytes(vtable);
+                    }
+                }
+
+                if (ftBytes != null && vtBytes != null)
+                {
                     _fileTable.LoadTablePair(ftBytes, vtBytes);
                     GordianLog.Info("RES", $"Loaded master file table with {_fileTable.Count} entries.");
                     return true;
@@ -66,14 +88,23 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Attempts to resolve a numeric File ID to its absolute path on disk.
+        /// Attempts to resolve a numeric File ID to its physical path on disk via the VFS or base game directory.
         /// </summary>
         public bool TryResolveFile(int fileId, out string fullPath)
         {
             if (_fileTable.TryResolve(fileId, out var relPath))
             {
-                fullPath = Path.Combine(_gameDirectory, relPath);
-                return File.Exists(fullPath);
+                if (_vfs.TryResolveDat(relPath, out var resolved))
+                {
+                    fullPath = resolved!.PhysicalPath;
+                    return true;
+                }
+
+                if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    fullPath = Path.Combine(_gameDirectory, relPath);
+                    return File.Exists(fullPath);
+                }
             }
 
             fullPath = string.Empty;
@@ -85,19 +116,33 @@ namespace Gordian.Core.Resources
         /// </summary>
         public DatDirectoryNode? LoadDatTree(string relativePath)
         {
-            string fullPath = Path.Combine(_gameDirectory, relativePath);
-            if (!File.Exists(fullPath)) return null;
-
             try
             {
-                byte[] bytes = File.ReadAllBytes(fullPath);
-                return DatDirectoryTree.Build(bytes);
+                byte[]? bytes = null;
+                if (_vfs.TryResolveDat(relativePath, out var resolved))
+                {
+                    bytes = resolved!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string fullPath = Path.Combine(_gameDirectory, relativePath);
+                    if (File.Exists(fullPath))
+                    {
+                        bytes = File.ReadAllBytes(fullPath);
+                    }
+                }
+
+                if (bytes != null)
+                {
+                    return DatDirectoryTree.Build(bytes);
+                }
             }
             catch (Exception ex)
             {
                 GordianLog.Error("RES", $"Failed to load DAT tree for {relativePath}: {ex.Message}");
-                return null;
             }
+
+            return null;
         }
 
         /// <summary>
@@ -113,19 +158,32 @@ namespace Gordian.Core.Resources
             string relPath = GetDMsgRelativePath(category);
             if (string.IsNullOrEmpty(relPath)) return null;
 
-            string fullPath = Path.Combine(_gameDirectory, relPath);
-            if (!File.Exists(fullPath)) return null;
-
             try
             {
-                byte[] bytes = File.ReadAllBytes(fullPath);
-                var fieldNames = GetDMsgFieldNames(category);
-                var table = DMsgStringTable.Parse(bytes, fieldNames);
-
-                if (table != null)
+                byte[]? bytes = null;
+                if (_vfs.TryResolveDat(relPath, out var resolved))
                 {
-                    _dmsgCache.TryAdd(category, table);
-                    return table;
+                    bytes = resolved!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string fullPath = Path.Combine(_gameDirectory, relPath);
+                    if (File.Exists(fullPath))
+                    {
+                        bytes = File.ReadAllBytes(fullPath);
+                    }
+                }
+
+                if (bytes != null)
+                {
+                    var fieldNames = GetDMsgFieldNames(category);
+                    var table = DMsgStringTable.Parse(bytes, fieldNames);
+
+                    if (table != null)
+                    {
+                        _dmsgCache.TryAdd(category, table);
+                        return table;
+                    }
                 }
             }
             catch (Exception ex)
@@ -181,30 +239,44 @@ namespace Gordian.Core.Resources
         /// </summary>
         public int LoadItemDat(string relativePath)
         {
-            string fullPath = Path.Combine(_gameDirectory, relativePath);
-            if (!File.Exists(fullPath)) return 0;
-
             try
             {
-                byte[] bytes = File.ReadAllBytes(fullPath);
-                var items = ItemTableDecoder.ParseItemDat(bytes);
-                int loaded = 0;
-
-                for (int i = 0; i < items.Count; i++)
+                byte[]? bytes = null;
+                if (_vfs.TryResolveDat(relativePath, out var resolved))
                 {
-                    var item = items[i];
-                    _itemCache[item.ItemId] = item;
-                    loaded++;
+                    bytes = resolved!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string fullPath = Path.Combine(_gameDirectory, relativePath);
+                    if (File.Exists(fullPath))
+                    {
+                        bytes = File.ReadAllBytes(fullPath);
+                    }
                 }
 
-                GordianLog.Info("RES", $"Loaded {loaded} items from {relativePath}");
-                return loaded;
+                if (bytes != null)
+                {
+                    var items = ItemTableDecoder.ParseItemDat(bytes);
+                    int loaded = 0;
+
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var item = items[i];
+                        _itemCache[item.ItemId] = item;
+                        loaded++;
+                    }
+
+                    GordianLog.Info("RES", $"Loaded {loaded} items from {relativePath}");
+                    return loaded;
+                }
             }
             catch (Exception ex)
             {
                 GordianLog.Error("RES", $"Failed to load items from {relativePath}: {ex.Message}");
-                return 0;
             }
+
+            return 0;
         }
 
         /// <summary>

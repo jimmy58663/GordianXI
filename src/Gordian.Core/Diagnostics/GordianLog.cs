@@ -79,6 +79,11 @@ namespace Gordian.Core.Diagnostics
         }
 
         /// <summary>
+        /// Alias for Warning.
+        /// </summary>
+        public static void Warn(string category, string message) => Warning(category, message);
+
+        /// <summary>
         /// Emits an error message with optional exception details.
         /// </summary>
         public static void Error(string category, string message, Exception? ex = null)

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://gordianxi.org/schemas/vfs-manifest-v1.json",
+  "id": "pbr_haubergeon_overhaul",
+  "name": "PBR Haubergeon Remaster",
+  "version": "1.0.0",
+  "author": "VanaDielArtist",
+  "description": "High-poly physically-based rendering overhaul for Haubergeon armor and its recolors.",
+  "overrides": {
+    "items": {
+      "12502": {
+        "model": "models/characters/hume_m/body/haubergeon.glb",
+        "materialVariant": "iron"
+      },
+      "12503": {
+        "model": "models/characters/hume_m/body/haubergeon.glb",
+        "materialVariant": "silver"
+      }
+    },
+    "datAliases": {
+      "ROM/28/52.DAT": "models/characters/hume_m/body/haubergeon.glb",
+      "ROM/28/53.DAT": "models/characters/hume_f/body/haubergeon.glb"
+    }
+  },
+  "skeleton": {
+    "type": "ffxi_standard",
+    "retargeting": "auto"
+  }
+}

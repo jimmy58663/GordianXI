@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 313 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 320 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 4: World State, DAT Resource Pipeline & Modular VFS (MVP Core)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -82,10 +82,13 @@
 - [x] **FFXI DAT Binary Decoders (`Gordian.Core/Resources`):**
   - [x] Clean-room decoders for ROM directory DAT files (string tables, item tables, spell/ability tables)
   - [x] Zone collision meshes, terrain geometry, entity models, and animation tables
-- [ ] **Modular Virtual File System (VFS) & Asset Overrides (XIPivot Architecture):**
-  - [ ] Priority-based asset resolution (`resources/mods/` overrides $\rightarrow$ base FFXI `.DAT` files)
-  - [ ] Modern asset format support: **glTF 2.0 / FBX** models, **PNG / DDS (BC7)** high-res textures with normal/PBR maps, **OGG / FLAC** audio
-  - [ ] Structured **JSON / YAML** data overrides alongside binary DMsg string tables
+- [x] **Modular Virtual File System (VFS) & Asset Overrides (XIPivot Architecture):**
+  - [x] Tiered VFS search paths (portable local root + `%LOCALAPPDATA%` user storage)
+  - [x] XIPivot-compatible legacy DAT overlay scanner (`resources/dats/`) with uppercase invariant indexing
+  - [x] Modern asset pack scanner (`resources/assets/`) with `manifest.json` parsing and DAT aliasing (`.glb` replacing `.DAT`)
+  - [x] Master `vfs.json` load order, priority stacking, and pack auto-discovery
+  - [x] Safe debounced runtime hot-reloading with master toggle
+  - [x] Modder documentation and reference manifests distributed in `resources/`
 - [ ] **State & Memory Health Telemetry:**
   - [ ] Managed heap & GC pressure counters (.NET 10 Gen 0/1/2 collection tracking, heap allocation velocity)
   - [ ] Spatial partition & uniform grid query duration tracking with entity dead-reckoning cycle time benchmarking

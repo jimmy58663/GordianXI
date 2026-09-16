@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "enabled": true,
+  "hotReload": true,
+  "dats": [
+    {
+      "id": "HD_UI",
+      "enabled": true,
+      "priority": 100
+    },
+    {
+      "id": "AshenbubsHD",
+      "enabled": true,
+      "priority": 50
+    }
+  ],
+  "assets": [
+    {
+      "id": "PBR_Characters",
+      "enabled": true,
+      "priority": 100
+    },
+    {
+      "id": "Orchestral_Music",
+      "enabled": true,
+      "priority": 50
+    }
+  ]
+}
