@@ -1,0 +1,122 @@
+// tests/Gordian.Core.Tests/Input/PlayerLocomotionControllerTests.cs
+using System;
+using System.Numerics;
+using System.Threading.Tasks;
+using Gordian.Core.Actions;
+using Gordian.Core.Config;
+using Gordian.Core.Input;
+using Gordian.Core.Network;
+using Gordian.Core.World;
+using Xunit;
+
+namespace Gordian.Core.Tests.Input
+{
+    public sealed class PlayerLocomotionControllerTests
+    {
+        private (PlayerLocomotionController controller, InputState input, WorldState world, LocalPlayerState player, PlayerEntity localEnt) CreateTestHarness()
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x12345678 };
+            var localEnt = new PlayerEntity(player.ServerId, 1)
+            {
+                Name = "TestPlayer",
+                Position = Vector3.Zero,
+                Direction = 0, // Facing East (+X)
+                Speed = 0,
+                IsSpawned = true
+            };
+            world.UpsertEntity(localEnt);
+
+            var profile = InputProfile.CreateCompact();
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, profile, world, player);
+
+            return (controller, input, world, player, localEnt);
+        }
+
+        [Fact]
+        public void Update_WhenHoldingMoveForward_MovesPlayerAlongHeadingAtRunSpeed()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            // Heading 0 = East (+X)
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+
+            // Press W (MoveForward)
+            input.SetKeyDown(GordianKey.W);
+
+            // Update for 1.0 second
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Standard run speed = 50 => 5.0 yalms/sec along +X
+            Assert.Equal(50, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 4.99f, 5.01f);
+            Assert.InRange(localEnt.Position.Y, -0.01f, 0.01f);
+            Assert.InRange(localEnt.Position.Z, -0.01f, 0.01f);
+        }
+
+        [Fact]
+        public void Update_WhenWalking_MovesPlayerAtWalkSpeed()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+
+            input.SetKeyDown(GordianKey.W);
+            input.IsWalking = true;
+
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Walk speed = 25 => 2.5 yalms/sec along +X
+            Assert.Equal(25, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 2.49f, 2.51f);
+        }
+
+        [Fact]
+        public void Update_WhenTurning_UpdatesPlayerDirection()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0; // 0 degrees
+            input.SetKeyDown(GordianKey.D); // TurnRight (180 deg/sec)
+
+            // 0.5s turn => 90 degrees clockwise (South in FFXI = 64)
+            controller.Update(TimeSpan.FromSeconds(0.5));
+
+            Assert.Equal(64, localEnt.Direction);
+        }
+
+        [Fact]
+        public void Update_CameraMouseDrag_UpdatesPitchAndYaw()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            controller.CameraPitch = 15.0f;
+            controller.CameraYaw = 0.0f;
+
+            input.AddMouseDelta(100.0f, -50.0f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.True(controller.CameraYaw > 0.0f);
+            Assert.True(controller.CameraPitch < 15.0f);
+        }
+
+        [Fact]
+        public void Update_ResetCamera_AlignsWithPlayerHeading()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            // Set player facing South (64 = 90 degrees)
+            localEnt.Direction = 64;
+            controller.CameraYaw = 270.0f;
+
+            input.SetKeyDown(GordianKey.End); // ResetCamera
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.InRange(controller.CameraYaw, 89.0f, 91.0f);
+            Assert.Equal(15.0f, controller.CameraPitch);
+        }
+    }
+}

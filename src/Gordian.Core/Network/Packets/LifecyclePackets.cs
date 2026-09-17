@@ -136,9 +136,10 @@ namespace Gordian.Core.Network.Packets
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            // FFXI wire format stores (X, Elevation, North/South) at (+8, +12, +16) relative to payload
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI native convention: X = East/West, Y = North/South, Z = Elevation.
+            // Wire format packs (X at +8, Elevation [Z] at +12, North/South [Y] at +16)
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
             IsValid = true;
         }
     }
@@ -298,8 +299,8 @@ namespace Gordian.Core.Network.Packets
             }
 
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Elevation
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // North/South
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
             Mode = (PosMode)payload[18];
@@ -341,8 +342,8 @@ namespace Gordian.Core.Network.Packets
             }
 
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Elevation
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // North/South
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
             Mode = (PosMode)payload[18];
@@ -408,6 +409,11 @@ namespace Gordian.Core.Network.Packets
             return packet;
         }
 
+        /// <summary>
+        /// Builds the 32-byte GP_CLI_POS (0x015) position sub-packet into a destination span.
+        /// </summary>
+        /// <param name="moveFrame">Client locomotion animation frame counter (Run Count, accumulating frame counter when moving, 1 when stationary).</param>
+        /// <param name="isWalking">True if character is walking rather than running (sets RunMode bit).</param>
         public static void BuildPos(
             Span<byte> destination,
             ushort sequenceId = 0,
@@ -415,7 +421,9 @@ namespace Gordian.Core.Network.Packets
             float y = 0f,
             float z = 0f,
             byte dir = 0,
-            ushort targetIndex = 0)
+            ushort targetIndex = 0,
+            ushort moveFrame = 0,
+            bool isWalking = false)
         {
             if (destination.Length < PosSubPacketSize)
                 throw new ArgumentException($"Destination must be at least {PosSubPacketSize} bytes.", nameof(destination));
@@ -425,9 +433,13 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
             BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), y); // Elevation / Height
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), z); // North / South
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), z); // Wire offset 8 is Elevation (PS2: z)
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), y); // Wire offset 12 is North/South (PS2: y)
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(18, 2), moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
             destination[20] = dir;
+            byte modes = (byte)((targetIndex != 0 ? 0x01 : 0x00) | (isWalking ? 0x02 : 0x00));
+            destination[21] = modes; // Bit 0 = TargetMode, Bit 1 = RunMode (0 = run, 1 = walk)
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(22, 2), targetIndex);
             BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(24, 4), (uint)Environment.TickCount);
         }
@@ -438,10 +450,12 @@ namespace Gordian.Core.Network.Packets
             float y = 0f,
             float z = 0f,
             byte dir = 0,
-            ushort targetIndex = 0)
+            ushort targetIndex = 0,
+            ushort moveFrame = 0,
+            bool isWalking = false)
         {
             byte[] packet = new byte[PosSubPacketSize];
-            BuildPos(packet.AsSpan(), sequenceId, x, y, z, dir, targetIndex);
+            BuildPos(packet.AsSpan(), sequenceId, x, y, z, dir, targetIndex, moveFrame, isWalking);
             return packet;
         }
 
@@ -693,10 +707,10 @@ namespace Gordian.Core.Network.Packets
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
 
         /// <summary>
-        /// Optional delegate to retrieve the player's current position and heading when answering server 0x015 PosPing.
-        /// Returns (X, Y [Elevation], Z [North/South], Dir, TargetIndex).
+        /// Optional delegate to retrieve the player's current position, heading, and locomotion state when answering server 0x015 PosPing.
+        /// Returns (X, Y [Elevation], Z [North/South], Dir, TargetIndex, MoveFrame, IsWalking).
         /// </summary>
-        public Func<(float X, float Y, float Z, byte Dir, ushort TargetIndex)>? PositionProvider { get; set; }
+        public Func<(float X, float Y, float Z, byte Dir, ushort TargetIndex, ushort MoveFrame, bool IsWalking)>? PositionProvider { get; set; }
 
         public bool LogOutboundOnRoute { get; set; } = true;
 
@@ -805,14 +819,16 @@ namespace Gordian.Core.Network.Packets
 
         private void HandlePosPing(PacketHeader header, ReadOnlySpan<byte> payload)
         {
-            var (x, y, z, dir, targetIdx) = PositionProvider?.Invoke() ?? (0f, 0f, 0f, (byte)0, (ushort)0);
+            var (x, y, z, dir, targetIdx, moveFrame, isWalking) = PositionProvider?.Invoke() ?? (0f, 0f, 0f, (byte)0, (ushort)0, (ushort)1, false);
             byte[] posPong = LifecycleOutboundPackets.BuildPos(
                 sequenceId: header.SequenceId,
                 x: x,
                 y: y,
                 z: z,
                 dir: dir,
-                targetIndex: targetIdx);
+                targetIndex: targetIdx,
+                moveFrame: moveFrame,
+                isWalking: isWalking);
 
             if (LogOutboundOnRoute)
             {

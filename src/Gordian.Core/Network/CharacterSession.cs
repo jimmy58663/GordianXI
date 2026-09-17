@@ -94,6 +94,16 @@ namespace Gordian.Core.Network
         /// </summary>
         public Actions.PlayerActionService ActionService => NetworkManager.ActionService;
 
+        /// <summary>
+        /// Gets the instance-level input state tracking active keys, mouse buttons, and actions.
+        /// </summary>
+        public Input.InputState InputState { get; } = new Input.InputState();
+
+        /// <summary>
+        /// Gets the real-time player locomotion and camera controller.
+        /// </summary>
+        public Input.PlayerLocomotionController Locomotion { get; }
+
         public CharacterSession(
             string characterName,
             uint characterId,
@@ -104,6 +114,17 @@ namespace Gordian.Core.Network
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
+            Locomotion = new Input.PlayerLocomotionController(
+                InputState,
+                Input.InputProfile.CreateCompact(),
+                World,
+                LocalPlayer,
+                ActionService
+            );
+            Locomotion.LocomotionUpdated += (pos, dir, speed) =>
+            {
+                NetworkManager.NotifyLocomotionChanged(pos, dir, speed);
+            };
         }
 
         public void Disconnect()

@@ -232,12 +232,12 @@ namespace Gordian.Core.World
             float distance = speedYalmsPerSec * (float)elapsed.TotalSeconds;
 
             float heading = entity.HeadingRadians;
-            // In FFXI coordinates, 0 is East (+X), 64 is South (+Z), 128 is West (-X), 192 is North (-Z)
-            // or cos(heading) along X and sin(heading) along Z
+            // In FFXI coordinates, 0 is East (+X), 64 is South (+Y), 128 is West (-X), 192 is North (-Y)
+            // or cos(heading) along X and sin(heading) along Y
             float dx = MathF.Cos(heading) * distance;
-            float dz = MathF.Sin(heading) * distance;
+            float dy = MathF.Sin(heading) * distance;
 
-            return new Vector3(entity.Position.X + dx, entity.Position.Y, entity.Position.Z + dz);
+            return new Vector3(entity.Position.X + dx, entity.Position.Y + dy, entity.Position.Z);
         }
 
         /// <summary>

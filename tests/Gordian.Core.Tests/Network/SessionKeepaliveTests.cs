@@ -79,8 +79,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(success);
             Assert.True(eventFired);
             Assert.Equal(100.5f, capturedX);
-            Assert.Equal(-25.25f, capturedY);
-            Assert.Equal(300.75f, capturedZ);
+            Assert.Equal(300.75f, capturedY);
+            Assert.Equal(-25.25f, capturedZ);
             Assert.Equal(192, capturedDir);
             Assert.Equal(42, capturedActIndex);
 
@@ -121,8 +121,8 @@ namespace Gordian.Core.Tests.Network
             mgr.Parser.ProcessIncomingChunk(datagram);
 
             Assert.Equal(12.34f, mgr.PositionX);
-            Assert.Equal(56.78f, mgr.PositionY);
-            Assert.Equal(90.12f, mgr.PositionZ);
+            Assert.Equal(90.12f, mgr.PositionY);
+            Assert.Equal(56.78f, mgr.PositionZ);
             Assert.Equal(64, mgr.Direction);
             Assert.Equal(101, mgr.TargetIndex);
         }
@@ -165,6 +165,147 @@ namespace Gordian.Core.Tests.Network
             {
                 mgr.Disconnect();
             }
+        }
+
+        [Fact]
+        public async Task SessionNetworkManager_OutboundFlush_BundlesRunCountWhenMovingAndOneWhenStationary()
+        {
+            var inspected = new System.Collections.Generic.List<PacketLogEntry>();
+            using var mgr = new SessionNetworkManager("127.0.0.1", 59998);
+            mgr.PacketInspected += (s, e) =>
+            {
+                if (e.Direction == PacketDirection.Outbound)
+                {
+                    lock (inspected)
+                    {
+                        inspected.Add(e);
+                    }
+                }
+            };
+
+            await mgr.ConnectAsync();
+            try
+            {
+                mgr.CurrentState = SessionState.ActiveInWorld;
+
+                // Setup local player entity in world
+                uint serverId = 1001;
+                mgr.LocalPlayer.ServerId = serverId;
+                var localEnt = new Gordian.Core.World.PlayerEntity(serverId, 123)
+                {
+                    Position = new System.Numerics.Vector3(10f, 2f, -30f),
+                    Direction = 128,
+                    Speed = 50, // Running
+                    IsSpawned = true
+                };
+                mgr.World.UpsertEntity(localEnt);
+
+                // Wait for a network tick flush (~350ms)
+                await Task.Delay(350);
+
+                lock (inspected)
+                {
+                    var posPackets = inspected.FindAll(p => p.PacketId == 0x015);
+                    Assert.NotEmpty(posPackets);
+                    var lastPos = posPackets[^1];
+                    float posX = BinaryPrimitives.ReadSingleLittleEndian(lastPos.RawBytes.AsSpan(4, 4));
+                    float wireElev = BinaryPrimitives.ReadSingleLittleEndian(lastPos.RawBytes.AsSpan(8, 4));
+                    float wireNorth = BinaryPrimitives.ReadSingleLittleEndian(lastPos.RawBytes.AsSpan(12, 4));
+                    Assert.Equal(10f, posX);
+                    Assert.Equal(-30f, wireElev); // Wire offset 8 is Elevation (Z)
+                    Assert.Equal(2f, wireNorth);  // Wire offset 12 is North/South (Y)
+                    ushort movTime = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(16, 2));
+                    Assert.Equal(0, movTime); // MovTime is always 0 on retail FFXI protocol
+                    ushort moveFrame = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(18, 2));
+                    Assert.True(moveFrame >= SessionNetworkManager.InitialRunCount);
+                    Assert.True(mgr.MoveFrame >= SessionNetworkManager.InitialRunCount);
+                    Assert.False(mgr.IsWalking);
+                }
+
+                // Stop character
+                localEnt.Speed = 0;
+                await Task.Delay(350);
+
+                lock (inspected)
+                {
+                    var posPackets = inspected.FindAll(p => p.PacketId == 0x015);
+                    var lastPos = posPackets[^1];
+                    ushort movTime = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(16, 2));
+                    Assert.Equal(0, movTime);
+                    ushort moveFrame = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(18, 2));
+                    Assert.Equal(SessionNetworkManager.StationaryRunCount, moveFrame);
+                    Assert.Equal(SessionNetworkManager.StationaryRunCount, mgr.MoveFrame);
+                }
+            }
+            finally
+            {
+                mgr.Disconnect();
+            }
+        }
+
+        [Fact]
+        public async Task SessionNetworkManager_OutboundFlush_BundlesPosPacketEvenWhenOtherPacketsAreQueued()
+        {
+            var inspected = new System.Collections.Generic.List<PacketLogEntry>();
+            using var mgr = new SessionNetworkManager("127.0.0.1", 59997);
+            mgr.PacketInspected += (s, e) =>
+            {
+                if (e.Direction == PacketDirection.Outbound)
+                {
+                    lock (inspected)
+                    {
+                        inspected.Add(e);
+                    }
+                }
+            };
+
+            await mgr.ConnectAsync();
+            try
+            {
+                mgr.CurrentState = SessionState.ActiveInWorld;
+
+                // Queue another sub-packet (e.g., GP_CLI_GAMEOK 0x00C) without flushing
+                byte[] gameOkChunk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
+                await mgr.QueueChunkAsync(gameOkChunk, isHighPriority: false);
+
+                // Wait for network tick flush
+                await Task.Delay(350);
+
+                lock (inspected)
+                {
+                    // Verify both the queued packet (0x00C) AND the 0x015 pos heartbeat are present in outbound logs
+                    Assert.Contains(inspected, p => p.PacketId == 0x00C);
+                    Assert.Contains(inspected, p => p.PacketId == 0x015);
+                }
+            }
+            finally
+            {
+                mgr.Disconnect();
+            }
+        }
+
+        [Fact]
+        public async Task NotifyLocomotionChanged_AccumulatesRunCountWhileMovingAndResetsToStationary()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 59996);
+
+            // Initially stationary
+            Assert.Equal(SessionNetworkManager.StationaryRunCount, mgr.MoveFrame);
+            Assert.False(mgr.IsWalking);
+
+            // Movement begins
+            mgr.NotifyLocomotionChanged(new System.Numerics.Vector3(1f, 2f, 3f), direction: 64, speed: 50);
+            Assert.Equal(SessionNetworkManager.InitialRunCount, mgr.MoveFrame);
+            Assert.False(mgr.IsWalking);
+
+            // Time elapses while continuing movement (~100ms => ~6 frames)
+            await Task.Delay(100);
+            mgr.NotifyLocomotionChanged(new System.Numerics.Vector3(1.5f, 2f, 3.5f), direction: 64, speed: 50);
+            Assert.True(mgr.MoveFrame > SessionNetworkManager.InitialRunCount);
+
+            // Movement stops -> resets to StationaryRunCount (1)
+            mgr.NotifyLocomotionChanged(new System.Numerics.Vector3(1.5f, 2f, 3.5f), direction: 64, speed: 0);
+            Assert.Equal(SessionNetworkManager.StationaryRunCount, mgr.MoveFrame);
         }
     }
 }

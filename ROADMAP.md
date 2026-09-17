@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 354 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 418 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -104,9 +104,12 @@
   - [x] Headless/early verification of movement, combat, and zoning against live server without requiring 3D rendering
   - [x] Robust locomotion keepalive synchronization and automated C2S 0x016 CharReq entity discovery for reliable live server and Windower multi-session pairing
 - [ ] **Cross-Platform Input Subsystem:**
-  - [ ] **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad)
+  - [x] **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad) with smart text-input isolation
   - [ ] **Gamepad / Controller:** Full XInput, DirectInput, and SDL/Silk gamepad support (Xbox, PlayStation, generic HID) with deadzone, rumble, and axis calibration
-  - [ ] Rebindable control mapping engine with JSON persistence and modifier key support
+  - [x] Rebindable control mapping engine with JSON persistence and modifier key support (`keybinds.json`)
+  - [x] Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
+  - [x] Smooth network locomotion synchronization: retail-accurate `0x015` packet protocol (accumulating 60 FPS Run Count in `MoveFlame`, zero `MovTime`, `0x0001` stationary stance), non-starving outbound queue bundling, and high-precision `Stopwatch` delta-time calibration guaranteeing authentic 5.0 yalms/sec running across remote clients (Windower/retail)
+  - [x] Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher
 - [ ] **3D Viewport Rendering Surface:**
   - [ ] Silk.NET / Veldrid cross-platform graphics pipeline (Vulkan / DirectX / Metal) embedded in Avalonia via `NativeControlHost`
   - [ ] Zone terrain mesh rendering, character models, skeletal animations, and skybox/weather

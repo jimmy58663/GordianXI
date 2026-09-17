@@ -99,8 +99,8 @@ namespace Gordian.Core.Tests.Network
             var wpos = new S2C_0x05B_WPos(payload);
             Assert.True(wpos.IsValid);
             Assert.Equal(123.45f, wpos.X, 2);
-            Assert.Equal(-50.25f, wpos.Y, 2);
-            Assert.Equal(987.65f, wpos.Z, 2);
+            Assert.Equal(987.65f, wpos.Y, 2);
+            Assert.Equal(-50.25f, wpos.Z, 2);
             Assert.Equal(0x12345678u, wpos.UniqueNo);
             Assert.Equal(0x00A1, wpos.ActorIndex);
             Assert.Equal(PosMode.Reset, wpos.Mode);
@@ -122,8 +122,8 @@ namespace Gordian.Core.Tests.Network
             var wpos = new S2C_0x065_WPos2(payload);
             Assert.True(wpos.IsValid);
             Assert.Equal(10.0f, wpos.X, 2);
-            Assert.Equal(0.0f, wpos.Y, 2);
-            Assert.Equal(-20.0f, wpos.Z, 2);
+            Assert.Equal(-20.0f, wpos.Y, 2);
+            Assert.Equal(0.0f, wpos.Z, 2);
             Assert.Equal(0x99887766u, wpos.UniqueNo);
             Assert.Equal(42, wpos.ActorIndex);
             Assert.Equal(PosMode.Normal, wpos.Mode);
@@ -302,8 +302,8 @@ namespace Gordian.Core.Tests.Network
 
             dispatcher.Dispatch(new PacketHeader(0x05B, 28, 1), payload05B);
             Assert.Equal(50.0f, lastX);
-            Assert.Equal(1.5f, lastY);
-            Assert.Equal(-100.0f, lastZ);
+            Assert.Equal(-100.0f, lastY);
+            Assert.Equal(1.5f, lastZ);
             Assert.Equal(10, lastAct);
             Assert.Equal(128, lastDir);
 
@@ -317,8 +317,8 @@ namespace Gordian.Core.Tests.Network
 
             dispatcher.Dispatch(new PacketHeader(0x065, 28, 2), payload065);
             Assert.Equal(-25.0f, lastX);
-            Assert.Equal(0.0f, lastY);
-            Assert.Equal(200.0f, lastZ);
+            Assert.Equal(200.0f, lastY);
+            Assert.Equal(0.0f, lastZ);
             Assert.Equal(20, lastAct);
             Assert.Equal(64, lastDir);
         }

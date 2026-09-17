@@ -190,13 +190,26 @@ namespace Gordian.Core.Network
 
         /// <summary>
         /// Builds the 32-byte GP_CLI_POS (0x015) keepalive / position sub-packet.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
+        /// and atom0s/XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x0015).
         /// </summary>
+        /// <param name="sequenceId">Client sequence number for this datagram chunk.</param>
+        /// <param name="x">World space X position.</param>
+        /// <param name="y">World space Y (altitude/elevation) position.</param>
+        /// <param name="z">World space Z (north/south) position.</param>
+        /// <param name="dir">Facing direction rotation (0..255).</param>
+        /// <param name="moveFrame">Client slide duration in animation frames (MovTime/MoveFlame, typically 7 for 250ms tick, 0 when stationary).</param>
+        /// <param name="isWalking">True if character is walking rather than running (sets RunMode bit).</param>
+        /// <param name="targetIndex">Target actor index if targeted (facetarget).</param>
         public static byte[] BuildPosPingPongSubPacket(
             ushort sequenceId = 0,
             float x = 0f,
             float y = 0f,
             float z = 0f,
-            byte dir = 0)
+            byte dir = 0,
+            ushort moveFrame = 0,
+            bool isWalking = false,
+            ushort targetIndex = 0)
         {
             byte[] packet = new byte[PosSubPacketSize];
             // Header: ID 0x015, Size 8 (8 * 4 = 32 bytes)
@@ -205,16 +218,17 @@ namespace Gordian.Core.Network
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
 
             BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), y); // Elevation / Height
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), z); // North / South
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), z); // Wire offset 8 is Elevation (PS2: z)
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), y); // Wire offset 12 is North/South (PS2: y)
 
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(16, 2), 0); // MovTime
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(18, 2), 0); // MoveFlame
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(18, 2), moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
 
             packet[20] = dir;
-            packet[21] = 0; // Modes: TargetMode, RunMode, GroundMode
+            byte modes = (byte)((targetIndex != 0 ? 0x01 : 0x00) | (isWalking ? 0x02 : 0x00));
+            packet[21] = modes; // Modes: bit 0 = TargetMode, bit 1 = RunMode (0 = run, 1 = walk), bit 2 = GroundMode
 
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(22, 2), 0); // facetarget
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(22, 2), targetIndex); // facetarget
             BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(24, 4), (uint)Environment.TickCount); // TimeNow
             BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(28, 4), 0); // padding
 

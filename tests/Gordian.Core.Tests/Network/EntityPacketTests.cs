@@ -66,8 +66,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x0123, pc.ActorIndex);
             Assert.Equal(128, pc.Direction);
             Assert.Equal(10.5f, pc.X);
-            Assert.Equal(20.5f, pc.Y);
-            Assert.Equal(30.5f, pc.Z);
+            Assert.Equal(30.5f, pc.Y);
+            Assert.Equal(20.5f, pc.Z);
             Assert.Equal(50, pc.Speed);
             Assert.Equal(95, pc.Hpp);
             Assert.Equal(0xDEADBEEFu, pc.BtTargetId);
@@ -143,8 +143,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(25, npc.ActorIndex);
             Assert.Equal(64, npc.Direction);
             Assert.Equal(100.0f, npc.X);
-            Assert.Equal(200.0f, npc.Y);
-            Assert.Equal(300.0f, npc.Z);
+            Assert.Equal(300.0f, npc.Y);
+            Assert.Equal(200.0f, npc.Z);
             Assert.Equal(40, npc.Speed);
             Assert.Equal(100, npc.Hpp);
             Assert.Equal(0x11223344u, npc.ClaimId);

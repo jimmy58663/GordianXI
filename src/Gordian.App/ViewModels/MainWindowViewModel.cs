@@ -60,6 +60,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public CommandConsoleViewModel Console { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the cross-platform Controls & Input configuration and telemetry tab.
+        /// </summary>
+        public ControlsInputViewModel Controls { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -140,6 +145,15 @@ namespace Gordian.App.ViewModels
 
             _sessionRegistry.SessionRegistered += OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered += OnSessionRegistryChanged;
+
+            Controls.SetSession(Console.SelectedSession);
+            Console.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(CommandConsoleViewModel.SelectedSession))
+                {
+                    Controls.SetSession(Console.SelectedSession);
+                }
+            };
 
             // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
             ProxyStager.SelfHealStartup();
@@ -589,6 +603,7 @@ namespace Gordian.App.ViewModels
         private void OnSessionRegistryChanged(object? sender, CharacterSession session)
         {
             RefreshAllStatuses();
+            Controls.SetSession(Console.SelectedSession);
         }
 
         private void CreateDefaultMockProfiles()

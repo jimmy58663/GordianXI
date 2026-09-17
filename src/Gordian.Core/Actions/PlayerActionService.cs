@@ -405,25 +405,31 @@ namespace Gordian.Core.Actions
 
             byte dir = 0;
             ushort targetIndex = 0;
+            float dist = 0f;
 
             // Update local entity coordinates in WorldState if present
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
+                dist = Vector3.Distance(localEnt.Position, targetPos);
                 localEnt.Position = targetPos;
                 dir = localEnt.Direction;
                 targetIndex = localEnt.TargetIndex;
+                localEnt.Speed = dist > 0.05f ? (byte)50 : (byte)0;
             }
             else if (_localPlayer.ServerId != 0)
             {
                 localEnt = new PlayerEntity(_localPlayer.ServerId, 0)
                 {
                     Position = targetPos,
-                    IsSpawned = true
+                    IsSpawned = true,
+                    Speed = 50
                 };
                 _world.UpsertEntity(localEnt);
             }
 
             LocalPlayerMoved?.Invoke(targetPos, dir);
+
+            ushort slideFrames = dist > 0.05f ? SessionNetworkManager.InitialRunCount : SessionNetworkManager.StationaryRunCount;
 
             try
             {
@@ -433,7 +439,8 @@ namespace Gordian.Core.Actions
                     y: targetPos.Y,
                     z: targetPos.Z,
                     dir: dir,
-                    targetIndex: targetIndex);
+                    targetIndex: targetIndex,
+                    moveFrame: slideFrames);
 
                 await _sendChunkCallback(posPacket, false).ConfigureAwait(false);
                 return PlayerActionResult.Ok(

@@ -147,12 +147,81 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(7, seq);
 
             float x = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(4, 4));
-            float y = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4));
-            float z = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4));
+            float z = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4)); // Wire offset 8 is Elevation (z)
+            float y = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4)); // Wire offset 12 is North/South (y)
             Assert.Equal(10.5f, x);
-            Assert.Equal(-2.0f, y);
             Assert.Equal(100.25f, z);
+            Assert.Equal(-2.0f, y);
             Assert.Equal(128, (byte)packet[20]);
+
+            // When default (stationary), MovTime and MoveFlame are 0, Mode flags are 0
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(16, 2)));
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(18, 2)));
+            Assert.Equal(0, packet[21]);
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(22, 2)));
+        }
+
+        [Fact]
+        public void BuildPosPingPongSubPacket_EncodesMoveFrameAndModesAccurately()
+        {
+            // Moving running towards target 42
+            byte[] packetRunning = HandshakePackets.BuildPosPingPongSubPacket(
+                sequenceId: 10,
+                x: 1.0f,
+                y: 2.0f,
+                z: 3.0f,
+                dir: 64,
+                moveFrame: 0x0123,
+                isWalking: false,
+                targetIndex: 42
+            );
+
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packetRunning.AsSpan(16, 2))); // MovTime (always 0 on retail)
+            Assert.Equal(0x0123, BinaryPrimitives.ReadUInt16LittleEndian(packetRunning.AsSpan(18, 2))); // MoveFlame / Run Count
+            Assert.Equal(0x01, packetRunning[21]); // Bit 0 TargetMode set, Bit 1 RunMode not set
+            Assert.Equal(42, BinaryPrimitives.ReadUInt16LittleEndian(packetRunning.AsSpan(22, 2))); // facetarget
+
+            // Moving walking without target
+            byte[] packetWalking = HandshakePackets.BuildPosPingPongSubPacket(
+                sequenceId: 11,
+                x: 5.0f,
+                y: 0.0f,
+                z: -5.0f,
+                dir: 192,
+                moveFrame: 0x07A0,
+                isWalking: true,
+                targetIndex: 0
+            );
+
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packetWalking.AsSpan(16, 2))); // MovTime (always 0 on retail)
+            Assert.Equal(0x07A0, BinaryPrimitives.ReadUInt16LittleEndian(packetWalking.AsSpan(18, 2))); // MoveFlame / Run Count
+            Assert.Equal(0x02, packetWalking[21]); // Bit 1 RunMode set (Walk), Bit 0 TargetMode cleared
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packetWalking.AsSpan(22, 2)));
+        }
+
+        [Fact]
+        public void LifecycleOutboundPackets_BuildPos_MatchesSpecification()
+        {
+            byte[] packet = Gordian.Core.Network.Packets.LifecycleOutboundPackets.BuildPos(
+                sequenceId: 5,
+                x: -15.5f,
+                y: 1.25f,
+                z: 200.0f,
+                dir: 255,
+                targetIndex: 100,
+                moveFrame: 0x1FFF,
+                isWalking: true
+            );
+
+            Assert.Equal(32, packet.Length);
+            ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
+            Assert.Equal(0x015, (ushort)(headerWord & 0x1FF));
+            Assert.Equal(5, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(2, 2)));
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(16, 2))); // MovTime (always 0 on retail)
+            Assert.Equal(0x1FFF, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(18, 2))); // MoveFlame / Run Count
+            Assert.Equal(255, packet[20]);
+            Assert.Equal(0x03, packet[21]); // Both TargetMode (0x01) and RunMode (0x02) set
+            Assert.Equal(100, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(22, 2)));
         }
 
         [Fact]

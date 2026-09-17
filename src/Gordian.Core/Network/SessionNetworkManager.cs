@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
@@ -46,6 +47,30 @@ namespace Gordian.Core.Network
         private ushort _lastProcessedSequence = 0;
         private bool _hasProcessedAnySequence = false;
         private ulong _sequenceHistoryBitmask = 0;
+        /// <summary>
+        /// Constant MoveFlame / Run Count sent in 0x015 while stationary (0x0001 per retail protocol captures).
+        /// </summary>
+        public const ushort StationaryRunCount = 1;
+
+        /// <summary>
+        /// Initial MoveFlame / Run Count sent in 0x015 upon beginning locomotion (0x0009 per retail protocol captures).
+        /// </summary>
+        public const ushort InitialRunCount = 9;
+
+        private ushort _moveFrame = StationaryRunCount;
+        private bool _isWalking = false;
+        private bool _isMoving = false;
+        private long _movementStartTimestamp = 0;
+
+        /// <summary>
+        /// Gets the current movement animation frame counter (Run Count) sent in 0x015 packets.
+        /// </summary>
+        public ushort MoveFrame => _moveFrame;
+
+        /// <summary>
+        /// Gets whether the local character is currently walking rather than running.
+        /// </summary>
+        public bool IsWalking => _isWalking;
 
         /// <summary>
         /// Gets or sets whether duplicate/retransmitted incoming server datagrams should be dropped
@@ -264,6 +289,7 @@ namespace Gordian.Core.Network
                 {
                     _parser.LocalPlayer.ServerId = CharacterId;
                 }
+                EnsureLocalPlayerEntity(PositionX, PositionY, PositionZ, Direction, TargetIndex);
                 CurrentState = SessionState.ActiveInWorld;
             };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
@@ -273,6 +299,7 @@ namespace Gordian.Core.Network
                 PositionZ = z;
                 Direction = dir;
                 TargetIndex = actIndex;
+                EnsureLocalPlayerEntity(x, y, z, dir, actIndex);
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
             _parser.ActionService.LocalPlayerMoved += (pos, dir) =>
@@ -282,7 +309,7 @@ namespace Gordian.Core.Network
                 PositionZ = pos.Z;
                 Direction = dir;
             };
-            _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex);
+            _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex, _moveFrame, _isWalking);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
                 GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
@@ -297,6 +324,107 @@ namespace Gordian.Core.Network
                     Disconnect();
                 }
             };
+        }
+
+        private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)
+        {
+            uint sid = _parser.LocalPlayer.ServerId != 0 ? _parser.LocalPlayer.ServerId : CharacterId;
+            if (sid == 0) return;
+
+            _parser.LocalPlayer.ServerId = sid;
+            if (_parser.World.TryGetByServerId(sid, out var existing) && existing is PlayerEntity pe)
+            {
+                pe.Position = new Vector3(x, y, z);
+                pe.Direction = dir;
+                pe.TargetIndex = actIndex;
+                pe.IsSpawned = true;
+            }
+            else
+            {
+                var newEntity = new PlayerEntity(sid, actIndex)
+                {
+                    Position = new Vector3(x, y, z),
+                    Direction = dir,
+                    IsSpawned = true,
+                    Name = CharacterName
+                };
+                _parser.World.UpsertEntity(newEntity);
+            }
+        }
+
+        /// <summary>
+        /// Receives real-time locomotion telemetry from PlayerLocomotionController.
+        /// When movement starts or stops, immediately transmits a high-priority 0x015 datagram to eliminate motion latency.
+        /// </summary>
+        public void NotifyLocomotionChanged(Vector3 position, byte direction, byte speed)
+        {
+            PositionX = position.X;
+            PositionY = position.Y;
+            PositionZ = position.Z;
+            Direction = direction;
+
+            bool isMoving = speed > 0;
+            bool wasMoving = _isMoving;
+            _isMoving = isMoving;
+            _isWalking = isMoving && speed < 40;
+
+            if (isMoving)
+            {
+                if (!wasMoving || _movementStartTimestamp == 0)
+                {
+                    _movementStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                    _moveFrame = InitialRunCount;
+                }
+                else
+                {
+                    double elapsedSec = System.Diagnostics.Stopwatch.GetElapsedTime(_movementStartTimestamp).TotalSeconds;
+                    _moveFrame = (ushort)Math.Min(ushort.MaxValue, InitialRunCount + (uint)(elapsedSec * 60.0));
+                }
+            }
+            else
+            {
+                _movementStartTimestamp = 0;
+                _moveFrame = StationaryRunCount;
+            }
+
+            uint sid = _parser.LocalPlayer.ServerId != 0 ? _parser.LocalPlayer.ServerId : CharacterId;
+            if (sid != 0 && _parser.World.TryGetByServerId(sid, out var ent) && ent is PlayerEntity localPe)
+            {
+                localPe.Position = position;
+                localPe.Direction = direction;
+                localPe.Speed = speed;
+            }
+
+            if (isMoving != wasMoving)
+            {
+                _ = TriggerImmediatePosUpdateAsync();
+            }
+        }
+
+        private async Task TriggerImmediatePosUpdateAsync()
+        {
+            try
+            {
+                if (CurrentState != SessionState.ActiveInWorld && CurrentState != SessionState.LoadingWorldData) return;
+                if (_udpSocket == null || _serverEndpoint == null) return;
+
+                byte[] posPacket = HandshakePackets.BuildPosPingPongSubPacket(
+                    sequenceId: 0,
+                    x: PositionX,
+                    y: PositionY,
+                    z: PositionZ,
+                    dir: Direction,
+                    moveFrame: _moveFrame,
+                    isWalking: _isWalking,
+                    targetIndex: TargetIndex
+                );
+
+                await QueueChunkAsync(posPacket, isHighPriority: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("NET", "Immediate position update flush failed", ex);
+            }
         }
 
         /// <summary>
@@ -532,45 +660,126 @@ namespace Gordian.Core.Network
             {
                 while (!token.IsCancellationRequested)
                 {
-                    await Task.Delay(NetworkTickIntervalMs, token).ConfigureAwait(false);
-
-                    if (_serverEndpoint == null) continue;
-
-                    await _writeLock.WaitAsync(token).ConfigureAwait(false);
                     try
                     {
-                        // In ActiveInWorld or LoadingWorldData, if no outbound packets are queued,
-                        // generate a 0x015 GP_CLI_POS keepalive heartbeat datagram.
-                        if (_currentBufferLength == 0 && (CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData))
+                        await Task.Delay(NetworkTickIntervalMs, token).ConfigureAwait(false);
+
+                        if (_serverEndpoint == null) continue;
+
+                        await _writeLock.WaitAsync(token).ConfigureAwait(false);
+                        try
                         {
-                            // Pull latest position and heading from WorldState if available
-                            if (_parser.LocalPlayer.ServerId != 0 &&
-                                _parser.World.TryGetByServerId(_parser.LocalPlayer.ServerId, out var localEnt) &&
-                                localEnt != null)
+                            // In ActiveInWorld or LoadingWorldData, ensure the 0x015 GP_CLI_POS keepalive heartbeat
+                            // is bundled into outbound transmission with active MoveFlame and RunMode flags.
+                            if (CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData)
                             {
-                                PositionX = localEnt.Position.X;
-                                PositionY = localEnt.Position.Y;
-                                PositionZ = localEnt.Position.Z;
-                                Direction = localEnt.Direction;
+                                // Pull latest position, heading, and locomotion speed from WorldState if available
+                                if (_parser.LocalPlayer.ServerId != 0 &&
+                                    _parser.World.TryGetByServerId(_parser.LocalPlayer.ServerId, out var localEnt) &&
+                                    localEnt != null)
+                                {
+                                    PositionX = localEnt.Position.X;
+                                    PositionY = localEnt.Position.Y;
+                                    PositionZ = localEnt.Position.Z;
+                                    Direction = localEnt.Direction;
+
+                                    bool isMoving = localEnt.Speed > 0;
+                                    bool wasMoving = _isMoving;
+                                    _isMoving = isMoving;
+                                    _isWalking = isMoving && localEnt.Speed < 40;
+
+                                    if (isMoving)
+                                    {
+                                        if (!wasMoving || _movementStartTimestamp == 0)
+                                        {
+                                            _movementStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                                            _moveFrame = InitialRunCount;
+                                        }
+                                        else
+                                        {
+                                            double elapsedSec = System.Diagnostics.Stopwatch.GetElapsedTime(_movementStartTimestamp).TotalSeconds;
+                                            _moveFrame = (ushort)(InitialRunCount + (uint)(elapsedSec * 60.0));
+                                            if (_moveFrame <= 1) _moveFrame = InitialRunCount;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        _movementStartTimestamp = 0;
+                                        _moveFrame = StationaryRunCount;
+                                    }
+                                }
+                                else
+                                {
+                                    _movementStartTimestamp = 0;
+                                    _isMoving = false;
+                                    _moveFrame = StationaryRunCount;
+                                    _isWalking = false;
+                                }
+
+                                // Check if a 0x015 packet is already queued in the outbound buffer
+                                bool hasPosPacket = false;
+                                int scanOffset = 0;
+                                while (scanOffset + 4 <= _currentBufferLength)
+                                {
+                                    ushort rawHeader = BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(scanOffset, 2));
+                                    ushort packetId = (ushort)(rawHeader & 0x1FF);
+                                    if (packetId == 0x015)
+                                    {
+                                        hasPosPacket = true;
+                                        break;
+                                    }
+                                    int subSize = (_outboundQueueBuffer[scanOffset + 1] & 0xFE) * 2;
+                                    if (subSize < 4 || scanOffset + subSize > _currentBufferLength) break;
+                                    scanOffset += subSize;
+                                }
+
+                                if (hasPosPacket && scanOffset + 32 <= _currentBufferLength)
+                                {
+                                    // Overwrite the queued 0x015 in-place with latest coordinates, heading, and slide frames
+                                    Span<byte> existingPos = _outboundQueueBuffer.AsSpan(scanOffset, 32);
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(4, 4), PositionX);
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(8, 4), PositionZ); // Wire offset 8 is Elevation
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionY); // Wire offset 12 is North/South
+                                    BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
+                                    BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(18, 2), _moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
+                                    existingPos[20] = Direction;
+                                    byte modes = (byte)((TargetIndex != 0 ? 0x01 : 0x00) | (_isWalking ? 0x02 : 0x00));
+                                    existingPos[21] = modes;
+                                    BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(22, 2), TargetIndex);
+                                    BinaryPrimitives.WriteUInt32LittleEndian(existingPos.Slice(24, 4), (uint)Environment.TickCount);
+                                }
+                                else if (!hasPosPacket)
+                                {
+                                    byte[] posPacket = HandshakePackets.BuildPosPingPongSubPacket(
+                                        sequenceId: 0, // will be stamped to clientSeq in FlushBundledPacketAsync
+                                        x: PositionX,
+                                        y: PositionY,
+                                        z: PositionZ,
+                                        dir: Direction,
+                                        moveFrame: _moveFrame,
+                                        isWalking: _isWalking,
+                                        targetIndex: TargetIndex
+                                    );
+
+                                    if (_currentBufferLength + posPacket.Length <= MaxDatagramSize)
+                                    {
+                                        posPacket.CopyTo(_outboundQueueBuffer.AsSpan(_currentBufferLength));
+                                        _currentBufferLength += posPacket.Length;
+                                    }
+                                }
                             }
 
-                            byte[] posPacket = HandshakePackets.BuildPosPingPongSubPacket(
-                                sequenceId: 0, // will be stamped to clientSeq in FlushBundledPacketAsync
-                                x: PositionX,
-                                y: PositionY,
-                                z: PositionZ,
-                                dir: Direction
-                            );
-
-                            posPacket.CopyTo(_outboundQueueBuffer.AsSpan());
-                            _currentBufferLength = posPacket.Length;
+                            await FlushBundledPacketAsync(socket, _serverEndpoint, token).ConfigureAwait(false);
                         }
-
-                        await FlushBundledPacketAsync(socket, _serverEndpoint, token).ConfigureAwait(false);
+                        finally
+                        {
+                            _writeLock.Release();
+                        }
                     }
-                    finally
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
                     {
-                        _writeLock.Release();
+                        GordianLog.Error("NET", "Transient error in outbound flush loop", ex);
                     }
                 }
             }
