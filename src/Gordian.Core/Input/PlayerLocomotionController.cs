@@ -35,6 +35,36 @@ namespace Gordian.Core.Input
 
         public InputState InputState => _inputState;
 
+        /// <summary>
+        /// Optional client-side speed multiplier (e.g. set by addons, GM commands, or custom modes). Default is 1.0f.
+        /// </summary>
+        public float SpeedMultiplier { get; set; } = 1.0f;
+
+        /// <summary>
+        /// Calculates the effective run speed for the local player entity.
+        /// Respects server-transmitted speed buffs (Flee, Chocobo, equipment mods in SpeedBase)
+        /// and client-side profile or addon speed multipliers.
+        /// </summary>
+        public byte GetEffectiveRunSpeed(WorldEntity? localEnt)
+        {
+            byte baseRun = (localEnt != null && localEnt.SpeedBase > 0) ? localEnt.SpeedBase : _profile.RunSpeed;
+            if (Math.Abs(SpeedMultiplier - 1.0f) > 0.001f)
+            {
+                return (byte)Math.Clamp((int)MathF.Round(baseRun * SpeedMultiplier), 1, 255);
+            }
+            return baseRun;
+        }
+
+        /// <summary>
+        /// Calculates the effective walk speed for the local player entity.
+        /// Scales proportionally with the effective run speed (retail 50% walk ratio).
+        /// </summary>
+        public byte GetEffectiveWalkSpeed(WorldEntity? localEnt)
+        {
+            byte runSpeed = GetEffectiveRunSpeed(localEnt);
+            return (byte)Math.Max(1, runSpeed / 2);
+        }
+
         public event Action<Vector3, byte, byte>? LocomotionUpdated; // position, direction, speed
         public event Action<float, float, float>? CameraUpdated;     // pitch, yaw, distance
 
@@ -94,7 +124,8 @@ namespace Gordian.Core.Input
             _inputState.ConsumeMouseDeltas(out float mouseDx, out float mouseDy, out float mouseWheel);
             if (mouseDx != 0 || mouseDy != 0)
             {
-                yawDelta += mouseDx * _profile.MouseSensitivityX * 0.15f;
+                float mx = mouseDx * _profile.MouseSensitivityX * 0.15f;
+                yawDelta += _profile.InvertMouseX ? -mx : mx;
                 float my = mouseDy * _profile.MouseSensitivityY * 0.15f;
                 pitchDelta += _profile.InvertMouseY ? -my : my;
             }
@@ -102,6 +133,24 @@ namespace Gordian.Core.Input
             if (mouseWheel != 0)
             {
                 zoomDelta -= mouseWheel * _profile.MouseWheelZoomStep;
+            }
+
+            // Gamepad Analog Camera Look (Right Thumbstick)
+            var pad = _inputState.CurrentGamepad;
+            if (pad.IsConnected)
+            {
+                var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
+                var filteredRightStick = GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone);
+                if (filteredRightStick != Vector2.Zero)
+                {
+                    float padYaw = filteredRightStick.X * 180.0f * padSettings.CameraSensitivityX * dt;
+                    if (padSettings.InvertCameraX) padYaw = -padYaw;
+                    yawDelta += padYaw;
+
+                    float padPitch = -filteredRightStick.Y * 120.0f * padSettings.CameraSensitivityY * dt;
+                    if (padSettings.InvertCameraY) padPitch = -padPitch;
+                    pitchDelta += padPitch;
+                }
             }
 
             // Reset Camera shortcut
@@ -143,6 +192,41 @@ namespace Gordian.Core.Input
 
             float dt = (float)elapsed.TotalSeconds;
 
+            // Check gamepad analog left stick
+            var pad = _inputState.CurrentGamepad;
+            var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
+            Vector2 leftStick = pad.IsConnected
+                ? GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone)
+                : Vector2.Zero;
+
+            // Camera-Relative 3D Locomotion (Standard FFXI Type A)
+            if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
+            {
+                // Angle relative to Camera Yaw: stick Up (0, 1) is 0 offset, Right (1, 0) is +90, Down is +180, Left is -90
+                float stickAngleDeg = MathF.Atan2(leftStick.X, leftStick.Y) * (180.0f / MathF.PI);
+                float targetHeadingDeg = NormalizeDegrees(CameraYaw + stickAngleDeg);
+                localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+
+                float stickMagnitude = leftStick.Length();
+                byte effectiveRun = GetEffectiveRunSpeed(localEnt);
+                byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
+                byte padSpeed = (stickMagnitude < padSettings.WalkTiltThreshold || _inputState.IsWalking)
+                    ? effectiveWalk
+                    : effectiveRun;
+
+                localEnt.Speed = padSpeed;
+                float speedYalmsPerSec = padSpeed * 0.1f;
+                float distance = speedYalmsPerSec * dt;
+
+                float headingRad = localEnt.HeadingRadians;
+                float dx = MathF.Cos(headingRad) * distance;
+                float dy = MathF.Sin(headingRad) * distance;
+
+                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y + dy, localEnt.Position.Z);
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
+
             // 1. Determine Forward/Backward intent
             float forwardInput = 0;
             if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive)
@@ -154,10 +238,21 @@ namespace Gordian.Core.Input
                 forwardInput -= 1.0f;
             }
 
+            // Character-relative analog stick injection
+            if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CharacterRelative)
+            {
+                forwardInput += leftStick.Y;
+            }
+
             // 2. Determine Turn and Strafe intent
             float turnInput = 0;
             if (_inputState.IsActionHeld(InputAction.TurnLeft)) turnInput -= 1.0f;
             if (_inputState.IsActionHeld(InputAction.TurnRight)) turnInput += 1.0f;
+
+            if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CharacterRelative)
+            {
+                turnInput += leftStick.X;
+            }
 
             float strafeInput = 0;
             if (_inputState.IsActionHeld(InputAction.StrafeLeft)) strafeInput -= 1.0f;
@@ -177,7 +272,9 @@ namespace Gordian.Core.Input
 
             if (isMoving)
             {
-                currentSpeed = _inputState.IsWalking ? _profile.WalkSpeed : _profile.RunSpeed;
+                byte effectiveRun = GetEffectiveRunSpeed(localEnt);
+                byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
+                currentSpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
                 localEnt.Speed = currentSpeed;
 
                 float speedYalmsPerSec = currentSpeed * 0.1f;

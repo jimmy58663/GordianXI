@@ -44,6 +44,9 @@ namespace Gordian.Core.Input
         [JsonPropertyName("mouseSensitivityY")]
         public float MouseSensitivityY { get; set; } = 1.0f;
 
+        [JsonPropertyName("invertMouseX")]
+        public bool InvertMouseX { get; set; } = false;
+
         [JsonPropertyName("invertMouseY")]
         public bool InvertMouseY { get; set; } = false;
 
@@ -59,6 +62,10 @@ namespace Gordian.Core.Input
 
         [JsonPropertyName("turnSpeedDegreesPerSec")]
         public float TurnSpeedDegreesPerSec { get; set; } = 180.0f;
+
+        // Gamepad Settings
+        [JsonPropertyName("gamepadSettings")]
+        public GamepadSettings GamepadSettings { get; set; } = new GamepadSettings();
 
         public InputProfile()
         {
@@ -220,6 +227,9 @@ namespace Gordian.Core.Input
             // Macro Palettes
             BindDefaultMacros(p);
 
+            // Gamepad default bindings
+            BindDefaultGamepadButtons(p);
+
             return p;
         }
 
@@ -274,6 +284,9 @@ namespace Gordian.Core.Input
             // Macro Palettes
             BindDefaultMacros(p);
 
+            // Gamepad default bindings
+            BindDefaultGamepadButtons(p);
+
             return p;
         }
 
@@ -300,6 +313,61 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.MacroAlt8, new InputChord(GordianKey.D8, InputModifiers.Alt));
             p.Bind(InputAction.MacroAlt9, new InputChord(GordianKey.D9, InputModifiers.Alt));
             p.Bind(InputAction.MacroAlt10, new InputChord(GordianKey.D0, InputModifiers.Alt));
+        }
+
+        /// <summary>
+        /// Creates a profile configured with authentic FFXI gamepad button mappings and defaults.
+        /// </summary>
+        public static InputProfile CreateGamepadDefault()
+        {
+            var p = new InputProfile("Gamepad (Standard)", "Standard FFXI Gamepad layout for Xbox, PlayStation, and generic dual-analog controllers.");
+            p.GamepadSettings = new GamepadSettings();
+
+            BindDefaultGamepadButtons(p);
+
+            // Also keep standard keyboard fallbacks
+            p.Bind(InputAction.MoveForward, new InputChord(GordianKey.W));
+            p.Bind(InputAction.MoveBackward, new InputChord(GordianKey.S));
+            p.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            p.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
+            p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
+            p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
+            p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
+            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
+            p.Bind(InputAction.Confirm, new InputChord(GordianKey.Enter));
+            p.Bind(InputAction.Cancel, new InputChord(GordianKey.Escape));
+            p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
+            p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.OemMinus));
+
+            // Macro Palettes
+            BindDefaultMacros(p);
+
+            return p;
+        }
+
+        public static void BindDefaultGamepadButtons(InputProfile p)
+        {
+            p.Bind(InputAction.Confirm, new InputChord(GamepadButton.A));
+            p.Bind(InputAction.Cancel, new InputChord(GamepadButton.B));
+            p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.X));
+            p.Bind(InputAction.ToggleAutorun, new InputChord(GamepadButton.Y));
+
+            p.Bind(InputAction.ToggleWalkRun, new InputChord(GamepadButton.LeftThumb));
+            p.Bind(InputAction.ResetCamera, new InputChord(GamepadButton.RightThumb));
+
+            p.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.LeftTrigger));
+            p.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.RightTrigger));
+
+            p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.Start));
+            p.Bind(InputAction.OpenChat, new InputChord(GamepadButton.Back));
+
+            p.Bind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
+            p.Bind(InputAction.TargetParty2, new InputChord(GamepadButton.DPadDown));
+            p.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.DPadLeft));
+            p.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.DPadRight));
+
+            p.Bind(InputAction.MacroCtrl1, new InputChord(GamepadButton.LeftShoulder));
+            p.Bind(InputAction.MacroAlt1, new InputChord(GamepadButton.RightShoulder));
         }
 
         #endregion

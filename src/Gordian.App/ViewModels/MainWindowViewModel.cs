@@ -147,11 +147,13 @@ namespace Gordian.App.ViewModels
             _sessionRegistry.SessionUnregistered += OnSessionRegistryChanged;
 
             Controls.SetSession(Console.SelectedSession);
+            _sessionRegistry.SetPrimaryRenderingSession(Console.SelectedSession);
             Console.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(CommandConsoleViewModel.SelectedSession))
                 {
                     Controls.SetSession(Console.SelectedSession);
+                    _sessionRegistry.SetPrimaryRenderingSession(Console.SelectedSession);
                 }
             };
 
@@ -604,6 +606,10 @@ namespace Gordian.App.ViewModels
         {
             RefreshAllStatuses();
             Controls.SetSession(Console.SelectedSession);
+            if (Console.SelectedSession != null)
+            {
+                _sessionRegistry.SetPrimaryRenderingSession(Console.SelectedSession);
+            }
         }
 
         private void CreateDefaultMockProfiles()

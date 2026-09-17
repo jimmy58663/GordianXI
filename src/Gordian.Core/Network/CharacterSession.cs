@@ -20,6 +20,13 @@ namespace Gordian.Core.Network
         public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 
         /// <summary>
+        /// Gets or sets whether this character session is the primary active client rendering 3D graphics.
+        /// In native single-process multi-boxing, only the primary rendering client accepts direct gamepad inputs;
+        /// background headless sessions do not receive broadcast gamepad polling.
+        /// </summary>
+        public bool IsRendering3D { get; set; } = true;
+
+        /// <summary>
         /// Gets the current operational lifecycle state of this character session.
         /// </summary>
         public SessionState State => NetworkManager.CurrentState;

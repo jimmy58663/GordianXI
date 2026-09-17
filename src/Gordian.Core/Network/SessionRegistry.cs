@@ -23,6 +23,28 @@ namespace Gordian.Core.Network
 
         private readonly ConcurrentDictionary<Guid, CharacterSession> _sessions = new();
         private readonly object _registrationLock = new();
+        private CharacterSession? _primaryRenderingSession;
+
+        /// <summary>
+        /// Gets the primary character session currently hosting 3D graphics rendering.
+        /// </summary>
+        public CharacterSession? PrimaryRenderingSession => _primaryRenderingSession;
+
+        /// <summary>
+        /// Designates the specified session as the primary 3D rendering client, marking
+        /// all other active sessions as background (non-3D rendering).
+        /// </summary>
+        public void SetPrimaryRenderingSession(CharacterSession? session)
+        {
+            lock (_registrationLock)
+            {
+                _primaryRenderingSession = session;
+                foreach (var s in _sessions.Values)
+                {
+                    s.IsRendering3D = (session != null && s.SessionId == session.SessionId);
+                }
+            }
+        }
 
         /// <summary>
         /// Fires when a new character session is registered.
@@ -74,6 +96,15 @@ namespace Gordian.Core.Network
             {
                 if (_sessions.TryAdd(session.SessionId, session))
                 {
+                    if (_primaryRenderingSession == null)
+                    {
+                        _primaryRenderingSession = session;
+                        session.IsRendering3D = true;
+                    }
+                    else
+                    {
+                        session.IsRendering3D = false;
+                    }
                     SessionRegistered?.Invoke(this, session);
                 }
             }
@@ -118,8 +149,19 @@ namespace Gordian.Core.Network
                     networkManager
                 );
 
-                _sessions[session.SessionId] = session;
-                SessionRegistered?.Invoke(this, session);
+                if (_sessions.TryAdd(session.SessionId, session))
+                {
+                    if (_primaryRenderingSession == null)
+                    {
+                        _primaryRenderingSession = session;
+                        session.IsRendering3D = true;
+                    }
+                    else
+                    {
+                        session.IsRendering3D = false;
+                    }
+                    SessionRegistered?.Invoke(this, session);
+                }
                 return session;
             }
         }
@@ -176,6 +218,11 @@ namespace Gordian.Core.Network
                 if (_sessions.TryRemove(sessionId, out var session))
                 {
                     session.Disconnect();
+                    if (_primaryRenderingSession?.SessionId == sessionId)
+                    {
+                        var fallback = _sessions.Values.FirstOrDefault();
+                        SetPrimaryRenderingSession(fallback);
+                    }
                     SessionUnregistered?.Invoke(this, session);
                 }
             }
@@ -197,6 +244,7 @@ namespace Gordian.Core.Network
         {
             lock (_registrationLock)
             {
+                _primaryRenderingSession = null;
                 foreach (var session in _sessions.Values)
                 {
                     session.Disconnect();

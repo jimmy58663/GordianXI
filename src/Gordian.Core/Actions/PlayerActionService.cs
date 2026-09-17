@@ -414,7 +414,7 @@ namespace Gordian.Core.Actions
                 localEnt.Position = targetPos;
                 dir = localEnt.Direction;
                 targetIndex = localEnt.TargetIndex;
-                localEnt.Speed = dist > 0.05f ? (byte)50 : (byte)0;
+                localEnt.Speed = dist > 0.05f ? (localEnt.SpeedBase > 0 ? localEnt.SpeedBase : (byte)50) : (byte)0;
             }
             else if (_localPlayer.ServerId != 0)
             {

@@ -16,6 +16,7 @@ namespace Gordian.App
         private readonly MainWindowViewModel _viewModel;
         private readonly HandoffPipeServer _ipcServer;
         private readonly DispatcherTimer _inputLoopTimer;
+        private readonly IGamepadDriver _gamepadDriver;
         private long _lastInputLoopTimestamp;
         private Avalonia.Point? _lastPointerPosition;
         private bool _isRightDragging;
@@ -71,6 +72,8 @@ namespace Gordian.App
             _ipcServer = new HandoffPipeServer();
             _ipcServer.SessionReceived += OnSessionTokenIntercepted;
             _ipcServer.Start();
+
+            _gamepadDriver = new XInputGamepadDriver();
 
             // Cross-Platform Input Subsystem Event Hooks
             AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -131,6 +134,7 @@ namespace Gordian.App
 
             _ipcServer.SessionReceived -= OnSessionTokenIntercepted;
             _ipcServer.Dispose();
+            _gamepadDriver.Dispose();
             _viewModel.Dispose();
             SessionRegistry.Default.Clear();
             base.OnUnloaded(e);
@@ -256,11 +260,57 @@ namespace Gordian.App
                 elapsed = TimeSpan.FromMilliseconds(100);
             }
 
-            var session = _viewModel.Console.SelectedSession;
-            if (session != null)
+            // In multi-boxing, only the primary client rendering 3D graphics receives gamepad input.
+            var primarySession = SessionRegistry.Default.PrimaryRenderingSession 
+                                 ?? _viewModel.Console.SelectedSession;
+
+            var gamepadSettings = primarySession?.Locomotion?.Profile?.GamepadSettings;
+
+            bool isGamepadEnabled = gamepadSettings?.GamepadEnabled ?? _viewModel.Controls.GamepadEnabled;
+            bool alwaysEnable = gamepadSettings?.AlwaysEnableGamepad ?? _viewModel.Controls.AlwaysEnableGamepad;
+            bool rumbleEnabled = gamepadSettings?.RumbleEnabled ?? _viewModel.Controls.GamepadRumbleEnabled;
+            bool windowFocused = this.IsActive;
+
+            _gamepadDriver.RumbleEnabled = rumbleEnabled;
+
+            // Polling only occurs if enabled AND (window is active OR AlwaysEnableGamepad is set)
+            bool shouldPoll = isGamepadEnabled && (windowFocused || alwaysEnable);
+            var padState = shouldPoll ? _gamepadDriver.Poll(0) : GamepadState.Disconnected;
+
+            var activeSessions = SessionRegistry.Default.ActiveSessions;
+            if (activeSessions.Count > 0)
             {
-                session.Locomotion.Update(elapsed);
+                foreach (var session in activeSessions)
+                {
+                    if (session == primarySession && session.IsRendering3D)
+                    {
+                        session.InputState.SetGamepadState(padState);
+                    }
+                    else
+                    {
+                        // Background headless characters must NEVER receive gamepad input
+                        if (session.InputState.CurrentGamepad.IsConnected)
+                        {
+                            session.InputState.SetGamepadState(GamepadState.Disconnected);
+                        }
+                    }
+
+                    session.Locomotion.Update(elapsed);
+                }
             }
+            else if (primarySession != null)
+            {
+                if (primarySession.IsRendering3D)
+                {
+                    primarySession.InputState.SetGamepadState(padState);
+                }
+                else
+                {
+                    primarySession.InputState.SetGamepadState(GamepadState.Disconnected);
+                }
+                primarySession.Locomotion.Update(elapsed);
+            }
+
             _viewModel.Controls.UpdateTelemetry();
         }
 

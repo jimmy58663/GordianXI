@@ -1341,6 +1341,11 @@
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         Background="#3E3E42" Foreground="White" FontSize="12" Margin="0,2"/>
 
+                                <Button Content="Load Preset: Gamepad (Standard)"
+                                        Command="{Binding Controls.LoadGamepadPresetCommand}"
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Background="#3E3E42" Foreground="#4EC9B0" FontSize="12" Margin="0,2"/>
+
                                 <Grid ColumnDefinitions="*, *" Margin="0,4,0,0">
                                     <Button Grid.Column="0" Content="Reset Defaults"
                                             Command="{Binding Controls.ResetDefaultsCommand}"
@@ -1355,14 +1360,85 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- GAMEPAD & CONTROLLER CARD -->
+                        <Border Background="#252526" CornerRadius="6" Padding="15">
+                            <StackPanel Spacing="8">
+                                <Grid ColumnDefinitions="*, Auto">
+                                    <TextBlock Grid.Column="0" Text="Gamepad &amp; Controller" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                    <Border Grid.Column="1" Background="#1E1E1E" CornerRadius="3" Padding="6,2" BorderBrush="#3E3E42" BorderThickness="1">
+                                        <TextBlock Text="{Binding Controls.GamepadStatusText}" FontSize="11" Foreground="#4EC9B0" FontFamily="Consolas, monospace"/>
+                                    </Border>
+                                </Grid>
+
+                                <CheckBox IsChecked="{Binding Controls.GamepadEnabled, Mode=TwoWay}"
+                                          Content="Enable Gamepad Polling"
+                                          Foreground="#4EC9B0" FontWeight="SemiBold" FontSize="12" Margin="0,2,0,0"/>
+
+                                <CheckBox IsChecked="{Binding Controls.AlwaysEnableGamepad, Mode=TwoWay}"
+                                          Content="Always Enable Gamepad (Accept input when unfocused)"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
+
+                                <CheckBox IsChecked="{Binding Controls.IsCameraRelativeLocomotion, Mode=TwoWay}"
+                                          Content="Camera-Relative 3D Movement (Type A)"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
+
+                                <CheckBox IsChecked="{Binding Controls.InvertGamepadCameraX, Mode=TwoWay}"
+                                          Content="Invert Gamepad Yaw (X-Axis)"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
+
+                                <CheckBox IsChecked="{Binding Controls.InvertGamepadCameraY, Mode=TwoWay}"
+                                          Content="Invert Gamepad Pitch (Y-Axis)"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
+
+                                <CheckBox IsChecked="{Binding Controls.GamepadRumbleEnabled, Mode=TwoWay}"
+                                          Content="Enable Vibration / Rumble Feedback"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
+
+                                <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                                    <TextBlock Grid.Column="0" Text="Stick Deadzone:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Controls.LeftStickDeadzone, StringFormat='{}{0:P0}'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
+                                </Grid>
+                                <Slider Minimum="0.05" Maximum="0.40" Value="{Binding Controls.LeftStickDeadzone, Mode=TwoWay}"/>
+
+                                <Grid ColumnDefinitions="*, Auto" Margin="0,2,0,0">
+                                    <TextBlock Grid.Column="0" Text="Camera Sensitivity:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Controls.GamepadCameraSensitivity, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
+                                </Grid>
+                                <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.GamepadCameraSensitivity, Mode=TwoWay}"/>
+
+                                <Separator Background="#333337" Margin="0,4"/>
+
+                                <TextBlock Text="Live Controller Telemetry" FontSize="12" FontWeight="SemiBold" Foreground="#A0A0A0"/>
+
+                                <Grid ColumnDefinitions="110, *">
+                                    <TextBlock Grid.Column="0" Text="Thumbsticks:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Controls.GamepadSticksText}" Foreground="#DCDCAA" FontSize="11" FontFamily="Consolas, monospace"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="110, *">
+                                    <TextBlock Grid.Column="0" Text="Triggers:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Controls.GamepadTriggersText}" Foreground="#CE9178" FontSize="11" FontFamily="Consolas, monospace"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="110, *">
+                                    <TextBlock Grid.Column="0" Text="Buttons:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Controls.GamepadButtonsText}" Foreground="#C586C0" FontSize="11" FontFamily="Consolas, monospace" TextWrapping="Wrap"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
                         <!-- CAMERA & SENSITIVITY CARD -->
                         <Border Background="#252526" CornerRadius="6" Padding="15">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Camera &amp; Sensitivity" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
 
+                                <CheckBox IsChecked="{Binding Controls.InvertMouseX, Mode=TwoWay}"
+                                          Content="Invert Mouse Look (X-Axis)"
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,4,0,0"/>
+
                                 <CheckBox IsChecked="{Binding Controls.InvertMouseY, Mode=TwoWay}"
                                           Content="Invert Mouse Look (Y-Axis)"
-                                          Foreground="#CCCCCC" FontSize="12" Margin="0,4,0,0"/>
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,0"/>
 
                                 <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
                                     <TextBlock Grid.Column="0" Text="Mouse Sensitivity X:" Foreground="#A0A0A0" FontSize="12"/>

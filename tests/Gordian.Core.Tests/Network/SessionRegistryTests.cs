@@ -91,5 +91,52 @@ namespace Gordian.Core.Tests.Network
             Assert.False(_registry.IsCharacterActive("MithraThief"));
             Assert.Empty(_registry.ActiveSessions);
         }
+
+        [Fact]
+        public void MultiBox_PrimaryRenderingSession_DesignationUpdatesIsRendering3D()
+        {
+            var net1 = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            var session1 = new CharacterSession("MainTank", 1001, "acc1", net1);
+
+            var net2 = new SessionNetworkManager("127.0.0.1", 54232) { CurrentState = SessionState.ActiveInWorld };
+            var session2 = new CharacterSession("AltHealer", 1002, "acc2", net2);
+
+            _registry.RegisterSession(session1);
+            _registry.RegisterSession(session2);
+
+            // First registered session is automatically primary
+            Assert.Same(session1, _registry.PrimaryRenderingSession);
+            Assert.True(session1.IsRendering3D);
+            Assert.False(session2.IsRendering3D);
+
+            // Switch primary session to AltHealer
+            _registry.SetPrimaryRenderingSession(session2);
+
+            Assert.Same(session2, _registry.PrimaryRenderingSession);
+            Assert.False(session1.IsRendering3D);
+            Assert.True(session2.IsRendering3D);
+        }
+
+        [Fact]
+        public void UnregisterSession_PrimarySessionUnregistered_PromotesRemainingSession()
+        {
+            var net1 = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            var session1 = new CharacterSession("MainTank", 1001, "acc1", net1);
+
+            var net2 = new SessionNetworkManager("127.0.0.1", 54232) { CurrentState = SessionState.ActiveInWorld };
+            var session2 = new CharacterSession("AltHealer", 1002, "acc2", net2);
+
+            _registry.RegisterSession(session1);
+            _registry.RegisterSession(session2);
+
+            Assert.Same(session1, _registry.PrimaryRenderingSession);
+
+            // Unregister primary session
+            _registry.UnregisterSession(session1.SessionId);
+
+            // AltHealer should now be promoted to primary rendering session
+            Assert.Same(session2, _registry.PrimaryRenderingSession);
+            Assert.True(session2.IsRendering3D);
+        }
     }
 }

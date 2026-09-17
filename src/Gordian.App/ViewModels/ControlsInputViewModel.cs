@@ -94,6 +94,19 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        public bool InvertMouseX
+        {
+            get => _activeProfile.InvertMouseX;
+            set
+            {
+                if (_activeProfile.InvertMouseX != value)
+                {
+                    _activeProfile.InvertMouseX = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public bool InvertMouseY
         {
             get => _activeProfile.InvertMouseY;
@@ -162,8 +175,158 @@ namespace Gordian.App.ViewModels
             private set => SetProperty(ref _activeActionsText, value);
         }
 
+        // Gamepad Settings & Telemetry
+        private string _gamepadStatusText = "No Gamepad Detected";
+        private string _gamepadSticksText = "L: (0.00, 0.00) | R: (0.00, 0.00)";
+        private string _gamepadTriggersText = "LT: 0% | RT: 0%";
+        private string _gamepadButtonsText = "None";
+
+        public string GamepadStatusText
+        {
+            get => _gamepadStatusText;
+            private set => SetProperty(ref _gamepadStatusText, value);
+        }
+
+        public string GamepadSticksText
+        {
+            get => _gamepadSticksText;
+            private set => SetProperty(ref _gamepadSticksText, value);
+        }
+
+        public string GamepadTriggersText
+        {
+            get => _gamepadTriggersText;
+            private set => SetProperty(ref _gamepadTriggersText, value);
+        }
+
+        public string GamepadButtonsText
+        {
+            get => _gamepadButtonsText;
+            private set => SetProperty(ref _gamepadButtonsText, value);
+        }
+
+        public bool GamepadEnabled
+        {
+            get => _activeProfile.GamepadSettings.GamepadEnabled;
+            set
+            {
+                if (_activeProfile.GamepadSettings.GamepadEnabled != value)
+                {
+                    _activeProfile.GamepadSettings.GamepadEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool AlwaysEnableGamepad
+        {
+            get => _activeProfile.GamepadSettings.AlwaysEnableGamepad;
+            set
+            {
+                if (_activeProfile.GamepadSettings.AlwaysEnableGamepad != value)
+                {
+                    _activeProfile.GamepadSettings.AlwaysEnableGamepad = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public float LeftStickDeadzone
+        {
+            get => _activeProfile.GamepadSettings.LeftStickDeadzone;
+            set
+            {
+                if (Math.Abs(_activeProfile.GamepadSettings.LeftStickDeadzone - value) > 0.01f)
+                {
+                    _activeProfile.GamepadSettings.LeftStickDeadzone = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public float RightStickDeadzone
+        {
+            get => _activeProfile.GamepadSettings.RightStickDeadzone;
+            set
+            {
+                if (Math.Abs(_activeProfile.GamepadSettings.RightStickDeadzone - value) > 0.01f)
+                {
+                    _activeProfile.GamepadSettings.RightStickDeadzone = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public float GamepadCameraSensitivity
+        {
+            get => _activeProfile.GamepadSettings.CameraSensitivityX;
+            set
+            {
+                if (Math.Abs(_activeProfile.GamepadSettings.CameraSensitivityX - value) > 0.01f)
+                {
+                    _activeProfile.GamepadSettings.CameraSensitivityX = value;
+                    _activeProfile.GamepadSettings.CameraSensitivityY = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool InvertGamepadCameraX
+        {
+            get => _activeProfile.GamepadSettings.InvertCameraX;
+            set
+            {
+                if (_activeProfile.GamepadSettings.InvertCameraX != value)
+                {
+                    _activeProfile.GamepadSettings.InvertCameraX = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool InvertGamepadCameraY
+        {
+            get => _activeProfile.GamepadSettings.InvertCameraY;
+            set
+            {
+                if (_activeProfile.GamepadSettings.InvertCameraY != value)
+                {
+                    _activeProfile.GamepadSettings.InvertCameraY = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool GamepadRumbleEnabled
+        {
+            get => _activeProfile.GamepadSettings.RumbleEnabled;
+            set
+            {
+                if (_activeProfile.GamepadSettings.RumbleEnabled != value)
+                {
+                    _activeProfile.GamepadSettings.RumbleEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool IsCameraRelativeLocomotion
+        {
+            get => _activeProfile.GamepadSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative;
+            set
+            {
+                var target = value ? GamepadLocomotionMode.CameraRelative : GamepadLocomotionMode.CharacterRelative;
+                if (_activeProfile.GamepadSettings.LocomotionMode != target)
+                {
+                    _activeProfile.GamepadSettings.LocomotionMode = target;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public ICommand LoadCompactPresetCommand { get; }
         public ICommand LoadFullNumpadPresetCommand { get; }
+        public ICommand LoadGamepadPresetCommand { get; }
         public ICommand ResetDefaultsCommand { get; }
         public ICommand SaveProfileCommand { get; }
 
@@ -173,6 +336,7 @@ namespace Gordian.App.ViewModels
 
             LoadCompactPresetCommand = new RelayCommand(LoadCompactPreset);
             LoadFullNumpadPresetCommand = new RelayCommand(LoadFullNumpadPreset);
+            LoadGamepadPresetCommand = new RelayCommand(LoadGamepadPreset);
             ResetDefaultsCommand = new RelayCommand(ResetToDefaults);
             SaveProfileCommand = new RelayCommand(SaveProfile);
 
@@ -214,6 +378,19 @@ namespace Gordian.App.ViewModels
             StatusMessage = "Loaded standard FFXI Full (Numpad) keyboard preset.";
         }
 
+        public void LoadGamepadPreset()
+        {
+            _activeProfile = InputProfile.CreateGamepadDefault();
+            ActivePresetName = "Gamepad (Standard)";
+            NotifyProfilePropertiesChanged();
+            PopulateBindingsTable();
+            if (_currentSession != null)
+            {
+                _currentSession.Locomotion.Profile = _activeProfile;
+            }
+            StatusMessage = "Loaded standard FFXI Gamepad layout (dual-analog controls).";
+        }
+
         public void ResetToDefaults()
         {
             LoadCompactPreset();
@@ -246,6 +423,10 @@ namespace Gordian.App.ViewModels
                 WalkingStatusText = "N/A";
                 HeldKeysText = "None";
                 ActiveActionsText = "None";
+                GamepadStatusText = !GamepadEnabled ? "Disabled (Polling Off)" : "No Gamepad Detected";
+                GamepadSticksText = "L: (0.00, 0.00) | R: (0.00, 0.00)";
+                GamepadTriggersText = "LT: 0% | RT: 0%";
+                GamepadButtonsText = "None";
                 return;
             }
 
@@ -282,14 +463,51 @@ namespace Gordian.App.ViewModels
             // Active Actions
             var actions = input.GetCurrentHeldActions();
             ActiveActionsText = actions.Count > 0 ? string.Join(", ", actions) : "None";
+
+            // Gamepad Telemetry
+            if (!GamepadEnabled)
+            {
+                GamepadStatusText = "Disabled (Polling Off)";
+                GamepadSticksText = "L: (0.00, 0.00) | R: (0.00, 0.00)";
+                GamepadTriggersText = "LT: 0% | RT: 0%";
+                GamepadButtonsText = "None";
+            }
+            else
+            {
+                var pad = input.CurrentGamepad;
+                if (pad.IsConnected)
+                {
+                    GamepadStatusText = "Controller 1: Connected (XInput)";
+                    GamepadSticksText = $"L: ({pad.LeftThumb.X:+0.00;-0.00;0.00}, {pad.LeftThumb.Y:+0.00;-0.00;0.00}) | R: ({pad.RightThumb.X:+0.00;-0.00;0.00}, {pad.RightThumb.Y:+0.00;-0.00;0.00})";
+                    GamepadTriggersText = $"LT: {pad.LeftTrigger * 100f:F0}% | RT: {pad.RightTrigger * 100f:F0}%";
+                    GamepadButtonsText = pad.Buttons != GamepadButton.None ? pad.Buttons.ToString() : "None";
+                }
+                else
+                {
+                    GamepadStatusText = "No Gamepad Detected";
+                    GamepadSticksText = "L: (0.00, 0.00) | R: (0.00, 0.00)";
+                    GamepadTriggersText = "LT: 0% | RT: 0%";
+                    GamepadButtonsText = "None";
+                }
+            }
         }
 
         private void NotifyProfilePropertiesChanged()
         {
             OnPropertyChanged(nameof(MouseSensitivityX));
             OnPropertyChanged(nameof(MouseSensitivityY));
+            OnPropertyChanged(nameof(InvertMouseX));
             OnPropertyChanged(nameof(InvertMouseY));
             OnPropertyChanged(nameof(TurnSpeed));
+            OnPropertyChanged(nameof(GamepadEnabled));
+            OnPropertyChanged(nameof(AlwaysEnableGamepad));
+            OnPropertyChanged(nameof(LeftStickDeadzone));
+            OnPropertyChanged(nameof(RightStickDeadzone));
+            OnPropertyChanged(nameof(GamepadCameraSensitivity));
+            OnPropertyChanged(nameof(InvertGamepadCameraX));
+            OnPropertyChanged(nameof(InvertGamepadCameraY));
+            OnPropertyChanged(nameof(GamepadRumbleEnabled));
+            OnPropertyChanged(nameof(IsCameraRelativeLocomotion));
         }
 
         private void PopulateBindingsTable()

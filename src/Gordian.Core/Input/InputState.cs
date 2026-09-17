@@ -18,6 +18,7 @@ namespace Gordian.Core.Input
         private readonly HashSet<GordianKey> _heldKeys = new HashSet<GordianKey>();
         private InputModifiers _modifiers = InputModifiers.None;
         private MouseButton _heldMouseButtons = MouseButton.None;
+        private GamepadState _gamepadState = GamepadState.Disconnected;
 
         // Mouse motion impulses
         private float _mouseDeltaX;
@@ -33,6 +34,11 @@ namespace Gordian.Core.Input
         // High-level movement state toggles
         public bool AutorunActive { get; set; }
         public bool IsWalking { get; set; }
+
+        public GamepadState CurrentGamepad
+        {
+            get { lock (_lock) return _gamepadState; }
+        }
 
         public float MouseDeltaX
         {
@@ -128,6 +134,14 @@ namespace Gordian.Core.Input
             }
         }
 
+        public void SetGamepadState(GamepadState state)
+        {
+            lock (_lock)
+            {
+                _gamepadState = state;
+            }
+        }
+
         public void Reset()
         {
             lock (_lock)
@@ -135,6 +149,7 @@ namespace Gordian.Core.Input
                 _heldKeys.Clear();
                 _modifiers = InputModifiers.None;
                 _heldMouseButtons = MouseButton.None;
+                _gamepadState = GamepadState.Disconnected;
                 _mouseDeltaX = 0;
                 _mouseDeltaY = 0;
                 _mouseWheelDelta = 0;
@@ -238,7 +253,48 @@ namespace Gordian.Core.Input
                     }
                 }
 
-                // 3. Compute Triggered (just pressed this frame) and Released
+                // 3. Evaluate Gamepad buttons & triggers
+                if (_gamepadState.IsConnected)
+                {
+                    GamepadButton effectiveButtons = _gamepadState.Buttons;
+                    float trigThresh = profile.GamepadSettings?.TriggerThreshold ?? 0.15f;
+                    if (_gamepadState.LeftTrigger >= trigThresh)
+                    {
+                        effectiveButtons |= GamepadButton.LeftTrigger;
+                    }
+                    if (_gamepadState.RightTrigger >= trigThresh)
+                    {
+                        effectiveButtons |= GamepadButton.RightTrigger;
+                    }
+
+                    if (effectiveButtons != GamepadButton.None)
+                    {
+                        uint btnBits = (uint)effectiveButtons;
+                        for (int i = 0; i < 32; i++)
+                        {
+                            uint mask = 1u << i;
+                            if ((btnBits & mask) != 0)
+                            {
+                                var padBtn = (GamepadButton)mask;
+                                var chord = new InputChord(padBtn, _modifiers);
+                                if (profile.TryGetAction(chord, out var act))
+                                {
+                                    _heldActions.Add(act);
+                                }
+                                else if (_modifiers != InputModifiers.None)
+                                {
+                                    var plainChord = new InputChord(padBtn, InputModifiers.None);
+                                    if (profile.TryGetAction(plainChord, out var plainAct))
+                                    {
+                                        _heldActions.Add(plainAct);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Compute Triggered (just pressed this frame) and Released
                 foreach (var a in _heldActions)
                 {
                     if (!_previousActions.Contains(a))

@@ -17,15 +17,18 @@ namespace Gordian.Core.Input
     {
         public GordianKey Key { get; }
         public MouseButton MouseButton { get; }
+        public GamepadButton GamepadButton { get; }
         public InputModifiers Modifiers { get; }
 
         public bool IsMouseChord => MouseButton != MouseButton.None;
-        public bool IsEmpty => Key == GordianKey.None && MouseButton == MouseButton.None;
+        public bool IsGamepadChord => GamepadButton != GamepadButton.None;
+        public bool IsEmpty => Key == GordianKey.None && MouseButton == MouseButton.None && GamepadButton == GamepadButton.None;
 
         public InputChord(GordianKey key, InputModifiers modifiers = InputModifiers.None)
         {
             Key = key;
             MouseButton = MouseButton.None;
+            GamepadButton = GamepadButton.None;
             Modifiers = modifiers;
         }
 
@@ -33,6 +36,15 @@ namespace Gordian.Core.Input
         {
             Key = GordianKey.None;
             MouseButton = mouseButton;
+            GamepadButton = GamepadButton.None;
+            Modifiers = modifiers;
+        }
+
+        public InputChord(GamepadButton gamepadButton, InputModifiers modifiers = InputModifiers.None)
+        {
+            Key = GordianKey.None;
+            MouseButton = MouseButton.None;
+            GamepadButton = gamepadButton;
             Modifiers = modifiers;
         }
 
@@ -40,12 +52,13 @@ namespace Gordian.Core.Input
         {
             return Key == other.Key &&
                    MouseButton == other.MouseButton &&
+                   GamepadButton == other.GamepadButton &&
                    Modifiers == other.Modifiers;
         }
 
         public override bool Equals(object? obj) => obj is InputChord other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine((ushort)Key, (byte)MouseButton, (byte)Modifiers);
+        public override int GetHashCode() => HashCode.Combine((ushort)Key, (byte)MouseButton, (uint)GamepadButton, (byte)Modifiers);
 
         public static bool operator ==(InputChord left, InputChord right) => left.Equals(right);
         public static bool operator !=(InputChord left, InputChord right) => !left.Equals(right);
@@ -61,7 +74,11 @@ namespace Gordian.Core.Input
             if (Modifiers.HasFlag(InputModifiers.Shift)) sb.Append("Shift+");
             if (Modifiers.HasFlag(InputModifiers.Super)) sb.Append("Super+");
 
-            if (IsMouseChord)
+            if (IsGamepadChord)
+            {
+                sb.Append("Pad:").Append(GamepadButton);
+            }
+            else if (IsMouseChord)
             {
                 sb.Append("Mouse").Append(MouseButton);
             }
@@ -109,6 +126,36 @@ namespace Gordian.Core.Input
                     modifiers |= InputModifiers.Super;
                 else
                     return false;
+            }
+
+            // Check if gamepad chord (e.g. "Pad:A", "Pad:LeftShoulder", "Gamepad:X", "Pad:LB")
+            if (mainPart.StartsWith("Pad:", StringComparison.OrdinalIgnoreCase) || mainPart.StartsWith("Gamepad:", StringComparison.OrdinalIgnoreCase))
+            {
+                int colonIdx = mainPart.IndexOf(':');
+                string padBtnStr = mainPart.Substring(colonIdx + 1).Trim();
+
+                // Match friendly gamepad aliases
+                padBtnStr = padBtnStr.ToUpperInvariant() switch
+                {
+                    "LB" => nameof(GamepadButton.LeftShoulder),
+                    "RB" => nameof(GamepadButton.RightShoulder),
+                    "LT" => nameof(GamepadButton.LeftTrigger),
+                    "RT" => nameof(GamepadButton.RightTrigger),
+                    "L3" => nameof(GamepadButton.LeftThumb),
+                    "R3" => nameof(GamepadButton.RightThumb),
+                    "SELECT" or "VIEW" or "SHARE" => nameof(GamepadButton.Back),
+                    "CROSS" => nameof(GamepadButton.A),
+                    "CIRCLE" => nameof(GamepadButton.B),
+                    "SQUARE" => nameof(GamepadButton.X),
+                    "TRIANGLE" => nameof(GamepadButton.Y),
+                    _ => padBtnStr
+                };
+
+                if (Enum.TryParse<GamepadButton>(padBtnStr, true, out var padBtn) && padBtn != GamepadButton.None)
+                {
+                    chord = new InputChord(padBtn, modifiers);
+                    return true;
+                }
             }
 
             // Check if mouse chord
