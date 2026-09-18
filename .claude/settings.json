@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(G:/git/GordianXI/**)",
+      "Bash(dotnet restore*)",
+      "Bash(dotnet build*)",
+      "Bash(dotnet test*)",
+      "Bash(dotnet run*)"
+    ],
+    "deny": [
+      "Edit(C:/Users/jimmy/OneDrive/Documents/Git/LSBserver/**)",
+      "Edit(C:/Users/jimmy/OneDrive/Documents/Git/xiloader/**)",
+      "Edit(C:/Users/jimmy/OneDrive/Documents/Git/xi-model-viewer/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "python \"G:/git/GordianXI/.claude/hooks/guard_reference_workspaces.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
