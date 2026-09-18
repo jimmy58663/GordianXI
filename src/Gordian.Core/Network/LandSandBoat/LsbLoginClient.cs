@@ -61,6 +61,11 @@ namespace Gordian.Core.Network.LandSandBoat
         /// </summary>
         public event EventHandler<PacketLogEntry>? PacketInspected;
 
+        /// <summary>
+        /// Fires when the login client status changes (e.g. during transient retry attempts).
+        /// </summary>
+        public event EventHandler<string>? StatusChanged;
+
         private void LogLobbyPacket(PacketDirection direction, ushort cmd, ReadOnlySpan<byte> data, string? customName = null)
         {
             if (PacketInspected == null) return;
@@ -105,15 +110,19 @@ namespace Gordian.Core.Network.LandSandBoat
             ArgumentNullException.ThrowIfNull(host);
 
             GordianLog.Info("LSB_LOGIN", $"Connecting to auth server {host}:{port} for user '{username}'...");
+            using var ctsAuth = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            ctsAuth.CancelAfter(10000); // 10 second timeout for auth server
+            var authCt = ctsAuth.Token;
+
             using var tcpClient = new TcpClient();
-            await tcpClient.ConnectAsync(host, port, ct).ConfigureAwait(false);
+            await tcpClient.ConnectAsync(host, port, authCt).ConfigureAwait(false);
 
             using var sslStream = new SslStream(tcpClient.GetStream(), false, ValidateRemoteCertificate);
             await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
                 TargetHost = host,
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            }, ct).ConfigureAwait(false);
+            }, authCt).ConfigureAwait(false);
 
             // Command 0x10 = LOGIN_ATTEMPT
             var authPayload = new Dictionary<string, object>
@@ -131,11 +140,11 @@ namespace Gordian.Core.Network.LandSandBoat
             string jsonString = JsonSerializer.Serialize(authPayload);
             byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonString);
 
-            await sslStream.WriteAsync(jsonBytes, ct).ConfigureAwait(false);
-            await sslStream.FlushAsync(ct).ConfigureAwait(false);
+            await sslStream.WriteAsync(jsonBytes, authCt).ConfigureAwait(false);
+            await sslStream.FlushAsync(authCt).ConfigureAwait(false);
 
             byte[] buffer = new byte[4096];
-            int bytesRead = await sslStream.ReadAsync(buffer, ct).ConfigureAwait(false);
+            int bytesRead = await sslStream.ReadAsync(buffer, authCt).ConfigureAwait(false);
             if (bytesRead <= 0)
             {
                 throw new InvalidOperationException("LandSandBoat auth server closed the connection without responding.");
@@ -253,8 +262,10 @@ namespace Gordian.Core.Network.LandSandBoat
             LogLobbyPacket(PacketDirection.Outbound, 0x26, view26Packet, "GP_LOBBY_VERSION_CHECK");
 
             // Read 0x05 response from view_session (40 bytes)
+            using var cts05 = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts05.CancelAfter(5000);
             byte[] viewBuffer = new byte[512];
-            int viewRead = await viewStream.ReadAsync(viewBuffer, ct).ConfigureAwait(false);
+            int viewRead = await viewStream.ReadAsync(viewBuffer, cts05.Token).ConfigureAwait(false);
             if (viewRead > 0)
             {
                 LogLobbyPacket(PacketDirection.Inbound, (ushort)(viewRead > 8 ? viewBuffer[8] : 0x05), viewBuffer.AsSpan(0, viewRead), "GP_LOBBY_VERSION_REPLY");
@@ -267,6 +278,7 @@ namespace Gordian.Core.Network.LandSandBoat
                     ushort errCode = BinaryPrimitives.ReadUInt16LittleEndian(viewBuffer.AsSpan(32, 2));
                     throw new InvalidOperationException($"Lobby view server returned error code {errCode} during version handshake.");
                 }
+                throw new InvalidOperationException($"Lobby view server returned invalid response (received {viewRead} bytes, expected 0x05). The server may have rejected the session hash.");
             }
 
             // Step 3: Request Character List from xi_data (0xA1, 28 bytes)
@@ -284,15 +296,17 @@ namespace Gordian.Core.Network.LandSandBoat
             LogLobbyPacket(PacketDirection.Outbound, 0xA1, a1Packet, "GP_LOBBY_AUTH_REQUEST");
 
             // Step 4: Receive 0x03 Character List from xi_data (328 bytes)
+            using var cts03 = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts03.CancelAfter(5000);
             byte[] dataBuffer = new byte[1024];
-            int bytesRead = await dataStream.ReadAsync(dataBuffer, ct).ConfigureAwait(false);
+            int bytesRead = await dataStream.ReadAsync(dataBuffer, cts03.Token).ConfigureAwait(false);
             if (bytesRead > 0)
             {
                 LogLobbyPacket(PacketDirection.Inbound, (ushort)(bytesRead > 0 ? dataBuffer[0] : 0x03), dataBuffer.AsSpan(0, bytesRead), "GP_LOBBY_CHAR_LIST");
             }
             if (bytesRead < 2 || dataBuffer[0] != 0x03)
             {
-                throw new InvalidOperationException($"Unexpected response from data server: expected 0x03, received {bytesRead} bytes.");
+                throw new InvalidOperationException($"Unexpected response from data server: expected 0x03, received {bytesRead} bytes. The server may have rejected the session hash.");
             }
 
             int charCount = dataBuffer[1];
@@ -468,6 +482,11 @@ namespace Gordian.Core.Network.LandSandBoat
 
             if (replyLen < 72 || reply0BBuffer[8] != 0x0B)
             {
+                if (replyLen >= 34 && reply0BBuffer[8] == 0x04)
+                {
+                    ushort errCode = BinaryPrimitives.ReadUInt16LittleEndian(reply0BBuffer.AsSpan(32, 2));
+                    throw new InvalidOperationException($"LandSandBoat character selection failed: server returned error code {errCode} (CHARACTER_ALREADY_LOGGED_IN or server busy). Reconnecting...");
+                }
                 throw new InvalidOperationException($"LandSandBoat character selection failed: server returned {replyLen} bytes with code 0x{replyCmd:X2} (expected 72 bytes with 0x0B). Check LSB server console for details.");
             }
 
@@ -537,6 +556,8 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>
         /// Performs full LandSandBoat login and character selection pipeline in one shot.
+        /// Includes automatic transient retry to gracefully handle server-side session hash collisions,
+        /// lingering socket teardown, or timing races during reconnect.
         /// </summary>
         public async Task<LsbSessionTicket> LoginAndSelectAsync(
             string host,
@@ -550,26 +571,62 @@ namespace Gordian.Core.Network.LandSandBoat
             uint targetCharacterId = 0,
             CancellationToken ct = default)
         {
-            var (accountId, sessionHash) = await AuthenticateAsync(
-                host,
-                connectPort,
-                username,
-                password,
-                otp,
-                ct
-            ).ConfigureAwait(false);
+            const int maxAttempts = 2;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    var (accountId, sessionHash) = await AuthenticateAsync(
+                        host,
+                        connectPort,
+                        username,
+                        password,
+                        otp,
+                        ct
+                    ).ConfigureAwait(false);
 
-            return await SelectCharacterAsync(
-                host,
-                dataPort,
-                viewPort,
-                accountId,
-                sessionHash,
-                targetCharacterName,
-                targetCharacterId,
-                null,
-                ct
-            ).ConfigureAwait(false);
+                    return await SelectCharacterAsync(
+                        host,
+                        dataPort,
+                        viewPort,
+                        accountId,
+                        sessionHash,
+                        targetCharacterName,
+                        targetCharacterId,
+                        null,
+                        ct
+                    ).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)
+                {
+                    string retryMsg = $"Handshake retry: Re-authenticating with LandSandBoat (retrying in 750ms after transient issue: {ex.Message})...";
+                    GordianLog.Warning("LSB_LOGIN", retryMsg);
+                    StatusChanged?.Invoke(this, retryMsg);
+                    await Task.Delay(750, ct).ConfigureAwait(false);
+                }
+            }
+
+            throw new InvalidOperationException("Failed to complete LandSandBoat login and character selection.");
+        }
+
+        private static bool IsTransientLobbyException(Exception ex)
+        {
+            if (ex is IOException or SocketException or TimeoutException or OperationCanceledException)
+            {
+                return true;
+            }
+
+            if (ex is InvalidOperationException invEx &&
+                (invEx.Message.Contains("rejected", StringComparison.OrdinalIgnoreCase) ||
+                 invEx.Message.Contains("closed the connection", StringComparison.OrdinalIgnoreCase) ||
+                 invEx.Message.Contains("CHARACTER_ALREADY_LOGGED_IN", StringComparison.OrdinalIgnoreCase) ||
+                 invEx.Message.Contains("Reconnecting", StringComparison.OrdinalIgnoreCase) ||
+                 invEx.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            return false;
         }
     }
 }

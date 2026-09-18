@@ -352,6 +352,13 @@ namespace Gordian.App.ViewModels
                     {
                         Inspector.OnPacketInspected(s, entry);
                     };
+                    client.StatusChanged += (s, msg) =>
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            StatusMessage = msg;
+                        });
+                    };
                     foreach (var profile in directLsbProfiles)
                     {
                         if (_sessionRegistry.IsAccountActive(profile.Username) ||

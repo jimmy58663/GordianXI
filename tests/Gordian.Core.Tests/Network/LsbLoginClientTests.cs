@@ -147,5 +147,29 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(sessionHash, view26Packet.AsSpan(12, 16).ToArray());
             Assert.Equal("30260904_1", Encoding.ASCII.GetString(view26Packet, 0x74, 10));
         }
+
+        [Fact]
+        public void LsbLoginClient_StatusChangedEvent_CanBeSubscribedAndFired()
+        {
+            var client = new LsbLoginClient();
+            string? capturedStatus = null;
+            client.StatusChanged += (s, msg) => capturedStatus = msg;
+
+            Assert.Null(capturedStatus);
+            Assert.NotNull(client);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task LsbLoginClient_AuthenticateAsync_ThrowsOperationCanceledException_WhenCancelled()
+        {
+            var client = new LsbLoginClient();
+            using var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel(); // Pre-cancel
+
+            await Assert.ThrowsAnyAsync<System.OperationCanceledException>(async () =>
+            {
+                await client.AuthenticateAsync("127.0.0.1", 54231, "user", "pass", ct: cts.Token);
+            });
+        }
     }
 }
