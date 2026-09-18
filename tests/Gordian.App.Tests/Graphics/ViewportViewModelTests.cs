@@ -39,5 +39,118 @@ namespace Gordian.App.Tests.Graphics
             vm.ActiveBackend = "Direct3D 11";
             Assert.Equal(nameof(vm.ActiveBackend), changedProp);
         }
+
+        [Fact]
+        public void DefaultState_HasBorderlessDisplayModeAndAvailableModes()
+        {
+            var vm = new ViewportViewModel();
+
+            Assert.Equal(ViewportDisplayMode.BorderlessWindow, vm.SelectedDisplayMode);
+            Assert.True(vm.AutoLaunchOnConnect);
+            Assert.Contains(ViewportDisplayMode.BorderlessWindow, vm.AvailableDisplayModes);
+            Assert.Contains(ViewportDisplayMode.Windowed, vm.AvailableDisplayModes);
+            Assert.Contains(ViewportDisplayMode.Fullscreen, vm.AvailableDisplayModes);
+        }
+
+        [Fact]
+        public void DisplayModeChanged_RaisesEventAndPropertyNotification()
+        {
+            var vm = new ViewportViewModel();
+            ViewportDisplayMode? notifiedMode = null;
+            vm.DisplayModeChanged += (_, mode) => notifiedMode = mode;
+
+            vm.SelectedDisplayMode = ViewportDisplayMode.Windowed;
+
+            Assert.Equal(ViewportDisplayMode.Windowed, vm.SelectedDisplayMode);
+            Assert.Equal(ViewportDisplayMode.Windowed, notifiedMode);
+        }
+
+        [Fact]
+        public void CharacterTabs_AddAndCycleThroughSessions()
+        {
+            var vm = new ViewportViewModel();
+            var netManager1 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
+            var netManager2 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
+            var session1 = new Gordian.Core.Network.CharacterSession("Cybin", 1, "cybin_user", netManager1);
+            var session2 = new Gordian.Core.Network.CharacterSession("Sylphie", 2, "sylph_user", netManager2);
+
+            var tab1 = vm.AddSession(session1);
+            Assert.Single(vm.CharacterTabs);
+            Assert.Equal(tab1, vm.ActiveTab);
+            Assert.True(tab1.IsActive);
+
+            var tab2 = vm.AddSession(session2);
+            Assert.Equal(2, vm.CharacterTabs.Count);
+            Assert.Equal(tab1, vm.ActiveTab); // First remains active until switched
+
+            // Cycle to next
+            vm.CycleNextCharacter();
+            Assert.Equal(tab2, vm.ActiveTab);
+            Assert.True(tab2.IsActive);
+            Assert.False(tab1.IsActive);
+
+            // Cycle back
+            vm.CyclePreviousCharacter();
+            Assert.Equal(tab1, vm.ActiveTab);
+
+            // Pop out event trigger
+            ViewportCharacterTabViewModel? popped = null;
+            vm.TabPoppedOut += (_, t) => popped = t;
+            tab2.PopOutCommand.Execute(null);
+            Assert.Equal(tab2, popped);
+
+            // Remove session
+            vm.RemoveSession(session1);
+            Assert.Single(vm.CharacterTabs);
+            Assert.Equal(tab2, vm.ActiveTab);
+        }
+
+        [Fact]
+        public void TabStyle_DefaultsToFloatingPill_AndUpdatesHelperBooleans()
+        {
+            var vm = new ViewportViewModel();
+
+            Assert.Equal(ViewportTabStyle.FloatingPill, vm.SelectedTabStyle);
+            Assert.True(vm.IsFloatingPill);
+            Assert.False(vm.IsTopRibbon);
+            Assert.False(vm.IsSideRail);
+            Assert.False(vm.IsHotkeysOnly);
+
+            vm.SelectedTabStyle = ViewportTabStyle.TopRibbon;
+            Assert.True(vm.IsTopRibbon);
+            Assert.False(vm.IsFloatingPill);
+
+            vm.SelectedTabStyle = ViewportTabStyle.SideRail;
+            Assert.True(vm.IsSideRail);
+
+            vm.SelectedTabStyle = ViewportTabStyle.HotkeysOnly;
+            Assert.True(vm.IsHotkeysOnly);
+        }
+
+        [Fact]
+        public void PipStreaming_PopulatesUpToFiveBackgroundCharacters()
+        {
+            var vm = new ViewportViewModel();
+            var sessions = new Gordian.Core.Network.CharacterSession[6];
+            for (int i = 0; i < 6; i++)
+            {
+                var net = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
+                sessions[i] = new Gordian.Core.Network.CharacterSession($"Char{i}", (uint)(i + 1), $"user{i}", net);
+                vm.AddSession(sessions[i]);
+            }
+
+            // Total 6 characters: 1 active (Char0) + 5 PiP thumbnails (Char1..Char5)
+            Assert.Equal(6, vm.CharacterTabs.Count);
+            Assert.Equal("Char0", vm.ActiveTab?.CharacterName);
+            Assert.Equal(5, vm.PipThumbnails.Count);
+            Assert.DoesNotContain(vm.PipThumbnails, t => t.CharacterName == "Char0");
+
+            // Swapping active tab to Char1 should update PiP thumbnails
+            vm.ActiveTab = vm.CharacterTabs[1];
+            Assert.Equal("Char1", vm.ActiveTab.CharacterName);
+            Assert.Equal(5, vm.PipThumbnails.Count);
+            Assert.DoesNotContain(vm.PipThumbnails, t => t.CharacterName == "Char1");
+            Assert.Contains(vm.PipThumbnails, t => t.CharacterName == "Char0");
+        }
     }
 }

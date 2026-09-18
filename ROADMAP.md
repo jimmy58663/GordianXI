@@ -110,12 +110,18 @@
   - [x] Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
   - [x] Smooth network locomotion synchronization: retail-accurate `0x015` packet protocol (accumulating 60 FPS Run Count in `MoveFlame`, zero `MovTime`, `0x0001` stationary stance), non-starving outbound queue bundling, and high-precision `Stopwatch` delta-time calibration guaranteeing authentic 5.0 yalms/sec running across remote clients (Windower/retail)
   - [x] Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher
-- [x] **Phase 5A: Graphics Context & Embedded Viewport Surface:**
+- [x] **Phase 5A: Graphics Context & Decoupled Multi-Box Viewport Architecture:**
   - [x] Integrate Veldrid, Veldrid.SPIRV, and Veldrid.ImGui into client infrastructure
   - [x] Avalonia `NativeControlHost` cross-platform viewport control (`VeldridViewportControl`) supporting Windows (`HWND`), Linux (`X11`/`Wayland`), and macOS (`NSView`)
   - [x] Multi-backend auto-selection (Direct3D 11 on Windows, Vulkan on Linux/Windows, Metal on macOS, OpenGL fallback)
   - [x] Resilient 60/120 FPS render loop with device recreation on viewport resize
   - [x] Verification test scene: textured spinning 3D test cube and color gradient clearing to confirm GPU pipeline integrity
+  - [x] **Decoupled 3D Rendering Window (`ViewportWindow`) & Lifecycle Coordinator (`ViewportWindowManager`):**
+    - [x] Gameplay graphics run in a separate hardware-accelerated window, preserving `MainWindow` as the central Control Panel (profiles, packet inspection, state diagnostics, chat console, and display settings).
+    - [x] Three display modes: **Borderless Window** (default, borderless work area alignment), **Windowed** (movable & resizable with min dimension safeguards), and **Fullscreen** (`WindowState.FullScreen`, toggleable via `F11`).
+    - [x] Multi-option character tab switcher styles: **Floating Pill** (top-center glass dynamic island - default), **Top Ribbon** (auto-hiding), **Side Rail** (vertical party deck with live HP/MP vitals), and **Hotkeys Only** (`Ctrl+Tab` / `Ctrl+Shift+Tab`).
+    - [x] **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master Veldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
+    - [x] **Picture-in-Picture (PiP) Multi-Box Swarm Streaming:** Real-time thumbnail sub-viewports for up to 5 background characters (1 main + 5 alts) with 1-click `⇄` viewport promotion and throttled background render rates.
 - [ ] **Phase 5B: Camera Subsystem & Zone Terrain Renderer:**
   - [ ] Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](file:///g:/git/GordianXI/src/Gordian.Core/Input/PlayerLocomotionController.cs)
   - [ ] GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
@@ -129,10 +135,14 @@
   - [ ] FFXI bone hierarchy & joint matrix tree parser
   - [ ] Quaternion SLERP rotation & translation keyframe interpolation
   - [ ] Animation state machine blending idle, walk, run, combat stance, and death with network locomotion packets
-- [ ] **Phase 5E: ImGui.NET In-Game HUD Overlays & Viewport Profiling:**
-  - [ ] In-game translucent HUD (`WindowRounding = 6.0f`) drawn directly in Veldrid render pass via `Veldrid.ImGui`
-  - [ ] Target bar (HP%, name, distance, target lock indicator), Party frames, and Vitals gauges (HP/MP/TP)
-  - [ ] Mini-map / radar overlay plotting nearby entities from `SpatialPartition`
+- [ ] **Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays:**
+  - [ ] **3-Tier Rendering Architecture:**
+    - [ ] *Tier 1 (3D Scene):* Veldrid terrain, skybox, models, lighting, and fog pass.
+    - [ ] *Tier 2 (Stock FFXI 2D UI):* Authentic DAT-driven menu boxes (blue marble), finger cursor hand, targeting brackets, vitals gauges, status icons, and dialog text.
+    - [ ] *Tier 3 (ImGui Overlays & Addons):* Modern translucent HUD (`WindowRounding = 6.0f`), performance profiling overlay, radar/minimap, and addon plugin canvases.
+  - [ ] **Modular Stock UI Suppression (`StockUiVisibilityState`):**
+    - [ ] Granular visibility flags for each stock element (Target Bar, Player Vitals, Party Frames, Alliance Frames, Buff Bar, Menus, In-Game Chat).
+    - [ ] Allows addon authors and players to selectively or entirely disable stock HUD elements to run custom ImGui replacements (e.g. XIVParty, modern target frames, or clean cinematic mode) without visual overlap.
   - [ ] Viewport performance overlay: FPS counter, frame pacing graph, draw call counters, and GPU pass timings
 
 ---
@@ -142,6 +152,10 @@
   - [ ] Lua VM (NLua / KeraLua) with Windower/Ashita API compatibility shims
   - [ ] JavaScript / TypeScript VM (QuickJS / V8)
   - [ ] Strict isolation: Sandboxed I/O, event bus (`on_packet_in`, `on_packet_out`, `on_chat`, `on_zone_change`), zero access to `Gordian.Automation`
+- [ ] **3-Tier Menu & Action API for Addon Authors:**
+  - [ ] *High-Level Intent API:* Safe, validated one-line triggers (`actions.cast("Cure IV")`, `actions.use_ability("Provoke")`, `inventory.equip()`, `event.choose(index)`).
+  - [ ] *Reactive Live State Access:* Continuous, non-blocking read access to live cached game state (`LocalPlayerState`, recasts, inventory, party, world entities) without needing to wait for button click responses.
+  - [ ] *Low-Level Raw Packet Injection:* Fallback hook for custom packet crafting (`network.inject_outgoing(opcode, payload)`), securely gated behind `ServerAutomationPolicy`.
 - [ ] **Capability-Based Security & Server Policy Enforcement:**
   - [ ] Addon manifest permission model (`manifest.json` capabilities: e.g., `ui.draw`, `chat.read`, `world.query` vs restricted `action.inject`, `locomotion.override`)
   - [ ] Dynamic API gating tied to `ServerAutomationPolicy`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes

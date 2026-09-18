@@ -138,6 +138,7 @@ namespace Gordian.App.ViewModels
         public ICommand ClearFormCommand { get; }
         public ICommand LaunchSelectedCommand { get; }
         public ICommand TerminateAllCommand { get; }
+        public ICommand OpenViewportWindowCommand => Viewport.LaunchViewportCommand;
 
         public MainWindowViewModel(SessionRegistry? registry = null)
         {
@@ -161,6 +162,9 @@ namespace Gordian.App.ViewModels
                     _sessionRegistry.SetPrimaryRenderingSession(Console.SelectedSession);
                 }
             };
+
+            // Wire ViewportWindowManager to use our ViewportViewModel
+            ViewportWindowManager.Default.SetPrimaryViewModel(Viewport);
 
             // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
             ProxyStager.SelfHealStartup();

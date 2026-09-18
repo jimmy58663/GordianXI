@@ -1558,55 +1558,63 @@
             </Grid>
         </TabItem>
 
-        <!-- TAB 8: 3D Viewport Surface -->
-        <TabItem Header="3D Viewport" FontSize="14" FontWeight="SemiBold">
+        <!-- TAB 8: Graphics & 3D Viewport Control Panel -->
+        <TabItem Header="Graphics &amp; Viewport" FontSize="14" FontWeight="SemiBold">
             <Grid RowDefinitions="Auto, *" Margin="0,10,0,0">
-                <!-- Top Toolbar: Graphics Backend & Telemetry -->
-                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,8" Margin="0,0,0,8" BorderBrush="#333337" BorderThickness="1">
-                    <Grid ColumnDefinitions="Auto, Auto, *, Auto">
-                        <!-- Backend Selection -->
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="Backend:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
-                            <ComboBox ItemsSource="{Binding Viewport.AvailableBackends}"
-                                      SelectedItem="{Binding Viewport.SelectedBackend, Mode=TwoWay}"
-                                      Width="130" Height="28" FontSize="12"/>
+                <!-- Top Toolbar: Primary Launch Action & Live Telemetry -->
+                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,10" Margin="0,0,0,10" BorderBrush="#333337" BorderThickness="1">
+                    <Grid ColumnDefinitions="Auto, *, Auto">
+                        <!-- Left: Prominent Viewport Launch Button -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <Button Command="{Binding OpenViewportWindowCommand}"
+                                    Background="#512BD4" Foreground="White"
+                                    FontWeight="Bold" FontSize="13"
+                                    Padding="16,8" CornerRadius="4">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="🖥" FontSize="14" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Launch 3D Viewport Window" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <CheckBox IsChecked="{Binding Viewport.AutoLaunchOnConnect, Mode=TwoWay}"
+                                      Content="Auto-launch when character connects"
+                                      FontSize="12" Foreground="#DCDCDC" VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <!-- Hardware & Status Readout -->
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="16,0,0,0" VerticalAlignment="Center">
+                        <!-- Right: Live Performance & Hardware Telemetry -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                             <!-- Backend Indicator Chip -->
-                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,5" BorderBrush="#3E3E42" BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Ellipse Width="8" Height="8" Fill="#4EC9B0" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding #ViewportControl.ActiveBackendName, FallbackValue='Detecting...'}"
+                                    <TextBlock Text="{Binding Viewport.ActiveBackend, FallbackValue='Auto'}"
                                                Foreground="#4EC9B0" FontSize="11" FontWeight="Bold"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- GPU Device Name Chip -->
-                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,5" BorderBrush="#3E3E42" BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <TextBlock Text="GPU:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding #ViewportControl.GpuDeviceName, FallbackValue='Detecting GPU...'}"
+                                    <TextBlock Text="{Binding Viewport.GpuName, FallbackValue='Auto-Detect'}"
                                                Foreground="#DCDCAA" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
-                        </StackPanel>
 
-                        <!-- Live Performance Telemetry -->
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                            <!-- FPS Chip -->
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,5" BorderBrush="#3E3E42" BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <TextBlock Text="FPS:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding #ViewportControl.CurrentFps, StringFormat='{}{0:F1} FPS'}"
+                                    <TextBlock Text="{Binding Viewport.Fps, StringFormat='{}{0:F1} FPS'}"
                                                Foreground="#98C379" FontSize="11" FontWeight="Bold" FontFamily="Consolas, monospace" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
 
-                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                            <!-- Frame Time Chip -->
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,5" BorderBrush="#3E3E42" BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <TextBlock Text="Frame Time:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding #ViewportControl.FrameTimeMs, StringFormat='{}{0:F2} ms'}"
+                                    <TextBlock Text="{Binding Viewport.FrameTimeMs, StringFormat='{}{0:F2} ms'}"
                                                Foreground="#61AFEF" FontSize="11" FontWeight="SemiBold" FontFamily="Consolas, monospace" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
@@ -1614,13 +1622,126 @@
                     </Grid>
                 </Border>
 
-                <!-- Main Viewport Surface Container -->
-                <Border Grid.Row="1" Background="#11141C" CornerRadius="6" ClipToBounds="True" BorderBrush="#333337" BorderThickness="1">
-                    <gfx:VeldridViewportControl x:Name="ViewportControl"
-                                                BackendPreference="{Binding Viewport.SelectedBackend}"
-                                                HorizontalAlignment="Stretch"
-                                                VerticalAlignment="Stretch"/>
-                </Border>
+                <!-- Main Settings & Multi-Box Viewport Manager Grid -->
+                <Grid Grid.Row="1" ColumnDefinitions="420, *">
+
+                    <!-- LEFT PANEL: Display & Rendering Configuration -->
+                    <Border Grid.Column="0" Background="#252526" CornerRadius="6" Padding="16" Margin="0,0,10,0" BorderBrush="#333337" BorderThickness="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="Display &amp; Graphics Settings" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+
+                                <!-- Display Mode -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Window Display Mode:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableDisplayModes}"
+                                              SelectedItem="{Binding Viewport.SelectedDisplayMode, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="Borderless Window is recommended for seamless alt-tabbing and multi-boxing."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <!-- Graphics Backend -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Graphics Rendering Backend:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableBackends}"
+                                              SelectedItem="{Binding Viewport.SelectedBackend, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="Direct3D 11 is primary on Windows; Vulkan on Linux; Metal on macOS."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <!-- VSync & Framerate -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Framerate &amp; Synchronization:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <CheckBox IsChecked="{Binding Viewport.IsVsyncEnabled, Mode=TwoWay}"
+                                              Content="Enable Vertical Sync (VSync)"
+                                              FontSize="12" Foreground="#DCDCDC"/>
+                                </StackPanel>
+
+                                <!-- Character Tab Style -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Character Tab Switcher Style:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableTabStyles}"
+                                              SelectedItem="{Binding Viewport.SelectedTabStyle, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="FloatingPill (Default), TopRibbon, SideRail (Party Deck), or HotkeysOnly."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <!-- Picture-in-Picture Multi-Box Streaming -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Multi-Box Streaming (PiP):" Foreground="#A0A0A0" FontSize="12"/>
+                                    <CheckBox IsChecked="{Binding Viewport.IsPipEnabled, Mode=TwoWay}"
+                                              Content="Enable Picture-in-Picture (up to 5 alts in corner)"
+                                              FontSize="12" Foreground="#DCDCDC"/>
+                                    <TextBlock Text="Renders real-time thumbnails for up to 5 background characters with 1-click ⇄ viewport swapping."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Separator Background="#3E3E42" Margin="0,4"/>
+
+                                <!-- Info Card -->
+                                <Border Background="#1C1E24" CornerRadius="4" Padding="12" BorderBrush="#2C313C" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="💡 Multi-Monitor Multi-Boxing" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
+                                        <TextBlock Text="When multiple characters connect, you can switch between them using Ctrl+Tab or by clicking the auto-hiding top ribbon in the Viewport window. To move a character to another monitor, click the ⧉ (Tear Off) icon on their tab."
+                                                   Foreground="#9DA3B4" FontSize="11" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- RIGHT PANEL: Connected Viewport Sessions & Pop-Out Deck -->
+                    <Border Grid.Column="1" Background="#252526" CornerRadius="6" Padding="16" BorderBrush="#333337" BorderThickness="1">
+                        <Grid RowDefinitions="Auto, *">
+                            <TextBlock Grid.Row="0" Text="Connected Character Viewports" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
+
+                            <ListBox Grid.Row="1"
+                                     ItemsSource="{Binding Viewport.CharacterTabs}"
+                                     Background="#1E1E1E" CornerRadius="4">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
+                                        <Grid ColumnDefinitions="Auto, 160, 140, *, Auto" Margin="4,4">
+                                            <!-- Status Dot -->
+                                            <Ellipse Grid.Column="0" Width="8" Height="8"
+                                                     Fill="#4EC9B0" Margin="4,0,10,0" VerticalAlignment="Center"/>
+
+                                            <!-- Character Name -->
+                                            <TextBlock Grid.Column="1" Text="{Binding CharacterName}"
+                                                       FontWeight="Bold" FontSize="13" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+
+                                            <!-- Job & Level -->
+                                            <TextBlock Grid.Column="2" Text="{Binding JobDisplay}"
+                                                       Foreground="#61AFEF" FontSize="12" VerticalAlignment="Center"/>
+
+                                            <!-- Status / Active Badge -->
+                                            <Border Grid.Column="3"
+                                                    IsVisible="{Binding IsActive}"
+                                                    Background="#512BD4" CornerRadius="3" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="Primary Rendering" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
+                                            </Border>
+
+                                            <!-- Actions: Select & Pop Out -->
+                                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Button Command="{Binding SelectTabCommand}"
+                                                        Content="Focus In Viewport"
+                                                        Background="#3E3E42" Foreground="#DCDCDC"
+                                                        FontSize="11" Padding="8,4" CornerRadius="3"/>
+
+                                                <Button Command="{Binding PopOutCommand}"
+                                                        Content="Tear Off ⧉"
+                                                        Background="#2D3748" Foreground="#4EC9B0"
+                                                        FontSize="11" Padding="8,4" CornerRadius="3"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
         </TabItem>
     </TabControl>
