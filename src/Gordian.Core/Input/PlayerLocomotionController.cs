@@ -6,6 +6,7 @@ using System;
 using System.Numerics;
 using Gordian.Core.Actions;
 using Gordian.Core.Config;
+using Gordian.Core.Graphics;
 using Gordian.Core.World;
 
 namespace Gordian.Core.Input
@@ -20,7 +21,34 @@ namespace Gordian.Core.Input
         private readonly WorldState _world;
         private readonly LocalPlayerState _localPlayer;
         private readonly PlayerActionService? _actionService;
+        private readonly ViewportCamera _camera = new();
         private InputProfile _profile;
+
+        public ViewportCamera Camera => _camera;
+
+        public CameraMode CameraMode
+        {
+            get => _camera.Mode;
+            set => _camera.Mode = value;
+        }
+
+        public void ToggleCameraMode()
+        {
+            CameraMode = CameraMode switch
+            {
+                CameraMode.ThirdPersonOrbital => CameraMode.FirstPerson,
+                CameraMode.FirstPerson => CameraMode.FreeCam,
+                CameraMode.FreeCam => CameraMode.ThirdPersonOrbital,
+                _ => CameraMode.ThirdPersonOrbital
+            };
+        }
+
+        public void ToggleFreeCam()
+        {
+            CameraMode = CameraMode == CameraMode.FreeCam
+                ? CameraMode.ThirdPersonOrbital
+                : CameraMode.FreeCam;
+        }
 
         // Camera Spherical Angles (in degrees and yalms)
         public float CameraPitch { get; set; } = 15.0f; // degrees (-80 to +80)
@@ -153,6 +181,44 @@ namespace Gordian.Core.Input
                 }
             }
 
+            // Mode toggling shortcuts
+            if (_inputState.WasActionTriggered(InputAction.ToggleCameraMode))
+            {
+                ToggleCameraMode();
+                cameraChanged = true;
+            }
+
+            if (_inputState.WasActionTriggered(InputAction.ToggleFreeCam))
+            {
+                ToggleFreeCam();
+                cameraChanged = true;
+            }
+
+            // FreeCam Handling
+            if (_camera.Mode == CameraMode.FreeCam)
+            {
+                float flySpeed = _inputState.IsWalking ? 6.0f : 18.0f; // yalms/sec
+                var moveDelta = Vector3.Zero;
+                if (_inputState.IsActionHeld(InputAction.MoveForward)) moveDelta.Z += flySpeed * dt;
+                if (_inputState.IsActionHeld(InputAction.MoveBackward)) moveDelta.Z -= flySpeed * dt;
+                if (_inputState.IsActionHeld(InputAction.StrafeLeft) || _inputState.IsActionHeld(InputAction.TurnLeft)) moveDelta.X -= flySpeed * dt;
+                if (_inputState.IsActionHeld(InputAction.StrafeRight) || _inputState.IsActionHeld(InputAction.TurnRight)) moveDelta.X += flySpeed * dt;
+
+                if (pad.IsConnected)
+                {
+                    var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
+                    var leftStick = GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone);
+                    moveDelta.X += leftStick.X * flySpeed * dt;
+                    moveDelta.Z += leftStick.Y * flySpeed * dt;
+                }
+
+                _camera.MoveFreeCam(moveDelta, pitchDelta, yawDelta);
+                CameraPitch = _camera.Pitch;
+                CameraYaw = _camera.Yaw;
+                CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
+                return;
+            }
+
             // Reset Camera shortcut
             if (_inputState.WasActionTriggered(InputAction.ResetCamera))
             {
@@ -168,9 +234,33 @@ namespace Gordian.Core.Input
             {
                 CameraPitch = Math.Clamp(CameraPitch + pitchDelta, -80.0f, 80.0f);
                 CameraYaw = NormalizeDegrees(CameraYaw + yawDelta);
-                CameraDistance = Math.Clamp(CameraDistance + zoomDelta, 1.5f, 25.0f);
+
+                // Smooth First-Person / Orbital transition on zoom
+                if (_camera.Mode == CameraMode.FirstPerson && zoomDelta > 0)
+                {
+                    _camera.Mode = CameraMode.ThirdPersonOrbital;
+                    CameraDistance = 2.0f;
+                }
+                else if (_camera.Mode == CameraMode.ThirdPersonOrbital && CameraDistance <= 1.6f && zoomDelta < 0)
+                {
+                    _camera.Mode = CameraMode.FirstPerson;
+                    CameraDistance = 0.5f;
+                }
+                else
+                {
+                    CameraDistance = Math.Clamp(CameraDistance + zoomDelta, 0.5f, 30.0f);
+                }
+
                 cameraChanged = true;
             }
+
+            // Update underlying ViewportCamera matrices and frustum
+            var targetPos = Vector3.Zero;
+            if (_localPlayer.ServerId != 0 && _world.TryGetByServerId(_localPlayer.ServerId, out var targetEnt) && targetEnt != null)
+            {
+                targetPos = targetEnt.Position;
+            }
+            _camera.Update(targetPos, CameraPitch, CameraYaw, CameraDistance, _camera.AspectRatio);
 
             if (cameraChanged)
             {
@@ -180,6 +270,12 @@ namespace Gordian.Core.Input
 
         private void UpdateLocomotion(TimeSpan elapsed)
         {
+            if (_camera.Mode == CameraMode.FreeCam)
+            {
+                // In FreeCam, player entity remains stationary while camera flies
+                return;
+            }
+
             if (_localPlayer.ServerId == 0) return;
             if (!_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null)
             {

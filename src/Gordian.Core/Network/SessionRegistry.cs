@@ -96,6 +96,7 @@ namespace Gordian.Core.Network
             {
                 if (_sessions.TryAdd(session.SessionId, session))
                 {
+                    HookSessionDisconnect(session);
                     if (_primaryRenderingSession == null)
                     {
                         _primaryRenderingSession = session;
@@ -151,6 +152,7 @@ namespace Gordian.Core.Network
 
                 if (_sessions.TryAdd(session.SessionId, session))
                 {
+                    HookSessionDisconnect(session);
                     if (_primaryRenderingSession == null)
                     {
                         _primaryRenderingSession = session;
@@ -217,6 +219,7 @@ namespace Gordian.Core.Network
             {
                 if (_sessions.TryRemove(sessionId, out var session))
                 {
+                    UnhookSessionDisconnect(session);
                     session.Disconnect();
                     if (_primaryRenderingSession?.SessionId == sessionId)
                     {
@@ -247,10 +250,33 @@ namespace Gordian.Core.Network
                 _primaryRenderingSession = null;
                 foreach (var session in _sessions.Values)
                 {
+                    UnhookSessionDisconnect(session);
                     session.Disconnect();
                     SessionUnregistered?.Invoke(this, session);
                 }
                 _sessions.Clear();
+            }
+        }
+
+        private void HookSessionDisconnect(CharacterSession session)
+        {
+            session.NetworkManager.StateChanged += OnSessionNetworkStateChanged;
+        }
+
+        private void UnhookSessionDisconnect(CharacterSession session)
+        {
+            session.NetworkManager.StateChanged -= OnSessionNetworkStateChanged;
+        }
+
+        private void OnSessionNetworkStateChanged(object? sender, SessionState state)
+        {
+            if (state == SessionState.Disconnected && sender is SessionNetworkManager netMgr)
+            {
+                var session = _sessions.Values.FirstOrDefault(s => s.NetworkManager == netMgr);
+                if (session != null)
+                {
+                    UnregisterSession(session.SessionId);
+                }
             }
         }
 

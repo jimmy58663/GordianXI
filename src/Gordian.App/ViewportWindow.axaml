@@ -161,6 +161,17 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
+                    <!-- Camera Mode Indicator / Switcher -->
+                    <Button Command="{Binding ToggleCameraModeCommand}"
+                            ToolTip.Tip="Toggle Camera Mode (Orbital / 1st Person / FreeCam)"
+                            Background="#282C38" Padding="6,2" CornerRadius="8"
+                            BorderThickness="0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="🎥" FontSize="9" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ActiveCameraMode}" FontSize="10" Foreground="#E5C07B" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
                     <TextBlock Text="[Ctrl+Tab]" FontSize="9" Foreground="#555B6D" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 </StackPanel>
             </Border>
@@ -280,6 +291,27 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <!-- ============================================================= -->
+        <!-- FREECAM ACTIVE BANNER -->
+        <!-- ============================================================= -->
+        <Border IsVisible="{Binding IsFreeCamActive}"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,24"
+                Background="#1E222BEA"
+                BorderBrush="#E5C07B"
+                BorderThickness="1.5"
+                CornerRadius="8"
+                Padding="12,6"
+                ZIndex="150">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Ellipse Width="8" Height="8" Fill="#E5C07B" VerticalAlignment="Center"/>
+                <TextBlock Text="FREECAM ACTIVE" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                <TextBlock Text="[WASD Fly • Right Mouse Look]" FontSize="10" Foreground="#ABB2BF" VerticalAlignment="Center"/>
+                <Button Command="{Binding ToggleFreeCamCommand}" Content="Exit" Background="#282C34" Foreground="#E5C07B" FontSize="9" Padding="8,2" CornerRadius="4"/>
             </StackPanel>
         </Border>
 

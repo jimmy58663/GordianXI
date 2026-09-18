@@ -5,9 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.Graphics;
 using Veldrid;
 
 namespace Gordian.App.Graphics
@@ -77,12 +79,55 @@ namespace Gordian.App.Graphics
             private set => SetAndRaise(FrameTimeMsProperty, ref _frameTimeMs, value);
         }
 
+        public static readonly DirectProperty<VeldridViewportControl, int> DrawCallsProperty =
+            AvaloniaProperty.RegisterDirect<VeldridViewportControl, int>(
+                nameof(DrawCalls),
+                o => o.DrawCalls);
+
+        public static readonly DirectProperty<VeldridViewportControl, int> VisibleMeshesProperty =
+            AvaloniaProperty.RegisterDirect<VeldridViewportControl, int>(
+                nameof(VisibleMeshes),
+                o => o.VisibleMeshes);
+
+        public static readonly DirectProperty<VeldridViewportControl, int> CulledMeshesProperty =
+            AvaloniaProperty.RegisterDirect<VeldridViewportControl, int>(
+                nameof(CulledMeshes),
+                o => o.CulledMeshes);
+
+        private int _drawCalls;
+        public int DrawCalls
+        {
+            get => _drawCalls;
+            private set => SetAndRaise(DrawCallsProperty, ref _drawCalls, value);
+        }
+
+        private int _visibleMeshes;
+        public int VisibleMeshes
+        {
+            get => _visibleMeshes;
+            private set => SetAndRaise(VisibleMeshesProperty, ref _visibleMeshes, value);
+        }
+
+        private int _culledMeshes;
+        public int CulledMeshes
+        {
+            get => _culledMeshes;
+            private set => SetAndRaise(CulledMeshesProperty, ref _culledMeshes, value);
+        }
+
+        public ViewportCamera Camera { get; set; } = new();
+        public ZoneEnvironmentSettings Environment { get; set; } = ZoneEnvironmentSettings.CreateDay();
+        public ZoneTerrainRenderer? TerrainRenderer => _renderer;
+
         private readonly VeldridDeviceManager _deviceManager = new();
-        private TestCubeRenderer? _renderer;
+        private ZoneTerrainRenderer? _renderer;
         private IntPtr _childHwnd = IntPtr.Zero;
         private readonly object _renderLock = new();
         private CancellationTokenSource? _renderLoopCts;
         private Task? _renderTask;
+
+        private Avalonia.Point? _lastMousePos;
+        private bool _isRightMouseDown;
 
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
@@ -108,7 +153,7 @@ namespace Gordian.App.Graphics
                     {
                         ActiveBackendName = _deviceManager.ActiveBackend.ToString();
                         GpuDeviceName = _deviceManager.DeviceName;
-                        _renderer = new TestCubeRenderer(_deviceManager.Device);
+                        _renderer = new ZoneTerrainRenderer(_deviceManager.Device);
                     }
                 }
 
@@ -214,7 +259,7 @@ namespace Gordian.App.Graphics
                     {
                         try
                         {
-                            _renderer.Render(deltaSeconds, _deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
+                            _renderer.Render(Camera, Environment, deltaSeconds, _deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
                         }
                         catch (Exception ex)
                         {
@@ -233,16 +278,81 @@ namespace Gordian.App.Graphics
                     frameCount = 0;
                     fpsLastTicks = currentTicks;
 
+                    int dc = _renderer?.DrawCalls ?? 0;
+                    int vis = _renderer?.VisibleMeshes ?? 0;
+                    int culled = _renderer?.CulledMeshes ?? 0;
+
                     Dispatcher.UIThread.Post(() =>
                     {
                         CurrentFps = Math.Round(fps, 1);
                         FrameTimeMs = Math.Round(frameElapsedMs, 2);
+                        DrawCalls = dc;
+                        VisibleMeshes = vis;
+                        CulledMeshes = culled;
                     });
                 }
 
                 // If VSync is off or running faster than display, yield slightly
                 Thread.Sleep(1);
             }
+        }
+
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            base.OnPointerPressed(e);
+            var props = e.GetCurrentPoint(this).Properties;
+            if (props.IsRightButtonPressed)
+            {
+                _isRightMouseDown = true;
+                _lastMousePos = e.GetPosition(this);
+                e.Pointer.Capture(this);
+                e.Handled = true;
+            }
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            base.OnPointerMoved(e);
+            if (_isRightMouseDown && _lastMousePos.HasValue)
+            {
+                var cur = e.GetPosition(this);
+                float dx = (float)(cur.X - _lastMousePos.Value.X);
+                float dy = (float)(cur.Y - _lastMousePos.Value.Y);
+                _lastMousePos = cur;
+
+                Camera.Yaw += dx * 0.25f;
+                Camera.Pitch -= dy * 0.25f;
+                e.Handled = true;
+            }
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            base.OnPointerReleased(e);
+            if (_isRightMouseDown)
+            {
+                _isRightMouseDown = false;
+                _lastMousePos = null;
+                e.Pointer.Capture(null);
+                e.Handled = true;
+            }
+        }
+
+        protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+        {
+            base.OnPointerWheelChanged(e);
+            float zoomDelta = -(float)e.Delta.Y * 1.0f;
+            Camera.Distance = Math.Clamp(Camera.Distance + zoomDelta, 0.5f, 35.0f);
+            if (Camera.Distance <= 1.0f && zoomDelta < 0)
+            {
+                Camera.Mode = CameraMode.FirstPerson;
+            }
+            else if (Camera.Mode == CameraMode.FirstPerson && zoomDelta > 0)
+            {
+                Camera.Mode = CameraMode.ThirdPersonOrbital;
+                Camera.Distance = 2.0f;
+            }
+            e.Handled = true;
         }
     }
 }

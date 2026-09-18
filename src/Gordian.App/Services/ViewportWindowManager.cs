@@ -20,6 +20,23 @@ namespace Gordian.App.Services
 
         public static ViewportWindowManager Default => _defaultInstance.Value;
 
+        /// <summary>
+        /// Optional UI dispatcher override for testing environments where the Avalonia UIThread is not running.
+        /// </summary>
+        public static Action<Action>? UiDispatcher { get; set; }
+
+        private static void PostToUi(Action action)
+        {
+            if (UiDispatcher != null)
+            {
+                UiDispatcher(action);
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(action);
+            }
+        }
+
         private readonly SessionRegistry _sessionRegistry;
         private readonly ConcurrentDictionary<Guid, ViewportWindow> _secondaryWindows = new();
         private ViewportWindow? _primaryWindow;
@@ -87,7 +104,7 @@ namespace Gordian.App.Services
 
         private void OnSessionRegistered(object? sender, CharacterSession session)
         {
-            Dispatcher.UIThread.Post(() =>
+            PostToUi(() =>
             {
                 _primaryViewModel.AddSession(session);
 
@@ -100,7 +117,7 @@ namespace Gordian.App.Services
 
         private void OnSessionUnregistered(object? sender, CharacterSession session)
         {
-            Dispatcher.UIThread.Post(() =>
+            PostToUi(() =>
             {
                 _primaryViewModel.RemoveSession(session);
 
@@ -116,12 +133,26 @@ namespace Gordian.App.Services
                         GordianLog.Warning("ViewportManager", $"Failed to cleanly close secondary window for {session.CharacterName}: {ex.Message}");
                     }
                 }
+
+                // If the primary viewport window has no remaining connected character tabs, close it cleanly
+                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryWindow != null)
+                {
+                    try
+                    {
+                        _primaryWindow.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        GordianLog.Warning("ViewportManager", $"Failed to cleanly close primary viewport window: {ex.Message}");
+                    }
+                    _primaryWindow = null;
+                }
             });
         }
 
         private void OnTabPoppedOut(object? sender, ViewportCharacterTabViewModel tab)
         {
-            Dispatcher.UIThread.Post(() =>
+            PostToUi(() =>
             {
                 if (_secondaryWindows.ContainsKey(tab.SessionId))
                 {

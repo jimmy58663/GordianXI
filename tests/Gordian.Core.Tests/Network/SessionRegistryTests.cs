@@ -138,5 +138,30 @@ namespace Gordian.Core.Tests.Network
             Assert.Same(session2, _registry.PrimaryRenderingSession);
             Assert.True(session2.IsRendering3D);
         }
+
+        [Fact]
+        public void NetworkDisconnect_AutomaticallyUnregistersSessionFromRegistry()
+        {
+            CharacterSession? unregisteredSession = null;
+            _registry.SessionUnregistered += (s, e) => unregisteredSession = e;
+
+            var netManager = new SessionNetworkManager("127.0.0.1", 54231)
+            {
+                CurrentState = SessionState.ActiveInWorld
+            };
+            var session = new CharacterSession("Disconnector", 9999, "disc_account", netManager);
+
+            _registry.RegisterSession(session);
+            Assert.True(_registry.IsCharacterActive("Disconnector"));
+
+            // Simulate disconnect on the network manager
+            session.Disconnect();
+
+            // SessionRegistry should have detected Disconnected state and auto-unregistered
+            Assert.NotNull(unregisteredSession);
+            Assert.Equal("Disconnector", unregisteredSession.CharacterName);
+            Assert.False(_registry.IsCharacterActive("Disconnector"));
+            Assert.Empty(_registry.ActiveSessions);
+        }
     }
 }

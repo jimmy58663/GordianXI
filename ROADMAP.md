@@ -2,8 +2,8 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 470 Passing Unit Tests (`dotnet test`)
-- **Active Focus:** Phase 5B: Camera Subsystem & Zone Terrain Renderer (MVP Completion)
+- **Test Status:** 492 Passing Unit Tests (`dotnet test`)
+- **Active Focus:** Phase 5C: Entity Models & Modular Equipment Assembly (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -122,11 +122,11 @@
     - [x] Multi-option character tab switcher styles: **Floating Pill** (top-center glass dynamic island - default), **Top Ribbon** (auto-hiding), **Side Rail** (vertical party deck with live HP/MP vitals), and **Hotkeys Only** (`Ctrl+Tab` / `Ctrl+Shift+Tab`).
     - [x] **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master Veldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
     - [x] **Picture-in-Picture (PiP) Multi-Box Swarm Streaming:** Real-time thumbnail sub-viewports for up to 5 background characters (1 main + 5 alts) with 1-click `⇄` viewport promotion and throttled background render rates.
-- [ ] **Phase 5B: Camera Subsystem & Zone Terrain Renderer:**
-  - [ ] Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](file:///g:/git/GordianXI/src/Gordian.Core/Input/PlayerLocomotionController.cs)
-  - [ ] GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
-  - [ ] Texture palette decoding and Veldrid GPU texture sampler caching
-  - [ ] Directional sun/moon lighting, ambient color, and authentic FFXI distance fog shader pipeline
+- [x] **Phase 5B: Camera Subsystem & Zone Terrain Renderer:**
+  - [x] Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](file:///g:/git/GordianXI/src/Gordian.Core/Input/PlayerLocomotionController.cs)
+  - [x] GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
+  - [x] Texture palette decoding and Veldrid GPU texture sampler caching
+  - [x] Directional sun/moon lighting, ambient color, and authentic FFXI distance fog shader pipeline
 - [ ] **Phase 5C: Entity Models & Modular Equipment Assembly:**
   - [ ] Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
   - [ ] Bind-pose entity rendering at live `WorldEntity` coordinates

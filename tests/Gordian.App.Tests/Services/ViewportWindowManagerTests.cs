@@ -80,5 +80,53 @@ namespace Gordian.App.Tests.Services
             Assert.True(poppedFired);
             Assert.True(tab.IsPoppedOut);
         }
+
+        [Fact]
+        public void RegistryUnregisterSession_RemovesCharacterTabViaManager()
+        {
+            ViewportWindowManager.UiDispatcher = a => a();
+            try
+            {
+                var netManager = new SessionNetworkManager("127.0.0.1", 54230);
+                var session = new CharacterSession("Cybin", 1, "user_cybin", netManager);
+
+                _registry.RegisterSession(session);
+                Assert.Single(_viewModel.CharacterTabs);
+
+                _registry.UnregisterSession(session.SessionId);
+                Assert.Empty(_viewModel.CharacterTabs);
+            }
+            finally
+            {
+                ViewportWindowManager.UiDispatcher = null;
+            }
+        }
+
+        [Fact]
+        public void SessionDisconnect_TriggersAutomaticUnregistrationAndTabRemoval()
+        {
+            ViewportWindowManager.UiDispatcher = a => a();
+            try
+            {
+                var netManager = new SessionNetworkManager("127.0.0.1", 54230)
+                {
+                    CurrentState = SessionState.ActiveInWorld
+                };
+                var session = new CharacterSession("Cybin", 1, "user_cybin", netManager);
+
+                _registry.RegisterSession(session);
+                Assert.Single(_viewModel.CharacterTabs);
+
+                // Disconnecting character session triggers StateChanged -> SessionRegistry auto unregisters -> ViewportWindowManager cleans up
+                session.Disconnect();
+
+                Assert.Empty(_viewModel.CharacterTabs);
+                Assert.Null(_viewModel.ActiveTab);
+            }
+            finally
+            {
+                ViewportWindowManager.UiDispatcher = null;
+            }
+        }
     }
 }

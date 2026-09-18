@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.Core.Actions;
 using Gordian.Core.Config;
+using Gordian.Core.Graphics;
 using Gordian.Core.Input;
 using Gordian.Core.Network;
 using Gordian.Core.World;
@@ -117,6 +118,42 @@ namespace Gordian.Core.Tests.Input
 
             Assert.InRange(controller.CameraYaw, 89.0f, 91.0f);
             Assert.Equal(15.0f, controller.CameraPitch);
+        }
+
+        [Fact]
+        public void ToggleCameraMode_CyclesModesCorrectly()
+        {
+            var (controller, _, _, _, _) = CreateTestHarness();
+
+            Assert.Equal(CameraMode.ThirdPersonOrbital, controller.CameraMode);
+
+            controller.ToggleCameraMode();
+            Assert.Equal(CameraMode.FirstPerson, controller.CameraMode);
+
+            controller.ToggleCameraMode();
+            Assert.Equal(CameraMode.FreeCam, controller.CameraMode);
+
+            controller.ToggleCameraMode();
+            Assert.Equal(CameraMode.ThirdPersonOrbital, controller.CameraMode);
+        }
+
+        [Fact]
+        public void Update_InFreeCam_DoesNotMovePlayerEntity()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            controller.CameraMode = CameraMode.FreeCam;
+            var initialPlayerPos = localEnt.Position;
+
+            input.SetKeyDown(GordianKey.W); // MoveForward in FreeCam
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Player entity must remain stationary in FreeCam
+            Assert.Equal(initialPlayerPos, localEnt.Position);
+            Assert.Equal(0, localEnt.Speed);
+
+            // But Camera eye position should have moved
+            Assert.NotEqual(Vector3.Zero, controller.Camera.Position);
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Vfs;
@@ -27,6 +28,9 @@ namespace Gordian.Core.Resources
 
         private readonly ConcurrentDictionary<uint, ItemRecord> _itemCache = new();
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
+        private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
+        private byte[]? _keyTable1;
+        private byte[]? _keyTable2;
 
         public string GameDirectory => _gameDirectory;
         public IVirtualFileSystem Vfs => _vfs;
@@ -352,8 +356,71 @@ namespace Gordian.Core.Resources
             return string.Empty;
         }
 
+        /// <summary>
+        /// Attempts to load and parse a zone's 3D terrain geometry and texture resources.
+        /// </summary>
+        public bool TryLoadZone(int zoneId, out ZoneGeometry? zone, out Dictionary<string, DecodedTexture> textures)
+        {
+            if (_zoneCache.TryGetValue(zoneId, out var cached))
+            {
+                zone = cached.Geometry;
+                textures = cached.Textures;
+                return true;
+            }
+
+            textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+
+            // Ensure key tables are extracted if possible
+            if (_keyTable1 == null || _keyTable2 == null)
+            {
+                if (ZoneDataLoader.TryExtractKeyTables(_gameDirectory, out var t1, out var t2))
+                {
+                    _keyTable1 = t1;
+                    _keyTable2 = t2;
+                }
+            }
+
+            int fileId = ZoneDataLoader.GetZoneModelFileId(zoneId);
+            byte[]? datBytes = null;
+
+            if (TryResolveFile(fileId, out string fullPath) && File.Exists(fullPath))
+            {
+                datBytes = File.ReadAllBytes(fullPath);
+            }
+            else if (_fileTable.TryResolve(fileId, out string relPath))
+            {
+                if (_vfs.TryResolveDat(relPath, out var resolved))
+                {
+                    datBytes = resolved!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string p = Path.Combine(_gameDirectory, relPath);
+                    if (File.Exists(p)) datBytes = File.ReadAllBytes(p);
+                }
+            }
+
+            if (datBytes != null && datBytes.Length > 0)
+            {
+                zone = ZoneDataLoader.ParseZoneContainer(
+                    datBytes,
+                    zoneId,
+                    _keyTable1 ?? ReadOnlySpan<byte>.Empty,
+                    _keyTable2 ?? ReadOnlySpan<byte>.Empty,
+                    textures);
+
+                _zoneCache[zoneId] = (zone, textures);
+                GordianLog.Info("RES", $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
+                return true;
+            }
+
+            zone = null;
+            return false;
+        }
+
         public void ClearCache()
         {
+            _zoneCache.Clear();
             _itemCache.Clear();
             _dmsgCache.Clear();
             _fileTable.Clear();

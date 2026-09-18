@@ -30,6 +30,8 @@ namespace Gordian.Core.Input
         CameraZoomIn,
         CameraZoomOut,
         ResetCamera,
+        ToggleCameraMode,
+        ToggleFreeCam,
 
         // Targeting & Interaction
         Confirm = 40,

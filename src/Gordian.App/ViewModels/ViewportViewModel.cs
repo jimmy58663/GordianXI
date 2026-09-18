@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows.Input;
 using Gordian.App.Common;
 using Gordian.App.Graphics;
+using Gordian.Core.Graphics;
 using Gordian.Core.Network;
 
 namespace Gordian.App.ViewModels
@@ -27,6 +28,10 @@ namespace Gordian.App.ViewModels
         private double _frameTimeMs = 0.0;
         private string _resolution = "1920 x 1080";
         private bool _isVsyncEnabled = true;
+        private CameraMode _activeCameraMode = CameraMode.ThirdPersonOrbital;
+        private int _drawCalls;
+        private int _visibleMeshes;
+        private int _culledMeshes;
 
         private ViewportCharacterTabViewModel? _activeTab;
 
@@ -34,9 +39,61 @@ namespace Gordian.App.ViewModels
         public event EventHandler<ViewportDisplayMode>? DisplayModeChanged;
         public event EventHandler? ViewportWindowRequested;
 
+        public ICommand LaunchViewportCommand { get; }
+        public ICommand ToggleCameraModeCommand { get; }
+        public ICommand ToggleFreeCamCommand { get; }
+
         public ViewportViewModel()
         {
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
+            ToggleCameraModeCommand = new RelayCommand(() =>
+            {
+                ActiveCameraMode = ActiveCameraMode switch
+                {
+                    CameraMode.ThirdPersonOrbital => CameraMode.FirstPerson,
+                    CameraMode.FirstPerson => CameraMode.FreeCam,
+                    CameraMode.FreeCam => CameraMode.ThirdPersonOrbital,
+                    _ => CameraMode.ThirdPersonOrbital
+                };
+            });
+            ToggleFreeCamCommand = new RelayCommand(() =>
+            {
+                ActiveCameraMode = ActiveCameraMode == CameraMode.FreeCam
+                    ? CameraMode.ThirdPersonOrbital
+                    : CameraMode.FreeCam;
+            });
+        }
+
+        public CameraMode ActiveCameraMode
+        {
+            get => _activeCameraMode;
+            set
+            {
+                if (SetProperty(ref _activeCameraMode, value))
+                {
+                    OnPropertyChanged(nameof(IsFreeCamActive));
+                }
+            }
+        }
+
+        public bool IsFreeCamActive => ActiveCameraMode == CameraMode.FreeCam;
+
+        public int DrawCalls
+        {
+            get => _drawCalls;
+            set => SetProperty(ref _drawCalls, value);
+        }
+
+        public int VisibleMeshes
+        {
+            get => _visibleMeshes;
+            set => SetProperty(ref _visibleMeshes, value);
+        }
+
+        public int CulledMeshes
+        {
+            get => _culledMeshes;
+            set => SetProperty(ref _culledMeshes, value);
         }
 
         public GraphicsBackendPreference SelectedBackend
@@ -189,8 +246,6 @@ namespace Gordian.App.ViewModels
                 PipThumbnails.Add(tab);
             }
         }
-
-        public ICommand LaunchViewportCommand { get; }
 
         public ViewportCharacterTabViewModel AddSession(CharacterSession session)
         {
