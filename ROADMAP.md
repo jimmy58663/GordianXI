@@ -2,8 +2,8 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 492 Passing Unit Tests (`dotnet test`)
-- **Active Focus:** Phase 5C: Entity Models & Modular Equipment Assembly (MVP Completion)
+- **Test Status:** 535 Passing Unit Tests (`dotnet test`)
+- **Active Focus:** Phase 5D: Skeletal Animation Engine (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -127,10 +127,10 @@
   - [x] GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
   - [x] Texture palette decoding and Veldrid GPU texture sampler caching
   - [x] Directional sun/moon lighting, ambient color, and authentic FFXI distance fog shader pipeline
-- [ ] **Phase 5C: Entity Models & Modular Equipment Assembly:**
-  - [ ] Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
-  - [ ] Bind-pose entity rendering at live `WorldEntity` coordinates
-  - [ ] NPC, Monster, and Trust model rendering from DAT resource caches
+- [x] **Phase 5C: Entity Models & Modular Equipment Assembly:**
+  - [x] Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
+  - [x] Bind-pose entity rendering at live `WorldEntity` coordinates
+  - [x] NPC, Monster, and Trust model rendering from DAT resource caches
 - [ ] **Phase 5D: Skeletal Animation Engine:**
   - [ ] FFXI bone hierarchy & joint matrix tree parser
   - [ ] Quaternion SLERP rotation & translation keyframe interpolation

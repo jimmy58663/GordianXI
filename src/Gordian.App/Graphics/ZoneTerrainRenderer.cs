@@ -5,8 +5,10 @@ using System.Numerics;
 using System.Text;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Graphics;
+using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.World;
 using Veldrid;
 using Veldrid.SPIRV;
 
@@ -28,6 +30,8 @@ namespace Gordian.App.Graphics
         private Pipeline _pipeline = null!;
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
+        private EntityRenderer? _entityRenderer;
+        public EntityRenderer? EntityRenderer => _entityRenderer;
 
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
@@ -61,6 +65,7 @@ namespace Gordian.App.Graphics
         {
             _gd = gd ?? throw new ArgumentNullException(nameof(gd));
             InitializePipeline();
+            _entityRenderer = new EntityRenderer(_gd);
             BuildFallbackScene();
         }
 
@@ -192,7 +197,9 @@ namespace Gordian.App.Graphics
             ZoneEnvironmentSettings environment,
             float deltaSeconds,
             uint width,
-            uint height)
+            uint height,
+            IEnumerable<WorldEntity>? entities = null,
+            ResourceManager? resourceManager = null)
         {
             if (_disposed || _gd == null || _gd.MainSwapchain == null) return;
 
@@ -261,6 +268,15 @@ namespace Gordian.App.Graphics
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
+            }
+
+            // Render live 3D entity models & modular equipment
+            if (_entityRenderer != null && entities != null)
+            {
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager);
+                draws += _entityRenderer.DrawCalls;
+                visible += _entityRenderer.VisibleEntities;
+                culled += _entityRenderer.CulledEntities;
             }
 
             _commandList.End();
@@ -366,6 +382,7 @@ namespace Gordian.App.Graphics
             }
             _fallbackSubmeshes.Clear();
 
+            _entityRenderer?.Dispose();
             _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();

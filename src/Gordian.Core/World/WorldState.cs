@@ -186,6 +186,11 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
+        /// Gets an enumerable sequence of all active entities.
+        /// </summary>
+        public IEnumerable<WorldEntity> Entities => GetAllEntities();
+
+        /// <summary>
         /// Retrieves all entities within a 3D radius.
         /// </summary>
         public List<WorldEntity> GetEntitiesInRadius(Vector3 center, float radius)

@@ -10,6 +10,8 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Graphics;
+using Gordian.Core.Resources;
+using Gordian.Core.World;
 using Veldrid;
 
 namespace Gordian.App.Graphics
@@ -118,6 +120,8 @@ namespace Gordian.App.Graphics
         public ViewportCamera Camera { get; set; } = new();
         public ZoneEnvironmentSettings Environment { get; set; } = ZoneEnvironmentSettings.CreateDay();
         public ZoneTerrainRenderer? TerrainRenderer => _renderer;
+        public WorldState? WorldState { get; set; }
+        public ResourceManager? ResourceManager { get; set; }
 
         private readonly VeldridDeviceManager _deviceManager = new();
         private ZoneTerrainRenderer? _renderer;
@@ -259,7 +263,14 @@ namespace Gordian.App.Graphics
                     {
                         try
                         {
-                            _renderer.Render(Camera, Environment, deltaSeconds, _deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
+                            _renderer.Render(
+                                Camera,
+                                Environment,
+                                deltaSeconds,
+                                _deviceManager.CurrentWidth,
+                                _deviceManager.CurrentHeight,
+                                WorldState?.Entities,
+                                ResourceManager);
                         }
                         catch (Exception ex)
                         {

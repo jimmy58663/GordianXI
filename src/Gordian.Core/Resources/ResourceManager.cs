@@ -10,6 +10,7 @@ using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Vfs;
 using Gordian.Core.Resources.Vfs.Models;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Resources
 {
@@ -29,6 +30,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<uint, ItemRecord> _itemCache = new();
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
+        private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
 
@@ -418,9 +420,121 @@ namespace Gordian.Core.Resources
             return false;
         }
 
+        /// <summary>
+        /// Reads raw binary bytes for a DAT file via the VFS or base game root.
+        /// </summary>
+        public byte[]? LoadDatBytes(string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath)) return null;
+
+            try
+            {
+                if (_vfs.TryResolveDat(relativePath, out var resolved) && resolved != null)
+                {
+                    return resolved.ReadAllBytes();
+                }
+
+                if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string fullPath = Path.Combine(_gameDirectory, relativePath);
+                    if (File.Exists(fullPath))
+                    {
+                        return File.ReadAllBytes(fullPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("RES", $"Failed to load DAT bytes for '{relativePath}': {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a numeric File ID and loads its raw DAT binary payload.
+        /// </summary>
+        public byte[]? LoadDatBytesByFileId(int fileId)
+        {
+            if (_fileTable.TryResolve(fileId, out var relPath))
+            {
+                return LoadDatBytes(relPath);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Attempts to load or stitch an EntityModel for a WorldEntity (Player, NPC, Monster, Trust).
+        /// Caches assembled models to minimize redundant DAT parsing.
+        /// </summary>
+        public bool TryLoadEntityModel(WorldEntity entity, out EntityModel? model)
+        {
+            if (entity == null)
+            {
+                model = null;
+                return false;
+            }
+
+            // 1. Monster / NPC with numeric ModelId
+            if (entity.Appearance.ModelId > 0)
+            {
+                string cacheKey = $"Monster_{entity.Appearance.ModelId}";
+                if (_entityModelCache.TryGetValue(cacheKey, out model))
+                {
+                    return true;
+                }
+
+                model = EntityModelLoader.LoadMonsterModel(entity.Appearance.ModelId, LoadDatBytesByFileId);
+                if (model != null)
+                {
+                    _entityModelCache[cacheKey] = model;
+                    return true;
+                }
+            }
+
+            // 2. Player or Equipped NPC with GrapIdTable
+            var grap = entity.Appearance.GrapIdTable;
+            byte rawRace = (byte)((entity.Appearance.FaceModel >> 8) & 0xFF);
+            var race = (CharacterRace)rawRace;
+
+            if (race == CharacterRace.Unknown && entity.Type == EntityType.Player)
+            {
+                race = CharacterRace.HumeMale;
+            }
+
+            if (race != CharacterRace.Unknown)
+            {
+                ushort face = (ushort)(entity.Appearance.FaceModel & 0xFF);
+                string cacheKey = $"PC_{race}_{face}_{string.Join('-', grap)}";
+
+                if (_entityModelCache.TryGetValue(cacheKey, out model))
+                {
+                    return true;
+                }
+
+                model = EntityModelLoader.AssembleCharacter(
+                    race,
+                    face,
+                    grap,
+                    LoadDatBytes,
+                    LoadDatBytesByFileId);
+
+                if (model != null)
+                {
+                    _entityModelCache[cacheKey] = model;
+                    return true;
+                }
+            }
+
+            model = null;
+            return false;
+        }
+
         public void ClearCache()
         {
             _zoneCache.Clear();
+            _entityModelCache.Clear();
             _itemCache.Clear();
             _dmsgCache.Clear();
             _fileTable.Clear();
