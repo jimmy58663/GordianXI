@@ -342,5 +342,42 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(payload.Length, decryptedLen);
             Assert.Equal(payload, datagram.AsSpan(28, decryptedLen).ToArray());
         }
+
+        [Fact]
+        public void S2C_0x00A_LoginAck_ExtractsZoneId_And_UpdatesWorldState()
+        {
+            var profile = new SessionProfile();
+            var parser = new PacketParser(profile, (chunk, enc) => Task.CompletedTask);
+
+            // Construct mock 0x00A payload (at least 48 bytes)
+            // PosHead is 44 bytes. At offset 44 (0x2C), ZoneNo = 100 (West Ronfaure)
+            byte[] payload = new byte[48];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 1001); // UniqueNo
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x01); // ActIndex
+            payload[7] = 64; // Dir
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.5f); // X
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), -2.0f); // Elevation (Z in wire)
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 45.0f); // North/South (Y in wire)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(44, 2), 100); // ZoneNo = 100
+
+            var ack = new Gordian.Core.Network.Packets.S2C_0x00A_LoginAck(payload);
+            Assert.True(ack.IsValid);
+            Assert.Equal(1001u, ack.UniqueNo);
+            Assert.Equal(0x01, ack.ActorIndex);
+            Assert.Equal(10.5f, ack.X);
+            Assert.Equal(45.0f, ack.Y);
+            Assert.Equal(-2.0f, ack.Z);
+            Assert.Equal(100, ack.ZoneId);
+
+            ushort receivedZone = 0;
+            parser.ZoneReceived += z => receivedZone = z;
+
+            // Dispatch 0x00A through parser dispatcher
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, 48), payload);
+
+            Assert.Equal(100, receivedZone);
+            Assert.Equal(100, parser.World.CurrentZoneId);
+            Assert.Equal(100, parser.LocalPlayer.ZoneId);
+        }
     }
 }

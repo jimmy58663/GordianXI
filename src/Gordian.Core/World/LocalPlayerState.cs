@@ -22,6 +22,7 @@ namespace Gordian.Core.World
 
         #region Identity & Progression
         public uint ServerId { get; set; }
+        public ushort ZoneId { get; set; }
         public JobId MainJob { get; private set; } = JobId.None;
         public byte MainJobLevel { get; private set; }
         public JobId SubJob { get; private set; } = JobId.None;

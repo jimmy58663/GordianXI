@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/VeldridViewportControl.cs
 using System;
 using System.Diagnostics;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -8,8 +9,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Gordian.App.Services;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Graphics;
+using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.World;
 using Veldrid;
@@ -120,8 +123,123 @@ namespace Gordian.App.Graphics
         public ViewportCamera Camera { get; set; } = new();
         public ZoneEnvironmentSettings Environment { get; set; } = ZoneEnvironmentSettings.CreateDay();
         public ZoneTerrainRenderer? TerrainRenderer => _renderer;
-        public WorldState? WorldState { get; set; }
-        public ResourceManager? ResourceManager { get; set; }
+
+        private CharacterSession? _activeSession;
+        public CharacterSession? ActiveSession
+        {
+            get => _activeSession;
+            set
+            {
+                if (_activeSession != value)
+                {
+                    if (_activeSession != null)
+                    {
+                        _activeSession.World.ZoneChanged -= OnWorldZoneChanged;
+                    }
+
+                    _activeSession = value;
+                    WorldState = value?.World;
+
+                    if (_activeSession != null)
+                    {
+                        _activeSession.World.ZoneChanged += OnWorldZoneChanged;
+                        if (_activeSession.World.CurrentZoneId != 0)
+                        {
+                            OnWorldZoneChanged(_activeSession.World.CurrentZoneId);
+                        }
+                    }
+                }
+            }
+        }
+
+        private WorldState? _worldState;
+        public WorldState? WorldState
+        {
+            get => _worldState;
+            set
+            {
+                if (_worldState != value)
+                {
+                    if (_worldState != null)
+                    {
+                        _worldState.ZoneChanged -= OnWorldZoneChanged;
+                    }
+                    _worldState = value;
+                    if (_worldState != null)
+                    {
+                        _worldState.ZoneChanged += OnWorldZoneChanged;
+                        if (_worldState.CurrentZoneId != 0)
+                        {
+                            OnWorldZoneChanged(_worldState.CurrentZoneId);
+                        }
+                    }
+                }
+            }
+        }
+
+        private ResourceManager? _resourceManager;
+        public ResourceManager? ResourceManager
+        {
+            get => _resourceManager ?? AppResourceManager.Instance;
+            set => _resourceManager = value;
+        }
+
+        private ushort _loadedZoneId;
+        private volatile int _pendingZoneLoad;
+        private int _isZoneLoading;
+
+        private void OnWorldZoneChanged(ushort zoneId)
+        {
+            if (zoneId == 0 || zoneId == _loadedZoneId) return;
+            _pendingZoneLoad = zoneId;
+        }
+
+        private void CheckAndLoadPendingZone()
+        {
+            int targetZone = _pendingZoneLoad;
+            if (targetZone == 0 || targetZone == _loadedZoneId) return;
+
+            var rm = ResourceManager;
+            if (rm == null) return;
+
+            if (Interlocked.CompareExchange(ref _isZoneLoading, 1, 0) != 0)
+            {
+                // Already loading a zone in the background
+                return;
+            }
+
+            _pendingZoneLoad = 0;
+            ushort zoneToLoad = (ushort)targetZone;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    GordianLog.Info("Graphics", $"Starting background load for Zone {zoneToLoad}...");
+                    if (rm.TryLoadZone(zoneToLoad, out var zoneGeom, out var zoneTextures))
+                    {
+                        lock (_renderLock)
+                        {
+                            _renderer?.LoadZone(zoneGeom, zoneTextures);
+                            _loadedZoneId = zoneToLoad;
+                        }
+                        GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU.");
+                    }
+                    else
+                    {
+                        GordianLog.Warning("Graphics", $"ResourceManager could not find or load Zone {zoneToLoad}.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("Graphics", $"Failed to load Zone {zoneToLoad}: {ex.Message}");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _isZoneLoading, 0);
+                }
+            });
+        }
 
         private readonly VeldridDeviceManager _deviceManager = new();
         private ZoneTerrainRenderer? _renderer;
@@ -158,6 +276,12 @@ namespace Gordian.App.Graphics
                         ActiveBackendName = _deviceManager.ActiveBackend.ToString();
                         GpuDeviceName = _deviceManager.DeviceName;
                         _renderer = new ZoneTerrainRenderer(_deviceManager.Device);
+
+                        ushort initialZone = _activeSession?.World.CurrentZoneId ?? _worldState?.CurrentZoneId ?? 0;
+                        if (initialZone != 0)
+                        {
+                            OnWorldZoneChanged(initialZone);
+                        }
                     }
                 }
 
@@ -175,6 +299,7 @@ namespace Gordian.App.Graphics
 
             lock (_renderLock)
             {
+                _loadedZoneId = 0;
                 _renderer?.Dispose();
                 _renderer = null;
 
@@ -256,6 +381,55 @@ namespace Gordian.App.Graphics
                 lastTicks = currentTicks;
 
                 var frameStart = Stopwatch.GetTimestamp();
+
+                CheckAndLoadPendingZone();
+
+                float aspect = Math.Max(0.1f, (float)_deviceManager.CurrentWidth / Math.Max(1, _deviceManager.CurrentHeight));
+
+                Vector3 playerPos = Vector3.Zero;
+                bool hasPlayerPos = false;
+
+                if (_activeSession != null)
+                {
+                    uint localServerId = _activeSession.LocalPlayer.ServerId != 0
+                        ? _activeSession.LocalPlayer.ServerId
+                        : _activeSession.CharacterId;
+
+                    if (localServerId != 0 && _activeSession.World.TryGetByServerId(localServerId, out var localEnt) && localEnt != null)
+                    {
+                        playerPos = localEnt.Position;
+                        hasPlayerPos = true;
+                    }
+                }
+                
+                if (!hasPlayerPos && WorldState != null)
+                {
+                    foreach (var ent in WorldState.Entities)
+                    {
+                        if (ent.Type == EntityType.Player)
+                        {
+                            playerPos = ent.Position;
+                            hasPlayerPos = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (Camera.Mode != CameraMode.FreeCam)
+                {
+                    if (hasPlayerPos)
+                    {
+                        Camera.Update(playerPos, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
+                    }
+                    else
+                    {
+                        Camera.AspectRatio = aspect;
+                    }
+                }
+                else
+                {
+                    Camera.AspectRatio = aspect;
+                }
 
                 lock (_renderLock)
                 {

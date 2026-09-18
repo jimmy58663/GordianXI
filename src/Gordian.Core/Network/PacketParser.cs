@@ -72,6 +72,11 @@ namespace Gordian.Core.Network
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
+            _lifecycleModule.ZoneReceived += zoneId =>
+            {
+                _world.CurrentZoneId = zoneId;
+                _localPlayer.ZoneId = zoneId;
+            };
 
             _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket);
             _entityModule.Register(_dispatcher);
@@ -213,6 +218,15 @@ namespace Gordian.Core.Network
         {
             add => _lifecycleModule.PlayerPositionUpdated += value;
             remove => _lifecycleModule.PlayerPositionUpdated -= value;
+        }
+
+        /// <summary>
+        /// Raised when server confirms current zone ID in GP_SERV_LOGIN (0x00A).
+        /// </summary>
+        public event Action<ushort>? ZoneReceived
+        {
+            add => _lifecycleModule.ZoneReceived += value;
+            remove => _lifecycleModule.ZoneReceived -= value;
         }
 
         /// <summary>

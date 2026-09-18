@@ -1,11 +1,13 @@
 // src/Gordian.App/ViewportWindow.axaml.cs
 using System;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Gordian.App.Graphics;
+using Gordian.App.Services;
 using Gordian.App.ViewModels;
 
 namespace Gordian.App
@@ -52,6 +54,7 @@ namespace Gordian.App
             if (_viewModel != null)
             {
                 _viewModel.DisplayModeChanged -= OnDisplayModeChanged;
+                _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             }
 
             _viewModel = DataContext as ViewportViewModel;
@@ -59,7 +62,27 @@ namespace Gordian.App
             if (_viewModel != null)
             {
                 _viewModel.DisplayModeChanged += OnDisplayModeChanged;
+                _viewModel.PropertyChanged += OnViewModelPropertyChanged;
                 ApplyDisplayMode(_viewModel.SelectedDisplayMode);
+                SyncActiveSessionToViewport();
+            }
+        }
+
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ViewportViewModel.ActiveTab))
+            {
+                SyncActiveSessionToViewport();
+            }
+        }
+
+        private void SyncActiveSessionToViewport()
+        {
+            var viewportControl = this.FindControl<VeldridViewportControl>("ViewportControl");
+            if (viewportControl != null)
+            {
+                viewportControl.ResourceManager = AppResourceManager.Instance;
+                viewportControl.ActiveSession = _viewModel?.ActiveTab?.Session;
             }
         }
 
@@ -136,6 +159,15 @@ namespace Gordian.App
             var viewportControl = this.FindControl<VeldridViewportControl>("ViewportControl");
             if (viewportControl != null && _viewModel != null)
             {
+                if (viewportControl.ActiveSession != _viewModel.ActiveTab?.Session)
+                {
+                    viewportControl.ActiveSession = _viewModel.ActiveTab?.Session;
+                }
+                if (viewportControl.ResourceManager == null)
+                {
+                    viewportControl.ResourceManager = AppResourceManager.Instance;
+                }
+
                 _viewModel.Fps = viewportControl.CurrentFps;
                 _viewModel.FrameTimeMs = viewportControl.FrameTimeMs;
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
@@ -151,6 +183,7 @@ namespace Gordian.App
             if (_viewModel != null)
             {
                 _viewModel.DisplayModeChanged -= OnDisplayModeChanged;
+                _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             }
 
             base.OnClosed(e);

@@ -41,6 +41,32 @@ namespace Gordian.Core.World
         public event Action<WorldEntity>? EntityUpdated;
         public event Action<WorldEntity>? EntityDespawned;
         public event Action? WorldCleared;
+        public event Action<ushort>? ZoneChanged;
+
+        private ushort _currentZoneId;
+        public ushort CurrentZoneId
+        {
+            get
+            {
+                lock (_syncRoot) return _currentZoneId;
+            }
+            set
+            {
+                bool changed = false;
+                lock (_syncRoot)
+                {
+                    if (_currentZoneId != value)
+                    {
+                        _currentZoneId = value;
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    ZoneChanged?.Invoke(value);
+                }
+            }
+        }
 
         /// <summary>
         /// Inserts a newly discovered entity or updates an existing one in thread-safe fashion.

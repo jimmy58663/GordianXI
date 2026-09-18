@@ -116,6 +116,7 @@ namespace Gordian.Core.Network.Packets
         public float X { get; }
         public float Y { get; }
         public float Z { get; }
+        public ushort ZoneId { get; }
         public bool IsValid { get; }
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
@@ -128,6 +129,7 @@ namespace Gordian.Core.Network.Packets
                 X = 0f;
                 Y = 0f;
                 Z = 0f;
+                ZoneId = 0;
                 IsValid = false;
                 return;
             }
@@ -140,6 +142,9 @@ namespace Gordian.Core.Network.Packets
             // Wire format packs (X at +8, Elevation [Z] at +12, North/South [Y] at +16)
             Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
             Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            ZoneId = payload.Length >= 46
+                ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
+                : (ushort)0;
             IsValid = true;
         }
     }
@@ -704,6 +709,7 @@ namespace Gordian.Core.Network.Packets
 
         public event Action? HandshakeCompleted;
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
+        public event Action<ushort>? ZoneReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
 
         /// <summary>
@@ -741,8 +747,12 @@ namespace Gordian.Core.Network.Packets
             var ack = new S2C_0x00A_LoginAck(payload);
             if (ack.IsValid)
             {
-                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}");
+                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}");
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
+                if (ack.ZoneId != 0)
+                {
+                    ZoneReceived?.Invoke(ack.ZoneId);
+                }
             }
 
             byte[] gameOk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);
