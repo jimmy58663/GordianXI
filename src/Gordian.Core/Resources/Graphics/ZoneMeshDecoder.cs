@@ -87,104 +87,253 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// Decodes a decrypted Section 0x2E zone mesh payload into structured 3D MeshGroups.
+        /// Clean-room implementation referencing xi-model-viewer (https://github.com/vekien/xi-model-viewer)
+        /// and xi-tools (xi/zone/xi_export.py).
+        /// Handles vertexBlend stride (48 vs 36), authentic FFXI display transform (-x, -y, z),
+        /// and converts triangle strips into TriangleList indices.
         /// </summary>
         public static List<MeshGroup> ParseZoneMesh(ReadOnlySpan<byte> payload)
         {
             var results = new List<MeshGroup>();
-            if (payload.Length < 0x60) return results;
+            if (payload.Length < 0x40) return results;
+
+            uint config = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            bool isStrip = (config & 0x1) != 0;
+            bool vertexBlend = (config & 0x2) != 0;
+            int stride = vertexBlend ? 48 : 36;
 
             string meshName = ReadCString(payload.Slice(0x10, 16));
 
-            // Scan for submeshes
-            // A submesh header is: 16-byte texture name + uint16 numVerts + uint16 pad
-            // followed by numVerts * 36 bytes (pos 12B, normal 12B, UV 8B, color 4B)
-            // followed by uint16 numIndices + uint16 pad + numIndices * 2 bytes
-            int pos = 0x20;
+            int defStart = 0x20;
+            if (payload.Length < defStart + 4) return results;
+            uint meshCount0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(defStart, 4));
+            if (meshCount0 == 0) return results; // collision-only "hit" model
+
+            int section1Off = payload.Length >= defStart + 0x20
+                ? (int)BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(defStart + 0x1C, 4))
+                : 0;
+
+            int payloadLen = payload.Length;
+            bool OffOk(int v) => v > 0 && v < payloadLen - defStart;
+
+            if (!OffOk(section1Off) || section1Off > 0x200)
+            {
+                int[] altOffsets = { 0x4C, 0x5C, 0x50, 0x58 };
+                foreach (int at in altOffsets)
+                {
+                    if (at + 4 <= payload.Length)
+                    {
+                        int alt = (int)BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(at, 4));
+                        if (OffOk(alt) && alt <= 0x200)
+                        {
+                            section1Off = alt;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            int startPos = OffOk(section1Off) ? defStart + section1Off : 0;
+            if (startPos == 0)
+            {
+                // Fallback: scan for first valid submesh header in payload
+                for (int scan = defStart; scan + 20 <= payload.Length; scan += 4)
+                {
+                    if (LooksLikeSubmesh(payload, scan, payload.Length, stride, out _, out _))
+                    {
+                        startPos = scan;
+                        break;
+                    }
+                }
+            }
+
+            if (startPos == 0 || startPos + 20 > payload.Length) return results;
+
+            int p = startPos;
             int len = payload.Length;
 
-            while (pos + 20 <= len)
+            for (int m = 0; m < 128 && p + 20 <= len; m++)
             {
-                if (LooksLikeSubmesh(payload, pos, len, out ushort numVerts, out ushort numIndices))
+                if (!LooksLikeSubmesh(payload, p, len, stride, out ushort numVerts, out ushort numIndices))
                 {
-                    string texName = ReadCString(payload.Slice(pos, 16));
-                    int vertStart = pos + 20;
-                    int vertStride = 36; // Pos (12) + Normal (12) + UV (8) + RGBA (4)
+                    break;
+                }
 
-                    var vertices = new MeshVertex[numVerts];
-                    Vector3 minBounds = new(float.MaxValue);
-                    Vector3 maxBounds = new(float.MinValue);
+                string texName = ReadCString(payload.Slice(p, 16));
+                int vertStart = p + 20;
 
-                    for (int v = 0; v < numVerts; v++)
+                var vertices = new MeshVertex[numVerts];
+                Vector3 minBounds = new(float.MaxValue);
+                Vector3 maxBounds = new(float.MinValue);
+                bool hasInvalidCoord = false;
+
+                for (int v = 0; v < numVerts; v++)
+                {
+                    int vo = vertStart + (v * stride);
+                    float px = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo, 4));
+                    float py = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 4, 4));
+                    float pz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 8, 4));
+
+                    if (float.IsNaN(px) || float.IsNaN(py) || float.IsNaN(pz) ||
+                        float.IsInfinity(px) || float.IsInfinity(py) || float.IsInfinity(pz) ||
+                        Math.Abs(px) > 50000 || Math.Abs(py) > 50000 || Math.Abs(pz) > 50000)
                     {
-                        int vo = vertStart + (v * vertStride);
-                        float px = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo, 4));
-                        float py = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 4, 4));
-                        float pz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 8, 4));
-
-                        float nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 12, 4));
-                        float ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 16, 4));
-                        float nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 20, 4));
-
-                        float u = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 24, 4));
-                        float uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
-                        uint color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(vo + 32, 4));
-
-                        var position = new Vector3(px, py, pz);
-                        minBounds = Vector3.Min(minBounds, position);
-                        maxBounds = Vector3.Max(maxBounds, position);
-
-                        vertices[v] = new MeshVertex(
-                            position,
-                            new Vector3(nx, ny, nz),
-                            new Vector2(u, uv_v),
-                            color
-                        );
+                        hasInvalidCoord = true;
+                        break;
                     }
 
-                    int idxHeader = vertStart + (numVerts * vertStride);
-                    int idxStart = idxHeader + 4;
-                    var indices = new int[numIndices];
+                    float nx, ny, nz;
+                    uint color;
+                    float u, uv_v;
 
+                    if (vertexBlend)
+                    {
+                        // Stride 48: pos(12), blendDelta(12), normal(12), color BGRA(4), uv(8)
+                        nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 24, 4));
+                        ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
+                        nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
+                        color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(vo + 36, 4));
+                        u = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 40, 4));
+                        uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 44, 4));
+                    }
+                    else
+                    {
+                        // Stride 36: pos(12), normal(12), color BGRA(4), uv(8)
+                        nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 12, 4));
+                        ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 16, 4));
+                        nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 20, 4));
+                        color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(vo + 24, 4));
+                        u = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
+                        uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
+                    }
+
+                    // Authentic FFXI display transform: (-x, -y, z)
+                    var position = new Vector3(-px, -py, pz);
+                    var normal = new Vector3(-nx, -ny, nz);
+
+                    minBounds = Vector3.Min(minBounds, position);
+                    maxBounds = Vector3.Max(maxBounds, position);
+
+                    vertices[v] = new MeshVertex(
+                        position,
+                        normal,
+                        new Vector2(u, uv_v),
+                        color
+                    );
+                }
+
+                int idxHeader = vertStart + (numVerts * stride);
+                int idxStart = idxHeader + 4;
+
+                if (!hasInvalidCoord)
+                {
+                    var rawIndices = new ushort[numIndices];
                     for (int idx = 0; idx < numIndices; idx++)
                     {
-                        indices[idx] = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(idxStart + (idx * 2), 2));
+                        rawIndices[idx] = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(idxStart + (idx * 2), 2));
                     }
 
-                    results.Add(new MeshGroup
-                    {
-                        Name = meshName,
-                        TextureName = texName,
-                        Vertices = vertices,
-                        Indices = indices,
-                        MinBounds = minBounds,
-                        MaxBounds = maxBounds
-                    });
+                    bool useStrip = isStrip || (numIndices > 3 && numIndices % 3 != 0);
+                    var triangleIndices = new List<int>(numIndices * 3);
 
-                    pos = idxStart + (numIndices * 2);
-                    // 4-byte align
-                    pos = (pos + 3) & ~3;
+                    if (useStrip)
+                    {
+                        int parity = 0;
+                        for (int t = 0; t < rawIndices.Length - 2; t++)
+                        {
+                            int i0 = rawIndices[t];
+                            int i1 = rawIndices[t + 1];
+                            int i2 = rawIndices[t + 2];
+
+                            if (i0 == i1 || i1 == i2 || i0 == i2)
+                            {
+                                parity = 0;
+                                continue;
+                            }
+
+                            if (i0 >= numVerts || i1 >= numVerts || i2 >= numVerts)
+                            {
+                                parity = 0;
+                                continue;
+                            }
+
+                            if (parity % 2 == 0)
+                            {
+                                triangleIndices.Add(i0);
+                                triangleIndices.Add(i1);
+                                triangleIndices.Add(i2);
+                            }
+                            else
+                            {
+                                triangleIndices.Add(i1);
+                                triangleIndices.Add(i0);
+                                triangleIndices.Add(i2);
+                            }
+                            parity++;
+                        }
+                    }
+                    else
+                    {
+                        for (int t = 0; t < rawIndices.Length - 2; t += 3)
+                        {
+                            int i0 = rawIndices[t];
+                            int i1 = rawIndices[t + 1];
+                            int i2 = rawIndices[t + 2];
+
+                            if (i0 < numVerts && i1 < numVerts && i2 < numVerts)
+                            {
+                                triangleIndices.Add(i0);
+                                triangleIndices.Add(i1);
+                                triangleIndices.Add(i2);
+                            }
+                        }
+                    }
+
+                    if (triangleIndices.Count > 0)
+                    {
+                        results.Add(new MeshGroup
+                        {
+                            Name = meshName,
+                            TextureName = texName,
+                            Vertices = vertices,
+                            Indices = triangleIndices.ToArray(),
+                            MinBounds = minBounds,
+                            MaxBounds = maxBounds
+                        });
+                    }
                 }
-                else
-                {
-                    pos += 4;
-                }
+
+                p = idxStart + (numIndices * 2);
+                p = (p + 3) & ~3; // 4-byte align
             }
 
             return results;
         }
 
-        private static bool LooksLikeSubmesh(ReadOnlySpan<byte> data, int pos, int end, out ushort numVerts, out ushort numIndices)
+        private static bool LooksLikeSubmesh(ReadOnlySpan<byte> data, int pos, int end, int stride, out ushort numVerts, out ushort numIndices)
         {
             numVerts = 0;
             numIndices = 0;
 
             if (pos + 20 > end) return false;
 
+            // Texture name validation: 16 bytes ASCII or blank
+            int printable = 0;
+            bool blank = true;
+            for (int i = 0; i < 16; i++)
+            {
+                byte c = data[pos + i];
+                if (c is 0 or 0x20) continue;
+                blank = false;
+                if (c < 0x20 || c > 0x7E) return false;
+                printable++;
+            }
+            if (!blank && printable < 2) return false;
+
             numVerts = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(pos + 16, 2));
             if (numVerts is 0 or > 20000) return false;
 
-            int vertStride = 36;
-            int idxHeaderPos = pos + 20 + (numVerts * vertStride);
+            int idxHeaderPos = pos + 20 + (numVerts * stride);
             if (idxHeaderPos + 4 > end) return false;
 
             numIndices = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(idxHeaderPos, 2));

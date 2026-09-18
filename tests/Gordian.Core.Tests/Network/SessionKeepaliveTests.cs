@@ -79,8 +79,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(success);
             Assert.True(eventFired);
             Assert.Equal(100.5f, capturedX);
-            Assert.Equal(300.75f, capturedY);
-            Assert.Equal(-25.25f, capturedZ);
+            Assert.Equal(-25.25f, capturedY);
+            Assert.Equal(300.75f, capturedZ);
             Assert.Equal(192, capturedDir);
             Assert.Equal(42, capturedActIndex);
 
@@ -121,8 +121,8 @@ namespace Gordian.Core.Tests.Network
             mgr.Parser.ProcessIncomingChunk(datagram);
 
             Assert.Equal(12.34f, mgr.PositionX);
-            Assert.Equal(90.12f, mgr.PositionY);
-            Assert.Equal(56.78f, mgr.PositionZ);
+            Assert.Equal(56.78f, mgr.PositionY);
+            Assert.Equal(90.12f, mgr.PositionZ);
             Assert.Equal(64, mgr.Direction);
             Assert.Equal(101, mgr.TargetIndex);
         }
@@ -212,8 +212,8 @@ namespace Gordian.Core.Tests.Network
                     float wireElev = BinaryPrimitives.ReadSingleLittleEndian(lastPos.RawBytes.AsSpan(8, 4));
                     float wireNorth = BinaryPrimitives.ReadSingleLittleEndian(lastPos.RawBytes.AsSpan(12, 4));
                     Assert.Equal(10f, posX);
-                    Assert.Equal(-30f, wireElev); // Wire offset 8 is Elevation (Z)
-                    Assert.Equal(2f, wireNorth);  // Wire offset 12 is North/South (Y)
+                    Assert.Equal(2f, wireElev);  // Wire offset 8 is Elevation (3D Y)
+                    Assert.Equal(-30f, wireNorth); // Wire offset 12 is North/South (3D Z)
                     ushort movTime = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(16, 2));
                     Assert.Equal(0, movTime); // MovTime is always 0 on retail FFXI protocol
                     ushort moveFrame = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(18, 2));

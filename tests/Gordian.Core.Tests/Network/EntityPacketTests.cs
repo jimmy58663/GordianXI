@@ -66,8 +66,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x0123, pc.ActorIndex);
             Assert.Equal(128, pc.Direction);
             Assert.Equal(10.5f, pc.X);
-            Assert.Equal(30.5f, pc.Y);
-            Assert.Equal(20.5f, pc.Z);
+            Assert.Equal(20.5f, pc.Y);
+            Assert.Equal(30.5f, pc.Z);
             Assert.Equal(50, pc.Speed);
             Assert.Equal(95, pc.Hpp);
             Assert.Equal(0xDEADBEEFu, pc.BtTargetId);
@@ -143,8 +143,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(25, npc.ActorIndex);
             Assert.Equal(64, npc.Direction);
             Assert.Equal(100.0f, npc.X);
-            Assert.Equal(300.0f, npc.Y);
-            Assert.Equal(200.0f, npc.Z);
+            Assert.Equal(200.0f, npc.Y);
+            Assert.Equal(300.0f, npc.Z);
             Assert.Equal(40, npc.Speed);
             Assert.Equal(100, npc.Hpp);
             Assert.Equal(0x11223344u, npc.ClaimId);
@@ -612,6 +612,141 @@ namespace Gordian.Core.Tests.Network
 
             // Only 1 CharReq packet should have been sent due to rate-limiting
             Assert.Single(sentPackets);
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_DecodesEquippedLook()
+        {
+            // 0x48 byte packet => 0x44 byte payload
+            byte[] payload = new byte[0x44];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000002);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 42); // ActorIndex
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name);
+
+            // look_t at offset 0x2C:
+            // 0x2C: size = 1 (MODEL_EQUIPPED)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 1);
+            // 0x2E: face = 2
+            payload[0x2E] = 2;
+            // 0x2F: race = 3 (ElvaanMale)
+            payload[0x2F] = 3;
+            // 0x30..0x3F: head, body, hands, legs, feet, main, sub, ranged
+            ushort[] expectedSlots = { 101, 202, 303, 404, 505, 606, 707, 808 };
+            for (int i = 0; i < 8; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x30 + (i * 2), 2), expectedSlots[i]);
+            }
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.True(npc.IsValid);
+            Assert.Equal(1, npc.LookSize);
+            Assert.True(npc.IsEquippedLook);
+            Assert.Equal(0u, npc.GetModelId());
+
+            Assert.True(npc.TryGetEquippedLook(out byte race, out byte face, out ushort[] grapTable));
+            Assert.Equal(3, race);
+            Assert.Equal(2, face);
+            Assert.Equal(9, grapTable.Length);
+            Assert.Equal((3 << 8) | 2, grapTable[0]); // FaceModel
+            for (int i = 0; i < 8; i++)
+            {
+                Assert.Equal(expectedSlots[i], grapTable[i + 1]);
+            }
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_DecodesStandardMonsterModelId()
+        {
+            byte[] payload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000003);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 99);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+
+            // look_t at offset 0x2C:
+            // 0x2C: size = 0 (MODEL_STANDARD)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 0);
+            // 0x2E: modelid = 120 (Rabbit)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2E, 2), 120);
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.True(npc.IsValid);
+            Assert.Equal(0, npc.LookSize);
+            Assert.False(npc.IsEquippedLook);
+            Assert.Equal(120u, npc.GetModelId());
+            Assert.False(npc.TryGetEquippedLook(out _, out _, out _));
+        }
+
+        [Fact]
+        public void EntityPacketModule_HandleCharNpc_PopulatesEquippedLookOnEntity()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            byte[] payload = new byte[0x44];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000004);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 55); // ActorIndex
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name);
+
+            // look_t: size = 1 (MODEL_EQUIPPED), race = 1 (HumeMale), face = 5
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 1);
+            payload[0x2E] = 5;
+            payload[0x2F] = 1;
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x30, 2), 10); // Head
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x32, 2), 20); // Body
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            Assert.True(world.TryGetByTargetIndex(55, out var entity));
+            Assert.NotNull(entity);
+            Assert.Equal(0u, entity.Appearance.ModelId);
+            Assert.Equal(9, entity.Appearance.GrapIdTable.Length);
+            Assert.Equal((1 << 8) | 5, entity.Appearance.FaceModel);
+            Assert.Equal(10, entity.Appearance.Head);
+            Assert.Equal(20, entity.Appearance.Body);
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_DoorEntity_ReturnsZeroModelId()
+        {
+            // MODEL_DOOR has LookSize == 2 — should never produce a monster model ID
+            byte[] payload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000005);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 200);
+
+            // look_t: size = 2 (MODEL_DOOR)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 2);
+            // 0x2E: set to a non-zero value that should NOT be interpreted as modelId
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2E, 2), 9999);
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.Equal(2, npc.LookSize);
+            Assert.False(npc.IsEquippedLook);
+            Assert.Equal(0u, npc.GetModelId()); // Must return 0, not 9999
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_ChocoboEntity_IsEquippedLook()
+        {
+            // MODEL_CHOCOBO has LookSize == 7 — uses the full look_t equipped format
+            byte[] payload = new byte[0x44];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000006);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 201);
+
+            // look_t: size = 7 (MODEL_CHOCOBO), face = 1, race = 4
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 7);
+            payload[0x2E] = 1; // face
+            payload[0x2F] = 4; // race
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.Equal(7, npc.LookSize);
+            Assert.True(npc.IsEquippedLook); // Chocobo uses equipped look format
+            Assert.Equal(0u, npc.GetModelId()); // Not a monster model ID
+            Assert.True(npc.TryGetEquippedLook(out byte race, out byte face, out _));
+            Assert.Equal(4, race);
+            Assert.Equal(1, face);
         }
     }
 }

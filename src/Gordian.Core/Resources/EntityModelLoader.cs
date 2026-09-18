@@ -59,9 +59,20 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.Texture:
                         var tex = TextureDecoder.DecodeTexture(payload);
-                        if (tex != null && !textures.ContainsKey(tex.Name))
+                        if (tex != null)
                         {
-                            textures[tex.Name] = tex;
+                            if (!textures.ContainsKey(tex.Name))
+                            {
+                                textures[tex.Name] = tex;
+                            }
+                            if (tex.Name.Length > 8)
+                            {
+                                string shortName = tex.Name.Substring(8).Trim();
+                                if (!string.IsNullOrEmpty(shortName) && !textures.ContainsKey(shortName))
+                                {
+                                    textures[shortName] = tex;
+                                }
+                            }
                         }
                         break;
                 }
@@ -72,11 +83,13 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Assembles an EntityModel from a primary skeleton container and any number of modular part containers.
+        /// Supports optional skeletal joint parent overrides for weapon attachments.
         /// </summary>
         public static EntityModel AssembleModel(
             ReadOnlySpan<byte> primaryDat,
             IReadOnlyList<ReadOnlyMemory<byte>>? extraDats = null,
-            string name = "")
+            string name = "",
+            IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             var model = new EntityModel { Name = name };
 
@@ -111,7 +124,7 @@ namespace Gordian.Core.Resources
 
             if (model.Skeleton != null && allMeshes.Count > 0)
             {
-                var bindPose = SkeletonPoseEvaluator.ComputeBindPose(model.Skeleton);
+                var bindPose = SkeletonPoseEvaluator.ComputeBindPose(model.Skeleton, parentOverrides);
                 for (int m = 0; m < allMeshes.Count; m++)
                 {
                     var evaluated = SkeletonPoseEvaluator.EvaluateMeshGroup(allMeshes[m], bindPose);
@@ -125,6 +138,8 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Modular character assembler stitching Race base skeleton, Face, and Armor/Weapon slots into a unified model.
+        /// Automatically re-parents drawn weapon grip joints onto hand attach sockets.
+        /// Clean-room implementation referencing FFXI weapon grip attach specifications in xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
         public static EntityModel? AssembleCharacter(
             CharacterRace race,
@@ -149,6 +164,7 @@ namespace Gordian.Core.Resources
             }
 
             var extraDats = new List<ReadOnlyMemory<byte>>();
+            var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
 
             // 1. Face slot (from GrapIdTable[0] & 0xFF)
             ushort faceId = (ushort)(faceModel & 0xFF);
@@ -163,24 +179,114 @@ namespace Gordian.Core.Resources
 
             // 2. Armor and Weapon slots (Head through Ranged)
             // Slot indices: 1:Head, 2:Body, 3:Hands, 4:Legs, 5:Feet, 6:Main, 7:Sub, 8:Ranged
-            for (int slotIdx = 1; slotIdx < 9 && slotIdx < grapTable.Length; slotIdx++)
+            for (int slotIdx = 1; slotIdx < 9; slotIdx++)
             {
-                ushort rawVal = grapTable[slotIdx];
-                ushort modelId = (ushort)(rawVal & 0x0FFF);
-                if (modelId == 0) continue;
-
                 var slot = (CharacterSlot)slotIdx;
+                ushort rawVal = slotIdx < grapTable.Length ? grapTable[slotIdx] : (ushort)0;
+                ushort modelId = (ushort)(rawVal & 0x0FFF);
+
+                // Head, Main, Sub, and Ranged slots are optional/empty when modelId == 0 (no helmet / unarmed).
+                // Body, Hands, Legs, and Feet slots always require a model (modelId 0 is the default/naked race armor).
+                bool isRequiredArmorSlot = slot is CharacterSlot.Body or CharacterSlot.Hands or CharacterSlot.Legs or CharacterSlot.Feet;
+                if (modelId == 0 && !isRequiredArmorSlot)
+                {
+                    continue;
+                }
+
                 if (CharacterEquipmentResolver.TryResolveGearFileId(race, slot, modelId, out int gearFid))
                 {
                     byte[]? gearDat = datByFileId(gearFid);
                     if (gearDat != null && gearDat.Length > 0)
                     {
                         extraDats.Add(gearDat);
+                        if (slot is CharacterSlot.Main or CharacterSlot.Sub or CharacterSlot.Ranged)
+                        {
+                            weaponDats.Add((slot, gearDat));
+                        }
                     }
                 }
             }
 
-            return AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}");
+            Dictionary<int, int>? parentOverrides = null;
+            if (weaponDats.Count > 0)
+            {
+                var baseContainer = ParseDatContainer(baseDat, "BaseSkeleton");
+                if (baseContainer.Skeleton != null && baseContainer.Skeleton.References.Count > 127)
+                {
+                    parentOverrides = ResolveWeaponParentOverrides(baseContainer.Skeleton, weaponDats);
+                }
+            }
+
+            return AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides);
+        }
+
+        /// <summary>
+        /// Builds parent joint overrides for drawn weapons by resolving grip references to hand sockets.
+        /// Main hand maps to reference 127 (Right hand), Sub hand maps to reference 126 (Left hand).
+        /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// </summary>
+        public static Dictionary<int, int> ResolveWeaponParentOverrides(
+            Skeleton skeleton,
+            IReadOnlyList<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)> weaponDats)
+        {
+            var overrides = new Dictionary<int, int>();
+            var refs = skeleton.References;
+            if (refs.Count <= 127) return overrides;
+
+            for (int w = 0; w < weaponDats.Count; w++)
+            {
+                var (slot, dat) = weaponDats[w];
+                int handRefIdx = slot == CharacterSlot.Sub ? 126 : 127;
+                int handJoint = refs[handRefIdx].Index;
+
+                int? gripJoint = null;
+
+                // 1. Check Info section (0x45) byte 6 (standardJointIndex)
+                var headers = DatSectionWalker.ReadHeaders(dat.Span);
+                for (int h = 0; h < headers.Count; h++)
+                {
+                    var head = headers[h];
+                    if (head.TypeCode == DatSectionType.Info && head.DataOffset + 7 <= dat.Length)
+                    {
+                        byte stdJointByte = dat.Span[head.DataOffset + 6];
+                        if (stdJointByte != 0xFF && stdJointByte < refs.Count)
+                        {
+                            gripJoint = refs[stdJointByte].Index;
+                            break;
+                        }
+                    }
+                }
+
+                // 2. If no valid Info standardJointIndex, extract lowest positive vertex joint index
+                if (!gripJoint.HasValue)
+                {
+                    var weaponContainer = ParseDatContainer(dat.Span, "WeaponInspect");
+                    int minJoint = -1;
+                    for (int m = 0; m < weaponContainer.Meshes.Count; m++)
+                    {
+                        var mesh = weaponContainer.Meshes[m];
+                        for (int v = 0; v < mesh.Vertices.Length; v++)
+                        {
+                            int j0 = mesh.Vertices[v].Joint0;
+                            int j1 = mesh.Vertices[v].Joint1;
+                            if (j0 > 0 && (minJoint == -1 || j0 < minJoint)) minJoint = j0;
+                            if (j1 > 0 && (minJoint == -1 || j1 < minJoint)) minJoint = j1;
+                        }
+                    }
+
+                    if (minJoint > 0)
+                    {
+                        gripJoint = minJoint;
+                    }
+                }
+
+                if (gripJoint.HasValue && gripJoint.Value != handJoint)
+                {
+                    overrides[gripJoint.Value] = handJoint;
+                }
+            }
+
+            return overrides;
         }
 
         /// <summary>

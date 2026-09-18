@@ -218,8 +218,8 @@ namespace Gordian.Core.Network
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
 
             BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), z); // Wire offset 8 is Elevation (PS2: z)
-            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), y); // Wire offset 12 is North/South (PS2: y)
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(8, 4), y); // Wire offset 8 is Elevation (3D Y)
+            BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(12, 4), z); // Wire offset 12 is North/South (3D Z)
 
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(18, 2), moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary

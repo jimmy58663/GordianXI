@@ -45,6 +45,8 @@ namespace Gordian.Core.Resources
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
 
+            int texCount = 0, meshSectionCount = 0;
+
             for (int i = 0; i < headers.Count; i++)
             {
                 var header = headers[i];
@@ -59,16 +61,31 @@ namespace Gordian.Core.Resources
                 {
                     case DatSectionType.Texture:
                     {
+                        texCount++;
                         var texture = TextureDecoder.DecodeTexture(payload);
                         if (texture != null && outTextures != null)
                         {
                             outTextures[texture.Name] = texture;
+                            string trimmed = texture.Name.Trim();
+                            if (!string.IsNullOrEmpty(trimmed) && !outTextures.ContainsKey(trimmed))
+                            {
+                                outTextures[trimmed] = texture;
+                            }
+                            if (texture.Name.Length > 8)
+                            {
+                                string shortName = texture.Name.Substring(8).Trim();
+                                if (!string.IsNullOrEmpty(shortName) && !outTextures.ContainsKey(shortName))
+                                {
+                                    outTextures[shortName] = texture;
+                                }
+                            }
                         }
                         break;
                     }
 
                     case DatSectionType.ZoneMesh:
                     {
+                        meshSectionCount++;
                         byte[] workingCopy = payload.ToArray();
 
                         // If key tables provided, attempt decryption
@@ -86,6 +103,8 @@ namespace Gordian.Core.Resources
                     }
                 }
             }
+
+            GordianLog.Debug("RES", $"ParseZoneContainer(zone={zoneId}): {headers.Count} sections, {texCount} textures, {meshSectionCount} ZoneMesh(0x2E) sections → {zone.MeshGroups.Count} submeshes. keysProvided={!table1.IsEmpty && !table2.IsEmpty}");
 
             return zone;
         }
@@ -150,7 +169,10 @@ namespace Gordian.Core.Resources
             const int tableSize = 256;
 
             int idx1 = FindSignature(dllBytes, ZoneMeshDecoder.Table1Sig, scanStart);
+            if (idx1 < 0) idx1 = FindSignature(dllBytes, ZoneMeshDecoder.Table1Sig, 0);
+
             int idx2 = FindSignature(dllBytes, ZoneMeshDecoder.Table2Sig, scanStart);
+            if (idx2 < 0) idx2 = FindSignature(dllBytes, ZoneMeshDecoder.Table2Sig, 0);
 
             if (idx1 < 0 || idx2 < 0 || idx1 + tableSize > dllBytes.Length || idx2 + tableSize > dllBytes.Length)
             {

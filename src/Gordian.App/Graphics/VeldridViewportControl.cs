@@ -135,6 +135,10 @@ namespace Gordian.App.Graphics
                     if (_activeSession != null)
                     {
                         _activeSession.World.ZoneChanged -= OnWorldZoneChanged;
+                        if (_activeSession.Locomotion != null)
+                        {
+                            _activeSession.Locomotion.CameraUpdated -= OnLocomotionCameraUpdated;
+                        }
                     }
 
                     _activeSession = value;
@@ -142,7 +146,16 @@ namespace Gordian.App.Graphics
 
                     if (_activeSession != null)
                     {
+                        _activeSession.IsRendering3D = true;
                         _activeSession.World.ZoneChanged += OnWorldZoneChanged;
+                        if (_activeSession.Locomotion != null)
+                        {
+                            Camera.Pitch = _activeSession.Locomotion.CameraPitch;
+                            Camera.Yaw = _activeSession.Locomotion.CameraYaw;
+                            Camera.Distance = _activeSession.Locomotion.CameraDistance;
+                            Camera.Mode = _activeSession.Locomotion.Camera.Mode;
+                            _activeSession.Locomotion.CameraUpdated += OnLocomotionCameraUpdated;
+                        }
                         if (_activeSession.World.CurrentZoneId != 0)
                         {
                             OnWorldZoneChanged(_activeSession.World.CurrentZoneId);
@@ -150,6 +163,13 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
+        }
+
+        private void OnLocomotionCameraUpdated(float pitch, float yaw, float distance)
+        {
+            Camera.Pitch = pitch;
+            Camera.Yaw = yaw;
+            Camera.Distance = distance;
         }
 
         private WorldState? _worldState;
@@ -227,11 +247,14 @@ namespace Gordian.App.Graphics
                     }
                     else
                     {
-                        GordianLog.Warning("Graphics", $"ResourceManager could not find or load Zone {zoneToLoad}.");
+                        // Re-queue so the render loop retries on the next frame
+                        _pendingZoneLoad = zoneToLoad;
+                        GordianLog.Warning("Graphics", $"ResourceManager could not find or load Zone {zoneToLoad}. Will retry.");
                     }
                 }
                 catch (Exception ex)
                 {
+                    _pendingZoneLoad = zoneToLoad;
                     GordianLog.Error("Graphics", $"Failed to load Zone {zoneToLoad}: {ex.Message}");
                 }
                 finally
@@ -415,6 +438,14 @@ namespace Gordian.App.Graphics
                     }
                 }
 
+                if (_activeSession?.Locomotion != null)
+                {
+                    Camera.Pitch = _activeSession.Locomotion.CameraPitch;
+                    Camera.Yaw = _activeSession.Locomotion.CameraYaw;
+                    Camera.Distance = _activeSession.Locomotion.CameraDistance;
+                    Camera.Mode = _activeSession.Locomotion.Camera.Mode;
+                }
+
                 if (Camera.Mode != CameraMode.FreeCam)
                 {
                     if (hasPlayerPos)
@@ -507,6 +538,14 @@ namespace Gordian.App.Graphics
 
                 Camera.Yaw += dx * 0.25f;
                 Camera.Pitch -= dy * 0.25f;
+
+                if (_activeSession?.Locomotion != null)
+                {
+                    _activeSession.Locomotion.CameraYaw = Camera.Yaw;
+                    float minPitch = Camera.Mode == CameraMode.ThirdPersonOrbital ? -15.0f : -80.0f;
+                    _activeSession.Locomotion.CameraPitch = Math.Clamp(Camera.Pitch, minPitch, 80.0f);
+                }
+
                 e.Handled = true;
             }
         }
@@ -537,6 +576,13 @@ namespace Gordian.App.Graphics
                 Camera.Mode = CameraMode.ThirdPersonOrbital;
                 Camera.Distance = 2.0f;
             }
+
+            if (_activeSession?.Locomotion != null)
+            {
+                _activeSession.Locomotion.CameraDistance = Camera.Distance;
+                _activeSession.Locomotion.CameraMode = Camera.Mode;
+            }
+
             e.Handled = true;
         }
     }

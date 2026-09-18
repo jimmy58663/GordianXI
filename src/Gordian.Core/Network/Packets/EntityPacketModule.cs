@@ -193,10 +193,18 @@ namespace Gordian.Core.Network.Packets
             entity.AnimationState = npcPacket.ServerStatus;
             entity.ClaimServerId = npcPacket.ClaimId;
 
-            uint modelId = npcPacket.GetModelId();
-            if (modelId != 0)
+            if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))
             {
-                entity.Appearance.ModelId = modelId;
+                entity.Appearance.GrapIdTable = grapTable;
+                entity.Appearance.ModelId = 0;
+            }
+            else
+            {
+                uint modelId = npcPacket.GetModelId();
+                if (modelId != 0)
+                {
+                    entity.Appearance.ModelId = modelId;
+                }
             }
 
             if (npcPacket.HasName)

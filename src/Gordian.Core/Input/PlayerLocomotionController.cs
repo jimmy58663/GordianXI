@@ -222,7 +222,8 @@ namespace Gordian.Core.Input
             // Reset Camera shortcut
             if (_inputState.WasActionTriggered(InputAction.ResetCamera))
             {
-                if (_localPlayer.ServerId != 0 && _world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
+                uint localId = GetOrResolveLocalServerId();
+                if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
                 {
                     CameraYaw = (localEnt.Direction / 256.0f) * 360.0f;
                 }
@@ -232,7 +233,8 @@ namespace Gordian.Core.Input
 
             if (pitchDelta != 0 || yawDelta != 0 || zoomDelta != 0)
             {
-                CameraPitch = Math.Clamp(CameraPitch + pitchDelta, -80.0f, 80.0f);
+                float minPitch = _camera.Mode == CameraMode.ThirdPersonOrbital ? -15.0f : -80.0f;
+                CameraPitch = Math.Clamp(CameraPitch + pitchDelta, minPitch, 80.0f);
                 CameraYaw = NormalizeDegrees(CameraYaw + yawDelta);
 
                 // Smooth First-Person / Orbital transition on zoom
@@ -256,7 +258,8 @@ namespace Gordian.Core.Input
 
             // Update underlying ViewportCamera matrices and frustum
             var targetPos = Vector3.Zero;
-            if (_localPlayer.ServerId != 0 && _world.TryGetByServerId(_localPlayer.ServerId, out var targetEnt) && targetEnt != null)
+            uint targetServerId = GetOrResolveLocalServerId();
+            if (targetServerId != 0 && _world.TryGetByServerId(targetServerId, out var targetEnt) && targetEnt != null)
             {
                 targetPos = targetEnt.Position;
             }
@@ -268,6 +271,21 @@ namespace Gordian.Core.Input
             }
         }
 
+        private uint GetOrResolveLocalServerId()
+        {
+            if (_localPlayer.ServerId != 0) return _localPlayer.ServerId;
+
+            foreach (var ent in _world.Entities)
+            {
+                if (ent.Type == EntityType.Player)
+                {
+                    _localPlayer.ServerId = ent.ServerId;
+                    return ent.ServerId;
+                }
+            }
+            return 0;
+        }
+
         private void UpdateLocomotion(TimeSpan elapsed)
         {
             if (_camera.Mode == CameraMode.FreeCam)
@@ -276,10 +294,11 @@ namespace Gordian.Core.Input
                 return;
             }
 
-            if (_localPlayer.ServerId == 0) return;
-            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null)
+            uint localServerId = GetOrResolveLocalServerId();
+            if (localServerId == 0) return;
+            if (!_world.TryGetByServerId(localServerId, out var localEnt) || localEnt == null)
             {
-                localEnt = new PlayerEntity(_localPlayer.ServerId, 0)
+                localEnt = new PlayerEntity(localServerId, 0)
                 {
                     IsSpawned = true
                 };
@@ -316,9 +335,9 @@ namespace Gordian.Core.Input
 
                 float headingRad = localEnt.HeadingRadians;
                 float dx = MathF.Cos(headingRad) * distance;
-                float dy = MathF.Sin(headingRad) * distance;
+                float dz = MathF.Sin(headingRad) * distance;
 
-                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y + dy, localEnt.Position.Z);
+                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -385,13 +404,13 @@ namespace Gordian.Core.Input
                 float headingRad = localEnt.HeadingRadians;
 
                 // FFXI coordinate math:
-                // Heading 0 = East (+X), 64 = South (+Y), 128 = West (-X), 192 = North (-Y)
-                // Forward vector = (cos(theta), sin(theta))
-                // Strafe right vector = (-sin(theta), cos(theta))
+                // Heading 0 = East (+X), 64 = South (+Z), 128 = West (-X), 192 = North (-Z)
+                // Forward vector = (cos(theta), sin(theta)) on (X, Z) ground plane
+                // Strafe right vector = (-sin(theta), cos(theta)) on (X, Z) ground plane
                 float dx = (MathF.Cos(headingRad) * forwardInput - MathF.Sin(headingRad) * strafeInput) * distance;
-                float dy = (MathF.Sin(headingRad) * forwardInput + MathF.Cos(headingRad) * strafeInput) * distance;
+                float dz = (MathF.Sin(headingRad) * forwardInput + MathF.Cos(headingRad) * strafeInput) * distance;
 
-                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y + dy, localEnt.Position.Z);
+                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
             }
             else
             {

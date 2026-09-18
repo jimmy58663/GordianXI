@@ -43,5 +43,46 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(resolver.TryResolve(2, out string path2));
             Assert.Equal(Path.Combine("ROM2", "2", "41.DAT"), path2);
         }
+
+        [Fact]
+        public void FileTableResolver_LowestTableWins_PreservesBaseRomEntries()
+        {
+            var resolver = new FileTableResolver();
+
+            // Base game (ROM1) registers File ID 10 -> ROM/5/12.DAT
+            byte[] ft1 = new byte[22];
+            byte[] vt1 = new byte[11];
+            vt1[10] = 1;
+            ushort val1 = (ushort)((5 << 7) | 12);
+            BinaryPrimitives.WriteUInt16LittleEndian(ft1.AsSpan(20, 2), val1);
+
+            resolver.LoadTablePair(ft1, vt1);
+
+            // Expansion (ROM2) attempts to register File ID 10 -> ROM2/99/88.DAT
+            byte[] ft2 = new byte[22];
+            byte[] vt2 = new byte[11];
+            vt2[10] = 2;
+            ushort val2 = (ushort)((99 << 7) | 88);
+            BinaryPrimitives.WriteUInt16LittleEndian(ft2.AsSpan(20, 2), val2);
+
+            // Expansion (ROM2) also registers new File ID 11 -> ROM2/1/2.DAT
+            byte[] ft2Ext = new byte[24];
+            byte[] vt2Ext = new byte[12];
+            vt2Ext[10] = 2;
+            BinaryPrimitives.WriteUInt16LittleEndian(ft2Ext.AsSpan(20, 2), val2);
+            vt2Ext[11] = 2;
+            ushort val3 = (ushort)((1 << 7) | 2);
+            BinaryPrimitives.WriteUInt16LittleEndian(ft2Ext.AsSpan(22, 2), val3);
+
+            resolver.LoadTablePair(ft2Ext, vt2Ext);
+
+            // Lowest table wins: ID 10 should still point to ROM/5/12.DAT (not overwritten)
+            Assert.True(resolver.TryResolve(10, out string resolved10));
+            Assert.Equal(Path.Combine("ROM", "5", "12.DAT"), resolved10);
+
+            // Newly added ID 11 from ROM2 should be registered
+            Assert.True(resolver.TryResolve(11, out string resolved11));
+            Assert.Equal(Path.Combine("ROM2", "1", "2.DAT"), resolved11);
+        }
     }
 }

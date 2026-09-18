@@ -109,8 +109,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((ushort)42, ack.ActorIndex);
             Assert.Equal((byte)128, ack.Direction);
             Assert.Equal(10.5f, ack.X);
-            Assert.Equal(-20.2f, ack.Y);
-            Assert.Equal(5.0f, ack.Z);
+            Assert.Equal(5.0f, ack.Y);
+            Assert.Equal(-20.2f, ack.Z);
         }
 
         [Fact]

@@ -35,6 +35,7 @@ namespace Gordian.App.Graphics
 
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
+        private GpuSubmesh? _groundPlaneSubmesh;
         private IReadOnlyDictionary<string, DecodedTexture>? _activeDecodedTextures;
 
         private bool _disposed;
@@ -270,6 +271,25 @@ namespace Gordian.App.Graphics
                 draws++;
             }
 
+            // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
+            // render the adaptive ground plane centered under the player so character stands on solid ground.
+            if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null)
+            {
+                float groundY = camera.Target.Y - 1.3f;
+                var groundWorld = Matrix4x4.CreateTranslation(new Vector3(camera.Target.X, groundY, camera.Target.Z));
+                var groundUniform = sceneUniform;
+                groundUniform.World = groundWorld;
+                _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref groundUniform);
+
+                var texSet = _textureCache.GetOrCreateResourceSet(string.Empty, _activeDecodedTextures);
+                _commandList.SetGraphicsResourceSet(1, texSet);
+                _commandList.SetVertexBuffer(0, _groundPlaneSubmesh.VertexBuffer);
+                _commandList.SetIndexBuffer(_groundPlaneSubmesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(_groundPlaneSubmesh.IndexCount, 1, 0, 0, 0);
+                draws++;
+                visible++;
+            }
+
             // Render live 3D entity models & modular equipment
             if (_entityRenderer != null && entities != null)
             {
@@ -294,13 +314,14 @@ namespace Gordian.App.Graphics
         {
             var factory = _gd.ResourceFactory;
 
-            // Ground plane (80x80 yalms, tiled UVs, vertex colored)
+            // Adaptive ground plane (2000x2000 yalms, tiled UVs, neutral stone/ground tint)
+            // Sized to match camera FarClip (1000 yalms) so ground seamlessly meets distance fog
             var planeVerts = new MeshVertex[]
             {
-                new(new Vector3(-40, 0, -40), Vector3.UnitY, new Vector2(0, 0), 0xFFB0B0B0),
-                new(new Vector3( 40, 0, -40), Vector3.UnitY, new Vector2(8, 0), 0xFFB0B0B0),
-                new(new Vector3( 40, 0,  40), Vector3.UnitY, new Vector2(8, 8), 0xFFB0B0B0),
-                new(new Vector3(-40, 0,  40), Vector3.UnitY, new Vector2(0, 8), 0xFFB0B0B0),
+                new(new Vector3(-1000, 0, -1000), Vector3.UnitY, new Vector2(0, 0), 0xFFB0B0B0),
+                new(new Vector3( 1000, 0, -1000), Vector3.UnitY, new Vector2(100, 0), 0xFFB0B0B0),
+                new(new Vector3( 1000, 0,  1000), Vector3.UnitY, new Vector2(100, 100), 0xFFB0B0B0),
+                new(new Vector3(-1000, 0,  1000), Vector3.UnitY, new Vector2(0, 100), 0xFFB0B0B0),
             };
 
             ushort[] planeIndices = { 0, 1, 2, 0, 2, 3 };
@@ -311,51 +332,17 @@ namespace Gordian.App.Graphics
             var planeIb = factory.CreateBuffer(new BufferDescription((uint)(planeIndices.Length * sizeof(ushort)), BufferUsage.IndexBuffer));
             _gd.UpdateBuffer(planeIb, 0, planeIndices);
 
-            _fallbackSubmeshes.Add(new GpuSubmesh
+            _groundPlaneSubmesh = new GpuSubmesh
             {
                 TextureName = string.Empty,
                 VertexBuffer = planeVb,
                 IndexBuffer = planeIb,
                 IndexCount = (uint)planeIndices.Length,
-                MinBounds = new Vector3(-40, -0.1f, -40),
-                MaxBounds = new Vector3(40, 0.1f, 40)
-            });
-
-            // Central landmark crystal pyramid
-            var pyramidVerts = new MeshVertex[]
-            {
-                // Apex
-                new(new Vector3( 0, 3.5f, 0), Vector3.UnitY, new Vector2(0.5f, 1.0f), 0xFFFFFFFF),
-                // Base
-                new(new Vector3(-1.5f, 0, -1.5f), new Vector3(-1, 0.5f, -1), new Vector2(0, 0), 0xFF60A0E0),
-                new(new Vector3( 1.5f, 0, -1.5f), new Vector3( 1, 0.5f, -1), new Vector2(1, 0), 0xFF60A0E0),
-                new(new Vector3( 1.5f, 0,  1.5f), new Vector3( 1, 0.5f,  1), new Vector2(1, 1), 0xFF60A0E0),
-                new(new Vector3(-1.5f, 0,  1.5f), new Vector3(-1, 0.5f,  1), new Vector2(0, 1), 0xFF60A0E0),
+                MinBounds = new Vector3(-1000, -500f, -1000),
+                MaxBounds = new Vector3(1000, 500f, 1000)
             };
-
-            ushort[] pyramidIndices =
-            {
-                0, 1, 2, // North face
-                0, 2, 3, // East face
-                0, 3, 4, // South face
-                0, 4, 1  // West face
-            };
-
-            var pyrVb = factory.CreateBuffer(new BufferDescription((uint)(pyramidVerts.Length * 36), BufferUsage.VertexBuffer));
-            _gd.UpdateBuffer(pyrVb, 0, pyramidVerts);
-
-            var pyrIb = factory.CreateBuffer(new BufferDescription((uint)(pyramidIndices.Length * sizeof(ushort)), BufferUsage.IndexBuffer));
-            _gd.UpdateBuffer(pyrIb, 0, pyramidIndices);
-
-            _fallbackSubmeshes.Add(new GpuSubmesh
-            {
-                TextureName = string.Empty,
-                VertexBuffer = pyrVb,
-                IndexBuffer = pyrIb,
-                IndexCount = (uint)pyramidIndices.Length,
-                MinBounds = new Vector3(-1.5f, 0, -1.5f),
-                MaxBounds = new Vector3(1.5f, 3.5f, 1.5f)
-            });
+            // Note: _groundPlaneSubmesh is not added to static _fallbackSubmeshes so that
+            // it dynamically renders at the player's elevation (groundY) rather than fixed at Y=0.
         }
 
         private void ClearZoneSubmeshes()
@@ -381,6 +368,7 @@ namespace Gordian.App.Graphics
                 _fallbackSubmeshes[i].Dispose();
             }
             _fallbackSubmeshes.Clear();
+            _groundPlaneSubmesh = null;
 
             _entityRenderer?.Dispose();
             _textureCache?.Dispose();

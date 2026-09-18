@@ -147,7 +147,20 @@ namespace Gordian.Core.Resources.Graphics
             if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return null;
 
             string fourCc = ReadCString(data.Slice(0x39, 4));
-            int dxtStart = 0x80;
+            int dxtStart = 0x45;
+            if (fourCc != "1TXD" && fourCc != "3TXD" && fourCc != "5TXD")
+            {
+                fourCc = ReadCString(data.Slice(0x3D, 4));
+                if (fourCc == "1TXD" || fourCc == "3TXD" || fourCc == "5TXD")
+                {
+                    dxtStart = 0x49;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
             if (dxtStart >= data.Length) return null;
 
             var dxtPayload = data.Slice(dxtStart);

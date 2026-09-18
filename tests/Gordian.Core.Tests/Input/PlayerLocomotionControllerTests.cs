@@ -58,6 +58,25 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Update_WhenFacingSouth_MovesPlayerAlongZAxisAndKeepsElevationConstant()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            // Heading 64 = South (+Z in 3D, keeping elevation Y constant)
+            localEnt.Direction = 64;
+            localEnt.Position = new Vector3(10f, 15f, 20f);
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Standard run speed = 50 => 5.0 yalms/sec along +Z
+            Assert.Equal(50, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 9.99f, 10.01f);
+            Assert.Equal(15.0f, localEnt.Position.Y); // Elevation unchanged
+            Assert.InRange(localEnt.Position.Z, 24.99f, 25.01f); // 20 + 5 = 25 along +Z
+        }
+
+        [Fact]
         public void Update_WhenWalking_MovesPlayerAtWalkSpeed()
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();

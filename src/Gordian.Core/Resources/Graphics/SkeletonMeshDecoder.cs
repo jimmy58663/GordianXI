@@ -463,12 +463,12 @@ namespace Gordian.Core.Resources.Graphics
 
         private static string ReadCString(ReadOnlySpan<byte> span)
         {
-            int len = 0;
-            while (len < span.Length && span[len] != 0 && span[len] != ' ')
+            int end = 0;
+            while (end < span.Length && span[end] != 0)
             {
-                len++;
+                end++;
             }
-            return len > 0 ? Encoding.ASCII.GetString(span.Slice(0, len)) : string.Empty;
+            return Encoding.ASCII.GetString(span.Slice(0, end)).Trim();
         }
     }
 }

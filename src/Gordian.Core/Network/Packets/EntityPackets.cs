@@ -138,10 +138,11 @@ namespace Gordian.Core.Network.Packets
             UpdateFlags = (EntityUpdateFlags)payload[6];
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            // FFXI native convention: X = East/West, Y = North/South, Z = Elevation.
-            // Wire format packs (X at +8, Elevation [Z] at +12, North/South [Y] at +16)
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI native wire convention: X at +8 (East/West), Elevation at +12, North/South at +16.
+            // GordianXI 3D canonical coordinates (Y-up):
+            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(-)/South(+).
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));
             Speed = payload[24];
             SpeedBase = payload[25];
@@ -403,10 +404,11 @@ namespace Gordian.Core.Network.Packets
             UpdateFlags = (EntityUpdateFlags)payload[6];
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            // FFXI native convention: X = East/West, Y = North/South, Z = Elevation.
-            // Wire format packs (X at +8, Elevation [Z] at +12, North/South [Y] at +16)
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI native wire convention: X at +8 (East/West), Elevation at +12, North/South at +16.
+            // GordianXI 3D canonical coordinates (Y-up):
+            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(-)/South(+).
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));
             Speed = payload[24];
             SpeedBase = payload[25];
@@ -429,15 +431,69 @@ namespace Gordian.Core.Network.Packets
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
 
         /// <summary>
-        /// Reads standard model ID (at offset 0x30 relative to packet, 0x2C relative to payload).
+        /// Reads look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) mmo.h and entity_update.h
+        /// </summary>
+        public ushort LookSize => _payload.Length >= 0x2E
+            ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2C, 2))
+            : (ushort)0;
+
+        /// <summary>
+        /// Indicates if the NPC/entity uses the equipped appearance model (look_t, 20 bytes).
+        /// MODEL_EQUIPPED (size=1) and MODEL_CHOCOBO (size=7) both use the full equipped look_t.
+        /// </summary>
+        public bool IsEquippedLook => LookSize == 1 || LookSize == 7;
+
+        /// <summary>
+        /// Reads standard monster or NPC model ID (uint16 at payload offset 0x2E, when LookSize is a simple model type).
+        /// Only valid for MODEL_STANDARD (0), MODEL_UNK_5 (5), and MODEL_AUTOMATON (6).
+        /// Transport entities (MODEL_DOOR=2, MODEL_ELEVATOR=3, MODEL_SHIP=4) and equipped models
+        /// (MODEL_EQUIPPED=1, MODEL_CHOCOBO=7) return 0 — they are not loaded as monster DATs.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp
         /// </summary>
         public uint GetModelId()
         {
-            if (_payload.Length >= 0x30) // 0x2C + 4
+            if (_payload.Length < 0x30) return 0;
+
+            ushort size = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2C, 2));
+
+            // Only MODEL_STANDARD (0), MODEL_UNK_5 (5), MODEL_AUTOMATON (6) carry a simple numeric model ID.
+            // All other size values (1=Equipped, 2=Door, 3=Elevator, 4=Ship, 7=Chocobo) must return 0.
+            if (size is not (0 or 5 or 6))
             {
-                return BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x2C, 4));
+                return 0;
             }
-            return 0;
+
+            // Standard look_t: uint16 modelid lives at look_t offset 2, i.e. payload offset 0x2E.
+            return BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2E, 2));
+        }
+
+        /// <summary>
+        /// Attempts to unpack the 20-byte look_t structure for equipped humanoid NPCs and Chocobos.
+        /// Extracts face (0x2E), race (0x2F), and 8 visual equipment slots (0x30..0x3F).
+        /// Returns a 9-element GrapIdTable matching GordianXI convention:
+        /// Index 0: FaceModel ((race &lt;&lt; 8) | face), Indices 1..8: Head, Body, Hands, Legs, Feet, Main, Sub, Ranged.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp
+        /// </summary>
+        public bool TryGetEquippedLook(out byte race, out byte face, out ushort[] grapIdTable)
+        {
+            if (IsEquippedLook && _payload.Length >= 0x40)
+            {
+                face = _payload[0x2E];
+                race = _payload[0x2F];
+                grapIdTable = new ushort[9];
+                grapIdTable[0] = (ushort)((race << 8) | face);
+                for (int i = 0; i < 8; i++)
+                {
+                    grapIdTable[i + 1] = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x30 + (i * 2), 2));
+                }
+                return true;
+            }
+
+            race = 0;
+            face = 0;
+            grapIdTable = Array.Empty<ushort>();
+            return false;
         }
 
         /// <summary>

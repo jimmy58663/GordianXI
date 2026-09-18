@@ -316,6 +316,8 @@ namespace Gordian.Core.Network
                 }
                 _cachedPlayerAppearance = grap;
 
+                EnsureLocalPlayerEntity(PositionX, PositionY, PositionZ, Direction, TargetIndex);
+
                 uint targetSid = sid != 0 ? sid : CharacterId;
                 if (targetSid != 0 && _parser.World.TryGetByServerId(targetSid, out var existing) && existing is PlayerEntity pe)
                 {

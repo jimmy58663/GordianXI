@@ -122,5 +122,38 @@ namespace Gordian.Core.Tests.Graphics
             Assert.InRange(day.SunDirection.Length(), 0.99f, 1.01f);
             Assert.InRange(night.SunDirection.Length(), 0.99f, 1.01f);
         }
+
+        [Fact]
+        public void ViewportCamera_ThirdPersonOrbital_ClampsPitchFloorToNegative15Degrees()
+        {
+            var camera = new ViewportCamera
+            {
+                Mode = CameraMode.ThirdPersonOrbital
+            };
+
+            camera.Pitch = -60.0f;
+            Assert.Equal(-15.0f, camera.Pitch);
+
+            camera.Update(new Vector3(0, 10, 0), pitch: -45.0f, yaw: 0.0f, distance: 10.0f, aspectRatio: 16f / 9f);
+            Assert.Equal(-15.0f, camera.Pitch);
+        }
+
+        [Fact]
+        public void ViewportCamera_ThirdPersonOrbital_EnforcesGroundFloorSafeguard()
+        {
+            var camera = new ViewportCamera
+            {
+                Mode = CameraMode.ThirdPersonOrbital,
+                EyeOffset = new Vector3(0, 1.3f, 0)
+            };
+
+            // Player standing at Y = 5.0f. Ground is at Y = 5.0f.
+            // With negative pitch (-15 deg) and maximum distance (30 yalms),
+            // camera Y would naturally sink into the ground without safeguard.
+            camera.Update(new Vector3(0, 5.0f, 0), pitch: -15.0f, yaw: 0.0f, distance: 30.0f, aspectRatio: 16f / 9f);
+
+            // Position.Y must never drop below targetPosition.Y + 0.25f (5.25f)
+            Assert.True(camera.Position.Y >= 5.25f, $"Camera Position.Y {camera.Position.Y} was below ground floor 5.25f");
+        }
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
@@ -81,6 +82,45 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(ZoneMeshDecoder.Table2Sig, table2[0..4]);
         }
 
+        [Fact]
+        public void TryExtractFromDllBytes_FindsSignaturesBeforeScanStartViaFallback()
+        {
+            // Simulate signatures located before 0x30000 (e.g. at 0x1000 and 0x2000)
+            byte[] dllBytes = new byte[0x10000];
+
+            int offset1 = 0x1000;
+            ZoneMeshDecoder.Table1Sig.CopyTo(dllBytes.AsSpan(offset1, 4));
+            for (int i = 4; i < 256; i++) dllBytes[offset1 + i] = (byte)i;
+
+            int offset2 = 0x2000;
+            ZoneMeshDecoder.Table2Sig.CopyTo(dllBytes.AsSpan(offset2, 4));
+            for (int i = 4; i < 256; i++) dllBytes[offset2 + i] = (byte)(255 - i);
+
+            bool success = ZoneDataLoader.TryExtractFromDllBytes(dllBytes, out var table1, out var table2);
+
+            Assert.True(success);
+            Assert.Equal(256, table1.Length);
+            Assert.Equal(256, table2.Length);
+            Assert.Equal(ZoneMeshDecoder.Table1Sig, table1[0..4]);
+            Assert.Equal(ZoneMeshDecoder.Table2Sig, table2[0..4]);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_RegistersTrimmedAndShortTextureNames()
+        {
+            // A texture named "tim     sn_01_a" (16 bytes)
+            string compoundName = "tim     sn_01_a";
+            byte[] texPayload = BuildSyntheticTexturePayload(compoundName, 4, 4);
+            byte[] texSection = BuildChunk(DatSectionType.Texture, texPayload);
+
+            var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            ZoneDataLoader.ParseZoneContainer(texSection, zoneId: 1, outTextures: textures);
+
+            // Verifying full name, trimmed name, and short name (suffix)
+            Assert.True(textures.ContainsKey(compoundName));
+            Assert.True(textures.ContainsKey("sn_01_a"));
+        }
+
         private static byte[] BuildChunk(DatSectionType type, byte[] payload)
         {
             int total = (16 + payload.Length + 15) & ~15;
@@ -101,7 +141,9 @@ namespace Gordian.Core.Tests.Resources
             byte[] payload = new byte[payloadSize];
 
             payload[0] = 0x01; // uncompressed / 32bpp
-            Encoding.ASCII.GetBytes(name).CopyTo(payload.AsSpan(1, Math.Min(16, name.Length)));
+            byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+            int copyLen = Math.Min(16, nameBytes.Length);
+            nameBytes.AsSpan(0, copyLen).CopyTo(payload.AsSpan(1, copyLen));
 
             int p = 1 + 16 + 4;
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(p, 4), w); p += 4;
@@ -176,14 +218,37 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotEmpty(zone.MeshGroups);
             Assert.NotEmpty(textures);
 
-            for (int i = 0; i < Math.Min(5, zone.MeshGroups.Count); i++)
+            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            Vector3 playerPos = new(-398.85f, -1.68f, -466.56f);
+            camera.Update(playerPos, pitch: 15.0f, yaw: 102f * 360f / 256f, distance: 6.0f, aspectRatio: 16f / 9f);
+            var frustum = camera.Frustum;
+
+            int culled = 0;
+            int visible = 0;
+            foreach (var mg in zone.MeshGroups)
             {
-                var mg = zone.MeshGroups[i];
-                Gordian.Core.Diagnostics.GordianLog.Info("ZONE", $"Zone 4 Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
+                Assert.False(float.IsNaN(mg.MinBounds.X), $"MinBounds.X was NaN in mesh '{mg.Name}'");
+                Assert.False(float.IsNaN(mg.MinBounds.Y), $"MinBounds.Y was NaN in mesh '{mg.Name}'");
+                Assert.False(float.IsNaN(mg.MinBounds.Z), $"MinBounds.Z was NaN in mesh '{mg.Name}'");
+                Assert.False(float.IsNaN(mg.MaxBounds.X), $"MaxBounds.X was NaN in mesh '{mg.Name}'");
+                Assert.False(float.IsNaN(mg.MaxBounds.Y), $"MaxBounds.Y was NaN in mesh '{mg.Name}'");
+                Assert.False(float.IsNaN(mg.MaxBounds.Z), $"MaxBounds.Z was NaN in mesh '{mg.Name}'");
+
+                if (frustum.IntersectsBox(mg.MinBounds, mg.MaxBounds))
+                {
+                    visible++;
+                }
+                else
+                {
+                    culled++;
+                }
             }
+            Assert.True(zone.MeshGroups.Count > 300, $"Expected > 300 valid meshes in Zone 4, got {zone.MeshGroups.Count}");
+            Assert.Equal(0, visible);
+            Assert.Equal(zone.MeshGroups.Count, culled);
 
             // Also check Bastok Mines (Zone 234)
-            if (rm.TryLoadZone(234, out var zone234, out var tex234))
+            if (rm.TryLoadZone(234, out var zone234, out var tex234) && zone234 != null)
             {
                 for (int i = 0; i < Math.Min(5, zone234.MeshGroups.Count); i++)
                 {

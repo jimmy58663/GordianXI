@@ -51,7 +51,8 @@ namespace Gordian.Core.Resources.Tables
                 string romRoot = rom == 1 ? "ROM" : $"ROM{rom}";
                 string relativePath = Path.Combine(romRoot, subDir.ToString(), $"{fileNum}.DAT");
 
-                _entries[id] = new FileTableEntry(id, rom, subDir, fileNum, relativePath);
+                // Lowest table wins: preserve base ROM table mapping if already registered
+                _entries.TryAdd(id, new FileTableEntry(id, rom, subDir, fileNum, relativePath));
             }
         }
 

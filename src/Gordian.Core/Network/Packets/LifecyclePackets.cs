@@ -143,10 +143,11 @@ namespace Gordian.Core.Network.Packets
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
             Direction = payload[7];
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
-            // FFXI native convention: X = East/West, Y = North/South, Z = Elevation.
-            // Wire format packs (X at +8, Elevation [Z] at +12, North/South [Y] at +16)
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4));
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4));
+            // FFXI native wire convention: X at +8 (East/West), Elevation at +12, North/South at +16.
+            // GordianXI 3D canonical coordinates (Y-up):
+            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(-)/South(+).
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             ZoneId = payload.Length >= 46
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
                 : (ushort)0;
@@ -345,8 +346,8 @@ namespace Gordian.Core.Network.Packets
             }
 
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Elevation
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // North/South
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Wire offset 4: Elevation -> 3D Y
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // Wire offset 8: North/South -> 3D Z
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
             Mode = (PosMode)payload[18];
@@ -388,8 +389,8 @@ namespace Gordian.Core.Network.Packets
             }
 
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(0, 4));
-            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Elevation
-            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // North/South
+            Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(4, 4)); // Wire offset 4: Elevation -> 3D Y
+            Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4)); // Wire offset 8: North/South -> 3D Z
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
             ActorIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
             Mode = (PosMode)payload[18];
@@ -479,8 +480,8 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
             BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), z); // Wire offset 8 is Elevation (PS2: z)
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), y); // Wire offset 12 is North/South (PS2: y)
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), y); // Wire offset 8 is Elevation (3D Y)
+            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), z); // Wire offset 12 is North/South (3D Z)
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(18, 2), moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
             destination[20] = dir;
@@ -789,18 +790,18 @@ namespace Gordian.Core.Network.Packets
             var ack = new S2C_0x00A_LoginAck(payload);
             if (ack.IsValid)
             {
-                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}");
-                PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
-                if (ack.ZoneId != 0)
-                {
-                    ZoneReceived?.Invoke(ack.ZoneId);
-                }
-
                 Span<ushort> grap = stackalloc ushort[9];
                 if (ack.TryGetGrapIdTable(grap))
                 {
                     string name = ack.GetName();
                     LoginAppearanceReceived?.Invoke(ack.UniqueNo, grap.ToArray(), name);
+                }
+
+                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}");
+                PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
+                if (ack.ZoneId != 0)
+                {
+                    ZoneReceived?.Invoke(ack.ZoneId);
                 }
             }
 

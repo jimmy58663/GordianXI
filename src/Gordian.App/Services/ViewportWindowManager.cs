@@ -61,6 +61,19 @@ namespace Gordian.App.Services
 
         public ViewportWindow? PrimaryWindow => _primaryWindow;
 
+        /// <summary>
+        /// Checks whether the primary or any secondary popped-out 3D viewport window currently has keyboard/window focus.
+        /// </summary>
+        public bool IsAnyViewportActive()
+        {
+            if (_primaryWindow?.IsActive == true) return true;
+            foreach (var window in _secondaryWindows.Values)
+            {
+                if (window.IsActive) return true;
+            }
+            return false;
+        }
+
         public void SetPrimaryViewModel(ViewportViewModel viewModel)
         {
             ArgumentNullException.ThrowIfNull(viewModel);

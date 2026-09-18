@@ -46,7 +46,11 @@ namespace Gordian.Core.Graphics
         public float Pitch
         {
             get => _pitch;
-            set => _pitch = Math.Clamp(value, -80.0f, 80.0f);
+            set
+            {
+                float minPitch = _mode == CameraMode.ThirdPersonOrbital ? -15.0f : -80.0f;
+                _pitch = Math.Clamp(value, minPitch, 80.0f);
+            }
         }
 
         public float Yaw
@@ -131,10 +135,29 @@ namespace Gordian.Core.Graphics
             switch (_mode)
             {
                 case CameraMode.ThirdPersonOrbital:
+                    // Orbital pitch floor: retail FFXI limits downward pitch to prevent swinging below feet
+                    _pitch = Math.Clamp(pitch, -15.0f, 80.0f);
+                    pitchRad = _pitch * (MathF.PI / 180.0f);
+                    cosP = MathF.Cos(pitchRad);
+                    sinP = MathF.Sin(pitchRad);
+
                     _target = targetPosition + _eyeOffset;
+                    float camY = _target.Y + (sinP * _distance);
+
+                    // Ground floor safeguard: when orbiting an avatar (EyeOffset.Y > 0),
+                    // ensure camera elevation never drops below the character's ground plane (+ small margin)
+                    if (_eyeOffset.Y > 0.0f)
+                    {
+                        float groundFloor = targetPosition.Y + 0.25f;
+                        if (camY < groundFloor)
+                        {
+                            camY = groundFloor;
+                        }
+                    }
+
                     _position = new Vector3(
                         _target.X - (sinY * cosP * _distance),
-                        _target.Y + (sinP * _distance),
+                        camY,
                         _target.Z - (cosY * cosP * _distance)
                     );
                     break;

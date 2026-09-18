@@ -147,11 +147,11 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(7, seq);
 
             float x = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(4, 4));
-            float z = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4)); // Wire offset 8 is Elevation (z)
-            float y = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4)); // Wire offset 12 is North/South (y)
+            float elev = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4)); // Wire offset 8 is Elevation (3D Y)
+            float ns = BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4)); // Wire offset 12 is North/South (3D Z)
             Assert.Equal(10.5f, x);
-            Assert.Equal(100.25f, z);
-            Assert.Equal(-2.0f, y);
+            Assert.Equal(-2.0f, elev);
+            Assert.Equal(100.25f, ns);
             Assert.Equal(128, (byte)packet[20]);
 
             // When default (stationary), MovTime and MoveFlame are 0, Mode flags are 0
@@ -365,8 +365,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(1001u, ack.UniqueNo);
             Assert.Equal(0x01, ack.ActorIndex);
             Assert.Equal(10.5f, ack.X);
-            Assert.Equal(45.0f, ack.Y);
-            Assert.Equal(-2.0f, ack.Z);
+            Assert.Equal(-2.0f, ack.Y);
+            Assert.Equal(45.0f, ack.Z);
             Assert.Equal(100, ack.ZoneId);
 
             ushort receivedZone = 0;

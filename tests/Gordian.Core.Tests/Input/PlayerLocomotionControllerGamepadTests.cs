@@ -83,7 +83,8 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(64, ent.Direction); // Facing South (64 in FFXI byte)
             Assert.Equal(50, ent.Speed);
             Assert.Equal(100.0f, ent.Position.X, 2);
-            Assert.Equal(205.0f, ent.Position.Y, 2); // 200 + 5.0 = 205
+            Assert.Equal(200.0f, ent.Position.Y, 2); // Elevation remains 200.0f
+            Assert.Equal(5.0f, ent.Position.Z, 2);   // 0 + 5.0 = 5.0 along South (+Z)
         }
 
         [Fact]

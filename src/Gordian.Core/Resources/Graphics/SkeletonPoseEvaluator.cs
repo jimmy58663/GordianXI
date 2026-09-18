@@ -27,8 +27,9 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// Computes bind-pose world rotation and translation for each joint in the skeleton hierarchy.
+        /// Optionally accepts parentOverrides mapping jointIndex -> replacementParentJointIndex (e.g. for re-parenting weapon grip joints to hands).
         /// </summary>
-        public static EvaluatedPose ComputeBindPose(Skeleton skeleton)
+        public static EvaluatedPose ComputeBindPose(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             int n = skeleton.Count;
             if (n == 0)
@@ -51,6 +52,31 @@ namespace Gordian.Core.Resources.Graphics
                 for (int i = 0; i < n; i++)
                 {
                     if (computed[i]) continue;
+
+                    // Hand re-parenting override: the joint adopts the replacement parent transform wholesale
+                    if (parentOverrides != null && parentOverrides.TryGetValue(i, out int overrideParent))
+                    {
+                        if (overrideParent >= 0 && overrideParent < n && !computed[overrideParent])
+                        {
+                            missing = true;
+                            continue;
+                        }
+
+                        if (overrideParent >= 0 && overrideParent < n)
+                        {
+                            rot[i] = rot[overrideParent];
+                            trans[i] = trans[overrideParent];
+                        }
+                        else
+                        {
+                            rot[i] = Quaternion.Identity;
+                            trans[i] = Vector3.Zero;
+                        }
+
+                        computed[i] = true;
+                        progressed = true;
+                        continue;
+                    }
 
                     var joint = skeleton.Joints[i];
                     int parent = joint.Parent;

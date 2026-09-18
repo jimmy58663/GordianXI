@@ -282,7 +282,7 @@ namespace Gordian.App
             bool isGamepadEnabled = gamepadSettings?.GamepadEnabled ?? _viewModel.Controls.GamepadEnabled;
             bool alwaysEnable = gamepadSettings?.AlwaysEnableGamepad ?? _viewModel.Controls.AlwaysEnableGamepad;
             bool rumbleEnabled = gamepadSettings?.RumbleEnabled ?? _viewModel.Controls.GamepadRumbleEnabled;
-            bool windowFocused = this.IsActive;
+            bool windowFocused = this.IsActive || ViewportWindowManager.Default.IsAnyViewportActive();
 
             _gamepadDriver.RumbleEnabled = rumbleEnabled;
 

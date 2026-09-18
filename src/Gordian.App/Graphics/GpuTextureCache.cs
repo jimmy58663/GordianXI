@@ -91,12 +91,32 @@ namespace Gordian.App.Graphics
                 return _defaultResourceSet;
             }
 
-            if (_cache.TryGetValue(textureName, out var entry))
+            string cleanKey = textureName.Trim();
+
+            if (_cache.TryGetValue(cleanKey, out var entry))
             {
                 return entry.Set;
             }
 
-            if (decodedTextures != null && decodedTextures.TryGetValue(textureName, out var decoded) && decoded != null)
+            DecodedTexture? decoded = null;
+            if (decodedTextures != null)
+            {
+                if (!decodedTextures.TryGetValue(cleanKey, out decoded) || decoded == null)
+                {
+                    // Fallback fuzzy search: check if key ends with cleanKey or cleanKey ends with key
+                    foreach (var kvp in decodedTextures)
+                    {
+                        if (kvp.Key.EndsWith(cleanKey, StringComparison.OrdinalIgnoreCase) ||
+                            cleanKey.EndsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                        {
+                            decoded = kvp.Value;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (decoded != null)
             {
                 try
                 {

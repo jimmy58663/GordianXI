@@ -90,6 +90,14 @@ namespace Gordian.Core.Graphics
         /// <returns>True if any part of the box is inside or intersecting the frustum; otherwise false.</returns>
         public bool IntersectsBox(Vector3 min, Vector3 max)
         {
+            if (float.IsNaN(min.X) || float.IsNaN(min.Y) || float.IsNaN(min.Z) ||
+                float.IsNaN(max.X) || float.IsNaN(max.Y) || float.IsNaN(max.Z) ||
+                float.IsInfinity(min.X) || float.IsInfinity(min.Y) || float.IsInfinity(min.Z) ||
+                float.IsInfinity(max.X) || float.IsInfinity(max.Y) || float.IsInfinity(max.Z))
+            {
+                return false;
+            }
+
             for (int i = 0; i < 6; i++)
             {
                 var plane = _planes[i];

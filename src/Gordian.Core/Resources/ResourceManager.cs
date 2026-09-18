@@ -405,6 +405,12 @@ namespace Gordian.Core.Resources
 
             textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
 
+            // Diagnostic: warn if FTABLE is empty (init failed or game dir not found)
+            if (_fileTable.Count == 0)
+            {
+                GordianLog.Warning("RES", $"TryLoadZone({zoneId}): FileTable is empty — InitializeFileTable() may have failed or game directory not found.");
+            }
+
             // Ensure key tables are extracted if possible
             if (_keyTable1 == null || _keyTable2 == null)
             {
@@ -413,17 +419,25 @@ namespace Gordian.Core.Resources
                     _keyTable1 = t1;
                     _keyTable2 = t2;
                 }
+                else
+                {
+                    GordianLog.Warning("RES", $"TryLoadZone({zoneId}): Could not extract key tables from FFXiMain.dll — zone geometry will not be decrypted.");
+                }
             }
 
             int fileId = ZoneDataLoader.GetZoneModelFileId(zoneId);
+            GordianLog.Debug("RES", $"TryLoadZone({zoneId}): fileId={fileId}, ftable entries={_fileTable.Count}, gameDir='{_gameDirectory}'");
+
             byte[]? datBytes = null;
 
             if (TryResolveFile(fileId, out string fullPath) && File.Exists(fullPath))
             {
+                GordianLog.Debug("RES", $"TryLoadZone({zoneId}): resolved to '{fullPath}' via TryResolveFile.");
                 datBytes = File.ReadAllBytes(fullPath);
             }
             else if (_fileTable.TryResolve(fileId, out string relPath))
             {
+                GordianLog.Debug("RES", $"TryLoadZone({zoneId}): FTABLE resolved fileId={fileId} -> '{relPath}', trying VFS/gameDir.");
                 if (_vfs.TryResolveDat(relPath, out var resolved))
                 {
                     datBytes = resolved!.ReadAllBytes();
@@ -432,7 +446,12 @@ namespace Gordian.Core.Resources
                 {
                     string p = Path.Combine(_gameDirectory, relPath);
                     if (File.Exists(p)) datBytes = File.ReadAllBytes(p);
+                    else GordianLog.Warning("RES", $"TryLoadZone({zoneId}): DAT file does not exist on disk: '{p}'");
                 }
+            }
+            else
+            {
+                GordianLog.Warning("RES", $"TryLoadZone({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
             }
 
             if (datBytes != null && datBytes.Length > 0)
@@ -446,6 +465,12 @@ namespace Gordian.Core.Resources
 
                 _zoneCache[zoneId] = (zone, textures);
                 GordianLog.Info("RES", $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
+
+                if (zone.MeshGroups.Count == 0)
+                {
+                    GordianLog.Warning("RES", $"TryLoadZone({zoneId}): DAT parsed but produced 0 submeshes. keyTable1={((_keyTable1 != null && _keyTable1.Length > 0) ? "OK" : "MISSING")}, keyTable2={((_keyTable2 != null && _keyTable2.Length > 0) ? "OK" : "MISSING")}");
+                }
+
                 return true;
             }
 
@@ -524,6 +549,10 @@ namespace Gordian.Core.Resources
                     _entityModelCache[cacheKey] = model;
                     return true;
                 }
+
+                int monsterFileId = CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId);
+                bool ftableHasEntry = _fileTable.TryResolve(monsterFileId, out string monsterRelPath);
+                GordianLog.Debug("RES", $"TryLoadEntityModel: Monster modelId={entity.Appearance.ModelId}, fileId={monsterFileId}, ftable={_fileTable.Count} entries, resolved={ftableHasEntry}, relPath='{monsterRelPath}'");
             }
 
             // 2. Player or Equipped NPC with GrapIdTable
@@ -536,7 +565,7 @@ namespace Gordian.Core.Resources
                 race = CharacterRace.HumeMale;
             }
 
-            if (race != CharacterRace.Unknown)
+            if (race != CharacterRace.Unknown && grap != null && grap.Length > 0)
             {
                 ushort face = (ushort)(entity.Appearance.FaceModel & 0xFF);
                 string cacheKey = $"PC_{race}_{face}_{string.Join('-', grap)}";
