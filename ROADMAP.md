@@ -2,8 +2,8 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 449 Passing Unit Tests (`dotnet test`)
-- **Active Focus:** Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
+- **Test Status:** 470 Passing Unit Tests (`dotnet test`)
+- **Active Focus:** Phase 5B: Camera Subsystem & Zone Terrain Renderer (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -110,15 +110,30 @@
   - [x] Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
   - [x] Smooth network locomotion synchronization: retail-accurate `0x015` packet protocol (accumulating 60 FPS Run Count in `MoveFlame`, zero `MovTime`, `0x0001` stationary stance), non-starving outbound queue bundling, and high-precision `Stopwatch` delta-time calibration guaranteeing authentic 5.0 yalms/sec running across remote clients (Windower/retail)
   - [x] Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher
-- [ ] **3D Viewport Rendering Surface:**
-  - [ ] Silk.NET / Veldrid cross-platform graphics pipeline (Vulkan / DirectX / Metal) embedded in Avalonia via `NativeControlHost`
-  - [ ] Zone terrain mesh rendering, character models, skeletal animations, and skybox/weather
-  - [ ] Camera controller (third-person follow, first-person, free camera, target lock)
-- [ ] **ImGui.NET In-Game HUD Overlays:**
-  - [ ] Dark translucent HUD (`WindowRounding = 6.0f`) with Target bar, Party frames, Vitals gauges, Mini-map, and Combat Log
-- [ ] **Render & Viewport Profiling:**
-  - [ ] Frame pacing, draw calls, GPU pass timings, and pipeline stage metrics
-  - [ ] ImGui.NET performance diagnostics overlay (FPS graph, frame time jitter, memory usage HUD)
+- [x] **Phase 5A: Graphics Context & Embedded Viewport Surface:**
+  - [x] Integrate Veldrid, Veldrid.SPIRV, and Veldrid.ImGui into client infrastructure
+  - [x] Avalonia `NativeControlHost` cross-platform viewport control (`VeldridViewportControl`) supporting Windows (`HWND`), Linux (`X11`/`Wayland`), and macOS (`NSView`)
+  - [x] Multi-backend auto-selection (Direct3D 11 on Windows, Vulkan on Linux/Windows, Metal on macOS, OpenGL fallback)
+  - [x] Resilient 60/120 FPS render loop with device recreation on viewport resize
+  - [x] Verification test scene: textured spinning 3D test cube and color gradient clearing to confirm GPU pipeline integrity
+- [ ] **Phase 5B: Camera Subsystem & Zone Terrain Renderer:**
+  - [ ] Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](file:///g:/git/GordianXI/src/Gordian.Core/Input/PlayerLocomotionController.cs)
+  - [ ] GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
+  - [ ] Texture palette decoding and Veldrid GPU texture sampler caching
+  - [ ] Directional sun/moon lighting, ambient color, and authentic FFXI distance fog shader pipeline
+- [ ] **Phase 5C: Entity Models & Modular Equipment Assembly:**
+  - [ ] Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
+  - [ ] Bind-pose entity rendering at live `WorldEntity` coordinates
+  - [ ] NPC, Monster, and Trust model rendering from DAT resource caches
+- [ ] **Phase 5D: Skeletal Animation Engine:**
+  - [ ] FFXI bone hierarchy & joint matrix tree parser
+  - [ ] Quaternion SLERP rotation & translation keyframe interpolation
+  - [ ] Animation state machine blending idle, walk, run, combat stance, and death with network locomotion packets
+- [ ] **Phase 5E: ImGui.NET In-Game HUD Overlays & Viewport Profiling:**
+  - [ ] In-game translucent HUD (`WindowRounding = 6.0f`) drawn directly in Veldrid render pass via `Veldrid.ImGui`
+  - [ ] Target bar (HP%, name, distance, target lock indicator), Party frames, and Vitals gauges (HP/MP/TP)
+  - [ ] Mini-map / radar overlay plotting nearby entities from `SpatialPartition`
+  - [ ] Viewport performance overlay: FPS counter, frame pacing graph, draw call counters, and GPU pass timings
 
 ---
 

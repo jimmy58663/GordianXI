@@ -5,6 +5,7 @@
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
         xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
         xmlns:common="clr-namespace:Gordian.App.Common"
+        xmlns:gfx="clr-namespace:Gordian.App.Graphics"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -1554,6 +1555,72 @@
                     </Grid>
                 </Border>
 
+            </Grid>
+        </TabItem>
+
+        <!-- TAB 8: 3D Viewport Surface -->
+        <TabItem Header="3D Viewport" FontSize="14" FontWeight="SemiBold">
+            <Grid RowDefinitions="Auto, *" Margin="0,10,0,0">
+                <!-- Top Toolbar: Graphics Backend & Telemetry -->
+                <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="12,8" Margin="0,0,0,8" BorderBrush="#333337" BorderThickness="1">
+                    <Grid ColumnDefinitions="Auto, Auto, *, Auto">
+                        <!-- Backend Selection -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="Backend:" Foreground="#A0A0A0" VerticalAlignment="Center" FontSize="12"/>
+                            <ComboBox ItemsSource="{Binding Viewport.AvailableBackends}"
+                                      SelectedItem="{Binding Viewport.SelectedBackend, Mode=TwoWay}"
+                                      Width="130" Height="28" FontSize="12"/>
+                        </StackPanel>
+
+                        <!-- Hardware & Status Readout -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="16,0,0,0" VerticalAlignment="Center">
+                            <!-- Backend Indicator Chip -->
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Width="8" Height="8" Fill="#4EC9B0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding #ViewportControl.ActiveBackendName, FallbackValue='Detecting...'}"
+                                               Foreground="#4EC9B0" FontSize="11" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- GPU Device Name Chip -->
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="GPU:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding #ViewportControl.GpuDeviceName, FallbackValue='Detecting GPU...'}"
+                                               Foreground="#DCDCAA" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Live Performance Telemetry -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="FPS:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding #ViewportControl.CurrentFps, StringFormat='{}{0:F1} FPS'}"
+                                               Foreground="#98C379" FontSize="11" FontWeight="Bold" FontFamily="Consolas, monospace" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="#1A1A1C" CornerRadius="4" Padding="8,4" BorderBrush="#3E3E42" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Frame Time:" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding #ViewportControl.FrameTimeMs, StringFormat='{}{0:F2} ms'}"
+                                               Foreground="#61AFEF" FontSize="11" FontWeight="SemiBold" FontFamily="Consolas, monospace" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Main Viewport Surface Container -->
+                <Border Grid.Row="1" Background="#11141C" CornerRadius="6" ClipToBounds="True" BorderBrush="#333337" BorderThickness="1">
+                    <gfx:VeldridViewportControl x:Name="ViewportControl"
+                                                BackendPreference="{Binding Viewport.SelectedBackend}"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"/>
+                </Border>
             </Grid>
         </TabItem>
     </TabControl>

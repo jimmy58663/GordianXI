@@ -50,6 +50,12 @@ SOFTWARE.
 * **Copyright:** Copyright (c) 2020-.NET Foundation and Contributors
 * **Notice:** Provided under the terms of the MIT License (see above).
 
+### Veldrid & Veldrid.SPIRV & Veldrid.ImGui
+* **Project:** [Veldrid](https://github.com/veldrid/veldrid)
+* **License:** MIT License
+* **Copyright:** Copyright (c) 2017 Eric Mellino and contributors
+* **Notice:** Provided under the terms of the MIT License (see above).
+
 ### Simple DirectMedia Layer (SDL)
 * **Project:** [SDL](https://www.libsdl.org/)
 * **License:** zlib License

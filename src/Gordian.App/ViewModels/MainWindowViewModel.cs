@@ -65,6 +65,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public ControlsInputViewModel Controls { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the 3D viewport surface and graphics backend telemetry tab.
+        /// </summary>
+        public ViewportViewModel Viewport { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>
