@@ -104,11 +104,15 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x00A (GP_SERV_LOGIN): Server Login Acknowledgment.
-    /// Confirms character login and provides initial world coordinates and heading.
+    /// Confirms character login and provides initial world coordinates, heading,
+    /// character appearance table (GrapIDTbl[9]), and character name.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public readonly ref struct S2C_0x00A_LoginAck
     {
         public const ushort PacketId = 0x00A;
+
+        private readonly ReadOnlySpan<byte> _payload;
 
         public uint UniqueNo { get; }
         public ushort ActorIndex { get; }
@@ -121,6 +125,7 @@ namespace Gordian.Core.Network.Packets
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
         {
+            _payload = payload;
             if (payload.Length < 20)
             {
                 UniqueNo = 0;
@@ -146,6 +151,42 @@ namespace Gordian.Core.Network.Packets
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
                 : (ushort)0;
             IsValid = true;
+        }
+
+        /// <summary>
+        /// Reads the 9-element equipment/model visual appearance table (GrapIDTbl) if present.
+        /// Slot indices: 0:Race/Face, 1:Head, 2:Body, 3:Hands, 4:Legs, 5:Feet, 6:Main, 7:Sub, 8:Ranged.
+        /// In 0x00A payload, GrapIDTbl is located at offset 0x40 (64).
+        /// </summary>
+        public bool TryGetGrapIdTable(Span<ushort> destination)
+        {
+            if (destination.Length < 9) return false;
+            const int grapOffset = 0x40;
+            if (_payload.Length < grapOffset + 18) return false;
+
+            for (int i = 0; i < 9; i++)
+            {
+                destination[i] = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(grapOffset + (i * 2), 2));
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Reads character name ASCII string from the login packet if present.
+        /// In 0x00A payload, name is located at offset 0x80 (128).
+        /// </summary>
+        public string GetName()
+        {
+            const int nameOffset = 0x80;
+            if (_payload.Length < nameOffset + 1) return string.Empty;
+
+            ReadOnlySpan<byte> nameSpan = _payload.Slice(nameOffset, Math.Min(16, _payload.Length - nameOffset));
+            int len = 0;
+            while (len < nameSpan.Length && nameSpan[len] != 0)
+            {
+                len++;
+            }
+            return len > 0 ? Encoding.ASCII.GetString(nameSpan.Slice(0, len)) : string.Empty;
         }
     }
 
@@ -711,6 +752,7 @@ namespace Gordian.Core.Network.Packets
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
         public event Action<ushort>? ZoneReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
+        public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
         /// <summary>
         /// Optional delegate to retrieve the player's current position, heading, and locomotion state when answering server 0x015 PosPing.
@@ -752,6 +794,13 @@ namespace Gordian.Core.Network.Packets
                 if (ack.ZoneId != 0)
                 {
                     ZoneReceived?.Invoke(ack.ZoneId);
+                }
+
+                Span<ushort> grap = stackalloc ushort[9];
+                if (ack.TryGetGrapIdTable(grap))
+                {
+                    string name = ack.GetName();
+                    LoginAppearanceReceived?.Invoke(ack.UniqueNo, grap.ToArray(), name);
                 }
             }
 

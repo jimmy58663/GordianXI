@@ -29,6 +29,26 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void ViewportCamera_ThirdPersonOrbital_PositivePitchElevatesEyeAboveTarget()
+        {
+            var camera = new ViewportCamera
+            {
+                Mode = CameraMode.ThirdPersonOrbital,
+                EyeOffset = Vector3.Zero
+            };
+
+            // Target at (0, 0, 0), looking down at target with positive elevation (Pitch = +30 degrees, Yaw = 0) at distance 10
+            camera.Update(Vector3.Zero, pitch: 30.0f, yaw: 0.0f, distance: 10.0f, aspectRatio: 16.0f / 9.0f);
+
+            Assert.Equal(Vector3.Zero, camera.Target);
+            // sin(30 deg) = 0.5 => eye.Y = 10 * 0.5 = 5.0f
+            // cos(30 deg) = 0.866 => eye.Z = -10 * 0.866 = -8.66f
+            Assert.InRange(camera.Position.X, -0.01f, 0.01f);
+            Assert.InRange(camera.Position.Y, 4.99f, 5.01f);
+            Assert.InRange(camera.Position.Z, -8.70f, -8.60f);
+        }
+
+        [Fact]
         public void ViewportCamera_FirstPerson_PositionsEyeAtTargetEyeLevel()
         {
             var camera = new ViewportCamera

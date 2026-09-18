@@ -159,5 +159,70 @@ namespace Gordian.Core.Tests.Resources
 
             return payload;
         }
+
+        [Fact]
+        public void RealInstallation_DiagnosticCheck()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new ResourceManager(gameDir);
+            bool ftOk = rm.InitializeFileTable();
+            Assert.True(ftOk);
+
+            bool zOk = rm.TryLoadZone(4, out var zone, out var textures);
+            Assert.True(zOk, $"TryLoadZone(4) failed after expansion tables. rm.FileTable count: {rm.FileTable.Count}");
+            Assert.NotNull(zone);
+            Assert.NotEmpty(zone.MeshGroups);
+            Assert.NotEmpty(textures);
+
+            for (int i = 0; i < Math.Min(5, zone.MeshGroups.Count); i++)
+            {
+                var mg = zone.MeshGroups[i];
+                Gordian.Core.Diagnostics.GordianLog.Info("ZONE", $"Zone 4 Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
+            }
+
+            // Also check Bastok Mines (Zone 234)
+            if (rm.TryLoadZone(234, out var zone234, out var tex234))
+            {
+                for (int i = 0; i < Math.Min(5, zone234.MeshGroups.Count); i++)
+                {
+                    var mg = zone234.MeshGroups[i];
+                    Gordian.Core.Diagnostics.GordianLog.Info("ZONE", $"Zone 234 Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
+                }
+            }
+
+            // Now test entity model loading
+            var player = new Gordian.Core.World.PlayerEntity(1, 1024);
+            // HumeMale = 1. Face 1 = 0. ModelId = (1 << 8) | 0 = 0x0100
+            player.Appearance.GrapIdTable[0] = 0x0100; // HumeMale face 0
+            // Head: Bronze Cap (model 1), Body: Bronze Harness (model 1), etc.
+            player.Appearance.GrapIdTable[1] = 0x1001; // Head model 1
+            player.Appearance.GrapIdTable[2] = 0x2001; // Body model 1
+            player.Appearance.GrapIdTable[3] = 0x3001; // Hands model 1
+            player.Appearance.GrapIdTable[4] = 0x4001; // Legs model 1
+            player.Appearance.GrapIdTable[5] = 0x5001; // Feet model 1
+
+            bool pOk = rm.TryLoadEntityModel(player, out var playerModel);
+            Assert.True(pOk, "TryLoadEntityModel failed for player");
+            Assert.NotNull(playerModel);
+            Assert.NotEmpty(playerModel.MeshGroups);
+            Gordian.Core.Diagnostics.GordianLog.Info("PLAYER", $"Player MinBounds={playerModel.MinBounds}, MaxBounds={playerModel.MaxBounds}, MeshGroups={playerModel.MeshGroups.Count}");
+            for (int i = 0; i < playerModel.MeshGroups.Count; i++)
+            {
+                var mg = playerModel.MeshGroups[i];
+                Gordian.Core.Diagnostics.GordianLog.Info("PLAYER", $"Player Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
+            }
+            
+            // Check face dat pieces directly
+            Gordian.Core.Resources.Tables.CharacterEquipmentResolver.TryResolveGearFileId(Gordian.Core.Resources.Tables.CharacterRace.HumeMale, Gordian.Core.Resources.Tables.CharacterSlot.Face, 0, out int faceFid);
+            byte[]? faceDat = rm.LoadDatBytesByFileId(faceFid);
+            Assert.NotNull(faceDat);
+            var faceContainer = EntityModelLoader.ParseDatContainer(faceDat, "Face");
+            Assert.NotEmpty(faceContainer.Meshes);
+            var meshGroup = faceContainer.Meshes[0];
+            Assert.NotEmpty(meshGroup.Pieces);
+            Assert.Equal(144, meshGroup.Vertices.Length);
+        }
     }
 }

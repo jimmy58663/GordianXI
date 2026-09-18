@@ -50,7 +50,8 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Initializes the master file table resolver by reading FTABLE.DAT and VTABLE.DAT.
+        /// Initializes the master file table resolver by reading FTABLE.DAT and VTABLE.DAT,
+        /// as well as expansion tables (ROM2..ROM10) if present.
         /// First checks the Modular VFS for overlays, then falls back to the base game root.
         /// </summary>
         public bool InitializeFileTable()
@@ -81,7 +82,39 @@ namespace Gordian.Core.Resources
                 if (ftBytes != null && vtBytes != null)
                 {
                     _fileTable.LoadTablePair(ftBytes, vtBytes);
-                    GordianLog.Info("RES", $"Loaded master file table with {_fileTable.Count} entries.");
+
+                    // Also load expansion tables (ROM2 through ROM10)
+                    for (int rom = 2; rom <= 10; rom++)
+                    {
+                        byte[]? expFt = null;
+                        byte[]? expVt = null;
+                        string ftRel = Path.Combine($"ROM{rom}", $"FTABLE{rom}.DAT");
+                        string vtRel = Path.Combine($"ROM{rom}", $"VTABLE{rom}.DAT");
+
+                        if (_vfs.TryResolveDat(ftRel, out var expFtAsset) &&
+                            _vfs.TryResolveDat(vtRel, out var expVtAsset))
+                        {
+                            expFt = expFtAsset!.ReadAllBytes();
+                            expVt = expVtAsset!.ReadAllBytes();
+                        }
+                        else if (!string.IsNullOrWhiteSpace(_gameDirectory))
+                        {
+                            string ftPath = Path.Combine(_gameDirectory, ftRel);
+                            string vtPath = Path.Combine(_gameDirectory, vtRel);
+                            if (File.Exists(ftPath) && File.Exists(vtPath))
+                            {
+                                expFt = File.ReadAllBytes(ftPath);
+                                expVt = File.ReadAllBytes(vtPath);
+                            }
+                        }
+
+                        if (expFt != null && expVt != null)
+                        {
+                            _fileTable.LoadTablePair(expFt, expVt);
+                        }
+                    }
+
+                    GordianLog.Info("RES", $"Loaded master file table with {_fileTable.Count} entries across base and expansions.");
                     return true;
                 }
             }

@@ -132,7 +132,11 @@ namespace Gordian.Core.Graphics
             {
                 case CameraMode.ThirdPersonOrbital:
                     _target = targetPosition + _eyeOffset;
-                    _position = _target - (forwardDir * _distance);
+                    _position = new Vector3(
+                        _target.X - (sinY * cosP * _distance),
+                        _target.Y + (sinP * _distance),
+                        _target.Z - (cosY * cosP * _distance)
+                    );
                     break;
 
                 case CameraMode.FirstPerson:

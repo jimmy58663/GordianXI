@@ -379,5 +379,64 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(100, parser.World.CurrentZoneId);
             Assert.Equal(100, parser.LocalPlayer.ZoneId);
         }
+
+        [Fact]
+        public void S2C_0x00A_LoginAck_ExtractsAppearanceAndName()
+        {
+            var profile = new SessionProfile();
+            var parser = new PacketParser(profile, (chunk, enc) => Task.CompletedTask);
+
+            // Construct mock 0x00A payload of 144 bytes
+            byte[] payload = new byte[144];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 2002); // UniqueNo
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x05); // ActIndex
+            payload[7] = 128; // Dir
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 1.0f); // X
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 2.0f); // Z
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 3.0f); // Y
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(44, 2), 4); // ZoneNo = 4
+
+            // GrapIDTbl at offset 0x40 (64)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(64, 2), 0x0100); // HumeMale Face 0
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(66, 2), 0x1001); // Head
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(68, 2), 0x2001); // Body
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(70, 2), 0x3001); // Hands
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(72, 2), 0x4001); // Legs
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(74, 2), 0x5001); // Feet
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(76, 2), 0x6001); // Main
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(78, 2), 0x7001); // Sub
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(80, 2), 0x8001); // Ranged
+
+            // Name at offset 0x80 (128)
+            byte[] nameBytes = System.Text.Encoding.ASCII.GetBytes("Cybin\0");
+            nameBytes.CopyTo(payload, 128);
+
+            var ack = new Gordian.Core.Network.Packets.S2C_0x00A_LoginAck(payload);
+            Assert.True(ack.IsValid);
+            Assert.Equal("Cybin", ack.GetName());
+
+            Span<ushort> grap = stackalloc ushort[9];
+            Assert.True(ack.TryGetGrapIdTable(grap));
+            Assert.Equal(0x0100, grap[0]);
+            Assert.Equal(0x1001, grap[1]);
+            Assert.Equal(0x2001, grap[2]);
+
+            uint capturedSid = 0;
+            ushort[]? capturedGrap = null;
+            string? capturedName = null;
+            parser.LoginAppearanceReceived += (sid, g, n) =>
+            {
+                capturedSid = sid;
+                capturedGrap = g;
+                capturedName = n;
+            };
+
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)payload.Length), payload);
+
+            Assert.Equal(2002u, capturedSid);
+            Assert.NotNull(capturedGrap);
+            Assert.Equal(0x0100, capturedGrap![0]);
+            Assert.Equal("Cybin", capturedName);
+        }
     }
 }

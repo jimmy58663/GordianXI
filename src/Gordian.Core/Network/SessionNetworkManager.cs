@@ -61,6 +61,7 @@ namespace Gordian.Core.Network
         private bool _isWalking = false;
         private bool _isMoving = false;
         private long _movementStartTimestamp = 0;
+        private ushort[]? _cachedPlayerAppearance;
 
         /// <summary>
         /// Gets the current movement animation frame counter (Run Count) sent in 0x015 packets.
@@ -302,6 +303,27 @@ namespace Gordian.Core.Network
                 EnsureLocalPlayerEntity(x, y, z, dir, actIndex);
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
+            _parser.LoginAppearanceReceived += (sid, grap, name) =>
+            {
+                if (sid != 0)
+                {
+                    _parser.LocalPlayer.ServerId = sid;
+                    CharacterId = sid;
+                }
+                if (!string.IsNullOrEmpty(name))
+                {
+                    CharacterName = name;
+                }
+                _cachedPlayerAppearance = grap;
+
+                uint targetSid = sid != 0 ? sid : CharacterId;
+                if (targetSid != 0 && _parser.World.TryGetByServerId(targetSid, out var existing) && existing is PlayerEntity pe)
+                {
+                    pe.Appearance.CopyFrom(grap);
+                    if (!string.IsNullOrEmpty(name)) pe.Name = name;
+                }
+                GordianLog.Info("NET", $"Captured local player login appearance (Face/Race: 0x{grap[0]:X4}, Name: {name})");
+            };
             _parser.ActionService.LocalPlayerMoved += (pos, dir) =>
             {
                 PositionX = pos.X;
@@ -338,6 +360,11 @@ namespace Gordian.Core.Network
                 pe.Direction = dir;
                 pe.TargetIndex = actIndex;
                 pe.IsSpawned = true;
+                if (!string.IsNullOrEmpty(CharacterName)) pe.Name = CharacterName;
+                if (_cachedPlayerAppearance != null)
+                {
+                    pe.Appearance.CopyFrom(_cachedPlayerAppearance);
+                }
             }
             else
             {
@@ -348,6 +375,10 @@ namespace Gordian.Core.Network
                     IsSpawned = true,
                     Name = CharacterName
                 };
+                if (_cachedPlayerAppearance != null)
+                {
+                    newEntity.Appearance.CopyFrom(_cachedPlayerAppearance);
+                }
                 _parser.World.UpsertEntity(newEntity);
             }
         }

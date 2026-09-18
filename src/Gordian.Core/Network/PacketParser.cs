@@ -230,6 +230,16 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Raised when server transmits initial character visual appearance table and name in GP_SERV_LOGIN (0x00A).
+        /// Parameters: uniqueNo (serverId), grapIdTable, characterName.
+        /// </summary>
+        public event Action<uint, ushort[], string>? LoginAppearanceReceived
+        {
+            add => _lifecycleModule.LoginAppearanceReceived += value;
+            remove => _lifecycleModule.LoginAppearanceReceived -= value;
+        }
+
+        /// <summary>
         /// Raised when the server responds with a zone transition or logout directive (0x00B).
         /// Parameters: LogoutState, TargetIp, TargetPort, ErrorCode.
         /// </summary>

@@ -235,10 +235,10 @@ namespace Gordian.Core.Resources.Graphics
                             }
                             break;
 
-                        case 0x8010: // Render props (16 or 32 bytes)
-                            if (insPos + 16 <= payload.Length)
+                        case 0x8010: // Render props (44 bytes: tFactor, f0, f1, flags, ambientMultiplier, unk, specular)
+                            if (insPos + 44 <= payload.Length)
                             {
-                                insPos += 16;
+                                insPos += 44;
                             }
                             break;
 

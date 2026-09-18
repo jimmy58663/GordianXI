@@ -203,7 +203,12 @@ namespace Gordian.App.Graphics
                 float headingRad = (entity.Direction / 256.0f) * MathF.PI * 2.0f;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad);
 
-                var worldMatrix = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
+                bool isFallback = ReferenceEquals(gpuModel, _fallbackPlayerProxy) ||
+                                  ReferenceEquals(gpuModel, _fallbackNpcProxy) ||
+                                  ReferenceEquals(gpuModel, _fallbackMonsterProxy);
+                var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
+
+                var worldMatrix = rotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
                 {
