@@ -477,7 +477,8 @@ namespace Gordian.App.ViewModels
                 var pad = input.CurrentGamepad;
                 if (pad.IsConnected)
                 {
-                    GamepadStatusText = "Controller 1: Connected (XInput)";
+                    string info = !string.IsNullOrWhiteSpace(pad.DeviceName) ? pad.DeviceName : "Connected";
+                    GamepadStatusText = $"Connected [{info}]";
                     GamepadSticksText = $"L: ({pad.LeftThumb.X:+0.00;-0.00;0.00}, {pad.LeftThumb.Y:+0.00;-0.00;0.00}) | R: ({pad.RightThumb.X:+0.00;-0.00;0.00}, {pad.RightThumb.Y:+0.00;-0.00;0.00})";
                     GamepadTriggersText = $"LT: {pad.LeftTrigger * 100f:F0}% | RT: {pad.RightTrigger * 100f:F0}%";
                     GamepadButtonsText = pad.Buttons != GamepadButton.None ? pad.Buttons.ToString() : "None";

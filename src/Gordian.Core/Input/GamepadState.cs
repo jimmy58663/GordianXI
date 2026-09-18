@@ -19,6 +19,7 @@ namespace Gordian.Core.Input
         public float LeftTrigger { get; }
         public float RightTrigger { get; }
         public uint PacketNumber { get; }
+        public string DeviceName { get; }
 
         public static GamepadState Disconnected => new GamepadState(
             isConnected: false,
@@ -27,7 +28,8 @@ namespace Gordian.Core.Input
             rightThumb: Vector2.Zero,
             leftTrigger: 0.0f,
             rightTrigger: 0.0f,
-            packetNumber: 0);
+            packetNumber: 0,
+            deviceName: string.Empty);
 
         public GamepadState(
             bool isConnected,
@@ -36,7 +38,8 @@ namespace Gordian.Core.Input
             Vector2 rightThumb,
             float leftTrigger,
             float rightTrigger,
-            uint packetNumber = 0)
+            uint packetNumber = 0,
+            string? deviceName = null)
         {
             IsConnected = isConnected;
             Buttons = buttons;
@@ -45,6 +48,7 @@ namespace Gordian.Core.Input
             LeftTrigger = Math.Clamp(leftTrigger, 0.0f, 1.0f);
             RightTrigger = Math.Clamp(rightTrigger, 0.0f, 1.0f);
             PacketNumber = packetNumber;
+            DeviceName = deviceName ?? string.Empty;
         }
 
         public bool IsButtonDown(GamepadButton button)

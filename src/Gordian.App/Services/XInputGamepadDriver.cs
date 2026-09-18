@@ -151,7 +151,8 @@ namespace Gordian.App.Services
                 rightThumb: new Vector2(rx, ry),
                 leftTrigger: lt,
                 rightTrigger: rt,
-                packetNumber: rawState.dwPacketNumber);
+                packetNumber: rawState.dwPacketNumber,
+                deviceName: "XInput: Xbox Controller");
         }
 
         private bool _rumbleEnabled = true;

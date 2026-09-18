@@ -35,7 +35,23 @@ namespace Gordian.Core.Input
 
         public GamepadState Poll(int controllerIndex = 0)
         {
-            return _states.TryGetValue(controllerIndex, out var state) ? state : GamepadState.Disconnected;
+            if (_states.TryGetValue(controllerIndex, out var state))
+            {
+                if (state.IsConnected && string.IsNullOrEmpty(state.DeviceName))
+                {
+                    return new GamepadState(
+                        state.IsConnected,
+                        state.Buttons,
+                        state.LeftThumb,
+                        state.RightThumb,
+                        state.LeftTrigger,
+                        state.RightTrigger,
+                        state.PacketNumber,
+                        deviceName: "Virtual: Test Controller");
+                }
+                return state;
+            }
+            return GamepadState.Disconnected;
         }
 
         public void SetVibration(int controllerIndex, float leftMotor, float rightMotor)

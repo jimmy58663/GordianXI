@@ -113,5 +113,30 @@ namespace Gordian.App.Tests.ViewModels
             Assert.Equal("N/A", vm.CameraInfoText);
             Assert.Equal("No Gamepad Detected", vm.GamepadStatusText);
         }
+
+        [Fact]
+        public void TelemetryWithConnectedGamepad_ReportsDeviceName()
+        {
+            var vm = new ControlsInputViewModel();
+            var netManager = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
+            var session = new Gordian.Core.Network.CharacterSession("TestChar", 12345, "user1", netManager);
+            vm.SetSession(session);
+
+            var pad = new GamepadState(
+                isConnected: true,
+                buttons: GamepadButton.A,
+                leftThumb: new System.Numerics.Vector2(0.5f, -0.5f),
+                rightThumb: System.Numerics.Vector2.Zero,
+                leftTrigger: 0.25f,
+                rightTrigger: 0.75f,
+                deviceName: "Silk.NET.SDL: DualSense Wireless Controller");
+
+            session.InputState.SetGamepadState(pad);
+            vm.UpdateTelemetry();
+
+            Assert.Equal("Connected [Silk.NET.SDL: DualSense Wireless Controller]", vm.GamepadStatusText);
+            Assert.Contains("A", vm.GamepadButtonsText);
+            Assert.Equal("LT: 25% | RT: 75%", vm.GamepadTriggersText);
+        }
     }
 }
