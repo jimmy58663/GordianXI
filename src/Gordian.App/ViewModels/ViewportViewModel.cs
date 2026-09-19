@@ -39,12 +39,45 @@ namespace Gordian.App.ViewModels
         public event EventHandler<ViewportDisplayMode>? DisplayModeChanged;
         public event EventHandler? ViewportWindowRequested;
 
+        private readonly string _settingsPath;
+        private readonly ViewportSettings _settings;
+
+        private void AutoSaveSettings()
+        {
+            try
+            {
+                _settings.SelectedBackend = _selectedBackend;
+                _settings.SelectedDisplayMode = _selectedDisplayMode;
+                _settings.SelectedTabStyle = _selectedTabStyle;
+                _settings.AutoLaunchOnConnect = _autoLaunchOnConnect;
+                _settings.IsPipEnabled = _isPipEnabled;
+                _settings.MaxPipStreams = _maxPipStreams;
+                _settings.IsVsyncEnabled = _isVsyncEnabled;
+                _settings.SaveToFile(_settingsPath);
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Warn("VIEWPORT", $"Auto-save failed: {ex.Message}");
+            }
+        }
+
         public ICommand LaunchViewportCommand { get; }
         public ICommand ToggleCameraModeCommand { get; }
         public ICommand ToggleFreeCamCommand { get; }
 
-        public ViewportViewModel()
+        public ViewportViewModel(string? customSettingsPath = null)
         {
+            _settingsPath = customSettingsPath ?? ViewportSettings.GetDefaultSettingsPath();
+            _settings = ViewportSettings.LoadOrCreate(_settingsPath);
+
+            _selectedBackend = _settings.SelectedBackend;
+            _selectedDisplayMode = _settings.SelectedDisplayMode;
+            _selectedTabStyle = _settings.SelectedTabStyle;
+            _autoLaunchOnConnect = _settings.AutoLaunchOnConnect;
+            _isPipEnabled = _settings.IsPipEnabled;
+            _maxPipStreams = _settings.MaxPipStreams;
+            _isVsyncEnabled = _settings.IsVsyncEnabled;
+
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
             ToggleCameraModeCommand = new RelayCommand(() =>
             {
@@ -99,7 +132,13 @@ namespace Gordian.App.ViewModels
         public GraphicsBackendPreference SelectedBackend
         {
             get => _selectedBackend;
-            set => SetProperty(ref _selectedBackend, value);
+            set
+            {
+                if (SetProperty(ref _selectedBackend, value))
+                {
+                    AutoSaveSettings();
+                }
+            }
         }
 
         public ViewportDisplayMode SelectedDisplayMode
@@ -110,6 +149,7 @@ namespace Gordian.App.ViewModels
                 if (SetProperty(ref _selectedDisplayMode, value))
                 {
                     DisplayModeChanged?.Invoke(this, value);
+                    AutoSaveSettings();
                 }
             }
         }
@@ -125,6 +165,7 @@ namespace Gordian.App.ViewModels
                     OnPropertyChanged(nameof(IsTopRibbon));
                     OnPropertyChanged(nameof(IsSideRail));
                     OnPropertyChanged(nameof(IsHotkeysOnly));
+                    AutoSaveSettings();
                 }
             }
         }
@@ -137,19 +178,37 @@ namespace Gordian.App.ViewModels
         public bool IsPipEnabled
         {
             get => _isPipEnabled;
-            set => SetProperty(ref _isPipEnabled, value);
+            set
+            {
+                if (SetProperty(ref _isPipEnabled, value))
+                {
+                    AutoSaveSettings();
+                }
+            }
         }
 
         public int MaxPipStreams
         {
             get => _maxPipStreams;
-            set => SetProperty(ref _maxPipStreams, value);
+            set
+            {
+                if (SetProperty(ref _maxPipStreams, value))
+                {
+                    AutoSaveSettings();
+                }
+            }
         }
 
         public bool AutoLaunchOnConnect
         {
             get => _autoLaunchOnConnect;
-            set => SetProperty(ref _autoLaunchOnConnect, value);
+            set
+            {
+                if (SetProperty(ref _autoLaunchOnConnect, value))
+                {
+                    AutoSaveSettings();
+                }
+            }
         }
 
         public string ActiveBackend
@@ -185,7 +244,13 @@ namespace Gordian.App.ViewModels
         public bool IsVsyncEnabled
         {
             get => _isVsyncEnabled;
-            set => SetProperty(ref _isVsyncEnabled, value);
+            set
+            {
+                if (SetProperty(ref _isVsyncEnabled, value))
+                {
+                    AutoSaveSettings();
+                }
+            }
         }
 
         public ObservableCollection<GraphicsBackendPreference> AvailableBackends { get; } = new()

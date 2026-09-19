@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Windows.Input;
 using Gordian.App.Common;
+using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Network;
@@ -39,11 +40,34 @@ namespace Gordian.App.ViewModels
 
     public sealed class ControlsInputViewModel : ViewModelBase
     {
+        private readonly string _profilePath;
         private CharacterSession? _currentSession;
         private InputProfile _activeProfile;
 
         private string _activePresetName = "Compact (WASD)";
         private string _statusMessage = "Ready";
+
+        public static string GetDefaultProfilePath()
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localAppData))
+            {
+                return Path.Combine(localAppData, "GordianXI", "input_profile.json");
+            }
+            return Path.Combine(GordianStorage.RootDataDirectory, "input_profile.json");
+        }
+
+        private void AutoSave()
+        {
+            try
+            {
+                _activeProfile.SaveToFile(_profilePath);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warn("INPUT", $"Auto-save failed: {ex.Message}");
+            }
+        }
 
         // Telemetry
         private string _currentSpeedText = "0.0 y/s (Stationary)";
@@ -77,6 +101,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.MouseSensitivityX = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -90,6 +115,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.MouseSensitivityY = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -103,6 +129,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.InvertMouseX = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -116,6 +143,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.InvertMouseY = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -129,6 +157,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.TurnSpeedDegreesPerSec = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -214,6 +243,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.GamepadEnabled = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -227,6 +257,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.AlwaysEnableGamepad = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -240,6 +271,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.LeftStickDeadzone = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -253,6 +285,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.RightStickDeadzone = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -267,6 +300,7 @@ namespace Gordian.App.ViewModels
                     _activeProfile.GamepadSettings.CameraSensitivityX = value;
                     _activeProfile.GamepadSettings.CameraSensitivityY = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -280,6 +314,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.InvertCameraX = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -293,6 +328,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.InvertCameraY = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -306,6 +342,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.RumbleEnabled = value;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -320,6 +357,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.LocomotionMode = target;
                     OnPropertyChanged();
+                    AutoSave();
                 }
             }
         }
@@ -330,9 +368,27 @@ namespace Gordian.App.ViewModels
         public ICommand ResetDefaultsCommand { get; }
         public ICommand SaveProfileCommand { get; }
 
-        public ControlsInputViewModel()
+        public ControlsInputViewModel(string? customProfilePath = null)
         {
-            _activeProfile = InputProfile.CreateCompact();
+            _profilePath = customProfilePath ?? GetDefaultProfilePath();
+
+            if (File.Exists(_profilePath))
+            {
+                try
+                {
+                    _activeProfile = InputProfile.LoadOrCreate(_profilePath);
+                    _activePresetName = _activeProfile.Name;
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warn("INPUT", $"Failed to load input profile from '{_profilePath}': {ex.Message}");
+                    _activeProfile = InputProfile.CreateCompact();
+                }
+            }
+            else
+            {
+                _activeProfile = InputProfile.CreateCompact();
+            }
 
             LoadCompactPresetCommand = new RelayCommand(LoadCompactPreset);
             LoadFullNumpadPresetCommand = new RelayCommand(LoadFullNumpadPreset);
@@ -362,6 +418,7 @@ namespace Gordian.App.ViewModels
             {
                 _currentSession.Locomotion.Profile = _activeProfile;
             }
+            AutoSave();
             StatusMessage = "Loaded standard FFXI Compact (WASD) keyboard preset.";
         }
 
@@ -375,6 +432,7 @@ namespace Gordian.App.ViewModels
             {
                 _currentSession.Locomotion.Profile = _activeProfile;
             }
+            AutoSave();
             StatusMessage = "Loaded standard FFXI Full (Numpad) keyboard preset.";
         }
 
@@ -388,6 +446,7 @@ namespace Gordian.App.ViewModels
             {
                 _currentSession.Locomotion.Profile = _activeProfile;
             }
+            AutoSave();
             StatusMessage = "Loaded standard FFXI Gamepad layout (dual-analog controls).";
         }
 
@@ -400,10 +459,8 @@ namespace Gordian.App.ViewModels
         {
             try
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string configPath = Path.Combine(localAppData, "GordianXI", "input_profile.json");
-                _activeProfile.SaveToFile(configPath);
-                StatusMessage = $"Input profile saved to: {configPath}";
+                _activeProfile.SaveToFile(_profilePath);
+                StatusMessage = $"Input profile saved to: {_profilePath}";
             }
             catch (Exception ex)
             {

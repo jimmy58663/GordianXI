@@ -274,5 +274,42 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(model.Textures.ContainsKey("tim     em_h81_1"));
             Assert.True(model.Textures.ContainsKey("em_h81_1"));
         }
+
+        [Fact]
+        public void EntityModelLoader_LoadMonsterModel_ResolvesRetailFileIds()
+        {
+            // 1. Primary DAT with Skeleton
+            byte[] skelPayload = new byte[4 + 30];
+            skelPayload[2] = 1;
+            skelPayload[4] = 0;
+            BinaryPrimitives.WriteSingleLittleEndian(skelPayload.AsSpan(18, 4), 0f);
+            BinaryPrimitives.WriteSingleLittleEndian(skelPayload.AsSpan(22, 4), 1f);
+            BinaryPrimitives.WriteSingleLittleEndian(skelPayload.AsSpan(26, 4), 0f);
+            BinaryPrimitives.WriteSingleLittleEndian(skelPayload.AsSpan(30, 4), 1f);
+            byte[] primaryDat = CreateChunk(DatSectionType.Skeleton, skelPayload);
+
+            var requestedFileIds = new List<int>();
+            byte[]? MockResolver(int fid)
+            {
+                requestedFileIds.Add(fid);
+                return primaryDat;
+            }
+
+            // Test Vanilla mob (Mandragora, modelId 300 -> fileId 1600)
+            var mandy = EntityModelLoader.LoadMonsterModel(300, MockResolver);
+            Assert.NotNull(mandy);
+            Assert.Equal("Monster_300", mandy.Name);
+            Assert.Equal(1600, requestedFileIds[0]);
+
+            // Test Expansion mob (Lycopodium, modelId 2247 -> fileId 52542)
+            var lyco = EntityModelLoader.LoadMonsterModel(2247, MockResolver);
+            Assert.NotNull(lyco);
+            Assert.Equal("Monster_2247", lyco.Name);
+            Assert.Equal(52542, requestedFileIds[1]);
+
+            // Test Zero model ID returns null
+            var zero = EntityModelLoader.LoadMonsterModel(0, MockResolver);
+            Assert.Null(zero);
+        }
     }
 }

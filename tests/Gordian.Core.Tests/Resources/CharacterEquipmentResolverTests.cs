@@ -58,8 +58,17 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Theory]
-        [InlineData(1u, 98240)]
-        [InlineData(500u, 98739)]
+        [InlineData(1u, 1301)]       // Vanilla (Rabbit)
+        [InlineData(300u, 1600)]     // Vanilla (Mandragora)
+        [InlineData(356u, 1656)]     // Vanilla (Crab)
+        [InlineData(400u, 1700)]     // Vanilla (Adamantoise)
+        [InlineData(500u, 1800)]     // Vanilla
+        [InlineData(1720u, 52015)]   // Expansion / ToAU (Colibri)
+        [InlineData(1778u, 52073)]   // Expansion / ToAU (Acrolith)
+        [InlineData(2247u, 52542)]   // Expansion / WotG (Lycopodium)
+        [InlineData(3000u, 99907)]   // Late Expansion
+        [InlineData(3128u, 100035)]  // Late Expansion
+        [InlineData(3193u, 101739)]  // Adoulin / RoV
         public void CharacterEquipmentResolver_ResolvesMonsterFileIds(uint modelId, int expectedFileId)
         {
             int fileId = CharacterEquipmentResolver.GetMonsterFileId(modelId);

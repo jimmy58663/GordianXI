@@ -219,11 +219,26 @@ namespace Gordian.Core.Resources.Tables
         };
 
         /// <summary>
-        /// Calculates the canonical FFXI ROM File ID for an NPC, Monster, or Trust entity model.
+        /// Calculates the canonical FFXI ROM File ID for an NPC, Monster, or Trust entity model
+        /// using the retail FFXI client's piecewise model-to-file mapping (NpcTable.getNpcModelIndex).
+        /// Protocol specification referenced from FFXiMain.dll NpcTable.getNpcModelIndex,
+        /// xi-model-viewer (https://github.com/vekien/xi-model-viewer), and cexi-tools.
         /// </summary>
         public static int GetMonsterFileId(uint modelId)
         {
-            return EntityModelOffset + (int)modelId;
+            if (modelId < 1500)
+            {
+                return (int)modelId + 1300;
+            }
+            if (modelId < 3000)
+            {
+                return (int)modelId + 50295;
+            }
+            if (modelId < 3193)
+            {
+                return (int)modelId + 96907;
+            }
+            return (int)modelId + 98546;
         }
     }
 }
