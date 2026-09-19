@@ -80,5 +80,42 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(0, texture.RgbaPixels[2]);
             Assert.Equal(255, texture.RgbaPixels[3]);
         }
+
+        [Fact]
+        public void TextureDecoder_DecodeTexture_Dxt3Texture_ReadsBlockDataAtVerifiedOffset()
+        {
+            // Header layout verified against real FFXI zone/gear DAT texture sections by rendering
+            // decoded candidates and visually comparing: pixel data starts at 0x45 when the fourCC
+            // tag sits at offset 0x39 (0x50, which matches payload_len - width*height*bpp exactly,
+            // looked byte-clean but decodes to visual noise -- the true data starts earlier).
+            const int width = 4, height = 4;
+            const int headerLen = 0x45;
+            byte[] block = new byte[16]; // one 4x4 DXT3 block
+            // Alpha: all 16 pixels fully opaque (0xF nibble each)
+            for (int i = 0; i < 8; i++) block[i] = 0xFF;
+            // Color: c0 = pure red (0xF800), c1 = pure blue (0x001F), lookup = all c0
+            BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(8, 2), 0xF800);
+            BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(10, 2), 0x001F);
+            BinaryPrimitives.WriteUInt32LittleEndian(block.AsSpan(12, 4), 0x00000000);
+
+            byte[] data = new byte[headerLen + block.Length];
+            data[0] = 0xA1; // DXT texture type
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x15, 4), width);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x19, 4), height);
+            "3TXD"u8.CopyTo(data.AsSpan(0x39, 4));
+            block.CopyTo(data.AsSpan(headerLen, block.Length));
+
+            var texture = TextureDecoder.DecodeTexture(data);
+
+            Assert.NotNull(texture);
+            Assert.Equal(width, texture.Width);
+            Assert.Equal(height, texture.Height);
+
+            // Pixel (0,0) must be pure opaque red, decoded from the block at the verified offset
+            Assert.Equal(255, texture.RgbaPixels[0]); // R
+            Assert.Equal(0, texture.RgbaPixels[1]);   // G
+            Assert.Equal(0, texture.RgbaPixels[2]);   // B
+            Assert.Equal(255, texture.RgbaPixels[3]); // A
+        }
     }
 }

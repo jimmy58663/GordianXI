@@ -244,8 +244,10 @@ namespace Gordian.Core.Tests.Resources
                 }
             }
             Assert.True(zone.MeshGroups.Count > 300, $"Expected > 300 valid meshes in Zone 4, got {zone.MeshGroups.Count}");
-            Assert.Equal(0, visible);
-            Assert.Equal(zone.MeshGroups.Count, culled);
+            // The player must be able to see at least some nearby terrain from their own spawn position.
+            // (A single corrupted vertex used to poison and drop entire submeshes near the spawn area,
+            // leaving the player standing in a void with 0 visible meshes -- see ZoneMeshDecoder.)
+            Assert.True(visible > 0, $"Expected at least some visible meshes near player spawn, got 0 (culled={culled})");
 
             // Also check Bastok Mines (Zone 234)
             if (rm.TryLoadZone(234, out var zone234, out var tex234) && zone234 != null)

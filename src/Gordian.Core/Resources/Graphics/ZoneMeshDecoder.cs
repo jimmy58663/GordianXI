@@ -89,8 +89,9 @@ namespace Gordian.Core.Resources.Graphics
         /// Decodes a decrypted Section 0x2E zone mesh payload into structured 3D MeshGroups.
         /// Clean-room implementation referencing xi-model-viewer (https://github.com/vekien/xi-model-viewer)
         /// and xi-tools (xi/zone/xi_export.py).
-        /// Handles vertexBlend stride (48 vs 36), authentic FFXI display transform (-x, -y, z),
-        /// and converts triangle strips into TriangleList indices.
+        /// Handles vertexBlend stride (48 vs 36) and converts triangle strips into TriangleList indices.
+        /// Vertex coordinates are passed through unmodified to match the network/world coordinate
+        /// frame used by WorldEntity.Position (see EntityPacketModule).
         /// </summary>
         public static List<MeshGroup> ParseZoneMesh(ReadOnlySpan<byte> payload)
         {
@@ -165,7 +166,15 @@ namespace Gordian.Core.Resources.Graphics
                 var vertices = new MeshVertex[numVerts];
                 Vector3 minBounds = new(float.MaxValue);
                 Vector3 maxBounds = new(float.MinValue);
-                bool hasInvalidCoord = false;
+
+                // A submesh is one compact architectural piece: all its vertices should cluster
+                // tightly. A single decryption artifact blowing one vertex's coordinate out to an
+                // extreme value must not discard the whole submesh, but a flat magnitude threshold
+                // isn't reliable either (bad values have been seen ranging from the thousands up to
+                // near float extremes). Instead, find the submesh's own median position first, then
+                // clamp any vertex that's wildly far from its own cluster back to that median.
+                Vector3 median = ComputeMedianPosition(payload, vertStart, numVerts, stride);
+                const float maxDeviationFromMedian = 500f;
 
                 for (int v = 0; v < numVerts; v++)
                 {
@@ -174,13 +183,9 @@ namespace Gordian.Core.Resources.Graphics
                     float py = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 4, 4));
                     float pz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 8, 4));
 
-                    if (float.IsNaN(px) || float.IsNaN(py) || float.IsNaN(pz) ||
-                        float.IsInfinity(px) || float.IsInfinity(py) || float.IsInfinity(pz) ||
-                        Math.Abs(px) > 50000 || Math.Abs(py) > 50000 || Math.Abs(pz) > 50000)
-                    {
-                        hasInvalidCoord = true;
-                        break;
-                    }
+                    if (float.IsNaN(px) || float.IsInfinity(px) || MathF.Abs(px - median.X) > maxDeviationFromMedian) px = median.X;
+                    if (float.IsNaN(py) || float.IsInfinity(py) || MathF.Abs(py - median.Y) > maxDeviationFromMedian) py = median.Y;
+                    if (float.IsNaN(pz) || float.IsInfinity(pz) || MathF.Abs(pz - median.Z) > maxDeviationFromMedian) pz = median.Z;
 
                     float nx, ny, nz;
                     uint color;
@@ -207,9 +212,14 @@ namespace Gordian.Core.Resources.Graphics
                         uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
                     }
 
-                    // Authentic FFXI display transform: (-x, -y, z)
-                    var position = new Vector3(-px, -py, pz);
-                    var normal = new Vector3(-nx, -ny, nz);
+                    if (float.IsNaN(nx) || float.IsInfinity(nx)) nx = 0f;
+                    if (float.IsNaN(ny) || float.IsInfinity(ny)) ny = 0f;
+                    if (float.IsNaN(nz) || float.IsInfinity(nz)) nz = 0f;
+
+                    // Zone vertex coordinates already match the network/world coordinate frame
+                    // used by WorldEntity.Position (see EntityPacketModule) — no axis flip needed.
+                    var position = new Vector3(px, py, pz);
+                    var normal = new Vector3(nx, ny, nz);
 
                     minBounds = Vector3.Min(minBounds, position);
                     maxBounds = Vector3.Max(maxBounds, position);
@@ -225,82 +235,79 @@ namespace Gordian.Core.Resources.Graphics
                 int idxHeader = vertStart + (numVerts * stride);
                 int idxStart = idxHeader + 4;
 
-                if (!hasInvalidCoord)
+                var rawIndices = new ushort[numIndices];
+                for (int idx = 0; idx < numIndices; idx++)
                 {
-                    var rawIndices = new ushort[numIndices];
-                    for (int idx = 0; idx < numIndices; idx++)
-                    {
-                        rawIndices[idx] = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(idxStart + (idx * 2), 2));
-                    }
+                    rawIndices[idx] = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(idxStart + (idx * 2), 2));
+                }
 
-                    bool useStrip = isStrip || (numIndices > 3 && numIndices % 3 != 0);
-                    var triangleIndices = new List<int>(numIndices * 3);
+                bool useStrip = isStrip || (numIndices > 3 && numIndices % 3 != 0);
+                var triangleIndices = new List<int>(numIndices * 3);
 
-                    if (useStrip)
+                if (useStrip)
+                {
+                    int parity = 0;
+                    for (int t = 0; t < rawIndices.Length - 2; t++)
                     {
-                        int parity = 0;
-                        for (int t = 0; t < rawIndices.Length - 2; t++)
+                        int i0 = rawIndices[t];
+                        int i1 = rawIndices[t + 1];
+                        int i2 = rawIndices[t + 2];
+
+                        if (i0 == i1 || i1 == i2 || i0 == i2)
                         {
-                            int i0 = rawIndices[t];
-                            int i1 = rawIndices[t + 1];
-                            int i2 = rawIndices[t + 2];
+                            parity = 0;
+                            continue;
+                        }
 
-                            if (i0 == i1 || i1 == i2 || i0 == i2)
-                            {
-                                parity = 0;
-                                continue;
-                            }
+                        if (i0 >= numVerts || i1 >= numVerts || i2 >= numVerts)
+                        {
+                            parity = 0;
+                            continue;
+                        }
 
-                            if (i0 >= numVerts || i1 >= numVerts || i2 >= numVerts)
-                            {
-                                parity = 0;
-                                continue;
-                            }
+                        if (parity % 2 == 0)
+                        {
+                            triangleIndices.Add(i0);
+                            triangleIndices.Add(i1);
+                            triangleIndices.Add(i2);
+                        }
+                        else
+                        {
+                            triangleIndices.Add(i1);
+                            triangleIndices.Add(i0);
+                            triangleIndices.Add(i2);
+                        }
+                        parity++;
+                    }
+                }
+                else
+                {
+                    for (int t = 0; t < rawIndices.Length - 2; t += 3)
+                    {
+                        int i0 = rawIndices[t];
+                        int i1 = rawIndices[t + 1];
+                        int i2 = rawIndices[t + 2];
 
-                            if (parity % 2 == 0)
-                            {
-                                triangleIndices.Add(i0);
-                                triangleIndices.Add(i1);
-                                triangleIndices.Add(i2);
-                            }
-                            else
-                            {
-                                triangleIndices.Add(i1);
-                                triangleIndices.Add(i0);
-                                triangleIndices.Add(i2);
-                            }
-                            parity++;
+                        if (i0 < numVerts && i1 < numVerts && i2 < numVerts)
+                        {
+                            triangleIndices.Add(i0);
+                            triangleIndices.Add(i1);
+                            triangleIndices.Add(i2);
                         }
                     }
-                    else
-                    {
-                        for (int t = 0; t < rawIndices.Length - 2; t += 3)
-                        {
-                            int i0 = rawIndices[t];
-                            int i1 = rawIndices[t + 1];
-                            int i2 = rawIndices[t + 2];
+                }
 
-                            if (i0 < numVerts && i1 < numVerts && i2 < numVerts)
-                            {
-                                triangleIndices.Add(i0);
-                                triangleIndices.Add(i1);
-                                triangleIndices.Add(i2);
-                            }
-                        }
-                    }
-
-                    if (triangleIndices.Count > 0)
+                if (triangleIndices.Count > 0)
+                {
+                    results.Add(new MeshGroup
                     {
-                        results.Add(new MeshGroup
-                        {
-                            Name = meshName,
-                            TextureName = texName,
-                            Vertices = vertices,
-                            Indices = triangleIndices.ToArray(),
-                            MinBounds = minBounds,
-                            MaxBounds = maxBounds
-                        });
-                    }
+                        Name = meshName,
+                        TextureName = texName,
+                        Vertices = vertices,
+                        Indices = triangleIndices.ToArray(),
+                        MinBounds = minBounds,
+                        MaxBounds = maxBounds
+                    });
                 }
 
                 p = idxStart + (numIndices * 2);
@@ -308,6 +315,36 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Computes the per-axis median position across a submesh's raw vertex stream, used as a
+        /// robust (outlier-resistant) reference point for clamping individually corrupted vertices.
+        /// </summary>
+        private static Vector3 ComputeMedianPosition(ReadOnlySpan<byte> payload, int vertStart, int numVerts, int stride)
+        {
+            if (numVerts <= 0) return Vector3.Zero;
+
+            Span<float> xs = numVerts <= 2048 ? stackalloc float[numVerts] : new float[numVerts];
+            Span<float> ys = numVerts <= 2048 ? stackalloc float[numVerts] : new float[numVerts];
+            Span<float> zs = numVerts <= 2048 ? stackalloc float[numVerts] : new float[numVerts];
+
+            for (int v = 0; v < numVerts; v++)
+            {
+                int vo = vertStart + (v * stride);
+                float px = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo, 4));
+                float py = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 4, 4));
+                float pz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 8, 4));
+                xs[v] = float.IsFinite(px) ? px : 0f;
+                ys[v] = float.IsFinite(py) ? py : 0f;
+                zs[v] = float.IsFinite(pz) ? pz : 0f;
+            }
+
+            xs.Sort();
+            ys.Sort();
+            zs.Sort();
+            int mid = numVerts / 2;
+            return new Vector3(xs[mid], ys[mid], zs[mid]);
         }
 
         private static bool LooksLikeSubmesh(ReadOnlySpan<byte> data, int pos, int end, int stride, out ushort numVerts, out ushort numIndices)

@@ -69,9 +69,9 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(3, group.Indices.Length);
             Assert.Equal(1, group.TriangleCount);
 
-            // Verify bounding box calculation under authentic FFXI display transform (-x, -y, z)
-            Assert.Equal(new Vector3(-10.0f, -5.0f, 0.0f), group.MinBounds);
-            Assert.Equal(new Vector3(0.0f, 0.0f, 20.0f), group.MaxBounds);
+            // Vertex coordinates pass through unmodified to match the network/world coordinate frame
+            Assert.Equal(new Vector3(0.0f, 0.0f, 0.0f), group.MinBounds);
+            Assert.Equal(new Vector3(10.0f, 5.0f, 20.0f), group.MaxBounds);
         }
 
         [Fact]

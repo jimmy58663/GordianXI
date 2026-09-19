@@ -137,7 +137,7 @@ namespace Gordian.App.Graphics
                         view,
                         _sampler));
 
-                    _cache[textureName] = (tex, view, set);
+                    _cache[cleanKey] = (tex, view, set);
                     return set;
                 }
                 catch (Exception ex)

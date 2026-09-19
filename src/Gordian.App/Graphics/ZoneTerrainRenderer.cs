@@ -45,6 +45,9 @@ namespace Gordian.App.Graphics
         public int CulledMeshes { get; private set; }
         public int VisibleMeshes { get; private set; }
         public int TotalVertices { get; private set; }
+        public int LoadedZoneSubmeshCount => _zoneSubmeshes.Count;
+        public Vector3 FirstSubmeshMinBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MinBounds : Vector3.Zero;
+        public Vector3 FirstSubmeshMaxBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MaxBounds : Vector3.Zero;
 
         private sealed class GpuSubmesh : IDisposable
         {

@@ -498,6 +498,11 @@ namespace Gordian.App.Graphics
                     int vis = _renderer?.VisibleMeshes ?? 0;
                     int culled = _renderer?.CulledMeshes ?? 0;
 
+                    GordianLog.Debug("Graphics", $"RenderStats: DrawCalls={dc}, VisibleMeshes={vis}, CulledMeshes={culled}, " +
+                        $"CameraPos={Camera.Position:F1}, CameraTarget={Camera.Target:F1}, PlayerPos={playerPos:F1}, hasPlayerPos={hasPlayerPos}, " +
+                        $"ZoneSubmeshCount={_renderer?.LoadedZoneSubmeshCount ?? -1}, " +
+                        $"FirstSubmeshBounds=[{_renderer?.FirstSubmeshMinBounds:F1} .. {_renderer?.FirstSubmeshMaxBounds:F1}]");
+
                     Dispatcher.UIThread.Post(() =>
                     {
                         CurrentFps = Math.Round(fps, 1);
