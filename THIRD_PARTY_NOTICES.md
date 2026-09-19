@@ -211,5 +211,6 @@ GordianXI does **not** copy, redistribute, or link source code or binary librari
 * **Copyright:** Copyright (c) vekien and xi-model-viewer Contributors
 * **Referenced For:** FFXI ROM `.DAT` chunk structures, 3D entity and zone mesh layouts, vertex encoding, skeletal hierarchies, bone weight layouts, and animation timelines for clean-room resource decoding.
 
-### Disclaimer of Affiliation: The citations provided above are purely for technical documentation, transparency, and interoperability reference purposes. Reference to these open-source repositories does not constitute or imply endorsement, sponsorship, recommendation, or affiliation with GordianXI by the respective project maintainers, authors, or contributors.
+### Disclaimer of Affiliation
+The citations provided above are purely for technical documentation, transparency, and interoperability reference purposes. Reference to these open-source repositories does not constitute or imply endorsement, sponsorship, recommendation, or affiliation with GordianXI by the respective project maintainers, authors, or contributors.
 
