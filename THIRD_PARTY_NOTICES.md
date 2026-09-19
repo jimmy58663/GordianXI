@@ -42,19 +42,118 @@ SOFTWARE.
 * **Project:** [FluentAvalonia](https://github.com/amwx/FluentAvalonia)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2021-2026 Luke F
-* **Notice:** Provided under the terms of the MIT License (see above).
+* **Notice:**
+```text
+MIT License
+
+Copyright (c) 2025 amwx
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ### Silk.NET
 * **Project:** [Silk.NET](https://github.com/dotnet/Silk.NET)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2020-.NET Foundation and Contributors
-* **Notice:** Provided under the terms of the MIT License (see above).
+* **Notice:**
+```text
+MIT License
 
-### Veldrid & Veldrid.SPIRV & Veldrid.ImGui
+- Copyright (c) 2019-2020 Ultz Limited
+- Copyright (c) 2021- .NET Foundation and Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Veldrid & Veldrid.ImGui
 * **Project:** [Veldrid](https://github.com/veldrid/veldrid)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2017 Eric Mellino and contributors
-* **Notice:** Provided under the terms of the MIT License (see above).
+* **Notice:**
+```text
+The MIT License (MIT)
+
+Copyright (c) 2017 Eric Mellino and Veldrid contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Veldrid.SPIRV
+* **Project:** [Veldrid-SPIRV](https://github.com/veldrid/veldrid-spirv)
+* **License:** MIT License
+* **Copyright:** Copyright (c) 2017 Eric Mellino and contributors
+* **Notice:**
+```text
+The MIT License (MIT)
+
+Copyright (c) 2017 Eric Mellino and Veldrid.SPIRV contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ### Simple DirectMedia Layer (SDL)
 * **Project:** [SDL](https://www.libsdl.org/)
@@ -102,7 +201,7 @@ GordianXI does **not** copy, redistribute, or link source code or binary librari
 
 ### DarkStar Project
 * **Repository:** [https://github.com/DarkStarProject/darkstar](https://github.com/DarkStarProject/darkstar)
-* **License:** GNU General Public License v2.0 (GPLv2)
+* **License:** GNU General Public License v3.0 (GPLv3)
 * **Copyright:** Copyright (c) DarkStar Project Contributors
 * **Referenced For:** Historical packet analysis and foundational opcode mapping.
 
@@ -111,3 +210,6 @@ GordianXI does **not** copy, redistribute, or link source code or binary librari
 * **License:** GNU General Public License v3.0 (GPLv3)
 * **Copyright:** Copyright (c) vekien and xi-model-viewer Contributors
 * **Referenced For:** FFXI ROM `.DAT` chunk structures, 3D entity and zone mesh layouts, vertex encoding, skeletal hierarchies, bone weight layouts, and animation timelines for clean-room resource decoding.
+
+### Disclaimer of Affiliation: The citations provided above are purely for technical documentation, transparency, and interoperability reference purposes. Reference to these open-source repositories does not constitute or imply endorsement, sponsorship, recommendation, or affiliation with GordianXI by the respective project maintainers, authors, or contributors.
+
