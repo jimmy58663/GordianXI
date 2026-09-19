@@ -35,20 +35,23 @@ namespace Gordian.Core.Resources.Graphics
             if (decodeLength <= 0) return;
 
             // Pass 1: Keyed XOR stream (mode >= 5)
+            // Note: key and counter must be 64-bit integers (long). At ~32,768 bytes, a 32-bit signed
+            // int overflows into negative numbers, causing negative modulo and bitshifts that corrupt
+            // all bytes in the second half of any section > 32KB.
             if (mode >= 5)
             {
                 byte seed = (byte)(payload[5] ^ 0xF0);
-                int key = table1[seed];
-                int counter = 0;
+                long key = table1[seed];
+                long counter = 0;
                 int p = 8;
 
                 for (int i = 0; i < decodeLength; i++)
                 {
-                    int kb = key % 256;
-                    int keyMod = (kb << 8) | kb;
+                    long kb = key % 256;
+                    long keyMod = (kb << 8) | kb;
                     counter++;
                     key += counter;
-                    int shift = key % 8;
+                    int shift = (int)(key % 8);
                     payload[p + i] ^= (byte)((keyMod >> shift) & 0xFF);
                     counter++;
                     key += counter;
@@ -59,8 +62,8 @@ namespace Gordian.Core.Resources.Graphics
             ushort flag = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
             if (flag == 0xFFFF)
             {
-                int key1 = payload[5] ^ 0xF0;
-                int key2 = table2[key1];
+                long key1 = payload[5] ^ 0xF0;
+                long key2 = table2[(int)key1];
                 int decodeCount = (decodeLength & ~0x0F) >> 1;
                 int p = 8;
                 int i = 0;
@@ -161,6 +164,10 @@ namespace Gordian.Core.Resources.Graphics
                 }
 
                 string texName = ReadCString(payload.Slice(p, 16));
+                ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 18, 2));
+                bool blend = (flags & 0x8000) != 0;
+                bool noCull = (flags & 0x2000) != 0;
+
                 int vertStart = p + 20;
 
                 var vertices = new MeshVertex[numVerts];
@@ -191,13 +198,14 @@ namespace Gordian.Core.Resources.Graphics
                     uint color;
                     float u, uv_v;
 
+                    int cOff;
                     if (vertexBlend)
                     {
                         // Stride 48: pos(12), blendDelta(12), normal(12), color BGRA(4), uv(8)
                         nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 24, 4));
                         ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
                         nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
-                        color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(vo + 36, 4));
+                        cOff = vo + 36;
                         u = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 40, 4));
                         uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 44, 4));
                     }
@@ -207,17 +215,23 @@ namespace Gordian.Core.Resources.Graphics
                         nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 12, 4));
                         ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 16, 4));
                         nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 20, 4));
-                        color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(vo + 24, 4));
+                        cOff = vo + 24;
                         u = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
                         uv_v = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
                     }
+
+                    // Convert FFXI raw BGRA bytes to standard RGBA little-endian uint
+                    byte cb = payload[cOff];
+                    byte cg = payload[cOff + 1];
+                    byte cr = payload[cOff + 2];
+                    byte ca = payload[cOff + 3];
+                    color = (uint)cr | ((uint)cg << 8) | ((uint)cb << 16) | ((uint)ca << 24);
 
                     if (float.IsNaN(nx) || float.IsInfinity(nx)) nx = 0f;
                     if (float.IsNaN(ny) || float.IsInfinity(ny)) ny = 0f;
                     if (float.IsNaN(nz) || float.IsInfinity(nz)) nz = 0f;
 
-                    // Zone vertex coordinates already match the network/world coordinate frame
-                    // used by WorldEntity.Position (see EntityPacketModule) — no axis flip needed.
+                    // Native FFXI coordinate frame (+Y up)
                     var position = new Vector3(px, py, pz);
                     var normal = new Vector3(nx, ny, nz);
 
@@ -306,7 +320,10 @@ namespace Gordian.Core.Resources.Graphics
                         Vertices = vertices,
                         Indices = triangleIndices.ToArray(),
                         MinBounds = minBounds,
-                        MaxBounds = maxBounds
+                        MaxBounds = maxBounds,
+                        IsBlend = blend,
+                        NoCull = noCull,
+                        IsFoliage = meshName.StartsWith("_")
                     });
                 }
 

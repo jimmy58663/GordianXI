@@ -28,6 +28,8 @@ namespace Gordian.App.Graphics
         private ResourceLayout _textureLayout = null!;
         private ResourceSet _sceneResourceSet = null!;
         private Pipeline _pipeline = null!;
+        private Pipeline _cutoutPipeline = null!;
+        private Pipeline _blendPipeline = null!;
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
@@ -57,6 +59,9 @@ namespace Gordian.App.Graphics
             public uint IndexCount { get; init; }
             public Vector3 MinBounds { get; init; }
             public Vector3 MaxBounds { get; init; }
+            public bool IsBlend { get; init; }
+            public bool NoCull { get; init; }
+            public bool IsFoliage { get; init; }
 
             public void Dispose()
             {
@@ -95,17 +100,27 @@ namespace Gordian.App.Graphics
             _sceneResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _sceneUniformBuffer));
             _textureCache = new GpuTextureCache(_gd, _textureLayout);
 
-            // 3. Shaders (SPIR-V cross-compilation)
+            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, and Blended surfaces)
             var vsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderGlsl),
                 "main");
-            var fsDesc = new ShaderDescription(
+            var fsOpaqueDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderGlsl),
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderOpaqueGlsl),
+                "main");
+            var fsCutoutDesc = new ShaderDescription(
+                ShaderStages.Fragment,
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderCutoutGlsl),
+                "main");
+            var fsBlendDesc = new ShaderDescription(
+                ShaderStages.Fragment,
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
                 "main");
 
-            Shader[] shaders = factory.CreateFromSpirv(vsDesc, fsDesc);
+            Shader[] opaqueShaders = factory.CreateFromSpirv(vsDesc, fsOpaqueDesc);
+            Shader[] cutoutShaders = factory.CreateFromSpirv(vsDesc, fsCutoutDesc);
+            Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
 
             // 4. Vertex Layout (36-byte MeshVertex stride: Pos(12) + Norm(12) + UV(8) + Color(4))
             var vertexLayout = new VertexLayoutDescription(
@@ -114,7 +129,7 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
 
-            // 5. Graphics Pipeline
+            // 5. Opaque Graphics Pipeline (no discard; early-Z depth testing for solid ground & mountains)
             var pipelineDesc = new GraphicsPipelineDescription
             {
                 BlendState = BlendStateDescription.SingleOverrideBlend,
@@ -130,11 +145,52 @@ namespace Gordian.App.Graphics
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout },
-                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, shaders),
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, opaqueShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
-
             _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+
+            // 6. Cutout Foliage Graphics Pipeline (4.0 * vColor.a * tex.a < 0.375 discard; depth writing enabled)
+            var cutoutPipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleOverrideBlend,
+                DepthStencilState = new DepthStencilStateDescription(
+                    depthTestEnabled: true,
+                    depthWriteEnabled: true,
+                    comparisonKind: ComparisonKind.LessEqual),
+                RasterizerState = new RasterizerStateDescription(
+                    cullMode: FaceCullMode.None,
+                    fillMode: PolygonFillMode.Solid,
+                    frontFace: FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, cutoutShaders),
+                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+            };
+            _cutoutPipeline = factory.CreateGraphicsPipeline(cutoutPipelineDesc);
+
+            // 7. Alpha-Blended Graphics Pipeline (for translucent water foam, decals, fog, surf)
+            var blendPipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleAlphaBlend,
+                DepthStencilState = new DepthStencilStateDescription(
+                    depthTestEnabled: true,
+                    depthWriteEnabled: false,
+                    comparisonKind: ComparisonKind.LessEqual),
+                RasterizerState = new RasterizerStateDescription(
+                    cullMode: FaceCullMode.None,
+                    fillMode: PolygonFillMode.Solid,
+                    frontFace: FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, blendShaders),
+                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+            };
+            _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
             _commandList = factory.CreateCommandList();
         }
 
@@ -183,7 +239,10 @@ namespace Gordian.App.Graphics
                     IndexBuffer = ib,
                     IndexCount = (uint)ushortIndices.Length,
                     MinBounds = group.MinBounds,
-                    MaxBounds = group.MaxBounds
+                    MaxBounds = group.MaxBounds,
+                    IsBlend = group.IsBlend,
+                    NoCull = group.NoCull,
+                    IsFoliage = group.IsFoliage || group.Name.StartsWith("_")
                 });
 
                 vertCount += group.Vertices.Length;
@@ -251,15 +310,52 @@ namespace Gordian.App.Graphics
 
             var frustum = camera.Frustum;
 
+            // Pass 1: Solid Opaque submeshes (IsBlend == false && IsFoliage == false)
+            // Rendered with early-Z depth testing and NO alpha discard so ground terrain, beach floor, and mountains are solid.
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
+                if (submesh.IsBlend || submesh.IsFoliage) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
                 {
                     culled++;
                     continue;
+                }
+
+                visible++;
+
+                // Bind Texture Resource Set
+                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
+                _commandList.SetGraphicsResourceSet(1, texSet);
+
+                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                draws++;
+            }
+
+            // Pass 2: Cutout Foliage submeshes (IsBlend == false && IsFoliage == true: palm trees, vines, grates)
+            // Rendered with alpha-test discard (4.0 * vertexAlpha * texAlpha < 0.375) and depth writing enabled.
+            bool cutoutPipelineBound = false;
+            for (int i = 0; i < activeSubmeshes.Count; i++)
+            {
+                var submesh = activeSubmeshes[i];
+                if (submesh.IsBlend || !submesh.IsFoliage) continue;
+
+                // Frustum Culling
+                if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
+                {
+                    culled++;
+                    continue;
+                }
+
+                if (!cutoutPipelineBound)
+                {
+                    _commandList.SetPipeline(_cutoutPipeline);
+                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    cutoutPipelineBound = true;
                 }
 
                 visible++;
@@ -291,15 +387,52 @@ namespace Gordian.App.Graphics
                 _commandList.DrawIndexed(_groundPlaneSubmesh.IndexCount, 1, 0, 0, 0);
                 draws++;
                 visible++;
+
+                // Restore identity world matrix for subsequent passes
+                _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
             }
 
-            // Render live 3D entity models & modular equipment
+            // Render live 3D entity models & modular equipment (drawn on top of opaque terrain, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
                 _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;
+            }
+
+            // Pass 2: Blended submeshes (IsBlend == true: water foam, surf, decals, fog planes)
+            // Rendered with depth testing enabled and depth writing disabled so water does not occlude the seabed or pier.
+            bool blendPipelineBound = false;
+            for (int i = 0; i < activeSubmeshes.Count; i++)
+            {
+                var submesh = activeSubmeshes[i];
+                if (!submesh.IsBlend) continue;
+
+                // Frustum Culling
+                if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
+                {
+                    culled++;
+                    continue;
+                }
+
+                if (!blendPipelineBound)
+                {
+                    _commandList.SetPipeline(_blendPipeline);
+                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    blendPipelineBound = true;
+                }
+
+                visible++;
+
+                // Bind Texture Resource Set
+                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
+                _commandList.SetGraphicsResourceSet(1, texSet);
+
+                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                draws++;
             }
 
             _commandList.End();
@@ -377,6 +510,8 @@ namespace Gordian.App.Graphics
             _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();
+            _cutoutPipeline?.Dispose();
+            _blendPipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _sceneLayout?.Dispose();
             _textureLayout?.Dispose();

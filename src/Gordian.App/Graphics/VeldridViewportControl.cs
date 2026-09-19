@@ -450,7 +450,8 @@ namespace Gordian.App.Graphics
                 {
                     if (hasPlayerPos)
                     {
-                        Camera.Update(playerPos, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
+                        var displayPlayerPos = new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z);
+                        Camera.Update(displayPlayerPos, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
                     }
                     else
                     {

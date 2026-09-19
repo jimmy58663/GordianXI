@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
@@ -46,6 +47,33 @@ namespace Gordian.Core.Resources
             var headers = DatSectionWalker.ReadHeaders(datBytes);
 
             int texCount = 0, meshSectionCount = 0;
+            var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var realMeshNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var raw0x2ESubmeshes = new List<MeshGroup>();
+            DatSectionHeader? zoneDefHeader = null;
+
+            void RegisterTemplate(string name, List<MeshGroup> meshList, bool isRealName)
+            {
+                if (string.IsNullOrWhiteSpace(name)) return;
+                if (isRealName) realMeshNames.Add(name);
+
+                if (templates.TryGetValue(name, out var existing))
+                {
+                    int existingVerts = 0;
+                    for (int v = 0; v < existing.Count; v++) existingVerts += existing[v].Vertices.Length;
+                    int newVerts = 0;
+                    for (int v = 0; v < meshList.Count; v++) newVerts += meshList[v].Vertices.Length;
+
+                    if (newVerts > existingVerts)
+                    {
+                        templates[name] = meshList;
+                    }
+                }
+                else
+                {
+                    templates[name] = meshList;
+                }
+            }
 
             for (int i = 0; i < headers.Count; i++)
             {
@@ -95,16 +123,101 @@ namespace Gordian.Core.Resources
                         }
 
                         var submeshes = ZoneMeshDecoder.ParseZoneMesh(workingCopy);
-                        for (int m = 0; m < submeshes.Count; m++)
+                        if (submeshes.Count > 0)
                         {
-                            zone.MeshGroups.Add(submeshes[m]);
+                            raw0x2ESubmeshes.AddRange(submeshes);
+                            string primaryName = submeshes[0].Name;
+                            RegisterTemplate(primaryName, submeshes, isRealName: true);
+
+                            int spaceIdx = primaryName.LastIndexOf(' ');
+                            if (spaceIdx >= 0 && spaceIdx < primaryName.Length - 1)
+                            {
+                                string tail = primaryName.Substring(spaceIdx + 1).Trim();
+                                if (!string.IsNullOrEmpty(tail))
+                                {
+                                    RegisterTemplate(tail, submeshes, isRealName: true);
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(header.DatId) && !header.DatId.Equals(primaryName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                RegisterTemplate(header.DatId, submeshes, isRealName: false);
+                            }
                         }
+                        break;
+                    }
+
+                    case DatSectionType.ZoneDef:
+                    {
+                        zoneDefHeader ??= header;
                         break;
                     }
                 }
             }
 
-            GordianLog.Debug("RES", $"ParseZoneContainer(zone={zoneId}): {headers.Count} sections, {texCount} textures, {meshSectionCount} ZoneMesh(0x2E) sections → {zone.MeshGroups.Count} submeshes. keysProvided={!table1.IsEmpty && !table2.IsEmpty}");
+            // Phase 2: World Placement Instancing via Section 0x1C (ZoneDef)
+            int placedCount = 0;
+            if (zoneDefHeader.HasValue && !table1.IsEmpty)
+            {
+                var zdHeader = zoneDefHeader.Value;
+                byte[] zdPayload = datBytes.Slice(zdHeader.DataOffset, zdHeader.DataSizeBytes).ToArray();
+                int nodeCount = ZoneDefDecoder.DecryptZoneObjects(zdPayload, table1);
+                var placements = ZoneDefDecoder.ParseZonePlacements(zdPayload, nodeCount);
+                zone.Placements.AddRange(placements);
+
+                for (int p = 0; p < placements.Count; p++)
+                {
+                    var placement = placements[p];
+                    if (ZoneDefDecoder.IsSkyMesh(placement.MeshId)) continue;
+
+                    var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(placement.MeshId, templates, realMeshNames);
+                    if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
+
+                    var trsMatrix = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+
+                    for (int s = 0; s < templateSubmeshes.Count; s++)
+                    {
+                        var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
+                        zone.MeshGroups.Add(instantiated);
+                        placedCount++;
+                    }
+                }
+            }
+
+            // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C)
+            if (placedCount == 0 && raw0x2ESubmeshes.Count > 0)
+            {
+                for (int i = 0; i < raw0x2ESubmeshes.Count; i++)
+                {
+                    var raw = raw0x2ESubmeshes[i];
+                    var convVerts = new MeshVertex[raw.Vertices.Length];
+                    Vector3 minB = new(float.MaxValue);
+                    Vector3 maxB = new(float.MinValue);
+                    for (int v = 0; v < raw.Vertices.Length; v++)
+                    {
+                        var sv = raw.Vertices[v];
+                        var dp = new Vector3(-sv.Position.X, -sv.Position.Y, sv.Position.Z);
+                        var dn = new Vector3(-sv.Normal.X, -sv.Normal.Y, sv.Normal.Z);
+                        minB = Vector3.Min(minB, dp);
+                        maxB = Vector3.Max(maxB, dp);
+                        convVerts[v] = new MeshVertex(dp, dn, sv.TexCoord, sv.ColorRgba);
+                    }
+                    zone.MeshGroups.Add(new MeshGroup
+                    {
+                        Name = raw.Name,
+                        TextureName = raw.TextureName,
+                        Vertices = convVerts,
+                        Indices = raw.Indices,
+                        MinBounds = minB,
+                        MaxBounds = maxB,
+                        IsBlend = raw.IsBlend,
+                        NoCull = raw.NoCull,
+                        IsFoliage = raw.IsFoliage
+                    });
+                }
+            }
+
+            GordianLog.Debug("RES", $"ParseZoneContainer(zone={zoneId}): {headers.Count} sections, {texCount} textures, {meshSectionCount} ZoneMesh(0x2E) sections, {zone.Placements.Count} placements → {zone.MeshGroups.Count} submeshes (placed={placedCount}). keysProvided={!table1.IsEmpty && !table2.IsEmpty}");
 
             return zone;
         }

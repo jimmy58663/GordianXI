@@ -7,6 +7,7 @@ using System.Text;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
 using Xunit;
 
 namespace Gordian.Core.Tests.Resources
@@ -225,6 +226,7 @@ namespace Gordian.Core.Tests.Resources
 
             int culled = 0;
             int visible = 0;
+            var visibleMeshes = new List<MeshGroup>();
             foreach (var mg in zone.MeshGroups)
             {
                 Assert.False(float.IsNaN(mg.MinBounds.X), $"MinBounds.X was NaN in mesh '{mg.Name}'");
@@ -237,27 +239,17 @@ namespace Gordian.Core.Tests.Resources
                 if (frustum.IntersectsBox(mg.MinBounds, mg.MaxBounds))
                 {
                     visible++;
+                    visibleMeshes.Add(mg);
                 }
                 else
                 {
                     culled++;
                 }
             }
-            Assert.True(zone.MeshGroups.Count > 300, $"Expected > 300 valid meshes in Zone 4, got {zone.MeshGroups.Count}");
-            // The player must be able to see at least some nearby terrain from their own spawn position.
-            // (A single corrupted vertex used to poison and drop entire submeshes near the spawn area,
-            // leaving the player standing in a void with 0 visible meshes -- see ZoneMeshDecoder.)
+
+            Assert.True(zone.MeshGroups.Count > 500, $"Expected > 500 valid meshes in Zone 4, got {zone.MeshGroups.Count}");
             Assert.True(visible > 0, $"Expected at least some visible meshes near player spawn, got 0 (culled={culled})");
 
-            // Also check Bastok Mines (Zone 234)
-            if (rm.TryLoadZone(234, out var zone234, out var tex234) && zone234 != null)
-            {
-                for (int i = 0; i < Math.Min(5, zone234.MeshGroups.Count); i++)
-                {
-                    var mg = zone234.MeshGroups[i];
-                    Gordian.Core.Diagnostics.GordianLog.Info("ZONE", $"Zone 234 Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
-                }
-            }
 
             // Now test entity model loading
             var player = new Gordian.Core.World.PlayerEntity(1, 1024);

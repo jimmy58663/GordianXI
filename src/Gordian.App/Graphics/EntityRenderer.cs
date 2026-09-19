@@ -166,8 +166,9 @@ namespace Gordian.App.Graphics
             {
                 if (!entity.IsSpawned) continue;
 
-                // Approximate or actual bounding box in world space
-                Vector3 pos = entity.Position;
+                // Server position is in FFXI coordinates: (x, y, z).
+                // Mapped to terrain display coordinates: (-x, -y, z).
+                Vector3 pos = new Vector3(-entity.Position.X, -entity.Position.Y, entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);
                 Vector3 maxBox = pos + new Vector3(1.0f, 2.2f, 1.0f);
 

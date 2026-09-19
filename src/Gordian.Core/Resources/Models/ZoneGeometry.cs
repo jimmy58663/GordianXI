@@ -26,11 +26,25 @@ namespace Gordian.Core.Resources.Models
         public int[] Indices { get; set; } = Array.Empty<int>();
         public Vector3 MinBounds { get; set; }
         public Vector3 MaxBounds { get; set; }
+        public bool IsBlend { get; set; }
+        public bool NoCull { get; set; }
+        public bool IsFoliage { get; set; }
 
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"SubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";
     }
+
+    /// <summary>
+    /// Represents an individual world placement entry decoded from Section 0x1C (ZoneDef).
+    /// </summary>
+    public readonly record struct ZonePlacement(
+        string MeshId,
+        Vector3 Position,
+        Vector3 Rotation,
+        Vector3 Scale,
+        float DrawDistance
+    );
 
     /// <summary>
     /// Represents a complete zone terrain model composed of multiple submeshes.
@@ -39,6 +53,7 @@ namespace Gordian.Core.Resources.Models
     {
         public int ZoneId { get; set; }
         public List<MeshGroup> MeshGroups { get; } = new();
+        public List<ZonePlacement> Placements { get; } = new();
 
         public int TotalVertices
         {
