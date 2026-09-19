@@ -27,7 +27,7 @@ GordianXI does **not** contain, host, distribute, or bundle:
 
 To render graphics, play audio, and execute gameplay scenarios, GordianXI requires access to the genuine data files installed on the user's computer from an officially licensed copy of Final Fantasy XI.
 * Users are solely responsible for obtaining and installing an official, licensed retail distribution of the game.
-* GordianXI acts solely as an alternative, independent runtime engine reading locally present data files supplied by the user.
+* GordianXI acts solely as an alternative, independent runtime engine reading locally present data files supplied by the user.It does not modify, copy, extract, or redistribute the original software installation files, and operates entirely passive of the original licensing structure.
 
 ---
 
@@ -42,3 +42,11 @@ To render graphics, play audio, and execute gameplay scenarios, GordianXI requir
 ## 🛡️ Server Rules & Automation Policy
 
 GordianXI is built with a server-authoritative automation compliance system (`ServerAutomationPolicy`). Private server operators may transmit policy control packets that automatically disable client-side automation features in real time. GordianXI respects server operator autonomy and enforces compliance with server terms of service.
+
+## 🛡️ Limitation of Liability & Warranty Disclaimer
+GordianXI is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. 
+
+In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+* Account Safety Notice: The use of alternative client architectures, network interoperability tools, or automation frameworks may violate the Terms of Service of official or private game environments. Use of this software is entirely at the user's own discretion and risk. The authors of GordianXI accept no responsibility for account suspensions, bans, or server-side disciplinary actions resulting from the use of this software.
+
