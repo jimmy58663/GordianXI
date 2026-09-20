@@ -357,13 +357,11 @@ namespace Gordian.App.Graphics
                             $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, Interp={entity.InterpolationElapsed:F2}/{entity.InterpolationDuration:F2})");
                     }
 
-                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub);
+                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, entityModel);
 
-                    AnimationClip? clip = ResolveClip(entityModel!, category, entity.AnimationSub);
-
-                    bool loop = category != AnimationCategory.Death;
+                    bool loop = category != AnimationCategory.Death && !entity.Animation.IsPlayingTransition;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, clip, entity.Animation.ElapsedSeconds, loop, entityModel.ParentOverrides);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, entityModel.ParentOverrides);
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
 
@@ -394,9 +392,26 @@ namespace Gordian.App.Graphics
             return new JointPaletteEntry(buffer, set);
         }
 
-        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
         {
-            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, timeSeconds, loop, parentOverrides);
+            SkeletonPoseEvaluator.EvaluatedPose pose;
+            if (animState.IsBlending && animState.PreviousClip != null)
+            {
+                pose = SkeletonPoseEvaluator.EvaluateBlendedPose(
+                    skeleton,
+                    animState.PreviousClip,
+                    animState.PreviousElapsedSeconds,
+                    loop,
+                    animState.CurrentClip,
+                    animState.ElapsedSeconds,
+                    loop,
+                    animState.BlendWeight,
+                    parentOverrides);
+            }
+            else
+            {
+                pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides);
+            }
             int count = pose.Rotations.Length;
 
             if (count > ZoneShaders.MaxPaletteJoints)
@@ -430,36 +445,13 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Resolves the appropriate animation clip for an entity based on its locomotion/activity category
-        /// and optional sub-animation stance (e.g. Uragnite in shell: AnimationSub == 5).
-        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) uragnite.lua.
+        /// and optional sub-animation stance via NpcStanceResolver.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) and xi-model-viewer.
         /// </summary>
         internal static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category, byte animationSub = 0)
         {
-            var anims = model.Animations;
-            if (anims.Count == 0) return null;
-
-            // Alternate/defense sub-animation stance (e.g. Uragnite in shell: AnimationSub == 5)
-            // Prioritizes alternate mode stances (1tl/1tl0 - relaxed breathing in-shell idle/combat stance),
-            // guard idle (gid/gid0), then guard clamp impact (gud/gud0). Never uses damage flinch (dfi/dbi).
-            // Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) uragnite.lua
-            if (animationSub == 5)
-            {
-                AnimationClip? subClip = category switch
-                {
-                    AnimationCategory.Walk or AnimationCategory.Run => TryGetClip(anims, "gdm", "gdm1", "1tl", "1tl0", "gid", "gid0", "gud", "gud0"),
-                    _ => TryGetClip(anims, "1tl", "1tl0", "gid", "gid0", "gud", "gud0")
-                };
-                if (subClip != null) return subClip;
-            }
-
-            return category switch
-            {
-                AnimationCategory.Combat => TryGetClip(anims, "btl", "btl0", "cmb", "idl", "idl0"),
-                AnimationCategory.Death => TryGetClip(anims, "ded", "ded0", "dth", "dth0"),
-                AnimationCategory.Walk => TryGetClip(anims, "wlk", "wlk0", "cwlk", "run", "run0", "idl", "idl0"),
-                AnimationCategory.Run => TryGetClip(anims, "run", "run0", "crun", "wlk", "wlk0", "idl", "idl0"),
-                _ => TryGetClip(anims, "idl", "idl0", "std", "std0")
-            };
+            byte stance = NpcStanceResolver.ResolveEffectiveStance(model, animationSub);
+            return NpcStanceResolver.ResolveTargetClip(model, category, stance);
         }
 
         private static AnimationClip? TryGetClip(IReadOnlyDictionary<string, AnimationClip> anims, params string[] candidateNames)

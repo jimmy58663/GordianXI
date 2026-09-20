@@ -172,6 +172,197 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
+        /// Evaluates world rotation/translation/scale for each joint by interpolating between two animation clips
+        /// in local joint space using vector Lerp (translation/scale) and quaternion NLERP (rotation) prior to
+        /// hierarchy accumulation.
+        /// When blendWeight is 0.0f, the pose exactly matches clipA; when blendWeight is 1.0f, it matches clipB.
+        /// Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
+        /// </summary>
+        public static EvaluatedPose EvaluateBlendedPose(
+            Skeleton skeleton,
+            AnimationClip? clipA,
+            float timeA,
+            bool loopA,
+            AnimationClip? clipB,
+            float timeB,
+            bool loopB,
+            float blendWeight,
+            IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            if (blendWeight <= 0f || clipB == null)
+            {
+                return EvaluatePose(skeleton, clipA, timeA, loopA, parentOverrides);
+            }
+            if (blendWeight >= 1f || clipA == null)
+            {
+                return EvaluatePose(skeleton, clipB, timeB, loopB, parentOverrides);
+            }
+
+            int n = skeleton.Count;
+            if (n == 0)
+            {
+                return new EvaluatedPose(Array.Empty<Quaternion>(), Array.Empty<Vector3>(), Array.Empty<Vector3>());
+            }
+
+            var rot = new Quaternion[n];
+            var trans = new Vector3[n];
+            var scale = new Vector3[n];
+            var computed = new bool[n];
+
+            float w = Math.Clamp(blendWeight, 0f, 1f);
+
+            bool missing;
+            int passes = 0;
+            do
+            {
+                missing = false;
+                bool progressed = false;
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (computed[i]) continue;
+
+                    // Hand re-parenting override: the joint adopts the replacement parent transform wholesale
+                    if (parentOverrides != null && parentOverrides.TryGetValue(i, out int overrideParent))
+                    {
+                        if (overrideParent >= 0 && overrideParent < n && !computed[overrideParent])
+                        {
+                            missing = true;
+                            continue;
+                        }
+
+                        if (overrideParent >= 0 && overrideParent < n)
+                        {
+                            rot[i] = rot[overrideParent];
+                            trans[i] = trans[overrideParent];
+                            scale[i] = scale[overrideParent];
+                        }
+                        else
+                        {
+                            rot[i] = Quaternion.Identity;
+                            trans[i] = Vector3.Zero;
+                            scale[i] = Vector3.One;
+                        }
+
+                        computed[i] = true;
+                        progressed = true;
+                        continue;
+                    }
+
+                    var joint = skeleton.Joints[i];
+                    int parent = joint.Parent;
+
+                    if (parent >= 0 && parent < n && !computed[parent])
+                    {
+                        missing = true;
+                        continue;
+                    }
+
+                    Vector3 t = joint.Translation;
+                    Quaternion r = joint.Rotation;
+                    Vector3 s = Vector3.One;
+
+                    bool hasA = clipA.TrySample(i, timeA, loopA, out var rotA, out var transA, out var scaleA);
+                    bool hasB = clipB.TrySample(i, timeB, loopB, out var rotB, out var transB, out var scaleB);
+
+                    if (hasA || hasB)
+                    {
+                        Vector3 transDelta;
+                        Quaternion blendedDeltaRot;
+                        Vector3 blendedScale;
+
+                        if (hasA && hasB)
+                        {
+                            transDelta = Vector3.Lerp(transA, transB, w);
+                            if (Quaternion.Dot(rotA, rotB) < 0f)
+                            {
+                                rotB = -rotB;
+                            }
+                            blendedDeltaRot = Quaternion.Normalize(Quaternion.Lerp(rotA, rotB, w));
+                            blendedScale = Vector3.Lerp(scaleA, scaleB, w);
+                        }
+                        else if (hasA)
+                        {
+                            transDelta = Vector3.Lerp(transA, Vector3.Zero, w);
+                            Quaternion idRot = Quaternion.Identity;
+                            if (Quaternion.Dot(rotA, idRot) < 0f)
+                            {
+                                idRot = -idRot;
+                            }
+                            blendedDeltaRot = Quaternion.Normalize(Quaternion.Lerp(rotA, idRot, w));
+                            blendedScale = Vector3.Lerp(scaleA, Vector3.One, w);
+                        }
+                        else
+                        {
+                            transDelta = Vector3.Lerp(Vector3.Zero, transB, w);
+                            Quaternion idRot = Quaternion.Identity;
+                            if (Quaternion.Dot(idRot, rotB) < 0f)
+                            {
+                                rotB = -rotB;
+                            }
+                            blendedDeltaRot = Quaternion.Normalize(Quaternion.Lerp(idRot, rotB, w));
+                            blendedScale = Vector3.Lerp(Vector3.One, scaleB, w);
+                        }
+
+                        t += transDelta;
+                        r = blendedDeltaRot * r;
+                        if (i != 0)
+                        {
+                            s = blendedScale;
+                        }
+                    }
+
+                    if (i == 0)
+                    {
+                        // FFXI root translation coordinate space: (x, y, z) -> (-z, y, x)
+                        t = new Vector3(-t.Z, t.Y, t.X);
+                        rot[i] = r;
+                        trans[i] = t;
+                        scale[i] = s;
+                    }
+                    else if (parent < 0 || parent >= n)
+                    {
+                        rot[i] = r;
+                        trans[i] = t;
+                        scale[i] = s;
+                    }
+                    else
+                    {
+                        // Child joint: accumulate parent scale, rotation and translation
+                        Vector3 ps = scale[parent];
+                        Vector3 scaled = ps * t;
+                        Vector3 rotated = Vector3.Transform(scaled, rot[parent]);
+                        trans[i] = trans[parent] + rotated;
+                        scale[i] = ps * s;
+                        rot[i] = Quaternion.Normalize(rot[parent] * r);
+                    }
+
+                    computed[i] = true;
+                    progressed = true;
+                }
+
+                passes++;
+                if (missing && !progressed)
+                {
+                    // Break possible cyclic or orphaned joints
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (!computed[i])
+                        {
+                            rot[i] = Quaternion.Identity;
+                            trans[i] = Vector3.Zero;
+                            scale[i] = Vector3.One;
+                            computed[i] = true;
+                        }
+                    }
+                    break;
+                }
+            } while (missing && passes < n + 2);
+
+            return new EvaluatedPose(rot, trans, scale);
+        }
+
+        /// <summary>
         /// CPU-skins a single SkinnedVertex into world position and normal using the evaluated bind pose.
         /// </summary>
         public static (Vector3 Position, Vector3 Normal) SkinVertex(in SkinnedVertex v, in EvaluatedPose pose)
