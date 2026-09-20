@@ -169,6 +169,13 @@ namespace Gordian.Core.Network.Packets
         public bool HasModel => (UpdateFlags & EntityUpdateFlags.Model) != 0;
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
 
+        /// <summary>
+        /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
+        /// </summary>
+        public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
+        public bool IsMoving => MovTime != 0;
+
         // Flags1 properties
         public byte ChocoboIndex => (byte)((Flags1 >> 5) & 0x07);
         public byte GraphSize => (byte)((Flags1 >> 9) & 0x03);
@@ -429,6 +436,13 @@ namespace Gordian.Core.Network.Packets
         public bool IsDespawn => (UpdateFlags & EntityUpdateFlags.Despawn) != 0;
         public bool HasPosition => (UpdateFlags & EntityUpdateFlags.Position) != 0;
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
+
+        /// <summary>
+        /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
+        /// </summary>
+        public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
+        public bool IsMoving => MovTime != 0;
 
         /// <summary>
         /// Reads look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc.

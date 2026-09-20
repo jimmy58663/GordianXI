@@ -149,13 +149,13 @@ namespace Gordian.Core.Tests.Resources
 
             var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, timeSeconds: 0f, loop: true);
 
-            // Root (joint 0) uses the clip's frame-0 translation (100,0,0), not the skeleton's bind
-            // value (1,0,0), still passed through the FFXI root coordinate flip (x,y,z) -> (-z,y,x).
-            Assert.Equal(new Vector3(0f, 0f, 100f), pose.Translations[0]);
+            // Root (joint 0) additively applies the clip's frame-0 translation (100,0,0) onto the skeleton's bind
+            // value (1,0,0) -> (101,0,0), passed through the FFXI root coordinate flip (x,y,z) -> (-z,y,x).
+            Assert.Equal(new Vector3(0f, 0f, 101f), pose.Translations[0]);
 
             // Joint 1 has no track in this clip -> falls back to its own bind-pose local translation
             // (0,5,0), accumulated onto the now clip-driven parent.
-            Assert.Equal(new Vector3(0f, 5f, 100f), pose.Translations[1]);
+            Assert.Equal(new Vector3(0f, 5f, 101f), pose.Translations[1]);
 
             // Bind pose (no clip) is unaffected and still returns the skeleton's static values.
             var bindPose = SkeletonPoseEvaluator.ComputeBindPose(skeleton);

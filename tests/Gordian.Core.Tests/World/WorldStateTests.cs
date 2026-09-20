@@ -250,5 +250,80 @@ namespace Gordian.Core.Tests.World
             ushort outboundId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(sentPackets[0].AsSpan(0, 2)) & 0x1FF);
             Assert.Equal(0x016, outboundId);
         }
+
+        [Fact]
+        public void WorldEntity_InterpolatePosition_SmoothlyAdvancesTowardsTarget()
+        {
+            var entity = new WorldEntity(0x555, 100, EntityType.Monster)
+            {
+                Position = new Vector3(10f, 0f, 10f),
+                TargetPosition = new Vector3(12f, 0f, 10f),
+                Speed = 40 // 4.0 yalms/sec
+            };
+
+            // At 60 FPS (dt = 1/60s = ~0.0167s)
+            float dt = 1.0f / 60.0f;
+            entity.InterpolatePosition(dt);
+
+            // Position should have advanced towards (12, 0, 10), but not yet reached it
+            Assert.True(entity.Position.X > 10.0f);
+            Assert.True(entity.Position.X < 12.0f);
+            Assert.Equal(10.0f, entity.Position.Z);
+
+            // After advancing enough time (~0.5s > 0.40s duration), it should reach TargetPosition exactly
+            for (int i = 0; i < 30; i++)
+            {
+                entity.InterpolatePosition(dt);
+            }
+            Assert.Equal(12.0f, entity.Position.X);
+            Assert.Equal(10.0f, entity.Position.Z);
+        }
+
+        [Fact]
+        public void WorldEntity_InterpolatePosition_GlidesContinuouslyAcrossInterval()
+        {
+            var entity = new WorldEntity(0x556, 101, EntityType.Monster)
+            {
+                Position = new Vector3(10f, 0f, 10f),
+                TargetPosition = new Vector3(20f, 0f, 10f),
+                InterpolationDuration = 0.40f,
+                Speed = 40
+            };
+
+            // Halfway through the 0.40s duration (0.20s = 12 frames at 60 FPS)
+            float dt = 1.0f / 60.0f;
+            for (int i = 0; i < 12; i++)
+            {
+                entity.InterpolatePosition(dt);
+            }
+
+            // At t = 0.2s / 0.4s = 0.5, Position.X should be exactly halfway (15.0)
+            Assert.Equal(15.0f, entity.Position.X, 1);
+        }
+
+        [Fact]
+        public void WorldEntity_HeadingDerivation_FacesDirectionOfTravelWhileMoving()
+        {
+            var entity = new WorldEntity(0x557, 102, EntityType.Monster)
+            {
+                Position = new Vector3(10f, 0f, 10f),
+                TargetPosition = new Vector3(10f, 0f, 20f), // Moving South (+Z)
+                Speed = 40
+            };
+
+            // Interpolate a step
+            entity.InterpolatePosition(0.1f);
+
+            // In GordianXI, South (+Z) is Direction 64 (90 degrees, pi/2 radians)
+            Assert.Equal(64, entity.Direction);
+            Assert.InRange(entity.RenderHeadingRadians, 0.5f, 2.0f);
+
+            // Now turn and move North (-Z)
+            entity.TargetPosition = new Vector3(10f, 0f, 0f);
+            entity.InterpolatePosition(0.1f);
+
+            // North (-Z) is Direction 192 (270 degrees, 3pi/2 radians)
+            Assert.Equal(192, entity.Direction);
+        }
     }
 }

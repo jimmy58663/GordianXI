@@ -748,5 +748,100 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(4, race);
             Assert.Equal(1, face);
         }
+
+        [Fact]
+        public void EntityPacketModule_StationaryNpc_SpawnsWithZeroSpeed()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            byte[] payload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000007);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 300);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.0f); // X
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 0.0f);  // Y
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 20.0f); // Z
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(20, 4), 8);    // Flags0 with MovTime = 8 (like Horatius in npcs.yaml)
+            payload[24] = 50; // Speed stat = 50
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            Assert.True(world.TryGetByServerId(0x01000007, out var entity));
+            Assert.NotNull(entity);
+            // On spawn, entity should be stationary with Speed = 0
+            Assert.Equal(0, entity.Speed);
+
+            // Dispatch another update at the exact same coordinates
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
+            Assert.Equal(0, entity.Speed);
+        }
+
+        [Fact]
+        public void EntityPacketModule_NpcMovement_UpdatesSpeedOnDisplacement()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            byte[] payload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000008);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 301);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 0.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 20.0f);
+            payload[24] = 50;
+
+            // 1. Initial spawn at (10, 0, 20) -> Speed = 0
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            Assert.True(world.TryGetByServerId(0x01000008, out var entity));
+            Assert.Equal(0, entity!.Speed);
+
+            // 2. Displaced to (12, 0, 20) -> dist = 2.0 > 0.05 -> Speed = 50
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 12.0f);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
+            Assert.Equal(50, entity.Speed);
+
+            // 3. Stays at (12, 0, 20) -> dist = 0 -> Speed = 0
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 3), payload);
+            Assert.Equal(0, entity.Speed);
+        }
+
+        [Fact]
+        public void EntityPacketModule_CharNpc_ConvertsWireRotationToWorldHeading()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            byte[] payload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000009);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 302);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+            // Wire North is 64 in LandSandBoat
+            payload[7] = 64;
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 0.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), 20.0f);
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            Assert.True(world.TryGetByServerId(0x01000009, out var entity));
+            // Converted to GordianXI North (192)
+            Assert.Equal(192, entity!.Direction);
+
+            // Wire South is 192 in LandSandBoat
+            payload[7] = 192;
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
+            // Converted to GordianXI South (64)
+            Assert.Equal(64, entity.Direction);
+        }
     }
 }

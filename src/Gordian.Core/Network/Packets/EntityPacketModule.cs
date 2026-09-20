@@ -74,9 +74,16 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
-            if (!_world.TryGetByServerId(pc.UniqueNo, out var existing) || existing is not PlayerEntity player)
+            PlayerEntity player;
+            bool isNew = false;
+            if (!_world.TryGetByServerId(pc.UniqueNo, out var existing) || existing is not PlayerEntity existingPlayer)
             {
                 player = new PlayerEntity(pc.UniqueNo, pc.ActorIndex);
+                isNew = true;
+            }
+            else
+            {
+                player = existingPlayer;
             }
 
             player.TargetIndex = pc.ActorIndex;
@@ -85,9 +92,59 @@ namespace Gordian.Core.Network.Packets
 
             if (pc.HasPosition)
             {
-                player.Position = new Vector3(pc.X, pc.Y, pc.Z);
-                player.Direction = pc.Direction;
-                player.Speed = pc.Speed;
+                if (pc.UniqueNo != _localPlayer.ServerId)
+                {
+                    var newPos = new Vector3(pc.X, pc.Y, pc.Z);
+
+                    if (!isNew && player.IsSpawned)
+                    {
+                        float dist = Vector3.Distance(newPos, player.TargetPosition);
+                        if (dist > 0.05f)
+                        {
+                            DateTime now = DateTime.UtcNow;
+                            float dt = (float)(now - player.LastPositionChangeUtc).TotalSeconds;
+                            if (dt > 0.05f && dt < 2.0f && player.LastPositionChangeUtc != DateTime.MinValue)
+                            {
+                                float yalmsPerSec = dist / dt;
+                                player.Speed = (byte)Math.Clamp((int)MathF.Round(yalmsPerSec * 10f), 1, 255);
+                                player.InterpolationDuration = dt;
+                            }
+                            else
+                            {
+                                player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
+                                player.InterpolationDuration = 0.40f;
+                            }
+
+                            player.LastPositionChangeUtc = now;
+                            player.TargetPosition = newPos;
+
+                            if (Vector3.Distance(newPos, player.Position) > 15.0f)
+                            {
+                                player.Position = newPos;
+                                player.StartPosition = newPos;
+                            }
+                        }
+                        else
+                        {
+                            player.TargetPosition = newPos;
+                            player.Speed = 0;
+                        }
+                    }
+                    else
+                    {
+                        player.Position = newPos;
+                        player.TargetPosition = newPos;
+                        player.StartPosition = newPos;
+                        player.Speed = 0;
+                    }
+
+                    // Convert FFXI wire direction (counter-clockwise) to GordianXI world heading
+                    player.Direction = (byte)((256 - pc.Direction) & 0xFF);
+                    if (isNew)
+                    {
+                        player.RenderHeadingRadians = player.HeadingRadians;
+                    }
+                }
                 player.SpeedBase = pc.SpeedBase;
             }
 
@@ -168,9 +225,16 @@ namespace Gordian.Core.Network.Packets
                 _ => (npcPacket.ActorIndex < 1024) ? EntityType.Npc : EntityType.Monster
             };
 
-            if (!_world.TryGetByServerId(npcPacket.UniqueNo, out var entity) || entity == null)
+            WorldEntity entity;
+            bool isNew = false;
+            if (!_world.TryGetByServerId(npcPacket.UniqueNo, out var existing) || existing == null)
             {
                 entity = new WorldEntity(npcPacket.UniqueNo, npcPacket.ActorIndex, type);
+                isNew = true;
+            }
+            else
+            {
+                entity = existing;
             }
 
             entity.TargetIndex = npcPacket.ActorIndex;
@@ -178,11 +242,74 @@ namespace Gordian.Core.Network.Packets
             entity.IsSpawned = true;
             entity.LastUpdatedUtc = DateTime.UtcNow;
 
+            ushort movTime = npcPacket.MovTime;
+            bool movTimeChanged = entity.LastMovTime != 0 && movTime != entity.LastMovTime;
+            entity.LastMovTime = movTime;
+
             if (npcPacket.HasPosition)
             {
-                entity.Position = new Vector3(npcPacket.X, npcPacket.Y, npcPacket.Z);
-                entity.Direction = npcPacket.Direction;
-                entity.Speed = npcPacket.Speed;
+                var newPos = new Vector3(npcPacket.X, npcPacket.Y, npcPacket.Z);
+
+                if (!isNew && entity.IsSpawned)
+                {
+                    float dist = Vector3.Distance(newPos, entity.TargetPosition);
+                    if (dist > 0.05f || movTimeChanged)
+                    {
+                        DateTime now = DateTime.UtcNow;
+                        float dt = (float)(now - entity.LastPositionChangeUtc).TotalSeconds;
+                        if (dist > 0.05f)
+                        {
+                            if (dt > 0.05f && dt < 2.0f && entity.LastPositionChangeUtc != DateTime.MinValue)
+                            {
+                                float yalmsPerSec = dist / dt;
+                                entity.Speed = (byte)Math.Clamp((int)MathF.Round(yalmsPerSec * 10f), 1, 255);
+                                entity.InterpolationDuration = dt;
+                            }
+                            else
+                            {
+                                entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
+                                entity.InterpolationDuration = 0.40f;
+                            }
+
+                            entity.LastPositionChangeUtc = now;
+                            entity.TargetPosition = newPos;
+
+                            if (Vector3.Distance(newPos, entity.Position) > 15.0f)
+                            {
+                                entity.Position = newPos;
+                                entity.StartPosition = newPos;
+                            }
+                        }
+                        else
+                        {
+                            // Server indicates active movement (movTime incremented) even if coordinates were near
+                            if (entity.Speed == 0)
+                            {
+                                entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
+                            }
+                            entity.LastPositionChangeUtc = now;
+                        }
+                    }
+                    else
+                    {
+                        entity.TargetPosition = newPos;
+                        entity.Speed = 0;
+                    }
+                }
+                else
+                {
+                    entity.Position = newPos;
+                    entity.TargetPosition = newPos;
+                    entity.StartPosition = newPos;
+                    entity.Speed = 0;
+                }
+
+                // Convert FFXI wire direction (counter-clockwise) to GordianXI world heading
+                entity.Direction = (byte)((256 - npcPacket.Direction) & 0xFF);
+                if (isNew)
+                {
+                    entity.RenderHeadingRadians = entity.HeadingRadians;
+                }
                 entity.SpeedBase = npcPacket.SpeedBase;
             }
 

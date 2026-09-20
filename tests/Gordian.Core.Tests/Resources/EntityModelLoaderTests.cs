@@ -145,16 +145,14 @@ namespace Gordian.Core.Tests.Resources
             // Feet 0 for HumeMale is 8136
             Assert.Contains(8136, loadedFids);
 
-            // Speculative locomotion/battle motion-pack loading is off by default (unverified file
-            // mapping previously collapsed characters into a garbage-animated blob) - none of those
-            // extra paths/fileIds should be requested unless explicitly opted in.
-            Assert.DoesNotContain(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
-            Assert.DoesNotContain(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
-            Assert.DoesNotContain(32013, loadedFids);
+            // Locomotion and battle motion packs are enabled by default and loaded via path (and fileId fallback).
+            Assert.Contains(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
+            Assert.Contains(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
+            Assert.Contains(Path.Combine("ROM", "32", "13.DAT"), loadedPaths);
         }
 
         [Fact]
-        public void EntityModelLoader_AssembleCharacter_LoadsLocomotionPacksWhenExplicitlyEnabled()
+        public void EntityModelLoader_AssembleCharacter_HonorsDisableMotionPacksSwitch()
         {
             var loadedPaths = new List<string>();
             var loadedFids = new List<int>();
@@ -173,7 +171,7 @@ namespace Gordian.Core.Tests.Resources
                 return dummyDat;
             }
 
-            EntityModelLoader.EnableSpeculativeMotionPacks = true;
+            EntityModelLoader.EnableSpeculativeMotionPacks = false;
             try
             {
                 var model = EntityModelLoader.AssembleCharacter(
@@ -184,13 +182,14 @@ namespace Gordian.Core.Tests.Resources
                     FidResolver);
 
                 Assert.NotNull(model);
-                Assert.Contains(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
-                Assert.Contains(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
-                Assert.Contains(32013, loadedFids);
+                Assert.Contains(Path.Combine("ROM", "27", "82.DAT"), loadedPaths);
+                Assert.DoesNotContain(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
+                Assert.DoesNotContain(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
+                Assert.DoesNotContain(Path.Combine("ROM", "32", "13.DAT"), loadedPaths);
             }
             finally
             {
-                EntityModelLoader.EnableSpeculativeMotionPacks = false;
+                EntityModelLoader.EnableSpeculativeMotionPacks = true;
             }
         }
 

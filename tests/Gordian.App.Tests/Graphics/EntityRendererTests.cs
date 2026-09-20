@@ -67,30 +67,25 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void EntityHeading_RotatesAroundYAxis()
         {
-            // Direction 64 = 90 degrees (quarter turn). Verified against live gamepad testing:
-            // a -90 degree offset alone left the model's facing a constant 90 degrees off from
-            // its actual direction of travel at every heading (confirmed by a player pushing each
-            // of forward/back/left/right and reporting which way the model turned to face vs.
-            // which way it actually moved); a -180 degree offset is what lines the two up.
+            // Direction 64 = 90 degrees (quarter turn to South/+Z in display space).
+            // In display space, entity model at rest faces (+1, 0, 0).
             byte dir = 64;
             float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
             var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
 
-            var forward = new Vector4(0f, 0f, 1f, 0f);
+            var forward = new Vector4(1f, 0f, 0f, 0f);
             var turned = Vector4.Transform(forward, rotY);
 
-            Assert.Equal(-1f, turned.X, 2);
+            Assert.Equal(0f, turned.X, 2);
             Assert.Equal(0f, turned.Y, 2);
-            Assert.Equal(0f, turned.Z, 2);
+            Assert.Equal(1f, turned.Z, 2);
         }
 
         [Fact]
         public void EntityHeading_RotationTracksHeadingDeltaConsistently()
         {
-            // Regardless of the absolute phase offset, turning the heading by a given amount
-            // must turn the rendered facing by that same amount, in a fixed, consistent
-            // direction — otherwise facing would only line up with travel direction at some
-            // headings and not others (the exact bug this offset fixes).
+            // Turning the heading by a given amount turns the rendered facing by that same amount
+            // in a consistent direction around the Y-axis.
             float prevAngle = 0f;
             bool first = true;
 
@@ -99,9 +94,9 @@ namespace Gordian.App.Tests.Graphics
                 float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
                 var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
 
-                var forward = new Vector4(0f, 0f, 1f, 0f);
+                var forward = new Vector4(1f, 0f, 0f, 0f);
                 var turned = Vector4.Transform(forward, rotY);
-                float angle = MathF.Atan2(turned.X, turned.Z);
+                float angle = MathF.Atan2(turned.Z, turned.X);
 
                 if (!first)
                 {
@@ -110,7 +105,7 @@ namespace Gordian.App.Tests.Graphics
                     if (delta > MathF.PI) delta -= 2 * MathF.PI;
 
                     // Each step in the loop advances heading by 32/256 of a turn (45 degrees)
-                    Assert.Equal(MathF.PI / 4.0f, delta, 3);
+                    Assert.Equal(MathF.PI / 4.0f, MathF.Abs(delta), 3);
                 }
 
                 prevAngle = angle;

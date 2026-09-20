@@ -273,10 +273,41 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
-        /// Resolves the battle-stance motion-pack file ID for a race and weapon-type index
-        /// (0 = H2H). Only H2H (index 0) is exercised by GordianXI today - resolving the correct
-        /// weapon-type index for an equipped weapon requires an item-to-skill-category table
-        /// that does not exist in this codebase yet.
+        /// Resolves the battle-stance motion-pack relative DAT path (e.g. ROM/32/13.DAT) for a race
+        /// and weapon-type index (0 = H2H).
+        /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js.
+        /// </summary>
+        public static string GetBattlePackPath(CharacterRace race, int weaponTypeIndex = 0)
+        {
+            int raceIdx = GetRetailRaceIndex(race);
+            if (raceIdx < 0 || raceIdx >= MotionBattleBaseFileId.Length) return string.Empty;
+
+            int count = MotionBattlePackCount[raceIdx];
+            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, Math.Max(0, count - 1));
+            int fileNo = MotionBattleBaseFileId[raceIdx] + clampedIndex;
+            return MotFileNoToPath(fileNo);
+        }
+
+        /// <summary>
+        /// Converts an FFXI legacy motion FileNumber (folder * 1000 + file, e.g. 32013 -> ROM/32/13.DAT)
+        /// to its relative ROM path, applying the 128-files-per-folder carry rule.
+        /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js motFileNoToPath.
+        /// </summary>
+        public static string MotFileNoToPath(int fileNo)
+        {
+            if (fileNo <= 0) return string.Empty;
+            int folder = fileNo / 1000;
+            int file = fileNo % 1000;
+            if (file > 127)
+            {
+                folder += file / 128;
+                file %= 128;
+            }
+            return Path.Combine("ROM", folder.ToString(), $"{file}.DAT");
+        }
+
+        /// <summary>
+        /// Resolves the battle-stance motion-pack legacy file number (folder * 1000 + file) for a race and weapon-type index.
         /// </summary>
         public static int GetBattlePackFileId(CharacterRace race, int weaponTypeIndex = 0)
         {

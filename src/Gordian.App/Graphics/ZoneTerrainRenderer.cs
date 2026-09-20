@@ -264,7 +264,8 @@ namespace Gordian.App.Graphics
             IEnumerable<WorldEntity>? entities = null,
             ResourceManager? resourceManager = null,
             uint localPlayerServerId = 0,
-            bool isLocalPlayerEngaged = false)
+            bool isLocalPlayerEngaged = false,
+            Vector3? localPlayerDisplayPos = null)
         {
             if (_disposed || _gd == null || _gd.MainSwapchain == null) return;
 
@@ -397,7 +398,7 @@ namespace Gordian.App.Graphics
             // Render live 3D entity models & modular equipment (drawn on top of opaque terrain, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;

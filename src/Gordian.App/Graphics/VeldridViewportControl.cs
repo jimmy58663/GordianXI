@@ -485,12 +485,15 @@ namespace Gordian.App.Graphics
                     Camera.Mode = _activeSession.Locomotion.Camera.Mode;
                 }
 
+                Vector3? displayPlayerPos = hasPlayerPos
+                    ? new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z)
+                    : null;
+
                 if (Camera.Mode != CameraMode.FreeCam)
                 {
-                    if (hasPlayerPos)
+                    if (displayPlayerPos.HasValue)
                     {
-                        var displayPlayerPos = new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z);
-                        Camera.Update(displayPlayerPos, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
+                        Camera.Update(displayPlayerPos.Value, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
                     }
                     else
                     {
@@ -517,7 +520,8 @@ namespace Gordian.App.Graphics
                                 WorldState?.Entities,
                                 ResourceManager,
                                 localPlayerServerId,
-                                isLocalPlayerEngaged);
+                                isLocalPlayerEngaged,
+                                displayPlayerPos);
                         }
                         catch (Exception ex)
                         {

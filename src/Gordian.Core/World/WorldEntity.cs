@@ -60,12 +60,93 @@ namespace Gordian.Core.World
         public string Name { get; set; } = string.Empty;
         public EntityType Type { get; set; }
 
-        public Vector3 Position { get; set; }
+        private Vector3 _position;
+        public Vector3 Position
+        {
+            get => _position;
+            set
+            {
+                _position = value;
+                if (StartPosition == Vector3.Zero && TargetPosition == Vector3.Zero)
+                {
+                    StartPosition = value;
+                    _targetPosition = value;
+                }
+            }
+        }
+
+        public Vector3 StartPosition { get; set; }
+
+        private Vector3 _targetPosition;
+        public Vector3 TargetPosition
+        {
+            get => _targetPosition;
+            set
+            {
+                if (_targetPosition != value)
+                {
+                    StartPosition = Position;
+                    _targetPosition = value;
+                    InterpolationElapsed = 0f;
+                }
+            }
+        }
+
+        public float InterpolationDuration { get; set; } = 0.40f;
+        public float InterpolationElapsed { get; set; }
+        public float RenderHeadingRadians { get; set; }
+
+        /// <summary>
+        /// Smoothly interpolates the entity's current render position towards its target network position
+        /// at constant uniform velocity across the network tick interval (~400ms) with extrapolation grace,
+        /// and smoothly aligns visual heading with the direction of travel.
+        /// </summary>
+        public void InterpolatePosition(float deltaSeconds)
+        {
+            float distToTarget = Vector3.Distance(Position, TargetPosition);
+            if (distToTarget <= 0.001f && Speed == 0)
+            {
+                Position = TargetPosition;
+                UpdateHeading(deltaSeconds);
+                return;
+            }
+
+            InterpolationElapsed += deltaSeconds;
+            float duration = Math.Max(0.05f, InterpolationDuration);
+            float t = Math.Clamp(InterpolationElapsed / duration, 0f, 1f);
+
+            // Smooth constant-velocity glide from StartPosition to TargetPosition across the full tick interval
+            Position = Vector3.Lerp(StartPosition, TargetPosition, t);
+
+            UpdateHeading(deltaSeconds);
+        }
+
+        private void UpdateHeading(float deltaSeconds)
+        {
+            // If actively moving towards a target destination, orient facing along the movement travel vector
+            Vector3 travel = TargetPosition - Position;
+            float flatDistSq = (travel.X * travel.X) + (travel.Z * travel.Z);
+            if (flatDistSq > 0.0025f) // > 0.05 yalms
+            {
+                float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
+                if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
+                Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+            }
+
+            // Smoothly rotate visual heading towards target heading
+            float targetHeadingRad = HeadingRadians;
+            float diff = targetHeadingRad - RenderHeadingRadians;
+            while (diff > MathF.PI) diff -= MathF.PI * 2.0f;
+            while (diff < -MathF.PI) diff += 2.0f * MathF.PI;
+            RenderHeadingRadians += diff * Math.Min(1.0f, deltaSeconds * 15.0f);
+        }
+
         public byte Direction { get; set; }
         public float HeadingRadians => (Direction / 256.0f) * MathF.PI * 2.0f;
 
         public byte Speed { get; set; }
         public byte SpeedBase { get; set; }
+        public ushort LastMovTime { get; set; }
         public byte AnimationState { get; set; }
         public byte Hpp { get; set; }
         public uint ClaimServerId { get; set; }
@@ -75,6 +156,7 @@ namespace Gordian.Core.World
 
         public bool IsSpawned { get; set; } = true;
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
+        public DateTime LastPositionChangeUtc { get; set; } = DateTime.MinValue;
 
         public WorldEntity(uint serverId, ushort targetIndex, EntityType type)
         {

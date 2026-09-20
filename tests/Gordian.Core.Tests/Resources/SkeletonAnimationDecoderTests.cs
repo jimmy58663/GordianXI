@@ -1,8 +1,12 @@
 // tests/Gordian.Core.Tests/Resources/SkeletonAnimationDecoderTests.cs
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
 using Xunit;
 
 namespace Gordian.Core.Tests.Resources
@@ -69,7 +73,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal("wlk0", clip!.Name);
             Assert.Equal(2, clip.NumFrames);
             Assert.Equal(1.0f, clip.KeyFrameDuration);
-            Assert.Equal(2f / 30f, clip.DurationSeconds, 4);
+            Assert.Equal(1f / 30f, clip.DurationSeconds, 4);
 
             Assert.True(clip.Tracks.TryGetValue(0, out var track));
             Assert.Equal(Quaternion.Identity, track!.Rotations[0]);
@@ -85,14 +89,14 @@ namespace Gordian.Core.Tests.Resources
             var clip = SkeletonAnimationDecoder.DecodeClip(payload, "wlk0");
             Assert.NotNull(clip);
 
-            // Quarter-way through the clip -> frame 0.5 -> halfway between (0,2,3) and (5,2,3)
-            float quarterTime = clip!.DurationSeconds * 0.25f;
-            Assert.True(clip.TrySample(0, quarterTime, loop: true, out var rot, out var trans));
+            // Halfway through the clip -> phase 0.5 -> halfway between (0,2,3) and (5,2,3)
+            float halfTime = clip!.DurationSeconds * 0.5f;
+            Assert.True(clip.TrySample(0, halfTime, loop: true, out var rot, out var trans));
             Assert.Equal(Quaternion.Identity, rot);
             Assert.Equal(new Vector3(2.5f, 2f, 3f), trans);
 
             // No track for joint 5 -> caller should fall back to skeleton bind pose.
-            Assert.False(clip.TrySample(5, quarterTime, loop: true, out _, out _));
+            Assert.False(clip.TrySample(5, halfTime, loop: true, out _, out _));
         }
 
         [Fact]
@@ -171,6 +175,166 @@ namespace Gordian.Core.Tests.Resources
 
             Assert.NotNull(clip);
             Assert.False(clip!.Tracks.ContainsKey(0));
+        }
+
+        private readonly Xunit.Abstractions.ITestOutputHelper _output;
+
+        public SkeletonAnimationDecoderTests(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            _output = output;
+        }
+
+        [Fact]
+        public void InspectRealGameAnimationFiles()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            string[] paths = new[]
+            {
+                System.IO.Path.Combine(gameDir, "ROM", "27", "82.DAT"),
+                System.IO.Path.Combine(gameDir, "ROM", "27", "83.DAT"),
+                System.IO.Path.Combine(gameDir, "ROM", "27", "85.DAT"),
+                System.IO.Path.Combine(gameDir, "ROM", "32", "13.DAT"),
+            };
+
+            foreach (var p in paths)
+            {
+                if (!System.IO.File.Exists(p)) continue;
+                byte[] bytes = System.IO.File.ReadAllBytes(p);
+                var headers = Gordian.Core.Resources.Containers.DatSectionWalker.ReadHeaders(bytes);
+                int anims = 0;
+                var clipNames = new List<string>();
+                foreach (var h in headers)
+                {
+                    if (h.TypeCode == Gordian.Core.Resources.Containers.DatSectionType.SkeletonAnimation)
+                    {
+                        anims++;
+                        var payload = bytes.AsSpan(h.DataOffset, h.DataSizeBytes);
+                        var clip = SkeletonAnimationDecoder.DecodeClip(payload, h.DatId);
+                        if (clip != null)
+                        {
+                            clipNames.Add($"{clip.Name}(f={clip.NumFrames},tr={clip.Tracks.Count})");
+                        }
+                    }
+                }
+                _output.WriteLine($"FILE: {System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(p))}/{System.IO.Path.GetFileName(p)} -> Anims: {clipNames.Count} / {anims}: {string.Join(", ", clipNames)}");
+                Assert.True(clipNames.Count > 0, $"Expected clips in {p}, found {clipNames.Count} / {anims}.");
+            }
+        }
+
+        [Fact]
+        public void TestRealHumeMaleIdlePose()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            string baseDatPath = System.IO.Path.Combine(gameDir, "ROM", "27", "82.DAT");
+            if (!System.IO.File.Exists(baseDatPath)) return;
+
+            byte[] baseBytes = System.IO.File.ReadAllBytes(baseDatPath);
+            var baseContainer = Gordian.Core.Resources.EntityModelLoader.ParseDatContainer(baseBytes, "Base");
+            Assert.NotNull(baseContainer.Skeleton);
+
+            var bindPose = SkeletonPoseEvaluator.ComputeBindPose(baseContainer.Skeleton!);
+            _output.WriteLine($"Skeleton joints: {baseContainer.Skeleton!.Count}");
+            _output.WriteLine($"BindPose Joint 0 (root) trans: {bindPose.Translations[0]}");
+            _output.WriteLine($"BindPose Joint 1 trans: {bindPose.Translations[1]}");
+            _output.WriteLine($"BindPose Joint 10 trans: {bindPose.Translations[10]}");
+
+            // Look up idl0 in baseContainer.Animations
+            var idl0 = baseContainer.Animations.Find(a => a.Name == "idl0");
+            Assert.NotNull(idl0);
+
+            var animPose = SkeletonPoseEvaluator.EvaluatePose(baseContainer.Skeleton!, idl0, 0f, true);
+            int collapsedCount = 0;
+            for (int j = 0; j < baseContainer.Skeleton!.Count; j++)
+            {
+                var bp = bindPose.Translations[j];
+                var ap = animPose.Translations[j];
+                float bDist = bp.Length();
+                float aDist = ap.Length();
+                if (bDist > 0.05f && aDist < 0.001f)
+                {
+                    collapsedCount++;
+                }
+            }
+            Assert.Equal(0, collapsedCount);
+
+            var fileTable = new Gordian.Core.Resources.Tables.FileTableResolver();
+            string ftablePath = System.IO.Path.Combine(gameDir, "FTABLE.DAT");
+            string vtablePath = System.IO.Path.Combine(gameDir, "VTABLE.DAT");
+            if (System.IO.File.Exists(ftablePath) && System.IO.File.Exists(vtablePath))
+            {
+                fileTable.LoadTablePair(System.IO.File.ReadAllBytes(ftablePath), System.IO.File.ReadAllBytes(vtablePath));
+            }
+
+            var original = EntityModelLoader.EnableSpeculativeMotionPacks;
+            try
+            {
+                EntityModelLoader.EnableSpeculativeMotionPacks = true;
+                var charModel = EntityModelLoader.AssembleCharacter(
+                    CharacterRace.HumeMale,
+                    0, // face 0
+                    new ushort[] { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+                    relPath =>
+                    {
+                        string fullPath = System.IO.Path.Combine(gameDir, relPath);
+                        return System.IO.File.Exists(fullPath) ? System.IO.File.ReadAllBytes(fullPath) : null;
+                    },
+                    fid =>
+                    {
+                        if (fileTable.TryResolve(fid, out string relPath))
+                        {
+                            string fullPath = System.IO.Path.Combine(gameDir, relPath);
+                            return System.IO.File.Exists(fullPath) ? System.IO.File.ReadAllBytes(fullPath) : null;
+                        }
+                        return null;
+                    });
+
+                Assert.NotNull(charModel);
+                Assert.True(charModel!.Animations.ContainsKey("idl"));
+                Assert.True(charModel.Animations.ContainsKey("wlk"));
+                Assert.True(charModel.Animations.ContainsKey("run"));
+                Assert.True(charModel.Animations.ContainsKey("btl"));
+            }
+            finally
+            {
+                EntityModelLoader.EnableSpeculativeMotionPacks = original;
+            }
+        }
+
+        [Fact]
+        public void TestRealMonsterModel()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var fileTable = new Gordian.Core.Resources.Tables.FileTableResolver();
+            string ftablePath = System.IO.Path.Combine(gameDir, "FTABLE.DAT");
+            string vtablePath = System.IO.Path.Combine(gameDir, "VTABLE.DAT");
+            if (System.IO.File.Exists(ftablePath) && System.IO.File.Exists(vtablePath))
+            {
+                fileTable.LoadTablePair(System.IO.File.ReadAllBytes(ftablePath), System.IO.File.ReadAllBytes(vtablePath));
+            }
+
+            var monsterModel = EntityModelLoader.LoadMonsterModel(300, fid =>
+            {
+                if (fileTable.TryResolve(fid, out string relPath))
+                {
+                    string fullPath = System.IO.Path.Combine(gameDir, relPath);
+                    return System.IO.File.Exists(fullPath) ? System.IO.File.ReadAllBytes(fullPath) : null;
+                }
+                return null;
+            });
+
+            Assert.NotNull(monsterModel);
+            _output.WriteLine($"Monster model: {monsterModel!.Name}, meshes={monsterModel.AnimatedMeshGroups.Count}, skeleton={(monsterModel.Skeleton != null ? monsterModel.Skeleton.Count : 0)}");
+            _output.WriteLine($"Monster animations ({monsterModel.Animations.Count}): {string.Join(", ", monsterModel.Animations.Keys)}");
+            foreach (var anim in monsterModel.Animations.Values)
+            {
+                _output.WriteLine($"  Monster clip '{anim.Name}': frames={anim.NumFrames}, duration={anim.DurationSeconds}, tracks={anim.Tracks.Count}");
+            }
         }
     }
 }

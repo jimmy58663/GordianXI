@@ -36,8 +36,9 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// Evaluates world rotation/translation for each joint at a given clip playback time.
-        /// Joints without a track in the clip (or when clip is null) fall back to the skeleton's
-        /// static bind-pose local rotation/translation.
+        /// When a clip is active, keyframe translation deltas are added onto the skeleton's static bind-pose
+        /// local translation, and keyframe rotation deltas are applied onto the bind-pose local rotation.
+        /// Joints without a track in the clip (or when clip is null) retain their static bind-pose transform.
         /// </summary>
         public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
@@ -97,12 +98,12 @@ namespace Gordian.Core.Resources.Graphics
                         continue;
                     }
 
-                    Vector3 t;
-                    Quaternion r;
-                    if (clip == null || !clip.TrySample(i, timeSeconds, loop, out r, out t))
+                    Vector3 t = joint.Translation;
+                    Quaternion r = joint.Rotation;
+                    if (clip != null && clip.TrySample(i, timeSeconds, loop, out var animRot, out var animTrans))
                     {
-                        t = joint.Translation;
-                        r = joint.Rotation;
+                        t += animTrans;
+                        r = animRot * r;
                     }
 
                     if (i == 0)

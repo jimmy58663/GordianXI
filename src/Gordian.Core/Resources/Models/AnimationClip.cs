@@ -30,16 +30,17 @@ namespace Gordian.Core.Resources.Models
         public IReadOnlyDictionary<int, BoneAnimationTrack> Tracks { get; init; } = new Dictionary<int, BoneAnimationTrack>();
 
         /// <summary>
-        /// Total clip playback duration in seconds, derived from the documented
-        /// "keyFrameDuration * 30 = animation-frames-per-second" relationship.
+        /// Total clip duration in seconds.
+        /// Matches xi-model-viewer (Math.max(numFrames - 1, 1) / keyFrameDuration / 30).
         /// </summary>
         public float DurationSeconds
         {
             get
             {
-                float framesPerSecond = KeyFrameDuration * 30.0f;
-                if (framesPerSecond <= 0.0001f || NumFrames <= 0) return 0f;
-                return NumFrames / framesPerSecond;
+                float fps = KeyFrameDuration * 30.0f;
+                if (fps <= 0.0001f || NumFrames <= 0) return 0f;
+                int intervals = Math.Max(NumFrames - 1, 1);
+                return intervals / fps;
             }
         }
 
@@ -58,37 +59,42 @@ namespace Gordian.Core.Resources.Models
                 return false;
             }
 
-            if (NumFrames == 1 || track.Rotations.Length == 0)
+            int trackFrames = track.Rotations.Length;
+            if (trackFrames == 0)
             {
-                rotation = track.Rotations.Length > 0 ? track.Rotations[0] : Quaternion.Identity;
+                return true;
+            }
+
+            int last = trackFrames - 1;
+            if (last <= 0)
+            {
+                rotation = track.Rotations[0];
                 translation = track.Translations.Length > 0 ? track.Translations[0] : Vector3.Zero;
                 return true;
             }
 
             float duration = DurationSeconds;
-            float frameF = duration > 0.0001f ? (timeSeconds / duration) * NumFrames : 0f;
-
-            int f0, f1;
-            float frac;
+            float phase = duration > 0.0001f ? timeSeconds / duration : 0f;
 
             if (loop)
             {
-                frameF %= NumFrames;
-                if (frameF < 0) frameF += NumFrames;
-                f0 = (int)MathF.Floor(frameF) % NumFrames;
-                f1 = (f0 + 1) % NumFrames;
-                frac = frameF - MathF.Floor(frameF);
+                phase %= 1.0f;
+                if (phase < 0f) phase += 1.0f;
             }
             else
             {
-                frameF = Math.Clamp(frameF, 0f, NumFrames - 1);
-                f0 = (int)MathF.Floor(frameF);
-                f1 = Math.Min(f0 + 1, NumFrames - 1);
-                frac = frameF - f0;
+                phase = Math.Clamp(phase, 0f, 1f);
             }
 
-            rotation = Nlerp(track.Rotations[f0], track.Rotations[f1], frac);
-            translation = Vector3.Lerp(track.Translations[f0], track.Translations[f1], frac);
+            float pos = phase * last;
+            int lower = Math.Min((int)MathF.Floor(pos), last - 1);
+            int upper = lower + 1;
+            float t = pos - lower;
+
+            rotation = Nlerp(track.Rotations[lower], track.Rotations[upper], t);
+            Vector3 t0 = track.Translations.Length > lower ? track.Translations[lower] : Vector3.Zero;
+            Vector3 t1 = track.Translations.Length > upper ? track.Translations[upper] : Vector3.Zero;
+            translation = Vector3.Lerp(t0, t1, t);
             return true;
         }
 

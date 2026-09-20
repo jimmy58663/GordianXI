@@ -49,8 +49,8 @@ namespace Gordian.App.Graphics
             (AnimationCategory.Idle, "idl"),
             (AnimationCategory.Walk, "wlk"),
             (AnimationCategory.Run, "run"),
-            (AnimationCategory.Combat, "cmb"),
-            (AnimationCategory.Death, "dth"),
+            (AnimationCategory.Combat, "btl"),
+            (AnimationCategory.Death, "ded"),
         };
 
         private readonly ConcurrentDictionary<string, GpuEntityModel> _gpuModelCache = new();
@@ -233,7 +233,8 @@ namespace Gordian.App.Graphics
             ResourceManager? resourceManager,
             float deltaSeconds = 0f,
             uint localPlayerServerId = 0,
-            bool isLocalPlayerEngaged = false)
+            bool isLocalPlayerEngaged = false,
+            Vector3? localPlayerDisplayPos = null)
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -255,9 +256,22 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
+                // For remote entities, smoothly interpolate render position towards target network position
+                if (entity.ServerId != localPlayerServerId)
+                {
+                    entity.InterpolatePosition(deltaSeconds);
+                }
+                else
+                {
+                    entity.RenderHeadingRadians = entity.HeadingRadians;
+                }
+
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).
-                Vector3 pos = new Vector3(-entity.Position.X, -entity.Position.Y, entity.Position.Z);
+                // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
+                Vector3 pos = (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
+                    ? localPlayerDisplayPos.Value
+                    : new Vector3(-entity.Position.X, -entity.Position.Y, entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);
                 Vector3 maxBox = pos + new Vector3(1.0f, 2.2f, 1.0f);
 
@@ -290,14 +304,12 @@ namespace Gordian.App.Graphics
 
                 visible++;
 
-                // Compute authentic entity world transform
-                // 1. Heading angle: FFXI Direction 0=East(+X), 64=South(+Z), 128=West(-X), 192=North(-Z)
-                // This entity is placed at a mirrored X (see `pos` above: (-x, -y, z)), so the
-                // mesh's facing rotation must also compensate for that mirror. A -90 degree
-                // offset alone still left the rendered facing a constant 90 degrees off from the
-                // actual (mirrored) direction of travel at every heading; -180 degrees is what
-                // makes the model visually face the way it moves.
-                float headingRad = (entity.Direction / 256.0f) * MathF.PI * 2.0f;
+                // Heading angle: FFXI Direction 0=East(+X), 64=South(+Z), 128=West(-X), 192=North(-Z)
+                // In display space (pos = (-x, -y, z)), entity model at rest faces (+1, 0, 0),
+                // so rotating by (headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
+                float headingRad = (entity.RenderHeadingRadians != 0f || entity.Direction != 0)
+                    ? entity.RenderHeadingRadians
+                    : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
 
                 bool isFallback = ReferenceEquals(gpuModel, _fallbackPlayerProxy) ||
@@ -330,19 +342,11 @@ namespace Gordian.App.Graphics
                 if (isSkinned)
                 {
                     bool isLocalPlayer = entity.ServerId == localPlayerServerId;
-                    bool engaged = isLocalPlayer ? isLocalPlayerEngaged : entity.ClaimServerId != 0;
-                    var category = AnimationStateClassifier.Classify(entity, engaged);
+                    bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
+                    var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
                     entity.Animation.Advance(deltaSeconds, category);
 
-                    AnimationClip? clip = null;
-                    for (int c = 0; c < CategoryClipNames.Length; c++)
-                    {
-                        if (CategoryClipNames[c].Category == category)
-                        {
-                            entityModel!.Animations.TryGetValue(CategoryClipNames[c].ClipName, out clip);
-                            break;
-                        }
-                    }
+                    AnimationClip? clip = ResolveClip(entityModel!, category);
 
                     bool loop = category != AnimationCategory.Death;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
@@ -406,6 +410,33 @@ namespace Gordian.App.Graphics
             }
 
             cl.UpdateBuffer(buffer, 0, _paletteScratch);
+        }
+
+        private static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category)
+        {
+            var anims = model.Animations;
+            if (anims.Count == 0) return null;
+
+            return category switch
+            {
+                AnimationCategory.Combat => TryGetClip(anims, "btl", "btl0", "cmb", "idl", "idl0"),
+                AnimationCategory.Death => TryGetClip(anims, "ded", "ded0", "dth", "dth0"),
+                AnimationCategory.Walk => TryGetClip(anims, "wlk", "wlk0", "cwlk", "run", "run0", "idl", "idl0"),
+                AnimationCategory.Run => TryGetClip(anims, "run", "run0", "crun", "wlk", "wlk0", "idl", "idl0"),
+                _ => TryGetClip(anims, "idl", "idl0", "std", "std0")
+            };
+        }
+
+        private static AnimationClip? TryGetClip(IReadOnlyDictionary<string, AnimationClip> anims, params string[] candidateNames)
+        {
+            foreach (var name in candidateNames)
+            {
+                if (anims.TryGetValue(name, out var clip))
+                {
+                    return clip;
+                }
+            }
+            return null;
         }
 
         private GpuEntityModel GetOrUploadGpuModel(EntityModel model)

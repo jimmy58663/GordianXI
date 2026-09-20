@@ -74,5 +74,86 @@ namespace Gordian.Core.Tests.Animation
             var entity = CreateEntity(speed: 0, claimServerId: 99);
             Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false));
         }
+
+        [Fact]
+        public void Classify_Monster_RoamingAtWalkSpeed_ReturnsWalk()
+        {
+            var monster = new WorldEntity(10, 500, EntityType.Monster)
+            {
+                Speed = 20, // Roaming speed (<= 25 walk threshold)
+                Hpp = 100,
+                ClaimServerId = 0
+            };
+
+            // Unengaged roaming monster moving at walk speed walks
+            Assert.Equal(AnimationCategory.Walk, AnimationStateClassifier.Classify(monster, isEngaged: false));
+        }
+
+        [Fact]
+        public void Classify_Monster_AggroedChasing_ReturnsRun()
+        {
+            var monster = new WorldEntity(10, 500, EntityType.Monster)
+            {
+                Speed = 50,
+                Hpp = 100,
+                ClaimServerId = 12345
+            };
+
+            // Engaged or aggroed monster chasing a player runs
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(monster, isEngaged: true));
+        }
+
+        [Fact]
+        public void Classify_Monster_EngagedStationary_ReturnsCombat()
+        {
+            var monster = new WorldEntity(10, 500, EntityType.Monster)
+            {
+                Speed = 0,
+                Hpp = 100,
+                ClaimServerId = 12345
+            };
+
+            // Stationary engaged/claimed monster enters combat stance
+            Assert.Equal(AnimationCategory.Combat, AnimationStateClassifier.Classify(monster, isEngaged: true));
+        }
+
+        [Fact]
+        public void Classify_RemoteEntity_MotionTimeout_ReturnsIdle()
+        {
+            var now = DateTime.UtcNow;
+            var entity = new WorldEntity(20, 200, EntityType.Npc)
+            {
+                Speed = 50,
+                Hpp = 100,
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(800) // timed out (>750ms)
+            };
+
+            // Timed-out remote entity with no physical distance remaining returns to Idle
+            Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            // Local player ignores remote position packet timeout
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: true, utcNow: now));
+        }
+
+        [Fact]
+        public void Classify_RemoteEntity_PhysicalTravelRemaining_PreservesWalkUntilDestination()
+        {
+            var now = DateTime.UtcNow;
+            var entity = new WorldEntity(21, 201, EntityType.Monster)
+            {
+                Speed = 0, // Server speed byte set to 0 mid-glide or between packets
+                Hpp = 100,
+                Position = new System.Numerics.Vector3(10f, 0f, 0f),
+                TargetPosition = new System.Numerics.Vector3(12f, 0f, 0f), // 2.0 yalms remaining
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(900) // even if packet timed out
+            };
+
+            // Remote monster physically moving across ground continues locomotion animation instead of resetting to Idle
+            Assert.Equal(AnimationCategory.Walk, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            // Once destination is reached, it transitions to Idle
+            entity.Position = entity.TargetPosition;
+            Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+        }
     }
 }
