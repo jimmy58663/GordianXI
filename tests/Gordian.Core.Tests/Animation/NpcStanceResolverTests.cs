@@ -127,6 +127,60 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void ResolveEffectiveStance_Gargouille_TogglesFlightAndRoosting()
+        {
+            var garg = CreateModelWithClips(
+                "garg", "idl0", "btl0", "wlk0", "run0",
+                "1dl0", "1tl0", "1lk0", "1un0",
+                "2dl0", "2tl0",
+                "sp00", "sp10", "sp20", "sp30"
+            );
+
+            // Sub 4 is Standing / Grounded (Stance 0)
+            Assert.Equal(0, NpcStanceResolver.ResolveEffectiveStance(garg, 4));
+            Assert.Equal("idl0", NpcStanceResolver.ResolveTargetClip(garg, AnimationCategory.Idle, 0)?.Name);
+            Assert.Equal("wlk0", NpcStanceResolver.ResolveTargetClip(garg, AnimationCategory.Walk, 0)?.Name);
+
+            // Sub 5 is Flying (Stance 1)
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(garg, 5));
+            Assert.Equal("1dl0", NpcStanceResolver.ResolveTargetClip(garg, AnimationCategory.Idle, 1)?.Name);
+            Assert.Equal("1lk0", NpcStanceResolver.ResolveTargetClip(garg, AnimationCategory.Walk, 1)?.Name);
+
+            // Sub 2 is Roosting (Stance 2)
+            Assert.Equal(2, NpcStanceResolver.ResolveEffectiveStance(garg, 2));
+            Assert.Equal("2dl0", NpcStanceResolver.ResolveTargetClip(garg, AnimationCategory.Idle, 2)?.Name);
+
+            // Transitions: 0 -> 1 is sp00 (takeoff), 1 -> 0 is sp10 (landing)
+            Assert.Equal("sp00", NpcStanceResolver.ResolveTransitionClip(garg, 0, 1)?.Name);
+            Assert.Equal("sp10", NpcStanceResolver.ResolveTransitionClip(garg, 1, 0)?.Name);
+            Assert.Equal("sp20", NpcStanceResolver.ResolveTransitionClip(garg, 0, 2)?.Name);
+            Assert.Equal("sp30", NpcStanceResolver.ResolveTransitionClip(garg, 2, 0)?.Name);
+        }
+
+        [Fact]
+        public void ResolveEffectiveStance_Imp_TogglesBrokenHornStance()
+        {
+            var imp = CreateModelWithClips(
+                "imp", "idl0", "btl0", "wlk0", "run0",
+                "1dl0", "1tl0", "1lk0", "1un0",
+                "sp00", "sp10"
+            );
+
+            // Sub 4 is Horn Intact (Stance 0)
+            Assert.Equal(0, NpcStanceResolver.ResolveEffectiveStance(imp, 4));
+            Assert.Equal("idl0", NpcStanceResolver.ResolveTargetClip(imp, AnimationCategory.Idle, 0)?.Name);
+
+            // Sub 5 is Horn Broken (Stance 1)
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(imp, 5));
+            Assert.Equal("1dl0", NpcStanceResolver.ResolveTargetClip(imp, AnimationCategory.Idle, 1)?.Name);
+            Assert.Equal("1tl0", NpcStanceResolver.ResolveTargetClip(imp, AnimationCategory.Combat, 1)?.Name);
+
+            // Transitions: 0 -> 1 is sp00 (break), 1 -> 0 is sp10 (restore)
+            Assert.Equal("sp00", NpcStanceResolver.ResolveTransitionClip(imp, 0, 1)?.Name);
+            Assert.Equal("sp10", NpcStanceResolver.ResolveTransitionClip(imp, 1, 0)?.Name);
+        }
+
+        [Fact]
         public void ResolveEffectiveStance_ConventionFallback_DetectsMode1Clips()
         {
             var customMob = CreateModelWithClips("idl0", "1dl0", "btl0", "1tl0");

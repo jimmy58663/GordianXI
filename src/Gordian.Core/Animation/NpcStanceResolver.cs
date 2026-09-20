@@ -47,16 +47,33 @@ namespace Gordian.Core.Animation
                 if (animationSub == 0 || animationSub == 2) return 0;
             }
 
-            // 3. Check for Hpemde family pattern: open mouth = 3, diving = 5, normal/surface = 0 or 6
+            // 3. Check for Gargouille family pattern: standing/perched = 4 (stance 0), flying = 5 (stance 1), roosting = 2 (stance 2)
+            // Protocol specification referenced from LandSandBoat scripts/mixins/families/gargouille.lua
+            if (anims.ContainsKey("garg"))
+            {
+                if (animationSub == 5) return 1; // Flying
+                if (animationSub == 4 || animationSub == 0) return 0; // Standing / Grounded
+                if (animationSub == 2) return 2; // Roosting
+            }
+
+            // 4. Check for Imp family pattern: horn intact = 4 (stance 0), horn broken = 5 (stance 1)
+            // Protocol specification referenced from LandSandBoat scripts/mixins/families/imp.lua
+            if (anims.ContainsKey("imp"))
+            {
+                if (animationSub == 5 || animationSub == 1) return 1; // Horn broken / agitated
+                if (animationSub == 4 || animationSub == 0) return 0; // Horn intact
+            }
+
+            // 5. Check for Hpemde family pattern: open mouth = 3, diving = 5, normal/surface = 0 or 6
             // Protocol specification referenced from LandSandBoat scripts/mixins/families/hpemde.lua
-            if (anims.ContainsKey("2dl0") || anims.ContainsKey("2tl0") || (anims.ContainsKey("sp20") && anims.ContainsKey("sp30")))
+            if (anims.ContainsKey("hebi") || (!anims.ContainsKey("garg") && (anims.ContainsKey("2dl0") || anims.ContainsKey("2tl0")) && anims.ContainsKey("sp20") && anims.ContainsKey("sp30")))
             {
                 if (animationSub == 3) return 1; // Open mouth
                 if (animationSub == 5) return 2; // Diving / submerged
                 if (animationSub == 0 || animationSub == 6) return 0; // Normal / surfaced
             }
 
-            // 4. Check for Omega bipedal stance pattern: biped = 1, quadruped = 0
+            // 6. Check for Omega bipedal stance pattern: biped = 1, quadruped = 0
             // Protocol specification referenced from LandSandBoat Apollyon / Proto-Omega skill lists
             if (anims.ContainsKey("omeg") || (anims.ContainsKey("1dl0") && anims.ContainsKey("1lk0") && anims.ContainsKey("1un0")))
             {
@@ -64,7 +81,7 @@ namespace Gordian.Core.Animation
                 if (animationSub == 0) return 0;
             }
 
-            // 5. Convention-based auto-discovery fallback:
+            // 7. Convention-based auto-discovery fallback:
             // If the model possesses mode 1 clips (1dl/1tl) and animationSub is 1, route to stance 1.
             if (animationSub == 1 && (anims.ContainsKey("1dl0") || anims.ContainsKey("1dl") || anims.ContainsKey("1tl0") || anims.ContainsKey("1tl") || anims.ContainsKey("gid0")))
             {
