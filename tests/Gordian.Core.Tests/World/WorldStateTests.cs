@@ -270,8 +270,8 @@ namespace Gordian.Core.Tests.World
             Assert.True(entity.Position.X < 12.0f);
             Assert.Equal(10.0f, entity.Position.Z);
 
-            // After advancing enough time (~0.5s > 0.40s duration), it should reach TargetPosition exactly
-            for (int i = 0; i < 30; i++)
+            // After advancing enough time (~1.5s > 1.35s duration), it should reach TargetPosition exactly
+            for (int i = 0; i < 90; i++)
             {
                 entity.InterpolatePosition(dt);
             }
@@ -304,7 +304,7 @@ namespace Gordian.Core.Tests.World
         [Fact]
         public void WorldEntity_HeadingDerivation_FacesDirectionOfTravelWhileMoving()
         {
-            var entity = new WorldEntity(0x557, 102, EntityType.Monster)
+            var entity = new WorldEntity(0x557, 102, EntityType.Player)
             {
                 Position = new Vector3(10f, 0f, 10f),
                 TargetPosition = new Vector3(10f, 0f, 20f), // Moving South (+Z)
@@ -323,6 +323,88 @@ namespace Gordian.Core.Tests.World
             entity.InterpolatePosition(0.1f);
 
             // North (-Z) is Direction 192 (270 degrees, 3pi/2 radians)
+            Assert.Equal(192, entity.Direction);
+        }
+
+        [Fact]
+        public void WorldEntity_Monster_DoesNotExtrapolatePastDestination()
+        {
+            var entity = new WorldEntity(0x558, 103, EntityType.Monster)
+            {
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(10f, 0f, 0f),
+                Speed = 40,
+                LastMovTime = 2000,
+                InterpolationDuration = 1.0f
+            };
+
+            // Advance past 1.0s to 1.5s
+            for (int i = 0; i < 90; i++) // 90 frames at 60 FPS = 1.5s
+            {
+                entity.InterpolatePosition(1.0f / 60.0f);
+            }
+
+            // Monsters must clamp at destination (10.0) without extrapolating into the void
+            Assert.Equal(10.0f, entity.Position.X, 2);
+        }
+
+        [Fact]
+        public void WorldEntity_Monster_PreservesWireDirectionEvenWhileMoving()
+        {
+            var entity = new WorldEntity(0x559, 104, EntityType.Monster)
+            {
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(10f, 0f, 0f),
+                Speed = 40,
+                Direction = 128 // Facing West according to server wire packet
+            };
+
+            entity.InterpolatePosition(0.1f);
+
+            // Server wire direction must NOT be overwritten by travel vector
+            Assert.Equal(128, entity.Direction);
+        }
+
+        [Fact]
+        public void WorldEntity_Extrapolation_MaintainsForwardHeadingPastDestination()
+        {
+            var entity = new WorldEntity(0x101, 50, EntityType.Player)
+            {
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(10f, 0f, 0f), // Moving East (+X)
+                Speed = 50,
+                LastMovTime = 38000,
+                InterpolationDuration = 1.0f
+            };
+
+            // Advance past the 1.0s duration into dead-reckoning extrapolation (e.g. 1.2s)
+            for (int i = 0; i < 72; i++) // 72 frames at 60 FPS = 1.2s
+            {
+                entity.InterpolatePosition(1.0f / 60.0f);
+            }
+
+            // Position should have coasted past 10.0f along +X
+            Assert.True(entity.Position.X > 10.0f);
+
+            // East (+X) is Direction 0. It must NOT have flipped 180 degrees backwards (West/128)!
+            Assert.Equal(0, entity.Direction);
+        }
+
+        [Fact]
+        public void WorldEntity_Stationary_DoesNotOverwriteWireDirection()
+        {
+            var entity = new WorldEntity(0x102, 51, EntityType.Npc)
+            {
+                Position = new Vector3(5f, 0f, 5f),
+                TargetPosition = new Vector3(5f, 0f, 5f),
+                Speed = 0,
+                LastMovTime = 1,
+                Direction = 192 // Facing North
+            };
+
+            entity.InterpolatePosition(0.1f);
+
+            // Should preserve wire direction when stopped
             Assert.Equal(192, entity.Direction);
         }
     }

@@ -170,11 +170,12 @@ namespace Gordian.Core.Network.Packets
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
 
         /// <summary>
-        /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.
+        /// Movement frame timer / timestamp (bits 0..12 of Flags0).
+        /// Value 1 (or 0) indicates stationary (MoveFlame=1); value > 1 indicates active movement (accumulating 60 FPS Run Count).
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
         /// </summary>
         public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
-        public bool IsMoving => MovTime != 0;
+        public bool IsMoving => MovTime > 1;
 
         // Flags1 properties
         public byte ChocoboIndex => (byte)((Flags1 >> 5) & 0x07);
@@ -451,6 +452,14 @@ namespace Gordian.Core.Network.Packets
         public ushort LookSize => _payload.Length >= 0x2E
             ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2C, 2))
             : (ushort)0;
+
+        /// <summary>
+        /// Sub-animation state parameter (offset 0x2A in whole packet, payload offset 0x26).
+        /// For Uragnites: 4 = out of shell (open), 5 = in shell (closed).
+        /// For Worms: 0 = surfaced, 1 = submerged.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp and uragnite.lua.
+        /// </summary>
+        public byte AnimationSub => _payload.Length >= 0x27 ? _payload[0x26] : (byte)0;
 
         /// <summary>
         /// Indicates if the NPC/entity uses the equipped appearance model (look_t, 20 bytes).

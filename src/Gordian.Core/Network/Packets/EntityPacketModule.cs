@@ -90,6 +90,11 @@ namespace Gordian.Core.Network.Packets
             player.IsSpawned = true;
             player.LastUpdatedUtc = DateTime.UtcNow;
 
+            ushort movTime = pc.MovTime;
+            bool movTimeChanged = player.LastMovTime != 0 && movTime != player.LastMovTime;
+            bool isMovingByMovTime = movTime > 1 && (player.LastMovTime <= 1 || movTimeChanged);
+            player.LastMovTime = movTime;
+
             if (pc.HasPosition)
             {
                 if (pc.UniqueNo != _localPlayer.ServerId)
@@ -99,24 +104,50 @@ namespace Gordian.Core.Network.Packets
                     if (!isNew && player.IsSpawned)
                     {
                         float dist = Vector3.Distance(newPos, player.TargetPosition);
-                        if (dist > 0.05f)
+                        DateTime now = DateTime.UtcNow;
+                        double dtMs = player.LastPositionChangeUtc != DateTime.MinValue
+                            ? (now - player.LastPositionChangeUtc).TotalMilliseconds
+                            : 0;
+
+                        if (dist > 0.05f || isMovingByMovTime)
                         {
-                            DateTime now = DateTime.UtcNow;
-                            float dt = (float)(now - player.LastPositionChangeUtc).TotalSeconds;
-                            if (dt > 0.05f && dt < 2.0f && player.LastPositionChangeUtc != DateTime.MinValue)
+                            byte prevSpeed = player.Speed;
+                            player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
+
+                            // Authentic FFXI travel speed in yalms per second (Speed 50 => 5.0 yalms/sec)
+                            float speedYalms = Math.Max(1.0f, player.Speed / 10.0f);
+                            float naturalDuration = dist / speedYalms;
+
+                            if (isMovingByMovTime)
                             {
-                                float yalmsPerSec = dist / dt;
-                                player.Speed = (byte)Math.Clamp((int)MathF.Round(yalmsPerSec * 10f), 1, 255);
-                                player.InterpolationDuration = dt;
+                                float dtSeconds = (float)(dtMs / 1000.0);
+                                if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
+                                {
+                                    // Synchronize duration with server packet interval, but bounded to authentic run speed [0.90x, 1.15x]
+                                    player.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
+                                }
+                                else
+                                {
+                                    player.InterpolationDuration = naturalDuration;
+                                }
                             }
                             else
                             {
-                                player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
-                                player.InterpolationDuration = 0.40f;
+                                // Stopping or residual step: traverse at authentic speed directly to destination
+                                player.InterpolationDuration = Math.Max(0.05f, naturalDuration);
                             }
 
                             player.LastPositionChangeUtc = now;
                             player.TargetPosition = newPos;
+
+                            if (prevSpeed == 0)
+                            {
+                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, speed={player.Speed}, interp={player.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
+                            }
+                            else
+                            {
+                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, interp={player.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
+                            }
 
                             if (Vector3.Distance(newPos, player.Position) > 15.0f)
                             {
@@ -126,6 +157,10 @@ namespace Gordian.Core.Network.Packets
                         }
                         else
                         {
+                            if (player.Speed > 0)
+                            {
+                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, setting speed=0 (was {player.Speed})");
+                            }
                             player.TargetPosition = newPos;
                             player.Speed = 0;
                         }
@@ -244,6 +279,7 @@ namespace Gordian.Core.Network.Packets
 
             ushort movTime = npcPacket.MovTime;
             bool movTimeChanged = entity.LastMovTime != 0 && movTime != entity.LastMovTime;
+            bool isMovingByMovTime = movTime > 1 && (entity.LastMovTime <= 1 || movTimeChanged);
             entity.LastMovTime = movTime;
 
             if (npcPacket.HasPosition)
@@ -253,45 +289,61 @@ namespace Gordian.Core.Network.Packets
                 if (!isNew && entity.IsSpawned)
                 {
                     float dist = Vector3.Distance(newPos, entity.TargetPosition);
-                    if (dist > 0.05f || movTimeChanged)
+                    DateTime now = DateTime.UtcNow;
+                    double dtMs = entity.LastPositionChangeUtc != DateTime.MinValue
+                        ? (now - entity.LastPositionChangeUtc).TotalMilliseconds
+                        : 0;
+
+                    if (dist > 0.05f)
                     {
-                        DateTime now = DateTime.UtcNow;
-                        float dt = (float)(now - entity.LastPositionChangeUtc).TotalSeconds;
-                        if (dist > 0.05f)
+                        byte prevSpeed = entity.Speed;
+                        entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
+
+                        // Authentic FFXI travel speed in yalms per second (Speed 40 => 4.0 yalms/sec)
+                        float speedYalms = Math.Max(1.0f, entity.Speed / 10.0f);
+                        float naturalDuration = dist / speedYalms;
+
+                        if (isMovingByMovTime)
                         {
-                            if (dt > 0.05f && dt < 2.0f && entity.LastPositionChangeUtc != DateTime.MinValue)
+                            float dtSeconds = (float)(dtMs / 1000.0);
+                            if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
                             {
-                                float yalmsPerSec = dist / dt;
-                                entity.Speed = (byte)Math.Clamp((int)MathF.Round(yalmsPerSec * 10f), 1, 255);
-                                entity.InterpolationDuration = dt;
+                                entity.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
                             }
                             else
                             {
-                                entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
-                                entity.InterpolationDuration = 0.40f;
-                            }
-
-                            entity.LastPositionChangeUtc = now;
-                            entity.TargetPosition = newPos;
-
-                            if (Vector3.Distance(newPos, entity.Position) > 15.0f)
-                            {
-                                entity.Position = newPos;
-                                entity.StartPosition = newPos;
+                                entity.InterpolationDuration = naturalDuration;
                             }
                         }
                         else
                         {
-                            // Server indicates active movement (movTime incremented) even if coordinates were near
-                            if (entity.Speed == 0)
-                            {
-                                entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
-                            }
-                            entity.LastPositionChangeUtc = now;
+                            entity.InterpolationDuration = Math.Max(0.05f, naturalDuration);
+                        }
+
+                        entity.LastPositionChangeUtc = now;
+                        entity.TargetPosition = newPos;
+
+                        if (prevSpeed == 0)
+                        {
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, speed={entity.Speed}, interp={entity.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
+                        }
+                        else
+                        {
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, interp={entity.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
+                        }
+
+                        if (Vector3.Distance(newPos, entity.Position) > 15.0f)
+                        {
+                            entity.Position = newPos;
+                            entity.StartPosition = newPos;
                         }
                     }
                     else
                     {
+                        if (entity.Speed > 0)
+                        {
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, setting speed=0 (was {entity.Speed})");
+                        }
                         entity.TargetPosition = newPos;
                         entity.Speed = 0;
                     }
@@ -318,6 +370,7 @@ namespace Gordian.Core.Network.Packets
                 entity.Hpp = npcPacket.Hpp;
             }
             entity.AnimationState = npcPacket.ServerStatus;
+            entity.AnimationSub = npcPacket.AnimationSub;
             entity.ClaimServerId = npcPacket.ClaimId;
 
             if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))

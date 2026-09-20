@@ -92,13 +92,13 @@ namespace Gordian.Core.World
             }
         }
 
-        public float InterpolationDuration { get; set; } = 0.40f;
+        public float InterpolationDuration { get; set; } = 1.35f;
         public float InterpolationElapsed { get; set; }
         public float RenderHeadingRadians { get; set; }
 
         /// <summary>
         /// Smoothly interpolates the entity's current render position towards its target network position
-        /// at constant uniform velocity across the network tick interval (~400ms) with extrapolation grace,
+        /// at constant uniform velocity across the network broadcast interval (~1.35s) with extrapolation grace,
         /// and smoothly aligns visual heading with the direction of travel.
         /// </summary>
         public void InterpolatePosition(float deltaSeconds)
@@ -113,24 +113,54 @@ namespace Gordian.Core.World
 
             InterpolationElapsed += deltaSeconds;
             float duration = Math.Max(0.05f, InterpolationDuration);
-            float t = Math.Clamp(InterpolationElapsed / duration, 0f, 1f);
+            float t = InterpolationElapsed / duration;
 
-            // Smooth constant-velocity glide from StartPosition to TargetPosition across the full tick interval
-            Position = Vector3.Lerp(StartPosition, TargetPosition, t);
+            if (t <= 1.0f || LastMovTime <= 1 || Type != EntityType.Player)
+            {
+                t = Math.Clamp(t, 0f, 1f);
+                // Smooth constant-velocity glide from StartPosition to TargetPosition across the full tick interval
+                Position = Vector3.Lerp(StartPosition, TargetPosition, t);
+            }
+            else
+            {
+                // Predictive dead-reckoning extrapolation: for remote players actively running (LastMovTime > 1),
+                // continue coasting forward along the travel vector at authentic speed for up to 400ms
+                // so the character never pauses/hitches if the next server packet is slightly delayed.
+                float extraSeconds = InterpolationElapsed - duration;
+                if (extraSeconds <= 0.40f)
+                {
+                    Vector3 travelDir = TargetPosition - StartPosition;
+                    float travelDist = travelDir.Length();
+                    if (travelDist > 0.01f)
+                    {
+                        Vector3 dir = travelDir / travelDist;
+                        float speedYalms = Speed > 0 ? (Speed / 10.0f) : 5.0f;
+                        Position = TargetPosition + dir * (speedYalms * extraSeconds);
+                    }
+                }
+            }
 
             UpdateHeading(deltaSeconds);
         }
 
         private void UpdateHeading(float deltaSeconds)
         {
-            // If actively moving towards a target destination, orient facing along the movement travel vector
-            Vector3 travel = TargetPosition - Position;
-            float flatDistSq = (travel.X * travel.X) + (travel.Z * travel.Z);
-            if (flatDistSq > 0.0025f) // > 0.05 yalms
+            // For remote players actively moving towards a target destination, orient facing along the forward movement travel vector.
+            // Using TargetPosition - StartPosition ensures the heading stays facing forward even during predictive
+            // extrapolation when Position travels past TargetPosition.
+            // For NPCs and monsters, the server is the absolute authority on facing rotation in every 0x00E packet;
+            // preserving wire Direction prevents backward flips and ensures custom poses (e.g. Uragnite in-shell) face correctly.
+            if (Type == EntityType.Player)
             {
-                float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
-                if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
-                Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+                Vector3 travel = TargetPosition - StartPosition;
+                float flatDistSq = (travel.X * travel.X) + (travel.Z * travel.Z);
+                float distToTarget = Vector3.Distance(Position, TargetPosition);
+                if (flatDistSq > 0.0025f && distToTarget > 0.05f && (Speed > 0 || LastMovTime > 1))
+                {
+                    float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
+                    if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
+                    Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+                }
             }
 
             // Smoothly rotate visual heading towards target heading
@@ -148,6 +178,7 @@ namespace Gordian.Core.World
         public byte SpeedBase { get; set; }
         public ushort LastMovTime { get; set; }
         public byte AnimationState { get; set; }
+        public byte AnimationSub { get; set; }
         public byte Hpp { get; set; }
         public uint ClaimServerId { get; set; }
 

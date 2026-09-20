@@ -12,6 +12,13 @@ namespace Gordian.Core.Animation
     public static class AnimationStateClassifier
     {
         /// <summary>
+        /// Maximum duration (in milliseconds) a remote entity maintains its movement animation
+        /// after the last server position packet without further updates or physical travel remaining.
+        /// Defaults to 1750ms to gracefully span LandSandBoat's ~1.35s-1.5s entity broadcast batching interval without mid-stride timeout drops.
+        /// </summary>
+        public static int RemoteEntityIdleTimeoutMs { get; set; } = 1750;
+
+        /// <summary>
         /// Classifies an entity's current animation category.
         /// isEngaged should reflect CombatState.IsEngaged for the local player; for any other
         /// entity, callers should pass whether it currently has a claim (entity.ClaimServerId != 0)
@@ -27,9 +34,12 @@ namespace Gordian.Core.Animation
             }
 
             DateTime now = utcNow ?? DateTime.UtcNow;
-            bool isTimedOut = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && (now - entity.LastPositionChangeUtc).TotalMilliseconds >= 750;
+            bool isTimedOut = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && (now - entity.LastPositionChangeUtc).TotalMilliseconds >= RemoteEntityIdleTimeoutMs;
             bool isPhysicallyMoving = !isLocalPlayer && Vector3.Distance(entity.Position, entity.TargetPosition) > 0.05f;
-            bool isMoving = isLocalPlayer ? (entity.Speed > 0) : (isPhysicallyMoving || (entity.Speed > 0 && !isTimedOut));
+            // Remote entities only arrive at rest when they reach destination AND the server reported they stopped (LastMovTime <= 1).
+            // If LastMovTime > 1, the character is actively running, so dead-reckoning extrapolation keeps them in locomotion.
+            bool hasArrived = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.LastMovTime <= 1;
+            bool isMoving = isLocalPlayer ? (entity.Speed > 0) : (!hasArrived && (isPhysicallyMoving || entity.Speed > 0) && !isTimedOut);
 
             if (isMoving)
             {

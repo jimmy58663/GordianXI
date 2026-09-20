@@ -344,9 +344,22 @@ namespace Gordian.App.Graphics
                     bool isLocalPlayer = entity.ServerId == localPlayerServerId;
                     bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
                     var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
-                    entity.Animation.Advance(deltaSeconds, category);
 
-                    AnimationClip? clip = ResolveClip(entityModel!, category);
+                    if (!isLocalPlayer && category != entity.Animation.Current)
+                    {
+                        double elapsedSincePacketMs = entity.LastPositionChangeUtc != DateTime.MinValue
+                            ? (DateTime.UtcNow - entity.LastPositionChangeUtc).TotalMilliseconds
+                            : -1;
+                        float distToTarget = Vector3.Distance(entity.Position, entity.TargetPosition);
+
+                        GordianLog.Info("Locomotion",
+                            $"[Entity 0x{entity.ServerId:X8}:{entity.Name}] ANIMATION STATE CHANGED: {entity.Animation.Current} -> {category} " +
+                            $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, Interp={entity.InterpolationElapsed:F2}/{entity.InterpolationDuration:F2})");
+                    }
+
+                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub);
+
+                    AnimationClip? clip = ResolveClip(entityModel!, category, entity.AnimationSub);
 
                     bool loop = category != AnimationCategory.Death;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
@@ -412,10 +425,23 @@ namespace Gordian.App.Graphics
             cl.UpdateBuffer(buffer, 0, _paletteScratch);
         }
 
-        private static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category)
+        private static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category, byte animationSub = 0)
         {
             var anims = model.Animations;
             if (anims.Count == 0) return null;
+
+            // Alternate/defense sub-animation stance (e.g. Uragnite in shell: AnimationSub == 5)
+            // Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) uragnite.lua
+            if (animationSub == 5)
+            {
+                AnimationClip? subClip = category switch
+                {
+                    AnimationCategory.Combat => TryGetClip(anims, "dbi", "dbi0", "dfi", "dfi0"),
+                    AnimationCategory.Walk or AnimationCategory.Run => TryGetClip(anims, "dfm", "dfm1", "dbm", "dbm1"),
+                    _ => TryGetClip(anims, "dfi", "dfi0", "dbi", "dbi0")
+                };
+                if (subClip != null) return subClip;
+            }
 
             return category switch
             {

@@ -9,17 +9,19 @@ namespace Gordian.Core.Animation
     public sealed class EntityAnimationState
     {
         public AnimationCategory Current { get; private set; } = AnimationCategory.Idle;
+        public byte SubAnimation { get; private set; }
         public float ElapsedSeconds { get; private set; }
 
         /// <summary>
-        /// Advances playback time by dt. Switching to a new category resets ElapsedSeconds to 0
-        /// so the new clip starts from its first frame instead of continuing at the old offset.
+        /// Advances playback time by dt. Switching to a new category or sub-animation stance resets
+        /// ElapsedSeconds to 0 so the new clip starts from its first frame instead of continuing at the old offset.
         /// </summary>
-        public void Advance(float dt, AnimationCategory newCategory)
+        public void Advance(float dt, AnimationCategory newCategory, byte subAnimation = 0)
         {
-            if (newCategory != Current)
+            if (newCategory != Current || subAnimation != SubAnimation)
             {
                 Current = newCategory;
+                SubAnimation = subAnimation;
                 ElapsedSeconds = 0f;
                 return;
             }

@@ -1,4 +1,5 @@
 // tests/Gordian.Core.Tests/Animation/AnimationStateClassifierTests.cs
+using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.World;
 using Xunit;
@@ -125,10 +126,28 @@ namespace Gordian.Core.Tests.Animation
             {
                 Speed = 50,
                 Hpp = 100,
-                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(800) // timed out (>750ms)
+                Position = Vector3.Zero,
+                TargetPosition = new Vector3(10f, 0f, 0f),
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(1500) // not timed out (<1750ms)
             };
 
-            // Timed-out remote entity with no physical distance remaining returns to Idle
+            // Not timed out yet with physical distance remaining: still running
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            // Remote entity that arrived at TargetPosition with LastMovTime <= 1 switches to Idle immediately without running in place
+            entity.Position = entity.TargetPosition;
+            entity.LastMovTime = 1;
+            Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            // Active runner (LastMovTime > 1) that reaches target before next packet arrives preserves Run (no mid-stride hitch)
+            entity.LastMovTime = 50;
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            entity.Position = Vector3.Zero; // restore for timeout check
+            entity.LastMovTime = 1;
+
+            // Timed-out remote entity (>=1750ms) returns to Idle
+            entity.LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(1850);
             Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
 
             // Local player ignores remote position packet timeout
