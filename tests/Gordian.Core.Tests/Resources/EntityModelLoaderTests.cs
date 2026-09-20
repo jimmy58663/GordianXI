@@ -88,9 +88,9 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(model);
             Assert.Equal("test_assembled", model.Name);
             Assert.NotNull(model.Skeleton);
-            Assert.Single(model.MeshGroups);
+            Assert.Single(model.AnimatedMeshGroups);
 
-            var mg = model.MeshGroups[0];
+            var mg = model.AnimatedMeshGroups[0];
             Assert.Equal("armor_tex", mg.TextureName);
             Assert.Equal(3, mg.Vertices.Length);
             Assert.Equal(3, mg.Indices.Length);
@@ -144,6 +144,54 @@ namespace Gordian.Core.Tests.Resources
             Assert.Contains(7880, loadedFids);
             // Feet 0 for HumeMale is 8136
             Assert.Contains(8136, loadedFids);
+
+            // Speculative locomotion/battle motion-pack loading is off by default (unverified file
+            // mapping previously collapsed characters into a garbage-animated blob) - none of those
+            // extra paths/fileIds should be requested unless explicitly opted in.
+            Assert.DoesNotContain(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
+            Assert.DoesNotContain(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
+            Assert.DoesNotContain(32013, loadedFids);
+        }
+
+        [Fact]
+        public void EntityModelLoader_AssembleCharacter_LoadsLocomotionPacksWhenExplicitlyEnabled()
+        {
+            var loadedPaths = new List<string>();
+            var loadedFids = new List<int>();
+
+            byte[] dummyDat = CreateChunk(DatSectionType.Skeleton, new byte[34]);
+
+            byte[]? PathResolver(string path)
+            {
+                loadedPaths.Add(path);
+                return dummyDat;
+            }
+
+            byte[]? FidResolver(int fid)
+            {
+                loadedFids.Add(fid);
+                return dummyDat;
+            }
+
+            EntityModelLoader.EnableSpeculativeMotionPacks = true;
+            try
+            {
+                var model = EntityModelLoader.AssembleCharacter(
+                    CharacterRace.HumeMale,
+                    0,
+                    new ushort[9],
+                    PathResolver,
+                    FidResolver);
+
+                Assert.NotNull(model);
+                Assert.Contains(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
+                Assert.Contains(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
+                Assert.Contains(32013, loadedFids);
+            }
+            finally
+            {
+                EntityModelLoader.EnableSpeculativeMotionPacks = false;
+            }
         }
 
         [Fact]
@@ -268,8 +316,8 @@ namespace Gordian.Core.Tests.Resources
             var model = EntityModelLoader.AssembleModel(primaryDat, new[] { (ReadOnlyMemory<byte>)partDat }, "test_elvaan");
 
             Assert.NotNull(model);
-            Assert.Single(model.MeshGroups);
-            Assert.Equal("tim     em_h81_1", model.MeshGroups[0].TextureName);
+            Assert.Single(model.AnimatedMeshGroups);
+            Assert.Equal("tim     em_h81_1", model.AnimatedMeshGroups[0].TextureName);
             // Verify both full name and short name are indexed
             Assert.True(model.Textures.ContainsKey("tim     em_h81_1"));
             Assert.True(model.Textures.ContainsKey("em_h81_1"));

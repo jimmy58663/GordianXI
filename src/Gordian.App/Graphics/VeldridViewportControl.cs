@@ -411,14 +411,17 @@ namespace Gordian.App.Graphics
 
                 Vector3 playerPos = Vector3.Zero;
                 bool hasPlayerPos = false;
+                uint localPlayerServerId = 0;
+                bool isLocalPlayerEngaged = false;
 
                 if (_activeSession != null)
                 {
-                    uint localServerId = _activeSession.LocalPlayer.ServerId != 0
+                    localPlayerServerId = _activeSession.LocalPlayer.ServerId != 0
                         ? _activeSession.LocalPlayer.ServerId
                         : _activeSession.CharacterId;
+                    isLocalPlayerEngaged = _activeSession.Combat.IsEngaged;
 
-                    if (localServerId != 0 && _activeSession.World.TryGetByServerId(localServerId, out var localEnt) && localEnt != null)
+                    if (localPlayerServerId != 0 && _activeSession.World.TryGetByServerId(localPlayerServerId, out var localEnt) && localEnt != null)
                     {
                         playerPos = localEnt.Position;
                         hasPlayerPos = true;
@@ -476,7 +479,9 @@ namespace Gordian.App.Graphics
                                 _deviceManager.CurrentWidth,
                                 _deviceManager.CurrentHeight,
                                 WorldState?.Entities,
-                                ResourceManager);
+                                ResourceManager,
+                                localPlayerServerId,
+                                isLocalPlayerEngaged);
                         }
                         catch (Exception ex)
                         {

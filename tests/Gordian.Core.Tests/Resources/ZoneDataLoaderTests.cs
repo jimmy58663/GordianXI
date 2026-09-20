@@ -265,11 +265,11 @@ namespace Gordian.Core.Tests.Resources
             bool pOk = rm.TryLoadEntityModel(player, out var playerModel);
             Assert.True(pOk, "TryLoadEntityModel failed for player");
             Assert.NotNull(playerModel);
-            Assert.NotEmpty(playerModel.MeshGroups);
-            Gordian.Core.Diagnostics.GordianLog.Info("PLAYER", $"Player MinBounds={playerModel.MinBounds}, MaxBounds={playerModel.MaxBounds}, MeshGroups={playerModel.MeshGroups.Count}");
-            for (int i = 0; i < playerModel.MeshGroups.Count; i++)
+            Assert.NotEmpty(playerModel.AnimatedMeshGroups);
+            Gordian.Core.Diagnostics.GordianLog.Info("PLAYER", $"Player MinBounds={playerModel.MinBounds}, MaxBounds={playerModel.MaxBounds}, MeshGroups={playerModel.AnimatedMeshGroups.Count}");
+            for (int i = 0; i < playerModel.AnimatedMeshGroups.Count; i++)
             {
-                var mg = playerModel.MeshGroups[i];
+                var mg = playerModel.AnimatedMeshGroups[i];
                 Gordian.Core.Diagnostics.GordianLog.Info("PLAYER", $"Player Mesh[{i}]: Name='{mg.Name}', Tex='{mg.TextureName}', Min={mg.MinBounds}, Max={mg.MaxBounds}, Verts={mg.Vertices.Length}");
             }
             

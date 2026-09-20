@@ -2,8 +2,8 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 535 Passing Unit Tests (`dotnet test`)
-- **Active Focus:** Phase 5D: Skeletal Animation Engine (MVP Completion)
+- **Test Status:** 593 Passing Unit Tests (`dotnet test`)
+- **Active Focus:** Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -131,10 +131,11 @@
   - [x] Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
   - [x] Bind-pose entity rendering at live `WorldEntity` coordinates
   - [x] NPC, Monster, and Trust model rendering from DAT resource caches
-- [ ] **Phase 5D: Skeletal Animation Engine:**
-  - [ ] FFXI bone hierarchy & joint matrix tree parser
-  - [ ] Quaternion SLERP rotation & translation keyframe interpolation
-  - [ ] Animation state machine blending idle, walk, run, combat stance, and death with network locomotion packets
+- [x] **Phase 5D: Skeletal Animation Engine:**
+  - [x] FFXI bone hierarchy & joint matrix tree parser (Section `0x2B` `SkeletonAnimationDecoder`, GPU joint-palette skinning in `EntityRenderer`/`ZoneShaders`)
+  - [x] Quaternion normalized-lerp (NLERP, matching documented retail behavior) rotation & translation keyframe interpolation (`AnimationClip.TrySample`, `SkeletonPoseEvaluator.EvaluatePose`)
+  - [x] Animation state machine blending idle, walk, run, combat stance, and death with network locomotion packets (`AnimationStateClassifier`, `EntityAnimationState`)
+  - ⚠️ Known follow-ups: an in-game playtest showed the speculative locomotion-pack (base+0/+1/+3) and H2H battle-pack file paths resolved to real files that are *not* actually animation data, producing garbage clips that collapsed the character mesh into a small blob at the origin. `EntityModelLoader.EnableSpeculativeMotionPacks` (default `false`) now gates that loading off entirely, so characters render in bind pose (matching pre-5D visuals) until the real per-race file mapping is verified against extracted game data. The decoder also now rejects implausible header values and non-finite keyframe data defensively. Combat-stance motion-pack selection is also still H2H-only (no weapon-to-skill-category table exists yet).
 - [ ] **Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays:**
   - [ ] **3-Tier Rendering Architecture:**
     - [ ] *Tier 1 (3D Scene):* Veldrid terrain, skybox, models, lighting, and fog pass.

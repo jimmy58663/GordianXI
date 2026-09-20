@@ -31,6 +31,16 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public static EvaluatedPose ComputeBindPose(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
+            return EvaluatePose(skeleton, null, 0f, false, parentOverrides);
+        }
+
+        /// <summary>
+        /// Evaluates world rotation/translation for each joint at a given clip playback time.
+        /// Joints without a track in the clip (or when clip is null) fall back to the skeleton's
+        /// static bind-pose local rotation/translation.
+        /// </summary>
+        public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
             int n = skeleton.Count;
             if (n == 0)
             {
@@ -87,8 +97,13 @@ namespace Gordian.Core.Resources.Graphics
                         continue;
                     }
 
-                    Vector3 t = joint.Translation;
-                    Quaternion r = joint.Rotation;
+                    Vector3 t;
+                    Quaternion r;
+                    if (clip == null || !clip.TrySample(i, timeSeconds, loop, out r, out t))
+                    {
+                        t = joint.Translation;
+                        r = joint.Rotation;
+                    }
 
                     if (i == 0)
                     {
@@ -257,6 +272,120 @@ namespace Gordian.Core.Resources.Graphics
                 if (outIndices.Count > 0)
                 {
                     results.Add(new MeshGroup
+                    {
+                        Name = $"{piece.TextureName}_{(piece.Mirrored ? "Mirror" : "Normal")}_{p}",
+                        TextureName = piece.TextureName,
+                        Vertices = outVerts.ToArray(),
+                        Indices = outIndices.ToArray(),
+                        MinBounds = minBounds,
+                        MaxBounds = maxBounds
+                    });
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Unrolls a SkeletonMeshGroup into GPU-ready AnimatedMeshGroup batches carrying raw
+        /// per-vertex joint/weight/position/normal data for real-time GPU skinning, instead of
+        /// baking a final world-space position. bindPoseForBounds is used only to compute an
+        /// approximate frustum-culling AABB per submesh; the position it yields is otherwise discarded.
+        /// </summary>
+        public static List<AnimatedMeshGroup> BuildAnimatedMeshGroups(SkeletonMeshGroup meshGroup, in EvaluatedPose bindPoseForBounds)
+        {
+            var results = new List<AnimatedMeshGroup>();
+            if (meshGroup.Pieces.Count == 0 || meshGroup.Vertices.Length == 0)
+            {
+                return results;
+            }
+
+            // Copied to a local so the local function below (ToAnimated) can capture it -
+            // 'in' parameters cannot be captured by closures.
+            EvaluatedPose bindPose = bindPoseForBounds;
+
+            for (int p = 0; p < meshGroup.Pieces.Count; p++)
+            {
+                var piece = meshGroup.Pieces[p];
+                if (piece.Corners.Length < 3) continue;
+
+                var vertPool = piece.Mirrored && meshGroup.FlippedVertices != null
+                    ? meshGroup.FlippedVertices
+                    : meshGroup.Vertices;
+
+                var outVerts = new List<AnimatedMeshVertex>();
+                var outIndices = new List<int>();
+
+                Vector3 minBounds = new(float.MaxValue);
+                Vector3 maxBounds = new(float.MinValue);
+
+                AnimatedMeshVertex ToAnimated(int vi, in MeshCorner corner)
+                {
+                    ref var sv = ref vertPool[vi];
+                    var (boundsPos, _) = SkinVertex(sv, bindPose);
+                    minBounds = Vector3.Min(minBounds, boundsPos);
+                    maxBounds = Vector3.Max(maxBounds, boundsPos);
+
+                    return new AnimatedMeshVertex(
+                        sv.Position0, sv.Position1,
+                        sv.Normal0, sv.Normal1,
+                        sv.Weight0, sv.Weight1,
+                        sv.Joint0, sv.Joint1,
+                        corner.TexCoord, corner.ColorRgba);
+                }
+
+                if (piece.Topology == MeshTopology.TriangleList)
+                {
+                    for (int i = 0; i + 2 < piece.Corners.Length; i += 3)
+                    {
+                        int baseIdx = outVerts.Count;
+                        for (int k = 0; k < 3; k++)
+                        {
+                            var corner = piece.Corners[i + k];
+                            int vi = Math.Clamp(corner.VertexIndex, 0, vertPool.Length - 1);
+                            outVerts.Add(ToAnimated(vi, corner));
+                        }
+
+                        outIndices.Add(baseIdx);
+                        outIndices.Add(baseIdx + 1);
+                        outIndices.Add(baseIdx + 2);
+                    }
+                }
+                else if (piece.Topology == MeshTopology.TriangleStrip)
+                {
+                    int vertBase = outVerts.Count;
+                    for (int i = 0; i < piece.Corners.Length; i++)
+                    {
+                        var corner = piece.Corners[i];
+                        int vi = Math.Clamp(corner.VertexIndex, 0, vertPool.Length - 1);
+                        outVerts.Add(ToAnimated(vi, corner));
+                    }
+
+                    for (int i = 0; i < piece.Corners.Length - 2; i++)
+                    {
+                        int i0 = vertBase + i;
+                        int i1 = vertBase + i + 1;
+                        int i2 = vertBase + i + 2;
+
+                        // Alternating winding order for strips
+                        if ((i & 1) == 0)
+                        {
+                            outIndices.Add(i0);
+                            outIndices.Add(i1);
+                            outIndices.Add(i2);
+                        }
+                        else
+                        {
+                            outIndices.Add(i1);
+                            outIndices.Add(i0);
+                            outIndices.Add(i2);
+                        }
+                    }
+                }
+
+                if (outIndices.Count > 0)
+                {
+                    results.Add(new AnimatedMeshGroup
                     {
                         Name = $"{piece.TextureName}_{(piece.Mirrored ? "Mirror" : "Normal")}_{p}",
                         TextureName = piece.TextureName,

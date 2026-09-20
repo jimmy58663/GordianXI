@@ -1,5 +1,6 @@
 // tests/Gordian.Core.Tests/Resources/SkeletonPoseEvaluatorTests.cs
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
@@ -120,6 +121,45 @@ namespace Gordian.Core.Tests.Resources
             // 2 triangles = 6 indices
             Assert.Equal(6, sm.Indices.Length);
             Assert.Equal(2, sm.TriangleCount);
+        }
+
+        [Fact]
+        public void SkeletonPoseEvaluator_EvaluatePose_SamplesClipAndFallsBackToBindPoseForUntrackedJoints()
+        {
+            var joints = new[]
+            {
+                new SkeletonJoint(-1, Quaternion.Identity, new Vector3(1f, 0f, 0f)), // root, untouched by clip below
+                new SkeletonJoint(0, Quaternion.Identity, new Vector3(0f, 5f, 0f))   // child, untracked in clip
+            };
+            var skeleton = new Skeleton(joints);
+
+            var track = new BoneAnimationTrack
+            {
+                JointIndex = 0,
+                Rotations = new[] { Quaternion.Identity, Quaternion.Identity },
+                Translations = new[] { new Vector3(100f, 0f, 0f), new Vector3(200f, 0f, 0f) }
+            };
+            var clip = new AnimationClip
+            {
+                Name = "test",
+                NumFrames = 2,
+                KeyFrameDuration = 1.0f, // -> 30 fps -> DurationSeconds = 2/30
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [0] = track }
+            };
+
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, timeSeconds: 0f, loop: true);
+
+            // Root (joint 0) uses the clip's frame-0 translation (100,0,0), not the skeleton's bind
+            // value (1,0,0), still passed through the FFXI root coordinate flip (x,y,z) -> (-z,y,x).
+            Assert.Equal(new Vector3(0f, 0f, 100f), pose.Translations[0]);
+
+            // Joint 1 has no track in this clip -> falls back to its own bind-pose local translation
+            // (0,5,0), accumulated onto the now clip-driven parent.
+            Assert.Equal(new Vector3(0f, 5f, 100f), pose.Translations[1]);
+
+            // Bind pose (no clip) is unaffected and still returns the skeleton's static values.
+            var bindPose = SkeletonPoseEvaluator.ComputeBindPose(skeleton);
+            Assert.Equal(new Vector3(0f, 0f, 1f), bindPose.Translations[0]);
         }
     }
 }

@@ -17,19 +17,34 @@ namespace Gordian.Core.Resources
     /// </summary>
     public static class EntityModelLoader
     {
+        /// <summary>
+        /// Gates automatic loading of the base+1 (upper body) / base+3 (waist) locomotion packs and
+        /// the H2H battle pack in <see cref="AssembleCharacter"/>. Defaults to false: the file-ID/path
+        /// arithmetic behind these packs (CharacterEquipmentResolver.GetLocomotionPackPaths /
+        /// GetBattlePackFileId) is sourced from community tooling and has not been confirmed against
+        /// real retail DAT files - in testing it resolved to files that do not actually contain the
+        /// expected 0x2B sections, producing garbage animation clips that collapsed characters into a
+        /// small blob at the origin. Leave this off (bind-pose-only rendering, matching pre-Phase-5D
+        /// visuals) until the real file mapping has been verified, then flip it on.
+        /// </summary>
+        public static bool EnableSpeculativeMotionPacks { get; set; } = false;
+
         public readonly record struct RawDatContainer(
             Skeleton? Skeleton,
             List<SkeletonMeshGroup> Meshes,
-            Dictionary<string, DecodedTexture> Textures
+            Dictionary<string, DecodedTexture> Textures,
+            List<AnimationClip> Animations
         );
 
         /// <summary>
-        /// Reads and extracts Skeleton (0x29), SkeletonMesh (0x2A), and Texture (0x20) sections from a raw DAT payload.
+        /// Reads and extracts Skeleton (0x29), SkeletonMesh (0x2A), SkeletonAnimation (0x2B), and
+        /// Texture (0x20) sections from a raw DAT payload.
         /// </summary>
         public static RawDatContainer ParseDatContainer(ReadOnlySpan<byte> datBytes, string sourceName = "")
         {
             var meshes = new List<SkeletonMeshGroup>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            var animations = new List<AnimationClip>();
             Skeleton? skeleton = null;
 
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -57,6 +72,14 @@ namespace Gordian.Core.Resources
                         }
                         break;
 
+                    case DatSectionType.SkeletonAnimation:
+                        var clip = SkeletonAnimationDecoder.DecodeClip(payload, h.DatId);
+                        if (clip != null)
+                        {
+                            animations.Add(clip);
+                        }
+                        break;
+
                     case DatSectionType.Texture:
                         var tex = TextureDecoder.DecodeTexture(payload);
                         if (tex != null)
@@ -78,7 +101,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            return new RawDatContainer(skeleton, meshes, textures);
+            return new RawDatContainer(skeleton, meshes, textures, animations);
         }
 
         /// <summary>
@@ -95,10 +118,16 @@ namespace Gordian.Core.Resources
 
             var primary = ParseDatContainer(primaryDat, name);
             model.Skeleton = primary.Skeleton;
+            model.ParentOverrides = parentOverrides;
 
             foreach (var kvp in primary.Textures)
             {
                 model.Textures[kvp.Key] = kvp.Value;
+            }
+
+            foreach (var clip in primary.Animations)
+            {
+                model.Animations[clip.Name] = clip;
             }
 
             var allMeshes = new List<SkeletonMeshGroup>(primary.Meshes);
@@ -118,6 +147,11 @@ namespace Gordian.Core.Resources
                         model.Textures[kvp.Key] = kvp.Value;
                     }
 
+                    foreach (var clip in extra.Animations)
+                    {
+                        model.Animations[clip.Name] = clip;
+                    }
+
                     allMeshes.AddRange(extra.Meshes);
                 }
             }
@@ -127,8 +161,8 @@ namespace Gordian.Core.Resources
                 var bindPose = SkeletonPoseEvaluator.ComputeBindPose(model.Skeleton, parentOverrides);
                 for (int m = 0; m < allMeshes.Count; m++)
                 {
-                    var evaluated = SkeletonPoseEvaluator.EvaluateMeshGroup(allMeshes[m], bindPose);
-                    model.MeshGroups.AddRange(evaluated);
+                    var evaluated = SkeletonPoseEvaluator.BuildAnimatedMeshGroups(allMeshes[m], bindPose);
+                    model.AnimatedMeshGroups.AddRange(evaluated);
                 }
             }
 
@@ -217,7 +251,118 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            return AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides);
+            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides);
+
+            // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus the H2H battle pack,
+            // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
+            // Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js.
+            // Gated off by default - see EnableSpeculativeMotionPacks.
+            if (EnableSpeculativeMotionPacks)
+            {
+                var (_, upperPath, waistPath) = CharacterEquipmentResolver.GetLocomotionPackPaths(race);
+                var overlaySources = new List<List<AnimationClip>>();
+
+                byte[]? upperDat = string.IsNullOrEmpty(upperPath) ? null : datByPath(upperPath);
+                if (upperDat != null && upperDat.Length > 0)
+                {
+                    overlaySources.Add(ParseDatContainer(upperDat, "LocomotionUpper").Animations);
+                }
+
+                byte[]? waistDat = string.IsNullOrEmpty(waistPath) ? null : datByPath(waistPath);
+                if (waistDat != null && waistDat.Length > 0)
+                {
+                    overlaySources.Add(ParseDatContainer(waistDat, "LocomotionWaist").Animations);
+                }
+
+                int battleFileId = CharacterEquipmentResolver.GetBattlePackFileId(race);
+                byte[]? battleDat = battleFileId > 0 ? datByFileId(battleFileId) : null;
+                if (battleDat != null && battleDat.Length > 0)
+                {
+                    overlaySources.Add(ParseDatContainer(battleDat, "BattlePack").Animations);
+                }
+
+                if (overlaySources.Count > 0)
+                {
+                    MergeLocomotionCategories(model, overlaySources);
+                }
+            }
+
+            return model;
+        }
+
+        /// <summary>
+        /// Groups a body's own clips plus any overlay-pack clips (upper body, waist/skirt, battle stance)
+        /// by their body-region-stripped category name (e.g. "idl0"/"idl1"/"idl2" -&gt; "idl"), and replaces
+        /// EntityModel.Animations with one composite AnimationClip per category. Joints tracked by a
+        /// later-layered source override the same joint from an earlier one, so upper/waist packs
+        /// naturally take over the joints they own while everything else keeps the base clip's motion.
+        /// </summary>
+        private static void MergeLocomotionCategories(EntityModel model, List<List<AnimationClip>> overlaySources)
+        {
+            var byCategory = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
+
+            void AddClip(AnimationClip clip)
+            {
+                string category = StripBodyRegionSuffix(clip.Name);
+                if (!byCategory.TryGetValue(category, out var list))
+                {
+                    list = new List<AnimationClip>();
+                    byCategory[category] = list;
+                }
+                list.Add(clip);
+            }
+
+            foreach (var baseClip in model.Animations.Values)
+            {
+                AddClip(baseClip);
+            }
+
+            foreach (var source in overlaySources)
+            {
+                foreach (var clip in source)
+                {
+                    AddClip(clip);
+                }
+            }
+
+            model.Animations.Clear();
+
+            foreach (var kvp in byCategory)
+            {
+                var sources = kvp.Value;
+                if (sources.Count == 0) continue;
+
+                var tracks = new Dictionary<int, BoneAnimationTrack>();
+                foreach (var clip in sources)
+                {
+                    foreach (var trackKvp in clip.Tracks)
+                    {
+                        tracks[trackKvp.Key] = trackKvp.Value;
+                    }
+                }
+
+                var timingSource = sources[0];
+                model.Animations[kvp.Key] = new AnimationClip
+                {
+                    Name = kvp.Key,
+                    NumFrames = timingSource.NumFrames,
+                    KeyFrameDuration = timingSource.KeyFrameDuration,
+                    Tracks = tracks
+                };
+            }
+        }
+
+        /// <summary>
+        /// Strips a trailing body-region digit (0=lower, 1=upper, 2=waist) from a clip name,
+        /// e.g. "idl0" -&gt; "idl". Names without a recognized trailing digit are left unchanged.
+        /// </summary>
+        private static string StripBodyRegionSuffix(string clipName)
+        {
+            if (clipName.Length >= 2 && clipName[^1] is >= '0' and <= '2')
+            {
+                return clipName[..^1];
+            }
+            return clipName;
         }
 
         /// <summary>

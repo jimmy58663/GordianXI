@@ -15,8 +15,10 @@ namespace Gordian.Core.Resources.Models
     {
         public string Name { get; set; } = string.Empty;
         public Skeleton? Skeleton { get; set; }
-        public List<MeshGroup> MeshGroups { get; } = new();
+        public List<AnimatedMeshGroup> AnimatedMeshGroups { get; } = new();
         public Dictionary<string, DecodedTexture> Textures { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, AnimationClip> Animations { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public IReadOnlyDictionary<int, int>? ParentOverrides { get; set; }
 
         public Vector3 MinBounds { get; private set; } = new(float.MaxValue);
         public Vector3 MaxBounds { get; private set; } = new(float.MinValue);
@@ -26,7 +28,7 @@ namespace Gordian.Core.Resources.Models
             get
             {
                 int count = 0;
-                for (int i = 0; i < MeshGroups.Count; i++) count += MeshGroups[i].Vertices.Length;
+                for (int i = 0; i < AnimatedMeshGroups.Count; i++) count += AnimatedMeshGroups[i].Vertices.Length;
                 return count;
             }
         }
@@ -36,7 +38,7 @@ namespace Gordian.Core.Resources.Models
             get
             {
                 int count = 0;
-                for (int i = 0; i < MeshGroups.Count; i++) count += MeshGroups[i].TriangleCount;
+                for (int i = 0; i < AnimatedMeshGroups.Count; i++) count += AnimatedMeshGroups[i].TriangleCount;
                 return count;
             }
         }
@@ -46,7 +48,7 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public void UpdateBounds()
         {
-            if (MeshGroups.Count == 0)
+            if (AnimatedMeshGroups.Count == 0)
             {
                 MinBounds = -Vector3.One;
                 MaxBounds = Vector3.One;
@@ -56,9 +58,9 @@ namespace Gordian.Core.Resources.Models
             Vector3 min = new(float.MaxValue);
             Vector3 max = new(float.MinValue);
 
-            for (int i = 0; i < MeshGroups.Count; i++)
+            for (int i = 0; i < AnimatedMeshGroups.Count; i++)
             {
-                var g = MeshGroups[i];
+                var g = AnimatedMeshGroups[i];
                 if (g.Vertices.Length == 0) continue;
 
                 min = Vector3.Min(min, g.MinBounds);
@@ -69,6 +71,6 @@ namespace Gordian.Core.Resources.Models
             MaxBounds = max;
         }
 
-        public override string ToString() => $"EntityModel [{Name}] ({MeshGroups.Count} meshes, {Textures.Count} textures, {TotalTriangles} tris)";
+        public override string ToString() => $"EntityModel [{Name}] ({AnimatedMeshGroups.Count} meshes, {Textures.Count} textures, {TotalTriangles} tris)";
     }
 }

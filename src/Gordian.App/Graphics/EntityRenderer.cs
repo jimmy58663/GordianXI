@@ -3,7 +3,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Graphics;
 using Gordian.Core.Resources;
@@ -17,8 +19,8 @@ namespace Gordian.App.Graphics
 {
     /// <summary>
     /// Hardware-accelerated 3D entity renderer for GordianXI.
-    /// Renders players, NPCs, monsters, and trusts at live WorldEntity coordinates in bind pose
-    /// with authentic FFXI orientation, lighting, and distance fog.
+    /// Renders players, NPCs, monsters, and trusts at live WorldEntity coordinates with GPU
+    /// joint-palette skeletal skinning, authentic FFXI orientation, lighting, and distance fog.
     /// Clean-room implementation referencing FFXI entity rendering conventions and xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
     public sealed class EntityRenderer : IDisposable
@@ -27,8 +29,10 @@ namespace Gordian.App.Graphics
         private readonly DeviceBuffer _entityUniformBuffer;
         private readonly ResourceLayout _sceneLayout;
         private readonly ResourceLayout _textureLayout;
+        private readonly ResourceLayout _jointPaletteLayout;
         private readonly ResourceSet _entityResourceSet;
         private readonly Pipeline _pipeline;
+        private readonly Pipeline _skinnedPipeline;
         private readonly GpuTextureCache _textureCache;
 
         // FFXI Entity DAT -> Screen transform: 180-degree turn about X axis: diag(1, -1, -1, 1).
@@ -40,10 +44,22 @@ namespace Gordian.App.Graphics
             0.0f,  0.0f,  0.0f, 1.0f
         );
 
+        private static readonly (AnimationCategory Category, string ClipName)[] CategoryClipNames =
+        {
+            (AnimationCategory.Idle, "idl"),
+            (AnimationCategory.Walk, "wlk"),
+            (AnimationCategory.Run, "run"),
+            (AnimationCategory.Combat, "cmb"),
+            (AnimationCategory.Death, "dth"),
+        };
+
         private readonly ConcurrentDictionary<string, GpuEntityModel> _gpuModelCache = new();
+        private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
+        private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 2];
         private GpuEntityModel? _fallbackPlayerProxy;
         private GpuEntityModel? _fallbackNpcProxy;
         private GpuEntityModel? _fallbackMonsterProxy;
+        private bool _loggedPaletteOverflow;
         private bool _disposed;
 
         public int DrawCalls { get; private set; }
@@ -70,6 +86,7 @@ namespace Gordian.App.Graphics
             public Vector3 MinBounds { get; init; } = -Vector3.One;
             public Vector3 MaxBounds { get; init; } = Vector3.One;
             public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
+            public bool IsSkinned { get; init; }
 
             public void Dispose()
             {
@@ -79,6 +96,30 @@ namespace Gordian.App.Graphics
                 }
                 Submeshes.Clear();
             }
+        }
+
+        private readonly record struct JointPaletteEntry(DeviceBuffer Buffer, ResourceSet Set)
+        {
+            public void Dispose()
+            {
+                Buffer.Dispose();
+                Set.Dispose();
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SkinnedGpuVertex
+        {
+            public Vector3 Position0;
+            public Vector3 Position1;
+            public Vector3 Normal0;
+            public Vector3 Normal1;
+            public float Weight0;
+            public float Weight1;
+            public float Joint0;
+            public float Joint1;
+            public Vector2 TexCoord;
+            public uint ColorRgba;
         }
 
         public EntityRenderer(GraphicsDevice gd)
@@ -96,6 +137,9 @@ namespace Gordian.App.Graphics
             _textureLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("uTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                 new ResourceLayoutElementDescription("uSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
+
+            _jointPaletteLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
+                new ResourceLayoutElementDescription("JointPalette", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
 
             _entityResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _entityUniformBuffer));
             _textureCache = new GpuTextureCache(_gd, _textureLayout);
@@ -138,6 +182,43 @@ namespace Gordian.App.Graphics
 
             _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
 
+            var skinnedVsDesc = new ShaderDescription(
+                ShaderStages.Vertex,
+                Encoding.UTF8.GetBytes(ZoneShaders.SkinnedVertexShaderGlsl),
+                "main");
+            Shader[] skinnedShaders = factory.CreateFromSpirv(skinnedVsDesc, fsDesc);
+
+            var skinnedVertexLayout = new VertexLayoutDescription(
+                new VertexElementDescription("Position0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                new VertexElementDescription("Position1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                new VertexElementDescription("Normal0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                new VertexElementDescription("Normal1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                new VertexElementDescription("Weights", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
+                new VertexElementDescription("Joints", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
+                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
+
+            var skinnedPipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleOverrideBlend,
+                DepthStencilState = new DepthStencilStateDescription(
+                    depthTestEnabled: true,
+                    depthWriteEnabled: true,
+                    comparisonKind: ComparisonKind.LessEqual),
+                RasterizerState = new RasterizerStateDescription(
+                    cullMode: FaceCullMode.None,
+                    fillMode: PolygonFillMode.Solid,
+                    frontFace: FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _jointPaletteLayout },
+                ShaderSet = new ShaderSetDescription(new[] { skinnedVertexLayout }, skinnedShaders),
+                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+            };
+
+            _skinnedPipeline = factory.CreateGraphicsPipeline(skinnedPipelineDesc);
+
             BuildFallbackProxies();
         }
 
@@ -149,7 +230,10 @@ namespace Gordian.App.Graphics
             ViewportCamera camera,
             ZoneEnvironmentSettings environment,
             IEnumerable<WorldEntity> entities,
-            ResourceManager? resourceManager)
+            ResourceManager? resourceManager,
+            float deltaSeconds = 0f,
+            uint localPlayerServerId = 0,
+            bool isLocalPlayerEngaged = false)
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -160,11 +244,16 @@ namespace Gordian.App.Graphics
             float fogRange = Math.Max(0.001f, environment.FogEnd - environment.FogStart);
             var frustum = camera.Frustum;
 
-            cl.SetPipeline(_pipeline);
-
             foreach (var entity in entities)
             {
-                if (!entity.IsSpawned) continue;
+                if (!entity.IsSpawned)
+                {
+                    if (_jointPaletteByEntity.TryRemove(entity.ServerId, out var stalePalette))
+                    {
+                        stalePalette.Dispose();
+                    }
+                    continue;
+                }
 
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).
@@ -180,7 +269,8 @@ namespace Gordian.App.Graphics
 
                 // Resolve or build GPU model
                 GpuEntityModel? gpuModel = null;
-                if (resourceManager != null && resourceManager.TryLoadEntityModel(entity, out var entityModel) && entityModel != null)
+                EntityModel? entityModel = null;
+                if (resourceManager != null && resourceManager.TryLoadEntityModel(entity, out entityModel) && entityModel != null)
                 {
                     gpuModel = GetOrUploadGpuModel(entityModel);
                 }
@@ -193,6 +283,7 @@ namespace Gordian.App.Graphics
                         EntityType.Monster => _fallbackMonsterProxy,
                         _ => _fallbackNpcProxy
                     };
+                    entityModel = null;
                 }
 
                 if (gpuModel == null || gpuModel.Submeshes.Count == 0) continue;
@@ -225,7 +316,34 @@ namespace Gordian.App.Graphics
                 };
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
+
+                bool isSkinned = gpuModel.IsSkinned && entityModel?.Skeleton != null && entityModel.Skeleton.Count > 0;
+
+                cl.SetPipeline(isSkinned ? _skinnedPipeline : _pipeline);
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
+
+                if (isSkinned)
+                {
+                    bool isLocalPlayer = entity.ServerId == localPlayerServerId;
+                    bool engaged = isLocalPlayer ? isLocalPlayerEngaged : entity.ClaimServerId != 0;
+                    var category = AnimationStateClassifier.Classify(entity, engaged);
+                    entity.Animation.Advance(deltaSeconds, category);
+
+                    AnimationClip? clip = null;
+                    for (int c = 0; c < CategoryClipNames.Length; c++)
+                    {
+                        if (CategoryClipNames[c].Category == category)
+                        {
+                            entityModel!.Animations.TryGetValue(CategoryClipNames[c].ClipName, out clip);
+                            break;
+                        }
+                    }
+
+                    bool loop = category != AnimationCategory.Death;
+                    var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, clip, entity.Animation.ElapsedSeconds, loop, entityModel.ParentOverrides);
+                    cl.SetGraphicsResourceSet(2, palette.Set);
+                }
 
                 for (int m = 0; m < gpuModel.Submeshes.Count; m++)
                 {
@@ -245,6 +363,46 @@ namespace Gordian.App.Graphics
             CulledEntities = culled;
         }
 
+        private JointPaletteEntry CreateJointPalette()
+        {
+            var factory = _gd.ResourceFactory;
+            uint bufferSize = (uint)(ZoneShaders.MaxPaletteJoints * 16 * 2); // vec4 uRot[N] + vec4 uTrans[N]
+            var buffer = factory.CreateBuffer(new BufferDescription(bufferSize, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            var set = factory.CreateResourceSet(new ResourceSetDescription(_jointPaletteLayout, buffer));
+            return new JointPaletteEntry(buffer, set);
+        }
+
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
+        {
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, timeSeconds, loop, parentOverrides);
+            int count = pose.Rotations.Length;
+
+            if (count > ZoneShaders.MaxPaletteJoints)
+            {
+                if (!_loggedPaletteOverflow)
+                {
+                    GordianLog.Warning("GFX", $"Skeleton has {count} joints, exceeding MaxPaletteJoints ({ZoneShaders.MaxPaletteJoints}); clamping.");
+                    _loggedPaletteOverflow = true;
+                }
+                count = ZoneShaders.MaxPaletteJoints;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                var r = pose.Rotations[i];
+                _paletteScratch[i] = new Vector4(r.X, r.Y, r.Z, r.W);
+                var t = pose.Translations[i];
+                _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = new Vector4(t.X, t.Y, t.Z, 0f);
+            }
+            for (int i = count; i < ZoneShaders.MaxPaletteJoints; i++)
+            {
+                _paletteScratch[i] = new Vector4(0f, 0f, 0f, 1f);
+                _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = Vector4.Zero;
+            }
+
+            cl.UpdateBuffer(buffer, 0, _paletteScratch);
+        }
+
         private GpuEntityModel GetOrUploadGpuModel(EntityModel model)
         {
             string key = string.IsNullOrEmpty(model.Name) ? model.GetHashCode().ToString() : model.Name;
@@ -258,18 +416,38 @@ namespace Gordian.App.Graphics
             {
                 MinBounds = model.MinBounds,
                 MaxBounds = model.MaxBounds,
-                Textures = model.Textures
+                Textures = model.Textures,
+                IsSkinned = true
             };
 
-            for (int i = 0; i < model.MeshGroups.Count; i++)
+            for (int i = 0; i < model.AnimatedMeshGroups.Count; i++)
             {
-                var mg = model.MeshGroups[i];
+                var mg = model.AnimatedMeshGroups[i];
                 if (mg.Vertices.Length == 0 || mg.Indices.Length == 0) continue;
 
+                var gpuVerts = new SkinnedGpuVertex[mg.Vertices.Length];
+                for (int v = 0; v < mg.Vertices.Length; v++)
+                {
+                    var sv = mg.Vertices[v];
+                    gpuVerts[v] = new SkinnedGpuVertex
+                    {
+                        Position0 = sv.Position0,
+                        Position1 = sv.Position1,
+                        Normal0 = sv.Normal0,
+                        Normal1 = sv.Normal1,
+                        Weight0 = sv.Weight0,
+                        Weight1 = sv.Weight1,
+                        Joint0 = sv.Joint0,
+                        Joint1 = sv.Joint1,
+                        TexCoord = sv.TexCoord,
+                        ColorRgba = sv.ColorRgba
+                    };
+                }
+
                 var vb = factory.CreateBuffer(new BufferDescription(
-                    (uint)(mg.Vertices.Length * 36),
+                    (uint)(gpuVerts.Length * Marshal.SizeOf<SkinnedGpuVertex>()),
                     BufferUsage.VertexBuffer));
-                _gd.UpdateBuffer(vb, 0, mg.Vertices);
+                _gd.UpdateBuffer(vb, 0, gpuVerts);
 
                 var ushortIndices = new ushort[mg.Indices.Length];
                 for (int k = 0; k < mg.Indices.Length; k++)
@@ -379,7 +557,8 @@ namespace Gordian.App.Graphics
             var model = new GpuEntityModel
             {
                 MinBounds = new Vector3(-halfW, 0, -halfD),
-                MaxBounds = new Vector3(halfW, hHead, halfD)
+                MaxBounds = new Vector3(halfW, hHead, halfD),
+                IsSkinned = false
             };
             model.Submeshes.Add(new GpuSubmesh
             {
@@ -403,6 +582,12 @@ namespace Gordian.App.Graphics
             }
             _gpuModelCache.Clear();
 
+            foreach (var kvp in _jointPaletteByEntity)
+            {
+                kvp.Value.Dispose();
+            }
+            _jointPaletteByEntity.Clear();
+
             _fallbackPlayerProxy?.Dispose();
             _fallbackNpcProxy?.Dispose();
             _fallbackMonsterProxy?.Dispose();
@@ -410,8 +595,10 @@ namespace Gordian.App.Graphics
             _entityUniformBuffer?.Dispose();
             _sceneLayout?.Dispose();
             _textureLayout?.Dispose();
+            _jointPaletteLayout?.Dispose();
             _entityResourceSet?.Dispose();
             _pipeline?.Dispose();
+            _skinnedPipeline?.Dispose();
             _textureCache?.Dispose();
         }
     }

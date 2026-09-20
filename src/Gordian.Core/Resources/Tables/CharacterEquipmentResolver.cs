@@ -203,20 +203,108 @@ namespace Gordian.Core.Resources.Tables
             return false;
         }
 
+        // (Folder, File) of each race's base skeleton DAT - the same numbers behind GetBaseSkeletonPath,
+        // kept separately so locomotion-pack offsets below can do folder-carry arithmetic on them.
+        private static (int Folder, int File)? GetBaseSkeletonLocation(CharacterRace race) => race switch
+        {
+            CharacterRace.HumeMale => (27, 82),
+            CharacterRace.HumeFemale => (32, 58),
+            CharacterRace.ElvaanMale => (37, 31),
+            CharacterRace.ElvaanFemale => (42, 4),
+            CharacterRace.TaruMale or CharacterRace.TaruFemale => (46, 93),
+            CharacterRace.Mithra => (51, 89),
+            CharacterRace.Galka => (56, 59),
+            _ => null
+        };
+
         /// <summary>
         /// Returns the base skeleton DAT relative path for a given playable character race.
         /// </summary>
-        public static string GetBaseSkeletonPath(CharacterRace race) => race switch
+        public static string GetBaseSkeletonPath(CharacterRace race)
         {
-            CharacterRace.HumeMale => Path.Combine("ROM", "27", "82.DAT"),
-            CharacterRace.HumeFemale => Path.Combine("ROM", "32", "58.DAT"),
-            CharacterRace.ElvaanMale => Path.Combine("ROM", "37", "31.DAT"),
-            CharacterRace.ElvaanFemale => Path.Combine("ROM", "42", "4.DAT"),
-            CharacterRace.TaruMale or CharacterRace.TaruFemale => Path.Combine("ROM", "46", "93.DAT"),
-            CharacterRace.Mithra => Path.Combine("ROM", "51", "89.DAT"),
-            CharacterRace.Galka => Path.Combine("ROM", "56", "59.DAT"),
-            _ => string.Empty
+            var loc = GetBaseSkeletonLocation(race);
+            return loc.HasValue ? Path.Combine("ROM", loc.Value.Folder.ToString(), $"{loc.Value.File}.DAT") : string.Empty;
+        }
+
+        /// <summary>
+        /// Returns the race's zero-indexed slot in the retail PC race ordering
+        /// (HumeM, HumeF, ElvaanM, ElvaanF, Taru, TaruF, Mithra, Galka), used to index
+        /// race-ordered motion tables such as <see cref="MotionBattleBaseFileId"/>.
+        /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js PC_RACE_IDX.
+        /// </summary>
+        public static int GetRetailRaceIndex(CharacterRace race) => race switch
+        {
+            CharacterRace.HumeMale => 0,
+            CharacterRace.HumeFemale => 1,
+            CharacterRace.ElvaanMale => 2,
+            CharacterRace.ElvaanFemale => 3,
+            CharacterRace.TaruMale => 4,
+            CharacterRace.TaruFemale => 5,
+            CharacterRace.Mithra => 6,
+            CharacterRace.Galka => 7,
+            _ => -1
         };
+
+        /// <summary>
+        /// Per-race base battle-motion pack file IDs (main weapon-type packs, index 0 = H2H) and
+        /// the pack count before the following waist/skirt overlay block, ordered per <see cref="GetRetailRaceIndex"/>.
+        /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js
+        /// (MOTION_B_BASE / MOTION_B_NUM), independently cross-checked against this file's own
+        /// already-verified GetBaseSkeletonLocation numbers.
+        /// </summary>
+        private static readonly int[] MotionBattleBaseFileId = { 32013, 36117, 41084, 46057, 51019, 51019, 56014, 60112 };
+        private static readonly int[] MotionBattlePackCount = { 9, 8, 10, 6, 6, 6, 9, 8 };
+
+        /// <summary>
+        /// Resolves the locomotion motion-pack DAT relative paths for a race: the base skeleton DAT
+        /// itself (lower body: idl0/wlk0/run0/...), plus the upper-body (base+1) and waist/skirt
+        /// overlay (base+3) DATs that layer on top of it to form full-body animation.
+        /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js,
+        /// which documents this base(+0)/upper(+1)/waist(+3) layering convention.
+        /// </summary>
+        public static (string Lower, string Upper, string Waist) GetLocomotionPackPaths(CharacterRace race)
+        {
+            var loc = GetBaseSkeletonLocation(race);
+            if (!loc.HasValue) return (string.Empty, string.Empty, string.Empty);
+
+            return (
+                GetBaseSkeletonPath(race),
+                OffsetDatPath(loc.Value, 1),
+                OffsetDatPath(loc.Value, 3));
+        }
+
+        /// <summary>
+        /// Resolves the battle-stance motion-pack file ID for a race and weapon-type index
+        /// (0 = H2H). Only H2H (index 0) is exercised by GordianXI today - resolving the correct
+        /// weapon-type index for an equipped weapon requires an item-to-skill-category table
+        /// that does not exist in this codebase yet.
+        /// </summary>
+        public static int GetBattlePackFileId(CharacterRace race, int weaponTypeIndex = 0)
+        {
+            int raceIdx = GetRetailRaceIndex(race);
+            if (raceIdx < 0 || raceIdx >= MotionBattleBaseFileId.Length) return 0;
+
+            int count = MotionBattlePackCount[raceIdx];
+            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, Math.Max(0, count - 1));
+            return MotionBattleBaseFileId[raceIdx] + clampedIndex;
+        }
+
+        /// <summary>
+        /// Applies an FFXI ROM directory offset (128 files per folder, carrying into the next
+        /// folder past index 127) to a base (Folder, File) location and returns the resulting path.
+        /// </summary>
+        private static string OffsetDatPath((int Folder, int File) baseLocation, int offset)
+        {
+            int folder = baseLocation.Folder;
+            int file = baseLocation.File + offset;
+            if (file > 127)
+            {
+                folder += file / 128;
+                file %= 128;
+            }
+
+            return Path.Combine("ROM", folder.ToString(), $"{file}.DAT");
+        }
 
         /// <summary>
         /// Calculates the canonical FFXI ROM File ID for an NPC, Monster, or Trust entity model

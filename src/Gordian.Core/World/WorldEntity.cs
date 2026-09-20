@@ -1,6 +1,7 @@
 // src/Gordian.Core/World/WorldEntity.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -70,6 +71,7 @@ namespace Gordian.Core.World
         public uint ClaimServerId { get; set; }
 
         public EntityAppearance Appearance { get; } = new EntityAppearance();
+        public EntityAnimationState Animation { get; } = new EntityAnimationState();
 
         public bool IsSpawned { get; set; } = true;
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
