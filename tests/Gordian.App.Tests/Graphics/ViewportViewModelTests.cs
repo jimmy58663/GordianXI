@@ -134,6 +134,25 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void EnableAutoSave_False_DoesNotWriteToDisk()
+        {
+            string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_viewport_no_autosave_{Guid.NewGuid():N}.json");
+            try
+            {
+                var vm = new ViewportViewModel(tempFile, enableAutoSave: false);
+                vm.SelectedBackend = GraphicsBackendPreference.Vulkan;
+                vm.AutoLaunchOnConnect = false;
+                vm.SelectedDisplayMode = ViewportDisplayMode.Fullscreen;
+
+                Assert.False(File.Exists(tempFile));
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
         public void CharacterTabs_AddAndCycleThroughSessions()
         {
             var (vm, tempFile) = CreateIsolatedViewModel();

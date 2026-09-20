@@ -41,9 +41,12 @@ namespace Gordian.App.ViewModels
 
         private readonly string _settingsPath;
         private readonly ViewportSettings _settings;
+        private readonly bool _enableAutoSave;
 
         private void AutoSaveSettings()
         {
+            if (!_enableAutoSave) return;
+
             try
             {
                 _settings.SelectedBackend = _selectedBackend;
@@ -65,10 +68,13 @@ namespace Gordian.App.ViewModels
         public ICommand ToggleCameraModeCommand { get; }
         public ICommand ToggleFreeCamCommand { get; }
 
-        public ViewportViewModel(string? customSettingsPath = null)
+        public ViewportViewModel(string? customSettingsPath = null, bool enableAutoSave = true)
         {
+            _enableAutoSave = enableAutoSave;
             _settingsPath = customSettingsPath ?? ViewportSettings.GetDefaultSettingsPath();
-            _settings = ViewportSettings.LoadOrCreate(_settingsPath);
+            _settings = _enableAutoSave
+                ? ViewportSettings.LoadOrCreate(_settingsPath)
+                : ViewportSettings.LoadOrDefault(_settingsPath);
 
             _selectedBackend = _settings.SelectedBackend;
             _selectedDisplayMode = _settings.SelectedDisplayMode;

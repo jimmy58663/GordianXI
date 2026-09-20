@@ -1,5 +1,4 @@
-// tests/Gordian.App.Tests/Services/ViewportWindowManagerTests.cs
-using System;
+using System.IO;
 using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
@@ -10,14 +9,16 @@ namespace Gordian.App.Tests.Services
 {
     public class ViewportWindowManagerTests : IDisposable
     {
+        private readonly string _tempSettingsPath;
         private readonly SessionRegistry _registry;
         private readonly ViewportViewModel _viewModel;
         private readonly ViewportWindowManager _manager;
 
         public ViewportWindowManagerTests()
         {
+            _tempSettingsPath = Path.Combine(Path.GetTempPath(), $"gordian_viewport_mgr_test_{Guid.NewGuid():N}.json");
             _registry = new SessionRegistry();
-            _viewModel = new ViewportViewModel
+            _viewModel = new ViewportViewModel(_tempSettingsPath)
             {
                 AutoLaunchOnConnect = false // disable showing UI window in headless test runner
             };
@@ -28,6 +29,10 @@ namespace Gordian.App.Tests.Services
         {
             _manager.Dispose();
             _registry.Dispose();
+            if (File.Exists(_tempSettingsPath))
+            {
+                try { File.Delete(_tempSettingsPath); } catch { }
+            }
         }
 
         [Fact]
@@ -127,6 +132,25 @@ namespace Gordian.App.Tests.Services
             {
                 ViewportWindowManager.UiDispatcher = null;
             }
+        }
+
+        [Fact]
+        public void SecondaryViewportViewModel_WithAutoSaveDisabled_DoesNotOverwriteDiskSettings()
+        {
+            // Ensure primary has borderless window mode and auto-saved to temp path
+            _viewModel.SelectedDisplayMode = ViewportDisplayMode.BorderlessWindow;
+            Assert.True(File.Exists(_tempSettingsPath));
+
+            // Simulate secondary VM creation as done in OnTabPoppedOut
+            var secondaryVm = new ViewportViewModel(_tempSettingsPath, enableAutoSave: false)
+            {
+                SelectedBackend = _viewModel.SelectedBackend,
+                SelectedDisplayMode = ViewportDisplayMode.Windowed
+            };
+
+            // Disk settings must remain BorderlessWindow, not overwritten by secondary Windowed
+            var diskSettings = ViewportSettings.LoadOrCreate(_tempSettingsPath);
+            Assert.Equal(ViewportDisplayMode.BorderlessWindow, diskSettings.SelectedDisplayMode);
         }
     }
 }

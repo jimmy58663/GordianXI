@@ -48,7 +48,7 @@ namespace Gordian.App.Services
             ViewportViewModel? primaryViewModel = null)
         {
             _sessionRegistry = sessionRegistry ?? SessionRegistry.Default;
-            _primaryViewModel = primaryViewModel ?? new ViewportViewModel();
+            _primaryViewModel = primaryViewModel ?? new ViewportViewModel(enableAutoSave: false);
 
             _sessionRegistry.SessionRegistered += OnSessionRegistered;
             _sessionRegistry.SessionUnregistered += OnSessionUnregistered;
@@ -174,7 +174,7 @@ namespace Gordian.App.Services
                     return;
                 }
 
-                var secondaryVm = new ViewportViewModel
+                var secondaryVm = new ViewportViewModel(enableAutoSave: false)
                 {
                     SelectedBackend = _primaryViewModel.SelectedBackend,
                     SelectedDisplayMode = ViewportDisplayMode.Windowed

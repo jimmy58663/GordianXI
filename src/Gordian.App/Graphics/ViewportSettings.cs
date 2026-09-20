@@ -52,7 +52,7 @@ namespace Gordian.App.Graphics
             File.WriteAllText(filePath, json);
         }
 
-        public static ViewportSettings LoadOrCreate(string filePath)
+        public static ViewportSettings LoadOrDefault(string filePath)
         {
             ArgumentNullException.ThrowIfNull(filePath);
 
@@ -71,6 +71,18 @@ namespace Gordian.App.Graphics
                 {
                     GordianLog.Warn("VIEWPORT", $"Failed to load viewport settings from '{filePath}': {ex.Message}. Falling back to defaults.");
                 }
+            }
+
+            return new ViewportSettings();
+        }
+
+        public static ViewportSettings LoadOrCreate(string filePath)
+        {
+            ArgumentNullException.ThrowIfNull(filePath);
+
+            if (File.Exists(filePath))
+            {
+                return LoadOrDefault(filePath);
             }
 
             var defaultSettings = new ViewportSettings();
