@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -271,9 +272,6 @@ namespace Gordian.App.Graphics
         private CancellationTokenSource? _renderLoopCts;
         private Task? _renderTask;
 
-        private Avalonia.Point? _lastMousePos;
-        private bool _isRightMouseDown;
-
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
             if (OperatingSystem.IsWindows())
@@ -283,6 +281,7 @@ namespace Gordian.App.Graphics
                 int pixelH = Math.Max(1, (int)(Bounds.Height * scale));
 
                 _childHwnd = Win32ChildWindowHelper.CreateChildWindow(parent.Handle, pixelW, pixelH);
+                Win32ChildWindowHelper.SetRawMouseHandler(_childHwnd, OnRawMouseEvent);
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
                 lock (_renderLock)
@@ -337,6 +336,43 @@ namespace Gordian.App.Graphics
 
             base.DestroyNativeControlCore(control);
         }
+
+        /// <summary>
+        /// Raised for mouse buttons pressed while the pointer is over this control's rendering
+        /// surface. See <see cref="Win32ChildWindowHelper.CreateChildWindow"/> for why this exists
+        /// instead of the normal Avalonia PointerPressed routed event.
+        /// </summary>
+        public event Action<Avalonia.Input.MouseButton>? RawMouseButtonDown;
+
+        /// <summary>Raised for mouse buttons released while over this control's rendering surface.</summary>
+        public event Action<Avalonia.Input.MouseButton>? RawMouseButtonUp;
+
+        /// <summary>Raised on mouse move while over this control's rendering surface, in raw child-local pixels.</summary>
+        public event Action<double, double>? RawMouseMoved;
+
+        [SupportedOSPlatform("windows")]
+        private void OnRawMouseEvent(Win32ChildWindowHelper.RawMouseEvent e)
+        {
+            RawMouseMoved?.Invoke(e.X, e.Y);
+
+            if (e.ButtonDown.HasValue)
+            {
+                RawMouseButtonDown?.Invoke(ToAvaloniaButton(e.ButtonDown.Value));
+            }
+
+            if (e.ButtonUp.HasValue)
+            {
+                RawMouseButtonUp?.Invoke(ToAvaloniaButton(e.ButtonUp.Value));
+            }
+        }
+
+        private static Avalonia.Input.MouseButton ToAvaloniaButton(RawMouseButton button) => button switch
+        {
+            RawMouseButton.Left => Avalonia.Input.MouseButton.Left,
+            RawMouseButton.Right => Avalonia.Input.MouseButton.Right,
+            RawMouseButton.Middle => Avalonia.Input.MouseButton.Middle,
+            _ => Avalonia.Input.MouseButton.None
+        };
 
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
@@ -524,77 +560,12 @@ namespace Gordian.App.Graphics
             }
         }
 
-        protected override void OnPointerPressed(PointerPressedEventArgs e)
-        {
-            base.OnPointerPressed(e);
-            var props = e.GetCurrentPoint(this).Properties;
-            if (props.IsRightButtonPressed)
-            {
-                _isRightMouseDown = true;
-                _lastMousePos = e.GetPosition(this);
-                e.Pointer.Capture(this);
-                e.Handled = true;
-            }
-        }
-
-        protected override void OnPointerMoved(PointerEventArgs e)
-        {
-            base.OnPointerMoved(e);
-            if (_isRightMouseDown && _lastMousePos.HasValue)
-            {
-                var cur = e.GetPosition(this);
-                float dx = (float)(cur.X - _lastMousePos.Value.X);
-                float dy = (float)(cur.Y - _lastMousePos.Value.Y);
-                _lastMousePos = cur;
-
-                Camera.Yaw += dx * 0.25f;
-                Camera.Pitch -= dy * 0.25f;
-
-                if (_activeSession?.Locomotion != null)
-                {
-                    _activeSession.Locomotion.CameraYaw = Camera.Yaw;
-                    float minPitch = Camera.Mode == CameraMode.ThirdPersonOrbital ? -15.0f : -80.0f;
-                    _activeSession.Locomotion.CameraPitch = Math.Clamp(Camera.Pitch, minPitch, 80.0f);
-                }
-
-                e.Handled = true;
-            }
-        }
-
-        protected override void OnPointerReleased(PointerReleasedEventArgs e)
-        {
-            base.OnPointerReleased(e);
-            if (_isRightMouseDown)
-            {
-                _isRightMouseDown = false;
-                _lastMousePos = null;
-                e.Pointer.Capture(null);
-                e.Handled = true;
-            }
-        }
-
-        protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
-        {
-            base.OnPointerWheelChanged(e);
-            float zoomDelta = -(float)e.Delta.Y * 1.0f;
-            Camera.Distance = Math.Clamp(Camera.Distance + zoomDelta, 0.5f, 35.0f);
-            if (Camera.Distance <= 1.0f && zoomDelta < 0)
-            {
-                Camera.Mode = CameraMode.FirstPerson;
-            }
-            else if (Camera.Mode == CameraMode.FirstPerson && zoomDelta > 0)
-            {
-                Camera.Mode = CameraMode.ThirdPersonOrbital;
-                Camera.Distance = 2.0f;
-            }
-
-            if (_activeSession?.Locomotion != null)
-            {
-                _activeSession.Locomotion.CameraDistance = Camera.Distance;
-                _activeSession.Locomotion.CameraMode = Camera.Mode;
-            }
-
-            e.Handled = true;
-        }
+        // Right-click-drag camera look and wheel zoom are NOT handled here. On Windows this
+        // control's rendering surface is a real native Win32 child window (see
+        // Win32ChildWindowHelper), so the OS delivers its mouse messages directly to that child
+        // HWND rather than through Avalonia's routed-event tree - Avalonia InputElement pointer
+        // overrides on this control never actually fire. Camera look/zoom is instead driven by
+        // ViewportWindow's own pointer handlers feeding the shared InputState bus, consumed by
+        // PlayerLocomotionController - the same architecture keyboard movement already uses.
     }
 }

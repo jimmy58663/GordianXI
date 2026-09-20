@@ -150,6 +150,58 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
+        /// Replaces this profile's keyboard/mouse bindings and mouse/locomotion settings with
+        /// those from <paramref name="source"/> (typically a fresh Compact/Full preset), while
+        /// leaving this profile's current gamepad button bindings and <see cref="GamepadSettings"/>
+        /// completely untouched. Switching keyboard layout must never disturb gamepad mappings.
+        /// </summary>
+        public void ReplaceKeyboardBindings(InputProfile source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+
+            foreach (var chords in Bindings.Values)
+            {
+                chords.RemoveAll(chord => !chord.IsGamepadChord);
+            }
+
+            foreach (var kvp in source.Bindings)
+            {
+                foreach (var chord in kvp.Value)
+                {
+                    if (chord.IsGamepadChord) continue;
+                    Bind(kvp.Key, chord);
+                }
+            }
+
+            Name = source.Name;
+            Description = source.Description;
+            MouseSensitivityX = source.MouseSensitivityX;
+            MouseSensitivityY = source.MouseSensitivityY;
+            InvertMouseX = source.InvertMouseX;
+            InvertMouseY = source.InvertMouseY;
+            MouseWheelZoomStep = source.MouseWheelZoomStep;
+            WalkSpeed = source.WalkSpeed;
+            RunSpeed = source.RunSpeed;
+            TurnSpeedDegreesPerSec = source.TurnSpeedDegreesPerSec;
+        }
+
+        /// <summary>
+        /// Resets this profile's gamepad button bindings and <see cref="GamepadSettings"/> to the
+        /// standard defaults, without touching any keyboard or mouse bindings. Gamepad mapping is
+        /// a secondary, independent layer on top of whichever keyboard layout is active.
+        /// </summary>
+        public void ApplyGamepadDefaults()
+        {
+            foreach (var chords in Bindings.Values)
+            {
+                chords.RemoveAll(chord => chord.IsGamepadChord);
+            }
+
+            BindDefaultGamepadButtons(this);
+            GamepadSettings = new GamepadSettings();
+        }
+
+        /// <summary>
         /// Deep clones this input profile.
         /// </summary>
         public InputProfile Clone()
@@ -317,31 +369,15 @@ namespace Gordian.Core.Input
 
         /// <summary>
         /// Creates a profile configured with authentic FFXI gamepad button mappings and defaults.
+        /// Keyboard/mouse bindings fall back to the full Compact (WASD) layout rather than a
+        /// partial subset, since gamepad mapping is meant to be a secondary, additive layer that
+        /// never leaves keyboard coverage incomplete.
         /// </summary>
         public static InputProfile CreateGamepadDefault()
         {
-            var p = new InputProfile("Gamepad (Standard)", "Standard FFXI Gamepad layout for Xbox, PlayStation, and generic dual-analog controllers.");
-            p.GamepadSettings = new GamepadSettings();
-
-            BindDefaultGamepadButtons(p);
-
-            // Also keep standard keyboard fallbacks
-            p.Bind(InputAction.MoveForward, new InputChord(GordianKey.W));
-            p.Bind(InputAction.MoveBackward, new InputChord(GordianKey.S));
-            p.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
-            p.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
-            p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
-            p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
-            p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
-            p.Bind(InputAction.Confirm, new InputChord(GordianKey.Enter));
-            p.Bind(InputAction.Cancel, new InputChord(GordianKey.Escape));
-            p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
-            p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.OemMinus));
-
-            // Macro Palettes
-            BindDefaultMacros(p);
-
+            var p = CreateCompact();
+            p.Name = "Gamepad (Standard)";
+            p.Description = "Standard FFXI Gamepad layout for Xbox, PlayStation, and generic dual-analog controllers, with the full Compact (WASD) keyboard layout kept as a fallback.";
             return p;
         }
 

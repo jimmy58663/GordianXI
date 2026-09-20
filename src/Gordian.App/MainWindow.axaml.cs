@@ -18,8 +18,6 @@ namespace Gordian.App
         private readonly DispatcherTimer _inputLoopTimer;
         private readonly IGamepadDriver _gamepadDriver;
         private long _lastInputLoopTimestamp;
-        private Avalonia.Point? _lastPointerPosition;
-        private bool _isRightDragging;
 
         public MainWindow()
         {
@@ -88,15 +86,10 @@ namespace Gordian.App
                 _gamepadDriver = new VirtualGamepadDriver();
             }
 
-            // Cross-Platform Input Subsystem Event Hooks
+            // Gameplay keyboard/mouse input (movement, camera, actions) is captured on ViewportWindow,
+            // the window that actually renders and receives focus during play — not here. MainWindow
+            // only needs to let Escape unfocus a text box so keyboard control can resume.
             AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
-            AddHandler(InputElement.KeyUpEvent, OnWindowKeyUp, RoutingStrategies.Tunnel);
-            AddHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel);
-            AddHandler(InputElement.PointerReleasedEvent, OnWindowPointerReleased, RoutingStrategies.Tunnel);
-            AddHandler(InputElement.PointerMovedEvent, OnWindowPointerMoved, RoutingStrategies.Tunnel);
-            // Mouse wheel is intentionally NOT captured here: camera zoom is handled by VeldridViewportControl
-            // directly in the rendering viewport, so scrolling elsewhere in the app (e.g. the settings tabs)
-            // doesn't zoom the in-game camera.
 
             _lastInputLoopTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
             _inputLoopTimer = new DispatcherTimer
@@ -163,96 +156,12 @@ namespace Gordian.App
 
         private void OnWindowKeyDown(object? sender, KeyEventArgs e)
         {
-            if (IsTextBoxFocused())
+            // When typing in a text box, Escape unfocuses it so keyboard control can resume elsewhere.
+            if (IsTextBoxFocused() && e.Key == Key.Escape)
             {
-                // When typing in a text box, if user presses Escape, unfocus the textbox so they can resume movement
-                if (e.Key == Key.Escape)
-                {
-                    FocusManager?.Focus(null, NavigationMethod.Unspecified);
-                    e.Handled = true;
-                }
-                return;
+                FocusManager?.Focus(null, NavigationMethod.Unspecified);
+                e.Handled = true;
             }
-
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
-            var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
-
-            if (gKey != GordianKey.None)
-            {
-                session.InputState.SetModifiers(mods);
-                session.InputState.SetKeyDown(gKey);
-
-                // Suppress default UI navigation for gameplay keys like Tab or arrows
-                if (e.Key is Key.Tab or Key.Up or Key.Down or Key.Left or Key.Right)
-                {
-                    e.Handled = true;
-                }
-            }
-        }
-
-        private void OnWindowKeyUp(object? sender, KeyEventArgs e)
-        {
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
-            var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
-
-            if (gKey != GordianKey.None)
-            {
-                session.InputState.SetModifiers(mods);
-                session.InputState.SetKeyUp(gKey);
-            }
-        }
-
-        private void OnWindowPointerPressed(object? sender, PointerPressedEventArgs e)
-        {
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            var point = e.GetCurrentPoint(this);
-            var btn = AvaloniaInputMapper.ToMouseButton(point.Properties);
-            session.InputState.SetMouseButtonDown(btn);
-
-            if (point.Properties.IsRightButtonPressed)
-            {
-                _isRightDragging = true;
-                _lastPointerPosition = point.Position;
-            }
-        }
-
-        private void OnWindowPointerReleased(object? sender, PointerReleasedEventArgs e)
-        {
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            var point = e.GetCurrentPoint(this);
-            var btn = AvaloniaInputMapper.ToMouseButton(point.Properties);
-            session.InputState.SetMouseButtonUp(btn);
-
-            if (!point.Properties.IsRightButtonPressed)
-            {
-                _isRightDragging = false;
-                _lastPointerPosition = null;
-            }
-        }
-
-        private void OnWindowPointerMoved(object? sender, PointerEventArgs e)
-        {
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            var currentPos = e.GetPosition(this);
-            if (_isRightDragging && _lastPointerPosition.HasValue)
-            {
-                float dx = (float)(currentPos.X - _lastPointerPosition.Value.X);
-                float dy = (float)(currentPos.Y - _lastPointerPosition.Value.Y);
-                session.InputState.AddMouseDelta(dx, dy);
-            }
-            _lastPointerPosition = currentPos;
         }
 
         private void OnInputLoopTick(object? sender, EventArgs e)

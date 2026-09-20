@@ -410,8 +410,10 @@ namespace Gordian.App.ViewModels
 
         public void LoadCompactPreset()
         {
-            _activeProfile = InputProfile.CreateCompact();
-            ActivePresetName = "Compact (WASD)";
+            // Only replaces keyboard/mouse bindings; current gamepad bindings and settings
+            // (default or user-customized) are left exactly as they are.
+            _activeProfile.ReplaceKeyboardBindings(InputProfile.CreateCompact());
+            ActivePresetName = _activeProfile.Name;
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
             if (_currentSession != null)
@@ -424,8 +426,10 @@ namespace Gordian.App.ViewModels
 
         public void LoadFullNumpadPreset()
         {
-            _activeProfile = InputProfile.CreateFullNumpad();
-            ActivePresetName = "Full (Numpad)";
+            // Only replaces keyboard/mouse bindings; current gamepad bindings and settings
+            // (default or user-customized) are left exactly as they are.
+            _activeProfile.ReplaceKeyboardBindings(InputProfile.CreateFullNumpad());
+            ActivePresetName = _activeProfile.Name;
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
             if (_currentSession != null)
@@ -438,8 +442,9 @@ namespace Gordian.App.ViewModels
 
         public void LoadGamepadPreset()
         {
-            _activeProfile = InputProfile.CreateGamepadDefault();
-            ActivePresetName = "Gamepad (Standard)";
+            // Only resets gamepad button bindings and gamepad settings to defaults; the active
+            // keyboard layout (Compact/Full/Custom) is left completely untouched.
+            _activeProfile.ApplyGamepadDefaults();
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
             if (_currentSession != null)
@@ -447,7 +452,7 @@ namespace Gordian.App.ViewModels
                 _currentSession.Locomotion.Profile = _activeProfile;
             }
             AutoSave();
-            StatusMessage = "Loaded standard FFXI Gamepad layout (dual-analog controls).";
+            StatusMessage = "Reset gamepad button mappings to defaults. Keyboard bindings were not changed.";
         }
 
         public void ResetToDefaults()

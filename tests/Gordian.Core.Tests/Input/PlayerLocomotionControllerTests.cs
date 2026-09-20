@@ -62,7 +62,10 @@ namespace Gordian.Core.Tests.Input
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
 
-            // Heading 64 = South (+Z in 3D, keeping elevation Y constant)
+            // W is camera-relative (see Update_WhenHoldingTurnRight_... below): facing follows the
+            // camera, not whatever the character happened to already be facing. Point the camera
+            // South (heading 64 = 90 degrees) so pressing W faces and moves that way.
+            controller.CameraYaw = 90.0f;
             localEnt.Direction = 64;
             localEnt.Position = new Vector3(10f, 15f, 20f);
 
@@ -95,17 +98,45 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
-        public void Update_WhenTurning_UpdatesPlayerDirection()
+        public void Update_WhenHoldingTurnRight_FacesAndMovesToCameraRelativeRight()
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
 
-            localEnt.Direction = 0; // 0 degrees
-            input.SetKeyDown(GordianKey.D); // TurnRight (180 deg/sec)
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.CameraYaw = 0.0f; // Camera facing East
 
-            // 0.5s turn => 90 degrees clockwise (South in FFXI = 64)
-            controller.Update(TimeSpan.FromSeconds(0.5));
+            // D (TurnRight) now faces the character camera-relative-right and runs, like a
+            // gamepad stick pushed right, instead of turning in place.
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Mirrors the tested gamepad CameraRelative "strafe right" behavior: with the camera
+            // facing world East, the camera's true rendered right side is world North (Direction
+            // 192), because the renderer displays entities at a mirrored X coordinate.
+            Assert.Equal(192, localEnt.Direction);
+            Assert.Equal(50, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
+            Assert.InRange(localEnt.Position.Z, -5.01f, -4.99f);
+        }
+
+        [Fact]
+        public void Update_WhenHoldingTurnLeft_FacesAndMovesToCameraRelativeLeft()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.CameraYaw = 0.0f;
+
+            // A (TurnLeft) mirrors D: faces camera-relative-left and runs.
+            input.SetKeyDown(GordianKey.A);
+            controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(50, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
+            Assert.InRange(localEnt.Position.Z, 4.99f, 5.01f);
         }
 
         [Fact]
@@ -121,6 +152,23 @@ namespace Gordian.Core.Tests.Input
 
             Assert.True(controller.CameraYaw > 0.0f);
             Assert.True(controller.CameraPitch < 15.0f);
+        }
+
+        [Fact]
+        public void Update_MouseWheel_ZoomsCameraDistance()
+        {
+            // Regression guard: the rendering viewport's own OnPointerWheelChanged override never
+            // fires on Windows (its surface is a real native child window, bypassing Avalonia's
+            // routed-event tree), so wheel zoom must be driven through InputState.AddMouseWheel,
+            // consumed here.
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            controller.CameraDistance = 6.0f;
+
+            input.AddMouseWheel(1.0f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.True(controller.CameraDistance < 6.0f);
         }
 
         [Fact]

@@ -1327,8 +1327,10 @@
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Keyboard &amp; Mouse Presets" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
 
-                                <TextBlock Text="Active Configuration Profile:" Foreground="#A0A0A0" FontSize="12" Margin="0,4,0,0"/>
+                                <TextBlock Text="Active Keyboard Layout:" Foreground="#A0A0A0" FontSize="12" Margin="0,4,0,0"/>
                                 <TextBlock Text="{Binding Controls.ActivePresetName}" Foreground="#4EC9B0" FontSize="13" FontWeight="Bold"/>
+                                <TextBlock Text="Gamepad button mapping is independent and never changed by these presets - see the Gamepad &amp; Controller card below."
+                                           Foreground="#707585" FontSize="10" TextWrapping="Wrap"/>
 
                                 <Separator Background="#333337" Margin="0,4"/>
 
@@ -1341,11 +1343,6 @@
                                         Command="{Binding Controls.LoadFullNumpadPresetCommand}"
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         Background="#3E3E42" Foreground="White" FontSize="12" Margin="0,2"/>
-
-                                <Button Content="Load Preset: Gamepad (Standard)"
-                                        Command="{Binding Controls.LoadGamepadPresetCommand}"
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Background="#3E3E42" Foreground="#4EC9B0" FontSize="12" Margin="0,2"/>
 
                                 <Grid ColumnDefinitions="*, *" Margin="0,4,0,0">
                                     <Button Grid.Column="0" Content="Reset Defaults"
@@ -1406,6 +1403,12 @@
                                     <TextBlock Grid.Column="1" Text="{Binding Controls.GamepadCameraSensitivity, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
                                 </Grid>
                                 <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.GamepadCameraSensitivity, Mode=TwoWay}"/>
+
+                                <Button Content="Reset Gamepad Bindings to Defaults"
+                                        Command="{Binding Controls.LoadGamepadPresetCommand}"
+                                        ToolTip.Tip="Resets gamepad button mappings and settings only. Your keyboard layout is never affected."
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Background="#3E3E42" Foreground="#4EC9B0" FontSize="12" Margin="0,4,0,0"/>
 
                                 <Separator Background="#333337" Margin="0,4"/>
 

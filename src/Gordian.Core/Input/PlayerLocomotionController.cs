@@ -148,10 +148,17 @@ namespace Gordian.Core.Input
             if (_inputState.IsActionHeld(InputAction.CameraZoomIn)) zoomDelta -= 10.0f * dt;
             if (_inputState.IsActionHeld(InputAction.CameraZoomOut)) zoomDelta += 10.0f * dt;
 
-            // Mouse Look (Right Mouse Drag or raw delta)
-            // Mouse wheel zoom is handled directly by the rendering viewport control (VeldridViewportControl),
-            // not here, so scrolling only affects the camera while the pointer is over a viewport.
-            _inputState.ConsumeMouseDeltas(out float mouseDx, out float mouseDy, out _);
+            // Mouse Look (Right Mouse Drag or raw delta) and Mouse Wheel Zoom.
+            // VeldridViewportControl's own OnPointerMoved/OnPointerWheelChanged overrides never
+            // actually fire on Windows: the viewport surface is a real native Win32 child window
+            // (see Win32ChildWindowHelper), so the OS delivers its mouse messages directly to that
+            // child HWND, not through Avalonia's routed-event tree. The only reliable path is via
+            // this InputState bus, fed by the viewport window's own pointer handlers.
+            _inputState.ConsumeMouseDeltas(out float mouseDx, out float mouseDy, out float mouseWheel);
+            if (mouseWheel != 0)
+            {
+                zoomDelta -= mouseWheel * _profile.MouseWheelZoomStep;
+            }
             if (mouseDx != 0 || mouseDy != 0)
             {
                 float mx = mouseDx * _profile.MouseSensitivityX * 0.15f;
@@ -342,6 +349,46 @@ namespace Gordian.Core.Input
                 return;
             }
 
+            // Keyboard camera-relative facing + movement (mirrors the gamepad CameraRelative
+            // stick above): W/S/A/D are treated as a virtual analog stick (W/S = forward/back,
+            // A/D = left/right) and always face the character relative to the camera before
+            // moving - like pushing a controller stick - instead of turning in place or walking
+            // along whatever direction the character happened to already be facing.
+            if (leftStick == Vector2.Zero)
+            {
+                float keyX = 0f;
+                if (_inputState.IsActionHeld(InputAction.TurnRight)) keyX += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.TurnLeft)) keyX -= 1.0f;
+
+                float keyY = 0f;
+                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) keyY += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.MoveBackward)) keyY -= 1.0f;
+
+                if (keyX != 0f || keyY != 0f)
+                {
+                    // Same formula and mirrored-render reasoning as the gamepad stick above.
+                    float stickAngleDeg = MathF.Atan2(keyX, keyY) * (180.0f / MathF.PI);
+                    float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
+                    localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+
+                    byte effectiveRun = GetEffectiveRunSpeed(localEnt);
+                    byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
+                    byte keySpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
+
+                    localEnt.Speed = keySpeed;
+                    float speedYalmsPerSec = keySpeed * 0.1f;
+                    float distance = speedYalmsPerSec * dt;
+
+                    float headingRad = localEnt.HeadingRadians;
+                    float dx = MathF.Cos(headingRad) * distance;
+                    float dz = MathF.Sin(headingRad) * distance;
+
+                    localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+                    LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                    return;
+                }
+            }
+
             // 1. Determine Forward/Backward intent
             float forwardInput = 0;
             if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive)
@@ -359,11 +406,9 @@ namespace Gordian.Core.Input
                 forwardInput += leftStick.Y;
             }
 
-            // 2. Determine Turn and Strafe intent
+            // 2. Determine Strafe intent, and Turn intent from the gamepad's tank-style mode
+            // (keyboard Turn keys are handled above via camera-relative facing, not here).
             float turnInput = 0;
-            if (_inputState.IsActionHeld(InputAction.TurnLeft)) turnInput -= 1.0f;
-            if (_inputState.IsActionHeld(InputAction.TurnRight)) turnInput += 1.0f;
-
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CharacterRelative)
             {
                 turnInput += leftStick.X;

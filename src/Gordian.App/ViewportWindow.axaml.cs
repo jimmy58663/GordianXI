@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
+using Gordian.Core.Input;
 
 namespace Gordian.App
 {
@@ -19,11 +20,27 @@ namespace Gordian.App
     public partial class ViewportWindow : Window
     {
         private ViewportViewModel? _viewModel;
+        private VeldridViewportControl? _viewportControl;
         private DispatcherTimer? _telemetryTimer;
+        private Point? _lastPointerPosition;
+        private bool _isRightDragging;
 
         public ViewportWindow()
         {
             InitializeComponent();
+
+            _viewportControl = this.FindControl<VeldridViewportControl>("ViewportControl");
+            if (_viewportControl != null)
+            {
+                // Bypasses Avalonia's routed-event tree entirely for mouse buttons/move: see
+                // Win32ChildWindowHelper for why the native rendering surface's own mouse messages
+                // never reach the InputElement.PointerPressed/Moved handlers below. Wheel is
+                // unaffected (Windows routes it by keyboard focus, not hit-test), so it's already
+                // handled correctly by the ordinary routed PointerWheelChanged handler.
+                _viewportControl.RawMouseButtonDown += OnRawMouseButtonDown;
+                _viewportControl.RawMouseButtonUp += OnRawMouseButtonUp;
+                _viewportControl.RawMouseMoved += OnRawMouseMoved;
+            }
 
             var minimizeBtn = this.FindControl<Button>("MinimizeButton");
             if (minimizeBtn != null)
@@ -39,6 +56,29 @@ namespace Gordian.App
 
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
+
+            // Gameplay keyboard/mouse-button input is captured here (the window that actually
+            // renders and receives focus during play), not on MainWindow, which never has focus
+            // while this window is active and would otherwise miss every key/click.
+            AddHandler(InputElement.KeyDownEvent, OnGameKeyDown, RoutingStrategies.Tunnel);
+            AddHandler(InputElement.KeyUpEvent, OnGameKeyUp, RoutingStrategies.Tunnel);
+
+            // Pointer press/release/move/wheel are observed on the Bubble phase, after
+            // VeldridViewportControl's own handling has already run (on the platforms where it
+            // actually fires - see below), so we never pre-empt or race the viewport's own camera
+            // input handling. handledEventsToo is required because the control marks these Handled.
+            //
+            // On Windows the viewport renders into a real native Win32 child window (see
+            // Win32ChildWindowHelper), so the OS delivers that window's mouse messages directly to
+            // it, never through Avalonia's routed-event tree - VeldridViewportControl's own
+            // OnPointerMoved/OnPointerWheelChanged overrides simply never fire there. This window
+            // level InputState bus (consumed by PlayerLocomotionController) is what actually drives
+            // right-click camera look and wheel zoom in practice; the control's own handling is a
+            // fallback for platforms where NativeControlHost is Avalonia-composited instead.
+            AddHandler(InputElement.PointerPressedEvent, OnGamePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(InputElement.PointerReleasedEvent, OnGamePointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(InputElement.PointerMovedEvent, OnGamePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(InputElement.PointerWheelChangedEvent, OnGamePointerWheelChanged, RoutingStrategies.Bubble, handledEventsToo: true);
 
             // Start live telemetry syncing between ViewportControl and ViewModel
             _telemetryTimer = new DispatcherTimer
@@ -154,6 +194,151 @@ namespace Gordian.App
             }
         }
 
+        private void OnGameKeyDown(object? sender, KeyEventArgs e)
+        {
+            // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle);
+            // don't also feed these into the character's InputState.
+            if (e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            {
+                return;
+            }
+
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
+            var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
+
+            if (gKey != GordianKey.None)
+            {
+                session.InputState.SetModifiers(mods);
+                session.InputState.SetKeyDown(gKey);
+
+                // Suppress default UI focus navigation for gameplay keys like Tab or arrows
+                if (e.Key is Key.Tab or Key.Up or Key.Down or Key.Left or Key.Right)
+                {
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void OnGameKeyUp(object? sender, KeyEventArgs e)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
+            var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
+
+            if (gKey != GordianKey.None)
+            {
+                session.InputState.SetModifiers(mods);
+                session.InputState.SetKeyUp(gKey);
+            }
+        }
+
+        private void OnGamePointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            // Use e.Properties directly rather than GetCurrentPoint(this): the latter needs a
+            // coordinate transform from wherever the pointer actually is (including from inside
+            // the native-embedded viewport surface) into this Window's space, which is exactly
+            // the kind of cross-boundary transform NativeControlHost content cannot reliably
+            // provide. Properties only reports button state, so no transform is needed.
+            var btn = AvaloniaInputMapper.ToMouseButton(e.Properties);
+            session.InputState.SetMouseButtonDown(btn);
+
+            if (e.Properties.IsRightButtonPressed)
+            {
+                _isRightDragging = true;
+                _lastPointerPosition = e.GetPosition(this);
+            }
+        }
+
+        private void OnGamePointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            // InitialPressMouseButton identifies which button this release corresponds to; by
+            // release time e.Properties would already show it as up. Also avoids GetCurrentPoint
+            // (see OnGamePointerPressed).
+            var btn = AvaloniaInputMapper.ToMouseButton(e.InitialPressMouseButton);
+            session.InputState.SetMouseButtonUp(btn);
+
+            if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Right)
+            {
+                _isRightDragging = false;
+                _lastPointerPosition = null;
+            }
+        }
+
+        private void OnGamePointerMoved(object? sender, PointerEventArgs e)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null || !_isRightDragging || !_lastPointerPosition.HasValue) return;
+
+            var currentPos = e.GetPosition(this);
+            float dx = (float)(currentPos.X - _lastPointerPosition.Value.X);
+            float dy = (float)(currentPos.Y - _lastPointerPosition.Value.Y);
+            _lastPointerPosition = currentPos;
+
+            session.InputState.AddMouseDelta(dx, dy);
+        }
+
+        private void OnGamePointerWheelChanged(object? sender, PointerWheelEventArgs e)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            session.InputState.AddMouseWheel((float)e.Delta.Y);
+        }
+
+        private void OnRawMouseButtonDown(Avalonia.Input.MouseButton button)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            session.InputState.SetMouseButtonDown(AvaloniaInputMapper.ToMouseButton(button));
+
+            if (button == Avalonia.Input.MouseButton.Right)
+            {
+                _isRightDragging = true;
+                _lastPointerPosition = null;
+            }
+        }
+
+        private void OnRawMouseButtonUp(Avalonia.Input.MouseButton button)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null) return;
+
+            session.InputState.SetMouseButtonUp(AvaloniaInputMapper.ToMouseButton(button));
+
+            if (button == Avalonia.Input.MouseButton.Right)
+            {
+                _isRightDragging = false;
+                _lastPointerPosition = null;
+            }
+        }
+
+        private void OnRawMouseMoved(double x, double y)
+        {
+            var session = _viewModel?.ActiveTab?.Session;
+            if (session == null || !_isRightDragging) return;
+
+            if (_lastPointerPosition.HasValue)
+            {
+                float dx = (float)(x - _lastPointerPosition.Value.X);
+                float dy = (float)(y - _lastPointerPosition.Value.Y);
+                session.InputState.AddMouseDelta(dx, dy);
+            }
+
+            _lastPointerPosition = new Point(x, y);
+        }
+
         private void OnTelemetryTick(object? sender, EventArgs e)
         {
             var viewportControl = this.FindControl<VeldridViewportControl>("ViewportControl");
@@ -184,6 +369,13 @@ namespace Gordian.App
             {
                 _viewModel.DisplayModeChanged -= OnDisplayModeChanged;
                 _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            }
+
+            if (_viewportControl != null)
+            {
+                _viewportControl.RawMouseButtonDown -= OnRawMouseButtonDown;
+                _viewportControl.RawMouseButtonUp -= OnRawMouseButtonUp;
+                _viewportControl.RawMouseMoved -= OnRawMouseMoved;
             }
 
             base.OnClosed(e);

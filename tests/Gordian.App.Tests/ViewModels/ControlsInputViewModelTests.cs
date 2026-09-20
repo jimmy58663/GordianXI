@@ -76,18 +76,47 @@ namespace Gordian.App.Tests.ViewModels
         }
 
         [Fact]
-        public void LoadGamepadPreset_UpdatesPresetAndGamepadBindings()
+        public void LoadGamepadPreset_ResetsGamepadBindingsWithoutChangingKeyboardLayout()
         {
             var (vm, tempFile) = CreateIsolatedViewModel();
             try
             {
+                // Starts on the default Compact keyboard layout.
+                Assert.Equal("Compact (WASD)", vm.ActivePresetName);
+
                 vm.LoadGamepadPresetCommand.Execute(null);
 
-                Assert.Equal("Gamepad (Standard)", vm.ActivePresetName);
+                // Resetting gamepad bindings must never change (or discard) the keyboard layout.
+                Assert.Equal("Compact (WASD)", vm.ActivePresetName);
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("W"));
+
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Cancel && b.BoundChords.Contains("Pad:B"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.OpenMenu && b.BoundChords.Contains("Pad:X"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.ToggleAutorun && b.BoundChords.Contains("Pad:Y"));
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void LoadFullNumpadPreset_PreservesCustomGamepadBindings()
+        {
+            var (vm, tempFile) = CreateIsolatedViewModel();
+            try
+            {
+                // Reset gamepad to defaults first so we have a known gamepad chord to check survives.
+                vm.LoadGamepadPresetCommand.Execute(null);
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
+
+                vm.LoadFullNumpadPresetCommand.Execute(null);
+
+                Assert.Equal("Full (Numpad)", vm.ActivePresetName);
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("NumPad8"));
+                // Switching keyboard layout must not have discarded the gamepad binding.
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
             }
             finally
             {

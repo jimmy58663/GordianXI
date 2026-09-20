@@ -142,6 +142,84 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void CreateGamepadDefault_IncludesFullCompactKeyboardLayout()
+        {
+            var profile = InputProfile.CreateGamepadDefault();
+
+            Assert.Equal("Gamepad (Standard)", profile.Name);
+
+            // The gamepad default must never leave keyboard coverage incomplete - it must include
+            // every keyboard action from the Compact preset (camera, targeting, etc.), not just a
+            // partial movement/menu subset.
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.I), out var actPitchUp));
+            Assert.Equal(InputAction.CameraPitchUp, actPitchUp);
+
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.J), out var actYawLeft));
+            Assert.Equal(InputAction.CameraYawLeft, actYawLeft);
+
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.PageUp), out var actZoomIn));
+            Assert.Equal(InputAction.CameraZoomIn, actZoomIn);
+
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.F1), out var actTargetSelf));
+            Assert.Equal(InputAction.TargetSelf, actTargetSelf);
+
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.F6), out var actParty5));
+            Assert.Equal(InputAction.TargetParty5, actParty5);
+
+            // OemSlash is bound to both ToggleWalkRun and OpenChat in Compact; check the multi-bind
+            // list directly rather than TryGetAction (which only returns the first match).
+            Assert.Contains(new InputChord(GordianKey.OemSlash), profile.GetChords(InputAction.OpenChat));
+
+            // Gamepad buttons are still bound as usual.
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.A), out var actConfirm));
+            Assert.Equal(InputAction.Confirm, actConfirm);
+        }
+
+        [Fact]
+        public void ReplaceKeyboardBindings_PreservesExistingGamepadBindingsAndSettings()
+        {
+            var profile = InputProfile.CreateCompact();
+
+            // Simulate a user who customized their gamepad button mapping.
+            profile.ClearAction(InputAction.Confirm);
+            profile.Bind(InputAction.Confirm, new InputChord(GamepadButton.X));
+            profile.GamepadSettings.LeftStickDeadzone = 0.33f;
+
+            profile.ReplaceKeyboardBindings(InputProfile.CreateFullNumpad());
+
+            // Keyboard layout switched to Full (Numpad)...
+            Assert.Equal("Full (Numpad)", profile.Name);
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.NumPad8), out var actForward));
+            Assert.Equal(InputAction.MoveForward, actForward);
+
+            // ...but the custom gamepad button binding and gamepad settings survived untouched.
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.X), out var actConfirm));
+            Assert.Equal(InputAction.Confirm, actConfirm);
+            Assert.Equal(0.33f, profile.GamepadSettings.LeftStickDeadzone);
+        }
+
+        [Fact]
+        public void ApplyGamepadDefaults_LeavesKeyboardBindingsUntouched()
+        {
+            var profile = InputProfile.CreateFullNumpad();
+
+            // Simulate a user who rebound a keyboard key away from the preset default.
+            profile.ClearAction(InputAction.MoveForward);
+            profile.Bind(InputAction.MoveForward, new InputChord(GordianKey.Up));
+
+            profile.ApplyGamepadDefaults();
+
+            // Keyboard rebind survives...
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.Up), out var actForward));
+            Assert.Equal(InputAction.MoveForward, actForward);
+            Assert.Equal("Full (Numpad)", profile.Name);
+
+            // ...and gamepad buttons are reset to the standard defaults.
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.A), out var actConfirm));
+            Assert.Equal(InputAction.Confirm, actConfirm);
+        }
+
+        [Fact]
         public void InputChord_StringParsingAndFormatting_Succeeds()
         {
             var chord1 = new InputChord(GordianKey.W, InputModifiers.Control);
