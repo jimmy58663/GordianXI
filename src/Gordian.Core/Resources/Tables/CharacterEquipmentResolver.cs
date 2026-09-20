@@ -39,8 +39,7 @@ namespace Gordian.Core.Resources.Tables
     /// <summary>
     /// Resolves character equipment slots (Race, Slot, ModelId) and monster/NPC models
     /// to FFXI master file IDs.
-    /// Protocol tables referenced from Atom0s' common_geartables.php, xi-tools (xi_core.py),
-    /// and xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+    /// Protocol tables referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
     public static class CharacterEquipmentResolver
     {
@@ -308,9 +307,8 @@ namespace Gordian.Core.Resources.Tables
 
         /// <summary>
         /// Calculates the canonical FFXI ROM File ID for an NPC, Monster, or Trust entity model
-        /// using the retail FFXI client's piecewise model-to-file mapping (NpcTable.getNpcModelIndex).
-        /// Protocol specification referenced from FFXiMain.dll NpcTable.getNpcModelIndex,
-        /// xi-model-viewer (https://github.com/vekien/xi-model-viewer), and cexi-tools.
+        /// using a piecewise model-to-file mapping.
+        /// Protocol specification referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
         public static int GetMonsterFileId(uint modelId)
         {

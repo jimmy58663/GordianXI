@@ -22,6 +22,12 @@ GordianXI is an independent, clean-room client architecture for Final Fantasy XI
 * **[xi-model-viewer](https://github.com/vekien/xi-model-viewer)** (Licensed under GPLv3)
   * Extensive documentation and reverse-engineering of FFXI 3D formats, DAT chunk hierarchies, skeletal systems, and animation data.
 
+* **[XiPackets](https://github.com/atom0s/XiPackets)** (Licensed under AGPLv3)
+  * Reverse-engineered documentation of FFXI network packet functions, data, and systems, used as a cross-reference for GordianXI's packet schema research.
+
+* **[xi-tools](https://github.com/vekien/xi-tools)** (Licensed under GPLv3)
+  * Knowledgebase and toolset documentation for FFXI DAT modifications, referenced for skeletal animation clip format research.
+
 ---
 
 ## 🛠️ Frameworks, Libraries & Runtime Tools
