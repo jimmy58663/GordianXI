@@ -21,11 +21,13 @@ namespace Gordian.Core.Tests.Graphics
             camera.Update(Vector3.Zero, pitch: 0.0f, yaw: 0.0f, distance: 10.0f, aspectRatio: 16.0f / 9.0f);
 
             Assert.Equal(Vector3.Zero, camera.Target);
-            // In our spherical coordinates (sinY * cosP, sinP, cosY * cosP):
-            // yaw = 0 => (0, 0, 1), eye = target - forward * dist = (0, 0, -10)
-            Assert.InRange(camera.Position.X, -0.01f, 0.01f);
+            // Forward is (-cosY * cosP, sinP, sinY * cosP): Yaw follows the FFXI world-heading
+            // convention (0=East/+X, 90=South/+Z), negated on X because the renderer displays
+            // entities at a mirrored X coordinate (see EntityRenderer: pos = (-x, -y, z)).
+            // yaw = 0 => forward = (-1, 0, 0), eye = target - forward * dist = (10, 0, 0)
+            Assert.InRange(camera.Position.X, 9.99f, 10.01f);
             Assert.InRange(camera.Position.Y, -0.01f, 0.01f);
-            Assert.InRange(camera.Position.Z, -10.01f, -9.99f);
+            Assert.InRange(camera.Position.Z, -0.01f, 0.01f);
         }
 
         [Fact]
@@ -42,10 +44,10 @@ namespace Gordian.Core.Tests.Graphics
 
             Assert.Equal(Vector3.Zero, camera.Target);
             // sin(30 deg) = 0.5 => eye.Y = 10 * 0.5 = 5.0f
-            // cos(30 deg) = 0.866 => eye.Z = -10 * 0.866 = -8.66f
-            Assert.InRange(camera.Position.X, -0.01f, 0.01f);
+            // cos(30 deg) = 0.866 => eye.X = 10 * 0.866 = 8.66f (yaw = 0 => mirrored -X forward)
+            Assert.InRange(camera.Position.X, 8.60f, 8.70f);
             Assert.InRange(camera.Position.Y, 4.99f, 5.01f);
-            Assert.InRange(camera.Position.Z, -8.70f, -8.60f);
+            Assert.InRange(camera.Position.Z, -0.01f, 0.01f);
         }
 
         [Fact]
@@ -63,7 +65,7 @@ namespace Gordian.Core.Tests.Graphics
             // Eye position should equal playerPos + eyeOffset exactly
             Assert.Equal(new Vector3(10, 1.5f, 20), camera.Position);
             // Target should be in front of the eye
-            Assert.True(camera.Target.X > camera.Position.X); // Yaw 90 degrees points along +X
+            Assert.True(camera.Target.Z > camera.Position.Z); // Yaw 90 degrees points along +Z (South)
         }
 
         [Fact]
@@ -76,11 +78,11 @@ namespace Gordian.Core.Tests.Graphics
 
             camera.SetLookAt(new Vector3(0, 10, 0), new Vector3(0, 10, 10));
 
-            // Move forward (Z +5)
+            // Move forward; at Yaw = 0 (default), forward is mirrored East, i.e. -X
             camera.MoveFreeCam(new Vector3(0, 0, 5.0f), pitchDelta: 0.0f, yawDelta: 0.0f);
 
             // Eye position should have translated forward
-            Assert.True(camera.Position.Z > 0.0f);
+            Assert.True(camera.Position.X < 0.0f);
         }
 
         [Fact]

@@ -67,18 +67,55 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void EntityHeading_RotatesAroundYAxis()
         {
-            // Direction 64 = 90 degrees (quarter turn)
+            // Direction 64 = 90 degrees (quarter turn). Verified against live gamepad testing:
+            // a -90 degree offset alone left the model's facing a constant 90 degrees off from
+            // its actual direction of travel at every heading (confirmed by a player pushing each
+            // of forward/back/left/right and reporting which way the model turned to face vs.
+            // which way it actually moved); a -180 degree offset is what lines the two up.
             byte dir = 64;
             float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
-            var rotY = Matrix4x4.CreateRotationY(-headingRad);
+            var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
 
             var forward = new Vector4(0f, 0f, 1f, 0f);
             var turned = Vector4.Transform(forward, rotY);
 
-            // Rotated around Y by 90 degrees
             Assert.Equal(-1f, turned.X, 2);
             Assert.Equal(0f, turned.Y, 2);
             Assert.Equal(0f, turned.Z, 2);
+        }
+
+        [Fact]
+        public void EntityHeading_RotationTracksHeadingDeltaConsistently()
+        {
+            // Regardless of the absolute phase offset, turning the heading by a given amount
+            // must turn the rendered facing by that same amount, in a fixed, consistent
+            // direction — otherwise facing would only line up with travel direction at some
+            // headings and not others (the exact bug this offset fixes).
+            float prevAngle = 0f;
+            bool first = true;
+
+            foreach (byte dir in new byte[] { 0, 32, 64, 96, 128, 160, 192, 224 })
+            {
+                float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
+                var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
+
+                var forward = new Vector4(0f, 0f, 1f, 0f);
+                var turned = Vector4.Transform(forward, rotY);
+                float angle = MathF.Atan2(turned.X, turned.Z);
+
+                if (!first)
+                {
+                    float delta = angle - prevAngle;
+                    if (delta < -MathF.PI) delta += 2 * MathF.PI;
+                    if (delta > MathF.PI) delta -= 2 * MathF.PI;
+
+                    // Each step in the loop advances heading by 32/256 of a turn (45 degrees)
+                    Assert.Equal(MathF.PI / 4.0f, delta, 3);
+                }
+
+                prevAngle = angle;
+                first = false;
+            }
         }
     }
 }

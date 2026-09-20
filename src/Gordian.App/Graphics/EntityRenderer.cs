@@ -292,8 +292,13 @@ namespace Gordian.App.Graphics
 
                 // Compute authentic entity world transform
                 // 1. Heading angle: FFXI Direction 0=East(+X), 64=South(+Z), 128=West(-X), 192=North(-Z)
+                // This entity is placed at a mirrored X (see `pos` above: (-x, -y, z)), so the
+                // mesh's facing rotation must also compensate for that mirror. A -90 degree
+                // offset alone still left the rendered facing a constant 90 degrees off from the
+                // actual (mirrored) direction of travel at every heading; -180 degrees is what
+                // makes the model visually face the way it moves.
                 float headingRad = (entity.Direction / 256.0f) * MathF.PI * 2.0f;
-                var headingRot = Matrix4x4.CreateRotationY(-headingRad);
+                var headingRot = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
 
                 bool isFallback = ReferenceEquals(gpuModel, _fallbackPlayerProxy) ||
                                   ReferenceEquals(gpuModel, _fallbackNpcProxy) ||

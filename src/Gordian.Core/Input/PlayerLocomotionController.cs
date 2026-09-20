@@ -317,9 +317,12 @@ namespace Gordian.Core.Input
             // Camera-Relative 3D Locomotion (Standard FFXI Type A)
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
             {
-                // Angle relative to Camera Yaw: stick Up (0, 1) is 0 offset, Right (1, 0) is +90, Down is +180, Left is -90
+                // Angle relative to Camera Yaw: stick Up (0, 1) is 0 offset, Right (1, 0) is +90, Down is +180, Left is -90.
+                // Subtracted (not added) because the renderer displays the world at a mirrored X
+                // coordinate (see ViewportCamera/EntityRenderer), which flips the handedness of
+                // "camera right": in world-heading terms, camera-right is CameraYaw - 90, not + 90.
                 float stickAngleDeg = MathF.Atan2(leftStick.X, leftStick.Y) * (180.0f / MathF.PI);
-                float targetHeadingDeg = NormalizeDegrees(CameraYaw + stickAngleDeg);
+                float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
                 localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
 
                 float stickMagnitude = leftStick.Length();
