@@ -94,7 +94,9 @@ namespace Gordian.App
             AddHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel);
             AddHandler(InputElement.PointerReleasedEvent, OnWindowPointerReleased, RoutingStrategies.Tunnel);
             AddHandler(InputElement.PointerMovedEvent, OnWindowPointerMoved, RoutingStrategies.Tunnel);
-            AddHandler(InputElement.PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
+            // Mouse wheel is intentionally NOT captured here: camera zoom is handled by VeldridViewportControl
+            // directly in the rendering viewport, so scrolling elsewhere in the app (e.g. the settings tabs)
+            // doesn't zoom the in-game camera.
 
             _lastInputLoopTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
             _inputLoopTimer = new DispatcherTimer
@@ -251,14 +253,6 @@ namespace Gordian.App
                 session.InputState.AddMouseDelta(dx, dy);
             }
             _lastPointerPosition = currentPos;
-        }
-
-        private void OnWindowPointerWheelChanged(object? sender, PointerWheelEventArgs e)
-        {
-            var session = _viewModel.Console.SelectedSession;
-            if (session == null) return;
-
-            session.InputState.AddMouseWheel((float)e.Delta.Y);
         }
 
         private void OnInputLoopTick(object? sender, EventArgs e)

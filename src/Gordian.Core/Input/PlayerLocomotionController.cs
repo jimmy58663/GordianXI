@@ -149,18 +149,15 @@ namespace Gordian.Core.Input
             if (_inputState.IsActionHeld(InputAction.CameraZoomOut)) zoomDelta += 10.0f * dt;
 
             // Mouse Look (Right Mouse Drag or raw delta)
-            _inputState.ConsumeMouseDeltas(out float mouseDx, out float mouseDy, out float mouseWheel);
+            // Mouse wheel zoom is handled directly by the rendering viewport control (VeldridViewportControl),
+            // not here, so scrolling only affects the camera while the pointer is over a viewport.
+            _inputState.ConsumeMouseDeltas(out float mouseDx, out float mouseDy, out _);
             if (mouseDx != 0 || mouseDy != 0)
             {
                 float mx = mouseDx * _profile.MouseSensitivityX * 0.15f;
                 yawDelta += _profile.InvertMouseX ? -mx : mx;
                 float my = mouseDy * _profile.MouseSensitivityY * 0.15f;
                 pitchDelta += _profile.InvertMouseY ? -my : my;
-            }
-
-            if (mouseWheel != 0)
-            {
-                zoomDelta -= mouseWheel * _profile.MouseWheelZoomStep;
             }
 
             // Gamepad Analog Camera Look (Right Thumbstick)
