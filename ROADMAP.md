@@ -9,9 +9,9 @@
 ---
 
 ## 🏆 MVP Definition (Minimum Viable Product)
-> **Goal:** A player can launch GordianXI, connect directly to a LandSandBoat private server, authenticate, spawn into a zone with 3D world geometry and character models rendered, control movement and camera using customizable Keyboard/Mouse or Gamepad, execute basic actions and slash commands via an interactive CLI console or hotkeys, view chat/vitals/inventory, and cross zonelines to new map servers without dropping session state.
+> **Goal:** A player can launch GordianXI, connect directly to a LandSandBoat private server, authenticate through a character lobby (create/select/delete a character), spawn into a zone with 3D world geometry and character models rendered, control movement and camera using customizable Keyboard/Mouse or Gamepad while being correctly blocked by walls/terrain/water instead of clipping through them, execute basic actions and slash commands via an interactive CLI console or hotkeys, view chat/vitals/inventory, and cross zonelines to new map servers without dropping session state.
 > 
-> *MVP includes Phases 1 through 5. Phases 6 through 10 represent Post-MVP extensions.*
+> *MVP includes Phases 1 through 5, including sub-phases 5A-5G — World Collision & Navigation (5F) and the Character Lobby (5G) are MVP-blocking, since a client that lets players clip through geometry or cannot create/select a character without an external tool does not meet the MVP goal above. Phase 5H (Audio) and Phases 6 through 10 represent Post-MVP extensions.*
 
 ---
 
@@ -67,6 +67,13 @@
   - [x] Real-time atomic datagram counters (Inbound/Outbound packets/sec, bytes/sec, rolling throughput window)
   - [x] Packet sequence gap tracking & drop detection for UDP streams
   - [x] Zero-allocation dispatch latency profiling (microsecond-level decode time)
+
+#### ⚠️ Known Gaps (Packet Audit, 2026-09-20)
+*A full opcode-level audit found the coverage claim above is accurate at the decode/encode level (81 S2C decoders, 64 C2S builders are genuinely wired and reachable), but several packets that are "handled" don't actually do anything useful yet. Tracked here instead of re-opening Phase 3 as incomplete, since the wire-format work itself is done — what's missing is wiring the result into state/UI.*
+- [ ] Register orphaned decoder `S2C_0x073_ChocoboToteboard` (`ProgressionPackets.cs`) in `ProgressionPacketModule.Register()` — fully implemented but never added to the dispatcher, so it never fires
+- [ ] Wire up 14 fully-built but never-called C2S builders (currently dead code, meaning these player actions are impossible in the running client despite the packet layer existing): Auction House bid/buy (`0x04E`), subcontainer/mannequin equip (`0x03B`), equipset check & lockstyle (`0x052`/`0x053`), key item reading (`0x064`), Mog House room-is & furniture layout (`0x0CB`/`0x0FA`), Chocobo race entry (`0x09B`), Unity quest accept & toggle (`0x117`/`0x118`); also delete the 4 duplicate/legacy builders for opcodes already covered elsewhere (`HandshakePackets.BuildGameOkSubPacket`, `BuildNetEndSubPacket`, `LifecycleOutboundPackets.BuildEventEnd`, `BuildEventEndXzy`)
+- [ ] Persist the following decoded-but-discarded S2C data into a `World/*State` cache instead of only logging it: status effect apply/expire + duration (`0x030 Effect` — blocks any buff/debuff countdown UI), Auction House state (`0x04C Auc` — no AH state object exists at all), Guild shop & Bazaar transaction results (`0x082`-`0x085`, `0x106`, `0x108`-`0x10A`), Equipset validation/result (`0x116`/`0x117`), linkshell comlink (`0x0E0`), party invite result (`0x11D`), NPC dialog/menu text (`0x036 TalkNum`), Mog House operation result (`0x0FA`)
+- [ ] Add a `Gordian.Core.Tests` `Network/Packets` regression test asserting every decoder defined in `Network/Packets/*.cs` is reachable from `PacketDispatcher` (would have caught the orphaned `0x073` decoder automatically)
 
 ---
 
@@ -150,6 +157,31 @@
     - [ ] Granular visibility flags for each stock element (Target Bar, Player Vitals, Party Frames, Alliance Frames, Buff Bar, Menus, In-Game Chat).
     - [ ] Allows addon authors and players to selectively or entirely disable stock HUD elements to run custom ImGui replacements (e.g. XIVParty, modern target frames, or clean cinematic mode) without visual overlap.
   - [ ] Viewport performance overlay: FPS counter, frame pacing graph, draw call counters, and GPU pass timings
+- [ ] **Phase 5F: World Collision, Terrain Navigation & Ground Physics (MVP Completion — Blocking):**
+  - [ ] **Ground Height Sampling:** Raycast/heightfield-sample the local player's Y position each locomotion tick against decoded `ZoneGeometry`/`MeshGroup` collision triangles. Confirmed gap: `PlayerLocomotionController.UpdateLocomotion` currently only ever writes X/Z from input and never touches Y, so the player has no floor at all today.
+  - [ ] **Horizontal Wall/Obstacle Collision:** Sweep or AABB-test the intended movement vector against nearby `MeshGroup` triangles before committing a position delta, instead of applying `dx`/`dz` unconditionally as today.
+  - [ ] **Server Position Reconciliation Backstop:** Replace the current hard skip of server-authoritative position updates for the local player (`EntityPacketModule.cs` ignores every `0x00D`/`0x0DF` position update where `UniqueNo == _localPlayer.ServerId`) with a tolerant snap-back/correction so LSB's own server-side collision can catch client-side clipping instead of being silently discarded.
+  - [ ] **Remote Entity Collision:** Extend `WorldState.ProjectPosition` dead-reckoning to respect the same collision surface for other players/NPCs/monsters, not just the local player.
+  - [ ] **Water/Ocean Plane Detection:** Detect open-water surfaces to gate swim state, speed, and (once implemented in Phase 5H) swim animation/sound, instead of letting the player walk across or through water.
+  - [ ] **Collision Acceleration Structure:** Reuse/extend `SpatialPartitionGrid` (or a zone-local BVH over `MeshGroup` bounds) for collision queries — a brute-force per-tick triangle scan against the full zone mesh will not hold a 60Hz budget.
+  - [ ] Dedicated `Gordian.Core.Tests` `World/Collision` test coverage (no `Physics`/`Collision` test namespace currently exists).
+- [ ] **Phase 5G: Character Lobby, Creation & Deletion (MVP Completion — Blocking):**
+  - [ ] **Research Task:** Determine whether retail's character-select/creation lobby (background, race/face preview models, menu chrome) is DAT-driven or hardcoded in `ffxi.exe`/`pol.exe`; identify the specific ROM/DAT section(s) if DAT-driven, per the clean-room boundary rules in `AGENTS.md`.
+  - [ ] Clean-room decode of any identified lobby DAT resources (layout, textures, preview model refs, button hit regions) — cite the reference source in XML doc-comments per `AGENTS.md` protocol-attribution standards if community research (e.g. LandSandBoat's login/char-select handling) informs the wire format.
+  - [ ] Render the lobby/character-select screen: existing character list, race/face/job preview, and navigation.
+  - [ ] **Character Creation Flow:** race, face, starting nation, name entry, live appearance preview.
+  - [ ] **Character Deletion Flow:** confirmation step, matching LSB's delete-code/security flow if one is enforced server-side.
+  - [ ] Wire lobby actions (list/create/delete/select-and-enter-world) to LSB login-server requests, extending `LsbLoginClient`.
+  - [ ] **Loading Screen:** identify whether retail uses a DAT-sourced loading-screen asset (background art, progress indicator) and implement a loading/transition UI state for character-select → zone-in and for zone-to-zone transitions — `PerformZoneTransitionAsync` currently has no visual loading state at all.
+  - [ ] Integrate the lobby ahead of the existing `ProxyStager`/Named Pipe handoff flow without breaking the current direct-to-zone "saved profile" fast path used by `Local (Cybin)`-style launches.
+- [ ] **Phase 5H: Audio & Sound Engine (Legacy Parity — Non-Blocking):**
+  - [ ] Select a cross-platform managed audio backend (must avoid Windows-only APIs per `AGENTS.md`; no audio library of any kind is referenced anywhere in the codebase today).
+  - [ ] Clean-room decode of FFXI DAT sound resources (footstep sets, spell/weaponskill/ability SFX, UI cues, ambient zone loops, BGM tracks), if stored in DAT containers.
+  - [ ] Footstep & movement SFX tied to `PlayerLocomotionController`/animation state.
+  - [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
+  - [ ] Ambient zone loops & BGM playback tied to `WorldState.ZoneChanged`.
+  - [ ] UI/menu sound cues (target, cursor move, confirm, cancel).
+  - [ ] Master/category volume mixing (SFX/BGM/Ambient/UI) with persisted settings.
 
 ---
 
