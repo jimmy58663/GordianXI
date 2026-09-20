@@ -55,7 +55,7 @@ namespace Gordian.App.Graphics
 
         private readonly ConcurrentDictionary<string, GpuEntityModel> _gpuModelCache = new();
         private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
-        private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 2];
+        private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 3];
         private GpuEntityModel? _fallbackPlayerProxy;
         private GpuEntityModel? _fallbackNpcProxy;
         private GpuEntityModel? _fallbackMonsterProxy;
@@ -388,7 +388,7 @@ namespace Gordian.App.Graphics
         private JointPaletteEntry CreateJointPalette()
         {
             var factory = _gd.ResourceFactory;
-            uint bufferSize = (uint)(ZoneShaders.MaxPaletteJoints * 16 * 2); // vec4 uRot[N] + vec4 uTrans[N]
+            uint bufferSize = (uint)(ZoneShaders.MaxPaletteJoints * 16 * 3); // vec4 uRot[N] + vec4 uTrans[N] + vec4 uScale[N]
             var buffer = factory.CreateBuffer(new BufferDescription(bufferSize, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
             var set = factory.CreateResourceSet(new ResourceSetDescription(_jointPaletteLayout, buffer));
             return new JointPaletteEntry(buffer, set);
@@ -415,30 +415,39 @@ namespace Gordian.App.Graphics
                 _paletteScratch[i] = new Vector4(r.X, r.Y, r.Z, r.W);
                 var t = pose.Translations[i];
                 _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = new Vector4(t.X, t.Y, t.Z, 0f);
+                var s = i < pose.Scales.Length ? pose.Scales[i] : Vector3.One;
+                _paletteScratch[(ZoneShaders.MaxPaletteJoints * 2) + i] = new Vector4(s.X, s.Y, s.Z, 1f);
             }
             for (int i = count; i < ZoneShaders.MaxPaletteJoints; i++)
             {
                 _paletteScratch[i] = new Vector4(0f, 0f, 0f, 1f);
                 _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = Vector4.Zero;
+                _paletteScratch[(ZoneShaders.MaxPaletteJoints * 2) + i] = Vector4.One;
             }
 
             cl.UpdateBuffer(buffer, 0, _paletteScratch);
         }
 
-        private static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category, byte animationSub = 0)
+        /// <summary>
+        /// Resolves the appropriate animation clip for an entity based on its locomotion/activity category
+        /// and optional sub-animation stance (e.g. Uragnite in shell: AnimationSub == 5).
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) uragnite.lua.
+        /// </summary>
+        internal static AnimationClip? ResolveClip(EntityModel model, AnimationCategory category, byte animationSub = 0)
         {
             var anims = model.Animations;
             if (anims.Count == 0) return null;
 
             // Alternate/defense sub-animation stance (e.g. Uragnite in shell: AnimationSub == 5)
+            // Prioritizes alternate mode stances (1tl/1tl0 - relaxed breathing in-shell idle/combat stance),
+            // guard idle (gid/gid0), then guard clamp impact (gud/gud0). Never uses damage flinch (dfi/dbi).
             // Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) uragnite.lua
             if (animationSub == 5)
             {
                 AnimationClip? subClip = category switch
                 {
-                    AnimationCategory.Combat => TryGetClip(anims, "dbi", "dbi0", "dfi", "dfi0"),
-                    AnimationCategory.Walk or AnimationCategory.Run => TryGetClip(anims, "dfm", "dfm1", "dbm", "dbm1"),
-                    _ => TryGetClip(anims, "dfi", "dfi0", "dbi", "dbi0")
+                    AnimationCategory.Walk or AnimationCategory.Run => TryGetClip(anims, "gdm", "gdm1", "1tl", "1tl0", "gid", "gid0", "gud", "gud0"),
+                    _ => TryGetClip(anims, "1tl", "1tl0", "gid", "gid0", "gud", "gud0")
                 };
                 if (subClip != null) return subClip;
             }

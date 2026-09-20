@@ -47,6 +47,7 @@ namespace Gordian.Core.Resources.Graphics
             Span<int> transOffsets = stackalloc int[3];
             Span<float> transConst = stackalloc float[3];
             Span<int> scaleOffsets = stackalloc int[3];
+            Span<float> scaleConst = stackalloc float[3];
 
             for (int b = 0; b < numJoints; b++)
             {
@@ -77,6 +78,10 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     scaleOffsets[i] = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(entryStart + 60 + (i * 4), 4));
                 }
+                for (int i = 0; i < 3; i++)
+                {
+                    scaleConst[i] = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(entryStart + 72 + (i * 4), 4));
+                }
 
                 if (!TryResolveChannelGroup(payload, boneTableStart, rotOffsets, numFrames, out float[]?[] rotChannels))
                 {
@@ -88,16 +93,14 @@ namespace Gordian.Core.Resources.Graphics
                     continue; // translation group dropped -> entire bone track skipped
                 }
 
-                // Scale values themselves are not stored/applied by any consuming code yet, but per
-                // the documented format the scale group still participates in the drop/skip decision:
-                // a negative/absent scale channel means the whole bone track is skipped.
-                if (!TryResolveChannelGroup(payload, boneTableStart, scaleOffsets, numFrames, out _))
+                if (!TryResolveChannelGroup(payload, boneTableStart, scaleOffsets, numFrames, out float[]?[] scaleChannels))
                 {
                     continue;
                 }
 
                 var rotations = new Quaternion[numFrames];
                 var translations = new Vector3[numFrames];
+                var scales = new Vector3[numFrames];
                 bool allFinite = true;
 
                 for (int f = 0; f < numFrames; f++)
@@ -115,8 +118,17 @@ namespace Gordian.Core.Resources.Graphics
                     float tz = transChannels[2]?[f] ?? transConst[2];
                     translations[f] = new Vector3(tx, ty, tz);
 
+                    float sx = scaleChannels[0]?[f] ?? scaleConst[0];
+                    float sy = scaleChannels[1]?[f] ?? scaleConst[1];
+                    float sz = scaleChannels[2]?[f] ?? scaleConst[2];
+                    scales[f] = new Vector3(
+                        float.IsFinite(sx) && MathF.Abs(sx) > 0.0001f ? sx : 1f,
+                        float.IsFinite(sy) && MathF.Abs(sy) > 0.0001f ? sy : 1f,
+                        float.IsFinite(sz) && MathF.Abs(sz) > 0.0001f ? sz : 1f);
+
                     if (!float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz) ||
-                        !float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw))
+                        !float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw) ||
+                        !float.IsFinite(sx) || !float.IsFinite(sy) || !float.IsFinite(sz))
                     {
                         allFinite = false;
                     }
@@ -133,7 +145,8 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     JointIndex = jointIndex,
                     Rotations = rotations,
-                    Translations = translations
+                    Translations = translations,
+                    Scales = scales
                 };
             }
 

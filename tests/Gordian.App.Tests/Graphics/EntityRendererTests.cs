@@ -1,7 +1,11 @@
 // tests/Gordian.App.Tests/Graphics/EntityRendererTests.cs
 using System;
 using System.Numerics;
+using Gordian.App.Graphics;
+using Gordian.Core.Animation;
 using Gordian.Core.Graphics;
+using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Xunit;
 
@@ -111,6 +115,117 @@ namespace Gordian.App.Tests.Graphics
                 prevAngle = angle;
                 first = false;
             }
+        }
+
+        [Fact]
+        public void ResolveClip_AnimationSub5_ResolvesInShellBreathingStance_1tl0_OverGuardAndDamageClips()
+        {
+            // Uragnites and shell/alternate-stance mobs (Adamantoise, Exoplates) have:
+            // - idl0 / btl0: standard open/active stance (17 frames)
+            // - 1tl0: Mode 1 alternate/in-shell breathing stance (17 frames)
+            // - gud0: 2-frame guard block impact clamp
+            // - dfi0 / dbi0: 2-frame damage flinch impact
+            // When AnimationSub == 5 (in shell), ResolveClip must select 1tl0 (or 1tl) for both Idle and Combat,
+            // giving the relaxed, breathing in-shell animation rather than the static 2-frame guard clamp (gud0)
+            // or damage flinch (dfi0 / dbi0).
+            var model = new EntityModel { Name = "Uragnite" };
+            model.Animations["idl0"] = new AnimationClip { Name = "idl0", NumFrames = 17 };
+            model.Animations["btl0"] = new AnimationClip { Name = "btl0", NumFrames = 17 };
+            model.Animations["1tl0"] = new AnimationClip { Name = "1tl0", NumFrames = 17 };
+            model.Animations["dfi0"] = new AnimationClip { Name = "dfi0", NumFrames = 2 };
+            model.Animations["dbi0"] = new AnimationClip { Name = "dbi0", NumFrames = 2 };
+            model.Animations["gud0"] = new AnimationClip { Name = "gud0", NumFrames = 2 };
+
+            // When AnimationSub == 5 (in shell):
+            // Idle category must resolve 1tl0 (breathing in-shell stance), NOT gud0 or dfi0
+            var idleInShell = EntityRenderer.ResolveClip(model, AnimationCategory.Idle, animationSub: 5);
+            Assert.NotNull(idleInShell);
+            Assert.Equal("1tl0", idleInShell.Name);
+
+            // Combat category must also resolve 1tl0 (breathing in-shell stance), NOT gud0 or dbi0
+            var combatInShell = EntityRenderer.ResolveClip(model, AnimationCategory.Combat, animationSub: 5);
+            Assert.NotNull(combatInShell);
+            Assert.Equal("1tl0", combatInShell.Name);
+
+            // Walk / Run without specific gdm clip should fall back to 1tl0
+            var walkInShell = EntityRenderer.ResolveClip(model, AnimationCategory.Walk, animationSub: 5);
+            Assert.NotNull(walkInShell);
+            Assert.Equal("1tl0", walkInShell.Name);
+
+            // When AnimationSub == 4 (Uragnite open / out of shell) or 0:
+            var idleOpen = EntityRenderer.ResolveClip(model, AnimationCategory.Idle, animationSub: 4);
+            Assert.NotNull(idleOpen);
+            Assert.Equal("idl0", idleOpen.Name);
+
+            var combatOpen = EntityRenderer.ResolveClip(model, AnimationCategory.Combat, animationSub: 4);
+            Assert.NotNull(combatOpen);
+            Assert.Equal("btl0", combatOpen.Name);
+        }
+
+        [Fact]
+        public void ResolveClip_AnimationSub5_FallsBackToGidThenGudWhen1tlNotPresent()
+        {
+            // Mobs without 1tl0 that have guard idle (gid0) should resolve gid0 before gud0
+            var modelWithGid = new EntityModel { Name = "GuardMob" };
+            modelWithGid.Animations["gid0"] = new AnimationClip { Name = "gid0", NumFrames = 15 };
+            modelWithGid.Animations["gud0"] = new AnimationClip { Name = "gud0", NumFrames = 2 };
+
+            var clipGid = EntityRenderer.ResolveClip(modelWithGid, AnimationCategory.Idle, animationSub: 5);
+            Assert.NotNull(clipGid);
+            Assert.Equal("gid0", clipGid.Name);
+
+            // Mobs with only gud0 should fall back to gud0
+            var modelWithGudOnly = new EntityModel { Name = "TurtleMob" };
+            modelWithGudOnly.Animations["gud0"] = new AnimationClip { Name = "gud0", NumFrames = 2 };
+
+            var clipGud = EntityRenderer.ResolveClip(modelWithGudOnly, AnimationCategory.Idle, animationSub: 5);
+            Assert.NotNull(clipGud);
+            Assert.Equal("gud0", clipGud.Name);
+        }
+
+        [Fact]
+        public void ResolveClip_AnimationSub5_PrefersMovingGuardClipWhenAvailable()
+        {
+            var model = new EntityModel { Name = "DefendingMob" };
+            model.Animations["1tl0"] = new AnimationClip { Name = "1tl0", NumFrames = 17 };
+            model.Animations["gud0"] = new AnimationClip { Name = "gud0", NumFrames = 2 };
+            model.Animations["gdm1"] = new AnimationClip { Name = "gdm1", NumFrames = 2 };
+
+            var walkClip = EntityRenderer.ResolveClip(model, AnimationCategory.Walk, animationSub: 5);
+            Assert.NotNull(walkClip);
+            Assert.Equal("gdm1", walkClip.Name);
+
+            var idleClip = EntityRenderer.ResolveClip(model, AnimationCategory.Idle, animationSub: 5);
+            Assert.NotNull(idleClip);
+            Assert.Equal("1tl0", idleClip.Name);
+        }
+
+        [Fact]
+        public void Uragnite_ClosedShell_1tl0_TentaclesTuckedInFront()
+        {
+            string path = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\ROM\259\15.DAT";
+            if (!System.IO.File.Exists(path)) return;
+            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            var container = Gordian.Core.Resources.EntityModelLoader.ParseDatContainer(bytes, "Uragnite");
+            var skel = container.Skeleton;
+            Assert.NotNull(skel);
+
+            var c1tl = container.Animations.Find(c => c.Name == "1tl0");
+            Assert.NotNull(c1tl);
+
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skel, c1tl, 0f, true);
+            Assert.Equal(skel.Count, pose.Scales.Length);
+
+            // Stalk bones (joints 30-33 and 44-47) are contracted via bone scale channels
+            Assert.True(pose.Scales[30].X < 0.9f, "Left tentacle stalk should be scaled down");
+            Assert.True(pose.Scales[44].X < 0.9f, "Right tentacle stalk should be scaled down");
+
+            // Tips of tentacles (joints 39 and 53) are pulled into resting position in front of the shell
+            // (~1.15 yalms apart with bone scale applied, compared to ~2.64 yalms when unscaled)
+            float tipDistance = Vector3.Distance(pose.Translations[39], pose.Translations[53]);
+            Assert.InRange(tipDistance, 1.0f, 1.3f);
+            Assert.InRange(pose.Translations[39].X, 0.1f, 0.5f);
+            Assert.InRange(pose.Translations[53].X, 0.1f, 0.5f);
         }
     }
 }

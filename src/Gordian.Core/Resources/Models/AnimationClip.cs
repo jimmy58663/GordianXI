@@ -15,6 +15,7 @@ namespace Gordian.Core.Resources.Models
         public int JointIndex { get; init; }
         public Quaternion[] Rotations { get; init; } = Array.Empty<Quaternion>();
         public Vector3[] Translations { get; init; } = Array.Empty<Vector3>();
+        public Vector3[] Scales { get; init; } = Array.Empty<Vector3>();
     }
 
     /// <summary>
@@ -51,8 +52,18 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public bool TrySample(int jointIndex, float timeSeconds, bool loop, out Quaternion rotation, out Vector3 translation)
         {
+            return TrySample(jointIndex, timeSeconds, loop, out rotation, out translation, out _);
+        }
+
+        /// <summary>
+        /// Samples a joint's local rotation, translation, and scale at the given playback time using NLERP.
+        /// Returns false if this clip has no track for the requested joint.
+        /// </summary>
+        public bool TrySample(int jointIndex, float timeSeconds, bool loop, out Quaternion rotation, out Vector3 translation, out Vector3 scale)
+        {
             rotation = Quaternion.Identity;
             translation = Vector3.Zero;
+            scale = Vector3.One;
 
             if (!Tracks.TryGetValue(jointIndex, out var track) || NumFrames <= 0)
             {
@@ -70,6 +81,7 @@ namespace Gordian.Core.Resources.Models
             {
                 rotation = track.Rotations[0];
                 translation = track.Translations.Length > 0 ? track.Translations[0] : Vector3.Zero;
+                scale = track.Scales.Length > 0 ? track.Scales[0] : Vector3.One;
                 return true;
             }
 
@@ -95,6 +107,10 @@ namespace Gordian.Core.Resources.Models
             Vector3 t0 = track.Translations.Length > lower ? track.Translations[lower] : Vector3.Zero;
             Vector3 t1 = track.Translations.Length > upper ? track.Translations[upper] : Vector3.Zero;
             translation = Vector3.Lerp(t0, t1, t);
+
+            Vector3 s0 = track.Scales.Length > lower ? track.Scales[lower] : Vector3.One;
+            Vector3 s1 = track.Scales.Length > upper ? track.Scales[upper] : Vector3.One;
+            scale = Vector3.Lerp(s0, s1, t);
             return true;
         }
 

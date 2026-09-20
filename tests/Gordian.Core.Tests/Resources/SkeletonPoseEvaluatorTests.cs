@@ -161,5 +161,43 @@ namespace Gordian.Core.Tests.Resources
             var bindPose = SkeletonPoseEvaluator.ComputeBindPose(skeleton);
             Assert.Equal(new Vector3(0f, 0f, 1f), bindPose.Translations[0]);
         }
+
+        [Fact]
+        public void SkeletonPoseEvaluator_EvaluatePose_AppliesAnimationRotationInLocalBoneSpace()
+        {
+            var qBindPitch90 = Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 2f);
+            var qAnimYaw90 = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f);
+
+            var joints = new[]
+            {
+                new SkeletonJoint(-1, Quaternion.Identity, Vector3.Zero), // root
+                new SkeletonJoint(0, qBindPitch90, Vector3.Zero)          // child with bind rotation
+            };
+            var skeleton = new Skeleton(joints);
+
+            var track = new BoneAnimationTrack
+            {
+                JointIndex = 1,
+                Rotations = new[] { qAnimYaw90 },
+                Translations = new[] { Vector3.Zero }
+            };
+            var clip = new AnimationClip
+            {
+                Name = "test_local_rot",
+                NumFrames = 1,
+                KeyFrameDuration = 1.0f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [1] = track }
+            };
+
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, 0f, false);
+
+            // Matching xi-model-viewer pose.js: rotation = qMul(s.q, rotation);
+            // In .NET Quaternion.Multiply, this is animRot * r_bind.
+            var expected = Quaternion.Normalize(qAnimYaw90 * qBindPitch90);
+            var actual = pose.Rotations[1];
+
+            Assert.True(MathF.Abs(Quaternion.Dot(expected, actual)) > 0.999f,
+                $"Rotation mismatch: expected {expected}, got {actual}");
+        }
     }
 }

@@ -17,11 +17,13 @@ namespace Gordian.Core.Resources.Graphics
         {
             public Quaternion[] Rotations { get; }
             public Vector3[] Translations { get; }
+            public Vector3[] Scales { get; }
 
-            public EvaluatedPose(Quaternion[] rotations, Vector3[] translations)
+            public EvaluatedPose(Quaternion[] rotations, Vector3[] translations, Vector3[]? scales = null)
             {
                 Rotations = rotations;
                 Translations = translations;
+                Scales = scales ?? Array.Empty<Vector3>();
             }
         }
 
@@ -35,21 +37,24 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
-        /// Evaluates world rotation/translation for each joint at a given clip playback time.
+        /// Evaluates world rotation/translation/scale for each joint at a given clip playback time.
         /// When a clip is active, keyframe translation deltas are added onto the skeleton's static bind-pose
-        /// local translation, and keyframe rotation deltas are applied onto the bind-pose local rotation.
+        /// local translation, keyframe rotation deltas are applied onto the bind-pose local rotation,
+        /// and keyframe scales are accumulated down the hierarchy.
         /// Joints without a track in the clip (or when clip is null) retain their static bind-pose transform.
+        /// Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
         /// </summary>
         public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             int n = skeleton.Count;
             if (n == 0)
             {
-                return new EvaluatedPose(Array.Empty<Quaternion>(), Array.Empty<Vector3>());
+                return new EvaluatedPose(Array.Empty<Quaternion>(), Array.Empty<Vector3>(), Array.Empty<Vector3>());
             }
 
             var rot = new Quaternion[n];
             var trans = new Vector3[n];
+            var scale = new Vector3[n];
             var computed = new bool[n];
 
             // Resolve joint transforms in dependency order
@@ -77,11 +82,13 @@ namespace Gordian.Core.Resources.Graphics
                         {
                             rot[i] = rot[overrideParent];
                             trans[i] = trans[overrideParent];
+                            scale[i] = scale[overrideParent];
                         }
                         else
                         {
                             rot[i] = Quaternion.Identity;
                             trans[i] = Vector3.Zero;
+                            scale[i] = Vector3.One;
                         }
 
                         computed[i] = true;
@@ -100,10 +107,18 @@ namespace Gordian.Core.Resources.Graphics
 
                     Vector3 t = joint.Translation;
                     Quaternion r = joint.Rotation;
-                    if (clip != null && clip.TrySample(i, timeSeconds, loop, out var animRot, out var animTrans))
+                    Vector3 s = Vector3.One;
+                    if (clip != null && clip.TrySample(i, timeSeconds, loop, out var animRot, out var animTrans, out var animScale))
                     {
                         t += animTrans;
+                        // Protocol spec referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js:
+                        // anim applied after bind rotation: rotation = qMul(s.q, rotation).
+                        // In .NET Quaternion.Multiply(a, b), animRot * r directly matches qMul(s.q, rotation).
                         r = animRot * r;
+                        if (i != 0)
+                        {
+                            s = animScale; // root scale ignored per FFXI spec
+                        }
                     }
 
                     if (i == 0)
@@ -112,17 +127,22 @@ namespace Gordian.Core.Resources.Graphics
                         t = new Vector3(-t.Z, t.Y, t.X);
                         rot[i] = r;
                         trans[i] = t;
+                        scale[i] = s;
                     }
                     else if (parent < 0 || parent >= n)
                     {
                         rot[i] = r;
                         trans[i] = t;
+                        scale[i] = s;
                     }
                     else
                     {
-                        // Child joint: accumulate parent rotation and parent translation
-                        Vector3 rotated = Vector3.Transform(t, rot[parent]);
+                        // Child joint: accumulate parent scale, rotation and translation
+                        Vector3 ps = scale[parent];
+                        Vector3 scaled = ps * t;
+                        Vector3 rotated = Vector3.Transform(scaled, rot[parent]);
                         trans[i] = trans[parent] + rotated;
+                        scale[i] = ps * s;
                         rot[i] = Quaternion.Normalize(rot[parent] * r);
                     }
 
@@ -140,6 +160,7 @@ namespace Gordian.Core.Resources.Graphics
                         {
                             rot[i] = Quaternion.Identity;
                             trans[i] = Vector3.Zero;
+                            scale[i] = Vector3.One;
                             computed[i] = true;
                         }
                     }
@@ -147,7 +168,7 @@ namespace Gordian.Core.Resources.Graphics
                 }
             } while (missing && passes < n + 2);
 
-            return new EvaluatedPose(rot, trans);
+            return new EvaluatedPose(rot, trans, scale);
         }
 
         /// <summary>
@@ -161,7 +182,8 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             int j0 = Math.Clamp(v.Joint0, 0, pose.Rotations.Length - 1);
-            Vector3 p0 = Vector3.Transform(v.Position0, pose.Rotations[j0]);
+            Vector3 s0 = j0 < pose.Scales.Length ? pose.Scales[j0] : Vector3.One;
+            Vector3 p0 = Vector3.Transform(s0 * v.Position0, pose.Rotations[j0]);
             Vector3 t0 = pose.Translations[j0];
             Vector3 n0 = Vector3.Transform(v.Normal0, pose.Rotations[j0]);
 
@@ -172,7 +194,8 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             int j1 = Math.Clamp(v.Joint1, 0, pose.Rotations.Length - 1);
-            Vector3 p1 = Vector3.Transform(v.Position1, pose.Rotations[j1]);
+            Vector3 s1 = j1 < pose.Scales.Length ? pose.Scales[j1] : Vector3.One;
+            Vector3 p1 = Vector3.Transform(s1 * v.Position1, pose.Rotations[j1]);
             Vector3 t1 = pose.Translations[j1];
             Vector3 n1 = Vector3.Transform(v.Normal1, pose.Rotations[j1]);
 

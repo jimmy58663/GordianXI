@@ -115,6 +115,7 @@ layout(set = 2, binding = 0) uniform JointPalette
 {
     vec4 uRot[MAX_JOINTS];
     vec4 uTrans[MAX_JOINTS];
+    vec4 uScale[MAX_JOINTS];
 };
 
 vec3 qrot(vec4 q, vec3 v)
@@ -128,7 +129,7 @@ void main()
     int j1Raw = int(Joints.y);
     int j1 = clamp(j1Raw, 0, MAX_JOINTS - 1);
 
-    vec3 p0 = qrot(uRot[j0], Position0);
+    vec3 p0 = qrot(uRot[j0], uScale[j0].xyz * Position0);
     vec3 n0 = qrot(uRot[j0], Normal0);
 
     vec3 localPos;
@@ -142,7 +143,7 @@ void main()
     else
     {
         // Double joint: positions are pre-weighted (p_i = w_i * local), matching the CPU SkinVertex reference.
-        vec3 p1 = qrot(uRot[j1], Position1);
+        vec3 p1 = qrot(uRot[j1], uScale[j1].xyz * Position1);
         vec3 n1 = qrot(uRot[j1], Normal1);
         localPos = p0 + (Weights.x * uTrans[j0].xyz) + p1 + (Weights.y * uTrans[j1].xyz);
         localNorm = (n0 * Weights.x) + (n1 * Weights.y);
