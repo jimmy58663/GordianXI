@@ -34,12 +34,27 @@ namespace Gordian.Core.Animation
             }
 
             DateTime now = utcNow ?? DateTime.UtcNow;
+            bool isRemotePlayer = !isLocalPlayer && entity.Type == EntityType.Player;
             bool isTimedOut = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && (now - entity.LastPositionChangeUtc).TotalMilliseconds >= RemoteEntityIdleTimeoutMs;
             bool isPhysicallyMoving = !isLocalPlayer && Vector3.Distance(entity.Position, entity.TargetPosition) > 0.05f;
-            // Remote entities only arrive at rest when they reach destination AND the server reported they stopped (LastMovTime <= 1).
-            // If LastMovTime > 1, the character is actively running, so dead-reckoning extrapolation keeps them in locomotion.
-            bool hasArrived = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.LastMovTime <= 1;
-            bool isMoving = isLocalPlayer ? (entity.Speed > 0) : (!hasArrived && (isPhysicallyMoving || entity.Speed > 0) && !isTimedOut);
+
+            bool isMoving;
+            if (isLocalPlayer)
+            {
+                isMoving = entity.Speed > 0;
+            }
+            else if (isRemotePlayer)
+            {
+                // Remote players can extrapolate while running (LastMovTime > 1)
+                bool hasArrived = entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.LastMovTime <= 1;
+                isMoving = !hasArrived && (isPhysicallyMoving || entity.Speed > 0 || entity.LastMovTime > 1) && !isTimedOut;
+            }
+            else
+            {
+                // NPCs and Monsters move when they have speed or are physically translating across ground
+                bool hasArrived = entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.Speed == 0;
+                isMoving = !hasArrived && (isPhysicallyMoving || entity.Speed > 0) && !isTimedOut;
+            }
 
             if (isMoving)
             {
@@ -49,8 +64,41 @@ namespace Gordian.Core.Animation
                 // (e.g. NPCs/monsters that don't transmit it). Speed <= 25 yalms/s walk, > 25 run.
                 int effectiveBase = entity.SpeedBase > 0 ? entity.SpeedBase : 50;
                 int walkThreshold = Math.Max(1, effectiveBase / 2);
+                int effectiveSpeed = (entity.Speed == 0 && isRemotePlayer && entity.LastMovTime > 1)
+                    ? (entity.LocomotionDirection == LocomotionDirection.Backward ? walkThreshold : effectiveBase)
+                    : entity.Speed;
+                bool isWalking = effectiveSpeed <= walkThreshold;
 
-                return entity.Speed <= walkThreshold ? AnimationCategory.Walk : AnimationCategory.Run;
+                if (entity.Type == EntityType.Player)
+                {
+                    if (isEngaged)
+                    {
+                        return entity.LocomotionDirection switch
+                        {
+                            LocomotionDirection.Backward => AnimationCategory.CombatMoveBackward,
+                            LocomotionDirection.Left => AnimationCategory.CombatMoveLeft,
+                            LocomotionDirection.Right => AnimationCategory.CombatMoveRight,
+                            _ => isWalking ? AnimationCategory.CombatWalk : AnimationCategory.CombatRun
+                        };
+                    }
+
+                    return entity.LocomotionDirection switch
+                    {
+                        LocomotionDirection.Backward => AnimationCategory.MoveBackward,
+                        LocomotionDirection.Left => AnimationCategory.MoveLeft,
+                        LocomotionDirection.Right => AnimationCategory.MoveRight,
+                        _ => isWalking ? AnimationCategory.Walk : AnimationCategory.Run
+                    };
+                }
+
+                // In retail FFXI, roaming monsters and patrolling NPCs walk unless actively engaged/chasing in combat
+                // or under a high-speed / flee effect.
+                if (!isEngaged && entity.Speed <= effectiveBase)
+                {
+                    return AnimationCategory.Walk;
+                }
+
+                return isWalking ? AnimationCategory.Walk : AnimationCategory.Run;
             }
 
             if (isEngaged)

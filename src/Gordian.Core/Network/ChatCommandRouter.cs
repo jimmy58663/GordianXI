@@ -30,6 +30,7 @@ namespace Gordian.Core.Network
         InspectNearby,
         InspectVitals,
         SetTarget,
+        ToggleLockOn,
         SyntheticMoveTo,
         DiscoverCommands,
         DiscoverGmCommands,
@@ -119,6 +120,7 @@ namespace Gordian.Core.Network
                     // Combat & Action commands
                     "a" or "attack" => ParseCombatTargetCommand(ChatCommandResultKind.CombatAttack, args, world),
                     "aoff" or "attackoff" or "disengage" => new ChatCommandResult { Kind = ChatCommandResultKind.CombatAttackOff },
+                    "lockon" => new ChatCommandResult { Kind = ChatCommandResultKind.ToggleLockOn, Message = args },
                     "ma" or "magic" or "cast" => ParseCombatActionCommand(ChatCommandResultKind.CombatCast, args, world),
                     "ws" or "weaponskill" => ParseCombatActionCommand(ChatCommandResultKind.CombatWeaponskill, args, world),
                     "ja" or "jobability" => ParseCombatActionCommand(ChatCommandResultKind.CombatJobAbility, args, world),

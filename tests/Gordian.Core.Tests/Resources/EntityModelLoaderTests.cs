@@ -498,5 +498,93 @@ namespace Gordian.Core.Tests.Resources
             var zero = EntityModelLoader.LoadMonsterModel(0, MockResolver);
             Assert.Null(zero);
         }
+
+        [Fact]
+        public void EntityModelLoader_MergeLocomotionCategories_PreservesLowerBodyAndCreatesCombatClips()
+        {
+            var model = new EntityModel { Name = "test_player" };
+
+            // 1. Base locomotion (e.g. wlk0, run0): contains lower-body tracks (joints 1, 2)
+            var lowerTrack1 = new BoneAnimationTrack { JointIndex = 1 };
+            var lowerTrack2 = new BoneAnimationTrack { JointIndex = 2 };
+            var baseWlk0 = new AnimationClip
+            {
+                Name = "wlk0",
+                NumFrames = 30,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [1] = lowerTrack1, [2] = lowerTrack2 }
+            };
+
+            var baseRun0 = new AnimationClip
+            {
+                Name = "run0",
+                NumFrames = 20,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [1] = lowerTrack1, [2] = lowerTrack2 }
+            };
+
+            // 2. Base out-of-combat upper body (e.g. wlk1, run1): contains upper-body tracks (joints 10, 11)
+            var outOfCombatUpperTrack10 = new BoneAnimationTrack { JointIndex = 10 };
+            var outOfCombatUpperTrack11 = new BoneAnimationTrack { JointIndex = 11 };
+            var baseWlk1 = new AnimationClip
+            {
+                Name = "wlk1",
+                NumFrames = 30,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [10] = outOfCombatUpperTrack10, [11] = outOfCombatUpperTrack11 }
+            };
+
+            var baseRun1 = new AnimationClip
+            {
+                Name = "run1",
+                NumFrames = 20,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [10] = outOfCombatUpperTrack10, [11] = outOfCombatUpperTrack11 }
+            };
+
+            // 3. Battle pack combat upper body (e.g. wlk1, run1 from weapon pack): holds weapon (joints 10, 11)
+            var combatUpperTrack10 = new BoneAnimationTrack { JointIndex = 10 };
+            var combatUpperTrack11 = new BoneAnimationTrack { JointIndex = 11 };
+            var battleWlk1 = new AnimationClip
+            {
+                Name = "wlk1",
+                NumFrames = 30,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [10] = combatUpperTrack10, [11] = combatUpperTrack11 }
+            };
+
+            var battleRun1 = new AnimationClip
+            {
+                Name = "run1",
+                NumFrames = 20,
+                KeyFrameDuration = 0.033f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [10] = combatUpperTrack10, [11] = combatUpperTrack11 }
+            };
+
+            var baseClips = new List<AnimationClip> { baseWlk0, baseRun0 };
+            var overlaySources = new List<List<AnimationClip>> { new List<AnimationClip> { baseWlk1, baseRun1 } };
+            var battleAnims = new List<AnimationClip> { battleWlk1, battleRun1 };
+
+            foreach (var clip in baseClips)
+            {
+                model.Animations[clip.Name] = clip;
+            }
+
+            EntityModelLoader.MergeLocomotionCategories(model, overlaySources, battleAnims);
+
+            // 1. Resting clips (wlk, run) exist with out-of-combat upper body + lower body
+            Assert.True(model.Animations.ContainsKey("wlk"));
+            Assert.True(model.Animations.ContainsKey("run"));
+            Assert.Same(lowerTrack1, model.Animations["wlk"].Tracks[1]);
+            Assert.Same(outOfCombatUpperTrack10, model.Animations["wlk"].Tracks[10]);
+
+            // 2. Combat clips (cwlk, crun) exist with combat upper body + lower body
+            Assert.True(model.Animations.ContainsKey("cwlk"));
+            Assert.True(model.Animations.ContainsKey("crun"));
+            Assert.Same(lowerTrack1, model.Animations["cwlk"].Tracks[1]);
+            Assert.Same(lowerTrack2, model.Animations["cwlk"].Tracks[2]);
+            Assert.Same(combatUpperTrack10, model.Animations["cwlk"].Tracks[10]);
+            Assert.Same(combatUpperTrack11, model.Animations["cwlk"].Tracks[11]);
+        }
     }
 }

@@ -39,6 +39,7 @@ namespace Gordian.Core.Input
         TargetNearest,
         TargetPrevious,
         TargetSelf,
+        ToggleLockOn,
         TargetParty1,
         TargetParty2,
         TargetParty3,

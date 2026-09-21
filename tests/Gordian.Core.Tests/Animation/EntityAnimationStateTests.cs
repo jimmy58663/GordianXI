@@ -138,5 +138,58 @@ namespace Gordian.Core.Tests.Animation
             Assert.False(state.IsPlayingTransition);
             Assert.Equal("wlk0", state.CurrentClip?.Name);
         }
+
+        [Fact]
+        public void Advance_ModelChanged_ImmediatelySwitchesClipAndResetsElapsed()
+        {
+            var humeModel = new Gordian.Core.Resources.Models.EntityModel { Name = "HumeModel" };
+            var humeIdle = new Gordian.Core.Resources.Models.AnimationClip { Name = "idl0", NumFrames = 30, KeyFrameDuration = 1.0f };
+            humeModel.Animations["idl0"] = humeIdle;
+
+            var elvaanModel = new Gordian.Core.Resources.Models.EntityModel { Name = "ElvaanModel" };
+            var elvaanIdle = new Gordian.Core.Resources.Models.AnimationClip { Name = "idl0", NumFrames = 40, KeyFrameDuration = 1.0f };
+            elvaanModel.Animations["idl0"] = elvaanIdle;
+
+            var state = new EntityAnimationState();
+
+            // Initial evaluation with Hume model
+            state.Advance(0f, AnimationCategory.Idle, 0, humeModel);
+            Assert.Same(humeIdle, state.CurrentClip);
+            Assert.Equal(0f, state.ElapsedSeconds);
+
+            state.Advance(0.5f, AnimationCategory.Idle, 0, humeModel);
+            Assert.Equal(0.5f, state.ElapsedSeconds, 3);
+
+            // Appearance packet arrives: Elvaan model is provided without category or stance changing
+            state.Advance(0f, AnimationCategory.Idle, 0, elvaanModel);
+
+            // Must immediately bind Elvaan's clip and reset playback time to 0 to prevent skeleton distortion
+            Assert.Same(elvaanIdle, state.CurrentClip);
+            Assert.Equal(0f, state.ElapsedSeconds);
+            Assert.Null(state.PreviousClip);
+            Assert.False(state.IsBlending);
+        }
+
+        [Fact]
+        public void Advance_FirstEvaluation_InitializesElapsedAndBlendWeightCleanly()
+        {
+            var model = new Gordian.Core.Resources.Models.EntityModel { Name = "TestModel" };
+            var idleClip = new Gordian.Core.Resources.Models.AnimationClip { Name = "idl0", NumFrames = 30, KeyFrameDuration = 1.0f };
+            model.Animations["idl0"] = idleClip;
+
+            var state = new EntityAnimationState();
+
+            // Legacy frames before model is loaded accumulate dt
+            state.Advance(0.1f, AnimationCategory.Idle, 0, null);
+            state.Advance(0.1f, AnimationCategory.Idle, 0, null);
+
+            // Model arrives
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+
+            Assert.Same(idleClip, state.CurrentClip);
+            Assert.Equal(0f, state.ElapsedSeconds);
+            Assert.Null(state.PreviousClip);
+            Assert.False(state.IsBlending);
+        }
     }
 }

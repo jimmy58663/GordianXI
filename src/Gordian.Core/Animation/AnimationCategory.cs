@@ -10,6 +10,14 @@ namespace Gordian.Core.Animation
         Walk,
         Run,
         Combat,
-        Death
+        Death,
+        CombatWalk,
+        CombatRun,
+        MoveBackward,
+        MoveLeft,
+        MoveRight,
+        CombatMoveBackward,
+        CombatMoveLeft,
+        CombatMoveRight
     }
 }

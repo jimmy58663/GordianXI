@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
@@ -915,6 +916,134 @@ namespace Gordian.Core.Tests.Network
             Assert.True(world.TryGetByServerId(0x01004008, out var entity));
             Assert.NotNull(entity);
             Assert.Equal(5, entity.AnimationSub);
+        }
+
+        [Fact]
+        public void EntityPacketModule_CharPc_PositionOnlyUpdate_PreservesAnimationStateAndClaimServerId()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            // 1. Initial spawn packet carrying General and ClaimStatus: engaged in combat (ServerStatus = 1, BtTargetId = 0xDEADBEEF)
+            byte[] spawnPayload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(spawnPayload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(spawnPayload.AsSpan(4, 2), 0x0123);
+            spawnPayload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.ClaimStatus | EntityUpdateFlags.Model | EntityUpdateFlags.Name);
+            spawnPayload[26] = 100; // Hpp
+            spawnPayload[27] = 1;   // ServerStatus = 1 (Engaged)
+            BinaryPrimitives.WriteUInt32LittleEndian(spawnPayload.AsSpan(40, 4), 0xDEADBEEF); // BtTargetId
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(spawnPayload.Length + 4), 1), spawnPayload);
+
+            Assert.True(world.TryGetByServerId(0x01020304, out var entity));
+            Assert.Equal(1, entity.AnimationState);
+            Assert.Equal(0xDEADBEEFu, entity.ClaimServerId);
+
+            // 2. Position-only update packet (retail FFXI / LSB leaves ServerStatus and BtTargetId 0 on wire)
+            byte[] posOnlyPayload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(posOnlyPayload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(posOnlyPayload.AsSpan(4, 2), 0x0123);
+            posOnlyPayload[6] = (byte)EntityUpdateFlags.Position; // Position ONLY
+            posOnlyPayload[27] = 0; // zeroed in packet payload
+            BinaryPrimitives.WriteUInt32LittleEndian(posOnlyPayload.AsSpan(40, 4), 0); // zeroed in packet payload
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(posOnlyPayload.Length + 4), 2), posOnlyPayload);
+
+            // Must preserve combat engagement and claim target so weapons do not flicker to sheathed
+            Assert.Equal(1, entity.AnimationState);
+            Assert.Equal(0xDEADBEEFu, entity.ClaimServerId);
+        }
+
+        [Fact]
+        public void EntityPacketModule_CharNpc_PositionOnlyUpdate_PreservesAnimationStateAndClaimServerId()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            // 1. Initial spawn packet carrying General and ClaimStatus: engaged (ServerStatus = 1, ClaimId = 0xCAFEBABE)
+            byte[] spawnPayload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(spawnPayload.AsSpan(0, 4), 0x01004008);
+            BinaryPrimitives.WriteUInt16LittleEndian(spawnPayload.AsSpan(4, 2), 305);
+            spawnPayload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.ClaimStatus | EntityUpdateFlags.Name);
+            spawnPayload[26] = 100; // Hpp (0x1A)
+            spawnPayload[27] = 1;   // ServerStatus = 1 (Engaged, 0x1B)
+            spawnPayload[0x26] = 2; // AnimationSub = 2 (0x26 = 38)
+            BinaryPrimitives.WriteUInt32LittleEndian(spawnPayload.AsSpan(40, 4), 0xCAFEBABE); // ClaimId (40 = 0x28)
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(spawnPayload.Length + 4), 1), spawnPayload);
+
+            Assert.True(world.TryGetByServerId(0x01004008, out var entity));
+            Assert.Equal(1, entity.AnimationState);
+            Assert.Equal(2, entity.AnimationSub);
+            Assert.Equal(0xCAFEBABEu, entity.ClaimServerId);
+
+            // 2. Position-only update packet
+            byte[] posOnlyPayload = new byte[0x34];
+            BinaryPrimitives.WriteUInt32LittleEndian(posOnlyPayload.AsSpan(0, 4), 0x01004008);
+            BinaryPrimitives.WriteUInt16LittleEndian(posOnlyPayload.AsSpan(4, 2), 305);
+            posOnlyPayload[6] = (byte)EntityUpdateFlags.Position; // Position ONLY
+            posOnlyPayload[27] = 0; // zeroed in packet payload
+            posOnlyPayload[0x26] = 0; // zeroed in packet payload
+            BinaryPrimitives.WriteUInt32LittleEndian(posOnlyPayload.AsSpan(40, 4), 0); // zeroed in packet payload
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(posOnlyPayload.Length + 4), 2), posOnlyPayload);
+
+            // Must preserve combat engagement, stance, and claim target
+            Assert.Equal(1, entity.AnimationState);
+            Assert.Equal(2, entity.AnimationSub);
+            Assert.Equal(0xCAFEBABEu, entity.ClaimServerId);
+        }
+
+        [Fact]
+        public void EntityPacketModule_CharPc_StopPacket_SetsZeroSpeedAndSettlesPosition()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            // 1. Remote player starts moving backward (MovTime = 5, moving from Z=0 to Z=5)
+            byte[] movePayload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(movePayload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(movePayload.AsSpan(4, 2), 0x0123);
+            movePayload[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteSingleLittleEndian(movePayload.AsSpan(8, 4), 0f); // X
+            BinaryPrimitives.WriteSingleLittleEndian(movePayload.AsSpan(12, 4), 0f); // Y
+            BinaryPrimitives.WriteSingleLittleEndian(movePayload.AsSpan(16, 4), 5f); // Z
+            BinaryPrimitives.WriteUInt32LittleEndian(movePayload.AsSpan(20, 4), 5); // MovTime = 5 (> 1, moving)
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(movePayload.Length + 4), 1), movePayload);
+            Assert.True(world.TryGetByServerId(0x01020304, out var entity));
+            var player = Assert.IsAssignableFrom<PlayerEntity>(entity);
+
+            // Simulate dead reckoning: player was moving and extrapolated past 5 to 6
+            player.Position = new Vector3(0f, 0f, 6f);
+            player.LocomotionDirection = LocomotionDirection.Backward;
+
+            // 2. Stop packet arrives (MovTime = 0, final stop position Z = 5.2)
+            byte[] stopPayload = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(stopPayload.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(stopPayload.AsSpan(4, 2), 0x0123);
+            stopPayload[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteSingleLittleEndian(stopPayload.AsSpan(8, 4), 0f); // X
+            BinaryPrimitives.WriteSingleLittleEndian(stopPayload.AsSpan(12, 4), 0f); // Y
+            BinaryPrimitives.WriteSingleLittleEndian(stopPayload.AsSpan(16, 4), 5.2f); // Z
+            BinaryPrimitives.WriteUInt32LittleEndian(stopPayload.AsSpan(20, 4), 0); // MovTime = 0 (stationary)
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(stopPayload.Length + 4), 2), stopPayload);
+
+            // Must settle immediately at stop position with speed = 0, never triggering forward run
+            Assert.Equal(0, player.Speed);
+            Assert.Equal(new Vector3(0f, 0f, 5.2f), player.Position);
+            Assert.Equal(new Vector3(0f, 0f, 5.2f), player.TargetPosition);
+            Assert.Equal(LocomotionDirection.Forward, player.LocomotionDirection);
         }
     }
 }

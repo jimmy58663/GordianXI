@@ -65,8 +65,36 @@ namespace Gordian.Core.Actions
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
 
         public WorldEntity? CurrentTarget { get; private set; }
+        public bool IsLockedOn { get; private set; }
+        public CombatState? Combat => _combatModule?.State;
         public event Action<WorldEntity?>? TargetChanged;
+        public event Action<bool>? LockOnChanged;
         public event Action<Vector3, byte>? LocalPlayerMoved;
+
+        public void ToggleLockOn()
+        {
+            if (CurrentTarget != null)
+            {
+                SetLockOn(!IsLockedOn);
+            }
+            else
+            {
+                SetLockOn(false);
+            }
+        }
+
+        public void SetLockOn(bool locked)
+        {
+            if (IsLockedOn != locked)
+            {
+                IsLockedOn = locked;
+                if (Combat != null)
+                {
+                    Combat.IsLockedOn = locked;
+                }
+                LockOnChanged?.Invoke(IsLockedOn);
+            }
+        }
 
         public WorldState World => _world;
         public LocalPlayerState LocalPlayer => _localPlayer;
@@ -104,6 +132,10 @@ namespace Gordian.Core.Actions
             if (CurrentTarget != target)
             {
                 CurrentTarget = target;
+                if (target == null)
+                {
+                    SetLockOn(false);
+                }
                 TargetChanged?.Invoke(CurrentTarget);
             }
         }
@@ -167,6 +199,7 @@ namespace Gordian.Core.Actions
         /// </summary>
         public void ClearTarget()
         {
+            SetLockOn(false);
             SetTarget(null);
         }
 
@@ -215,6 +248,11 @@ namespace Gordian.Core.Actions
             try
             {
                 await _combatModule.RequestAttackAsync(resolvedId, resolvedIdx).ConfigureAwait(false);
+                if (resolvedId != 0 && _world.TryGetByServerId(resolvedId, out var tgtEnt) && tgtEnt != null)
+                {
+                    SetTarget(tgtEnt);
+                }
+                SetLockOn(true);
                 return PlayerActionResult.Ok($"Engaged in combat with {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack);
             }
             catch (Exception ex)
@@ -232,6 +270,7 @@ namespace Gordian.Core.Actions
             try
             {
                 await _combatModule.RequestAttackOffAsync(tid, tidx).ConfigureAwait(false);
+                SetLockOn(false);
                 return PlayerActionResult.Ok("Disengaged from combat.", ChatCommandResultKind.CombatAttackOff);
             }
             catch (Exception ex)
@@ -777,6 +816,15 @@ namespace Gordian.Core.Actions
 
                     return PlayerActionResult.Warn($"Target '{cmd.TargetName}' not found in area.", cmd.Kind);
                 }
+
+                // Targeting & Lock-On
+                case ChatCommandResultKind.ToggleLockOn:
+                    if (CurrentTarget == null)
+                    {
+                        return PlayerActionResult.Warn("Cannot lock on: No target selected.", ChatCommandResultKind.ToggleLockOn);
+                    }
+                    ToggleLockOn();
+                    return PlayerActionResult.Ok(IsLockedOn ? $"Locked on to {CurrentTarget.Name}." : "Lock-on released.", ChatCommandResultKind.ToggleLockOn);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

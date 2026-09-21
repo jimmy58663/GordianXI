@@ -50,6 +50,14 @@ namespace Gordian.Core.World
         }
     }
 
+    public enum LocomotionDirection : byte
+    {
+        Forward = 0,
+        Backward = 1,
+        Left = 2,
+        Right = 3
+    }
+
     /// <summary>
     /// Base class representing any dynamic or static entity in the game world.
     /// </summary>
@@ -95,6 +103,7 @@ namespace Gordian.Core.World
         public float InterpolationDuration { get; set; } = 1.35f;
         public float InterpolationElapsed { get; set; }
         public float RenderHeadingRadians { get; set; }
+        public LocomotionDirection LocomotionDirection { get; set; } = LocomotionDirection.Forward;
 
         /// <summary>
         /// Smoothly interpolates the entity's current render position towards its target network position
@@ -134,7 +143,8 @@ namespace Gordian.Core.World
                     if (travelDist > 0.01f)
                     {
                         Vector3 dir = travelDir / travelDist;
-                        float speedYalms = Speed > 0 ? (Speed / 10.0f) : 5.0f;
+                        float fallbackSpeed = LocomotionDirection == LocomotionDirection.Backward ? 2.5f : 5.0f;
+                        float speedYalms = Speed > 0 ? (Speed / 10.0f) : fallbackSpeed;
                         Position = TargetPosition + dir * (speedYalms * extraSeconds);
                     }
                 }
@@ -157,9 +167,41 @@ namespace Gordian.Core.World
                 float distToTarget = Vector3.Distance(Position, TargetPosition);
                 if (flatDistSq > 0.0025f && distToTarget > 0.05f && (Speed > 0 || LastMovTime > 1))
                 {
-                    float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
-                    if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
-                    Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+                    if (AnimationState != 1 && ClaimServerId == 0)
+                    {
+                        float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
+                        if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
+                        Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+                        LocomotionDirection = LocomotionDirection.Forward;
+                    }
+                    else
+                    {
+                        float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
+                        float diffRad = moveAngleRad - HeadingRadians;
+                        while (diffRad > MathF.PI) diffRad -= MathF.PI * 2.0f;
+                        while (diffRad < -MathF.PI) diffRad += MathF.PI * 2.0f;
+
+                        if (MathF.Abs(diffRad) >= (3.0f * MathF.PI / 4.0f))
+                        {
+                            LocomotionDirection = LocomotionDirection.Backward;
+                        }
+                        else if (diffRad > (MathF.PI / 4.0f))
+                        {
+                            LocomotionDirection = LocomotionDirection.Right;
+                        }
+                        else if (diffRad < -(MathF.PI / 4.0f))
+                        {
+                            LocomotionDirection = LocomotionDirection.Left;
+                        }
+                        else
+                        {
+                            LocomotionDirection = LocomotionDirection.Forward;
+                        }
+                    }
+                }
+                else if (distToTarget <= 0.05f && LastMovTime <= 1)
+                {
+                    LocomotionDirection = LocomotionDirection.Forward;
                 }
             }
 

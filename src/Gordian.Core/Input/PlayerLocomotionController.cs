@@ -259,6 +259,41 @@ namespace Gordian.Core.Input
 
                 cameraChanged = true;
             }
+            else if (_camera.Mode == CameraMode.ThirdPersonOrbital)
+            {
+                // Smooth camera tracking to keep locked-on target in view
+                WorldEntity? lockTgt = null;
+                if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
+                {
+                    lockTgt = _actionService.CurrentTarget;
+                    if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
+                    {
+                        _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
+                    }
+                }
+
+                if (lockTgt != null && lockTgt.IsSpawned)
+                {
+                    uint localId = GetOrResolveLocalServerId();
+                    if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
+                    {
+                        float toTgtX = lockTgt.Position.X - localEnt.Position.X;
+                        float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
+                        if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.001f)
+                        {
+                            float targetHeadingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+                            float yawDiff = targetHeadingDeg - CameraYaw;
+                            while (yawDiff > 180.0f) yawDiff -= 360.0f;
+                            while (yawDiff < -180.0f) yawDiff += 360.0f;
+                            if (MathF.Abs(yawDiff) > 0.1f)
+                            {
+                                CameraYaw = NormalizeDegrees(CameraYaw + (yawDiff * MathF.Min(1.0f, dt * 5.0f)));
+                                cameraChanged = true;
+                            }
+                        }
+                    }
+                }
+            }
 
             // Update underlying ViewportCamera matrices and frustum
             var targetPos = Vector3.Zero;
@@ -318,6 +353,117 @@ namespace Gordian.Core.Input
                 ? GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone)
                 : Vector2.Zero;
 
+            // Lock-On Locomotion:
+            // When locked onto a target, the character continuously faces the target directly.
+            // Locomotion moves the character forward/backward or strafes left/right relative to the target line,
+            // assigning LocomotionDirection accordingly without rotating character away from target.
+            WorldEntity? lockTgt = null;
+            if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
+            {
+                lockTgt = _actionService.CurrentTarget;
+                if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
+                {
+                    _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
+                }
+            }
+
+            if (lockTgt != null && lockTgt.IsSpawned)
+            {
+                float toTgtX = lockTgt.Position.X - localEnt.Position.X;
+                float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
+                float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
+                if (distSq > 0.0001f)
+                {
+                    float toTargetRad = MathF.Atan2(toTgtZ, toTgtX);
+                    if (toTargetRad < 0f) toTargetRad += MathF.PI * 2.0f;
+                    localEnt.Direction = (byte)Math.Round((toTargetRad / (MathF.PI * 2.0f)) * 256.0f);
+                    localEnt.RenderHeadingRadians = toTargetRad;
+                }
+
+                float lockFwd = 0f;
+                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.MoveBackward)) lockFwd -= 1.0f;
+
+                float lockStrafe = 0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeRight) || _inputState.IsActionHeld(InputAction.TurnRight)) lockStrafe += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeLeft) || _inputState.IsActionHeld(InputAction.TurnLeft)) lockStrafe -= 1.0f;
+
+                if (leftStick != Vector2.Zero)
+                {
+                    lockFwd += leftStick.Y;
+                    lockStrafe += leftStick.X;
+                }
+
+                float inputLen = MathF.Sqrt(lockFwd * lockFwd + lockStrafe * lockStrafe);
+                if (inputLen > 0.001f)
+                {
+                    if (inputLen > 1.0f)
+                    {
+                        lockFwd /= inputLen;
+                        lockStrafe /= inputLen;
+                    }
+
+                    float inputAngle = MathF.Atan2(lockStrafe, lockFwd);
+                    if (MathF.Abs(inputAngle) <= (MathF.PI / 4.0f))
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                    }
+                    else if (MathF.Abs(inputAngle) >= (3.0f * MathF.PI / 4.0f))
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Backward;
+                    }
+                    else if (inputAngle > 0f)
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Right;
+                    }
+                    else
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Left;
+                    }
+
+                    byte effectiveRun = GetEffectiveRunSpeed(localEnt);
+                    byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
+                    byte moveSpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
+                    if (leftStick != Vector2.Zero && leftStick.Length() < padSettings.WalkTiltThreshold)
+                    {
+                        moveSpeed = effectiveWalk;
+                    }
+
+                    localEnt.Speed = moveSpeed;
+                    float speedYalmsPerSec = moveSpeed * 0.1f;
+                    float distance = speedYalmsPerSec * dt;
+
+                    float headingRad = localEnt.HeadingRadians;
+                    // FFXI coordinate math:
+                    // Heading 0 = East (+X), 64 = South (+Z), 128 = West (-X), 192 = North (-Z)
+                    // Forward vector = (cos(theta), sin(theta))
+                    // Strafe right vector = (-sin(theta), cos(theta))
+                    float dx = (MathF.Cos(headingRad) * lockFwd - MathF.Sin(headingRad) * lockStrafe) * distance;
+                    float dz = (MathF.Sin(headingRad) * lockFwd + MathF.Cos(headingRad) * lockStrafe) * distance;
+
+                    localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+
+                    // Re-align facing to target after displacement
+                    toTgtX = lockTgt.Position.X - localEnt.Position.X;
+                    toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
+                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f)
+                    {
+                        float toTargetRad = MathF.Atan2(toTgtZ, toTgtX);
+                        if (toTargetRad < 0f) toTargetRad += MathF.PI * 2.0f;
+                        localEnt.Direction = (byte)Math.Round((toTargetRad / (MathF.PI * 2.0f)) * 256.0f);
+                        localEnt.RenderHeadingRadians = toTargetRad;
+                    }
+                }
+                else
+                {
+                    localEnt.Speed = 0;
+                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                }
+
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
+
             // Camera-Relative 3D Locomotion (Standard FFXI Type A)
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
             {
@@ -328,6 +474,7 @@ namespace Gordian.Core.Input
                 float stickAngleDeg = MathF.Atan2(leftStick.X, leftStick.Y) * (180.0f / MathF.PI);
                 float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
                 localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+                localEnt.LocomotionDirection = LocomotionDirection.Forward;
 
                 float stickMagnitude = leftStick.Length();
                 byte effectiveRun = GetEffectiveRunSpeed(localEnt);
@@ -370,6 +517,7 @@ namespace Gordian.Core.Input
                     float stickAngleDeg = MathF.Atan2(keyX, keyY) * (180.0f / MathF.PI);
                     float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
                     localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
 
                     byte effectiveRun = GetEffectiveRunSpeed(localEnt);
                     byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
@@ -432,6 +580,23 @@ namespace Gordian.Core.Input
 
             if (isMoving)
             {
+                if (forwardInput < 0 && MathF.Abs(forwardInput) >= MathF.Abs(strafeInput))
+                {
+                    localEnt.LocomotionDirection = LocomotionDirection.Backward;
+                }
+                else if (strafeInput > 0 && MathF.Abs(strafeInput) > MathF.Abs(forwardInput))
+                {
+                    localEnt.LocomotionDirection = LocomotionDirection.Right;
+                }
+                else if (strafeInput < 0 && MathF.Abs(strafeInput) > MathF.Abs(forwardInput))
+                {
+                    localEnt.LocomotionDirection = LocomotionDirection.Left;
+                }
+                else
+                {
+                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                }
+
                 byte effectiveRun = GetEffectiveRunSpeed(localEnt);
                 byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
                 currentSpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
@@ -460,6 +625,7 @@ namespace Gordian.Core.Input
             else
             {
                 localEnt.Speed = 0;
+                localEnt.LocomotionDirection = LocomotionDirection.Forward;
             }
 
             LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
@@ -468,6 +634,12 @@ namespace Gordian.Core.Input
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
+
+            // Toggle Lock-On
+            if (_inputState.WasActionTriggered(InputAction.ToggleLockOn))
+            {
+                _actionService.ToggleLockOn();
+            }
 
             // Target Nearest
             if (_inputState.WasActionTriggered(InputAction.TargetNearest))
@@ -502,10 +674,14 @@ namespace Gordian.Core.Input
                 _actionService.SetTargetByServerId(_localPlayer.ServerId);
             }
 
-            // Cancel / Clear Target
+            // Cancel / Clear Target (releases lock-on first if active, then clears target on subsequent cancel)
             if (_inputState.WasActionTriggered(InputAction.Cancel))
             {
-                if (_actionService.CurrentTarget != null)
+                if (_actionService.IsLockedOn)
+                {
+                    _actionService.SetLockOn(false);
+                }
+                else if (_actionService.CurrentTarget != null)
                 {
                     _actionService.ClearTarget();
                 }

@@ -122,8 +122,11 @@ namespace Gordian.Core.Animation
                 return category switch
                 {
                     AnimationCategory.Combat => TryGetClip(anims, "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "btl", "btl0", "idl", "idl0"),
-                    AnimationCategory.Walk => TryGetClip(anims, "gdm", "gdm1", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "wlk", "wlk0"),
-                    AnimationCategory.Run => TryGetClip(anims, "gdm", "gdm1", "1un", "1un0", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "run", "run0"),
+                    AnimationCategory.CombatWalk or AnimationCategory.Walk => TryGetClip(anims, "gdm", "gdm1", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "wlk", "wlk0"),
+                    AnimationCategory.CombatRun or AnimationCategory.Run
+                        or AnimationCategory.CombatMoveBackward or AnimationCategory.MoveBackward
+                        or AnimationCategory.CombatMoveLeft or AnimationCategory.MoveLeft
+                        or AnimationCategory.CombatMoveRight or AnimationCategory.MoveRight => TryGetClip(anims, "gdm", "gdm1", "1un", "1un0", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "run", "run0"),
                     _ => TryGetClip(anims, "1dl", "1dl0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "idl", "idl0", "std", "std0")
                 };
             }
@@ -134,8 +137,11 @@ namespace Gordian.Core.Animation
                 return category switch
                 {
                     AnimationCategory.Combat => TryGetClip(anims, "2tl", "2tl0", "btl", "btl0", "idl", "idl0"),
-                    AnimationCategory.Walk => TryGetClip(anims, "2lk", "2lk0", "wlk", "wlk0"),
-                    AnimationCategory.Run => TryGetClip(anims, "2un", "2un0", "2lk", "2lk0", "run", "run0"),
+                    AnimationCategory.CombatWalk or AnimationCategory.Walk => TryGetClip(anims, "2lk", "2lk0", "wlk", "wlk0"),
+                    AnimationCategory.CombatRun or AnimationCategory.Run
+                        or AnimationCategory.CombatMoveBackward or AnimationCategory.MoveBackward
+                        or AnimationCategory.CombatMoveLeft or AnimationCategory.MoveLeft
+                        or AnimationCategory.CombatMoveRight or AnimationCategory.MoveRight => TryGetClip(anims, "2un", "2un0", "2lk", "2lk0", "run", "run0"),
                     _ => TryGetClip(anims, "2dl", "2dl0", "2tl", "2tl0", "idl", "idl0", "std", "std0")
                 };
             }
@@ -144,8 +150,16 @@ namespace Gordian.Core.Animation
             return category switch
             {
                 AnimationCategory.Combat => TryGetClip(anims, "btl", "btl0", "cmb", "cmb0", "idl", "idl0"),
-                AnimationCategory.Walk => TryGetClip(anims, "wlk", "wlk0", "cwlk", "run", "run0", "idl", "idl0"),
-                AnimationCategory.Run => TryGetClip(anims, "run", "run0", "crun", "wlk", "wlk0", "idl", "idl0"),
+                AnimationCategory.CombatWalk => TryGetClip(anims, "cwlk", "wlk", "wlk0", "crun", "run", "run0", "btl", "btl0", "idl", "idl0"),
+                AnimationCategory.CombatRun => TryGetClip(anims, "crun", "run", "run0", "cwlk", "wlk", "wlk0", "btl", "btl0", "idl", "idl0"),
+                AnimationCategory.CombatMoveBackward => TryGetClip(anims, "cmvb", "mvb", "mvb0", "crun", "run", "run0", "cwlk", "wlk", "wlk0", "btl", "btl0"),
+                AnimationCategory.CombatMoveLeft => TryGetClip(anims, "cmvl", "mvl", "mvl0", "crun", "run", "run0", "cwlk", "wlk", "wlk0", "btl", "btl0"),
+                AnimationCategory.CombatMoveRight => TryGetClip(anims, "cmvr", "mvr", "mvr0", "crun", "run", "run0", "cwlk", "wlk", "wlk0", "btl", "btl0"),
+                AnimationCategory.Walk => TryGetClip(anims, "wlk", "wlk0", "run", "run0", "idl", "idl0"),
+                AnimationCategory.Run => TryGetClip(anims, "run", "run0", "wlk", "wlk0", "idl", "idl0"),
+                AnimationCategory.MoveBackward => TryGetClip(anims, "mvb", "mvb0", "run", "run0", "wlk", "wlk0", "idl", "idl0"),
+                AnimationCategory.MoveLeft => TryGetClip(anims, "mvl", "mvl0", "run", "run0", "wlk", "wlk0", "idl", "idl0"),
+                AnimationCategory.MoveRight => TryGetClip(anims, "mvr", "mvr0", "run", "run0", "wlk", "wlk0", "idl", "idl0"),
                 _ => TryGetClip(anims, "idl", "idl0", "std", "std0")
             };
         }

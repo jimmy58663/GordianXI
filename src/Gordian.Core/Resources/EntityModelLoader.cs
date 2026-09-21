@@ -331,7 +331,7 @@ namespace Gordian.Core.Resources
         /// so they do not clobber normal resting locomotion clips.
         /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
-        private static void MergeLocomotionCategories(
+        internal static void MergeLocomotionCategories(
             EntityModel model,
             List<List<AnimationClip>> overlaySources,
             List<AnimationClip>? battleAnims = null)
@@ -409,6 +409,19 @@ namespace Gordian.Core.Resources
                     if (sources.Count == 0) continue;
 
                     var tracks = new Dictionary<int, BoneAnimationTrack>();
+
+                    // If an existing resting locomotion clip exists for this category (e.g. wlk, run, mvb, mvl, mvr),
+                    // inherit its lower-body and waist tracks so the legs continue walking/running/strafing smoothly.
+                    bool hasExisting = model.Animations.TryGetValue(cat, out var existingClip);
+                    if (hasExisting && existingClip != null)
+                    {
+                        foreach (var (jointIdx, baseTrack) in existingClip.Tracks)
+                        {
+                            tracks[jointIdx] = baseTrack;
+                        }
+                    }
+
+                    // Layer the combat battle pack tracks on top (overriding upper body arms/torso/hands with combat stance tracks)
                     foreach (var clip in sources)
                     {
                         foreach (var trackKvp in clip.Tracks)
@@ -417,7 +430,7 @@ namespace Gordian.Core.Resources
                         }
                     }
 
-                    var timingSource = sources[0];
+                    var timingSource = hasExisting && existingClip != null ? existingClip : sources[0];
 
                     // Graft missing idle tracks (e.g. waist joints 4, 5, 18-25 and sheathed weapon mounts)
                     // onto the battle clip so skirts and resting mounts are not left in static bind pose.
@@ -435,21 +448,21 @@ namespace Gordian.Core.Resources
 
                     var compositeClip = new AnimationClip
                     {
-                        Name = cat,
+                        Name = hasExisting ? $"c{cat}" : cat,
                         NumFrames = timingSource.NumFrames,
                         KeyFrameDuration = timingSource.KeyFrameDuration,
                         Tracks = tracks
                     };
 
-                    if (!model.Animations.ContainsKey(cat))
+                    if (!hasExisting)
                     {
                         model.Animations[cat] = compositeClip;
                     }
                     else
                     {
-                        // Existing resting locomotion clips (e.g. wlk, run, ded):
+                        // Existing resting locomotion clips (e.g. wlk, run, mvb, mvl, mvr, ded):
                         // Do NOT overwrite the resting animation!
-                        // Instead, save with a combat prefix (e.g. "cwlk", "crun")
+                        // Instead, save with a combat prefix (e.g. "cwlk", "crun", "cmvb", "cmvl", "cmvr")
                         model.Animations[$"c{cat}"] = compositeClip;
                     }
                 }

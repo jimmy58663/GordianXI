@@ -30,6 +30,8 @@ namespace Gordian.Core.Animation
         public bool IsPlayingTransition { get; private set; }
         public AnimationClip? TransitionClip { get; private set; }
 
+        private EntityModel? _lastModel;
+
         /// <summary>
         /// Advances playback time by dt using generalized stance resolution and dual-channel blending.
         /// Priority: Death > Locomotion (Walk/Run) > Stance Transitions > Combat/Idle.
@@ -38,25 +40,45 @@ namespace Gordian.Core.Animation
         {
             if (model == null)
             {
+                _lastModel = null;
                 AdvanceLegacy(dt, newCategory, subAnimation);
                 return;
             }
 
             byte targetStance = NpcStanceResolver.ResolveEffectiveStance(model, subAnimation);
+            bool modelChanged = !ReferenceEquals(model, _lastModel);
             bool categoryChanged = newCategory != Current;
             bool stanceChanged = targetStance != CurrentStance;
 
             // 1. Check if an interrupt should cancel an in-flight stance transition immediately
-            // Locomotion (Walk/Run) and Death always interrupt a transition clip
-            bool isLocomotionOrDeath = newCategory is AnimationCategory.Walk or AnimationCategory.Run or AnimationCategory.Death;
+            // Locomotion (Walk/Run/Strafe) and Death always interrupt a transition clip
+            bool isLocomotionOrDeath = newCategory is AnimationCategory.Walk or AnimationCategory.Run
+                or AnimationCategory.CombatWalk or AnimationCategory.CombatRun
+                or AnimationCategory.MoveBackward or AnimationCategory.MoveLeft or AnimationCategory.MoveRight
+                or AnimationCategory.CombatMoveBackward or AnimationCategory.CombatMoveLeft or AnimationCategory.CombatMoveRight
+                or AnimationCategory.Death;
             if (IsPlayingTransition && isLocomotionOrDeath)
             {
                 IsPlayingTransition = false;
                 TransitionClip = null;
             }
 
-            // 2. Handle state or stance shifts
-            if (categoryChanged || stanceChanged)
+            // 2. Handle model, state or stance shifts
+            if (modelChanged)
+            {
+                _lastModel = model;
+                Current = newCategory;
+                SubAnimation = subAnimation;
+                CurrentStance = targetStance;
+                AnimationClip? targetClip = NpcStanceResolver.ResolveTargetClip(model, newCategory, targetStance);
+                CurrentClip = targetClip;
+                PreviousClip = null;
+                BlendWeight = 1.0f;
+                ElapsedSeconds = 0f;
+                IsPlayingTransition = false;
+                TransitionClip = null;
+            }
+            else if (categoryChanged || stanceChanged)
             {
                 byte fromStance = CurrentStance;
                 Current = newCategory;
@@ -89,6 +111,9 @@ namespace Gordian.Core.Animation
                 if (targetClip != null)
                 {
                     CurrentClip = targetClip;
+                    ElapsedSeconds = 0f;
+                    PreviousClip = null;
+                    BlendWeight = 1.0f;
                 }
             }
 

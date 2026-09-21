@@ -83,6 +83,31 @@ namespace Gordian.Core.Resources.Graphics
                     scaleConst[i] = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(entryStart + 72 + (i * 4), 4));
                 }
 
+                bool isReset = false;
+                for (int i = 0; i < 4; i++) if (rotOffsets[i] < 0) isReset = true;
+                for (int i = 0; i < 3; i++) if (transOffsets[i] < 0 || scaleOffsets[i] < 0) isReset = true;
+
+                if (isReset)
+                {
+                    // Negative offset signifies a RESET track in FFXI protocol (pins bone to bind pose: identity rot, zero trans, unit scale).
+                    // Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/dat.js parseAnimation / resetTrack.
+                    var resetRots = new Quaternion[numFrames];
+                    var resetTrans = new Vector3[numFrames];
+                    var resetScales = new Vector3[numFrames];
+                    Array.Fill(resetRots, Quaternion.Identity);
+                    Array.Fill(resetTrans, Vector3.Zero);
+                    Array.Fill(resetScales, Vector3.One);
+
+                    tracks[jointIndex] = new BoneAnimationTrack
+                    {
+                        JointIndex = jointIndex,
+                        Rotations = resetRots,
+                        Translations = resetTrans,
+                        Scales = resetScales
+                    };
+                    continue;
+                }
+
                 if (!TryResolveChannelGroup(payload, boneTableStart, rotOffsets, numFrames, out float[]?[] rotChannels))
                 {
                     continue; // rotation group dropped -> entire bone track skipped

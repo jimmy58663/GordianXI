@@ -109,7 +109,7 @@ namespace Gordian.Core.Network.Packets
                             ? (now - player.LastPositionChangeUtc).TotalMilliseconds
                             : 0;
 
-                        if (dist > 0.05f || isMovingByMovTime)
+                        if (movTime > 1 && (dist > 0.05f || isMovingByMovTime))
                         {
                             byte prevSpeed = player.Speed;
                             player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
@@ -161,8 +161,12 @@ namespace Gordian.Core.Network.Packets
                             {
                                 GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, setting speed=0 (was {player.Speed})");
                             }
+                            player.Position = newPos;
+                            player.StartPosition = newPos;
                             player.TargetPosition = newPos;
                             player.Speed = 0;
+                            player.InterpolationElapsed = 0f;
+                            player.LocomotionDirection = LocomotionDirection.Forward;
                         }
                     }
                     else
@@ -183,12 +187,19 @@ namespace Gordian.Core.Network.Packets
                 player.SpeedBase = pc.SpeedBase;
             }
 
-            if (pc.Hpp > 0 || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
+            if (isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
+            {
+                player.Hpp = pc.Hpp;
+                player.AnimationState = pc.ServerStatus;
+            }
+            else if (pc.Hpp > 0)
             {
                 player.Hpp = pc.Hpp;
             }
-            player.AnimationState = pc.ServerStatus;
-            player.ClaimServerId = pc.BtTargetId;
+            if (isNew || (pc.UpdateFlags & EntityUpdateFlags.ClaimStatus) != 0)
+            {
+                player.ClaimServerId = pc.BtTargetId;
+            }
 
             player.GmLevel = pc.GmLevel;
             if (pc.UniqueNo == _localPlayer.ServerId)
@@ -277,10 +288,9 @@ namespace Gordian.Core.Network.Packets
             entity.IsSpawned = true;
             entity.LastUpdatedUtc = DateTime.UtcNow;
 
-            ushort movTime = npcPacket.MovTime;
-            bool movTimeChanged = entity.LastMovTime != 0 && movTime != entity.LastMovTime;
-            bool isMovingByMovTime = movTime > 1 && (entity.LastMovTime <= 1 || movTimeChanged);
-            entity.LastMovTime = movTime;
+            // For NPCs/Monsters, Flags0 bits 0..12 contain static database flags in LandSandBoat, not a movement timer.
+            // NPCs/monsters determine motion strictly from position displacement.
+            entity.LastMovTime = 0;
 
             if (npcPacket.HasPosition)
             {
@@ -303,17 +313,10 @@ namespace Gordian.Core.Network.Packets
                         float speedYalms = Math.Max(1.0f, entity.Speed / 10.0f);
                         float naturalDuration = dist / speedYalms;
 
-                        if (isMovingByMovTime)
+                        float dtSeconds = (float)(dtMs / 1000.0);
+                        if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
                         {
-                            float dtSeconds = (float)(dtMs / 1000.0);
-                            if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
-                            {
-                                entity.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
-                            }
-                            else
-                            {
-                                entity.InterpolationDuration = naturalDuration;
-                            }
+                            entity.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
                         }
                         else
                         {
@@ -325,11 +328,11 @@ namespace Gordian.Core.Network.Packets
 
                         if (prevSpeed == 0)
                         {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, speed={entity.Speed}, interp={entity.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), speed={entity.Speed}, interp={entity.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
                         }
                         else
                         {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, interp={entity.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, interp={entity.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
                         }
 
                         if (Vector3.Distance(newPos, entity.Position) > 15.0f)
@@ -342,10 +345,13 @@ namespace Gordian.Core.Network.Packets
                     {
                         if (entity.Speed > 0)
                         {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, setting speed=0 (was {entity.Speed})");
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), setting speed=0 (was {entity.Speed})");
                         }
+                        entity.Position = newPos;
+                        entity.StartPosition = newPos;
                         entity.TargetPosition = newPos;
                         entity.Speed = 0;
+                        entity.InterpolationElapsed = 0f;
                     }
                 }
                 else
@@ -365,13 +371,20 @@ namespace Gordian.Core.Network.Packets
                 entity.SpeedBase = npcPacket.SpeedBase;
             }
 
-            if (npcPacket.Hpp > 0 || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
+            if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
+            {
+                entity.Hpp = npcPacket.Hpp;
+                entity.AnimationState = npcPacket.ServerStatus;
+                entity.AnimationSub = npcPacket.AnimationSub;
+            }
+            else if (npcPacket.Hpp > 0)
             {
                 entity.Hpp = npcPacket.Hpp;
             }
-            entity.AnimationState = npcPacket.ServerStatus;
-            entity.AnimationSub = npcPacket.AnimationSub;
-            entity.ClaimServerId = npcPacket.ClaimId;
+            if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.ClaimStatus) != 0)
+            {
+                entity.ClaimServerId = npcPacket.ClaimId;
+            }
 
             if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))
             {

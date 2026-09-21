@@ -8,9 +8,9 @@ namespace Gordian.Core.Tests.Animation
 {
     public class AnimationStateClassifierTests
     {
-        private static WorldEntity CreateEntity(byte speed = 0, byte speedBase = 0, byte hpp = 100, uint claimServerId = 0)
+        private static WorldEntity CreateEntity(byte speed = 0, byte speedBase = 0, byte hpp = 100, uint claimServerId = 0, EntityType type = EntityType.Player)
         {
-            var entity = new WorldEntity(1, 100, EntityType.Npc)
+            var entity = new WorldEntity(1, 100, type)
             {
                 Speed = speed,
                 SpeedBase = speedBase,
@@ -119,10 +119,10 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void Classify_RemoteEntity_MotionTimeout_ReturnsIdle()
+        public void Classify_RemotePlayer_MotionTimeout_ReturnsIdle()
         {
             var now = DateTime.UtcNow;
-            var entity = new WorldEntity(20, 200, EntityType.Npc)
+            var entity = new PlayerEntity(20, 200)
             {
                 Speed = 50,
                 Hpp = 100,
@@ -155,6 +155,61 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void Classify_StationaryNpc_WithNonZeroMovTime_ReturnsIdle()
+        {
+            var now = DateTime.UtcNow;
+            var npc = new WorldEntity(30, 300, EntityType.Npc)
+            {
+                Speed = 0,
+                Hpp = 100,
+                Position = new Vector3(5f, 0f, 5f),
+                TargetPosition = new Vector3(5f, 0f, 5f), // Physically stationary
+                LastMovTime = 8, // LSB stores database flag in Flags0, so movTime was non-zero
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(100)
+            };
+
+            // Stationary NPCs in towns must NEVER run in place
+            Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(npc, isEngaged: false, isLocalPlayer: false, utcNow: now));
+        }
+
+        [Fact]
+        public void Classify_RoamingMonster_AtBaseSpeed50_ReturnsWalk()
+        {
+            var now = DateTime.UtcNow;
+            var monster = new WorldEntity(40, 400, EntityType.Monster)
+            {
+                Speed = 50, // LSB baseSpeed is 50
+                SpeedBase = 50,
+                Hpp = 100,
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(5f, 0f, 0f), // Moving
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(100)
+            };
+
+            // Roaming monster at normal speed must walk, not run
+            Assert.Equal(AnimationCategory.Walk, AnimationStateClassifier.Classify(monster, isEngaged: false, isLocalPlayer: false, utcNow: now));
+        }
+
+        [Fact]
+        public void Classify_ChasingMonster_AtBaseSpeed50_ReturnsRun()
+        {
+            var now = DateTime.UtcNow;
+            var monster = new WorldEntity(40, 400, EntityType.Monster)
+            {
+                Speed = 50,
+                SpeedBase = 50,
+                Hpp = 100,
+                ClaimServerId = 999,
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(5f, 0f, 0f), // Moving
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(100)
+            };
+
+            // Engaged/chasing monster runs towards its target
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(monster, isEngaged: true, isLocalPlayer: false, utcNow: now));
+        }
+
+        [Fact]
         public void Classify_RemoteEntity_PhysicalTravelRemaining_PreservesWalkUntilDestination()
         {
             var now = DateTime.UtcNow;
@@ -173,6 +228,83 @@ namespace Gordian.Core.Tests.Animation
             // Once destination is reached, it transitions to Idle
             entity.Position = entity.TargetPosition;
             Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+        }
+
+        [Fact]
+        public void Classify_Player_EngagedMovingForwardRun_ReturnsCombatRun()
+        {
+            var player = new PlayerEntity(1, 100)
+            {
+                Speed = 50,
+                Hpp = 100,
+                LocomotionDirection = LocomotionDirection.Forward
+            };
+
+            Assert.Equal(AnimationCategory.CombatRun, AnimationStateClassifier.Classify(player, isEngaged: true, isLocalPlayer: true));
+        }
+
+        [Fact]
+        public void Classify_Player_EngagedMovingForwardWalk_ReturnsCombatWalk()
+        {
+            var player = new PlayerEntity(1, 100)
+            {
+                Speed = 20,
+                Hpp = 100,
+                LocomotionDirection = LocomotionDirection.Forward
+            };
+
+            Assert.Equal(AnimationCategory.CombatWalk, AnimationStateClassifier.Classify(player, isEngaged: true, isLocalPlayer: true));
+        }
+
+        [Theory]
+        [InlineData(LocomotionDirection.Backward, AnimationCategory.CombatMoveBackward)]
+        [InlineData(LocomotionDirection.Left, AnimationCategory.CombatMoveLeft)]
+        [InlineData(LocomotionDirection.Right, AnimationCategory.CombatMoveRight)]
+        public void Classify_Player_EngagedMovingDirectional_ReturnsCombatDirectional(LocomotionDirection dir, AnimationCategory expected)
+        {
+            var player = new PlayerEntity(1, 100)
+            {
+                Speed = 50,
+                Hpp = 100,
+                LocomotionDirection = dir
+            };
+
+            Assert.Equal(expected, AnimationStateClassifier.Classify(player, isEngaged: true, isLocalPlayer: true));
+        }
+
+        [Theory]
+        [InlineData(LocomotionDirection.Backward, AnimationCategory.MoveBackward)]
+        [InlineData(LocomotionDirection.Left, AnimationCategory.MoveLeft)]
+        [InlineData(LocomotionDirection.Right, AnimationCategory.MoveRight)]
+        public void Classify_Player_DisengagedMovingDirectional_ReturnsDirectional(LocomotionDirection dir, AnimationCategory expected)
+        {
+            var player = new PlayerEntity(1, 100)
+            {
+                Speed = 50,
+                Hpp = 100,
+                LocomotionDirection = dir
+            };
+
+            Assert.Equal(expected, AnimationStateClassifier.Classify(player, isEngaged: false, isLocalPlayer: true));
+        }
+
+        [Fact]
+        public void Classify_RemotePlayer_EngagedDeadReckoning_MaintainsCombatRun()
+        {
+            var now = DateTime.UtcNow;
+            var player = new PlayerEntity(1, 100)
+            {
+                Speed = 0, // packet arrived with Speed=0 or paused between ticks
+                Hpp = 100,
+                Position = new Vector3(10f, 0f, 10f),
+                TargetPosition = new Vector3(10f, 0f, 10f), // physically at target position
+                LastMovTime = 5, // actively running (> 1)
+                LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(200),
+                LocomotionDirection = LocomotionDirection.Forward
+            };
+
+            // While engaged and actively running (LastMovTime > 1), dead reckoning must maintain CombatRun
+            Assert.Equal(AnimationCategory.CombatRun, AnimationStateClassifier.Classify(player, isEngaged: true, isLocalPlayer: false, utcNow: now));
         }
     }
 }

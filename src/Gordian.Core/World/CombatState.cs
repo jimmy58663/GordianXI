@@ -21,6 +21,7 @@ namespace Gordian.Core.World
         #region Engagement & Target
 
         public bool IsEngaged { get; private set; }
+        public bool IsLockedOn { get; set; }
         public uint TargetServerId { get; private set; }
         public ushort TargetIndex { get; private set; }
 
@@ -66,6 +67,7 @@ namespace Gordian.Core.World
             {
                 changed = !IsEngaged || TargetServerId != serverId || TargetIndex != targetIndex;
                 IsEngaged = true;
+                IsLockedOn = true;
                 TargetServerId = serverId;
                 TargetIndex = targetIndex;
             }
@@ -83,6 +85,7 @@ namespace Gordian.Core.World
             {
                 changed = IsEngaged;
                 IsEngaged = false;
+                IsLockedOn = false;
             }
 
             if (changed)

@@ -266,6 +266,8 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.F));
             p.Bind(InputAction.TargetPrevious, new InputChord(GordianKey.Tab, InputModifiers.Shift));
+            p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.NumPadMultiply));
+            p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.T));
             p.Bind(InputAction.TargetSelf, new InputChord(GordianKey.F1));
             p.Bind(InputAction.TargetParty1, new InputChord(GordianKey.F2));
             p.Bind(InputAction.TargetParty2, new InputChord(GordianKey.F3));
@@ -322,6 +324,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.NumPadAdd));
             p.Bind(InputAction.TargetPrevious, new InputChord(GordianKey.Tab, InputModifiers.Shift));
+            p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.NumPadMultiply));
             p.Bind(InputAction.TargetSelf, new InputChord(GordianKey.F1));
             p.Bind(InputAction.TargetParty1, new InputChord(GordianKey.F2));
             p.Bind(InputAction.TargetParty2, new InputChord(GordianKey.F3));

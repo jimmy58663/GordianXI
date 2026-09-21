@@ -560,11 +560,6 @@ namespace Gordian.Core.Resources
             byte rawRace = (byte)((entity.Appearance.FaceModel >> 8) & 0xFF);
             var race = (CharacterRace)rawRace;
 
-            if (race == CharacterRace.Unknown && entity.Type == EntityType.Player)
-            {
-                race = CharacterRace.HumeMale;
-            }
-
             if (race != CharacterRace.Unknown && grap != null && grap.Length > 0)
             {
                 ushort face = (ushort)(entity.Appearance.FaceModel & 0xFF);

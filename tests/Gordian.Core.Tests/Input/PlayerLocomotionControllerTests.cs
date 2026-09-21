@@ -7,6 +7,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Graphics;
 using Gordian.Core.Input;
 using Gordian.Core.Network;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 using Xunit;
 
@@ -221,6 +222,183 @@ namespace Gordian.Core.Tests.Input
 
             // But Camera eye position should have moved
             Assert.NotEqual(Vector3.Zero, controller.Camera.Position);
+        }
+
+        private (PlayerLocomotionController controller, InputState input, WorldState world, LocalPlayerState player, PlayerEntity localEnt, PlayerActionService actionService) CreateTestHarnessWithActionService()
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x12345678 };
+            var localEnt = new PlayerEntity(player.ServerId, 1)
+            {
+                Name = "TestPlayer",
+                Position = Vector3.Zero,
+                Direction = 0,
+                Speed = 0,
+                IsSpawned = true
+            };
+            world.UpsertEntity(localEnt);
+
+            var profile = InputProfile.CreateCompact();
+            var input = new InputState();
+            var combatState = new CombatState();
+            var partyState = new PartyState();
+            Task CaptureChunk(ReadOnlyMemory<byte> m, bool u) => Task.CompletedTask;
+            var combatModule = new CombatPacketModule(combatState, player, CaptureChunk);
+            var chatModule = new ChatPacketModule(CaptureChunk);
+            var partyModule = new PartyPacketModule(partyState, CaptureChunk);
+            var entityModule = new EntityPacketModule(world, player, CaptureChunk);
+            var lifecycleModule = new LifecyclePacketModule(new SessionProfile(), CaptureChunk);
+
+            var actionService = new PlayerActionService(
+                new SessionProfile(),
+                world,
+                player,
+                combatModule,
+                chatModule,
+                partyModule,
+                entityModule,
+                lifecycleModule,
+                CaptureChunk);
+
+            var controller = new PlayerLocomotionController(input, profile, world, player, actionService);
+            return (controller, input, world, player, localEnt, actionService);
+        }
+
+        [Fact]
+        public void Update_WhenLockedOn_FacesTargetDirectly()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
+            {
+                Position = new Vector3(0f, 0f, 10f), // South (+Z)
+                IsSpawned = true
+            };
+            world.UpsertEntity(target);
+
+            localEnt.Direction = 0; // East
+            actionService.SetTarget(target);
+            actionService.SetLockOn(true);
+
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            // Heading towards (0, 0, 10) from (0, 0, 0) is South (Direction = 64)
+            Assert.Equal(64, localEnt.Direction);
+            Assert.InRange(localEnt.RenderHeadingRadians, MathF.PI / 2.0f - 0.05f, MathF.PI / 2.0f + 0.05f);
+        }
+
+        [Fact]
+        public void Update_WhenLockedOn_StrafingMovesPerpendicularToTargetWithoutChangingFacing()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
+            {
+                Position = new Vector3(100f, 0f, 0f), // East (+X)
+                IsSpawned = true
+            };
+            world.UpsertEntity(target);
+
+            localEnt.Direction = 0; // East
+            actionService.SetTarget(target);
+            actionService.SetLockOn(true);
+
+            // Strafe Right (E)
+            input.SetKeyDown(GordianKey.E);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Facing East (+X), strafing right moves towards South (+Z)
+            Assert.Equal(50, localEnt.Speed);
+            Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
+            Assert.InRange(localEnt.Position.Z, 4.9f, 5.1f);
+
+            // Facing should remain oriented towards target (within ~3 degrees of 0 / East)
+            Assert.True(localEnt.Direction is <= 2 or >= 254);
+        }
+
+        [Fact]
+        public void Update_WhenLockedOn_MoveBackwardMovesAwayAndSetsBackwardLocomotion()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
+            {
+                Position = new Vector3(100f, 0f, 0f), // East (+X)
+                IsSpawned = true
+            };
+            world.UpsertEntity(target);
+
+            actionService.SetTarget(target);
+            actionService.SetLockOn(true);
+
+            // Move Backward (S)
+            input.SetKeyDown(GordianKey.S);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Moves backward along -X away from target
+            Assert.Equal(50, localEnt.Speed);
+            Assert.Equal(LocomotionDirection.Backward, localEnt.LocomotionDirection);
+            Assert.InRange(localEnt.Position.X, -5.1f, -4.9f);
+
+            // Facing still faces East towards target
+            Assert.Equal(0, localEnt.Direction);
+        }
+
+        [Fact]
+        public void Update_WhenTriggeringToggleLockOn_TogglesLockOn()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
+            {
+                Position = new Vector3(10f, 0f, 0f),
+                IsSpawned = true
+            };
+            world.UpsertEntity(target);
+
+            actionService.SetTarget(target);
+            Assert.False(actionService.IsLockedOn);
+
+            // Press T (ToggleLockOn)
+            input.SetKeyDown(GordianKey.T);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(actionService.IsLockedOn);
+
+            // Release and press again
+            input.SetKeyUp(GordianKey.T);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.T);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(actionService.IsLockedOn);
+        }
+
+        [Fact]
+        public void Update_WhenCancelTriggeredWhileLockedOn_ClearsLockOnBeforeTarget()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
+            {
+                Position = new Vector3(10f, 0f, 0f),
+                IsSpawned = true
+            };
+            world.UpsertEntity(target);
+
+            actionService.SetTarget(target);
+            actionService.SetLockOn(true);
+
+            // First Cancel press: clears LockOn but retains CurrentTarget
+            input.SetKeyDown(GordianKey.Escape);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(actionService.IsLockedOn);
+            Assert.Same(target, actionService.CurrentTarget);
+
+            // Second Cancel press: clears CurrentTarget
+            input.SetKeyUp(GordianKey.Escape);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.Escape);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Null(actionService.CurrentTarget);
         }
     }
 }

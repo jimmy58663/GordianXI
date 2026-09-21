@@ -100,18 +100,21 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void SkeletonAnimationDecoder_DecodeClip_SkipsBoneTrackOnNegativeOffset()
+        public void SkeletonAnimationDecoder_DecodeClip_GeneratesResetTrackOnNegativeOffset()
         {
             byte[] payload = BuildSingleJointClipPayload();
             const int entryStart = 10;
 
-            // Rotation X offset = -1 -> whole rotation group dropped -> entire bone track skipped.
+            // Rotation X offset = -1 -> negative offset signifies RESET track in FFXI protocol (pins bone to bind pose: identity rot, zero trans, unit scale)
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(entryStart + 4, 4), -1);
 
             var clip = SkeletonAnimationDecoder.DecodeClip(payload, "idl0");
 
             Assert.NotNull(clip);
-            Assert.False(clip!.Tracks.ContainsKey(0));
+            Assert.True(clip!.Tracks.TryGetValue(0, out var track));
+            Assert.Equal(Quaternion.Identity, track!.Rotations[0]);
+            Assert.Equal(Vector3.Zero, track.Translations[0]);
+            Assert.Equal(Vector3.One, track.Scales[0]);
         }
 
         [Fact]
