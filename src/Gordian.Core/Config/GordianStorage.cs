@@ -140,7 +140,7 @@ namespace Gordian.Core.Config
         }
 
         /// <summary>
-        /// Gets the dedicated directory for Lua and QuickJS addon plugins.
+        /// Gets the dedicated directory for Lua addon plugins and their per-addon scoped storage.
         /// </summary>
         public static string AddonsDirectory
         {

@@ -22,7 +22,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 
 1.  `src/Gordian.Core/` (Class Library): High-performance networking core. Manages TcpClient streams, Blowfish key handshakes, binary array slicing, and acts as a passive, neutral shared state data bus. Has ZERO awareness of automation or addons.
 2.  `src/Gordian.Automation/` (Class Library): The Gambit and group-coordination engine. Pulls state updates from Core and handles positional tracking. Is an OPTIONAL, separate passenger module.
-3.  `src/Gordian.Addons/` (Class Library): Scripting runtime sandbox layer. Manages virtual machines for legacy Lua (NLua) and JavaScript (QuickJS) plugins.
+3.  `src/Gordian.Addons/` (Class Library): Sandboxed Lua scripting runtime layer. Hosts a single NLua virtual machine per addon, executing all scripts inside an allowlist-only `_ENV` exposing exclusively the curated addon API surface — CLR reflection (`luanet`), raw filesystem APIs (`io.*`/`os.*`), process, and arbitrary OS access are never reachable from script code. Addons instead get a scoped storage API confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory` for config and logs.
 4.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
 
 *   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Addons` and `Gordian.Automation` must NEVER reference each other. They are completely decoupled. Automation must remain entirely optional and blockable.

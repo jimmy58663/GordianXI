@@ -187,10 +187,11 @@
 ---
 
 ### 🚀 Phase 6: Scripting Runtime, Central Addons & Package Manager (Post-MVP)
-- [ ] **Dual Scripting Engine Sandbox (`Gordian.Addons`):**
-  - [ ] Lua VM (NLua / KeraLua) with Windower/Ashita API compatibility shims
-  - [ ] JavaScript / TypeScript VM (QuickJS / V8)
-  - [ ] Strict isolation: Sandboxed I/O, event bus (`on_packet_in`, `on_packet_out`, `on_chat`, `on_zone_change`), zero access to `Gordian.Automation`
+- [ ] **Sandboxed Lua Scripting Engine (`Gordian.Addons`):**
+  - [ ] Single Lua VM (NLua / KeraLua) with Windower/Ashita API compatibility shims — the sole supported addon language; no secondary JavaScript/TypeScript runtime
+  - [ ] Allowlist-only script environment: every addon executes with a restricted `_ENV` containing exclusively the curated addon API table (below). The dangerous parts of the Lua/NLua standard surface — CLR interop (`luanet`), `os.execute`, raw `io.*`, `require`/`dofile`/`loadstring`, `debug.*` — are never present in that environment in the first place, rather than removed/blocklisted after the fact
+  - [ ] Scoped addon storage API (`storage.read_config()`, `storage.write_config(data)`, `storage.log(line)`) as the sanctioned replacement for raw `io.*`: confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory`, with path-traversal validation and a size quota so an addon can persist settings/logs without ever reaching an arbitrary path on disk
+  - [ ] Event bus (`on_packet_in`, `on_packet_out`, `on_chat`, `on_zone_change`), zero access to `Gordian.Automation`
 - [ ] **3-Tier Menu & Action API for Addon Authors:**
   - [ ] *High-Level Intent API:* Safe, validated one-line triggers (`actions.cast("Cure IV")`, `actions.use_ability("Provoke")`, `inventory.equip()`, `event.choose(index)`).
   - [ ] *Reactive Live State Access:* Continuous, non-blocking read access to live cached game state (`LocalPlayerState`, recasts, inventory, party, world entities) without needing to wait for button click responses.
@@ -199,6 +200,7 @@
   - [ ] Addon manifest permission model (`manifest.json` capabilities: e.g., `ui.draw`, `chat.read`, `world.query` vs restricted `action.inject`, `locomotion.override`)
   - [ ] Dynamic API gating tied to `FeatureRestrictions`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes
   - [ ] Dual trust tiers: cryptographically signed packages from official addon registry vs unsigned local development scripts
+  - [ ] *(Future consideration)* Server-sent addon identity allowlist/blocklist: a separate, packet-level mechanism letting server operators permit or block specific addons by name/hash. Distinct from the API-capability sandbox above — this would govern *which addons* may run at all, not *what a running addon* is capable of doing
 - [ ] **Addon Ecosystem & Package Manager:**
   - [ ] Central community repository manifest (`gordianxi/addons-index`) tracking verified plugins, versions, and dependencies
   - [ ] In-client Addon Browser: Search, 1-click install, auto-update check, enable/disable toggles
