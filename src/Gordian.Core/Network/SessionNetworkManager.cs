@@ -375,7 +375,9 @@ namespace Gordian.Core.Network
                     Position = new Vector3(x, y, z),
                     Direction = dir,
                     IsSpawned = true,
-                    Name = CharacterName
+                    Name = CharacterName,
+                    Speed = (byte)(_parser.LocalPlayer.Speed > 0 ? Math.Min((ushort)255, _parser.LocalPlayer.Speed) : 50),
+                    SpeedBase = _parser.LocalPlayer.SpeedBase > 0 ? _parser.LocalPlayer.SpeedBase : (byte)50
                 };
                 if (_cachedPlayerAppearance != null)
                 {

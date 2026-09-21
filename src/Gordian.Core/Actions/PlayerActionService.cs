@@ -452,16 +452,17 @@ namespace Gordian.Core.Actions
                 dist = Vector3.Distance(localEnt.Position, targetPos);
                 localEnt.Position = targetPos;
                 dir = localEnt.Direction;
-                targetIndex = localEnt.TargetIndex;
-                localEnt.Speed = dist > 0.05f ? (localEnt.SpeedBase > 0 ? localEnt.SpeedBase : (byte)50) : (byte)0;
+                byte activeSpeed = localEnt.Speed > 0 ? localEnt.Speed : (_localPlayer.Speed > 0 ? (byte)Math.Min((ushort)255, _localPlayer.Speed) : (byte)50);
+                localEnt.Speed = dist > 0.05f ? activeSpeed : (byte)0;
             }
             else if (_localPlayer.ServerId != 0)
             {
+                byte initialSpeed = _localPlayer.Speed > 0 ? (byte)Math.Min((ushort)255, _localPlayer.Speed) : (byte)50;
                 localEnt = new PlayerEntity(_localPlayer.ServerId, 0)
                 {
                     Position = targetPos,
                     IsSpawned = true,
-                    Speed = 50
+                    Speed = initialSpeed
                 };
                 _world.UpsertEntity(localEnt);
             }

@@ -65,21 +65,56 @@ namespace Gordian.Core.Input
 
         /// <summary>
         /// Optional client-side speed multiplier (e.g. set by addons, GM commands, or custom modes). Default is 1.0f.
+        /// Gated by ServerAutomationPolicy.
         /// </summary>
         public float SpeedMultiplier { get; set; } = 1.0f;
 
         /// <summary>
+        /// Optional explicit client-side speed override (e.g. set by addons or GM tools).
+        /// Null by default. Gated by ServerAutomationPolicy.
+        /// </summary>
+        public byte? SpeedOverride { get; set; }
+
+        /// <summary>
         /// Calculates the effective run speed for the local player entity.
-        /// Respects server-transmitted speed buffs (Flee, Chocobo, equipment mods in SpeedBase)
-        /// and client-side profile or addon speed multipliers.
+        /// Priority:
+        /// 1. Authoritative server speed from LocalPlayerState (updated via 0x037 / 0x00A)
+        /// 2. Active speed from localEnt if moving
+        /// 3. Profile default (RunSpeed = 50)
+        /// Speed manipulation (SpeedOverride, SpeedMultiplier) is permitted when allowed by ServerAutomationPolicy,
+        /// but locked down under StrictVanilla.
         /// </summary>
         public byte GetEffectiveRunSpeed(WorldEntity? localEnt)
         {
-            byte baseRun = (localEnt != null && localEnt.SpeedBase > 0) ? localEnt.SpeedBase : _profile.RunSpeed;
-            if (Math.Abs(SpeedMultiplier - 1.0f) > 0.001f)
+            byte baseRun;
+            if (_localPlayer.Speed > 0)
             {
-                return (byte)Math.Clamp((int)MathF.Round(baseRun * SpeedMultiplier), 1, 255);
+                baseRun = (byte)Math.Clamp((int)_localPlayer.Speed, 1, 255);
             }
+            else if (localEnt != null && localEnt.SpeedBase > 0)
+            {
+                baseRun = localEnt.SpeedBase;
+            }
+            else
+            {
+                baseRun = _profile.RunSpeed;
+            }
+
+            // Gated by ServerAutomationPolicy: under StrictVanilla, speed tampering is blocked
+            bool policyAllowsOverride = _actionService == null || _actionService.Profile.AutomationPolicy != Config.ServerAutomationPolicy.StrictVanilla;
+            if (policyAllowsOverride)
+            {
+                if (SpeedOverride.HasValue && SpeedOverride.Value > 0)
+                {
+                    return SpeedOverride.Value;
+                }
+
+                if (Math.Abs(SpeedMultiplier - 1.0f) > 0.001f)
+                {
+                    return (byte)Math.Clamp((int)MathF.Round(baseRun * SpeedMultiplier), 1, 255);
+                }
+            }
+
             return baseRun;
         }
 

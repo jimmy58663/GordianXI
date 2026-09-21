@@ -78,11 +78,26 @@ namespace Gordian.Core.World
         public uint DeadCounterSeconds { get; private set; }
         #endregion
 
+        #region Locomotion & Speed
+        /// <summary>
+        /// Authoritative player movement speed transmitted by server (S2C 0x037 / 0x00A).
+        /// 0 when uninitialized (falling back to profile/entity run speed).
+        /// Standard run speed is 50 (5.0 yalms/sec). Mount / Flee speed is 80 (8.0 yalms/sec).
+        /// </summary>
+        public ushort Speed { get; private set; }
+
+        /// <summary>
+        /// Animation playback rate divisor transmitted by server (nominally 50).
+        /// </summary>
+        public byte SpeedBase { get; private set; } = 50;
+        #endregion
+
         #region Events
         public event Action? VitalsUpdated;
         public event Action? StatsUpdated;
         public event Action? SkillsUpdated;
         public event Action? BuffsUpdated;
+        public event Action? SpeedUpdated;
         public event Action? MagicLearnedUpdated;
         public event Action? CommandsUpdated;
         public event Action? AbilityRecastsUpdated;
@@ -157,6 +172,7 @@ namespace Gordian.Core.World
 
         public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
         {
+            bool speedChanged = false;
             lock (_lock)
             {
                 Hpp = status.Hpp;
@@ -165,6 +181,17 @@ namespace Gordian.Core.World
                 WardrobeMask = status.WardrobeMask;
                 CostumeId = status.CostumeId;
                 DeadCounterSeconds = status.DeadCounterSeconds;
+
+                if (status.Speed > 0 && Speed != status.Speed)
+                {
+                    Speed = status.Speed;
+                    speedChanged = true;
+                }
+                if (status.SpeedBase > 0 && SpeedBase != status.SpeedBase)
+                {
+                    SpeedBase = status.SpeedBase;
+                    speedChanged = true;
+                }
 
                 if (!status.BuffStatus.IsEmpty)
                 {
@@ -184,8 +211,36 @@ namespace Gordian.Core.World
                 }
             }
 
+            if (speedChanged)
+            {
+                SpeedUpdated?.Invoke();
+            }
             BuffsUpdated?.Invoke();
             VitalsUpdated?.Invoke();
+        }
+
+        public void SetSpeed(ushort speed, byte speedBase = 50)
+        {
+            bool speedChanged = false;
+            lock (_lock)
+            {
+                ushort effectiveSpeed = speed > 0 ? speed : (ushort)50;
+                if (Speed != effectiveSpeed)
+                {
+                    Speed = effectiveSpeed;
+                    speedChanged = true;
+                }
+                if (speedBase > 0 && SpeedBase != speedBase)
+                {
+                    SpeedBase = speedBase;
+                    speedChanged = true;
+                }
+            }
+
+            if (speedChanged)
+            {
+                SpeedUpdated?.Invoke();
+            }
         }
 
         public void UpdateFromCliStatus(in S2C_0x061_CliStatus cliStatus)

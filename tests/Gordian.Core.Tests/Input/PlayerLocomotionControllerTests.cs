@@ -400,5 +400,73 @@ namespace Gordian.Core.Tests.Input
             controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.Null(actionService.CurrentTarget);
         }
+
+        [Fact]
+        public void Update_WhenLocalPlayerSpeedIsSetToMount_MovesAtMountSpeed()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            player.SetSpeed(80); // Mount speed: 80 => 8.0 yalms/sec
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(80, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 7.99f, 8.01f);
+        }
+
+        [Fact]
+        public void Update_WhenSpeedMultiplierApplied_ScalesRunSpeed()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.SpeedMultiplier = 1.5f; // 50 * 1.5 = 75 => 7.5 yalms/sec
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(75, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 7.49f, 7.51f);
+        }
+
+        [Fact]
+        public void Update_WhenSpeedOverrideApplied_OverridesRunSpeed()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.SpeedOverride = 100; // 10.0 yalms/sec
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(100, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 9.99f, 10.01f);
+        }
+
+        [Fact]
+        public void Update_WhenStrictVanillaPolicy_IgnoresSpeedTampering()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+
+            actionService.Profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            controller.SpeedMultiplier = 2.0f;
+            controller.SpeedOverride = 120;
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            // Must strictly adhere to base server speed (50) under StrictVanilla
+            Assert.Equal(50, localEnt.Speed);
+            Assert.InRange(localEnt.Position.X, 4.99f, 5.01f);
+        }
     }
 }

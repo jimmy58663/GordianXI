@@ -113,6 +113,10 @@ namespace Gordian.Core.Network.Packets
                         {
                             byte prevSpeed = player.Speed;
                             player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
+                            if (pc.SpeedBase > 0)
+                            {
+                                player.SpeedBase = pc.SpeedBase;
+                            }
 
                             // Authentic FFXI travel speed in yalms per second (Speed 50 => 5.0 yalms/sec)
                             float speedYalms = Math.Max(1.0f, player.Speed / 10.0f);
@@ -308,6 +312,10 @@ namespace Gordian.Core.Network.Packets
                     {
                         byte prevSpeed = entity.Speed;
                         entity.Speed = npcPacket.Speed > 0 ? npcPacket.Speed : (byte)40;
+                        if (npcPacket.SpeedBase > 0)
+                        {
+                            entity.SpeedBase = npcPacket.SpeedBase;
+                        }
 
                         // Authentic FFXI travel speed in yalms per second (Speed 40 => 4.0 yalms/sec)
                         float speedYalms = Math.Max(1.0f, entity.Speed / 10.0f);
@@ -424,6 +432,17 @@ namespace Gordian.Core.Network.Packets
             if (!charStatus.IsValid) return;
 
             _localPlayer.UpdateFromCharStatus(charStatus);
+            if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
+            {
+                if (charStatus.Speed > 0)
+                {
+                    localEnt.Speed = (byte)Math.Min((ushort)255, charStatus.Speed);
+                }
+                if (charStatus.SpeedBase > 0)
+                {
+                    localEnt.SpeedBase = charStatus.SpeedBase;
+                }
+            }
             GordianLog.Debug("ENTITY", $"Updated active character status: HPP={charStatus.Hpp}%, Speed={charStatus.Speed}");
         }
 

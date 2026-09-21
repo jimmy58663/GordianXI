@@ -1045,5 +1045,39 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(new Vector3(0f, 0f, 5.2f), player.TargetPosition);
             Assert.Equal(LocomotionDirection.Forward, player.LocomotionDirection);
         }
+
+        [Fact]
+        public void EntityPacketModule_CharStatus_UpdatesLocalPlayerAndEntitySpeed()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState { ServerId = 0x12345678 };
+            var localEnt = new PlayerEntity(localPlayer.ServerId, 100)
+            {
+                Speed = 50,
+                SpeedBase = 50,
+                IsSpawned = true
+            };
+            world.UpsertEntity(localEnt);
+
+            var dispatcher = new PacketDispatcher();
+            var module = new EntityPacketModule(world, localPlayer, (c, e) => Task.CompletedTask);
+            module.Register(dispatcher);
+
+            // S2C 0x037 payload (at least 0x58 bytes)
+            byte[] statusPayload = new byte[0x60];
+            BinaryPrimitives.WriteUInt32LittleEndian(statusPayload.AsSpan(32, 4), localPlayer.ServerId); // UniqueNo
+            // Flags1 starts at offset 40
+            // Speed is in bits 0..11: 80 (mount speed)
+            // SpeedBase is in bits 17..24: 50
+            uint flags1 = 80u | (50u << 17);
+            BinaryPrimitives.WriteUInt32LittleEndian(statusPayload.AsSpan(40, 4), flags1);
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(statusPayload.Length + 4), 1), statusPayload);
+
+            Assert.Equal(80, localPlayer.Speed);
+            Assert.Equal(50, localPlayer.SpeedBase);
+            Assert.Equal(80, localEnt.Speed);
+            Assert.Equal(50, localEnt.SpeedBase);
+        }
     }
 }
