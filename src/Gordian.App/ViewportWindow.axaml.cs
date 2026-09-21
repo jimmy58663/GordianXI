@@ -209,13 +209,30 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
+
+            // Ctrl+F10 toggles distance fog on/off
+            if (e.Key == Key.F10 && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            {
+                _viewportControl?.ToggleFog();
+                e.Handled = true;
+                return;
+            }
+
+            // F10 cycles Time of Day presets (Day -> Dusk -> Night -> Overcast)
+            if (e.Key == Key.F10)
+            {
+                _viewportControl?.CycleTimeOfDay();
+                e.Handled = true;
+                return;
+            }
         }
 
         private void OnGameKeyDown(object? sender, KeyEventArgs e)
         {
-            // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle);
+            // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle, TOD cycle);
             // don't also feed these into the character's InputState.
-            if (e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            if ((e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0) ||
+                e.Key == Key.F11 || e.Key == Key.F10)
             {
                 return;
             }

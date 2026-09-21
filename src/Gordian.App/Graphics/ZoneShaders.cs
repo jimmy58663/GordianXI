@@ -198,13 +198,16 @@ void main()
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
 
-    // Authentic FFXI distance fog blending
-    float dist = distance(EyePosition.xyz, fsin_WorldPos);
-    float fogStart = FogParams.x;
-    float fogEnd = FogParams.y;
-    float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
-
-    vec3 finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
+    vec3 finalRgb = litColor;
+    if (FogParams.y > 0.0)
+    {
+        float dist = distance(EyePosition.xyz, fsin_WorldPos);
+        float fogStart = FogParams.x;
+        float fogEnd = FogParams.y;
+        float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
+        finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    }
     fsout_Color = vec4(finalRgb, 1.0);
 }
 ";
@@ -256,13 +259,16 @@ void main()
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
 
-    // Authentic FFXI distance fog blending
-    float dist = distance(EyePosition.xyz, fsin_WorldPos);
-    float fogStart = FogParams.x;
-    float fogEnd = FogParams.y;
-    float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
-
-    vec3 finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
+    vec3 finalRgb = litColor;
+    if (FogParams.y > 0.0)
+    {
+        float dist = distance(EyePosition.xyz, fsin_WorldPos);
+        float fogStart = FogParams.x;
+        float fogEnd = FogParams.y;
+        float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
+        finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    }
     fsout_Color = vec4(finalRgb, 1.0);
 }
 ";
@@ -313,17 +319,68 @@ void main()
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
 
-    // Authentic FFXI distance fog blending
-    float dist = distance(EyePosition.xyz, fsin_WorldPos);
-    float fogStart = FogParams.x;
-    float fogEnd = FogParams.y;
-    float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
-
-    vec3 finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
+    vec3 finalRgb = litColor;
+    if (FogParams.y > 0.0)
+    {
+        float dist = distance(EyePosition.xyz, fsin_WorldPos);
+        float fogStart = FogParams.x;
+        float fogEnd = FogParams.y;
+        float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
+        finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    }
     fsout_Color = vec4(finalRgb, alpha);
 }
 ";
 
         public const string FragmentShaderGlsl = FragmentShaderCutoutGlsl;
+
+        /// <summary>
+        /// Vertex shader for celestial sky dome rendering.
+        /// Centers the hemispherical dome at the camera eye and projects to the far plane.
+        /// </summary>
+        public const string SkyDomeVertexShaderGlsl = @"#version 450
+
+layout(location = 0) in vec3 Position;
+layout(location = 1) in vec4 Color;
+
+layout(location = 0) out vec4 fsin_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+};
+
+void main()
+{
+    vec4 worldPos = vec4(Position + EyePosition.xyz, 1.0);
+    fsin_Color = Color;
+    vec4 clipPos = Projection * View * worldPos;
+    gl_Position = vec4(clipPos.xy, clipPos.w * 0.9999, clipPos.w);
+}
+";
+
+        /// <summary>
+        /// Fragment shader for celestial sky dome rendering.
+        /// Outputs smooth vertex-interpolated celestial gradient.
+        /// </summary>
+        public const string SkyDomeFragmentShaderGlsl = @"#version 450
+
+layout(location = 0) in vec4 fsin_Color;
+layout(location = 0) out vec4 fsout_Color;
+
+void main()
+{
+    fsout_Color = vec4(fsin_Color.rgb, 1.0);
+}
+";
     }
 }

@@ -54,6 +54,7 @@ namespace Gordian.Core.Resources.Models
         public int ZoneId { get; set; }
         public List<MeshGroup> MeshGroups { get; } = new();
         public List<ZonePlacement> Placements { get; } = new();
+        public Graphics.ZoneEnvironmentData? EnvironmentData { get; set; }
 
         public int TotalVertices
         {

@@ -34,6 +34,9 @@ namespace Gordian.App.Graphics
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
         public EntityRenderer? EntityRenderer => _entityRenderer;
+        private SkyDomeRenderer? _skyDomeRenderer;
+        public SkyDomeRenderer? SkyDomeRenderer => _skyDomeRenderer;
+        public ZoneGeometry? LoadedZone { get; private set; }
 
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
@@ -191,6 +194,7 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
+            _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
             _commandList = factory.CreateCommandList();
         }
 
@@ -200,6 +204,7 @@ namespace Gordian.App.Graphics
         public void LoadZone(ZoneGeometry? zone, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
         {
             ClearZoneSubmeshes();
+            LoadedZone = zone;
             _activeDecodedTextures = textures;
 
             if (zone == null || zone.MeshGroups.Count == 0)
@@ -265,7 +270,8 @@ namespace Gordian.App.Graphics
             ResourceManager? resourceManager = null,
             uint localPlayerServerId = 0,
             bool isLocalPlayerEngaged = false,
-            Vector3? localPlayerDisplayPos = null)
+            Vector3? localPlayerDisplayPos = null,
+            bool present = true)
         {
             if (_disposed || _gd == null || _gd.MainSwapchain == null) return;
 
@@ -273,7 +279,8 @@ namespace Gordian.App.Graphics
             float aspect = Math.Max(0.1f, (float)width / Math.Max(1, height));
             camera.AspectRatio = aspect;
 
-            float fogRange = Math.Max(0.001f, environment.FogEnd - environment.FogStart);
+            float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
+            float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
             var sceneUniform = new ZoneSceneUniform
             {
                 World = Matrix4x4.Identity,
@@ -283,7 +290,7 @@ namespace Gordian.App.Graphics
                 SunColor = new Vector4(environment.SunColor, 1.0f),
                 AmbientColor = new Vector4(environment.AmbientColor, 1.0f),
                 FogColor = environment.FogColor,
-                FogParams = new Vector4(environment.FogStart, environment.FogEnd, 1.0f / fogRange, environment.FogDensity),
+                FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                 EyePosition = new Vector4(camera.Position, 1.0f)
             };
 
@@ -296,20 +303,31 @@ namespace Gordian.App.Graphics
             _commandList.Begin();
             _commandList.SetFramebuffer(_gd.SwapchainFramebuffer);
 
-            // Clear to atmospheric fog color for authentic FFXI horizon blending
+            // Clear to atmospheric clear/horizon color for authentic FFXI horizon blending
             _commandList.ClearColorTarget(0, new RgbaFloat(
-                environment.FogColor.X,
-                environment.FogColor.Y,
-                environment.FogColor.Z,
+                environment.ClearColor.X,
+                environment.ClearColor.Y,
+                environment.ClearColor.Z,
                 1.0f));
             _commandList.ClearDepthStencil(1.0f);
-
-            _commandList.SetPipeline(_pipeline);
-            _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
 
             int draws = 0;
             int culled = 0;
             int visible = 0;
+
+            // Pass 0: Celestial Sky Dome (rendered at camera eye with depth writing disabled)
+            if (_skyDomeRenderer != null)
+            {
+                _skyDomeRenderer.UpdateDome(environment);
+                if (_skyDomeRenderer.HasGeometry)
+                {
+                    _skyDomeRenderer.Render(_commandList, _sceneResourceSet);
+                    draws++;
+                }
+            }
+
+            _commandList.SetPipeline(_pipeline);
+            _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
 
             var frustum = camera.Frustum;
 
@@ -442,7 +460,10 @@ namespace Gordian.App.Graphics
 
             // 4. Submit & Present
             _gd.SubmitCommands(_commandList);
-            _gd.SwapBuffers();
+            if (present)
+            {
+                _gd.SwapBuffers();
+            }
 
             DrawCalls = draws;
             CulledMeshes = culled;
@@ -510,6 +531,7 @@ namespace Gordian.App.Graphics
             _groundPlaneSubmesh = null;
 
             _entityRenderer?.Dispose();
+            _skyDomeRenderer?.Dispose();
             _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();

@@ -242,7 +242,8 @@ namespace Gordian.App.Graphics
             int visible = 0;
             int culled = 0;
 
-            float fogRange = Math.Max(0.001f, environment.FogEnd - environment.FogStart);
+            float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
+            float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
             var frustum = camera.Frustum;
 
             foreach (var entity in entities)
@@ -328,7 +329,7 @@ namespace Gordian.App.Graphics
                     SunColor = new Vector4(environment.SunColor, 1.0f),
                     AmbientColor = new Vector4(environment.AmbientColor, 1.0f),
                     FogColor = environment.FogColor,
-                    FogParams = new Vector4(environment.FogStart, environment.FogEnd, 1.0f / fogRange, environment.FogDensity),
+                    FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                     EyePosition = new Vector4(camera.Position, 1.0f)
                 };
 

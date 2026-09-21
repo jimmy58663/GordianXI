@@ -283,5 +283,81 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotEmpty(meshGroup.Pieces);
             Assert.Equal(144, meshGroup.Vertices.Length);
         }
+
+        [Fact]
+        public void RealInstallation_CheckZoneEnvironmentAndWater()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new ResourceManager(gameDir);
+            rm.InitializeFileTable();
+
+            foreach (int zoneId in new[] { 4, 100, 102, 103, 248 })
+            {
+                if (rm.TryLoadZone(zoneId, out var zone, out var textures))
+                {
+                    var env = zone.EnvironmentData;
+                    if (env != null)
+                    {
+                        var kf = env.Interpolate(12f);
+                        if (kf != null)
+                        {
+                            Gordian.Core.Diagnostics.GordianLog.Info("DIAG_ENV",
+                                $"Zone {zoneId}: FogStart={kf.TerrainFogStart}, FogEnd={kf.TerrainFogEnd}, DrawDist={kf.DrawDistance}, Slices={kf.Slices.Count}");
+                            foreach (var s in kf.Slices)
+                            {
+                                Gordian.Core.Diagnostics.GordianLog.Info("DIAG_ENV", $"  Slice Elev={s.Elevation:F2}, Color={s.Color}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Gordian.Core.Diagnostics.GordianLog.Info("DIAG_ENV", $"Zone {zoneId}: NO EnvironmentData found!");
+                    }
+
+                    // Look for water or cloud meshes
+                    int waterMeshes = 0;
+                    int skyMeshes = 0;
+                    foreach (var m in zone.MeshGroups)
+                    {
+                        string n = m.Name.ToLowerInvariant();
+                        if (n.Contains("sea") || n.Contains("water") || n.Contains("suimen") || n.StartsWith("ka") || n.StartsWith("um"))
+                            waterMeshes++;
+                        if (n.Contains("cloud") || n.Contains("clod") || n.Contains("sora"))
+                            skyMeshes++;
+                    }
+                    Gordian.Core.Diagnostics.GordianLog.Info("DIAG_ENV",
+                        $"Zone {zoneId}: TotalMeshes={zone.MeshGroups.Count}, Placements={zone.Placements.Count}, WaterMeshes={waterMeshes}, SkyMeshes={skyMeshes}");
+                }
+            }
+        }
+
+        [Fact]
+        public void RealInstallation_InspectZone4Placements()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+
+            Vector3 playerDisp = new(398.85f, 1.68f, -466.56f);
+            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            camera.Update(playerDisp, pitch: 10.0f, yaw: 270.0f, distance: 6.0f, aspectRatio: 16f / 9f);
+            var frustum = camera.Frustum;
+
+            int inView = 0;
+            foreach (var mg in zone.MeshGroups)
+            {
+                if (frustum.IntersectsBox(mg.MinBounds, mg.MaxBounds))
+                {
+                    inView++;
+                }
+            }
+
+            Assert.True(inView > 0, "Expected submeshes in view frustum at player spawn");
+        }
     }
 }

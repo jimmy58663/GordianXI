@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 604 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 749 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -151,7 +151,7 @@
   - [ ] **Damage & Hit Reactions:** Trigger brief target hit-reaction flinch clips (`dam`, `hit`) when incoming attack/damage battle messages and actions occur.
 - [ ] **Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays:**
   - [ ] **3-Tier Rendering Architecture:**
-    - [ ] *Tier 1 (3D Scene):* Veldrid terrain, skybox, models, lighting, and fog pass.
+    - [x] *Tier 1 (3D Scene):* Veldrid terrain, skybox/celestial sky dome (`SkyDomeRenderer`), entity models, directional sun/moon lighting, and authentic FFXI distance fog pass. Clean-room DAT Section `0x2F` Environment decoder (`EnvironmentDecoder`, `ZoneEnvironmentData`) supporting time-of-day keyframe extraction, 8-slice sky dome gradients, and time-of-day cycling (`F10` shortcut / `CycleTimeOfDay`). Fog calibration overhaul with authentic clear visibility presets (Day, Dusk, Night), soft atmospheric haze (Overcast), distant horizon projection for retail `FogStart = 0` keyframes, shader `FogParams.y > 0.0` guards, and runtime fog toggle (`Ctrl+F10` shortcut / `ToggleFog`). Frame composition decoupled into a 3-tier presentation pipeline (`RenderTier1_Scene3D` -> `RenderTier2_StockUi` -> `RenderTier3_ImGuiOverlays`).
     - [ ] *Tier 2 (Stock FFXI 2D UI):* Authentic DAT-driven menu boxes (blue marble), finger cursor hand, targeting brackets, vitals gauges, status icons, and dialog text.
     - [ ] *Tier 3 (ImGui Overlays & Addons):* Modern translucent HUD (`WindowRounding = 6.0f`), performance profiling overlay, radar/minimap, and addon plugin canvases.
   - [ ] **Modular Stock UI Suppression (`StockUiVisibilityState`):**

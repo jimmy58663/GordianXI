@@ -50,6 +50,8 @@ namespace Gordian.Core.Resources
             var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var realMeshNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var raw0x2ESubmeshes = new List<MeshGroup>();
+            var dirStack = new Stack<string>();
+            var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
 
             void RegisterTemplate(string name, List<MeshGroup> meshList, bool isRealName)
@@ -152,7 +154,38 @@ namespace Gordian.Core.Resources
                         zoneDefHeader ??= header;
                         break;
                     }
+
+                    case DatSectionType.Directory:
+                    {
+                        dirStack.Push(header.DatId);
+                        break;
+                    }
+
+                    case DatSectionType.End:
+                    {
+                        if (dirStack.Count > 0)
+                        {
+                            dirStack.Pop();
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.Environment:
+                    {
+                        var keyframe = EnvironmentDecoder.DecodeEnvironmentKeyframe(payload, header.DatId);
+                        if (keyframe != null)
+                        {
+                            string weather = dirStack.Count > 0 ? dirStack.Peek() : "weat";
+                            envData.AddKeyframe(weather, keyframe);
+                        }
+                        break;
+                    }
                 }
+            }
+
+            if (envData.WeatherKeyframes.Count > 0)
+            {
+                zone.EnvironmentData = envData;
             }
 
             // Phase 2: World Placement Instancing via Section 0x1C (ZoneDef)

@@ -243,6 +243,16 @@ namespace Gordian.App.Graphics
                         {
                             _renderer?.LoadZone(zoneGeom, zoneTextures);
                             _loadedZoneId = zoneToLoad;
+
+                            if (zoneGeom?.EnvironmentData != null)
+                            {
+                                var keyframe = zoneGeom.EnvironmentData.Interpolate(12f);
+                                if (keyframe != null)
+                                {
+                                    Environment.ApplyKeyframe(keyframe);
+                                    GordianLog.Info("Graphics", $"Applied Zone {zoneToLoad} 0x2F environment lighting and sky dome slices.");
+                                }
+                            }
                         }
                         GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU.");
                     }
@@ -511,6 +521,7 @@ namespace Gordian.App.Graphics
                     {
                         try
                         {
+                            // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
                                 Camera,
                                 Environment,
@@ -521,7 +532,17 @@ namespace Gordian.App.Graphics
                                 ResourceManager,
                                 localPlayerServerId,
                                 isLocalPlayerEngaged,
-                                displayPlayerPos);
+                                displayPlayerPos,
+                                present: false);
+
+                            // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
+                            RenderTier2_StockUi();
+
+                            // Tier 3: ImGui Overlays & Addons Pass
+                            RenderTier3_ImGuiOverlays();
+
+                            // Final composite present
+                            _deviceManager.Device?.SwapBuffers();
                         }
                         catch (Exception ex)
                         {
@@ -562,6 +583,96 @@ namespace Gordian.App.Graphics
                 // If VSync is off or running faster than display, yield slightly
                 Thread.Sleep(1);
             }
+        }
+
+        /// <summary>
+        /// Tier 2: Stock FFXI 2D UI render pass (orthographic HUD projection).
+        /// Reserved hook for Phase 5E Tier 2.
+        /// </summary>
+        private void RenderTier2_StockUi()
+        {
+            // Future Phase 5E Tier 2 implementation: Blue marble menus, finger cursor, vitals gauges, status icons
+        }
+
+        /// <summary>
+        /// Tier 3: ImGui Overlays and Addons render pass.
+        /// Reserved hook for Phase 5E Tier 3.
+        /// </summary>
+        private void RenderTier3_ImGuiOverlays()
+        {
+            // Future Phase 5E Tier 3 implementation: Translucent HUD overlays, performance graphs, addon canvases
+        }
+
+        /// <summary>
+        /// Sets a specific time-of-day environment preset (day, dusk, night, overcast) or evaluates from 0x2F keyframes.
+        /// </summary>
+        public void SetTimeOfDayPreset(string preset)
+        {
+            string p = (preset ?? string.Empty).Trim().ToLowerInvariant();
+            switch (p)
+            {
+                case "day":
+                    Environment = ZoneEnvironmentSettings.CreateDay();
+                    break;
+                case "dusk":
+                case "sunset":
+                    Environment = ZoneEnvironmentSettings.CreateDusk();
+                    break;
+                case "night":
+                case "midnight":
+                    Environment = ZoneEnvironmentSettings.CreateNight();
+                    break;
+                case "overcast":
+                case "cloudy":
+                    Environment = ZoneEnvironmentSettings.CreateOvercast();
+                    break;
+                default:
+                    if (float.TryParse(p, out float hour) && _renderer?.LoadedZone?.EnvironmentData != null)
+                    {
+                        var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(hour);
+                        if (kf != null)
+                        {
+                            Environment.ApplyKeyframe(kf);
+                            GordianLog.Info("Graphics", $"Applied 0x2F environment for hour {hour:F1}.");
+                            return;
+                        }
+                    }
+                    Environment = ZoneEnvironmentSettings.CreateDay();
+                    break;
+            }
+            GordianLog.Info("Graphics", $"Switched time of day to {preset}.");
+        }
+
+        /// <summary>
+        /// Cycles through time-of-day presets (Day -> Dusk -> Night -> Overcast).
+        /// </summary>
+        public void CycleTimeOfDay()
+        {
+            if (Environment.SunColor == ZoneEnvironmentSettings.CreateDay().SunColor)
+            {
+                SetTimeOfDayPreset("dusk");
+            }
+            else if (Environment.SunColor == ZoneEnvironmentSettings.CreateDusk().SunColor)
+            {
+                SetTimeOfDayPreset("night");
+            }
+            else if (Environment.SunColor == ZoneEnvironmentSettings.CreateNight().SunColor)
+            {
+                SetTimeOfDayPreset("overcast");
+            }
+            else
+            {
+                SetTimeOfDayPreset("day");
+            }
+        }
+
+        /// <summary>
+        /// Toggles distance fog on/off for the active 3D environment.
+        /// </summary>
+        public void ToggleFog()
+        {
+            Environment.FogEnabled = !Environment.FogEnabled;
+            GordianLog.Info("Graphics", $"Distance fog {(Environment.FogEnabled ? "enabled" : "disabled")}.");
         }
 
         // Right-click-drag camera look and wheel zoom are NOT handled here. On Windows this
