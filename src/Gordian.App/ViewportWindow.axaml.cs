@@ -19,15 +19,22 @@ namespace Gordian.App
     /// </summary>
     public partial class ViewportWindow : Window
     {
+        private readonly string _windowKey;
         private ViewportViewModel? _viewModel;
         private VeldridViewportControl? _viewportControl;
         private DispatcherTimer? _telemetryTimer;
         private Point? _lastPointerPosition;
         private bool _isRightDragging;
 
-        public ViewportWindow()
+        public ViewportWindow() : this("ViewportWindow")
         {
+        }
+
+        public ViewportWindow(string windowKey)
+        {
+            _windowKey = string.IsNullOrWhiteSpace(windowKey) ? "ViewportWindow" : windowKey;
             InitializeComponent();
+            WindowPlacementManager.Default.TrackWindow(this, _windowKey);
 
             _viewportControl = this.FindControl<VeldridViewportControl>("ViewportControl");
             if (_viewportControl != null)
@@ -160,8 +167,18 @@ namespace Gordian.App
                 default:
                     WindowDecorations = Avalonia.Controls.WindowDecorations.Full;
                     WindowState = WindowState.Normal;
-                    Width = 1280;
-                    Height = 720;
+                    var placement = WindowPlacementManager.Default.GetPlacement(_windowKey);
+                    if (placement != null && placement.Width > 0 && placement.Height > 0)
+                    {
+                        Width = placement.Width;
+                        Height = placement.Height;
+                        Position = new PixelPoint(placement.X, placement.Y);
+                    }
+                    else
+                    {
+                        Width = 1280;
+                        Height = 720;
+                    }
                     break;
             }
         }

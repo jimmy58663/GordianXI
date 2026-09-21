@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Gordian.App.Common;
+using Gordian.App.Services;
 using Gordian.App.ViewModels;
 
 namespace Gordian.App
@@ -13,6 +14,7 @@ namespace Gordian.App
         public ChatWindow()
         {
             InitializeComponent();
+            WindowPlacementManager.Default.TrackWindow(this, "ChatWindow");
             AutoCopyBehavior.Attach(ChatListBox);
             DataContextChanged += OnDataContextChanged;
         }

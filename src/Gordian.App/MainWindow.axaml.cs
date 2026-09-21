@@ -22,6 +22,7 @@ namespace Gordian.App
         public MainWindow()
         {
             InitializeComponent();
+            WindowPlacementManager.Default.TrackWindow(this, "MainWindow");
 
             var consoleListBox = this.FindControl<ListBox>("ConsoleListBox");
             if (consoleListBox != null)

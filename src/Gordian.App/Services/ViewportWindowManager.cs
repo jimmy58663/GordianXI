@@ -95,7 +95,7 @@ namespace Gordian.App.Services
         {
             if (_primaryWindow == null)
             {
-                _primaryWindow = new ViewportWindow
+                _primaryWindow = new ViewportWindow("ViewportWindow")
                 {
                     DataContext = _primaryViewModel
                 };
@@ -183,7 +183,7 @@ namespace Gordian.App.Services
                 var secondaryTab = secondaryVm.AddSession(tab.Session);
                 secondaryVm.ActiveTab = secondaryTab;
 
-                var secondaryWindow = new ViewportWindow
+                var secondaryWindow = new ViewportWindow($"ViewportWindow_{tab.CharacterName}")
                 {
                     Title = $"GordianXI - {tab.CharacterName} (Dedicated Viewport)",
                     DataContext = secondaryVm
