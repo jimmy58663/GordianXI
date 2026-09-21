@@ -361,7 +361,7 @@ namespace Gordian.App.Graphics
 
                     bool loop = category != AnimationCategory.Death && !entity.Animation.IsPlayingTransition;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, entityModel.ParentOverrides);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null);
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
 

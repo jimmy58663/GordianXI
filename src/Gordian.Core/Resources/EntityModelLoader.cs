@@ -157,7 +157,9 @@ namespace Gordian.Core.Resources
 
             if (model.Skeleton != null && allMeshes.Count > 0)
             {
-                var bindPose = SkeletonPoseEvaluator.ComputeBindPose(model.Skeleton, parentOverrides);
+                // bindPose for bounds is computed in natural resting bind pose without hand overrides,
+                // ensuring unposed fallback meshes and initial bounds keep weapons sheathed at rest.
+                var bindPose = SkeletonPoseEvaluator.ComputeBindPose(model.Skeleton, null);
                 for (int m = 0; m < allMeshes.Count; m++)
                 {
                     var evaluated = SkeletonPoseEvaluator.BuildAnimatedMeshGroups(allMeshes[m], bindPose);
@@ -252,7 +254,7 @@ namespace Gordian.Core.Resources
 
             var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides);
 
-            // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus the H2H battle pack,
+            // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
             // Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js.
             // Gated off by default - see EnableSpeculativeMotionPacks.
@@ -273,9 +275,34 @@ namespace Gordian.Core.Resources
                     overlaySources.Add(ParseDatContainer(waistDat, "LocomotionWaist").Animations);
                 }
 
-                string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race);
+                // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
+                int weaponAnimType = 0; // 0 = H2H / Unarmed default
+                for (int w = 0; w < weaponDats.Count; w++)
+                {
+                    var (slot, dat) = weaponDats[w];
+                    if (slot == CharacterSlot.Main)
+                    {
+                        var headers = DatSectionWalker.ReadHeaders(dat.Span);
+                        for (int h = 0; h < headers.Count; h++)
+                        {
+                            var head = headers[h];
+                            if (head.TypeCode == DatSectionType.Info && head.DataOffset + 4 <= dat.Length)
+                            {
+                                byte animByte = dat.Span[head.DataOffset + 3];
+                                if (animByte != 0xFF)
+                                {
+                                    weaponAnimType = animByte;
+                                }
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
                 byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
-                if ((battleDat == null || battleDat.Length == 0) && CharacterEquipmentResolver.GetBattlePackFileId(race) is int battleFid && battleFid > 0)
+                if ((battleDat == null || battleDat.Length == 0) && CharacterEquipmentResolver.GetBattlePackFileId(race, weaponAnimType) is int battleFid && battleFid > 0)
                 {
                     battleDat = datByFileId(battleFid);
                 }
@@ -391,6 +418,21 @@ namespace Gordian.Core.Resources
                     }
 
                     var timingSource = sources[0];
+
+                    // Graft missing idle tracks (e.g. waist joints 4, 5, 18-25 and sheathed weapon mounts)
+                    // onto the battle clip so skirts and resting mounts are not left in static bind pose.
+                    // Clean-room implementation referencing xi-model-viewer (https://github.com/vekien/xi-model-viewer) graftIdleWaist.
+                    if (model.Animations.TryGetValue("idl", out var idleClip))
+                    {
+                        foreach (var (jointIdx, idleTrack) in idleClip.Tracks)
+                        {
+                            if (!tracks.ContainsKey(jointIdx))
+                            {
+                                tracks[jointIdx] = idleTrack;
+                            }
+                        }
+                    }
+
                     var compositeClip = new AnimationClip
                     {
                         Name = cat,
@@ -443,25 +485,36 @@ namespace Gordian.Core.Resources
             for (int w = 0; w < weaponDats.Count; w++)
             {
                 var (slot, dat) = weaponDats[w];
-                int handRefIdx = slot == CharacterSlot.Sub ? 126 : 127;
-                int handJoint = refs[handRefIdx].Index;
 
-                int? gripJoint = null;
-
-                // 1. Check Info section (0x45) byte 6 (standardJointIndex)
+                // 1. Check Info section (0x45) for weapon animation type (byte 3) and standardJointIndex (byte 6)
+                byte animTypeByte = 0xFF;
+                byte stdJointByte = 0xFF;
                 var headers = DatSectionWalker.ReadHeaders(dat.Span);
                 for (int h = 0; h < headers.Count; h++)
                 {
                     var head = headers[h];
                     if (head.TypeCode == DatSectionType.Info && head.DataOffset + 7 <= dat.Length)
                     {
-                        byte stdJointByte = dat.Span[head.DataOffset + 6];
-                        if (stdJointByte != 0xFF && stdJointByte < refs.Count)
-                        {
-                            gripJoint = refs[stdJointByte].Index;
-                            break;
-                        }
+                        animTypeByte = dat.Span[head.DataOffset + 3];
+                        stdJointByte = dat.Span[head.DataOffset + 6];
+                        break;
                     }
+                }
+
+                // Shields (in Sub slot) have animType 0xFF or stdJoint 125 (shield back mount) or 0xFF,
+                // and are skinned directly to the Left Forearm joint. They must NOT be re-parented to the hand.
+                if (slot == CharacterSlot.Sub && (animTypeByte == 0xFF || stdJointByte == 125 || stdJointByte == 0xFF))
+                {
+                    continue;
+                }
+
+                int handRefIdx = slot == CharacterSlot.Sub ? 126 : 127;
+                int handJoint = refs[handRefIdx].Index;
+
+                int? gripJoint = null;
+                if (stdJointByte != 0xFF && stdJointByte < refs.Count)
+                {
+                    gripJoint = refs[stdJointByte].Index;
                 }
 
                 // 2. If no valid Info standardJointIndex, extract lowest positive vertex joint index

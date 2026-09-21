@@ -199,5 +199,81 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(MathF.Abs(Quaternion.Dot(expected, actual)) > 0.999f,
                 $"Rotation mismatch: expected {expected}, got {actual}");
         }
+
+        [Theory]
+        [InlineData("idl", true)]
+        [InlineData("idl0", true)]
+        [InlineData("idl1", true)]
+        [InlineData("wlk", true)]
+        [InlineData("wlk1", true)]
+        [InlineData("run", true)]
+        [InlineData("run1", true)]
+        [InlineData("std", true)]
+        [InlineData("std0", true)]
+        [InlineData("mvb", true)]
+        [InlineData("mvl", true)]
+        [InlineData("mvr", true)]
+        [InlineData("btl", false)]
+        [InlineData("btl0", false)]
+        [InlineData("btl1", false)]
+        [InlineData("cwlk", false)]
+        [InlineData("crun", false)]
+        [InlineData("at00", false)]
+        [InlineData("ws", false)]
+        [InlineData("cas", false)]
+        public void SkeletonPoseEvaluator_IsRestingClipName_IdentifiesRestVsCombatClips(string clipName, bool expectedResting)
+        {
+            Assert.Equal(expectedResting, SkeletonPoseEvaluator.IsRestingClipName(clipName));
+        }
+
+        [Fact]
+        public void SkeletonPoseEvaluator_EvaluatePose_RestingClipPreservesMountTrackOverHandOverride()
+        {
+            // Joint 0: Root at (0, 0, 0)
+            // Joint 1: Hand at (0, 1.5f, 0)
+            // Joint 2: Weapon mount initially at (0, 0, 0)
+            var joints = new[]
+            {
+                new SkeletonJoint(-1, Quaternion.Identity, Vector3.Zero),
+                new SkeletonJoint(0, Quaternion.Identity, new Vector3(0, 1.5f, 0)),
+                new SkeletonJoint(0, Quaternion.Identity, Vector3.Zero)
+            };
+            var skeleton = new Skeleton(joints);
+
+            // Hand override: Joint 2 -> Joint 1
+            var overrides = new Dictionary<int, int> { [2] = 1 };
+
+            // 1. Idle clip ("idl1"): animates weapon mount (Joint 2) to the waist at (0.2f, 0.8f, 0.1f)
+            var idlTrack = new BoneAnimationTrack
+            {
+                JointIndex = 2,
+                Rotations = new[] { Quaternion.Identity },
+                Translations = new[] { new Vector3(0.2f, 0.8f, 0.1f) }
+            };
+            var idlClip = new AnimationClip
+            {
+                Name = "idl1",
+                NumFrames = 1,
+                KeyFrameDuration = 1.0f,
+                Tracks = new Dictionary<int, BoneAnimationTrack> { [2] = idlTrack }
+            };
+
+            var restingPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, idlClip, 0f, false, overrides);
+            // At rest, weapon mount retains its authored waist track (0.2f, 0.8f, 0.1f) instead of hand (0, 1.5f, 0)
+            Assert.Equal(new Vector3(0.2f, 0.8f, 0.1f), restingPose.Translations[2]);
+
+            // 2. Combat clip ("btl1"): combat clip allows hand override to weld weapon to hand (Joint 1)
+            var btlClip = new AnimationClip
+            {
+                Name = "btl1",
+                NumFrames = 1,
+                KeyFrameDuration = 1.0f,
+                Tracks = new Dictionary<int, BoneAnimationTrack>()
+            };
+
+            var combatPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, btlClip, 0f, false, overrides);
+            // In combat, weapon mount adopts the hand position (0, 1.5f, 0)
+            Assert.Equal(new Vector3(0, 1.5f, 0), combatPose.Translations[2]);
+        }
     }
 }

@@ -245,14 +245,30 @@ namespace Gordian.Core.Resources.Tables
         };
 
         /// <summary>
-        /// Per-race base battle-motion pack file IDs (main weapon-type packs, index 0 = H2H) and
-        /// the pack count before the following waist/skirt overlay block, ordered per <see cref="GetRetailRaceIndex"/>.
-        /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js
-        /// (MOTION_B_BASE / MOTION_B_NUM), independently cross-checked against this file's own
-        /// already-verified GetBaseSkeletonLocation numbers.
+        /// Per-race battle-motion pack (Folder, File) locations indexed by retail weaponAnimationType (0..15),
+        /// ordered per <see cref="GetRetailRaceIndex"/>.
+        /// Clean-room specification referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/public/lists/characters.json battleByType.
+        /// Includes expansion packs in ROM/98 and ROM/99 (e.g. Katana, Great Katana, etc.).
         /// </summary>
-        private static readonly int[] MotionBattleBaseFileId = { 32013, 36117, 41084, 46057, 51019, 51019, 56014, 60112 };
-        private static readonly int[] MotionBattlePackCount = { 9, 8, 10, 6, 6, 6, 9, 8 };
+        private static readonly (int Folder, int File)[][] BattleByTypeLocations =
+        {
+            // 0: HumeMale
+            new[] { (32, 13), (32, 14), (32, 15), (32, 16), (32, 17), (32, 18), (32, 19), (98, 55), (32, 20), (32, 13), (32, 21), (32, 13), (32, 13), (32, 13), (32, 13), (32, 13) },
+            // 1: HumeFemale
+            new[] { (36, 117), (36, 118), (36, 119), (36, 120), (36, 121), (36, 122), (98, 86), (36, 123), (36, 117), (36, 117), (36, 124), (36, 117), (36, 117), (36, 117), (36, 117), (36, 117) },
+            // 2: ElvaanMale
+            new[] { (41, 84), (41, 85), (41, 86), (98, 117), (41, 87), (41, 88), (41, 89), (41, 90), (41, 91), (41, 92), (41, 93), (41, 84), (41, 84), (41, 84), (41, 84), (41, 84) },
+            // 3: ElvaanFemale
+            new[] { (46, 57), (46, 58), (46, 59), (46, 60), (46, 57), (99, 20), (46, 61), (99, 21), (46, 57), (46, 57), (46, 62), (46, 57), (46, 57), (46, 57), (46, 57), (46, 57) },
+            // 4: TaruMale
+            new[] { (51, 19), (51, 20), (51, 21), (99, 55), (51, 22), (51, 23), (51, 19), (51, 19), (51, 19), (51, 19), (51, 24), (51, 19), (51, 19), (51, 19), (51, 19), (51, 19) },
+            // 5: TaruFemale
+            new[] { (51, 19), (51, 20), (51, 21), (99, 55), (51, 22), (51, 23), (51, 19), (51, 19), (51, 19), (51, 19), (51, 24), (51, 19), (51, 19), (51, 19), (51, 19), (51, 19) },
+            // 6: Mithra
+            new[] { (56, 14), (56, 15), (56, 16), (99, 86), (56, 17), (56, 18), (56, 19), (56, 20), (56, 21), (56, 14), (56, 22), (56, 14), (56, 14), (56, 14), (56, 14), (56, 14) },
+            // 7: Galka
+            new[] { (60, 112), (60, 113), (60, 114), (60, 115), (99, 117), (60, 116), (60, 117), (60, 118), (99, 118), (60, 112), (60, 119), (60, 112), (60, 112), (60, 112), (60, 112), (60, 112) },
+        };
 
         /// <summary>
         /// Resolves the locomotion motion-pack DAT relative paths for a race: the base skeleton DAT
@@ -273,19 +289,19 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
-        /// Resolves the battle-stance motion-pack relative DAT path (e.g. ROM/32/13.DAT) for a race
-        /// and weapon-type index (0 = H2H).
-        /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js.
+        /// Resolves the battle-stance motion-pack relative DAT path (e.g. ROM/32/14.DAT for Dagger on Hume Male)
+        /// for a race and retail weaponAnimationType index (0 = H2H, 1 = Dagger, 2 = 1H Sword, etc.).
+        /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/public/lists/characters.json.
         /// </summary>
         public static string GetBattlePackPath(CharacterRace race, int weaponTypeIndex = 0)
         {
             int raceIdx = GetRetailRaceIndex(race);
-            if (raceIdx < 0 || raceIdx >= MotionBattleBaseFileId.Length) return string.Empty;
+            if (raceIdx < 0 || raceIdx >= BattleByTypeLocations.Length) return string.Empty;
 
-            int count = MotionBattlePackCount[raceIdx];
-            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, Math.Max(0, count - 1));
-            int fileNo = MotionBattleBaseFileId[raceIdx] + clampedIndex;
-            return MotFileNoToPath(fileNo);
+            var table = BattleByTypeLocations[raceIdx];
+            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, table.Length - 1);
+            var loc = table[clampedIndex];
+            return Path.Combine("ROM", loc.Folder.ToString(), $"{loc.File}.DAT");
         }
 
         /// <summary>
@@ -312,11 +328,12 @@ namespace Gordian.Core.Resources.Tables
         public static int GetBattlePackFileId(CharacterRace race, int weaponTypeIndex = 0)
         {
             int raceIdx = GetRetailRaceIndex(race);
-            if (raceIdx < 0 || raceIdx >= MotionBattleBaseFileId.Length) return 0;
+            if (raceIdx < 0 || raceIdx >= BattleByTypeLocations.Length) return 0;
 
-            int count = MotionBattlePackCount[raceIdx];
-            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, Math.Max(0, count - 1));
-            return MotionBattleBaseFileId[raceIdx] + clampedIndex;
+            var table = BattleByTypeLocations[raceIdx];
+            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, table.Length - 1);
+            var loc = table[clampedIndex];
+            return (loc.Folder * 1000) + loc.File;
         }
 
         /// <summary>

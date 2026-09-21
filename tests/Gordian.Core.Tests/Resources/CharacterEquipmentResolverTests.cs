@@ -86,5 +86,26 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(Path.Combine("ROM", "51", "89.DAT"), CharacterEquipmentResolver.GetBaseSkeletonPath(CharacterRace.Mithra));
             Assert.Equal(Path.Combine("ROM", "56", "59.DAT"), CharacterEquipmentResolver.GetBaseSkeletonPath(CharacterRace.Galka));
         }
+
+        [Theory]
+        [InlineData(CharacterRace.HumeMale, 0, "ROM/32/13.DAT")]     // H2H
+        [InlineData(CharacterRace.HumeMale, 1, "ROM/32/14.DAT")]     // Dagger
+        [InlineData(CharacterRace.HumeMale, 5, "ROM/32/18.DAT")]     // Scythe
+        [InlineData(CharacterRace.HumeMale, 7, "ROM/98/55.DAT")]     // Katana (Expansion)
+        [InlineData(CharacterRace.ElvaanMale, 0, "ROM/41/84.DAT")]   // H2H
+        [InlineData(CharacterRace.ElvaanMale, 1, "ROM/41/85.DAT")]   // Dagger
+        [InlineData(CharacterRace.ElvaanMale, 3, "ROM/98/117.DAT")]  // Great Sword (Expansion)
+        [InlineData(CharacterRace.ElvaanMale, 5, "ROM/41/88.DAT")]   // Scythe
+        [InlineData(CharacterRace.TaruMale, 0, "ROM/51/19.DAT")]     // H2H
+        [InlineData(CharacterRace.TaruMale, 1, "ROM/51/20.DAT")]     // Dagger
+        [InlineData(CharacterRace.TaruFemale, 1, "ROM/51/20.DAT")]   // Dagger
+        [InlineData(CharacterRace.Mithra, 3, "ROM/99/86.DAT")]       // Great Sword (Expansion)
+        [InlineData(CharacterRace.Galka, 4, "ROM/99/117.DAT")]       // Axe (Expansion)
+        [InlineData(CharacterRace.Galka, 8, "ROM/99/118.DAT")]       // Great Katana (Expansion)
+        public void CharacterEquipmentResolver_ResolvesBattlePackPaths(CharacterRace race, int weaponTypeIndex, string expectedRelPath)
+        {
+            string expected = Path.Combine(expectedRelPath.Split('/'));
+            Assert.Equal(expected, CharacterEquipmentResolver.GetBattlePackPath(race, weaponTypeIndex));
+        }
     }
 }

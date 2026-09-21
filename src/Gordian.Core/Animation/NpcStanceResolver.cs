@@ -116,15 +116,15 @@ namespace Gordian.Core.Animation
                 };
             }
 
-            // Stance 1: Alternate / Standing / Guard / In-Shell
+            // Stance 1: Alternative / Flying / Second Form
             if (stanceIndex == 1)
             {
                 return category switch
                 {
-                    AnimationCategory.Combat => TryGetClip(anims, "1tl0", "1tl", "gid0", "gid", "gud0", "gud", "btl0", "btl", "idl0", "idl"),
-                    AnimationCategory.Walk => TryGetClip(anims, "gdm1", "gdm", "1lk0", "1lk", "1tl0", "1tl", "gid0", "gid", "gud0", "gud", "wlk0", "wlk"),
-                    AnimationCategory.Run => TryGetClip(anims, "gdm1", "gdm", "1un0", "1un", "1lk0", "1lk", "1tl0", "1tl", "gid0", "gid", "gud0", "gud", "run0", "run"),
-                    _ => TryGetClip(anims, "1dl0", "1dl", "1tl0", "1tl", "gid0", "gid", "gud0", "gud", "idl0", "idl", "std0", "std")
+                    AnimationCategory.Combat => TryGetClip(anims, "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "btl", "btl0", "idl", "idl0"),
+                    AnimationCategory.Walk => TryGetClip(anims, "gdm", "gdm1", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "wlk", "wlk0"),
+                    AnimationCategory.Run => TryGetClip(anims, "gdm", "gdm1", "1un", "1un0", "1lk", "1lk0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "run", "run0"),
+                    _ => TryGetClip(anims, "1dl", "1dl0", "1tl", "1tl0", "gid", "gid0", "gud", "gud0", "idl", "idl0", "std", "std0")
                 };
             }
 
@@ -133,20 +133,20 @@ namespace Gordian.Core.Animation
             {
                 return category switch
                 {
-                    AnimationCategory.Combat => TryGetClip(anims, "2tl0", "2tl", "btl0", "btl", "idl0", "idl"),
-                    AnimationCategory.Walk => TryGetClip(anims, "2lk0", "2lk", "wlk0", "wlk"),
-                    AnimationCategory.Run => TryGetClip(anims, "2un0", "2un", "2lk0", "2lk", "run0", "run"),
-                    _ => TryGetClip(anims, "2dl0", "2dl", "2tl0", "2tl", "idl0", "idl", "std0", "std")
+                    AnimationCategory.Combat => TryGetClip(anims, "2tl", "2tl0", "btl", "btl0", "idl", "idl0"),
+                    AnimationCategory.Walk => TryGetClip(anims, "2lk", "2lk0", "wlk", "wlk0"),
+                    AnimationCategory.Run => TryGetClip(anims, "2un", "2un0", "2lk", "2lk0", "run", "run0"),
+                    _ => TryGetClip(anims, "2dl", "2dl0", "2tl", "2tl0", "idl", "idl0", "std", "std0")
                 };
             }
 
             // Stance 0: Standard Default Stance
             return category switch
             {
-                AnimationCategory.Combat => TryGetClip(anims, "btl0", "btl", "cmb0", "cmb", "idl0", "idl"),
-                AnimationCategory.Walk => TryGetClip(anims, "wlk0", "wlk", "cwlk", "run0", "run", "idl0", "idl"),
-                AnimationCategory.Run => TryGetClip(anims, "run0", "run", "crun", "wlk0", "wlk", "idl0", "idl"),
-                _ => TryGetClip(anims, "idl0", "idl", "std0", "std")
+                AnimationCategory.Combat => TryGetClip(anims, "btl", "btl0", "cmb", "cmb0", "idl", "idl0"),
+                AnimationCategory.Walk => TryGetClip(anims, "wlk", "wlk0", "cwlk", "run", "run0", "idl", "idl0"),
+                AnimationCategory.Run => TryGetClip(anims, "run", "run0", "crun", "wlk", "wlk0", "idl", "idl0"),
+                _ => TryGetClip(anims, "idl", "idl0", "std", "std0")
             };
         }
 

@@ -37,6 +37,36 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
+        /// Determines whether an animation clip represents an entity at rest (idle, stand, locomotion).
+        /// Matches FFXI / xi-model-viewer protocol: idl, std, wlk, run, mvb, mvl, mvr.
+        /// When at rest, weapon mount sockets remain driven by their authored idle tracks on the waist/back
+        /// instead of being overridden into combat hand grips.
+        /// Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
+        /// </summary>
+        public static bool IsRestingClip(AnimationClip? clip)
+        {
+            return clip != null && IsRestingClipName(clip.Name);
+        }
+
+        /// <summary>
+        /// Determines whether a clip name belongs to the resting category (ignoring numeric body-region suffixes like idl0, idl1, wlk0, etc.).
+        /// </summary>
+        public static bool IsRestingClipName(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            int len = name.Length;
+            while (len > 0 && char.IsAsciiDigit(name[len - 1])) len--;
+            var prefix = name.AsSpan(0, len);
+            return prefix.Equals("idl", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("std", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("wlk", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("run", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("mvb", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("mvl", StringComparison.OrdinalIgnoreCase) ||
+                   prefix.Equals("mvr", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Evaluates world rotation/translation/scale for each joint at a given clip playback time.
         /// When a clip is active, keyframe translation deltas are added onto the skeleton's static bind-pose
         /// local translation, keyframe rotation deltas are applied onto the bind-pose local rotation,
@@ -57,6 +87,8 @@ namespace Gordian.Core.Resources.Graphics
             var scale = new Vector3[n];
             var computed = new bool[n];
 
+            bool isResting = clip != null && IsRestingClip(clip);
+
             // Resolve joint transforms in dependency order
             bool missing;
             int passes = 0;
@@ -69,8 +101,12 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     if (computed[i]) continue;
 
-                    // Hand re-parenting override: the joint adopts the replacement parent transform wholesale
-                    if (parentOverrides != null && parentOverrides.TryGetValue(i, out int overrideParent))
+                    // Hand re-parenting override: weapons are only drawn into hands while engaged in combat.
+                    // At rest (idle, walk, run), the grip joint retains its skeletal parent and authored tracks
+                    // so 1-handers rest on the hip, 2-handers rest on the back, and off-hand weapons rest on the opposite hip.
+                    // Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
+                    bool isDrivenAtRest = isResting && clip!.Tracks.ContainsKey(i);
+                    if (parentOverrides != null && !isDrivenAtRest && parentOverrides.TryGetValue(i, out int overrideParent))
                     {
                         if (overrideParent >= 0 && overrideParent < n && !computed[overrideParent])
                         {
@@ -210,6 +246,7 @@ namespace Gordian.Core.Resources.Graphics
             var computed = new bool[n];
 
             float w = Math.Clamp(blendWeight, 0f, 1f);
+            bool isResting = (clipA == null || IsRestingClip(clipA)) && (clipB == null || IsRestingClip(clipB));
 
             bool missing;
             int passes = 0;
@@ -222,8 +259,12 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     if (computed[i]) continue;
 
-                    // Hand re-parenting override: the joint adopts the replacement parent transform wholesale
-                    if (parentOverrides != null && parentOverrides.TryGetValue(i, out int overrideParent))
+                    // Hand re-parenting override: weapons are only drawn into hands while engaged in combat.
+                    // At rest (idle, walk, run), the grip joint retains its skeletal parent and authored tracks
+                    // so 1-handers rest on the hip, 2-handers rest on the back, and off-hand weapons rest on the opposite hip.
+                    // Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
+                    bool isDrivenAtRest = isResting && ((clipA != null && clipA.Tracks.ContainsKey(i)) || (clipB != null && clipB.Tracks.ContainsKey(i)));
+                    if (parentOverrides != null && !isDrivenAtRest && parentOverrides.TryGetValue(i, out int overrideParent))
                     {
                         if (overrideParent >= 0 && overrideParent < n && !computed[overrideParent])
                         {
@@ -262,8 +303,12 @@ namespace Gordian.Core.Resources.Graphics
                     Quaternion r = joint.Rotation;
                     Vector3 s = Vector3.One;
 
-                    bool hasA = clipA.TrySample(i, timeA, loopA, out var rotA, out var transA, out var scaleA);
-                    bool hasB = clipB.TrySample(i, timeB, loopB, out var rotB, out var transB, out var scaleB);
+                    Quaternion rotA = Quaternion.Identity, rotB = Quaternion.Identity;
+                    Vector3 transA = Vector3.Zero, transB = Vector3.Zero;
+                    Vector3 scaleA = Vector3.One, scaleB = Vector3.One;
+
+                    bool hasA = clipA != null && clipA.TrySample(i, timeA, loopA, out rotA, out transA, out scaleA);
+                    bool hasB = clipB != null && clipB.TrySample(i, timeB, loopB, out rotB, out transB, out scaleB);
 
                     if (hasA || hasB)
                     {

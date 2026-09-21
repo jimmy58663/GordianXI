@@ -194,6 +194,53 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void EntityModelLoader_AssembleCharacter_LoadsWeaponSpecificBattlePack()
+        {
+            var loadedPaths = new List<string>();
+            var loadedFids = new List<int>();
+
+            byte[] dummyDat = CreateChunk(DatSectionType.Skeleton, new byte[34]);
+
+            // Weapon DAT with Info section (0x45): animTypeByte at offset 3 = 1 (Dagger)
+            byte[] infoPayload = new byte[16];
+            infoPayload[3] = 1; // 1 = Dagger
+            byte[] daggerDat = CreateChunk(DatSectionType.Info, infoPayload);
+
+            byte[]? PathResolver(string path)
+            {
+                loadedPaths.Add(path);
+                return dummyDat;
+            }
+
+            byte[]? FidResolver(int fid)
+            {
+                loadedFids.Add(fid);
+                // Main weapon for TaruMale is 21096 + modelId
+                if (fid == 21096 + 5)
+                {
+                    return daggerDat;
+                }
+                return dummyDat;
+            }
+
+            ushort[] grap = new ushort[9];
+            grap[0] = 0; // face 0
+            grap[6] = 5; // Main weapon model ID 5
+
+            var model = EntityModelLoader.AssembleCharacter(
+                CharacterRace.TaruMale,
+                0,
+                grap,
+                PathResolver,
+                FidResolver);
+
+            Assert.NotNull(model);
+            // Verify dagger battle pack path was requested for TaruMale (ROM/51/20.DAT, NOT H2H ROM/51/19.DAT)
+            Assert.Contains(Path.Combine("ROM", "51", "20.DAT"), loadedPaths);
+            Assert.DoesNotContain(Path.Combine("ROM", "51", "19.DAT"), loadedPaths);
+        }
+
+        [Fact]
         public void SkeletonPoseEvaluator_ComputeBindPose_WithParentOverrides_AdoptsTargetParentTransform()
         {
             // Create a skeleton with:
@@ -268,6 +315,99 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(overrides);
             Assert.True(overrides.ContainsKey(4));
             Assert.Equal(68, overrides[4]); // Joint 4 re-parented onto Right Hand (Joint 68)
+        }
+
+        [Fact]
+        public void EntityModelLoader_ResolveWeaponParentOverrides_ExcludesShieldsFromHandOverride()
+        {
+            var joints = new List<SkeletonJoint>();
+            for (int i = 0; i < 94; i++)
+            {
+                joints.Add(new SkeletonJoint(i == 0 ? -1 : 0, Quaternion.Identity, Vector3.Zero));
+            }
+
+            var refs = new List<JointReference>();
+            for (int i = 0; i < 128; i++)
+            {
+                if (i == 125)
+                {
+                    refs.Add(new JointReference(24, Vector3.Zero)); // Shield back mount -> Joint 24
+                }
+                else if (i == 126)
+                {
+                    refs.Add(new JointReference(85, Vector3.Zero)); // Left Hand -> Joint 85
+                }
+                else
+                {
+                    refs.Add(new JointReference(0, Vector3.Zero));
+                }
+            }
+
+            var skeleton = new Skeleton(joints, refs);
+
+            // Shield DAT with AnimType=255 and stdJoint=125
+            byte[] shieldInfoPayload = new byte[16];
+            shieldInfoPayload[3] = 255; // Shield anim type
+            shieldInfoPayload[6] = 125; // stdJoint 125 (shield mount)
+
+            byte[] shieldDat = CreateChunk(DatSectionType.Info, shieldInfoPayload);
+
+            var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>
+            {
+                (CharacterSlot.Sub, (ReadOnlyMemory<byte>)shieldDat)
+            };
+
+            var overrides = EntityModelLoader.ResolveWeaponParentOverrides(skeleton, weaponDats);
+
+            Assert.NotNull(overrides);
+            Assert.Empty(overrides); // Shields must NOT be re-parented to the hand
+        }
+
+        [Fact]
+        public void EntityModelLoader_ResolveWeaponParentOverrides_ResolvesDualWieldSubWeaponToLeftHand()
+        {
+            var joints = new List<SkeletonJoint>();
+            for (int i = 0; i < 94; i++)
+            {
+                joints.Add(new SkeletonJoint(i == 0 ? -1 : 0, Quaternion.Identity, Vector3.Zero));
+            }
+
+            var refs = new List<JointReference>();
+            for (int i = 0; i < 128; i++)
+            {
+                if (i == 124)
+                {
+                    refs.Add(new JointReference(23, Vector3.Zero)); // Off-hand grip -> Joint 23
+                }
+                else if (i == 126)
+                {
+                    refs.Add(new JointReference(85, Vector3.Zero)); // Left Hand -> Joint 85
+                }
+                else
+                {
+                    refs.Add(new JointReference(0, Vector3.Zero));
+                }
+            }
+
+            var skeleton = new Skeleton(joints, refs);
+
+            // Off-hand weapon DAT with weapon AnimType=7 and stdJoint=124
+            byte[] offhandPayload = new byte[16];
+            offhandPayload[3] = 7;   // weapon animation type
+            offhandPayload[6] = 124; // offhand grip -> ref 124
+
+            byte[] offhandDat = CreateChunk(DatSectionType.Info, offhandPayload);
+
+            var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>
+            {
+                (CharacterSlot.Sub, (ReadOnlyMemory<byte>)offhandDat)
+            };
+
+            var overrides = EntityModelLoader.ResolveWeaponParentOverrides(skeleton, weaponDats);
+
+            Assert.NotNull(overrides);
+            Assert.True(overrides.ContainsKey(23));
+            Assert.Equal(85, overrides[23]); // Joint 23 re-parented onto Left Hand (Joint 85)
         }
 
         [Fact]
