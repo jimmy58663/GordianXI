@@ -106,8 +106,8 @@
 - [x] **Interactive Character Command Console (CLI) & Action Subsystem:**
   - [x] Unified `PlayerActionService` in `Gordian.Core` (typed methods for combat, magic, abilities, targeting, and locomotion)
   - [x] In-client interactive console tab in `Gordian.App` with history navigation (Up/Down arrows), color-coded output, autoscroll, and slash commands (`/pos`, `/target`, `/attack`, `/ws`, `/magic`, `/vitals`, `/nearby`, `/moveto x y z`)
-  - [x] Command permission & policy gating: distinction between standard vanilla commands (always allowed), server admin passthrough (`!pos`, `!zone`), and synthetic locomotion gated behind `ServerAutomationPolicy.StrictVanilla`
-  - [x] Console text selection & copy support (`SelectableTextBlock`), robust comma/parenthesis coordinate parsing for `/moveto`, categorized command discovery (`/help`, `/commands`), GM command discovery (`/gmhelp`, `/gmcommands`) gated by GM permissions (`"You are not a GM."`), and `ServerAutomationPolicy` filtering
+  - [x] Command permission & policy gating: distinction between standard vanilla commands (always allowed), server admin passthrough (`!pos`, `!zone`), and synthetic locomotion gated behind `FeatureRestrictions.Movement`
+  - [x] Console text selection & copy support (`SelectableTextBlock`), robust comma/parenthesis coordinate parsing for `/moveto`, categorized command discovery (`/help`, `/commands`), GM command discovery (`/gmhelp`, `/gmcommands`) gated by GM permissions (`"You are not a GM."`), and `FeatureRestrictions` filtering
   - [x] Headless/early verification of movement, combat, and zoning against live server without requiring 3D rendering
   - [x] Robust locomotion keepalive synchronization and automated C2S 0x016 CharReq entity discovery for reliable live server and Windower multi-session pairing
 - [x] **Cross-Platform Input Subsystem:**
@@ -194,10 +194,10 @@
 - [ ] **3-Tier Menu & Action API for Addon Authors:**
   - [ ] *High-Level Intent API:* Safe, validated one-line triggers (`actions.cast("Cure IV")`, `actions.use_ability("Provoke")`, `inventory.equip()`, `event.choose(index)`).
   - [ ] *Reactive Live State Access:* Continuous, non-blocking read access to live cached game state (`LocalPlayerState`, recasts, inventory, party, world entities) without needing to wait for button click responses.
-  - [ ] *Low-Level Raw Packet Injection:* Fallback hook for custom packet crafting (`network.inject_outgoing(opcode, payload)`), securely gated behind `ServerAutomationPolicy`.
+  - [ ] *Low-Level Raw Packet Injection:* Fallback hook for custom packet crafting (`network.inject_outgoing(opcode, payload)`), securely gated behind `FeatureRestrictions.RawPacketInjection`.
 - [ ] **Capability-Based Security & Server Policy Enforcement:**
   - [ ] Addon manifest permission model (`manifest.json` capabilities: e.g., `ui.draw`, `chat.read`, `world.query` vs restricted `action.inject`, `locomotion.override`)
-  - [ ] Dynamic API gating tied to `ServerAutomationPolicy`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes
+  - [ ] Dynamic API gating tied to `FeatureRestrictions`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes
   - [ ] Dual trust tiers: cryptographically signed packages from official addon registry vs unsigned local development scripts
 - [ ] **Addon Ecosystem & Package Manager:**
   - [ ] Central community repository manifest (`gordianxi/addons-index`) tracking verified plugins, versions, and dependencies
@@ -214,7 +214,7 @@
 - [ ] **Zero-Drop Action Sequencing:**
   - [ ] Latency-compensating client-side command queueing with animation lock awareness
 - [ ] **Killswitch Enforcement:**
-  - [ ] Hardwired compliance with `ServerAutomationPolicy` from `Gordian.Core` (shuts down execution if restricted by private server)
+  - [ ] Hardwired compliance with `FeatureRestrictions` from `Gordian.Core` (shuts down execution if restricted by private server)
 
 ---
 
@@ -244,7 +244,7 @@
 - [ ] **GordianXI MCP Server Core (`Gordian.Mcp`):**
   - [ ] Standard JSON-RPC 2.0 stdio & SSE transport compliant with the Model Context Protocol (MCP) spec
   - [ ] Contextual prompt templates, resources, and tool definitions with clean schema discovery
-  - [ ] Read-only state queries and sandbox execution respecting `ServerAutomationPolicy`
+  - [ ] Read-only state queries and sandbox execution respecting `FeatureRestrictions.ReadGameState`
 - [ ] **Automation & Gambit Profile Assistant:**
   - [ ] Natural language to Gambit rule compilation (e.g., priority conditions $\rightarrow$ target $\rightarrow$ action mappings)
   - [ ] Gambit profile validation, conflict detection, and role simulation for multi-box swarm coordination

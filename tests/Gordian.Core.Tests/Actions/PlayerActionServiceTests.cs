@@ -186,7 +186,7 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_MoveTo_AllowAll_UpdatesPositionAndSendsPacket()
         {
-            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var res = await _actionService.ExecuteCommandAsync("/moveto 55.5 12.3 88.0");
 
             Assert.True(res.Success);
@@ -197,13 +197,13 @@ namespace Gordian.Core.Tests.Actions
         }
 
         [Fact]
-        public async Task ExecuteCommand_MoveTo_StrictVanilla_BlocksSyntheticMovement()
+        public async Task ExecuteCommand_MoveTo_MovementRestricted_BlocksSyntheticMovement()
         {
-            _profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
             var res = await _actionService.ExecuteCommandAsync("/moveto 55.5 12.3 88.0");
 
             Assert.False(res.Success);
-            Assert.Contains("blocked by server automation policy (StrictVanilla)", res.Message);
+            Assert.Contains("blocked by server feature restrictions (Movement)", res.Message);
             Assert.Empty(_sentChunks);
         }
 
@@ -284,17 +284,17 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_Help_ListsCommands_FilteredByPolicy()
         {
-            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var resAllow = await _actionService.ExecuteCommandAsync("/help");
             Assert.True(resAllow.Success);
-            Assert.Contains("[Policy: AllowAll]", resAllow.Message);
+            Assert.Contains("[Restrictions: None]", resAllow.Message);
             Assert.Contains("/pos", resAllow.Message);
             Assert.Contains("/moveto", resAllow.Message);
 
-            _profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
             var resVanilla = await _actionService.ExecuteCommandAsync("/commands");
             Assert.True(resVanilla.Success);
-            Assert.Contains("[Policy: StrictVanilla]", resVanilla.Message);
+            Assert.Contains("[Restrictions: Movement]", resVanilla.Message);
             Assert.Contains("/pos", resVanilla.Message);
             Assert.DoesNotContain("/moveto", resVanilla.Message);
         }
@@ -302,15 +302,15 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_Help_SpecificCommand_ReflectsPolicy()
         {
-            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var resAllow = await _actionService.ExecuteCommandAsync("/help moveto");
             Assert.True(resAllow.Success);
             Assert.Contains("Usage: /moveto", resAllow.Message);
 
-            _profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
             var resVanilla = await _actionService.ExecuteCommandAsync("/help moveto");
             Assert.True(resVanilla.Success);
-            Assert.Contains("blocked by server automation policy (StrictVanilla)", resVanilla.Message);
+            Assert.Contains("blocked by server feature restrictions (Movement)", resVanilla.Message);
         }
 
         [Fact]
@@ -351,7 +351,7 @@ namespace Gordian.Core.Tests.Actions
         [InlineData("/moveto X=55.5, Y=12.3, Z=88.0")]
         public async Task ExecuteCommand_MoveTo_VariousCoordinateFormats_ParsesSuccessfully(string cmd)
         {
-            _profile.AutomationPolicy = ServerAutomationPolicy.AllowAll;
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var res = await _actionService.ExecuteCommandAsync(cmd);
 
             Assert.True(res.Success);

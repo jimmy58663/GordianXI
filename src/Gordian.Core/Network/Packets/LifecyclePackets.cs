@@ -291,24 +291,26 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x0EE: Private Server Automation Policy Packet.
+    /// S2C 0x0EE: Server Feature Restrictions Packet. Carries a full 64-bit
+    /// <see cref="FeatureRestrictions"/> bitmask so the server can restrict any combination
+    /// of client capabilities without being constrained to a fixed set of named tiers.
     /// </summary>
-    public readonly ref struct S2C_0x0EE_Policy
+    public readonly ref struct S2C_0x0EE_FeatureRestrictions
     {
         public const ushort PacketId = 0x0EE;
-        public ServerAutomationPolicy Policy { get; }
+        public FeatureRestrictions Value { get; }
         public bool IsValid { get; }
 
-        public S2C_0x0EE_Policy(ReadOnlySpan<byte> payload)
+        public S2C_0x0EE_FeatureRestrictions(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 1)
+            if (payload.Length < 8)
             {
-                Policy = ServerAutomationPolicy.AllowAll;
+                Value = FeatureRestrictions.None;
                 IsValid = false;
                 return;
             }
 
-            Policy = (ServerAutomationPolicy)payload[0];
+            Value = (FeatureRestrictions)BinaryPrimitives.ReadUInt64LittleEndian(payload);
             IsValid = true;
         }
     }
@@ -782,7 +784,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x015_PosPing.PacketId, HandlePosPing);
             dispatcher.Register(S2C_0x05B_WPos.PacketId, HandleWPos);
             dispatcher.Register(S2C_0x065_WPos2.PacketId, HandleWPos2);
-            dispatcher.Register(S2C_0x0EE_Policy.PacketId, HandlePolicy);
+            dispatcher.Register(S2C_0x0EE_FeatureRestrictions.PacketId, HandleFeatureRestrictions);
         }
 
         private void HandleLoginAck(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -897,13 +899,13 @@ namespace Gordian.Core.Network.Packets
             _ = _sendChunkCallback(posPong, true);
         }
 
-        private void HandlePolicy(PacketHeader header, ReadOnlySpan<byte> payload)
+        private void HandleFeatureRestrictions(PacketHeader header, ReadOnlySpan<byte> payload)
         {
-            var policy = new S2C_0x0EE_Policy(payload);
-            if (policy.IsValid)
+            var restrictions = new S2C_0x0EE_FeatureRestrictions(payload);
+            if (restrictions.IsValid)
             {
-                _profile.AutomationPolicy = policy.Policy;
-                GordianLog.Info("LIFECYCLE", $"Server automation policy updated to: {policy.Policy}");
+                _profile.FeatureRestrictions = restrictions.Value;
+                GordianLog.Info("LIFECYCLE", $"Server feature restrictions updated to: {restrictions.Value}");
             }
         }
 

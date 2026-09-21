@@ -41,7 +41,7 @@ To render graphics, play audio, and execute gameplay scenarios, GordianXI requir
 
 ## 🛡️ Server Rules & Automation Policy
 
-GordianXI is built with a server-authoritative automation compliance system (`ServerAutomationPolicy`). Private server operators may transmit policy control packets that automatically disable client-side automation features in real time. GordianXI respects server operator autonomy and enforces compliance with server terms of service.
+GordianXI is built with a server-authoritative compliance system (`FeatureRestrictions`). Private server operators may transmit feature-restriction packets that automatically disable client-side automation features in real time. GordianXI respects server operator autonomy and enforces compliance with server terms of service.
 
 ## 🛡️ Limitation of Liability & Warranty Disclaimer
 GordianXI is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. 

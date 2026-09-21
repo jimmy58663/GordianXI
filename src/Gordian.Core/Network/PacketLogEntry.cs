@@ -171,7 +171,7 @@ namespace Gordian.Core.Network
                     0x0E1 => "GP_SERV_GROUP_CHECKID",
                     0x0E2 => "GP_SERV_GROUP_LIST2",
                     0x0E6 => "GP_SERV_BALLISTA",
-                    0x0EE => "GP_SERV_AUTOMATION_POLICY",
+                    0x0EE => "GP_SERV_FEATURE_RESTRICTIONS",
                     0x0F4 => "GP_SERV_TRACKING_LIST",
                     0x0F5 => "GP_SERV_TRACKING_POS",
                     0x0F6 => "GP_SERV_TRACKING_STATE",

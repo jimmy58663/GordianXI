@@ -65,13 +65,13 @@ namespace Gordian.Core.Input
 
         /// <summary>
         /// Optional client-side speed multiplier (e.g. set by addons, GM commands, or custom modes). Default is 1.0f.
-        /// Gated by ServerAutomationPolicy.
+        /// Gated by FeatureRestrictions.
         /// </summary>
         public float SpeedMultiplier { get; set; } = 1.0f;
 
         /// <summary>
         /// Optional explicit client-side speed override (e.g. set by addons or GM tools).
-        /// Null by default. Gated by ServerAutomationPolicy.
+        /// Null by default. Gated by FeatureRestrictions.
         /// </summary>
         public byte? SpeedOverride { get; set; }
 
@@ -81,8 +81,8 @@ namespace Gordian.Core.Input
         /// 1. Authoritative server speed from LocalPlayerState (updated via 0x037 / 0x00A)
         /// 2. Active speed from localEnt if moving
         /// 3. Profile default (RunSpeed = 50)
-        /// Speed manipulation (SpeedOverride, SpeedMultiplier) is permitted when allowed by ServerAutomationPolicy,
-        /// but locked down under StrictVanilla.
+        /// Speed manipulation (SpeedOverride, SpeedMultiplier) is permitted unless the server has set the
+        /// FeatureRestrictions.SpeedOverride restriction.
         /// </summary>
         public byte GetEffectiveRunSpeed(WorldEntity? localEnt)
         {
@@ -100,8 +100,8 @@ namespace Gordian.Core.Input
                 baseRun = _profile.RunSpeed;
             }
 
-            // Gated by ServerAutomationPolicy: under StrictVanilla, speed tampering is blocked
-            bool policyAllowsOverride = _actionService == null || _actionService.Profile.AutomationPolicy != Config.ServerAutomationPolicy.StrictVanilla;
+            // Gated by FeatureRestrictions: speed tampering is blocked when SpeedOverride is restricted
+            bool policyAllowsOverride = _actionService == null || !_actionService.Profile.IsRestricted(FeatureRestrictions.SpeedOverride);
             if (policyAllowsOverride)
             {
                 if (SpeedOverride.HasValue && SpeedOverride.Value > 0)

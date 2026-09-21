@@ -30,7 +30,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 ---
 
 ## 🔒 Security & Server Kill-Switch Policy
-*   `Gordian.Core` exposes an internal write-once configuration flag: `internal set ServerAutomationPolicy AutomationPolicy`.
+*   `Gordian.Core` exposes an internal write-once configuration flag: `internal set FeatureRestrictions FeatureRestrictions`.
 *   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag.
 *   If a private server transmits an automation restriction packet, the authenticated `PacketParser` inside `Gordian.Core` flips this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep.
 

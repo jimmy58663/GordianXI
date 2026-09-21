@@ -76,16 +76,16 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void ProcessIncomingChunk_ServerAutomationPolicy_UpdatesProfile()
+        public void ProcessIncomingChunk_FeatureRestrictions_UpdatesProfile()
         {
             var profile = new SessionProfile();
             var parser = new PacketParser(profile, (_, _) => Task.CompletedTask);
 
-            // Construct sub-packet 0x0EE (Server policy restriction, size = 6, rounded up = 8)
-            byte[] subPacket = new byte[8];
-            PackSubPacketHeader(subPacket, 0x0EE, 8, 0x0001);
-            subPacket[4] = (byte)ServerAutomationPolicy.StrictVanilla;
-            subPacket[5] = 0;
+            // Construct sub-packet 0x0EE (Server feature restrictions, 4-byte header + 8-byte ulong payload = 12)
+            var expected = FeatureRestrictions.Combat | FeatureRestrictions.Movement | FeatureRestrictions.RawPacketInjection;
+            byte[] subPacket = new byte[12];
+            PackSubPacketHeader(subPacket, 0x0EE, 12, 0x0001);
+            BinaryPrimitives.WriteUInt64LittleEndian(subPacket.AsSpan(4, 8), (ulong)expected);
 
             byte[] compressed = new byte[64];
             int compressedBytes = FfxiCodec.Default.Compress(subPacket, compressed);
@@ -98,7 +98,7 @@ namespace Gordian.Core.Tests.Network
 
             parser.ProcessIncomingChunk(datagram.AsSpan(0, totalDatagramSize));
 
-            Assert.Equal(ServerAutomationPolicy.StrictVanilla, profile.AutomationPolicy);
+            Assert.Equal(expected, profile.FeatureRestrictions);
         }
 
         [Fact]

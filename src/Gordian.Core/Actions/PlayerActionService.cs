@@ -49,7 +49,7 @@ namespace Gordian.Core.Actions
     /// <summary>
     /// Centralized action coordinator and intent pipeline for character actions,
     /// combat initiation, spell casting, abilities, locomotion, and command execution.
-    /// Enforces <see cref="ServerAutomationPolicy"/> and acts as the unified bridge
+    /// Enforces <see cref="FeatureRestrictions"/> and acts as the unified bridge
     /// for UI input, CLI commands, and automated gambit execution.
     /// </summary>
     public sealed class PlayerActionService
@@ -431,14 +431,14 @@ namespace Gordian.Core.Actions
         #region Locomotion & Inspection Subsystem
 
         /// <summary>
-        /// Moves towards target coordinates. Gated by <see cref="ServerAutomationPolicy"/>.
+        /// Moves towards target coordinates. Gated by <see cref="FeatureRestrictions"/>.
         /// </summary>
         public async Task<PlayerActionResult> MoveToAsync(Vector3 targetPos)
         {
-            if (_profile.AutomationPolicy == ServerAutomationPolicy.StrictVanilla)
+            if (_profile.IsRestricted(FeatureRestrictions.Movement))
             {
                 return PlayerActionResult.Fail(
-                    "Synthetic movement (/moveto) is blocked by server automation policy (StrictVanilla).",
+                    "Synthetic movement (/moveto) is blocked by server feature restrictions (Movement).",
                     ChatCommandResultKind.SyntheticMoveTo);
             }
 
@@ -585,11 +585,11 @@ namespace Gordian.Core.Actions
         }
 
         /// <summary>
-        /// Returns a formatted list of available client commands, dynamically filtered by <see cref="ServerAutomationPolicy"/>.
+        /// Returns a formatted list of available client commands, dynamically filtered by <see cref="FeatureRestrictions"/>.
         /// </summary>
         public string GetStandardCommandsSummary(string? filter = null)
         {
-            var policy = _profile.AutomationPolicy;
+            var restrictions = _profile.FeatureRestrictions;
             var sb = new StringBuilder();
 
             if (!string.IsNullOrWhiteSpace(filter))
@@ -598,8 +598,8 @@ namespace Gordian.Core.Actions
                 switch (norm)
                 {
                     case "moveto" or "goto":
-                        if (policy == ServerAutomationPolicy.StrictVanilla)
-                            return "Command '/moveto' is blocked by server automation policy (StrictVanilla).";
+                        if (_profile.IsRestricted(FeatureRestrictions.Movement))
+                            return "Command '/moveto' is blocked by server feature restrictions (Movement).";
                         return "Usage: /moveto <x> <y> [z] - Update position coordinates to target location.";
                     case "pos" or "where" or "loc":
                         return "Usage: /pos - Print current player coordinates, heading, and server ID.";
@@ -664,14 +664,14 @@ namespace Gordian.Core.Actions
                 }
             }
 
-            sb.AppendLine($"--- Available Client Commands [Policy: {policy}] ---");
+            sb.AppendLine($"--- Available Client Commands [Restrictions: {restrictions}] ---");
             sb.AppendLine("[Navigation & Telemetry]");
             sb.AppendLine("  /pos                      - Current coordinates, heading, and server ID (/where, /loc)");
             sb.AppendLine("  /target <name|id>         - Target entity by name or server ID (/ta)");
             sb.AppendLine("  /targetinfo               - Detailed stats and distance of target (/ti)");
             sb.AppendLine("  /vitals                   - HP, MP, TP, and job levels (/hp, /stats)");
             sb.AppendLine("  /nearby [radius]          - Scan nearby entities within radius (default 50y)");
-            if (policy != ServerAutomationPolicy.StrictVanilla)
+            if (!_profile.IsRestricted(FeatureRestrictions.Movement))
             {
                 sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
             }
@@ -721,9 +721,9 @@ namespace Gordian.Core.Actions
                 return "You are not a GM.";
             }
 
-            var policy = _profile.AutomationPolicy;
+            var restrictions = _profile.FeatureRestrictions;
             var sb = new StringBuilder();
-            sb.AppendLine($"--- Game Master (GM) Commands [Policy: {policy}] ---");
+            sb.AppendLine($"--- Game Master (GM) Commands [Restrictions: {restrictions}] ---");
             sb.AppendLine("[Locomotion & Teleportation]");
             sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates");
             sb.AppendLine("  !goto <player>            - Teleport to player");

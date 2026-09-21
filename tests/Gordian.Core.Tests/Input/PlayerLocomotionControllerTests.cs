@@ -450,11 +450,11 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
-        public void Update_WhenStrictVanillaPolicy_IgnoresSpeedTampering()
+        public void Update_WhenSpeedOverrideRestricted_IgnoresSpeedTampering()
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
 
-            actionService.Profile.AutomationPolicy = ServerAutomationPolicy.StrictVanilla;
+            actionService.Profile.FeatureRestrictions = FeatureRestrictions.SpeedOverride;
             controller.SpeedMultiplier = 2.0f;
             controller.SpeedOverride = 120;
 
@@ -464,7 +464,7 @@ namespace Gordian.Core.Tests.Input
             input.SetKeyDown(GordianKey.W);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
-            // Must strictly adhere to base server speed (50) under StrictVanilla
+            // Must strictly adhere to base server speed (50) when SpeedOverride is restricted
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, 4.99f, 5.01f);
         }

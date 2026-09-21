@@ -4,13 +4,34 @@ using System;
 namespace Gordian.Core.Config
 {
     /// <summary>
-    /// Dictates the automation restrictions commanded directly by the connected server.
+    /// Bitflag set of client capabilities the connected server has restricted for this session.
+    /// A set bit blocks the corresponding capability; unset bits remain permissive (None = fully allowed).
+    /// Sourced exclusively from the server-authoritative S2C 0x0EE packet — see
+    /// <see cref="Gordian.Core.Network.Packets.S2C_0x0EE_FeatureRestrictions"/>.
     /// </summary>
-    public enum ServerAutomationPolicy : byte
+    [Flags]
+    public enum FeatureRestrictions : ulong
     {
-        AllowAll = 0,          // Full Gambit processing and automation allowed
-        DisableCombat = 1,     // Allow auto-follow/positioning, but block automated action injection
-        StrictVanilla = 2      // Completely kill and short-circuit the automation processing thread
+        /// <summary>No restrictions. Every capability below is permitted.</summary>
+        None = 0,
+
+        /// <summary>Blocks automated combat action injection (Gambit rotations, GearSwap-style reactions).</summary>
+        Combat = 1UL << 0,
+
+        /// <summary>Blocks synthetic movement/pathing (e.g. /moveto).</summary>
+        Movement = 1UL << 1,
+
+        /// <summary>Blocks client-side run speed tampering (SpeedOverride / SpeedMultiplier).</summary>
+        SpeedOverride = 1UL << 2,
+
+        /// <summary>Blocks the low-level raw outgoing packet injection escape hatch.</summary>
+        RawPacketInjection = 1UL << 3,
+
+        /// <summary>Blocks exporting live session/world state to addons or external processes.</summary>
+        ReadGameState = 1UL << 4,
+
+        /// <summary>Blocks the addon scripting runtime from loading or executing any script.</summary>
+        Addons = 1UL << 5
     }
 
     /// <summary>
@@ -20,9 +41,14 @@ namespace Gordian.Core.Config
     public sealed class SessionProfile
     {
         /// <summary>
-        /// Gets the server-enforced automation policy specific to this character instance.
+        /// Gets the server-enforced feature restrictions specific to this character instance.
         /// </summary>
-        public ServerAutomationPolicy AutomationPolicy { get; internal set; } = ServerAutomationPolicy.AllowAll;
+        public FeatureRestrictions FeatureRestrictions { get; internal set; } = FeatureRestrictions.None;
+
+        /// <summary>
+        /// Returns whether the given capability is currently blocked by the server's feature restrictions.
+        /// </summary>
+        public bool IsRestricted(FeatureRestrictions flag) => (FeatureRestrictions & flag) != 0;
 
         public bool ShowNativePartyList { get; set; } = true;
         public bool ShowNativeAllianceList { get; set; } = true;
