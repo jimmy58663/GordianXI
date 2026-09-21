@@ -160,5 +160,57 @@ namespace Gordian.Core.Tests.Profiles
             Assert.Equal("Cybin", loaded.CharacterName);
             Assert.NotEqual(loaded.ProfileName, loaded.CharacterName);
         }
+
+        [Fact]
+        public void Folder_SerializesAndSavesInSubdirectory()
+        {
+            var profile = new AccountProfile
+            {
+                ProfileName = "AF00",
+                Folder = "Test1",
+                Username = "user_af00",
+                IsSelectedForLaunch = true
+            };
+
+            profile.SaveToFile(_tempDirectory);
+            string expectedPath = Path.Combine(_tempDirectory, "Test1", "AF00.json");
+
+            Assert.True(File.Exists(expectedPath));
+
+            var loaded = AccountProfile.LoadFromFile(expectedPath, _tempDirectory);
+            Assert.NotNull(loaded);
+            Assert.Equal("AF00", loaded.ProfileName);
+            Assert.Equal("Test1", loaded.Folder);
+            Assert.True(loaded.IsSelectedForLaunch);
+
+            profile.DeleteFile(_tempDirectory);
+            Assert.False(File.Exists(expectedPath));
+        }
+
+        [Fact]
+        public void NestedFolder_SerializesAndSavesInNestedSubdirectories()
+        {
+            var profile = new AccountProfile
+            {
+                ProfileName = "HS00",
+                Folder = "Test2/Test3",
+                Username = "user_hs00",
+                IsSelectedForLaunch = false
+            };
+
+            profile.SaveToFile(_tempDirectory);
+            string expectedPath = Path.Combine(_tempDirectory, "Test2", "Test3", "HS00.json");
+
+            Assert.True(File.Exists(expectedPath));
+
+            var loaded = AccountProfile.LoadFromFile(expectedPath, _tempDirectory);
+            Assert.NotNull(loaded);
+            Assert.Equal("HS00", loaded.ProfileName);
+            Assert.Equal("Test2/Test3", loaded.Folder);
+            Assert.False(loaded.IsSelectedForLaunch);
+
+            profile.DeleteFile(_tempDirectory);
+            Assert.False(File.Exists(expectedPath));
+        }
     }
 }

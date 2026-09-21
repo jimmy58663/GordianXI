@@ -265,6 +265,107 @@ namespace Gordian.App
                 e.Handled = true;
             }
         }
+
+        private ProfileItemViewModel? _draggedProfile;
+
+        private void OnRenameTextBoxKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (sender is TextBox tb && tb.DataContext is LaunchFolderViewModel folder)
+            {
+                if (e.Key == Key.Enter)
+                {
+                    folder.CommitRename();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    folder.CancelRename();
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private async void OnProfilePointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            // Do not initiate drag if user clicked interactive buttons or checkboxes
+            if (e.Source is Button || e.Source is CheckBox || e.Source is TextBox)
+            {
+                return;
+            }
+
+            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed &&
+                sender is Control ctrl &&
+                ctrl.DataContext is ProfileItemViewModel profile)
+            {
+                _draggedProfile = profile;
+                var data = new DataTransfer();
+                data.Add(DataTransferItem.CreateText(profile.ProfileName));
+                try
+                {
+                    await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+                }
+                finally
+                {
+                    _draggedProfile = null;
+                }
+            }
+        }
+
+        private void OnFolderDragOver(object? sender, DragEventArgs e)
+        {
+            e.DragEffects = _draggedProfile != null ? DragDropEffects.Move : DragDropEffects.None;
+        }
+
+        private void OnFolderDrop(object? sender, DragEventArgs e)
+        {
+            if (_draggedProfile != null &&
+                sender is Control ctrl &&
+                ctrl.DataContext is LaunchFolderViewModel folder)
+            {
+                _viewModel.MoveProfileToFolder(_draggedProfile, folder);
+            }
+        }
+
+        private void OnProfileDragOver(object? sender, DragEventArgs e)
+        {
+            if (_draggedProfile != null &&
+                sender is Control ctrl &&
+                ctrl.DataContext is ProfileItemViewModel targetProfile &&
+                targetProfile != _draggedProfile)
+            {
+                e.DragEffects = DragDropEffects.Move;
+            }
+            else
+            {
+                e.DragEffects = DragDropEffects.None;
+            }
+        }
+
+        private void OnProfileDrop(object? sender, DragEventArgs e)
+        {
+            if (_draggedProfile != null &&
+                sender is Control ctrl &&
+                ctrl.DataContext is ProfileItemViewModel targetProfile &&
+                targetProfile != _draggedProfile)
+            {
+                var pos = e.GetPosition(ctrl);
+                bool insertAfter = pos.Y > (ctrl.Bounds.Height / 2);
+                _viewModel.MoveProfileRelative(_draggedProfile, targetProfile, insertAfter);
+            }
+        }
+
+        private void OnRootDragOver(object? sender, DragEventArgs e)
+        {
+            e.DragEffects = _draggedProfile != null ? DragDropEffects.Move : DragDropEffects.None;
+        }
+
+        private void OnRootDrop(object? sender, DragEventArgs e)
+        {
+            if (_draggedProfile != null)
+            {
+                _viewModel.MoveProfileToFolder(_draggedProfile, null);
+            }
+        }
     }
 }
 
