@@ -29,6 +29,7 @@ namespace Gordian.Core.Resources.Models
         public bool IsBlend { get; set; }
         public bool NoCull { get; set; }
         public bool IsFoliage { get; set; }
+        public bool IsWater { get; set; }
 
         public int TriangleCount => Indices.Length / 3;
 

@@ -245,7 +245,8 @@ namespace Gordian.Core.Resources
                         MaxBounds = maxB,
                         IsBlend = raw.IsBlend,
                         NoCull = raw.NoCull,
-                        IsFoliage = raw.IsFoliage
+                        IsFoliage = raw.IsFoliage,
+                        IsWater = raw.IsWater
                     });
                 }
             }

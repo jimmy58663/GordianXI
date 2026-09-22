@@ -46,7 +46,7 @@ namespace Gordian.App.Graphics
 
             var options = new GraphicsDeviceOptions(
                 debug: debug,
-                swapchainDepthFormat: PixelFormat.R16_UNorm,
+                swapchainDepthFormat: PixelFormat.R32_Float,
                 syncToVerticalBlank: vsync,
                 resourceBindingModel: ResourceBindingModel.Improved,
                 preferDepthRangeZeroToOne: true,
@@ -57,7 +57,7 @@ namespace Gordian.App.Graphics
                 swapchainSource,
                 CurrentWidth,
                 CurrentHeight,
-                PixelFormat.R16_UNorm,
+                PixelFormat.R32_Float,
                 vsync,
                 false
             );

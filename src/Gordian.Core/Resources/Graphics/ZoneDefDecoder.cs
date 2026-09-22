@@ -268,7 +268,8 @@ namespace Gordian.Core.Resources.Graphics
                 MaxBounds = maxBounds,
                 IsBlend = template.IsBlend,
                 NoCull = template.NoCull,
-                IsFoliage = template.IsFoliage || template.Name.StartsWith("_") || placementName.StartsWith("_")
+                IsFoliage = template.IsFoliage || template.Name.StartsWith("_") || placementName.StartsWith("_"),
+                IsWater = template.IsWater || IsWaterMesh(template.Name, template.TextureName) || IsWaterMesh(placementName, template.TextureName)
             };
         }
 
@@ -276,6 +277,27 @@ namespace Gordian.Core.Resources.Graphics
         {
             "sun", "moon", "star", "clod", "cld", "cloud", "kamo", "suny", "sora", "dust", "fogd", "fog", "haze", "mist"
         };
+
+        /// <summary>
+        /// Checks whether a mesh or texture name represents an ocean, sea, river, or water surface.
+        /// Protocol specification and naming conventions referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// </summary>
+        public static bool IsWaterMesh(string meshName, string textureName)
+        {
+            string n = (meshName ?? string.Empty).ToLowerInvariant();
+            string t = (textureName ?? string.Empty).ToLowerInvariant();
+
+            if (n == "lowsea" || n == "2lowsea" || n == "lowcol" || n == "suimen" || n == "tamadai")
+                return true;
+            if (n.StartsWith("sea") || n.StartsWith("water") || n.StartsWith("ocean") || n.Contains("suimen") || n.EndsWith("sea"))
+                return true;
+            if (n.StartsWith("umw") || n.StartsWith("uma") || n.StartsWith("umb") || n.StartsWith("umn") || n.StartsWith("ucks"))
+                return true;
+            if (t.Contains("water") || t.Contains("sea") || t.Contains("suimen") || t.Contains("river"))
+                return true;
+
+            return false;
+        }
 
         /// <summary>
         /// Checks whether a mesh name represents dynamic weather/sky geometry that should not be baked into static world terrain.

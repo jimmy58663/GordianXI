@@ -159,5 +159,66 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(resolvedHouseNorm);
             Assert.Equal("house_h", resolvedHouseNorm[0].Name);
         }
+
+        [Theory]
+        [InlineData("lowsea", "sea.png", true)]
+        [InlineData("suimen", "tex.png", true)]
+        [InlineData("water_fall", "tex.png", true)]
+        [InlineData("ocean_waves", "tex.png", true)]
+        [InlineData("rz_sima_dou_m", "model per_sna", false)]
+        [InlineData("rz_sima_st1_m", "model per_kabe", false)]
+        [InlineData("_par_w7", "model par_w7", false)]
+        public void IsWaterMesh_AccuratelyIdentifiesWaterAndTerrainSurfaces(string meshName, string textureName, bool expected)
+        {
+            bool actual = ZoneDefDecoder.IsWaterMesh(meshName, textureName);
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void InstantiateSubmesh_CorrectlyPropagatesFoliageAndWaterFlags()
+        {
+            var terrainTemplate = new MeshGroup
+            {
+                Name = "rz_sima_dou_m",
+                TextureName = "model per_sna",
+                Vertices = new MeshVertex[] { new(Vector3.Zero, Vector3.UnitY, Vector2.Zero, 0xFFFFFFFF) },
+                Indices = new int[] { 0, 0, 0 },
+                IsBlend = true
+            };
+            var foliageTemplate = new MeshGroup
+            {
+                Name = "_par_w7",
+                TextureName = "model par_w7",
+                Vertices = new MeshVertex[] { new(Vector3.Zero, Vector3.UnitY, Vector2.Zero, 0xFFFFFFFF) },
+                Indices = new int[] { 0, 0, 0 },
+                IsFoliage = true
+            };
+            var waterTemplate = new MeshGroup
+            {
+                Name = "lowsea",
+                TextureName = "model sea",
+                Vertices = new MeshVertex[] { new(Vector3.Zero, Vector3.UnitY, Vector2.Zero, 0xFFFFFFFF) },
+                Indices = new int[] { 0, 0, 0 },
+                IsBlend = true
+            };
+
+            var trs = Matrix4x4.Identity;
+            var terrainInst = ZoneDefDecoder.InstantiateSubmesh(terrainTemplate, trs, "p_01");
+            var foliageInst = ZoneDefDecoder.InstantiateSubmesh(foliageTemplate, trs, "p_02");
+            var waterInst = ZoneDefDecoder.InstantiateSubmesh(waterTemplate, trs, "p_03");
+
+            // Terrain decal: IsBlend true, IsFoliage false, IsWater false -> Drawn in Pass 2 with depth writing
+            Assert.True(terrainInst.IsBlend);
+            Assert.False(terrainInst.IsFoliage);
+            Assert.False(terrainInst.IsWater);
+
+            // Foliage tree: IsBlend false, IsFoliage true, IsWater false -> Drawn in Pass 3 with cutout discard
+            Assert.False(foliageInst.IsBlend);
+            Assert.True(foliageInst.IsFoliage);
+            Assert.False(foliageInst.IsWater);
+
+            // Water: IsWater true -> Drawn in Pass 5 with depth write disabled
+            Assert.True(waterInst.IsWater);
+        }
     }
 }

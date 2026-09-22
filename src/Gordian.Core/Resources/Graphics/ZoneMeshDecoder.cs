@@ -323,7 +323,8 @@ namespace Gordian.Core.Resources.Graphics
                         MaxBounds = maxBounds,
                         IsBlend = blend,
                         NoCull = noCull,
-                        IsFoliage = meshName.StartsWith("_")
+                        IsFoliage = meshName.StartsWith("_"),
+                        IsWater = ZoneDefDecoder.IsWaterMesh(meshName, texName)
                     });
                 }
 
