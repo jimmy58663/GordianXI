@@ -68,23 +68,30 @@ namespace Gordian.App.Tests.Graphics
             var vertices = SkyDomeRenderer.GenerateDomeVertices(env);
 
             Assert.NotEmpty(vertices);
-            // 2 bands * 16 spokes * 2 triangles/quad * 3 vertices/triangle = 192 vertices
-            Assert.Equal(192, vertices.Length);
+            // 3 bands (including prepended -0.15 skirt) * 16 spokes * 2 triangles/quad * 3 vertices/triangle = 288 vertices
+            Assert.Equal(288, vertices.Length);
 
             // Zenith vertices should have highest Y and near-zero XZ
             SkyDomeVertex highest = vertices[0];
+            SkyDomeVertex lowest = vertices[0];
             for (int i = 1; i < vertices.Length; i++)
             {
                 if (vertices[i].Position.Y > highest.Position.Y)
                 {
                     highest = vertices[i];
                 }
+                if (vertices[i].Position.Y < lowest.Position.Y)
+                {
+                    lowest = vertices[i];
+                }
             }
 
             Assert.True(highest.Position.Y > 900f);
+            Assert.True(lowest.Position.Y < 0f, "Lowest elevation should be negative due to skirt");
             Assert.Equal(0.1f, highest.Color.X, 2);
             Assert.Equal(0.1f, highest.Color.Y, 2);
             Assert.Equal(0.3f, highest.Color.Z, 2);
+            Assert.Equal(0.8f, lowest.Color.X, 2); // Matches horizon slice color
         }
 
         [Fact]
@@ -106,6 +113,26 @@ namespace Gordian.App.Tests.Graphics
 
             // Overcast has balanced neutral grey values
             Assert.InRange(MathF.Abs(overcast.SkyZenithColor.X - overcast.SkyZenithColor.Y), 0f, 0.1f);
+        }
+
+        [Fact]
+        public void Presets_SynchronizeClearColorAndFogColorWithSkyHorizonColor()
+        {
+            var day = ZoneEnvironmentSettings.CreateDay();
+            Assert.Equal(day.SkyHorizonColor, day.ClearColor);
+            Assert.Equal(day.SkyHorizonColor, day.FogColor);
+
+            var night = ZoneEnvironmentSettings.CreateNight();
+            Assert.Equal(night.SkyHorizonColor, night.ClearColor);
+            Assert.Equal(night.SkyHorizonColor, night.FogColor);
+
+            var dusk = ZoneEnvironmentSettings.CreateDusk();
+            Assert.Equal(dusk.SkyHorizonColor, dusk.ClearColor);
+            Assert.Equal(dusk.SkyHorizonColor, dusk.FogColor);
+
+            var overcast = ZoneEnvironmentSettings.CreateOvercast();
+            Assert.Equal(overcast.SkyHorizonColor, overcast.ClearColor);
+            Assert.Equal(overcast.SkyHorizonColor, overcast.FogColor);
         }
     }
 }

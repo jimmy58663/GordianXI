@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 749 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 769 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -152,6 +152,10 @@
 - [ ] **Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays:**
   - [ ] **3-Tier Rendering Architecture:**
     - [x] *Tier 1 (3D Scene):* Veldrid terrain, skybox/celestial sky dome (`SkyDomeRenderer`), entity models, directional sun/moon lighting, and authentic FFXI distance fog pass. Clean-room DAT Section `0x2F` Environment decoder (`EnvironmentDecoder`, `ZoneEnvironmentData`) supporting time-of-day keyframe extraction, 8-slice sky dome gradients, and time-of-day cycling (`F10` shortcut / `CycleTimeOfDay`). Fog calibration overhaul with authentic clear visibility presets (Day, Dusk, Night), soft atmospheric haze (Overcast), distant horizon projection for retail `FogStart = 0` keyframes, shader `FogParams.y > 0.0` guards, and runtime fog toggle (`Ctrl+F10` shortcut / `ToggleFog`). Frame composition decoupled into a 3-tier presentation pipeline (`RenderTier1_Scene3D` -> `RenderTier2_StockUi` -> `RenderTier3_ImGuiOverlays`).
+    - [ ] *Phase 5E (Tier 1) Proposed Breakdown:*
+      - [x] **Step: Fog & Sky Horizon Calibration:** Calibrate the linear fog projection for clear outdoor keyframes so islands and distant mountains remain crisp and authentic. Synchronize ClearColor with the horizon color across all time-of-day presets (Day, Dusk, Night, Overcast) and DAT 0x2F slices.
+      - [ ] **Step: Base Sea-Level Ocean Water Plane:** Implement an ocean water plane at sea level ($Y=0.0$) in Pass 5 so that island beaches and bays show translucent ocean water over the seabed while awaiting the particle generator engine.
+      - [ ] **Step: Section 0x05 Particle / Weather Sky Decoder:** Begin decoding Section 0x05 generators and 0x19 keyframes to drive dynamic cloud layers, drifting weather planes, and celestial discs.
     - [ ] *Tier 2 (Stock FFXI 2D UI):* Authentic DAT-driven menu boxes (blue marble), finger cursor hand, targeting brackets, vitals gauges, status icons, and dialog text.
     - [ ] *Tier 3 (ImGui Overlays & Addons):* Modern translucent HUD (`WindowRounding = 6.0f`), performance profiling overlay, radar/minimap, and addon plugin canvases.
   - [ ] **Modular Stock UI Suppression (`StockUiVisibilityState`):**

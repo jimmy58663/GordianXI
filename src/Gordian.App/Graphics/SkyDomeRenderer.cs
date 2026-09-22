@@ -129,6 +129,14 @@ namespace Gordian.App.Graphics
 
             if (environment.SkySlices.Count >= 2)
             {
+                // If explicit DAT Section 0x2F slices start at or above horizon (elevation >= 0),
+                // prepend a downward skirt slice (-0.15) with the horizon color so looking slightly downward
+                // or viewing from elevated cliffs does not expose an untextured gap above the seabed/horizon.
+                if (environment.SkySlices[0].Elevation >= 0.0f)
+                {
+                    slices.Add((-0.15f, environment.SkySlices[0].Color));
+                }
+
                 // Use explicit DAT Section 0x2F slices
                 for (int i = 0; i < environment.SkySlices.Count; i++)
                 {

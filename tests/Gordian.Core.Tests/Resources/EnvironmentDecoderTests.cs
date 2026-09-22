@@ -221,6 +221,85 @@ namespace Gordian.Core.Tests.Resources
             Assert.False(settings.FogEnabled);
         }
 
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_SynchronizesOutdoorClearColorWithLowestSkySlice()
+        {
+            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+
+            var keyframe = new EnvironmentKeyframe
+            {
+                Hour = 14,
+                Indoors = false,
+                ClearColor = new Vector4(0.1f, 0.1f, 0.1f, 1.0f) // Authored indoor clear color should be overridden outdoors
+            };
+            var horizonSliceColor = new Vector4(0.62f, 0.75f, 0.91f, 1.0f);
+            var zenithSliceColor = new Vector4(0.20f, 0.40f, 0.80f, 1.0f);
+            keyframe.Slices.Add(new SkySlice(horizonSliceColor, 0.0f));
+            keyframe.Slices.Add(new SkySlice(zenithSliceColor, 1.0f));
+
+            settings.ApplyKeyframe(keyframe);
+
+            // Outdoors, ClearColor and SkyHorizonColor synchronize with the lowest sky dome slice (horizon ring)
+            Assert.Equal(horizonSliceColor, settings.SkyHorizonColor);
+            Assert.Equal(horizonSliceColor, settings.ClearColor);
+            Assert.Equal(zenithSliceColor, settings.SkyZenithColor);
+        }
+
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_PreservesIndoorClearColor()
+        {
+            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+
+            var indoorClear = new Vector4(0.05f, 0.05f, 0.08f, 1.0f);
+            var keyframe = new EnvironmentKeyframe
+            {
+                Hour = 12,
+                Indoors = true,
+                ClearColor = indoorClear
+            };
+            keyframe.Slices.Add(new SkySlice(new Vector4(0.8f, 0.8f, 0.8f, 1.0f), 0.0f));
+
+            settings.ApplyKeyframe(keyframe);
+
+            Assert.Equal(indoorClear, settings.ClearColor);
+        }
+
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_CalibratesLinearFogForClearOutdoorKeyframes()
+        {
+            var outdoorSettings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var indoorSettings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+
+            // Outdoor keyframe with low authored FogStart
+            var outdoorKeyframe = new EnvironmentKeyframe
+            {
+                Hour = 10,
+                Indoors = false,
+                TerrainFogStart = 40f,
+                TerrainFogEnd = 320f
+            };
+            outdoorSettings.ApplyKeyframe(outdoorKeyframe);
+
+            // Distant mountains/islands stay crisp: linear FogStart pushed to at least 75% of FogEnd (240 yalms)
+            Assert.True(outdoorSettings.FogEnabled);
+            Assert.Equal(320f, outdoorSettings.FogEnd);
+            Assert.Equal(320f * 0.75f, outdoorSettings.FogStart, 1);
+
+            // Indoor keyframe with low authored FogStart preserves authored near fog
+            var indoorKeyframe = new EnvironmentKeyframe
+            {
+                Hour = 10,
+                Indoors = true,
+                TerrainFogStart = 40f,
+                TerrainFogEnd = 320f
+            };
+            indoorSettings.ApplyKeyframe(indoorKeyframe);
+
+            Assert.True(indoorSettings.FogEnabled);
+            Assert.Equal(40f, indoorSettings.FogStart);
+            Assert.Equal(320f, indoorSettings.FogEnd);
+        }
+
         private static byte[] BuildChunk(DatSectionType type, byte[] payload, string datId = "")
         {
             int payloadPadded = (payload.Length + 15) & ~15;

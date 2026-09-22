@@ -34,7 +34,7 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// RGBA color of the atmospheric distance fog.
         /// </summary>
-        public Vector4 FogColor { get; set; } = new(0.55f, 0.65f, 0.75f, 1.0f);
+        public Vector4 FogColor { get; set; } = new(0.58f, 0.72f, 0.88f, 1.0f);
 
         /// <summary>
         /// Distance from the camera where fog begins to blend in (in yalms).
@@ -68,9 +68,9 @@ namespace Gordian.Core.Graphics
         public System.Collections.Generic.List<Resources.Graphics.SkySlice> SkySlices { get; } = new();
 
         /// <summary>
-        /// Framebuffer clear color.
+        /// Framebuffer clear color. Synchronized with SkyHorizonColor for seamless outdoor horizon blending.
         /// </summary>
-        public Vector4 ClearColor { get; set; } = new(0.55f, 0.65f, 0.75f, 1.0f);
+        public Vector4 ClearColor { get; set; } = new(0.58f, 0.72f, 0.88f, 1.0f);
 
         /// <summary>
         /// Effective terrain draw distance in yalms.
@@ -95,12 +95,20 @@ namespace Gordian.Core.Graphics
 
             // FFXI retail keyframes often author FogStart=0 because original PS2 hardware used an
             // exponential fog curve that remained transparent until near the horizon.
-            // For linear GPU fog, push FogStart to 75% of FogEnd (or keyframe.TerrainFogStart) to preserve clear vision across the zone.
+            // For linear GPU fog in outdoor environments, push FogStart to 75% of FogEnd (or keyframe.TerrainFogStart)
+            // so islands and distant mountains remain crisp and authentic while far terrain blends cleanly.
             bool hasFog = keyframe.TerrainFogEnd > keyframe.TerrainFogStart && keyframe.TerrainFogEnd > 0;
             FogEnabled = hasFog;
-            if (hasFog && keyframe.TerrainFogStart <= 0)
+            if (hasFog)
             {
-                FogStart = MathF.Max(keyframe.TerrainFogStart, keyframe.TerrainFogEnd * 0.75f);
+                if (!keyframe.Indoors)
+                {
+                    FogStart = MathF.Max(keyframe.TerrainFogStart, keyframe.TerrainFogEnd * 0.75f);
+                }
+                else
+                {
+                    FogStart = keyframe.TerrainFogStart;
+                }
             }
             else
             {
@@ -108,7 +116,6 @@ namespace Gordian.Core.Graphics
             }
             FogEnd = keyframe.TerrainFogEnd;
 
-            ClearColor = keyframe.ClearColor;
             DrawDistance = keyframe.DrawDistance;
             Spokes = keyframe.Spokes;
 
@@ -118,10 +125,28 @@ namespace Gordian.Core.Graphics
                 SkySlices.Add(keyframe.Slices[i]);
             }
 
-            if (SkySlices.Count >= 2)
+            if (SkySlices.Count >= 1)
             {
                 SkyHorizonColor = SkySlices[0].Color;
-                SkyZenithColor = SkySlices[^1].Color;
+                if (SkySlices.Count >= 2)
+                {
+                    SkyZenithColor = SkySlices[^1].Color;
+                }
+            }
+
+            // In retail FFXI (and xi-model-viewer / xim getBackgroundColor), the outdoor clear/horizon color
+            // is synchronized with the lowest sky dome slice (horizon ring) for seamless background composition.
+            if (!keyframe.Indoors && SkySlices.Count >= 1)
+            {
+                ClearColor = SkyHorizonColor;
+            }
+            else if (keyframe.Indoors && keyframe.ClearColor != Vector4.Zero)
+            {
+                ClearColor = keyframe.ClearColor;
+            }
+            else
+            {
+                ClearColor = keyframe.ClearColor != Vector4.Zero ? keyframe.ClearColor : SkyHorizonColor;
             }
         }
 
@@ -131,11 +156,12 @@ namespace Gordian.Core.Graphics
             SunColor = new Vector3(1.0f, 0.98f, 0.92f),
             AmbientColor = new Vector3(0.38f, 0.40f, 0.46f),
             FogEnabled = false,
-            FogColor = new Vector4(0.55f, 0.68f, 0.82f, 1.0f),
+            FogColor = new Vector4(0.58f, 0.72f, 0.88f, 1.0f),
             FogStart = 400.0f,
             FogEnd = 1200.0f,
             SkyZenithColor = new Vector4(0.22f, 0.45f, 0.85f, 1.0f),
-            SkyHorizonColor = new Vector4(0.58f, 0.72f, 0.88f, 1.0f)
+            SkyHorizonColor = new Vector4(0.58f, 0.72f, 0.88f, 1.0f),
+            ClearColor = new Vector4(0.58f, 0.72f, 0.88f, 1.0f)
         };
 
         public static ZoneEnvironmentSettings CreateNight() => new()
@@ -144,11 +170,12 @@ namespace Gordian.Core.Graphics
             SunColor = new Vector3(0.25f, 0.30f, 0.45f),
             AmbientColor = new Vector3(0.12f, 0.15f, 0.22f),
             FogEnabled = false,
-            FogColor = new Vector4(0.08f, 0.10f, 0.16f, 1.0f),
+            FogColor = new Vector4(0.08f, 0.12f, 0.20f, 1.0f),
             FogStart = 300.0f,
             FogEnd = 900.0f,
             SkyZenithColor = new Vector4(0.02f, 0.03f, 0.08f, 1.0f),
-            SkyHorizonColor = new Vector4(0.08f, 0.12f, 0.20f, 1.0f)
+            SkyHorizonColor = new Vector4(0.08f, 0.12f, 0.20f, 1.0f),
+            ClearColor = new Vector4(0.08f, 0.12f, 0.20f, 1.0f)
         };
 
         public static ZoneEnvironmentSettings CreateDusk() => new()
@@ -157,11 +184,12 @@ namespace Gordian.Core.Graphics
             SunColor = new Vector3(1.0f, 0.65f, 0.45f),
             AmbientColor = new Vector3(0.30f, 0.25f, 0.35f),
             FogEnabled = false,
-            FogColor = new Vector4(0.65f, 0.45f, 0.40f, 1.0f),
+            FogColor = new Vector4(0.85f, 0.42f, 0.25f, 1.0f),
             FogStart = 350.0f,
             FogEnd = 1000.0f,
             SkyZenithColor = new Vector4(0.20f, 0.18f, 0.42f, 1.0f),
-            SkyHorizonColor = new Vector4(0.85f, 0.42f, 0.25f, 1.0f)
+            SkyHorizonColor = new Vector4(0.85f, 0.42f, 0.25f, 1.0f),
+            ClearColor = new Vector4(0.85f, 0.42f, 0.25f, 1.0f)
         };
 
         public static ZoneEnvironmentSettings CreateOvercast() => new()
@@ -170,11 +198,12 @@ namespace Gordian.Core.Graphics
             SunColor = new Vector3(0.55f, 0.55f, 0.58f),
             AmbientColor = new Vector3(0.40f, 0.42f, 0.45f),
             FogEnabled = true,
-            FogColor = new Vector4(0.48f, 0.52f, 0.58f, 1.0f),
+            FogColor = new Vector4(0.52f, 0.55f, 0.60f, 1.0f),
             FogStart = 150.0f,
             FogEnd = 600.0f,
             SkyZenithColor = new Vector4(0.42f, 0.45f, 0.50f, 1.0f),
-            SkyHorizonColor = new Vector4(0.52f, 0.55f, 0.60f, 1.0f)
+            SkyHorizonColor = new Vector4(0.52f, 0.55f, 0.60f, 1.0f),
+            ClearColor = new Vector4(0.52f, 0.55f, 0.60f, 1.0f)
         };
     }
 }
