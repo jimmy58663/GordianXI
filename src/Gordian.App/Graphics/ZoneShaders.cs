@@ -112,6 +112,51 @@ void main()
 ";
 
         /// <summary>
+        /// Vertex shader for translucent water surfaces (ocean planes, rivers, waterfalls).
+        /// Applies a linear, W-scaled depth bias in NDC space (equivalent to D3DRS_ZBIAS / polygonOffset(-5, 1))
+        /// so shallow water cleanly wins depth testing over coincident seabed and riverbeds at a distance,
+        /// resolving distance z-fighting and patchy holes without affecting dry land occlusion.
+        /// </summary>
+        public const string VertexShaderWaterGlsl = @"#version 450
+
+layout(location = 0) in vec3 Position;
+layout(location = 1) in vec3 Normal;
+layout(location = 2) in vec2 TexCoord;
+layout(location = 3) in vec4 Color;
+
+layout(location = 0) out vec3 fsin_WorldPos;
+layout(location = 1) out vec3 fsin_Normal;
+layout(location = 2) out vec2 fsin_TexCoord;
+layout(location = 3) out vec4 fsin_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+};
+
+void main()
+{
+    vec4 worldPos = World * vec4(Position, 1.0);
+    fsin_WorldPos = worldPos.xyz;
+    fsin_Normal = mat3(World) * Normal;
+    fsin_TexCoord = TexCoord;
+    fsin_Color = Color;
+    vec4 clipPos = Projection * View * worldPos;
+    // Linear W-scaled depth bias: nudges coincident water geometry slightly towards camera in NDC
+    // so shallow water surfaces consistently win depth comparison over submerged seabed without distance z-fighting.
+    gl_Position = vec4(clipPos.xy, clipPos.z - 0.00025 * clipPos.w, clipPos.w);
+}
+";
+
+        /// <summary>
         /// Maximum joints in the per-instance skinning palette bound at set 2. Must match
         /// EntityRenderer's palette buffer layout.
         /// </summary>

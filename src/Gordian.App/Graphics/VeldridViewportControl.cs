@@ -566,6 +566,7 @@ namespace Gordian.App.Graphics
                     int culled = _renderer?.CulledMeshes ?? 0;
 
                     GordianLog.Debug("Graphics", $"RenderStats: DrawCalls={dc}, VisibleMeshes={vis}, CulledMeshes={culled}, " +
+                        $"OceanWaterActive={_renderer?.IsOceanWaterPlaneActive ?? false}, " +
                         $"CameraPos={Camera.Position:F1}, CameraTarget={Camera.Target:F1}, PlayerPos={playerPos:F1}, hasPlayerPos={hasPlayerPos}, " +
                         $"ZoneSubmeshCount={_renderer?.LoadedZoneSubmeshCount ?? -1}, " +
                         $"FirstSubmeshBounds=[{_renderer?.FirstSubmeshMinBounds:F1} .. {_renderer?.FirstSubmeshMaxBounds:F1}]");
@@ -673,6 +674,18 @@ namespace Gordian.App.Graphics
         {
             Environment.FogEnabled = !Environment.FogEnabled;
             GordianLog.Info("Graphics", $"Distance fog {(Environment.FogEnabled ? "enabled" : "disabled")}.");
+        }
+
+        /// <summary>
+        /// Toggles base sea-level ocean water plane rendering on/off.
+        /// </summary>
+        public void ToggleOceanWater()
+        {
+            if (_renderer != null)
+            {
+                _renderer.EnableOceanWaterPlane = !_renderer.EnableOceanWaterPlane;
+                GordianLog.Info("Graphics", $"Ocean water plane {(_renderer.EnableOceanWaterPlane ? "enabled" : "disabled")}.");
+            }
         }
 
         // Right-click-drag camera look and wheel zoom are NOT handled here. On Windows this

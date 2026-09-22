@@ -293,7 +293,9 @@ namespace Gordian.Core.Resources.Graphics
                 return true;
             if (n.StartsWith("umw") || n.StartsWith("uma") || n.StartsWith("umb") || n.StartsWith("umn") || n.StartsWith("ucks"))
                 return true;
-            if (t.Contains("water") || t.Contains("sea") || t.Contains("suimen") || t.Contains("river"))
+            if (t.Contains("water") || t.Contains("sea") || t.Contains("suimen") || t.Contains("river") ||
+                t.Contains("umi") || t.Contains("umw") || t.Contains("nami") || t.Contains("kiwa") ||
+                t.Contains("shir") || t.Contains("quf") || t.Contains("kawa"))
                 return true;
 
             return false;

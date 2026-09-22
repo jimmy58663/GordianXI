@@ -25,9 +25,13 @@ namespace Gordian.App.Graphics
         private Texture _defaultTexture = null!;
         private TextureView _defaultTextureView = null!;
         private ResourceSet _defaultResourceSet = null!;
+        private Texture _defaultWaterTexture = null!;
+        private TextureView _defaultWaterTextureView = null!;
+        private ResourceSet _defaultWaterResourceSet = null!;
         private bool _disposed;
 
         public ResourceSet DefaultResourceSet => _defaultResourceSet;
+        public ResourceSet DefaultWaterResourceSet => _defaultWaterResourceSet;
         public Sampler Sampler => _sampler;
 
         public GpuTextureCache(GraphicsDevice gd, ResourceLayout textureLayout)
@@ -51,6 +55,7 @@ namespace Gordian.App.Graphics
                 borderColor: SamplerBorderColor.TransparentBlack));
 
             CreateDefaultTexture();
+            CreateDefaultWaterTexture();
         }
 
         private void CreateDefaultTexture()
@@ -75,6 +80,56 @@ namespace Gordian.App.Graphics
             _defaultResourceSet = factory.CreateResourceSet(new ResourceSetDescription(
                 _textureLayout,
                 _defaultTextureView,
+                _sampler));
+        }
+
+        private void CreateDefaultWaterTexture()
+        {
+            var factory = _gd.ResourceFactory;
+            const uint width = 128;
+            const uint height = 128;
+
+            // 128x128 seamless procedural water normal/ripple texture with authentic ocean crests
+            _defaultWaterTexture = factory.CreateTexture(TextureDescription.Texture2D(
+                width, height, 1, 1,
+                PixelFormat.R8_G8_B8_A8_UNorm,
+                TextureUsage.Sampled));
+
+            byte[] waterPixels = new byte[width * height * 4];
+            const float tau = MathF.PI * 2f;
+
+            for (uint y = 0; y < height; y++)
+            {
+                float ny = (float)y / height;
+                for (uint x = 0; x < width; x++)
+                {
+                    float nx = (float)x / width;
+                    // Superimposed harmonic sines ensuring seamless periodicity across [0, 1]
+                    float w1 = MathF.Sin(tau * (nx * 3f + ny * 2f));
+                    float w2 = MathF.Sin(tau * (nx * 2f - ny * 4f));
+                    float w3 = MathF.Cos(tau * (nx * 5f + ny * 3f));
+                    float combined = (w1 + w2 + w3) / 3f; // [-1, 1]
+                    float ripple = (combined + 1f) * 0.5f; // [0, 1]
+
+                    // Authentic FFXI coastal ocean palette matching DAT umi1 texture (deep slate/teal ripples)
+                    byte r = (byte)(30 + (int)(ripple * 25));
+                    byte g = (byte)(48 + (int)(ripple * 35));
+                    byte b = (byte)(68 + (int)(ripple * 50));
+                    byte a = (byte)(120 + (int)(ripple * 30)); // Authentic DAT alpha range
+
+                    int offset = (int)((y * width + x) * 4);
+                    waterPixels[offset] = r;
+                    waterPixels[offset + 1] = g;
+                    waterPixels[offset + 2] = b;
+                    waterPixels[offset + 3] = a;
+                }
+            }
+
+            _gd.UpdateTexture(_defaultWaterTexture, waterPixels, 0, 0, 0, width, height, 1, 0, 0);
+            _defaultWaterTextureView = factory.CreateTextureView(_defaultWaterTexture);
+            _defaultWaterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(
+                _textureLayout,
+                _defaultWaterTextureView,
                 _sampler));
         }
 
@@ -149,6 +204,46 @@ namespace Gordian.App.Graphics
             return _defaultResourceSet;
         }
 
+        /// <summary>
+        /// Retrieves or creates a GPU ResourceSet suitable for ocean/water rendering.
+        /// Searches active zone textures for any texture identified as water/sea (e.g. 'sea01', 'water01', 'suimen');
+        /// falls back to the procedural tileable ocean wave texture if none is present.
+        /// </summary>
+        public ResourceSet GetOrCreateWaterResourceSet(IReadOnlyDictionary<string, DecodedTexture>? activeTextures)
+        {
+            if (activeTextures != null)
+            {
+                // Priority 1: Full-color primary sea/water textures (umi, sea, quf, water, suimen)
+                foreach (var kvp in activeTextures)
+                {
+                    string key = kvp.Key.ToLowerInvariant();
+                    if (key.Contains("umi") || key.Contains("sea") || key.Contains("quf") || key.Contains("water") || key.Contains("suimen"))
+                    {
+                        var set = GetOrCreateResourceSet(kvp.Key, activeTextures);
+                        if (set != _defaultResourceSet)
+                        {
+                            return set;
+                        }
+                    }
+                }
+
+                // Priority 2: Secondary wave, ripple, shoreline, or river textures
+                foreach (var kvp in activeTextures)
+                {
+                    if (Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, kvp.Key))
+                    {
+                        var set = GetOrCreateResourceSet(kvp.Key, activeTextures);
+                        if (set != _defaultResourceSet)
+                        {
+                            return set;
+                        }
+                    }
+                }
+            }
+
+            return _defaultWaterResourceSet;
+        }
+
         public void Clear()
         {
             foreach (var kvp in _cache)
@@ -166,6 +261,10 @@ namespace Gordian.App.Graphics
             _disposed = true;
 
             Clear();
+
+            _defaultWaterResourceSet.Dispose();
+            _defaultWaterTextureView.Dispose();
+            _defaultWaterTexture.Dispose();
 
             _defaultResourceSet.Dispose();
             _defaultTextureView.Dispose();

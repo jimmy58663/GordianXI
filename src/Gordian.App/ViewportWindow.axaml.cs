@@ -218,6 +218,14 @@ namespace Gordian.App
                 return;
             }
 
+            // Ctrl+F9 toggles base sea-level ocean water plane on/off
+            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            {
+                _viewportControl?.ToggleOceanWater();
+                e.Handled = true;
+                return;
+            }
+
             // F10 cycles Time of Day presets (Day -> Dusk -> Night -> Overcast)
             if (e.Key == Key.F10)
             {
@@ -232,7 +240,7 @@ namespace Gordian.App
             // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle, TOD cycle);
             // don't also feed these into the character's InputState.
             if ((e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0) ||
-                e.Key == Key.F11 || e.Key == Key.F10)
+                e.Key == Key.F11 || e.Key == Key.F10 || e.Key == Key.F9)
             {
                 return;
             }

@@ -31,6 +31,7 @@ namespace Gordian.App.Graphics
         private Pipeline _terrainBlendPipeline = null!;
         private Pipeline _cutoutPipeline = null!;
         private Pipeline _blendPipeline = null!;
+        private Pipeline _waterPipeline = null!;
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
@@ -42,9 +43,25 @@ namespace Gordian.App.Graphics
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
+        private GpuSubmesh? _oceanWaterSubmesh;
         private IReadOnlyDictionary<string, DecodedTexture>? _activeDecodedTextures;
 
         private bool _disposed;
+
+        /// <summary>
+        /// Controls whether the base sea-level ocean water plane is rendered in outdoor zones with sea-level elevation.
+        /// </summary>
+        public bool EnableOceanWaterPlane { get; set; } = true;
+
+        /// <summary>
+        /// Indicates whether the ocean water plane GPU geometry is currently allocated.
+        /// </summary>
+        public bool HasOceanWaterPlane => _oceanWaterSubmesh != null;
+
+        /// <summary>
+        /// Indicates whether the ocean water plane was rendered during the most recent frame.
+        /// </summary>
+        public bool IsOceanWaterPlaneActive { get; private set; }
 
         // Telemetry counters
         public int DrawCalls { get; private set; }
@@ -82,6 +99,7 @@ namespace Gordian.App.Graphics
             InitializePipeline();
             _entityRenderer = new EntityRenderer(_gd);
             BuildFallbackScene();
+            BuildOceanWaterPlane();
         }
 
         private void InitializePipeline()
@@ -128,11 +146,16 @@ namespace Gordian.App.Graphics
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderDecalGlsl),
                 "main");
+            var vsWaterDesc = new ShaderDescription(
+                ShaderStages.Vertex,
+                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderWaterGlsl),
+                "main");
 
             Shader[] opaqueShaders = factory.CreateFromSpirv(vsDesc, fsOpaqueDesc);
             Shader[] decalShaders = factory.CreateFromSpirv(vsDecalDesc, fsBlendDesc);
             Shader[] cutoutShaders = factory.CreateFromSpirv(vsDesc, fsCutoutDesc);
             Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
+            Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsBlendDesc);
 
             // 4. Vertex Layout (36-byte MeshVertex stride: Pos(12) + Norm(12) + UV(8) + Color(4))
             var vertexLayout = new VertexLayoutDescription(
@@ -230,6 +253,30 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
+            
+            // 8. Alpha-Blended Water Graphics Pipeline (translucent water surfaces with linear W-scaled depth bias)
+            // Authored with VertexShaderWaterGlsl (z - 0.00025 * w) to cleanly win depth testing over shallow seabed
+            // and eliminate distance z-fighting / dry sand patch holes.
+            var waterPipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleAlphaBlend,
+                DepthStencilState = new DepthStencilStateDescription(
+                    depthTestEnabled: true,
+                    depthWriteEnabled: false,
+                    comparisonKind: ComparisonKind.LessEqual),
+                RasterizerState = new RasterizerStateDescription(
+                    cullMode: FaceCullMode.None,
+                    fillMode: PolygonFillMode.Solid,
+                    frontFace: FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, waterShaders),
+                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+            };
+            _waterPipeline = factory.CreateGraphicsPipeline(waterPipelineDesc);
+
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
             _commandList = factory.CreateCommandList();
         }
@@ -500,7 +547,8 @@ namespace Gordian.App.Graphics
 
             // Pass 5: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
-            bool blendPipelineBound = false;
+            // Water submeshes use _waterPipeline with linear W-scaled depth bias to eliminate distance z-fighting over shallow seabed.
+            Pipeline? currentBoundBlendPipeline = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
@@ -513,11 +561,12 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                if (!blendPipelineBound)
+                var targetPipeline = submesh.IsWater ? _waterPipeline : _blendPipeline;
+                if (currentBoundBlendPipeline != targetPipeline)
                 {
-                    _commandList.SetPipeline(_blendPipeline);
+                    _commandList.SetPipeline(targetPipeline);
                     _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
-                    blendPipelineBound = true;
+                    currentBoundBlendPipeline = targetPipeline;
                 }
 
                 visible++;
@@ -530,6 +579,37 @@ namespace Gordian.App.Graphics
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
+            }
+
+            // Pass 5b: Base Sea-Level Ocean Water Plane
+            // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.
+            // Translucent ocean water composites over seabed, reefs, and wading entities while
+            // dry land / island beaches (Y > 0) naturally occlude it.
+            // Uses _waterPipeline with W-scaled depth bias to stably overlay seabed without distance z-fighting.
+            bool shouldRenderOcean = EnableOceanWaterPlane &&
+                                     !environment.Indoors &&
+                                     _oceanWaterSubmesh != null &&
+                                     HasSeaLevelGeometry(activeSubmeshes);
+
+            IsOceanWaterPlaneActive = shouldRenderOcean;
+            if (shouldRenderOcean && _oceanWaterSubmesh != null)
+            {
+                if (currentBoundBlendPipeline != _waterPipeline)
+                {
+                    _commandList.SetPipeline(_waterPipeline);
+                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    currentBoundBlendPipeline = _waterPipeline;
+                }
+
+                // Sample native DAT water texture if present, or procedural ocean wave texture
+                var waterTexSet = _textureCache.GetOrCreateWaterResourceSet(_activeDecodedTextures);
+                _commandList.SetGraphicsResourceSet(1, waterTexSet);
+
+                _commandList.SetVertexBuffer(0, _oceanWaterSubmesh.VertexBuffer);
+                _commandList.SetIndexBuffer(_oceanWaterSubmesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(_oceanWaterSubmesh.IndexCount, 1, 0, 0, 0);
+                draws++;
+                visible++;
             }
 
             _commandList.End();
@@ -581,6 +661,106 @@ namespace Gordian.App.Graphics
             // it dynamically renders at the player's elevation (groundY) rather than fixed at Y=0.
         }
 
+        private void BuildOceanWaterPlane()
+        {
+            var factory = _gd.ResourceFactory;
+
+            const int quads = 32;
+            const int vertsPerSide = quads + 1; // 33
+            const float halfSize = 2000.0f;
+            const float totalSize = halfSize * 2.0f; // 4000 yalms
+            const float step = totalSize / quads; // 125 yalms per quad
+            const float tileUv = 1000.0f; // 1 tile every 4 yalms (~4-5 yalms per wave ripple repeat, matching retail FFXI)
+
+            var vertices = new MeshVertex[vertsPerSide * vertsPerSide];
+            // Neutral PS2 modulate2x diffuse (R=128, G=128, B=128) preserving authentic DAT texture colors;
+            // Calibrated alpha A=50 yields effective alpha = clamp(4.0 * (50/255) * (127/255)) ~= 0.39 (~39% opacity)
+            // ensuring seabed sand, reefs, and wading characters show through with clean definition.
+            const uint oceanColorRgba = 128 | (128 << 8) | (128 << 16) | (50 << 24);
+
+            for (int iz = 0; iz < vertsPerSide; iz++)
+            {
+                float z = -halfSize + iz * step;
+                float v = (float)iz / quads * tileUv;
+
+                for (int ix = 0; ix < vertsPerSide; ix++)
+                {
+                    float x = -halfSize + ix * step;
+                    float u = (float)ix / quads * tileUv;
+
+                    int vIdx = iz * vertsPerSide + ix;
+                    vertices[vIdx] = new MeshVertex(
+                        new Vector3(x, 0.0f, z),
+                        Vector3.UnitY,
+                        new Vector2(u, v),
+                        oceanColorRgba);
+                }
+            }
+
+            ushort[] indices = new ushort[quads * quads * 6];
+            int iIdx = 0;
+
+            for (int iz = 0; iz < quads; iz++)
+            {
+                for (int ix = 0; ix < quads; ix++)
+                {
+                    ushort topLeft = (ushort)(iz * vertsPerSide + ix);
+                    ushort topRight = (ushort)(topLeft + 1);
+                    ushort bottomLeft = (ushort)((iz + 1) * vertsPerSide + ix);
+                    ushort bottomRight = (ushort)(bottomLeft + 1);
+
+                    // Clockwise front-facing triangles viewed from +Y
+                    indices[iIdx++] = topLeft;
+                    indices[iIdx++] = topRight;
+                    indices[iIdx++] = bottomRight;
+
+                    indices[iIdx++] = topLeft;
+                    indices[iIdx++] = bottomRight;
+                    indices[iIdx++] = bottomLeft;
+                }
+            }
+
+            var vb = factory.CreateBuffer(new BufferDescription(
+                (uint)(vertices.Length * 36),
+                BufferUsage.VertexBuffer));
+            _gd.UpdateBuffer(vb, 0, vertices);
+
+            var ib = factory.CreateBuffer(new BufferDescription(
+                (uint)(indices.Length * sizeof(ushort)),
+                BufferUsage.IndexBuffer));
+            _gd.UpdateBuffer(ib, 0, indices);
+
+            _oceanWaterSubmesh = new GpuSubmesh
+            {
+                Name = "ocean_water_plane",
+                TextureName = "ocean_water",
+                VertexBuffer = vb,
+                IndexBuffer = ib,
+                IndexCount = (uint)indices.Length,
+                MinBounds = new Vector3(-halfSize, -10.0f, -halfSize),
+                MaxBounds = new Vector3(halfSize, 10.0f, halfSize),
+                IsWater = true,
+                IsBlend = true
+            };
+        }
+
+        private bool HasSeaLevelGeometry(List<GpuSubmesh> submeshes)
+        {
+            if (submeshes.Count == 0 || _zoneSubmeshes.Count == 0)
+            {
+                return true; // Fallback scene / empty zone defaults to active ocean
+            }
+
+            for (int i = 0; i < submeshes.Count; i++)
+            {
+                var s = submeshes[i];
+                if (s.IsWater) return true;
+                if (s.MinBounds.Y <= 1.0f) return true;
+            }
+
+            return false;
+        }
+
         private void ClearZoneSubmeshes()
         {
             for (int i = 0; i < _zoneSubmeshes.Count; i++)
@@ -604,7 +784,10 @@ namespace Gordian.App.Graphics
                 _fallbackSubmeshes[i].Dispose();
             }
             _fallbackSubmeshes.Clear();
+            _groundPlaneSubmesh?.Dispose();
             _groundPlaneSubmesh = null;
+            _oceanWaterSubmesh?.Dispose();
+            _oceanWaterSubmesh = null;
 
             _entityRenderer?.Dispose();
             _skyDomeRenderer?.Dispose();
@@ -614,6 +797,7 @@ namespace Gordian.App.Graphics
             _terrainBlendPipeline?.Dispose();
             _cutoutPipeline?.Dispose();
             _blendPipeline?.Dispose();
+            _waterPipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _sceneLayout?.Dispose();
             _textureLayout?.Dispose();

@@ -83,12 +83,18 @@ namespace Gordian.Core.Graphics
         public ushort Spokes { get; set; } = 16;
 
         /// <summary>
+        /// Indicates whether this environment configuration represents an indoor or cave area (no celestial skybox or ocean plane).
+        /// </summary>
+        public bool Indoors { get; set; } = false;
+
+        /// <summary>
         /// Applies an authentic decoded FFXI Section 0x2F keyframe to these environment settings.
         /// </summary>
         public void ApplyKeyframe(Resources.Graphics.EnvironmentKeyframe keyframe)
         {
             if (keyframe == null) return;
 
+            Indoors = keyframe.Indoors;
             SunColor = new Vector3(keyframe.TerrainSunColor.X, keyframe.TerrainSunColor.Y, keyframe.TerrainSunColor.Z);
             AmbientColor = new Vector3(keyframe.TerrainAmbientColor.X, keyframe.TerrainAmbientColor.Y, keyframe.TerrainAmbientColor.Z);
             FogColor = keyframe.TerrainFogColor;
