@@ -9,6 +9,7 @@
         x:Class="Gordian.App.ChatWindow"
         x:DataType="vm:ChatViewModel"
         Title="GordianXI - In-Game Chat Console" Width="720" Height="500" MinWidth="480" MinHeight="320"
+        Icon="/Assets/gordian.ico"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
     <Grid RowDefinitions="Auto, *, Auto" Margin="10">

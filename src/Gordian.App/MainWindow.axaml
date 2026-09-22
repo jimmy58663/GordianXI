@@ -10,6 +10,7 @@
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="GordianXI - Client and Network Inspector" Width="1280" Height="840" MinWidth="1100" MinHeight="720"
+        Icon="/Assets/gordian.ico"
         Background="#1E1E1E" RequestedThemeVariant="Dark">
 
     <Window.Styles>
