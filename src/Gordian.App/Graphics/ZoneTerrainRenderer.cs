@@ -188,16 +188,16 @@ namespace Gordian.App.Graphics
             // 6. Blended Terrain Surfaces & Decals Graphics Pipeline (multi-texture sand/grass/cliff transitions)
             // Authored with 0x8000 blend flag in FFXI; rendered using VertexShaderDecalGlsl with a linear
             // W-scaled depth bias (matching D3DRS_ZBIAS / polygonOffset(-5, 1)) so decals win the depth compare
-            // against the coincident base terrain without flicker. Depth writing stays enabled: some hill-crest
-            // and cliff-top ground is only represented by this decal layer, so it must still write authoritative
-            // depth or foliage/entities drawn afterward fail to occlude against it (they'll appear to float free
-            // of the terrain instead of being hidden behind it).
+            // against the coincident base terrain without flicker.
+            // Following authentic FFXI architecture (xi-model-viewer / xim GLDrawer.drawXim):
+            // Decals NEVER write depth (depthWriteEnabled = false). This prevents decals from occluding
+            // objects drawn on top of them (dock posts, placed props) or corrupting entity depth (character feet).
             var terrainBlendPipelineDesc = new GraphicsPipelineDescription
             {
                 BlendState = BlendStateDescription.SingleAlphaBlend,
                 DepthStencilState = new DepthStencilStateDescription(
                     depthTestEnabled: true,
-                    depthWriteEnabled: true,
+                    depthWriteEnabled: false,
                     comparisonKind: ComparisonKind.LessEqual),
                 RasterizerState = new RasterizerStateDescription(
                     cullMode: FaceCullMode.None,
@@ -416,12 +416,18 @@ namespace Gordian.App.Graphics
 
             var frustum = camera.Frustum;
 
-            // Pass 1: Solid Opaque Terrain & World Geometry (IsBlend == false && IsFoliage == false && IsWater == false)
-            // Rendered with early-Z depth testing and NO alpha discard so ground terrain, beach floor, and mountains are solid.
+            // Pass 1: World Geometry in Authored DAT Order (Solid Opaque, Decal Blends, Cutout Foliage)
+            // Following authentic FFXI architecture (xi-model-viewer / xim GLDrawer.drawXim):
+            // Terrain base, ground decals, placed props (docks, buildings), and cutout foliage are rendered
+            // in authored DAT order. Decals composite over the surfaces drawn before them with depth writing
+            // DISABLED. Placed structures and props render after decals, writing authoritative depth and
+            // permanently preventing decals from creeping over props or corrupting depth buffers at any distance.
+            Pipeline? currentBoundPipeline = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
-                if (submesh.IsBlend || submesh.IsFoliage || submesh.IsWater) continue;
+                // Water and translucent foliage/fog planes are deferred to the translucent water pass (Pass 3)
+                if (submesh.IsWater || (submesh.IsBlend && submesh.IsFoliage)) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
@@ -430,40 +436,28 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                visible++;
-
-                // Bind Texture Resource Set
-                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
-                _commandList.SetGraphicsResourceSet(1, texSet);
-
-                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
-                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
-                draws++;
-            }
-
-            // Pass 2: Blended Terrain Surfaces & Decals (IsBlend == true && IsFoliage == false && IsWater == false)
-            // Sand/grass/cliff multi-texture transitions rendered with SingleAlphaBlend AND depth writing enabled.
-            // This ensures hill crests and blended ground surfaces write depth into the depth buffer,
-            // preventing background trees, mountains, and objects from bleeding through or sliding across the terrain.
-            bool terrainBlendPipelineBound = false;
-            for (int i = 0; i < activeSubmeshes.Count; i++)
-            {
-                var submesh = activeSubmeshes[i];
-                if (!submesh.IsBlend || submesh.IsFoliage || submesh.IsWater) continue;
-
-                // Frustum Culling
-                if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
+                Pipeline targetPipeline;
+                if (submesh.IsBlend)
                 {
-                    culled++;
-                    continue;
+                    // Blended terrain decals (sand/grass/cliff transitions, path overlays)
+                    targetPipeline = _terrainBlendPipeline;
+                }
+                else if (submesh.IsFoliage)
+                {
+                    // Cutout foliage (palm trees, vines, grates) with alpha-test discard and depth write
+                    targetPipeline = _cutoutPipeline;
+                }
+                else
+                {
+                    // Solid opaque terrain, rocks, placed structures, dock posts
+                    targetPipeline = _pipeline;
                 }
 
-                if (!terrainBlendPipelineBound)
+                if (currentBoundPipeline != targetPipeline)
                 {
-                    _commandList.SetPipeline(_terrainBlendPipeline);
+                    _commandList.SetPipeline(targetPipeline);
                     _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
-                    terrainBlendPipelineBound = true;
+                    currentBoundPipeline = targetPipeline;
                 }
 
                 visible++;
@@ -488,6 +482,13 @@ namespace Gordian.App.Graphics
                 groundUniform.World = groundWorld;
                 _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref groundUniform);
 
+                if (currentBoundPipeline != _pipeline)
+                {
+                    _commandList.SetPipeline(_pipeline);
+                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    currentBoundPipeline = _pipeline;
+                }
+
                 var texSet = _textureCache.GetOrCreateResourceSet(string.Empty, _activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, texSet);
                 _commandList.SetVertexBuffer(0, _groundPlaneSubmesh.VertexBuffer);
@@ -500,43 +501,7 @@ namespace Gordian.App.Graphics
                 _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
             }
 
-            // Pass 3: Cutout Foliage submeshes (IsBlend == false && IsFoliage == true && IsWater == false: palm trees, vines, grates)
-            // Rendered with alpha-test discard (4.0 * vertexAlpha * texAlpha < 0.375) and depth writing enabled.
-            // Because Pass 1 and Pass 2 have already established the full terrain depth buffer, distant trees behind foreground hills
-            // are properly depth-tested and occluded, eliminating visual bleed-through during camera rotation.
-            bool cutoutPipelineBound = false;
-            for (int i = 0; i < activeSubmeshes.Count; i++)
-            {
-                var submesh = activeSubmeshes[i];
-                if (submesh.IsBlend || !submesh.IsFoliage || submesh.IsWater) continue;
-
-                // Frustum Culling
-                if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
-                {
-                    culled++;
-                    continue;
-                }
-
-                if (!cutoutPipelineBound)
-                {
-                    _commandList.SetPipeline(_cutoutPipeline);
-                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
-                    cutoutPipelineBound = true;
-                }
-
-                visible++;
-
-                // Bind Texture Resource Set
-                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
-                _commandList.SetGraphicsResourceSet(1, texSet);
-
-                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
-                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
-                draws++;
-            }
-
-            // Pass 4: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
+            // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
                 _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos);
@@ -545,7 +510,7 @@ namespace Gordian.App.Graphics
                 culled += _entityRenderer.CulledEntities;
             }
 
-            // Pass 5: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
+            // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
             // Water submeshes use _waterPipeline with linear W-scaled depth bias to eliminate distance z-fighting over shallow seabed.
             Pipeline? currentBoundBlendPipeline = null;
@@ -581,7 +546,7 @@ namespace Gordian.App.Graphics
                 draws++;
             }
 
-            // Pass 5b: Base Sea-Level Ocean Water Plane
+            // Pass 3b: Base Sea-Level Ocean Water Plane
             // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.
             // Translucent ocean water composites over seabed, reefs, and wading entities while
             // dry land / island beaches (Y > 0) naturally occlude it.

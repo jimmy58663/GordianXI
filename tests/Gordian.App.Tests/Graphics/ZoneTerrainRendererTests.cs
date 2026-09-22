@@ -150,5 +150,14 @@ namespace Gordian.App.Tests.Graphics
             var settings = new ViewportSettings();
             Assert.True(settings.EnableOceanWaterPlane);
         }
+
+        [Fact]
+        public void DecalShader_HasLinearWDepthBias_ToPreventCoplanarZFighting()
+        {
+            // Decal vertex shader applies linear W-scaled depth bias (matching D3DRS_ZBIAS / polygonOffset(-5, 1))
+            // While terrain blend pipeline enforces depthWriteEnabled = false to prevent occluding subsequent props (docks) or entity feet.
+            Assert.Contains("0.00015", ZoneShaders.VertexShaderDecalGlsl);
+            Assert.Contains("clipPos.w", ZoneShaders.VertexShaderDecalGlsl);
+        }
     }
 }
