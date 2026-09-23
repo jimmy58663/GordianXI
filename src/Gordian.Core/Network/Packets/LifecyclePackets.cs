@@ -121,6 +121,7 @@ namespace Gordian.Core.Network.Packets
         public float Y { get; }
         public float Z { get; }
         public ushort ZoneId { get; }
+        public ushort WeatherNumber { get; }
         public bool IsValid { get; }
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
@@ -135,6 +136,7 @@ namespace Gordian.Core.Network.Packets
                 Y = 0f;
                 Z = 0f;
                 ZoneId = 0;
+                WeatherNumber = 0;
                 IsValid = false;
                 return;
             }
@@ -150,6 +152,9 @@ namespace Gordian.Core.Network.Packets
             Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             ZoneId = payload.Length >= 46
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
+                : (ushort)0;
+            WeatherNumber = payload.Length >= 102
+                ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(100, 2))
                 : (ushort)0;
             IsValid = true;
         }
@@ -311,6 +316,40 @@ namespace Gordian.Core.Network.Packets
             }
 
             Value = (FeatureRestrictions)BinaryPrimitives.ReadUInt64LittleEndian(payload);
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x057 (GP_SERV_COMMAND_WEATHER): Server Weather Update.
+    /// Informs the client of current zone weather condition and scheduled change time.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server).
+    /// </summary>
+    public readonly ref struct S2C_0x057_Weather
+    {
+        public const ushort PacketId = 0x057;
+
+        public uint StartTime { get; }
+        public ushort WeatherNumber { get; }
+        public ushort WeatherOffsetTime { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x057_Weather(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 6)
+            {
+                StartTime = 0;
+                WeatherNumber = 0;
+                WeatherOffsetTime = 0;
+                IsValid = false;
+                return;
+            }
+
+            StartTime = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            WeatherNumber = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            WeatherOffsetTime = payload.Length >= 8
+                ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2))
+                : (ushort)0;
             IsValid = true;
         }
     }
@@ -754,6 +793,7 @@ namespace Gordian.Core.Network.Packets
         public event Action? HandshakeCompleted;
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
         public event Action<ushort>? ZoneReceived;
+        public event Action<ushort>? WeatherReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
@@ -782,6 +822,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x008_EnterZone.PacketId, HandleEnterZone);
             dispatcher.Register(S2C_0x00B_Logout.PacketId, HandleLogout);
             dispatcher.Register(S2C_0x015_PosPing.PacketId, HandlePosPing);
+            dispatcher.Register(S2C_0x057_Weather.PacketId, HandleWeather);
             dispatcher.Register(S2C_0x05B_WPos.PacketId, HandleWPos);
             dispatcher.Register(S2C_0x065_WPos2.PacketId, HandleWPos2);
             dispatcher.Register(S2C_0x0EE_FeatureRestrictions.PacketId, HandleFeatureRestrictions);
@@ -799,11 +840,15 @@ namespace Gordian.Core.Network.Packets
                     LoginAppearanceReceived?.Invoke(ack.UniqueNo, grap.ToArray(), name);
                 }
 
-                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}");
+                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}");
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
                 if (ack.ZoneId != 0)
                 {
                     ZoneReceived?.Invoke(ack.ZoneId);
+                }
+                if (ack.WeatherNumber != 0)
+                {
+                    WeatherReceived?.Invoke(ack.WeatherNumber);
                 }
             }
 
@@ -859,6 +904,16 @@ namespace Gordian.Core.Network.Packets
             IPAddress targetIp = logout.GetTargetIpAddress();
             GordianLog.Info("LIFECYCLE", $"Received GP_SERV_COMMAND_LOGOUT (0x00B): State={logout.State}, Target={targetIp}:{logout.TargetPort}, Err={logout.ErrorCode}");
             ZoneTransitionReceived?.Invoke(logout.State, targetIp, logout.TargetPort, logout.ErrorCode);
+        }
+
+        private void HandleWeather(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var weather = new S2C_0x057_Weather(payload);
+            if (weather.IsValid)
+            {
+                GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WEATHER (0x057): Weather={weather.WeatherNumber}, Offset={weather.WeatherOffsetTime}, StartTime={weather.StartTime}");
+                WeatherReceived?.Invoke(weather.WeatherNumber);
+            }
         }
 
         private void HandleWPos(PacketHeader header, ReadOnlySpan<byte> payload)

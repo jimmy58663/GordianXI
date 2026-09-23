@@ -7,15 +7,12 @@ namespace Gordian.App.Tests.Graphics
     public class VeldridSmokeTests
     {
         [Fact]
-        public void VerifyCreateD3D11WithSwapchainDescSignature()
+        public void TestHeadlessD3D11()
         {
-            var options = new GraphicsDeviceOptions(false, PixelFormat.R16_UNorm, true, ResourceBindingModel.Improved, true, true);
-            // Verify method info exists
-            var method = typeof(GraphicsDevice).GetMethod("CreateD3D11", new[] { typeof(GraphicsDeviceOptions), typeof(SwapchainDescription) });
-            Assert.NotNull(method);
-
-            var vulkanMethod = typeof(GraphicsDevice).GetMethod("CreateVulkan", new[] { typeof(GraphicsDeviceOptions), typeof(SwapchainDescription) });
-            Assert.NotNull(vulkanMethod);
+            if (!OperatingSystem.IsWindows()) return;
+            var gd = GraphicsDevice.CreateD3D11(new GraphicsDeviceOptions(false, PixelFormat.R32_Float, false, ResourceBindingModel.Improved, true, true));
+            Assert.NotNull(gd);
+            gd.Dispose();
         }
     }
 }

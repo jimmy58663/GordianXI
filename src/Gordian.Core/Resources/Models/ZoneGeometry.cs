@@ -30,6 +30,7 @@ namespace Gordian.Core.Resources.Models
         public bool NoCull { get; set; }
         public bool IsFoliage { get; set; }
         public bool IsWater { get; set; }
+        public Vector2 UVScroll { get; set; } = Vector2.Zero;
 
         public int TriangleCount => Indices.Length / 3;
 
@@ -55,6 +56,7 @@ namespace Gordian.Core.Resources.Models
         public int ZoneId { get; set; }
         public List<MeshGroup> MeshGroups { get; } = new();
         public List<ZonePlacement> Placements { get; } = new();
+        public List<Graphics.WeatherSkyLayer> WeatherSkyLayers { get; } = new();
         public Graphics.ZoneEnvironmentData? EnvironmentData { get; set; }
 
         public int TotalVertices

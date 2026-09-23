@@ -24,14 +24,18 @@ namespace Gordian.App.Graphics
     {
         private readonly GraphicsDevice _gd;
         private DeviceBuffer _sceneUniformBuffer = null!;
+        private DeviceBuffer _waterUniformBuffer = null!;
         private ResourceLayout _sceneLayout = null!;
         private ResourceLayout _textureLayout = null!;
         private ResourceSet _sceneResourceSet = null!;
+        private ResourceSet _waterResourceSet = null!;
         private Pipeline _pipeline = null!;
         private Pipeline _terrainBlendPipeline = null!;
         private Pipeline _cutoutPipeline = null!;
         private Pipeline _blendPipeline = null!;
         private Pipeline _waterPipeline = null!;
+        private Pipeline _weatherSkyPipeline = null!;
+        private Pipeline _weatherSkyAdditivePipeline = null!;
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
@@ -41,10 +45,13 @@ namespace Gordian.App.Graphics
         public ZoneGeometry? LoadedZone { get; private set; }
 
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
+        private readonly List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
         private GpuSubmesh? _oceanWaterSubmesh;
         private IReadOnlyDictionary<string, DecodedTexture>? _activeDecodedTextures;
+        private float _cloudAccumulatedTime;
+        private Vector2 _waterScrollVelocity = new(0.012f, -0.016f);
 
         private bool _disposed;
 
@@ -59,6 +66,20 @@ namespace Gordian.App.Graphics
         public bool HasOceanWaterPlane => _oceanWaterSubmesh != null;
 
         /// <summary>
+        /// Controls whether Section 0x05 dynamic weather cloud layers (e.g. cld_fine, suny, clod)
+        /// are rendered drifting across the sky dome in Pass 0b. Defaults to true.
+        /// </summary>
+        public bool EnableWeatherClouds { get; set; } = true;
+
+        /// <summary>
+        /// Controls whether raw Section 0x05 celestial particle generator shells (sunsphere, star, moonsphere)
+        /// are rendered statically in Pass 0b. In retail FFXI and xi-model-viewer, the background celestial
+        /// sky is solely the procedural Section 0x2F SkyDome, while 0x05 bodies are dynamic particle systems.
+        /// Defaults to false to prevent untextured spheres and alpha-mask star shells.
+        /// </summary>
+        public bool EnableWeatherCelestialBodies { get; set; } = false;
+
+        /// <summary>
         /// Indicates whether the ocean water plane was rendered during the most recent frame.
         /// </summary>
         public bool IsOceanWaterPlaneActive { get; private set; }
@@ -69,6 +90,7 @@ namespace Gordian.App.Graphics
         public int VisibleMeshes { get; private set; }
         public int TotalVertices { get; private set; }
         public int LoadedZoneSubmeshCount => _zoneSubmeshes.Count;
+        public int WeatherSkySubmeshCount => _weatherSkySubmeshes.Count;
         public Vector3 FirstSubmeshMinBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MinBounds : Vector3.Zero;
         public Vector3 FirstSubmeshMaxBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MaxBounds : Vector3.Zero;
 
@@ -85,11 +107,38 @@ namespace Gordian.App.Graphics
             public bool NoCull { get; init; }
             public bool IsFoliage { get; init; }
             public bool IsWater { get; init; }
+            public Vector2 UVScroll { get; init; }
 
             public void Dispose()
             {
                 VertexBuffer?.Dispose();
                 IndexBuffer?.Dispose();
+            }
+        }
+
+        private sealed class GpuWeatherSkySubmesh : IDisposable
+        {
+            public string Name { get; init; } = string.Empty;
+            public string? WeatherId { get; init; }
+            public bool IsCelestial { get; init; }
+            public ParticleAttachType AttachType { get; init; }
+            public Vector2 UVScroll { get; init; }
+            public Vector3 BasePosition { get; init; }
+            public Vector3 Scale { get; init; } = Vector3.One;
+            public bool FollowCamera { get; init; }
+            public string TextureName { get; init; } = string.Empty;
+            public DeviceBuffer VertexBuffer { get; init; } = null!;
+            public DeviceBuffer IndexBuffer { get; init; } = null!;
+            public DeviceBuffer UniformBuffer { get; init; } = null!;
+            public ResourceSet ResourceSet { get; init; } = null!;
+            public uint IndexCount { get; init; }
+
+            public void Dispose()
+            {
+                VertexBuffer?.Dispose();
+                IndexBuffer?.Dispose();
+                UniformBuffer?.Dispose();
+                ResourceSet?.Dispose();
             }
         }
 
@@ -106,13 +155,16 @@ namespace Gordian.App.Graphics
         {
             var factory = _gd.ResourceFactory;
 
-            // 1. Scene Uniform Buffer (std140: 288 bytes)
+            // 1. Scene & Water Uniform Buffers (std140: 304 bytes)
             _sceneUniformBuffer = factory.CreateBuffer(new BufferDescription(
-                288,
+                304,
+                BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            _waterUniformBuffer = factory.CreateBuffer(new BufferDescription(
+                304,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
             // 2. Resource Layouts
-            // Set 0: Scene Uniforms (World, View, Proj, Sun, Ambient, Fog, Eye)
+            // Set 0: Scene Uniforms (World, View, Proj, Sun, Ambient, Fog, Eye, WeatherParams)
             _sceneLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("ZoneSceneUniforms", ResourceKind.UniformBuffer, ShaderStages.Vertex | ShaderStages.Fragment)));
 
@@ -122,9 +174,10 @@ namespace Gordian.App.Graphics
                 new ResourceLayoutElementDescription("uSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
 
             _sceneResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _sceneUniformBuffer));
+            _waterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _waterUniformBuffer));
             _textureCache = new GpuTextureCache(_gd, _textureLayout);
 
-            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, and Blended surfaces)
+            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky)
             var vsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderGlsl),
@@ -150,19 +203,33 @@ namespace Gordian.App.Graphics
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderWaterGlsl),
                 "main");
+            var vsWeatherSkyDesc = new ShaderDescription(
+                ShaderStages.Vertex,
+                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderWeatherSkyGlsl),
+                "main");
+
+            var fsWaterDesc = new ShaderDescription(
+                ShaderStages.Fragment,
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderWaterGlsl),
+                "main");
+            var fsWeatherSkyDesc = new ShaderDescription(
+                ShaderStages.Fragment,
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderWeatherSkyGlsl),
+                "main");
 
             Shader[] opaqueShaders = factory.CreateFromSpirv(vsDesc, fsOpaqueDesc);
             Shader[] decalShaders = factory.CreateFromSpirv(vsDecalDesc, fsBlendDesc);
             Shader[] cutoutShaders = factory.CreateFromSpirv(vsDesc, fsCutoutDesc);
             Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
-            Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsBlendDesc);
+            Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsWaterDesc);
+            Shader[] weatherSkyShaders = factory.CreateFromSpirv(vsWeatherSkyDesc, fsWeatherSkyDesc);
 
             // 4. Vertex Layout (36-byte MeshVertex stride: Pos(12) + Norm(12) + UV(8) + Color(4))
             var vertexLayout = new VertexLayoutDescription(
-                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
+                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
+                new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
+                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
 
             // 5. Opaque Graphics Pipeline (no discard; early-Z depth testing for solid ground & mountains)
             var pipelineDesc = new GraphicsPipelineDescription
@@ -277,6 +344,33 @@ namespace Gordian.App.Graphics
             };
             _waterPipeline = factory.CreateGraphicsPipeline(waterPipelineDesc);
 
+            // 9. Alpha-Blended Weather Sky & Celestial Discs Graphics Pipeline (dynamic clouds, sun, moon, stars)
+            // Rendered at far plane depth (clipPos.w * 0.9998 / 0.9997) with depth write disabled and depth test LessEqual.
+            var weatherSkyPipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleAlphaBlend,
+                DepthStencilState = new DepthStencilStateDescription(
+                    depthTestEnabled: true,
+                    depthWriteEnabled: false,
+                    comparisonKind: ComparisonKind.LessEqual),
+                RasterizerState = new RasterizerStateDescription(
+                    cullMode: FaceCullMode.None,
+                    fillMode: PolygonFillMode.Solid,
+                    frontFace: FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, weatherSkyShaders),
+                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+            };
+            _weatherSkyPipeline = factory.CreateGraphicsPipeline(weatherSkyPipelineDesc);
+
+            // 9b. Additive Weather Sky Pipeline (stars, sun, luminous celestial bodies)
+            var weatherSkyAdditiveDesc = weatherSkyPipelineDesc;
+            weatherSkyAdditiveDesc.BlendState = BlendStateDescription.SingleAdditiveBlend;
+            _weatherSkyAdditivePipeline = factory.CreateGraphicsPipeline(weatherSkyAdditiveDesc);
+
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
             _commandList = factory.CreateCommandList();
         }
@@ -287,10 +381,14 @@ namespace Gordian.App.Graphics
         public void LoadZone(ZoneGeometry? zone, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
         {
             ClearZoneSubmeshes();
-            LoadedZone = zone;
+            ClearWeatherSkySubmeshes();
+            var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
+            _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
+                ? envWaterUv.Value
+                : new Vector2(0.012f, -0.016f);
             _activeDecodedTextures = textures;
 
-            if (zone == null || zone.MeshGroups.Count == 0)
+            if (zone == null || (zone.MeshGroups.Count == 0 && zone.WeatherSkyLayers.Count == 0))
             {
                 return;
             }
@@ -332,14 +430,80 @@ namespace Gordian.App.Graphics
                     IsBlend = group.IsBlend,
                     NoCull = group.NoCull,
                     IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
-                    IsWater = group.IsWater || ZoneDefDecoder.IsWaterMesh(group.Name, group.TextureName)
+                    IsWater = group.IsWater || ZoneDefDecoder.IsWaterMesh(group.Name, group.TextureName),
+                    UVScroll = group.UVScroll
                 });
 
                 vertCount += group.Vertices.Length;
             }
 
+            // Stream Section 0x05 / WeatherSky dynamic cloud layers and celestial discs
+            if (zone.WeatherSkyLayers.Count > 0)
+            {
+                for (int i = 0; i < zone.WeatherSkyLayers.Count; i++)
+                {
+                    var layer = zone.WeatherSkyLayers[i];
+                    for (int g = 0; g < layer.MeshGroups.Count; g++)
+                    {
+                        var group = layer.MeshGroups[g];
+                        if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
+
+                        var vb = factory.CreateBuffer(new BufferDescription(
+                            (uint)(group.Vertices.Length * 36),
+                            BufferUsage.VertexBuffer));
+                        _gd.UpdateBuffer(vb, 0, group.Vertices);
+
+                        var ushortIndices = new ushort[group.Indices.Length];
+                        for (int idx = 0; idx < group.Indices.Length; idx++)
+                        {
+                            ushortIndices[idx] = (ushort)group.Indices[idx];
+                        }
+
+                        var ib = factory.CreateBuffer(new BufferDescription(
+                            (uint)(ushortIndices.Length * sizeof(ushort)),
+                            BufferUsage.IndexBuffer));
+                        _gd.UpdateBuffer(ib, 0, ushortIndices);
+
+                        var ub = factory.CreateBuffer(new BufferDescription(
+                            304,
+                            BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+                        var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
+
+                        _weatherSkySubmeshes.Add(new GpuWeatherSkySubmesh
+                        {
+                            Name = group.Name,
+                            WeatherId = layer.WeatherId,
+                            IsCelestial = layer.IsCelestial,
+                            AttachType = layer.AttachType,
+                            UVScroll = layer.UVScroll,
+                            BasePosition = layer.Position,
+                            Scale = layer.Scale,
+                            FollowCamera = layer.FollowCamera,
+                            TextureName = !string.IsNullOrEmpty(group.TextureName) ? group.TextureName : layer.TextureName,
+                            VertexBuffer = vb,
+                            IndexBuffer = ib,
+                            UniformBuffer = ub,
+                            ResourceSet = rSet,
+                            IndexCount = (uint)ushortIndices.Length
+                        });
+
+                        vertCount += group.Vertices.Length;
+                    }
+                }
+
+                // Draw order: Stars (1, additive) -> Celestial discs / Moon / Sun (2, unlit/alpha) -> Clouds (3, translucent alpha)
+                // Ensures soft translucent clouds composite over celestial bodies and stars.
+                static int GetSkyDrawPriority(GpuWeatherSkySubmesh s)
+                {
+                    if (s.Name.Contains("star", StringComparison.OrdinalIgnoreCase)) return 1;
+                    if (s.IsCelestial || s.AttachType == ParticleAttachType.Sun || s.AttachType == ParticleAttachType.Moon) return 2;
+                    return 3;
+                }
+                _weatherSkySubmeshes.Sort((a, b) => GetSkyDrawPriority(a).CompareTo(GetSkyDrawPriority(b)));
+            }
+
             TotalVertices = vertCount;
-            GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes ({TotalVertices} vertices) to GPU.");
+            GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes and {_weatherSkySubmeshes.Count} weather sky submeshes ({TotalVertices} vertices) to GPU.");
         }
 
         /// <summary>
@@ -356,13 +520,15 @@ namespace Gordian.App.Graphics
             uint localPlayerServerId = 0,
             bool isLocalPlayerEngaged = false,
             Vector3? localPlayerDisplayPos = null,
-            bool present = true)
+            bool present = true,
+            Framebuffer? targetFramebuffer = null)
         {
-            if (_disposed || _gd == null || _gd.MainSwapchain == null) return;
+            if (_disposed || _gd == null || (_gd.MainSwapchain == null && targetFramebuffer == null)) return;
 
             // 1. Update Uniform Buffer
             float aspect = Math.Max(0.1f, (float)width / Math.Max(1, height));
             camera.AspectRatio = aspect;
+            _cloudAccumulatedTime += deltaSeconds;
 
             float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
             float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
@@ -376,17 +542,19 @@ namespace Gordian.App.Graphics
                 AmbientColor = new Vector4(environment.AmbientColor, 1.0f),
                 FogColor = environment.FogColor,
                 FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
-                EyePosition = new Vector4(camera.Position, 1.0f)
+                EyePosition = new Vector4(camera.Position, 1.0f),
+                WeatherParams = Vector4.Zero
             };
-
-            _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
 
             // 2. Select submesh list (loaded zone or fallback scene)
             var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
 
             // 3. Record Render Commands
             _commandList.Begin();
-            _commandList.SetFramebuffer(_gd.SwapchainFramebuffer);
+            _commandList.SetFramebuffer(targetFramebuffer ?? _gd.SwapchainFramebuffer);
+
+            // Update Scene Uniform Buffer within command stream
+            _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
 
             // Clear to atmospheric clear/horizon color for authentic FFXI horizon blending
             _commandList.ClearColorTarget(0, new RgbaFloat(
@@ -408,6 +576,196 @@ namespace Gordian.App.Graphics
                 {
                     _skyDomeRenderer.Render(_commandList, _sceneResourceSet);
                     draws++;
+                }
+            }
+
+            // Pass 0b: Weather Sky Layers & Celestial Discs (dynamic clouds, sun, moon, stars)
+            // Rendered with depth testing enabled and depth writing disabled at far-plane projection (clipPos.w * 0.9998 / 0.9997).
+            // Terrain geometry drawn in Pass 1 will naturally occlude these elements, while they render in front of the sky dome.
+            if ((EnableWeatherClouds || EnableWeatherCelestialBodies) && _weatherSkySubmeshes.Count > 0 && !environment.Indoors)
+            {
+                Pipeline? currentSkyPipeline = null;
+                string activeWeather = environment.WeatherId ?? "fine";
+                Vector3 sunDir = Vector3.Normalize(environment.SunDirection);
+                Vector3 moonDir = -sunDir;
+
+                for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
+                {
+                    var skyMesh = _weatherSkySubmeshes[i];
+                    if (skyMesh.IsCelestial && !EnableWeatherCelestialBodies) continue;
+                    if (!skyMesh.IsCelestial && !EnableWeatherClouds) continue;
+                    bool isStar = skyMesh.Name.Contains("star", StringComparison.OrdinalIgnoreCase);
+
+                    // Authentic FFXI Weather Gating:
+                    // In retail FFXI, Clear weather ("fine") has a pure, cloudless sky dome (no cloud geometry is drawn).
+                    // Dynamic cloud layers (suny_*, clod_*, mist_*, etc.) only render in weather types with authored cloud coverage
+                    // (e.g. Sunshine "suny", Clouds "clod", Fog "mist"). Celestial bodies (sun, moon, stars) apply universally.
+                    if (!skyMesh.IsCelestial)
+                    {
+                        if (string.Equals(activeWeather, "fine", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (string.IsNullOrEmpty(skyMesh.WeatherId) ||
+                            !string.Equals(skyMesh.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Celestial disc and star visibility gating based on sun/moon elevation
+                    float starAlpha = 0.0f;
+                    if (skyMesh.AttachType == ParticleAttachType.Sun)
+                    {
+                        if (sunDir.Y <= 0.0f) continue; // Sun below horizon
+                    }
+                    else if (skyMesh.AttachType == ParticleAttachType.Moon)
+                    {
+                        if (moonDir.Y <= 0.0f) continue; // Moon below horizon
+                    }
+                    else if (isStar)
+                    {
+                        // Stars fade in at dusk, shine bright at night, and fade out at dawn
+                        starAlpha = Math.Clamp((-sunDir.Y + 0.15f) / 0.45f, 0.0f, 1.0f);
+                        if (starAlpha <= 0.01f) continue; // In daytime, stars are invisible
+                    }
+
+                    // Select pipeline: Stars and Sun use Additive; Moon and Clouds use Alpha Blend
+                    bool useAdditive = isStar || skyMesh.AttachType == ParticleAttachType.Sun;
+                    Pipeline targetSkyPipeline = useAdditive ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
+
+                    if (currentSkyPipeline != targetSkyPipeline)
+                    {
+                        _commandList.SetPipeline(targetSkyPipeline);
+                        currentSkyPipeline = targetSkyPipeline;
+                    }
+
+                    // Determine world position
+                    Vector3 centerPos;
+                    if (skyMesh.AttachType == ParticleAttachType.Sun)
+                    {
+                        centerPos = camera.Position + sunDir * 900.0f;
+                    }
+                    else if (skyMesh.AttachType == ParticleAttachType.Moon)
+                    {
+                        centerPos = camera.Position + moonDir * 900.0f;
+                    }
+                    else if (skyMesh.FollowCamera)
+                    {
+                        centerPos = camera.Position + skyMesh.BasePosition;
+                    }
+                    else
+                    {
+                        centerPos = skyMesh.BasePosition;
+                    }
+
+                    // Calculate world transformation matrix
+                    Matrix4x4 worldMatrix;
+                    if (skyMesh.AttachType == ParticleAttachType.Sun || skyMesh.AttachType == ParticleAttachType.Moon)
+                    {
+                        // Celestial disc billboarding: original disc mesh normal is <-1, 0, 0> in local space.
+                        // Rotate to face vector pointing directly at camera.
+                        Vector3 toCamera = Vector3.Normalize(camera.Position - centerPos);
+                        Vector3 sourceNormal = new Vector3(-1f, 0f, 0f);
+                        float dot = Vector3.Dot(sourceNormal, toCamera);
+                        Quaternion rot;
+                        if (dot > 0.9999f)
+                        {
+                            rot = Quaternion.Identity;
+                        }
+                        else if (dot < -0.9999f)
+                        {
+                            rot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI);
+                        }
+                        else
+                        {
+                            Vector3 cross = Vector3.Cross(sourceNormal, toCamera);
+                            rot = Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1.0f + dot));
+                        }
+                        worldMatrix = Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateFromQuaternion(rot) * Matrix4x4.CreateTranslation(centerPos);
+                    }
+                    else
+                    {
+                        worldMatrix = Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateTranslation(centerPos);
+                    }
+
+                    // Compute scrolling UV offset based on UVScroll velocity and elapsed time (scaled to 60 FPS effect rate)
+                    Vector2 uvOffset = (skyMesh.UVScroll * 60.0f) * _cloudAccumulatedTime;
+
+                    // Resolve texture with keyword fallback
+                    string texName = skyMesh.TextureName;
+                    if ((string.IsNullOrWhiteSpace(texName) || _activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName)) && _activeDecodedTextures != null)
+                    {
+                        if (skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase))
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "moonshap", "moon") ?? texName;
+                        }
+                        else if (isStar)
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "star01", "star02", "star") ?? texName;
+                        }
+                        else if (skyMesh.Name.Contains("sun", StringComparison.OrdinalIgnoreCase))
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty;
+                        }
+                        else if (skyMesh.Name.Contains("cld", StringComparison.OrdinalIgnoreCase) || skyMesh.Name.Contains("fine", StringComparison.OrdinalIgnoreCase))
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "fine_a01", "fine", "cld") ?? texName;
+                        }
+                        else if (skyMesh.Name.Contains("suny", StringComparison.OrdinalIgnoreCase))
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "suny_a01", "suny") ?? texName;
+                        }
+                        else if (skyMesh.Name.Contains("clod", StringComparison.OrdinalIgnoreCase) || skyMesh.Name.Contains("mist", StringComparison.OrdinalIgnoreCase))
+                        {
+                            texName = FindTextureKey(_activeDecodedTextures, "clod_a01", "clod", "mist") ?? texName;
+                        }
+                    }
+
+                    // Skip untextured sky meshes to prevent fallback checkerboard / dithered artifacts
+                    if (string.IsNullOrWhiteSpace(texName))
+                    {
+                        continue;
+                    }
+
+                    // Ensure genuine texture exists in cache/active textures; never fall back to default checkerboard on sky shells
+                    if (_activeDecodedTextures != null && !_activeDecodedTextures.ContainsKey(texName))
+                    {
+                        string? match = FindTextureKey(_activeDecodedTextures, texName);
+                        if (match != null)
+                        {
+                            texName = match;
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Update dedicated sky mesh uniform buffer and bind its resource set
+                    // WeatherParams:
+                    //   xy: continuous UV scrolling offset
+                    //   z: starAlpha for stars (0.0..1.0), or _cloudAccumulatedTime for clouds/discs
+                    //   w: layer depth/type (3.0 = stars, 2.2 = moon, 2.0 = sun, 1.0 = clouds)
+                    bool isMoon = skyMesh.AttachType == ParticleAttachType.Moon || skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase);
+                    float layerType = isStar ? 3.0f : (isMoon ? 2.2f : (skyMesh.IsCelestial ? 2.0f : 1.0f));
+                    float paramZ = isStar ? starAlpha : _cloudAccumulatedTime;
+                    var layerUniform = sceneUniform;
+                    layerUniform.World = worldMatrix;
+                    layerUniform.WeatherParams = new Vector4(uvOffset.X, uvOffset.Y, paramZ, layerType);
+
+                    _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
+                    _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
+                    var texSet = _textureCache.GetOrCreateResourceSet(texName, _activeDecodedTextures);
+                    _commandList.SetGraphicsResourceSet(1, texSet);
+
+                    _commandList.SetVertexBuffer(0, skyMesh.VertexBuffer);
+                    _commandList.SetIndexBuffer(skyMesh.IndexBuffer, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(skyMesh.IndexCount, 1, 0, 0, 0);
+
+                    draws++;
+                    visible++;
                 }
             }
 
@@ -480,7 +838,7 @@ namespace Gordian.App.Graphics
                 var groundWorld = Matrix4x4.CreateTranslation(new Vector3(camera.Target.X, groundY, camera.Target.Z));
                 var groundUniform = sceneUniform;
                 groundUniform.World = groundWorld;
-                _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref groundUniform);
+                _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref groundUniform);
 
                 if (currentBoundPipeline != _pipeline)
                 {
@@ -498,7 +856,7 @@ namespace Gordian.App.Graphics
                 visible++;
 
                 // Restore identity world matrix for subsequent passes
-                _gd.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
+                _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
             }
 
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
@@ -513,6 +871,12 @@ namespace Gordian.App.Graphics
             // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
             // Water submeshes use _waterPipeline with linear W-scaled depth bias to eliminate distance z-fighting over shallow seabed.
+            Vector2 defaultWaterUv = _waterScrollVelocity * _cloudAccumulatedTime;
+            var waterUniform = sceneUniform;
+            waterUniform.WeatherParams = new Vector4(defaultWaterUv.X, defaultWaterUv.Y, _cloudAccumulatedTime, 0.0f);
+            _commandList.UpdateBuffer(_waterUniformBuffer, 0, ref waterUniform);
+            Vector2 currentBoundWaterUv = defaultWaterUv;
+
             Pipeline? currentBoundBlendPipeline = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
@@ -527,17 +891,52 @@ namespace Gordian.App.Graphics
                 }
 
                 var targetPipeline = submesh.IsWater ? _waterPipeline : _blendPipeline;
+                var targetSet0 = submesh.IsWater ? _waterResourceSet : _sceneResourceSet;
                 if (currentBoundBlendPipeline != targetPipeline)
                 {
                     _commandList.SetPipeline(targetPipeline);
-                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    _commandList.SetGraphicsResourceSet(0, targetSet0);
                     currentBoundBlendPipeline = targetPipeline;
+                }
+
+                if (submesh.IsWater)
+                {
+                    Vector2 targetUv;
+                    if (submesh.UVScroll != Vector2.Zero)
+                    {
+                        // Scale per-frame UVScroll from DAT effect generators to authentic calm ocean speeds (max ~0.035/sec)
+                        float vx = Math.Clamp(submesh.UVScroll.X * 30.0f, -0.035f, 0.035f);
+                        float vy = Math.Clamp(submesh.UVScroll.Y * 30.0f, -0.035f, 0.035f);
+                        targetUv = new Vector2(vx, vy) * _cloudAccumulatedTime;
+                    }
+                    else
+                    {
+                        targetUv = defaultWaterUv;
+                    }
+
+                    if (targetUv != currentBoundWaterUv)
+                    {
+                        waterUniform.WeatherParams = new Vector4(targetUv.X, targetUv.Y, _cloudAccumulatedTime, 0.0f);
+                        _commandList.UpdateBuffer(_waterUniformBuffer, 0, ref waterUniform);
+                        currentBoundWaterUv = targetUv;
+                    }
                 }
 
                 visible++;
 
                 // Bind Texture Resource Set
-                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
+                ResourceSet texSet;
+                bool hasDedicatedWaterTex = !string.IsNullOrEmpty(submesh.TextureName) &&
+                    ZoneDefDecoder.IsWaterMesh(string.Empty, submesh.TextureName);
+
+                if (submesh.IsWater && !hasDedicatedWaterTex)
+                {
+                    texSet = _textureCache.GetOrCreateWaterResourceSet(_activeDecodedTextures);
+                }
+                else
+                {
+                    texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
+                }
                 _commandList.SetGraphicsResourceSet(1, texSet);
 
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
@@ -559,10 +958,17 @@ namespace Gordian.App.Graphics
             IsOceanWaterPlaneActive = shouldRenderOcean;
             if (shouldRenderOcean && _oceanWaterSubmesh != null)
             {
+                if (currentBoundWaterUv != defaultWaterUv)
+                {
+                    waterUniform.WeatherParams = new Vector4(defaultWaterUv.X, defaultWaterUv.Y, _cloudAccumulatedTime, 0.0f);
+                    _commandList.UpdateBuffer(_waterUniformBuffer, 0, ref waterUniform);
+                    currentBoundWaterUv = defaultWaterUv;
+                }
+
                 if (currentBoundBlendPipeline != _waterPipeline)
                 {
                     _commandList.SetPipeline(_waterPipeline);
-                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
+                    _commandList.SetGraphicsResourceSet(0, _waterResourceSet);
                     currentBoundBlendPipeline = _waterPipeline;
                 }
 
@@ -635,7 +1041,7 @@ namespace Gordian.App.Graphics
             const float halfSize = 2000.0f;
             const float totalSize = halfSize * 2.0f; // 4000 yalms
             const float step = totalSize / quads; // 125 yalms per quad
-            const float tileUv = 1000.0f; // 1 tile every 4 yalms (~4-5 yalms per wave ripple repeat, matching retail FFXI)
+            const float tileUv = 200.0f; // 1 tile every 20 yalms (~20 yalms per wave ripple repeat, matching retail FFXI)
 
             var vertices = new MeshVertex[vertsPerSide * vertsPerSide];
             // Neutral PS2 modulate2x diffuse (R=128, G=128, B=128) preserving authentic DAT texture colors;
@@ -726,6 +1132,21 @@ namespace Gordian.App.Graphics
             return false;
         }
 
+        private static string? FindTextureKey(IReadOnlyDictionary<string, DecodedTexture> textures, params string[] keywords)
+        {
+            foreach (var kw in keywords)
+            {
+                foreach (var key in textures.Keys)
+                {
+                    if (key.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return key;
+                    }
+                }
+            }
+            return null;
+        }
+
         private void ClearZoneSubmeshes()
         {
             for (int i = 0; i < _zoneSubmeshes.Count; i++)
@@ -737,12 +1158,22 @@ namespace Gordian.App.Graphics
             TotalVertices = 0;
         }
 
+        private void ClearWeatherSkySubmeshes()
+        {
+            for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
+            {
+                _weatherSkySubmeshes[i].Dispose();
+            }
+            _weatherSkySubmeshes.Clear();
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
 
             ClearZoneSubmeshes();
+            ClearWeatherSkySubmeshes();
 
             for (int i = 0; i < _fallbackSubmeshes.Count; i++)
             {
@@ -763,10 +1194,14 @@ namespace Gordian.App.Graphics
             _cutoutPipeline?.Dispose();
             _blendPipeline?.Dispose();
             _waterPipeline?.Dispose();
+            _weatherSkyPipeline?.Dispose();
+            _weatherSkyAdditivePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
+            _waterResourceSet?.Dispose();
             _sceneLayout?.Dispose();
             _textureLayout?.Dispose();
             _sceneUniformBuffer?.Dispose();
+            _waterUniformBuffer?.Dispose();
         }
     }
 }

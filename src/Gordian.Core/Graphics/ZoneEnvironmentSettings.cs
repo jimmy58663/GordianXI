@@ -83,6 +83,12 @@ namespace Gordian.Core.Graphics
         public ushort Spokes { get; set; } = 16;
 
         /// <summary>
+        /// Active weather ID (e.g. "fine", "suny", "clod", "mist", "rain", "snow", "thdr").
+        /// Used by the weather sky renderer to select active cloud layers.
+        /// </summary>
+        public string WeatherId { get; set; } = "fine";
+
+        /// <summary>
         /// Indicates whether this environment configuration represents an indoor or cave area (no celestial skybox or ocean plane).
         /// </summary>
         public bool Indoors { get; set; } = false;

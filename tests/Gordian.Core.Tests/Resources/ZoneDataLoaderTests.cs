@@ -353,5 +353,105 @@ namespace Gordian.Core.Tests.Resources
                 Gordian.Core.Diagnostics.GordianLog.Info("DIAG_TEX", $"Texture: '{tex}'");
             }
         }
+
+        [Fact]
+        public void TestPass0bSkyMeshInspection()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+
+            foreach (var l in zone.WeatherSkyLayers)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Info("TEST_ALL_SKY", $"Layer: Name='{l.Name}', Weather='{l.WeatherId}', IsCelestial={l.IsCelestial}, Attach={l.AttachType}, FollowCam={l.FollowCamera}, Pos={l.Position}, Scale={l.Scale}, Tex='{l.TextureName}', Submeshes={l.MeshGroups.Count}");
+                foreach (var mg in l.MeshGroups)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("TEST_ALL_SKY", $"  Submesh: Name='{mg.Name}', Tex='{mg.TextureName}', Verts={mg.Vertices.Length}, MinB={mg.MinBounds}, MaxB={mg.MaxBounds}");
+                }
+            }
+
+            foreach (var l in zone.WeatherSkyLayers)
+            {
+                if (l.Name.Contains("fine", StringComparison.OrdinalIgnoreCase))
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY", $"Layer: Name='{l.Name}', Weather='{l.WeatherId}', Tex='{l.TextureName}', Submeshes={l.MeshGroups.Count}");
+                    foreach (var mg in l.MeshGroups)
+                    {
+                        Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY", $"  Submesh: Name='{mg.Name}', Tex='{mg.TextureName}', Verts={mg.Vertices.Length}, Tris={mg.TriangleCount}, IndicesLen={mg.Indices.Length}");
+                        for (int v = 0; v < Math.Min(10, mg.Vertices.Length); v++)
+                        {
+                            var vert = mg.Vertices[v];
+                            Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY", $"    Vert[{v}]: Pos={vert.Position}, Norm={vert.Normal}, UV={vert.TexCoord}, Color=0x{vert.ColorRgba:X8}");
+                        }
+                        if (textures.TryGetValue(mg.TextureName, out var tex))
+                        {
+                            Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY", $"    Texture: Name='{tex.Name}', W={tex.Width}, H={tex.Height}, Pixels={tex.RgbaPixels.Length}");
+                            // Print min and max R, G, B, A across all pixels
+                            byte minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0, minA = 255, maxA = 0;
+                            for (int p = 0; p < tex.RgbaPixels.Length; p += 4)
+                            {
+                                byte r = tex.RgbaPixels[p];
+                                byte g = tex.RgbaPixels[p + 1];
+                                byte b = tex.RgbaPixels[p + 2];
+                                byte a = tex.RgbaPixels[p + 3];
+                                if (r < minR) minR = r; if (r > maxR) maxR = r;
+                                if (g < minG) minG = g; if (g > maxG) maxG = g;
+                                if (b < minB) minB = b; if (b > maxB) maxB = b;
+                                if (a < minA) minA = a; if (a > maxA) maxA = a;
+                            }
+                            for (int p = 0; p < Math.Min(20 * 4, tex.RgbaPixels.Length); p += 4)
+                            {
+                                Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY_PIX", $"Pixel[{p/4}]: R={tex.RgbaPixels[p]}, G={tex.RgbaPixels[p+1]}, B={tex.RgbaPixels[p+2]}, A={tex.RgbaPixels[p+3]}");
+                            }
+                            Gordian.Core.Diagnostics.GordianLog.Info("TEST_SKY", $"    R range: [{minR}..{maxR}], G range: [{minG}..{maxG}], B range: [{minB}..{maxB}], A range: [{minA}..{maxA}]");
+                        }
+                    }
+                }
+            }
+
+            foreach (var kvp in textures)
+            {
+                var t = kvp.Value;
+                int redPixelCount = 0;
+                for (int p = 0; p < t.RgbaPixels.Length; p += 4)
+                {
+                    byte r = t.RgbaPixels[p];
+                    byte g = t.RgbaPixels[p + 1];
+                    byte b = t.RgbaPixels[p + 2];
+                    if (r > 150 && g < 50 && b < 50) redPixelCount++;
+                }
+                if (redPixelCount > 10)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("TEST_RED_TEX", $"Texture '{kvp.Key}' (W={t.Width}, H={t.Height}) has {redPixelCount} red pixels!");
+                }
+            }
+            foreach (var mg in zone.MeshGroups)
+            {
+                if (mg.TextureName.Contains("yuh", StringComparison.OrdinalIgnoreCase) || mg.Name.Contains("yuh", StringComparison.OrdinalIgnoreCase))
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("TEST_YUH_FIND", $"MeshGroup: Name='{mg.Name}', Tex='{mg.TextureName}', Verts={mg.Vertices.Length}");
+                }
+            }
+            foreach (var l in zone.WeatherSkyLayers)
+            {
+                if (l.TextureName.Contains("yuh", StringComparison.OrdinalIgnoreCase) || l.Name.Contains("yuh", StringComparison.OrdinalIgnoreCase))
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("TEST_YUH_FIND", $"SkyLayer: Name='{l.Name}', Weather='{l.WeatherId}', Tex='{l.TextureName}'");
+                }
+            }
+            if (zone.EnvironmentData != null)
+            {
+                foreach (var kvp in zone.EnvironmentData.ParticleGenerators)
+                {
+                    if (kvp.Key.Contains("yuh", StringComparison.OrdinalIgnoreCase) || (kvp.Value.Setup != null && kvp.Value.Setup.LinkedDataId.Contains("yuh", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Gordian.Core.Diagnostics.GordianLog.Info("TEST_YUH_FIND", $"Generator: Key='{kvp.Key}', LinkedId='{kvp.Value.Setup?.LinkedDataId}', Scale={kvp.Value.Scale}");
+                    }
+                }
+            }
+        }
     }
 }

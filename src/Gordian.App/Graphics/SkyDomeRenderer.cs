@@ -66,21 +66,21 @@ namespace Gordian.App.Graphics
 
             // Stride: 28 bytes (Pos 12B + Color 16B)
             var vertexLayout = new VertexLayoutDescription(
-                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float4));
+                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float4, 12));
 
             var pipelineDesc = new GraphicsPipelineDescription
             {
                 BlendState = BlendStateDescription.SingleDisabled,
                 DepthStencilState = new DepthStencilStateDescription(
-                    depthTestEnabled: true,
+                    depthTestEnabled: false,
                     depthWriteEnabled: false,
-                    comparisonKind: ComparisonKind.LessEqual),
+                    comparisonKind: ComparisonKind.Always),
                 RasterizerState = new RasterizerStateDescription(
                     cullMode: FaceCullMode.None,
                     fillMode: PolygonFillMode.Solid,
                     frontFace: FrontFace.Clockwise,
-                    depthClipEnabled: true,
+                    depthClipEnabled: false,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { sceneLayout },
@@ -129,24 +129,44 @@ namespace Gordian.App.Graphics
 
             if (environment.SkySlices.Count >= 2)
             {
-                // If explicit DAT Section 0x2F slices start at or above horizon (elevation >= 0),
-                // prepend a downward skirt slice (-0.15) with the horizon color so looking slightly downward
-                // or viewing from elevated cliffs does not expose an untextured gap above the seabed/horizon.
-                if (environment.SkySlices[0].Elevation >= 0.0f)
-                {
-                    slices.Add((-0.15f, environment.SkySlices[0].Color));
-                }
-
-                // Use explicit DAT Section 0x2F slices
+                float maxSliceRgb = 0.0f;
                 for (int i = 0; i < environment.SkySlices.Count; i++)
                 {
-                    var s = environment.SkySlices[i];
-                    slices.Add((s.Elevation, s.Color));
+                    var c = environment.SkySlices[i].Color;
+                    maxSliceRgb = MathF.Max(maxSliceRgb, MathF.Max(c.X, MathF.Max(c.Y, c.Z)));
+                }
+
+                if (maxSliceRgb > 0.01f)
+                {
+                    // If explicit DAT Section 0x2F slices start at or above horizon (elevation >= 0),
+                    // prepend a downward skirt slice (-0.15) with the horizon color so looking slightly downward
+                    // or viewing from elevated cliffs does not expose an untextured gap above the seabed/horizon.
+                    if (environment.SkySlices[0].Elevation >= 0.0f)
+                    {
+                        slices.Add((-0.15f, environment.SkySlices[0].Color));
+                    }
+
+                    // Use explicit DAT Section 0x2F slices
+                    for (int i = 0; i < environment.SkySlices.Count; i++)
+                    {
+                        var s = environment.SkySlices[i];
+                        slices.Add((s.Elevation, s.Color));
+                    }
                 }
             }
-            else
+
+            if (slices.Count == 0)
             {
                 // Procedural celestial dome gradient: Skirt (-0.15), Horizon (0.0), Mid-sky, Zenith (1.0)
+                Vector4 horiz = environment.SkyHorizonColor;
+                Vector4 zenith = environment.SkyZenithColor;
+                if (horiz.X + horiz.Y + horiz.Z < 0.01f && zenith.X + zenith.Y + zenith.Z < 0.01f)
+                {
+                    // Fallback to authentic deep midnight celestial gradient if environment colors are unlit
+                    horiz = new Vector4(0.08f, 0.12f, 0.20f, 1.0f);
+                    zenith = new Vector4(0.02f, 0.03f, 0.08f, 1.0f);
+                }
+
                 float[] elevs = { -0.15f, 0.0f, 0.20f, 0.45f, 0.70f, 1.0f };
                 for (int i = 0; i < elevs.Length; i++)
                 {
@@ -154,12 +174,12 @@ namespace Gordian.App.Graphics
                     Vector4 color;
                     if (e <= 0.0f)
                     {
-                        color = environment.SkyHorizonColor;
+                        color = horiz;
                     }
                     else
                     {
                         float t = MathF.Pow(e, 0.75f);
-                        color = Vector4.Lerp(environment.SkyHorizonColor, environment.SkyZenithColor, t);
+                        color = Vector4.Lerp(horiz, zenith, t);
                     }
                     slices.Add((e, color));
                 }

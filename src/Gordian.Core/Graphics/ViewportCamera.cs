@@ -20,7 +20,7 @@ namespace Gordian.Core.Graphics
         private float _distance = 6.0f;                // yalms (1.5 to 25.0)
         private float _fov = MathF.PI / 3.0f;          // 60 degrees in radians
         private float _nearClip = 0.1f;
-        private float _farClip = 1000.0f;
+        private float _farClip = 5000.0f;
         private float _aspectRatio = 16.0f / 9.0f;
 
         private Matrix4x4 _viewMatrix = Matrix4x4.Identity;

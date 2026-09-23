@@ -128,7 +128,7 @@ namespace Gordian.App.Graphics
             var factory = _gd.ResourceFactory;
 
             _entityUniformBuffer = factory.CreateBuffer(new BufferDescription(
-                288,
+                304,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
             _sceneLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
@@ -156,10 +156,10 @@ namespace Gordian.App.Graphics
             Shader[] shaders = factory.CreateFromSpirv(vsDesc, fsDesc);
 
             var vertexLayout = new VertexLayoutDescription(
-                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
+                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
+                new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
+                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
 
             var pipelineDesc = new GraphicsPipelineDescription
             {
@@ -189,14 +189,14 @@ namespace Gordian.App.Graphics
             Shader[] skinnedShaders = factory.CreateFromSpirv(skinnedVsDesc, fsDesc);
 
             var skinnedVertexLayout = new VertexLayoutDescription(
-                new VertexElementDescription("Position0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Position1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Normal0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Normal1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("Weights", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("Joints", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
+                new VertexElementDescription("Position0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
+                new VertexElementDescription("Position1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
+                new VertexElementDescription("Normal0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 24),
+                new VertexElementDescription("Normal1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 36),
+                new VertexElementDescription("Weights", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 48),
+                new VertexElementDescription("Joints", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 56),
+                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 64),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 72));
 
             var skinnedPipelineDesc = new GraphicsPipelineDescription
             {
@@ -330,7 +330,8 @@ namespace Gordian.App.Graphics
                     AmbientColor = new Vector4(environment.AmbientColor, 1.0f),
                     FogColor = environment.FogColor,
                     FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
-                    EyePosition = new Vector4(camera.Position, 1.0f)
+                    EyePosition = new Vector4(camera.Position, 1.0f),
+                    WeatherParams = Vector4.Zero
                 };
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);

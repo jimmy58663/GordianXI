@@ -316,6 +316,19 @@ namespace Gordian.Core.Resources.Graphics
             return false;
         }
 
+        /// <summary>
+        /// Checks whether a mesh name represents a celestial body (Sun, Moon, Stars, celestial sphere).
+        /// Note that 'suny_*' represents sunshine cloud layers, not celestial bodies.
+        /// Protocol specification referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// </summary>
+        public static bool IsCelestialMesh(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.ToLowerInvariant();
+            if (n.StartsWith("suny")) return false;
+            return n.StartsWith("sun") || n.StartsWith("moon") || n.StartsWith("star") || n.Contains("sphere");
+        }
+
         private static string Norm(string s) => s.Replace(" ", "").Replace("_", "").ToLowerInvariant();
 
         /// <summary>

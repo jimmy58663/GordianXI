@@ -77,6 +77,10 @@ namespace Gordian.Core.Network
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
             };
+            _lifecycleModule.WeatherReceived += weatherNumber =>
+            {
+                _world.UpdateWeather(weatherNumber);
+            };
 
             _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket);
             _entityModule.Register(_dispatcher);
@@ -227,6 +231,15 @@ namespace Gordian.Core.Network
         {
             add => _lifecycleModule.ZoneReceived += value;
             remove => _lifecycleModule.ZoneReceived -= value;
+        }
+
+        /// <summary>
+        /// Raised when server confirms or updates current weather code in GP_SERV_LOGIN (0x00A) or GP_SERV_WEATHER (0x057).
+        /// </summary>
+        public event Action<ushort>? WeatherReceived
+        {
+            add => _lifecycleModule.WeatherReceived += value;
+            remove => _lifecycleModule.WeatherReceived -= value;
         }
 
         /// <summary>

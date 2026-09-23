@@ -15,6 +15,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Veldrid;
 
@@ -208,6 +209,9 @@ namespace Gordian.App.Graphics
         private ushort _loadedZoneId;
         private volatile int _pendingZoneLoad;
         private int _isZoneLoading;
+        private ZoneGeometry? _currentZoneGeom;
+        private float _lastVanaHour = -1f;
+        private string? _lastWeatherId;
 
         private void OnWorldZoneChanged(ushort zoneId)
         {
@@ -243,14 +247,22 @@ namespace Gordian.App.Graphics
                         {
                             _renderer?.LoadZone(zoneGeom, zoneTextures);
                             _loadedZoneId = zoneToLoad;
+                            _currentZoneGeom = zoneGeom;
 
                             if (zoneGeom?.EnvironmentData != null)
                             {
-                                var keyframe = zoneGeom.EnvironmentData.Interpolate(12f);
+                                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
+                                _lastVanaHour = vanaHour;
+                                _lastWeatherId = weather;
+                                var keyframe = zoneGeom.EnvironmentData.Interpolate(vanaHour, weather);
                                 if (keyframe != null)
                                 {
                                     Environment.ApplyKeyframe(keyframe);
-                                    GordianLog.Info("Graphics", $"Applied Zone {zoneToLoad} 0x2F environment lighting and sky dome slices.");
+                                    Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                                    Environment.WeatherId = weather;
+                                    _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                                    GordianLog.Info("Graphics", $"Applied Zone {zoneToLoad} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
                                 }
                             }
                         }
@@ -332,6 +344,9 @@ namespace Gordian.App.Graphics
             lock (_renderLock)
             {
                 _loadedZoneId = 0;
+                _currentZoneGeom = null;
+                _lastVanaHour = -1f;
+                _lastWeatherId = null;
                 _renderer?.Dispose();
                 _renderer = null;
 
@@ -521,6 +536,26 @@ namespace Gordian.App.Graphics
                     {
                         try
                         {
+                            // Dynamic Vana'diel time and weather evaluation for 0x2F environment lighting and sky dome
+                            if (_currentZoneGeom?.EnvironmentData != null)
+                            {
+                                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                string activeWeather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
+                                if (Math.Abs(vanaHour - _lastVanaHour) >= 0.05f || activeWeather != _lastWeatherId)
+                                {
+                                    _lastVanaHour = vanaHour;
+                                    _lastWeatherId = activeWeather;
+                                    var kf = _currentZoneGeom.EnvironmentData.Interpolate(vanaHour, activeWeather);
+                                    if (kf != null)
+                                    {
+                                        Environment.ApplyKeyframe(kf);
+                                        Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                                        Environment.WeatherId = activeWeather;
+                                        _renderer.SkyDomeRenderer?.UpdateDome(Environment);
+                                    }
+                                }
+                            }
+
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
                                 Camera,
@@ -609,6 +644,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public void SetTimeOfDayPreset(string preset)
         {
+            string currentWeather = Environment.WeatherId ?? "fine";
             string p = (preset ?? string.Empty).Trim().ToLowerInvariant();
             switch (p)
             {
@@ -630,18 +666,23 @@ namespace Gordian.App.Graphics
                 default:
                     if (float.TryParse(p, out float hour) && _renderer?.LoadedZone?.EnvironmentData != null)
                     {
-                        var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(hour);
+                        var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(hour, currentWeather);
                         if (kf != null)
                         {
                             Environment.ApplyKeyframe(kf);
-                            GordianLog.Info("Graphics", $"Applied 0x2F environment for hour {hour:F1}.");
+                            Environment.WeatherId = currentWeather;
+                            _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                            GordianLog.Info("Graphics", $"Applied 0x2F environment for hour {hour:F1} ({currentWeather}).");
                             return;
                         }
                     }
                     Environment = ZoneEnvironmentSettings.CreateDay();
                     break;
             }
-            GordianLog.Info("Graphics", $"Switched time of day to {preset}.");
+            Environment.WeatherId = currentWeather;
+            _lastWeatherId = currentWeather;
+            _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+            GordianLog.Info("Graphics", $"Switched time of day to {preset} (weather={currentWeather}).");
         }
 
         /// <summary>
@@ -665,6 +706,47 @@ namespace Gordian.App.Graphics
             {
                 SetTimeOfDayPreset("day");
             }
+        }
+
+        /// <summary>
+        /// Cycles through active weather presets (fine [Clear] -> suny [Sunshine] -> clod [Clouds] -> mist [Fog]).
+        /// </summary>
+        public void CycleWeather()
+        {
+            string current = Environment.WeatherId ?? "fine";
+            string next = current switch
+            {
+                "fine" => "suny",
+                "suny" => "clod",
+                "clod" => "mist",
+                _ => "fine"
+            };
+            SetWeather(next);
+        }
+
+        /// <summary>
+        /// Sets a specific weather preset ("fine", "suny", "clod", "mist") and updates environment lighting and sky layers.
+        /// </summary>
+        public void SetWeather(string weatherId)
+        {
+            Environment.WeatherId = weatherId;
+            if (WorldState != null)
+            {
+                WorldState.WeatherId = weatherId;
+            }
+            _lastWeatherId = weatherId;
+            if (_renderer?.LoadedZone?.EnvironmentData != null)
+            {
+                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(vanaHour, weatherId);
+                if (kf != null)
+                {
+                    Environment.ApplyKeyframe(kf);
+                    Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                    _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                }
+            }
+            GordianLog.Info("Graphics", $"Switched weather to {weatherId}.");
         }
 
         /// <summary>

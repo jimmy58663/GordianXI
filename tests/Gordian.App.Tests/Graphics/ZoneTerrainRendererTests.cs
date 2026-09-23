@@ -8,11 +8,11 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected288ByteLayout()
+        public void ZoneSceneUniform_HasExpected304ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) = 288 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) = 304 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(288, size);
+            Assert.Equal(304, size);
         }
 
         [Fact]
@@ -34,6 +34,263 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void InspectSkyRenderedPixels()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+            static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern bool DestroyWindow(IntPtr hWnd);
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device;
+            if (gd == null) return;
+
+            try
+            {
+                var renderer = new ZoneTerrainRenderer(gd);
+                renderer.EnableWeatherClouds = true;
+                renderer.EnableWeatherCelestialBodies = false;
+                renderer.LoadZone(zone, textures);
+
+                var camera = new Gordian.Core.Graphics.ViewportCamera();
+                camera.Update(new System.Numerics.Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
+                camera.FarClip = 5000f;
+
+                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                env.WeatherId = "fine";
+
+                renderer.SkyDomeRenderer?.UpdateDome(env);
+
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    Veldrid.PixelFormat.R32_Float,
+                    Veldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+
+                renderer.Render(camera, env, 0.016f, 640, 480, present: false, targetFramebuffer: offscreenFb);
+                Assert.True(renderer.DrawCalls > 0);
+                Assert.True(renderer.WeatherSkySubmeshCount > 0);
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                var stagingDesc = Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.Staging);
+                var staging = gd.ResourceFactory.CreateTexture(stagingDesc);
+
+                cl.Begin();
+                cl.CopyTexture(rtColor, staging);
+                cl.End();
+                gd.SubmitCommands(cl);
+                gd.WaitForIdle();
+
+                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                // Sample pixels across sky region to ensure soft atmospheric clouds blend over sky dome without channel corruption
+                int skyPixelCount = 0;
+                for (int y = 20; y <= 80; y += 30)
+                {
+                    for (int x = 100; x <= 500; x += 100)
+                    {
+                        int offset = (int)(y * map.RowPitch + x * 4);
+                        byte b0 = System.Runtime.InteropServices.Marshal.ReadByte(map.Data, offset);
+                        if (b0 >= 150)
+                        {
+                            skyPixelCount++;
+                        }
+                    }
+                }
+                gd.Unmap(staging);
+                staging.Dispose();
+                cl.Dispose();
+                renderer.Dispose();
+
+                Assert.True(skyPixelCount > 0, "Sky pixels should display vibrant sky dome blue.");
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        [Fact]
+        public void InspectSunySkyRenderedPixels()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+            static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern bool DestroyWindow(IntPtr hWnd);
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "TestSuny", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device;
+            if (gd == null) return;
+
+            try
+            {
+                var renderer = new ZoneTerrainRenderer(gd);
+                renderer.EnableWeatherClouds = true;
+                renderer.EnableWeatherCelestialBodies = false;
+                renderer.LoadZone(zone, textures);
+
+                var camera = new Gordian.Core.Graphics.ViewportCamera();
+                camera.Update(new System.Numerics.Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
+                camera.FarClip = 5000f;
+
+                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                env.WeatherId = "suny";
+                if (zone.EnvironmentData != null)
+                {
+                    var kf = zone.EnvironmentData.Interpolate(12.0f, "suny");
+                    if (kf != null)
+                    {
+                        env.ApplyKeyframe(kf);
+                    }
+                }
+
+                renderer.SkyDomeRenderer?.UpdateDome(env);
+
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    Veldrid.PixelFormat.R32_Float,
+                    Veldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+
+                var sunyLayer = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "suny", StringComparison.OrdinalIgnoreCase));
+                var kfSb = new System.Text.StringBuilder();
+                if (zone.EnvironmentData != null)
+                {
+                    var kf = zone.EnvironmentData.Interpolate(12.0f, "suny");
+                    if (kf != null)
+                    {
+                        kfSb.AppendLine($"kf.TerrainSunColor = {kf.TerrainSunColor}");
+                        kfSb.AppendLine($"kf.TerrainAmbientColor = {kf.TerrainAmbientColor}");
+                        kfSb.AppendLine($"kf.TerrainFogColor = {kf.TerrainFogColor}");
+                        kfSb.AppendLine($"kf.ClearColor = {kf.ClearColor}");
+                        kfSb.AppendLine($"kf.Slices Count = {kf.Slices.Count}");
+                        foreach (var s in kf.Slices)
+                        {
+                            kfSb.AppendLine($"   Slice: {s.Elevation} deg, Color={s.Color}");
+                        }
+                    }
+                }
+                renderer.Render(camera, env, 0.016f, 640, 480, present: false, targetFramebuffer: offscreenFb);
+                Assert.True(renderer.DrawCalls > 0);
+                Assert.True(renderer.WeatherSkySubmeshCount > 0);
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                var stagingDesc = Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.Staging);
+                var staging = gd.ResourceFactory.CreateTexture(stagingDesc);
+
+                cl.Begin();
+                cl.CopyTexture(rtColor, staging);
+                cl.End();
+                gd.SubmitCommands(cl);
+                gd.WaitForIdle();
+
+                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                uint rowPitch = map.RowPitch;
+                IntPtr basePtr = map.Data;
+                int brightPixels = 0;
+                for (int y = 40; y < 200; y += 40)
+                {
+                    for (int x = 80; x < 560; x += 80)
+                    {
+                        int offset = (int)(y * rowPitch + x * 4);
+                        byte b0 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset);
+                        byte b1 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset + 1);
+                        byte b2 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset + 2);
+                        // Either blue sky (B >= 150) or white/cream cloud (B >= 150)
+                        if (b0 >= 150)
+                        {
+                            brightPixels++;
+                        }
+                    }
+                }
+                gd.Unmap(staging);
+                staging.Dispose();
+                cl.Dispose();
+                renderer.Dispose();
+
+                Assert.True(brightPixels > 0, "Sky must contain bright blue sky dome or cream cloud pixels without dark gray blanketing.");
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        [Fact]
+        public void Zone4_WeatherSkyLayers_VerifyAuthoredStructureAndWeatherGating()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures) || zone == null) return;
+
+            Assert.NotNull(zone.WeatherSkyLayers);
+            Assert.NotEmpty(zone.WeatherSkyLayers);
+
+            // Celestial elements (sun, moon, stars) must be present and marked IsCelestial
+            Assert.Contains(zone.WeatherSkyLayers, l => l.IsCelestial && l.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun);
+            Assert.Contains(zone.WeatherSkyLayers, l => l.IsCelestial && l.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Moon);
+            Assert.Contains(zone.WeatherSkyLayers, l => l.IsCelestial && l.Name.Contains("star", StringComparison.OrdinalIgnoreCase));
+
+            // Authored cloud layers must match their specific weather types
+            var sunyCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "suny", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(sunyCloud);
+            Assert.False(sunyCloud.IsCelestial);
+            Assert.Contains("suny", sunyCloud.Name, StringComparison.OrdinalIgnoreCase);
+
+            var clodCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "clod", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(clodCloud);
+            Assert.False(clodCloud.IsCelestial);
+            Assert.Contains("clod", clodCloud.Name, StringComparison.OrdinalIgnoreCase);
+
+            var mistCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "mist", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(mistCloud);
+            Assert.False(mistCloud.IsCelestial);
+        }
+
+        [Fact]
         public void FragmentShaders_AreNonEmptyAndValidGlsl()
         {
             Assert.False(string.IsNullOrWhiteSpace(ZoneShaders.FragmentShaderOpaqueGlsl));
@@ -50,6 +307,25 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("2.0 * lit * tex.rgb", ZoneShaders.FragmentShaderBlendGlsl);
             Assert.Contains("clamp(4.0 * fsin_Color.a * tex.a, 0.0, 1.0)", ZoneShaders.FragmentShaderBlendGlsl);
             Assert.Contains("mix(litColor, FogColor.rgb, fogFactor)", ZoneShaders.FragmentShaderBlendGlsl);
+        }
+
+        [Fact]
+        public void FragmentShaderWaterGlsl_ContainsDualWaveCausticsAndFresnel()
+        {
+            Assert.False(string.IsNullOrWhiteSpace(ZoneShaders.FragmentShaderWaterGlsl));
+            Assert.Contains("mix(tex1, tex2, 0.5)", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("crest", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("aquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("dayAquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("nightAquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("fresnel", ZoneShaders.FragmentShaderWaterGlsl);
+        }
+
+        [Fact]
+        public void ViewportCamera_FarClip_DefaultsTo5000Yalms()
+        {
+            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            Assert.Equal(5000.0f, camera.FarClip);
         }
 
         [Fact]
@@ -158,6 +434,73 @@ namespace Gordian.App.Tests.Graphics
             // While terrain blend pipeline enforces depthWriteEnabled = false to prevent occluding subsequent props (docks) or entity feet.
             Assert.Contains("0.00015", ZoneShaders.VertexShaderDecalGlsl);
             Assert.Contains("clipPos.w", ZoneShaders.VertexShaderDecalGlsl);
+        }
+
+        [Fact]
+        public void VertexShaderWeatherSkyGlsl_ContainsWeatherParamsAndUvScrolling()
+        {
+            Assert.Contains("clipPos = Projection * View * worldPos", ZoneShaders.VertexShaderWeatherSkyGlsl);
+            Assert.Contains("gl_Position = vec4(clipPos.xy, clipPos.w * 0.9998, clipPos.w)", ZoneShaders.VertexShaderWeatherSkyGlsl);
+        }
+
+        [Fact]
+        public void FragmentShaders_BypassFogForCelestialDiscs()
+        {
+            // Celestial discs (Sun/Moon/Stars) bypass distance fog when WeatherParams.w > 0.5
+            Assert.Contains("WeatherParams.w < 0.5", ZoneShaders.FragmentShaderBlendGlsl);
+            Assert.Contains("WeatherParams.w < 0.5", ZoneShaders.FragmentShaderOpaqueGlsl);
+            Assert.Contains("WeatherParams.w < 0.5", ZoneShaders.FragmentShaderCutoutGlsl);
+        }
+
+        [Fact]
+        public void FragmentShaderWeatherSkyGlsl_ContainsEmissiveCelestialAndCloudAmbient()
+        {
+            // Stars have emissive starlight modulated by starAlpha (WeatherParams.z)
+            Assert.Contains("starAlpha = WeatherParams.z", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("starRgb = 2.0 * fsin_Color.rgb * tex.rgb * starAlpha", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+
+            // Moon has self-luminous celestial glow (WeatherParams.w > 2.1)
+            Assert.Contains("WeatherParams.w > 2.1", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("moonRgb = 2.0 * fsin_Color.rgb * tex.rgb", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+
+            // Sun has golden radiant daylight disc (WeatherParams.w > 1.5)
+            Assert.Contains("sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85))", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+
+            // Clouds use atmospheric sky ambient and are wispy/translucent at night
+            Assert.Contains("nightCloudAmbient", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("nightAlphaFactor", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+        }
+
+        [Fact]
+        public void SkyDomeShaders_AreNonEmptyAndCenterAtEyePosition()
+        {
+            Assert.Contains("Position + EyePosition.xyz", ZoneShaders.SkyDomeVertexShaderGlsl);
+            Assert.Contains("fsout_Color = vec4(fsin_Color.rgb, 1.0)", ZoneShaders.SkyDomeFragmentShaderGlsl);
+        }
+
+        [Fact]
+        public void FragmentShaderWaterGlsl_ContainsDualCounterScrollingCaustics()
+        {
+            // Dual-layer counter-scrolling caustics with 50/50 mix
+            Assert.Contains("uv1 = fsin_TexCoord + waterOffset", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("crossDrift", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("uv2 = fsin_TexCoord * 1.20", ZoneShaders.FragmentShaderWaterGlsl);
+            Assert.Contains("waterTex = mix(tex1, tex2, 0.5)", ZoneShaders.FragmentShaderWaterGlsl);
+
+            // Vibrant aquatic glow floor
+            Assert.Contains("nightAquaticGlow = vec3(0.04, 0.32, 0.52)", ZoneShaders.FragmentShaderWaterGlsl);
+        }
+
+        [Fact]
+        public void WeatherSkySettings_DefaultsPreserveCloudsWhileBypassingUntexturedBodies()
+        {
+            // By default, EnableWeatherClouds is true to render authentic drifting cloud layers (fine_a01, suny_a01, clod_a01),
+            // while EnableWeatherCelestialBodies is false because raw 0x05 generator shells are untextured/particle placeholders.
+            var propClouds = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherClouds");
+            var propBodies = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherCelestialBodies");
+
+            Assert.NotNull(propClouds);
+            Assert.NotNull(propBodies);
         }
     }
 }

@@ -6,10 +6,10 @@ namespace Gordian.App.Graphics
 {
     /// <summary>
     /// Uniform buffer structure containing scene transform matrices, directional sun/moon lighting,
-    /// and authentic FFXI distance fog parameters.
-    /// Matched to GLSL std140 layout (288 bytes).
+    /// authentic FFXI distance fog parameters, and dynamic weather / cloud scroll parameters.
+    /// Matched to GLSL std140 layout (304 bytes).
     /// </summary>
-    [StructLayout(LayoutKind.Sequential, Size = 288)]
+    [StructLayout(LayoutKind.Sequential, Size = 304)]
     public struct ZoneSceneUniform
     {
         public Matrix4x4 World;
@@ -21,6 +21,7 @@ namespace Gordian.App.Graphics
         public Vector4 FogColor;
         public Vector4 FogParams; // X = FogStart, Y = FogEnd, Z = 1 / (FogEnd - FogStart), W = FogDensity
         public Vector4 EyePosition;
+        public Vector4 WeatherParams; // X = UVOffset.X, Y = UVOffset.Y, Z = Time, W = IsCelestial (1.0 = bypass fog)
     }
 
     /// <summary>
@@ -54,6 +55,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 void main()
@@ -61,7 +63,7 @@ void main()
     vec4 worldPos = World * vec4(Position, 1.0);
     fsin_WorldPos = worldPos.xyz;
     fsin_Normal = mat3(World) * Normal;
-    fsin_TexCoord = TexCoord;
+    fsin_TexCoord = TexCoord + WeatherParams.xy;
     fsin_Color = Color;
     gl_Position = Projection * View * worldPos;
 }
@@ -95,6 +97,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 void main()
@@ -102,7 +105,7 @@ void main()
     vec4 worldPos = World * vec4(Position, 1.0);
     fsin_WorldPos = worldPos.xyz;
     fsin_Normal = mat3(World) * Normal;
-    fsin_TexCoord = TexCoord;
+    fsin_TexCoord = TexCoord + WeatherParams.xy;
     fsin_Color = Color;
     vec4 clipPos = Projection * View * worldPos;
     // Linear W-scaled depth bias: nudges coincident decal geometry slightly towards camera in NDC
@@ -140,6 +143,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 void main()
@@ -153,6 +157,50 @@ void main()
     // Linear W-scaled depth bias: nudges coincident water geometry slightly towards camera in NDC
     // so shallow water surfaces consistently win depth comparison over submerged seabed without distance z-fighting.
     gl_Position = vec4(clipPos.xy, clipPos.z - 0.00025 * clipPos.w, clipPos.w);
+}
+";
+
+        /// <summary>
+        /// Vertex shader for dynamic weather sky shells (clouds) and celestial discs (sun, moon).
+        /// Applies continuous UV offset for cloud drift, centers on camera/celestial orbit,
+        /// and projects to the far plane behind terrain.
+        /// </summary>
+        public const string VertexShaderWeatherSkyGlsl = @"#version 450
+
+layout(location = 0) in vec3 Position;
+layout(location = 1) in vec3 Normal;
+layout(location = 2) in vec2 TexCoord;
+layout(location = 3) in vec4 Color;
+
+layout(location = 0) out vec3 fsin_WorldPos;
+layout(location = 1) out vec3 fsin_Normal;
+layout(location = 2) out vec2 fsin_TexCoord;
+layout(location = 3) out vec4 fsin_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+};
+
+void main()
+{
+    vec4 worldPos = World * vec4(Position, 1.0);
+    fsin_WorldPos = worldPos.xyz;
+    fsin_Normal = mat3(World) * Normal;
+    fsin_TexCoord = TexCoord + WeatherParams.xy;
+    fsin_Color = Color;
+
+    vec4 clipPos = Projection * View * worldPos;
+    gl_Position = vec4(clipPos.xy, clipPos.w * 0.9998, clipPos.w);
 }
 ";
 
@@ -197,6 +245,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 #define MAX_JOINTS 200
@@ -267,6 +316,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -289,7 +339,7 @@ void main()
 
     // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
     vec3 finalRgb = litColor;
-    if (FogParams.y > 0.0)
+    if (FogParams.y > 0.0 && WeatherParams.w < 0.5)
     {
         float dist = distance(EyePosition.xyz, fsin_WorldPos);
         float fogStart = FogParams.x;
@@ -321,6 +371,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -348,9 +399,9 @@ void main()
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
 
-    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
+    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0 and not a celestial disc)
     vec3 finalRgb = litColor;
-    if (FogParams.y > 0.0)
+    if (FogParams.y > 0.0 && WeatherParams.w < 0.5)
     {
         float dist = distance(EyePosition.xyz, fsin_WorldPos);
         float fogStart = FogParams.x;
@@ -382,6 +433,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -408,7 +460,110 @@ void main()
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
 
-    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
+    // Authentic FFXI distance fog blending (active when FogParams.y > 0.0 and not a celestial disc)
+    vec3 finalRgb = litColor;
+    if (FogParams.y > 0.0 && WeatherParams.w < 0.5)
+    {
+        float dist = distance(EyePosition.xyz, fsin_WorldPos);
+        float fogStart = FogParams.x;
+        float fogEnd = FogParams.y;
+        float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
+        finalRgb = mix(litColor, FogColor.rgb, fogFactor);
+    }
+    fsout_Color = vec4(finalRgb, alpha);
+}
+";
+
+        /// <summary>
+        /// Fragment shader for translucent water surfaces (ocean planes, rivers, waterfalls).
+        /// Implements dual counter-scrolling wave caustics using native umi1 texture,
+        /// wave crest highlights, vibrant aquatic cyan-blue ambient illumination,
+        /// and Fresnel view-dependent reflection matching retail FFXI and Windower.
+        /// </summary>
+        public const string FragmentShaderWaterGlsl = @"#version 450
+
+layout(location = 0) in vec3 fsin_WorldPos;
+layout(location = 1) in vec3 fsin_Normal;
+layout(location = 2) in vec2 fsin_TexCoord;
+layout(location = 3) in vec4 fsin_Color;
+
+layout(location = 0) out vec4 fsout_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+};
+
+layout(set = 1, binding = 0) uniform texture2D uTexture;
+layout(set = 1, binding = 1) uniform sampler uSampler;
+
+void main()
+{
+    // Dual counter-scrolling wave caustics:
+    // Layer 1: Primary gentle swell drift along WeatherParams.xy
+    vec2 waterOffset = WeatherParams.xy;
+    vec2 uv1 = fsin_TexCoord + waterOffset;
+
+    // Layer 2: Counter-swell at 1.2x scale drifting diagonally in reverse/cross direction.
+    // Overlapping two layers of the native umi1 texture creates authentic FFXI diamond caustic interference.
+    vec2 crossDrift = vec2(-waterOffset.y * 0.85, waterOffset.x * 0.65);
+    vec2 uv2 = fsin_TexCoord * 1.20 + crossDrift + vec2(0.33, 0.57);
+
+    // Subtle gentle wave shimmer (slow 0.4 rad/sec breathing, 0.006 amplitude)
+    float time = WeatherParams.z;
+    float ripple = sin(fsin_WorldPos.x * 0.05 + time * 0.4) * cos(fsin_WorldPos.z * 0.05 + time * 0.3);
+    uv2 += vec2(ripple * 0.006, ripple * 0.006);
+
+    vec4 tex1 = texture(sampler2D(uTexture, uSampler), uv1);
+    vec4 tex2 = texture(sampler2D(uTexture, uSampler), uv2);
+
+    // Blend the two counter-scrolling layers (50/50 mix)
+    vec4 waterTex = mix(tex1, tex2, 0.5);
+
+    // Dynamic wave crest caustic highlights:
+    // Emphasizes rippling wave highlights that catch light and shimmer
+    float waveHeight = (tex1.r + tex2.r) * 0.5;
+    float crest = pow(waveHeight, 2.8) * 1.2;
+
+    // Directional + Ambient Lighting with baked vertex colors
+    vec3 N = normalize(fsin_Normal);
+    vec3 L = normalize(SunDirection.xyz);
+    float NdotL = max(dot(N, L), 0.0);
+
+    // Aquatic ambient lighting:
+    // Ensures ocean water maintains an authentic luminous deep-water azure blue
+    // even at night or in dense fog, matching retail FFXI / Windower (#0080B0).
+    // In daytime (SunDirection.y > 0), blends smoothly into rich tropical cyan/azure.
+    vec3 baseAmb = fsin_Color.rgb * AmbientColor.rgb;
+    vec3 dayAquaticGlow = vec3(0.12, 0.58, 0.72);
+    vec3 nightAquaticGlow = vec3(0.04, 0.32, 0.52);
+    float dayFactor = clamp(SunDirection.y + 0.3, 0.0, 1.0);
+    vec3 aquaticGlow = mix(nightAquaticGlow, dayAquaticGlow, dayFactor);
+    vec3 amb = max(baseAmb, aquaticGlow);
+    vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
+    vec3 lit = clamp(amb + df0, 0.0, 1.0);
+
+    // Modulate2x lighting with wave crest shimmer
+    vec3 litColor = 2.0 * lit * waterTex.rgb + (crest * 0.35 * max(SunColor.rgb, vec3(0.4, 0.6, 0.8)));
+
+    // View-dependent Fresnel reflection: glancing angles increase opacity and sky reflection
+    vec3 V = normalize(EyePosition.xyz - fsin_WorldPos);
+    float NdotV = clamp(dot(N, V), 0.0, 1.0);
+    float fresnel = pow(1.0 - NdotV, 3.0);
+
+    float baseAlpha = clamp(4.0 * fsin_Color.a * waterTex.a, 0.0, 1.0);
+    float alpha = clamp(mix(baseAlpha, 0.82, fresnel * 0.45) + crest * 0.15, 0.35, 0.92);
+
+    // Distance fog blending (water gradually recedes into horizon fog)
     vec3 finalRgb = litColor;
     if (FogParams.y > 0.0)
     {
@@ -418,7 +573,123 @@ void main()
         float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
         finalRgb = mix(litColor, FogColor.rgb, fogFactor);
     }
+
     fsout_Color = vec4(finalRgb, alpha);
+}
+";
+
+        /// <summary>
+        /// Fragment shader for Section 0x05 weather sky elements: dynamic drifting cloud layers,
+        /// celestial discs (sun, moon), and night stars.
+        /// Unlit emissive celestial rendering prevents night shadow darkening.
+        /// Uses WeatherParams:
+        ///   xy: continuous UV scrolling offset
+        ///   z: star alpha / night brightness factor (0.0 daytime, 1.0 peak night)
+        ///   w: layer depth/type (3.0 = stars, 2.0 = celestial discs, 1.0 = clouds)
+        /// </summary>
+        public const string FragmentShaderWeatherSkyGlsl = @"#version 450
+
+layout(location = 0) in vec3 fsin_WorldPos;
+layout(location = 1) in vec3 fsin_Normal;
+layout(location = 2) in vec2 fsin_TexCoord;
+layout(location = 3) in vec4 fsin_Color;
+
+layout(location = 0) out vec4 fsout_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+};
+
+layout(set = 1, binding = 0) uniform texture2D uTexture;
+layout(set = 1, binding = 1) uniform sampler uSampler;
+
+void main()
+{
+    vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
+
+    // WeatherParams.w encodes layer type:
+    // > 2.5: Stars (additive celestial points)
+    // > 1.5: Sun / Moon (self-luminous celestial discs)
+    // <= 1.5: Dynamic Cloud Shells
+    if (WeatherParams.w > 2.5)
+    {
+        // Stars: Emissive, unlit points of celestial light modulated by starAlpha (WeatherParams.z)
+        float starAlpha = WeatherParams.z;
+        vec3 starRgb = 2.0 * fsin_Color.rgb * tex.rgb * starAlpha;
+        float alpha = clamp(tex.a * 2.0, 0.0, 1.0);
+        if (alpha < 0.01 || length(starRgb) < 0.005)
+        {
+            discard;
+        }
+        fsout_Color = vec4(starRgb, alpha);
+        return;
+    }
+    else if (WeatherParams.w > 2.1)
+    {
+        // Moon (WeatherParams.w ~ 2.2): Silver-white celestial glow with crater detail
+        vec3 moonRgb = 2.0 * fsin_Color.rgb * tex.rgb * vec3(1.15, 1.20, 1.30);
+        float moonAlpha = clamp(tex.a * 2.2, 0.0, 1.0);
+        if (moonAlpha < 0.02)
+        {
+            discard;
+        }
+        fsout_Color = vec4(moonRgb, moonAlpha);
+        return;
+    }
+    else if (WeatherParams.w > 1.5)
+    {
+        // Sun (WeatherParams.w ~ 2.0): Radiant golden daylight disc
+        vec3 sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85)) * vec3(1.35, 1.25, 0.95);
+        float sunAlpha = clamp(tex.a * 2.0, 0.0, 1.0);
+        if (sunAlpha < 0.02)
+        {
+            discard;
+        }
+        fsout_Color = vec4(sunRgb, sunAlpha);
+    }
+    else
+    {
+        // For partial cloud textures (such as suny_a01 and fine_a01), background texels have alpha < 50/255 (~0.196).
+        // Discarding texels with tex.a < 0.20 allows the underlying procedural sky dome, sun, moon, and stars to
+        // shine cleanly through the open spaces between drifting cloud bodies without gray blanket haze or moiré scanlines.
+        if (tex.a < 0.20)
+        {
+            discard;
+        }
+
+        // Atmospheric lighting modulation: daylight clouds are luminous white, night clouds are dark silvery slate
+        float dayFactor = clamp(SunDirection.y + 0.35, 0.0, 1.0);
+        vec3 nightCloudAmbient = vec3(0.40, 0.45, 0.58);
+        vec3 dayCloudAmbient = vec3(1.0, 1.0, 1.0);
+        vec3 cloudLighting = mix(nightCloudAmbient, dayCloudAmbient, dayFactor);
+
+        vec3 cloudRgb = clamp(tex.rgb * cloudLighting, 0.0, 1.0);
+
+        // Stage 1 alpha:
+        // Smoothly ramp alpha from the outer cloud threshold (0.20) to full density
+        // For continuous overcast textures (clod_a01, where tex.a >= 0.40), preserves authentic overcast coverage
+        float normTexAlpha = clamp((tex.a - 0.20) / 0.80, 0.0, 1.0);
+        float nightAlphaFactor = mix(0.50, 1.0, dayFactor);
+        float alpha = clamp(2.0 * fsin_Color.a * normTexAlpha * nightAlphaFactor, 0.0, 0.85);
+
+        if (alpha < 0.02)
+        {
+            discard;
+        }
+
+        fsout_Color = vec4(cloudRgb, alpha);
+        return;
+    }
 }
 ";
 
@@ -446,6 +717,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogColor;
     vec4 FogParams;
     vec4 EyePosition;
+    vec4 WeatherParams;
 };
 
 void main()

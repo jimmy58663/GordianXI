@@ -20,6 +20,26 @@ namespace Gordian.Core.Resources
     {
         private const int ModelBaseHi = 0x147B3;
 
+        private static readonly HashSet<string> WeatherDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "fine", "suny", "clod", "mist", "dryw", "heat", "rain", "squl",
+            "dust", "sand", "wind", "stom", "snow", "bliz", "thdr", "bolt",
+            "aura", "ligt", "fogd", "dark"
+        };
+
+        private static string? ResolveCurrentWeather(Stack<string> stack)
+        {
+            if (stack.Count == 0) return null;
+            foreach (var dir in stack)
+            {
+                if (WeatherDirectoryNames.Contains(dir))
+                {
+                    return dir.ToLowerInvariant();
+                }
+            }
+            return null;
+        }
+
         /// <summary>
         /// Calculates the canonical FFXI ROM File ID for a zone's 3D model container DAT.
         /// </summary>
@@ -50,6 +70,8 @@ namespace Gordian.Core.Resources
             var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var realMeshNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var raw0x2ESubmeshes = new List<MeshGroup>();
+            var pendingSkyMeshes = new List<(string Name, string DatId, string? Weather, List<MeshGroup> Submeshes)>();
+            var generatorPlacements = new List<(string DatId, string? Weather, ParticleGeneratorDefinition Generator)>();
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
@@ -129,6 +151,12 @@ namespace Gordian.Core.Resources
                         {
                             raw0x2ESubmeshes.AddRange(submeshes);
                             string primaryName = submeshes[0].Name;
+                            if (ZoneDefDecoder.IsSkyMesh(primaryName) || ZoneDefDecoder.IsSkyMesh(header.DatId))
+                            {
+                                string? currentWeather = ResolveCurrentWeather(dirStack);
+                                pendingSkyMeshes.Add((primaryName, header.DatId, currentWeather, submeshes));
+                            }
+
                             RegisterTemplate(primaryName, submeshes, isRealName: true);
 
                             int spaceIdx = primaryName.LastIndexOf(' ');
@@ -144,6 +172,48 @@ namespace Gordian.Core.Resources
                             if (!string.IsNullOrEmpty(header.DatId) && !header.DatId.Equals(primaryName, StringComparison.OrdinalIgnoreCase))
                             {
                                 RegisterTemplate(header.DatId, submeshes, isRealName: false);
+                            }
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.ParticleKeyFrameData:
+                    {
+                        var curve = ParticleKeyFrameDecoder.DecodeKeyFrame(payload, header.DatId);
+                        if (curve != null)
+                        {
+                            string? weather = ResolveCurrentWeather(dirStack);
+                            if (!string.IsNullOrEmpty(weather))
+                            {
+                                envData.AddKeyFrameCurve($"{weather}/{header.DatId}", curve);
+                            }
+                            envData.AddKeyFrameCurve(header.DatId, curve);
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.ParticleGenerator:
+                    {
+                        var generator = ParticleGeneratorDecoder.DecodeGenerator(payload, header.DatId);
+                        if (generator != null)
+                        {
+                            string? weather = ResolveCurrentWeather(dirStack);
+                            if (!string.IsNullOrEmpty(weather))
+                            {
+                                envData.AddParticleGenerator($"{weather}/{header.DatId}", generator);
+                            }
+                            envData.AddParticleGenerator(header.DatId, generator);
+                            generatorPlacements.Add((header.DatId, weather, generator));
+
+                            // Detect zone water surface generators with UV scroll velocity
+                            if (generator.UVScrollVelocity != Vector2.Zero &&
+                                (IsWaterGenerator(header.DatId) || IsWaterGenerator(generator.Setup?.LinkedDataId ?? string.Empty)))
+                            {
+                                // In retail FFXI, generator UVScrollVelocity is per-frame at 60 FPS (e.g. 0.0005).
+                                // Scale to gentle per-second drift velocity (translateAmount * 30f, capped to 0.025f max for natural ocean pace).
+                                float vx = Math.Clamp(generator.UVScrollVelocity.X * 30.0f, -0.025f, 0.025f);
+                                float vy = Math.Clamp(generator.UVScrollVelocity.Y * 30.0f, -0.025f, 0.025f);
+                                envData.WaterUVScroll = new Vector2(vx, vy);
                             }
                         }
                         break;
@@ -175,15 +245,214 @@ namespace Gordian.Core.Resources
                         var keyframe = EnvironmentDecoder.DecodeEnvironmentKeyframe(payload, header.DatId);
                         if (keyframe != null)
                         {
-                            string weather = dirStack.Count > 0 ? dirStack.Peek() : "weat";
-                            envData.AddKeyframe(weather, keyframe);
+                            // Outdoor celestial weather environments in FFXI reside under the 'weat' directory tree (or root in synthetic tests).
+                            // Cave/tunnel sub-environments under 'ev01', 'ev02', etc. have Indoors=true, ClearColor=0, and all-zero
+                            // black sky slices; they must not pollute the celestial sky dome.
+                            bool isSubEnv = false;
+                            bool underWeat = false;
+                            foreach (var d in dirStack)
+                            {
+                                if (string.Equals(d, "weat", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    underWeat = true;
+                                }
+                                if (d.StartsWith("ev", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    isSubEnv = true;
+                                }
+                            }
+
+                            if ((underWeat || dirStack.Count == 0 || !isSubEnv) && !keyframe.Indoors)
+                            {
+                                string weather = ResolveCurrentWeather(dirStack) ?? "fine";
+                                if (string.Equals(weather, "weat", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    weather = "fine";
+                                }
+                                envData.AddKeyframe(weather, keyframe);
+                            }
                         }
                         break;
                     }
                 }
             }
 
-            if (envData.WeatherKeyframes.Count > 0)
+            // Resolve pending weather sky layers and celestial discs
+            var seenCelestialSkyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int s = 0; s < pendingSkyMeshes.Count; s++)
+            {
+                var (meshName, datId, weather, submeshes) = pendingSkyMeshes[s];
+                bool isCelestial = ZoneDefDecoder.IsCelestialMesh(meshName) || ZoneDefDecoder.IsCelestialMesh(datId);
+
+                if (isCelestial)
+                {
+                    if (!seenCelestialSkyNames.Add(meshName))
+                    {
+                        continue; // Star/moon/sun are duplicated under every weather folder — keep one
+                    }
+                    weather = null; // Universal across all weathers
+                }
+
+                // Match against decoded Particle Generators
+                ParticleGeneratorDefinition? matchedGen = null;
+                if (!string.IsNullOrEmpty(weather))
+                {
+                    envData.ParticleGenerators.TryGetValue($"{weather}/{datId}", out matchedGen);
+                    if (matchedGen == null)
+                    {
+                        envData.ParticleGenerators.TryGetValue($"{weather}/{meshName}", out matchedGen);
+                    }
+                }
+                if (matchedGen == null)
+                {
+                    envData.ParticleGenerators.TryGetValue(datId, out matchedGen);
+                }
+                if (matchedGen == null)
+                {
+                    envData.ParticleGenerators.TryGetValue(meshName, out matchedGen);
+                }
+                if (matchedGen == null)
+                {
+                    foreach (var gen in envData.ParticleGenerators.Values)
+                    {
+                        if (gen.Setup != null &&
+                            (string.Equals(gen.Setup.LinkedDataId, datId, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(gen.Setup.LinkedDataId, meshName, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            // If this is a celestial sun/moon disc, prefer compact celestial scale (<= 5)
+                            // over giant atmospheric corona/glare generator shells (e.g. sun3 scale <40, 30, 100>)
+                            if (isCelestial && (gen.AttachType == ParticleAttachType.Sun || gen.AttachType == ParticleAttachType.Moon || meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                if (gen.Scale.X <= 5.0f && gen.Scale.Y <= 5.0f)
+                                {
+                                    matchedGen = gen;
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                matchedGen = gen;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                ParticleAttachType attachType = ParticleAttachType.None;
+                if (matchedGen != null && matchedGen.AttachType != ParticleAttachType.None)
+                {
+                    attachType = matchedGen.AttachType;
+                }
+                else if (isCelestial)
+                {
+                    if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase))
+                    {
+                        attachType = ParticleAttachType.Moon;
+                    }
+                    else if (meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase))
+                    {
+                        attachType = ParticleAttachType.Sun;
+                    }
+                    else
+                    {
+                        // Star domes, stardust, and celestial spheres wrap camera
+                        attachType = ParticleAttachType.None;
+                    }
+                }
+
+                // Default cloud drift velocity: if no generator specified a UV drift and it's not a celestial body,
+                // clouds drift gently across the sky dome at canonical speed
+                Vector2 uvScroll = matchedGen?.UVScrollVelocity ?? Vector2.Zero;
+                if (uvScroll == Vector2.Zero && !isCelestial)
+                {
+                    uvScroll = new Vector2(0.00015f, 0.00003f);
+                }
+
+                string textureName = submeshes.Count > 0 ? submeshes[0].TextureName : string.Empty;
+                if (string.IsNullOrWhiteSpace(textureName))
+                {
+                    if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase))
+                    {
+                        textureName = "moonshap";
+                    }
+                    else if (meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase))
+                    {
+                        textureName = string.Empty; // Celestial sun disc uses golden self-luminous untextured shading; avoid matching cloud texture
+                    }
+                }
+
+                Vector3 layerScale = matchedGen?.Scale ?? Vector3.One;
+                if (isCelestial && (attachType == ParticleAttachType.Sun || meshName.Contains("sun", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (layerScale.X > 5.0f || layerScale.Y > 5.0f || layerScale.Z > 5.0f)
+                    {
+                        layerScale = new Vector3(2.0f, 2.0f, 2.0f);
+                    }
+                }
+
+                Vector3 rawBasePos = matchedGen?.Setup?.BasePosition ?? Vector3.Zero;
+                Vector3 displayBasePos = new Vector3(-rawBasePos.X, MathF.Abs(rawBasePos.Y), rawBasePos.Z);
+
+                var layer = new WeatherSkyLayer
+                {
+                    Name = meshName,
+                    DatId = datId,
+                    WeatherId = weather,
+                    IsCelestial = isCelestial,
+                    AttachType = attachType,
+                    UVScroll = uvScroll,
+                    Position = displayBasePos,
+                    Scale = layerScale,
+                    TextureName = textureName,
+                    FollowCamera = matchedGen?.Setup?.FollowCamera ?? true,
+                    FogEnabled = matchedGen?.Setup?.FogEnabled ?? false,
+                    IsBlend = true,
+                    NoCull = true
+                };
+
+                // Convert sky geometry to display coordinates (-x, -y, z) matching retail FFXI and world placements
+                foreach (var submesh in submeshes)
+                {
+                    var srcVerts = submesh.Vertices;
+                    var dstVerts = new MeshVertex[srcVerts.Length];
+                    Vector3 minBounds = new(float.MaxValue);
+                    Vector3 maxBounds = new(float.MinValue);
+
+                    for (int v = 0; v < srcVerts.Length; v++)
+                    {
+                        var sv = srcVerts[v];
+                        var displayPos = new Vector3(-sv.Position.X, -sv.Position.Y, sv.Position.Z);
+                        var displayNormal = new Vector3(-sv.Normal.X, -sv.Normal.Y, sv.Normal.Z);
+
+                        minBounds = Vector3.Min(minBounds, displayPos);
+                        maxBounds = Vector3.Max(maxBounds, displayPos);
+
+                        dstVerts[v] = new MeshVertex(displayPos, displayNormal, sv.TexCoord, sv.ColorRgba);
+                    }
+
+                    int[] indices = new int[submesh.Indices.Length];
+                    Array.Copy(submesh.Indices, indices, submesh.Indices.Length);
+
+                    layer.MeshGroups.Add(new MeshGroup
+                    {
+                        Name = submesh.Name,
+                        TextureName = submesh.TextureName,
+                        Vertices = dstVerts,
+                        Indices = indices,
+                        MinBounds = minBounds,
+                        MaxBounds = maxBounds,
+                        IsWater = false,
+                        IsBlend = true,
+                        NoCull = true,
+                        IsFoliage = false
+                    });
+                }
+
+                zone.WeatherSkyLayers.Add(layer);
+                envData.AddWeatherSkyLayer(layer);
+            }
+
+            if (envData.WeatherKeyframes.Count > 0 || envData.WeatherSkyLayers.Count > 0 || envData.ParticleGenerators.Count > 0)
             {
                 zone.EnvironmentData = envData;
             }
@@ -214,6 +483,45 @@ namespace Gordian.Core.Resources
                         zone.MeshGroups.Add(instantiated);
                         placedCount++;
                     }
+                }
+            }
+
+            // Phase 2b: Water Surface & Wave Ripple Effect Instancing via Section 0x05 Particle Generators
+            // In retail FFXI, shoreline ripples (shi1..shi5), wave crests (hna0, hum1, humt), and localized water ripples (mizu)
+            // are positioned dynamically by particle generators rather than static Section 0x1C placements.
+            for (int g = 0; g < generatorPlacements.Count; g++)
+            {
+                var (datId, weather, gen) = generatorPlacements[g];
+                if (gen.Setup == null || string.IsNullOrWhiteSpace(gen.Setup.LinkedDataId)) continue;
+
+                string linkId = gen.Setup.LinkedDataId;
+                if (ZoneDefDecoder.IsSkyMesh(linkId) || ZoneDefDecoder.IsCelestialMesh(linkId)) continue;
+
+                var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(linkId, templates, realMeshNames);
+                if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
+
+                bool isWater = IsWaterGenerator(datId) ||
+                               IsWaterGenerator(linkId) ||
+                               ZoneDefDecoder.IsWaterMesh(linkId, templateSubmeshes[0].TextureName);
+
+                // Only instantiate generators that represent genuine water ripples, waves, or surface effects.
+                // Atmospheric effects, heat shimmer, or horizon sunset glare planes must not be baked into static terrain.
+                if (!isWater) continue;
+
+                var trsMatrix = ZoneDefDecoder.CreateTrsMatrix(gen.Setup.BasePosition, Vector3.Zero, gen.Scale);
+
+                for (int s = 0; s < templateSubmeshes.Count; s++)
+                {
+                    var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, datId);
+                    if (isWater)
+                    {
+                        instantiated.IsWater = true;
+                        instantiated.IsBlend = true;
+                        instantiated.NoCull = true;
+                    }
+                    instantiated.UVScroll = gen.UVScrollVelocity;
+                    zone.MeshGroups.Add(instantiated);
+                    placedCount++;
                 }
             }
 
@@ -345,6 +653,17 @@ namespace Gordian.Core.Resources
             }
 
             return -1;
+        }
+
+        public static bool IsWaterGenerator(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.ToLowerInvariant();
+            return n.StartsWith("umi") || n.StartsWith("shi") || n.StartsWith("sea") ||
+                   n.StartsWith("water") || n.StartsWith("ocean") || n.StartsWith("lowsea") ||
+                   n.StartsWith("suimen") || n.StartsWith("huw") || n.StartsWith("yuku") ||
+                   n.StartsWith("ka") || n.StartsWith("kb") || n.StartsWith("hum") ||
+                   n.StartsWith("hna") || n.StartsWith("mizu");
         }
     }
 }

@@ -42,6 +42,7 @@ namespace Gordian.Core.World
         public event Action<WorldEntity>? EntityDespawned;
         public event Action? WorldCleared;
         public event Action<ushort>? ZoneChanged;
+        public event Action<string>? WeatherChanged;
 
         private ushort _currentZoneId;
         public ushort CurrentZoneId
@@ -65,6 +66,61 @@ namespace Gordian.Core.World
                 {
                     ZoneChanged?.Invoke(value);
                 }
+            }
+        }
+
+        private ushort _weatherNumber;
+        private string _weatherId = "fine";
+
+        public ushort WeatherNumber
+        {
+            get
+            {
+                lock (_syncRoot) return _weatherNumber;
+            }
+        }
+
+        public string WeatherId
+        {
+            get
+            {
+                lock (_syncRoot) return _weatherId;
+            }
+            set
+            {
+                bool changed = false;
+                lock (_syncRoot)
+                {
+                    if (_weatherId != value)
+                    {
+                        _weatherId = value;
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    WeatherChanged?.Invoke(value);
+                }
+            }
+        }
+
+        public void UpdateWeather(ushort weatherNumber)
+        {
+            bool changed = false;
+            string weatherId = VanaTime.GetWeatherId(weatherNumber);
+            lock (_syncRoot)
+            {
+                if (_weatherNumber != weatherNumber || _weatherId != weatherId)
+                {
+                    _weatherNumber = weatherNumber;
+                    _weatherId = weatherId;
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                GordianLog.Info("WORLD", $"Weather updated to #{weatherNumber} ('{weatherId}')");
+                WeatherChanged?.Invoke(weatherId);
             }
         }
 

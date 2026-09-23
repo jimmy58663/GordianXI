@@ -79,8 +79,22 @@ namespace Gordian.Core.Resources.Graphics
     {
         private readonly Dictionary<string, List<EnvironmentKeyframe>> _weatherKeyframes =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, KeyFrameCurve> _keyFrameCurves =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ParticleGeneratorDefinition> _particleGenerators =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<WeatherSkyLayer> _weatherSkyLayers = new();
 
         public IReadOnlyDictionary<string, List<EnvironmentKeyframe>> WeatherKeyframes => _weatherKeyframes;
+        public IReadOnlyDictionary<string, KeyFrameCurve> KeyFrameCurves => _keyFrameCurves;
+        public IReadOnlyDictionary<string, ParticleGeneratorDefinition> ParticleGenerators => _particleGenerators;
+        public IReadOnlyList<WeatherSkyLayer> WeatherSkyLayers => _weatherSkyLayers;
+
+        /// <summary>
+        /// Continuous horizontal (U) and vertical (V) drift velocity for zone water surfaces (rivers, ocean plane).
+        /// Extracted from Section 0x05 water generators (e.g. umi, shi, sea) or default ocean drift velocity.
+        /// </summary>
+        public Vector2 WaterUVScroll { get; set; } = new Vector2(0.015f, -0.045f);
 
         public void AddKeyframe(string weather, EnvironmentKeyframe keyframe)
         {
@@ -92,6 +106,30 @@ namespace Gordian.Core.Resources.Graphics
 
             list.Add(keyframe);
             list.Sort((a, b) => a.Hour.CompareTo(b.Hour));
+        }
+
+        public void AddKeyFrameCurve(string key, KeyFrameCurve curve)
+        {
+            if (!string.IsNullOrEmpty(key) && curve != null)
+            {
+                _keyFrameCurves[key] = curve;
+            }
+        }
+
+        public void AddParticleGenerator(string key, ParticleGeneratorDefinition generator)
+        {
+            if (!string.IsNullOrEmpty(key) && generator != null)
+            {
+                _particleGenerators[key] = generator;
+            }
+        }
+
+        public void AddWeatherSkyLayer(WeatherSkyLayer layer)
+        {
+            if (layer != null)
+            {
+                _weatherSkyLayers.Add(layer);
+            }
         }
 
         /// <summary>

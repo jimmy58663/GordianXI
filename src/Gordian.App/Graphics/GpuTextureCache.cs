@@ -111,11 +111,12 @@ namespace Gordian.App.Graphics
                     float combined = (w1 + w2 + w3) / 3f; // [-1, 1]
                     float ripple = (combined + 1f) * 0.5f; // [0, 1]
 
-                    // Authentic FFXI coastal ocean palette matching DAT umi1 texture (deep slate/teal ripples)
-                    byte r = (byte)(30 + (int)(ripple * 25));
-                    byte g = (byte)(48 + (int)(ripple * 35));
-                    byte b = (byte)(68 + (int)(ripple * 50));
-                    byte a = (byte)(120 + (int)(ripple * 30)); // Authentic DAT alpha range
+                    // Authentic FFXI coastal ocean palette matching DAT umi1 texture with sharp wave crests and deep troughs
+                    float crest = MathF.Pow(ripple, 3.0f);
+                    byte r = (byte)Math.Clamp(28 + (int)(ripple * 45 + crest * 110), 0, 255);
+                    byte g = (byte)Math.Clamp(52 + (int)(ripple * 60 + crest * 130), 0, 255);
+                    byte b = (byte)Math.Clamp(78 + (int)(ripple * 80 + crest * 155), 0, 255);
+                    byte a = (byte)Math.Clamp(110 + (int)(ripple * 50 + crest * 80), 0, 255);
 
                     int offset = (int)((y * width + x) * 4);
                     waterPixels[offset] = r;
@@ -179,6 +180,8 @@ namespace Gordian.App.Graphics
                     uint width = (uint)Math.Max(1, decoded.Width);
                     uint height = (uint)Math.Max(1, decoded.Height);
 
+                    GordianLog.Info("GPU_TEX", $"Uploading GPU texture '{textureName}', cleanKey='{cleanKey}', decoded='{decoded.Name}', W={width}, H={height}, PixelsLen={decoded.RgbaPixels.Length}");
+
                     var tex = factory.CreateTexture(TextureDescription.Texture2D(
                         width, height, 1, 1,
                         PixelFormat.R8_G8_B8_A8_UNorm,
@@ -201,6 +204,7 @@ namespace Gordian.App.Graphics
                 }
             }
 
+            GordianLog.Warning("GPU_TEX", $"TEXTURE NOT FOUND: '{textureName}', returning default checkerboard!");
             return _defaultResourceSet;
         }
 

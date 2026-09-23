@@ -226,6 +226,14 @@ namespace Gordian.App
                 return;
             }
 
+            // F9 cycles active Weather presets (Clear "fine" -> Sunshine "suny" -> Clouds "clod" -> Fog "mist")
+            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) == 0)
+            {
+                _viewportControl?.CycleWeather();
+                e.Handled = true;
+                return;
+            }
+
             // F10 cycles Time of Day presets (Day -> Dusk -> Night -> Overcast)
             if (e.Key == Key.F10)
             {
