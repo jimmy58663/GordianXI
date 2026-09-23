@@ -7,11 +7,13 @@ namespace Gordian.App.Graphics
     /// <summary>
     /// Uniform buffer structure containing scene transform matrices, directional sun/moon lighting,
     /// authentic FFXI distance fog parameters, and dynamic weather / cloud scroll parameters.
-    /// Matched to GLSL std140 layout (304 bytes).
+    /// Matched to GLSL std140 layout (320 bytes).
     /// </summary>
-    [StructLayout(LayoutKind.Sequential, Size = 304)]
+    [StructLayout(LayoutKind.Sequential, Size = (int)SizeInBytes)]
     public struct ZoneSceneUniform
     {
+        public const uint SizeInBytes = 320;
+
         public Matrix4x4 World;
         public Matrix4x4 View;
         public Matrix4x4 Projection;
@@ -22,6 +24,7 @@ namespace Gordian.App.Graphics
         public Vector4 FogParams; // X = FogStart, Y = FogEnd, Z = 1 / (FogEnd - FogStart), W = FogDensity
         public Vector4 EyePosition;
         public Vector4 WeatherParams; // X = UVOffset.X, Y = UVOffset.Y, Z = Time, W = IsCelestial (1.0 = bypass fog)
+        public Vector4 SkyTextureFactor; // Weather-sky generator color (texture factor), read only by the weather-sky shaders
     }
 
     /// <summary>
@@ -167,15 +170,15 @@ void main()
         /// </summary>
         public const string VertexShaderWeatherSkyGlsl = @"#version 450
 
+// Every declared input and varying must be consumed: on D3D11 the cross-compiler strips unused
+// ones and the remaining attributes/varyings shift into the wrong registers. Normal is therefore
+// omitted here and from ZoneTerrainRenderer's weather-sky vertex layout.
 layout(location = 0) in vec3 Position;
-layout(location = 1) in vec3 Normal;
-layout(location = 2) in vec2 TexCoord;
-layout(location = 3) in vec4 Color;
+layout(location = 1) in vec2 TexCoord;
+layout(location = 2) in vec4 Color;
 
-layout(location = 0) out vec3 fsin_WorldPos;
-layout(location = 1) out vec3 fsin_Normal;
-layout(location = 2) out vec2 fsin_TexCoord;
-layout(location = 3) out vec4 fsin_Color;
+layout(location = 0) out vec2 fsin_TexCoord;
+layout(location = 1) out vec4 fsin_Color;
 
 layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 {
@@ -189,13 +192,12 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogParams;
     vec4 EyePosition;
     vec4 WeatherParams;
+    vec4 SkyTextureFactor;
 };
 
 void main()
 {
     vec4 worldPos = World * vec4(Position, 1.0);
-    fsin_WorldPos = worldPos.xyz;
-    fsin_Normal = mat3(World) * Normal;
     fsin_TexCoord = TexCoord + WeatherParams.xy;
     fsin_Color = Color;
 
@@ -583,19 +585,20 @@ void main()
 
         /// <summary>
         /// Fragment shader for Section 0x05 weather sky elements: dynamic drifting cloud layers,
-        /// celestial discs (sun, moon), and night stars.
-        /// Unlit emissive celestial rendering prevents night shadow darkening.
+        /// celestial generator geometry (stars, Milky Way, moon disc and halo), and the sun disc.
         /// Uses WeatherParams:
         ///   xy: continuous UV scrolling offset
-        ///   z: star alpha / night brightness factor (0.0 daytime, 1.0 peak night)
-        ///   w: layer depth/type (3.0 = stars, 2.0 = celestial discs, 1.0 = clouds)
+        ///   z: 1.0 = additive (Src_One_Add) generator blend, 0.0 = alpha blend
+        ///   w: layer type (3.0 = celestial generator, 2.0 = sun disc, 1.0 = clouds)
+        /// Celestial generators reproduce the client's two modulate-2x texture stages, with the generator
+        /// color (day-of-week, moon-phase and time-of-day modulated) as the texture factor.
+        /// Stage math referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particleDrawer.js, after xim XimParticleShader).
         /// </summary>
         public const string FragmentShaderWeatherSkyGlsl = @"#version 450
 
-layout(location = 0) in vec3 fsin_WorldPos;
-layout(location = 1) in vec3 fsin_Normal;
-layout(location = 2) in vec2 fsin_TexCoord;
-layout(location = 3) in vec4 fsin_Color;
+layout(location = 0) in vec2 fsin_TexCoord;
+layout(location = 1) in vec4 fsin_Color;
 
 layout(location = 0) out vec4 fsout_Color;
 
@@ -611,6 +614,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 FogParams;
     vec4 EyePosition;
     vec4 WeatherParams;
+    vec4 SkyTextureFactor;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -620,36 +624,30 @@ void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
 
-    // WeatherParams.w encodes layer type:
-    // > 2.5: Stars (additive celestial points)
-    // > 2.1: Moon (self-luminous lunar disc with crater detail modulated by phase)
-    // > 1.5: Sun (self-luminous radiant golden daylight disc)
-    // <= 1.5: Dynamic Cloud Shells
     if (WeatherParams.w > 2.5)
     {
-        // Stars: Emissive, unlit points of celestial light modulated by starAlpha (WeatherParams.z).
-        // Rendered with additive blend factor (One, One).
-        float starAlpha = WeatherParams.z;
-        vec3 starRgb = 2.0 * fsin_Color.rgb * tex.rgb * starAlpha;
-        if (tex.a < 0.04 || length(starRgb) < 0.001)
+        vec4 stage0 = 2.0 * fsin_Color * tex;
+        vec3 rgb = clamp(2.0 * stage0.rgb * SkyTextureFactor.rgb, 0.0, 1.0);
+        float alpha = clamp(4.0 * stage0.a * SkyTextureFactor.a, 0.0, 1.0);
+
+        if (WeatherParams.z > 0.5)
         {
-            discard;
+            // Src_One_Add (SRC_ALPHA, ONE), premultiplied for the One/One additive pipeline.
+            vec3 added = rgb * alpha;
+            if (max(added.r, max(added.g, added.b)) < 0.002)
+            {
+                discard;
+            }
+            fsout_Color = vec4(added, 0.0);
         }
-        fsout_Color = vec4(starRgb, 1.0);
-        return;
-    }
-    else if (WeatherParams.w > 2.1)
-    {
-        // Moon (WeatherParams.w ~ 2.2): Silver-white celestial glow with crater detail modulated by lunar phase.
-        // WeatherParams.z carries moon phase factor (0.05 to 1.0).
-        float moonPhase = clamp(WeatherParams.z, 0.05, 1.0);
-        vec3 moonRgb = 2.0 * fsin_Color.rgb * tex.rgb * vec3(1.15, 1.20, 1.30) * (0.35 + 0.65 * moonPhase);
-        float moonAlpha = clamp(tex.a * 2.2 * (0.40 + 0.60 * moonPhase), 0.0, 1.0);
-        if (moonAlpha < 0.02)
+        else
         {
-            discard;
+            if (alpha < 0.004)
+            {
+                discard;
+            }
+            fsout_Color = vec4(rgb, alpha);
         }
-        fsout_Color = vec4(moonRgb, moonAlpha);
         return;
     }
     else if (WeatherParams.w > 1.5)

@@ -16,6 +16,12 @@ namespace Gordian.Core.Graphics
         public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.4f, 0.8f, 0.4f));
 
         /// <summary>
+        /// Vana'diel time of day in hours [0, 24). Drives the time-of-day keyframe curves
+        /// (Section 0x19, sampled by generator clock updaters) of stars and the moon.
+        /// </summary>
+        public float TimeOfDayHours { get; set; } = 12.0f;
+
+        /// <summary>
         /// RGB intensity and color of the primary directional sunlight.
         /// </summary>
         public Vector3 SunColor { get; set; } = new(1.0f, 0.98f, 0.92f);
@@ -94,6 +100,15 @@ namespace Gordian.Core.Graphics
         public bool Indoors { get; set; } = false;
 
         /// <summary>
+        /// Sets the Vana'diel time of day and the matching celestial sun direction.
+        /// </summary>
+        public void SetTimeOfDay(float vanaHour)
+        {
+            TimeOfDayHours = vanaHour;
+            SunDirection = World.VanaTime.GetSunDirection(vanaHour);
+        }
+
+        /// <summary>
         /// Applies an authentic decoded FFXI Section 0x2F keyframe to these environment settings.
         /// </summary>
         public void ApplyKeyframe(Resources.Graphics.EnvironmentKeyframe keyframe)
@@ -164,6 +179,7 @@ namespace Gordian.Core.Graphics
 
         public static ZoneEnvironmentSettings CreateDay() => new()
         {
+            TimeOfDayHours = 12.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.4f, 0.8f, 0.4f)),
             SunColor = new Vector3(1.0f, 0.98f, 0.92f),
             AmbientColor = new Vector3(0.38f, 0.40f, 0.46f),
@@ -178,6 +194,7 @@ namespace Gordian.Core.Graphics
 
         public static ZoneEnvironmentSettings CreateNight() => new()
         {
+            TimeOfDayHours = 0.0f,
             SunDirection = Vector3.Normalize(new Vector3(-0.2f, -0.7f, -0.3f)),
             SunColor = new Vector3(0.25f, 0.30f, 0.45f),
             AmbientColor = new Vector3(0.12f, 0.15f, 0.22f),
@@ -192,6 +209,7 @@ namespace Gordian.Core.Graphics
 
         public static ZoneEnvironmentSettings CreateDusk() => new()
         {
+            TimeOfDayHours = 18.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.7f, 0.3f, 0.2f)),
             SunColor = new Vector3(1.0f, 0.65f, 0.45f),
             AmbientColor = new Vector3(0.30f, 0.25f, 0.35f),
@@ -206,6 +224,7 @@ namespace Gordian.Core.Graphics
 
         public static ZoneEnvironmentSettings CreateOvercast() => new()
         {
+            TimeOfDayHours = 12.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.0f, 1.0f, 0.0f)),
             SunColor = new Vector3(0.55f, 0.55f, 0.58f),
             AmbientColor = new Vector3(0.40f, 0.42f, 0.45f),

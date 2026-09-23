@@ -36,6 +36,20 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void VanaTime_DayOfWeekIndex_StartsAtFiresdayAndAdvancesDaily()
+        {
+            var epoch = DateTimeOffset.FromUnixTimeSeconds(1009810800L).UtcDateTime;
+            const double earthSecondsPerVanaDay = 86400.0 / 25.0;
+
+            Assert.Equal(0, VanaTime.GetDayOfWeekIndex(epoch));
+            for (int day = 1; day <= 9; day++)
+            {
+                Assert.Equal(day % 8, VanaTime.GetDayOfWeekIndex(epoch.AddSeconds(day * earthSecondsPerVanaDay)));
+            }
+            Assert.Equal(7, VanaTime.GetDayOfWeekIndex(epoch.AddSeconds(-1)));
+        }
+
+        [Fact]
         public void VanaTime_MapsWeatherNumbersToWeatherIds()
         {
             Assert.Equal("fine", VanaTime.GetWeatherId(0));

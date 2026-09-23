@@ -84,10 +84,9 @@ namespace Gordian.App.Graphics
         public bool EnableCelestialMoon { get; set; } = true;
 
         /// <summary>
-        /// Controls whether the continuous stardust / Milky Way dome shell (textured with star_rivstar02) is rendered.
-        /// Defaults to false to isolate individual celestial star billboards (star_rivstar01).
+        /// Controls whether the stardust shell (faint background starfield, textured with star_rivstar02) is rendered.
         /// </summary>
-        public bool EnableMilkyWay { get; set; } = false;
+        public bool EnableMilkyWay { get; set; } = true;
 
         /// <summary>
         /// Controls whether the solar disc and radiance flare are rendered during daytime.
@@ -150,6 +149,8 @@ namespace Gordian.App.Graphics
             public Vector3 Scale { get; init; } = Vector3.One;
             public bool FollowCamera { get; init; }
             public string TextureName { get; init; } = string.Empty;
+            public WeatherSkyLayer Layer { get; init; } = null!;
+            public int CardIndex { get; init; } = -1;
             public DeviceBuffer VertexBuffer { get; init; } = null!;
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public DeviceBuffer UniformBuffer { get; init; } = null!;
@@ -178,12 +179,12 @@ namespace Gordian.App.Graphics
         {
             var factory = _gd.ResourceFactory;
 
-            // 1. Scene & Water Uniform Buffers (std140: 304 bytes)
+            // 1. Scene & Water Uniform Buffers (std140, ZoneSceneUniform.SizeInBytes)
             _sceneUniformBuffer = factory.CreateBuffer(new BufferDescription(
-                304,
+                ZoneSceneUniform.SizeInBytes,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
             _waterUniformBuffer = factory.CreateBuffer(new BufferDescription(
-                304,
+                ZoneSceneUniform.SizeInBytes,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
             // 2. Resource Layouts
@@ -251,6 +252,12 @@ namespace Gordian.App.Graphics
             var vertexLayout = new VertexLayoutDescription(
                 new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
                 new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
+                new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
+
+            // Same 36-byte MeshVertex buffers, minus Normal, which the weather-sky vertex shader does not read.
+            var weatherSkyVertexLayout = new VertexLayoutDescription(36,
+                new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
 
@@ -384,7 +391,7 @@ namespace Gordian.App.Graphics
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout },
-                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, weatherSkyShaders),
+                ShaderSet = new ShaderSetDescription(new[] { weatherSkyVertexLayout }, weatherSkyShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _weatherSkyPipeline = factory.CreateGraphicsPipeline(weatherSkyPipelineDesc);
@@ -497,7 +504,7 @@ namespace Gordian.App.Graphics
                         _gd.UpdateBuffer(ib, 0, ushortIndices);
 
                         var ub = factory.CreateBuffer(new BufferDescription(
-                            304,
+                            ZoneSceneUniform.SizeInBytes,
                             BufferUsage.UniformBuffer | BufferUsage.Dynamic));
                         var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
 
@@ -513,6 +520,8 @@ namespace Gordian.App.Graphics
                             Scale = layer.Scale,
                             FollowCamera = layer.FollowCamera,
                             TextureName = group.TextureName,
+                            Layer = layer,
+                            CardIndex = layer.IsMoonPhaseSpriteSheet ? g : -1,
                             VertexBuffer = vb,
                             IndexBuffer = ib,
                             UniformBuffer = ub,
@@ -622,17 +631,16 @@ namespace Gordian.App.Graphics
                 Vector3 sunDir = Vector3.Normalize(environment.SunDirection);
                 Vector3 moonDir = -sunDir;
 
+                int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
+                int moonPhaseIndex = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                float dayFraction = environment.TimeOfDayHours / 24.0f;
+
                 for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
                 {
                     var skyMesh = _weatherSkySubmeshes[i];
                     bool isCelestial = skyMesh.IsCelestial;
-                    bool isStar = isCelestial && (string.Equals(skyMesh.Name, "star", StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(skyMesh.LayerName, "star", StringComparison.OrdinalIgnoreCase) ||
-                                                 skyMesh.Name.StartsWith("sta1", StringComparison.OrdinalIgnoreCase) ||
-                                                 skyMesh.LayerName.StartsWith("sta1", StringComparison.OrdinalIgnoreCase));
-                    bool isStardust = isCelestial && (skyMesh.Name.Contains("stardust", StringComparison.OrdinalIgnoreCase) ||
-                                                     skyMesh.LayerName.Contains("stardust", StringComparison.OrdinalIgnoreCase));
-                    bool isMoon = isCelestial && (skyMesh.AttachType == ParticleAttachType.Moon || skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase) || skyMesh.LayerName.Contains("moon", StringComparison.OrdinalIgnoreCase) || skyMesh.Name.Contains("kasa", StringComparison.OrdinalIgnoreCase) || skyMesh.LayerName.Contains("kasa", StringComparison.OrdinalIgnoreCase));
+                    bool isStardust = isCelestial && skyMesh.LayerName.Contains("stardust", StringComparison.OrdinalIgnoreCase);
+                    bool isMoon = isCelestial && skyMesh.AttachType == ParticleAttachType.Moon;
                     bool isSun = isCelestial && (skyMesh.AttachType == ParticleAttachType.Sun || ((skyMesh.Name.Contains("sun", StringComparison.OrdinalIgnoreCase) || skyMesh.LayerName.Contains("sun", StringComparison.OrdinalIgnoreCase)) && !skyMesh.Name.StartsWith("suny", StringComparison.OrdinalIgnoreCase) && !skyMesh.LayerName.StartsWith("suny", StringComparison.OrdinalIgnoreCase)));
 
                     if (isCelestial && !EnableWeatherCelestialBodies) continue;
@@ -658,27 +666,21 @@ namespace Gordian.App.Graphics
                         }
                     }
 
-                    // Celestial disc and star visibility gating based on sun/moon elevation
-                    float starAlpha = 0.0f;
-                    if (isSun)
+                    if (isSun && sunDir.Y <= 0.0f) continue; // Sun below horizon
+                    if (isMoon && moonDir.Y <= 0.0f) continue; // Moon below horizon
+
+                    if (isCelestial && !isSun)
                     {
-                        if (sunDir.Y <= 0.0f) continue; // Sun below horizon
-                    }
-                    else if (isMoon)
-                    {
-                        if (moonDir.Y <= 0.0f) continue; // Moon below horizon
-                    }
-                    else if (isStar)
-                    {
-                        // Stars fade in at dusk, shine bright at night, and fade out at dawn
-                        starAlpha = Math.Clamp((-sunDir.Y + 0.15f) / 0.45f, 0.0f, 1.0f);
-                        if (starAlpha <= 0.01f) continue; // In daytime, stars are invisible
+                        if (DrawCelestialGenerator(skyMesh, camera, moonDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
+                        {
+                            draws++;
+                            visible++;
+                        }
+                        continue;
                     }
 
-                    // Select pipeline: Stars, Sun, and Lunar Halo use Additive; Moon disc and Clouds use Alpha Blend
-                    bool isHalo = skyMesh.Name.Contains("kasa", StringComparison.OrdinalIgnoreCase) || skyMesh.LayerName.Contains("kasa", StringComparison.OrdinalIgnoreCase);
-                    bool useAdditive = isStar || isSun || isHalo;
-                    Pipeline targetSkyPipeline = useAdditive ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
+                    // Select pipeline: the sun disc is additive; clouds use alpha blending
+                    Pipeline targetSkyPipeline = isSun ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
 
                     if (currentSkyPipeline != targetSkyPipeline)
                     {
@@ -692,10 +694,6 @@ namespace Gordian.App.Graphics
                     {
                         centerPos = camera.Position + sunDir * 900.0f;
                     }
-                    else if (skyMesh.AttachType == ParticleAttachType.Moon)
-                    {
-                        centerPos = camera.Position + moonDir * 900.0f;
-                    }
                     else if (skyMesh.FollowCamera)
                     {
                         centerPos = camera.Position + skyMesh.BasePosition;
@@ -705,43 +703,16 @@ namespace Gordian.App.Graphics
                         centerPos = skyMesh.BasePosition;
                     }
 
-                    // Calculate world transformation matrix
-                    Matrix4x4 worldMatrix;
-                    if (skyMesh.AttachType == ParticleAttachType.Sun || skyMesh.AttachType == ParticleAttachType.Moon)
-                    {
-                        // Celestial disc billboarding: original disc mesh normal is <-1, 0, 0> in local space.
-                        // Rotate to face vector pointing directly at camera.
-                        Vector3 toCamera = Vector3.Normalize(camera.Position - centerPos);
-                        Vector3 sourceNormal = new Vector3(-1f, 0f, 0f);
-                        float dot = Vector3.Dot(sourceNormal, toCamera);
-                        Quaternion rot;
-                        if (dot > 0.9999f)
-                        {
-                            rot = Quaternion.Identity;
-                        }
-                        else if (dot < -0.9999f)
-                        {
-                            rot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI);
-                        }
-                        else
-                        {
-                            Vector3 cross = Vector3.Cross(sourceNormal, toCamera);
-                            rot = Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1.0f + dot));
-                        }
-                        worldMatrix = Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateFromQuaternion(rot) * Matrix4x4.CreateTranslation(centerPos);
-                    }
-                    else
-                    {
-                        worldMatrix = Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateTranslation(centerPos);
-                    }
+                    Matrix4x4 worldMatrix = skyMesh.AttachType == ParticleAttachType.Sun
+                        ? CreateCelestialDiscMatrix(camera, centerPos, skyMesh.Scale)
+                        : Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateTranslation(centerPos);
 
                     // Compute scrolling UV offset based on UVScroll velocity and elapsed time (scaled to 60 FPS effect rate)
-                    // Celestial star billboards and discs remain fixed and do not drift with wind.
-                    Vector2 uvOffset = (isStar || isMoon || isSun || isStardust)
+                    Vector2 uvOffset = isSun
                         ? Vector2.Zero
                         : (skyMesh.UVScroll * 60.0f) * _cloudAccumulatedTime;
 
-                    // Reject sky or celestial meshes with no authored texture (e.g. untextured celestial bounding/sphere shells in star layer).
+                    // Reject cloud meshes with no authored texture.
                     // Exception: Sun disc geometry is intentionally untextured and colored via shader / vertex colors.
                     if (string.IsNullOrWhiteSpace(skyMesh.TextureName) && !isSun)
                     {
@@ -752,23 +723,7 @@ namespace Gordian.App.Graphics
                     string texName = skyMesh.TextureName;
                     if ((string.IsNullOrWhiteSpace(texName) || _activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName)) && _activeDecodedTextures != null)
                     {
-                        if (isHalo || skyMesh.TextureName.Contains("kasa", StringComparison.OrdinalIgnoreCase))
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "kasa") ?? texName;
-                        }
-                        else if (isMoon)
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "moonshap", "moon") ?? texName;
-                        }
-                        else if (isStar)
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "star_rivstar01", "star01", "star") ?? texName;
-                        }
-                        else if (isStardust)
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "star_rivstar02", "star02") ?? texName;
-                        }
-                        else if (isSun)
+                        if (isSun)
                         {
                             texName = FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty;
                         }
@@ -786,9 +741,8 @@ namespace Gordian.App.Graphics
                         }
                     }
 
-                    // For cloud, moon, and star meshes, ensure genuine texture exists in cache/active textures;
-                    // never fall back to default checkerboard on sky shells.
-                    // For celestial sun disc, untextured geometry is supported by binding default white texture.
+                    // Cloud meshes need their genuine texture (never the default checkerboard on sky shells);
+                    // the untextured sun disc binds the default texture.
                     if (string.IsNullOrWhiteSpace(texName) || (_activeDecodedTextures != null && !_activeDecodedTextures.ContainsKey(texName)))
                     {
                         if (isSun)
@@ -813,17 +767,10 @@ namespace Gordian.App.Graphics
                         }
                     }
 
-                    // Update dedicated sky mesh uniform buffer and bind its resource set
-                    // WeatherParams:
-                    //   xy: continuous UV scrolling offset
-                    //   z: starAlpha for stars (0.0..1.0), moonPhase (0.05..1.0) for moon, or _cloudAccumulatedTime for clouds/discs
-                    //   w: layer depth/type (3.0 = stars, 2.2 = moon, 2.0 = sun, 1.0 = clouds)
-                    float layerType = isStar ? 3.0f : (isMoon ? 2.2f : (isSun ? 2.0f : 1.0f));
-                    float moonPhase = (float)VanaTime.GetMoonPhase(DateTime.UtcNow) / 100.0f;
-                    float paramZ = isStar ? starAlpha : (isMoon ? moonPhase : _cloudAccumulatedTime);
+                    // WeatherParams: xy = UV scroll offset, z = elapsed time, w = layer type (2.0 = sun, 1.0 = clouds)
                     var layerUniform = sceneUniform;
                     layerUniform.World = worldMatrix;
-                    layerUniform.WeatherParams = new Vector4(uvOffset.X, uvOffset.Y, paramZ, layerType);
+                    layerUniform.WeatherParams = new Vector4(uvOffset.X, uvOffset.Y, _cloudAccumulatedTime, isSun ? 2.0f : 1.0f);
 
                     _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
                     _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
@@ -1200,6 +1147,137 @@ namespace Gordian.App.Graphics
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Draws a celestial Section 0x05 generator layer (stars, Milky Way, moon disc, moon halo) with its
+        /// authored placement, blend mode and texture factor. Returns false if it contributes nothing this frame.
+        /// Placement and color rules referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/runtime.js and ui/js/particleDrawer.js, after xim Particle / GLDrawer).
+        /// </summary>
+        private bool DrawCelestialGenerator(
+            GpuWeatherSkySubmesh skyMesh,
+            ViewportCamera camera,
+            Vector3 moonDir,
+            ZoneSceneUniform sceneUniform,
+            int dayOfWeek,
+            int moonPhaseIndex,
+            float dayFraction,
+            ref Pipeline? currentPipeline)
+        {
+            var layer = skyMesh.Layer;
+            if (skyMesh.CardIndex >= 0 && skyMesh.CardIndex != Math.Min(moonPhaseIndex, layer.MeshGroups.Count - 1)) return false;
+
+            Vector4 textureFactor = ComputeCelestialTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
+            if (textureFactor.W <= 0.001f) return false;
+
+            Matrix4x4 world;
+            if (skyMesh.AttachType == ParticleAttachType.Moon)
+            {
+                Vector3 center = camera.Position + moonDir * 900.0f;
+                world = skyMesh.CardIndex >= 0
+                    ? CreateCameraFacingCardMatrix(camera, center, skyMesh.Scale)
+                    : CreateCelestialDiscMatrix(camera, center, skyMesh.Scale);
+            }
+            else
+            {
+                // Generator rotation is authored in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
+                Vector3 center = skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
+                world = Matrix4x4.CreateScale(skyMesh.Scale) *
+                        Matrix4x4.CreateRotationX(-layer.Rotation.X) *
+                        Matrix4x4.CreateRotationY(-layer.Rotation.Y) *
+                        Matrix4x4.CreateRotationZ(layer.Rotation.Z) *
+                        Matrix4x4.CreateTranslation(center);
+            }
+
+            // Blend 0x04 is Src_InvSrc_Add (alpha); everything else here is authored additive (0x08 Src_One_Add).
+            bool additive = layer.BlendMode != 0x04;
+            Pipeline pipeline = additive ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
+            if (currentPipeline != pipeline)
+            {
+                _commandList.SetPipeline(pipeline);
+                currentPipeline = pipeline;
+            }
+
+            var layerUniform = sceneUniform;
+            layerUniform.World = world;
+            layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, additive ? 1.0f : 0.0f, 3.0f);
+            layerUniform.SkyTextureFactor = textureFactor;
+
+            ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
+                ? _textureCache.WhiteResourceSet
+                : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, _activeDecodedTextures);
+
+            _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
+            _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
+            _commandList.SetGraphicsResourceSet(1, texSet);
+            _commandList.SetVertexBuffer(0, skyMesh.VertexBuffer);
+            _commandList.SetIndexBuffer(skyMesh.IndexBuffer, IndexFormat.UInt16);
+            _commandList.DrawIndexed(skyMesh.IndexCount, 1, 0, 0, 0);
+            return true;
+        }
+
+        /// <summary>
+        /// Generator texture factor: base color, modulate-2x by the weekday and moon-phase tints,
+        /// alpha scaled by the time-of-day clock curve, clamped to [0, 1].
+        /// </summary>
+        internal static Vector4 ComputeCelestialTextureFactor(WeatherSkyLayer layer, int dayOfWeek, int moonPhaseIndex, float dayFraction)
+        {
+            Vector4 factor = layer.BaseColor;
+            if (layer.DayOfWeekColors is { Length: > 0 } dayColors)
+            {
+                factor *= dayColors[Math.Clamp(dayOfWeek, 0, dayColors.Length - 1)] * 2.0f;
+            }
+            if (layer.MoonPhaseColors is { Length: > 0 } phaseColors)
+            {
+                factor *= phaseColors[Math.Clamp(moonPhaseIndex, 0, phaseColors.Length - 1)] * 2.0f;
+            }
+            if (layer.ClockAlphaCurve != null)
+            {
+                factor.W *= layer.ClockAlphaCurve.Evaluate(Math.Clamp(dayFraction, 0.0f, 1.0f));
+            }
+            return Vector4.Clamp(factor, Vector4.Zero, Vector4.One);
+        }
+
+        /// <summary>
+        /// Orients a Section 0x2E celestial disc (authored facing local -X) toward the camera.
+        /// </summary>
+        private static Matrix4x4 CreateCelestialDiscMatrix(ViewportCamera camera, Vector3 center, Vector3 scale)
+        {
+            Vector3 toCamera = Vector3.Normalize(camera.Position - center);
+            Vector3 sourceNormal = new Vector3(-1f, 0f, 0f);
+            float dot = Vector3.Dot(sourceNormal, toCamera);
+            Quaternion rot;
+            if (dot > 0.9999f)
+            {
+                rot = Quaternion.Identity;
+            }
+            else if (dot < -0.9999f)
+            {
+                rot = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI);
+            }
+            else
+            {
+                Vector3 cross = Vector3.Cross(sourceNormal, toCamera);
+                rot = Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1.0f + dot));
+            }
+            return Matrix4x4.CreateScale(scale) * Matrix4x4.CreateFromQuaternion(rot) * Matrix4x4.CreateTranslation(center);
+        }
+
+        /// <summary>
+        /// XYZ billboard for a sprite-sheet card stored in display axes (-x, -y, z): the card's image-left
+        /// (raw -X) maps to screen left and image-top (raw -Y) to screen top, as xim's LOOK_AT_NEG_Z basis does.
+        /// </summary>
+        private static Matrix4x4 CreateCameraFacingCardMatrix(ViewportCamera camera, Vector3 center, Vector3 scale)
+        {
+            Vector3 right = camera.Right * -scale.X;
+            Vector3 up = camera.Up * scale.Y;
+            Vector3 forward = camera.Forward * scale.Z;
+            return new Matrix4x4(
+                right.X, right.Y, right.Z, 0f,
+                up.X, up.Y, up.Z, 0f,
+                forward.X, forward.Y, forward.Z, 0f,
+                center.X, center.Y, center.Z, 1f);
         }
 
         private static string? FindTextureKey(IReadOnlyDictionary<string, DecodedTexture> textures, params string[] keywords)

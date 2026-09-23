@@ -122,12 +122,55 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(textures.ContainsKey("sn_01_a"));
         }
 
-        private static byte[] BuildChunk(DatSectionType type, byte[] payload)
+        [Fact]
+        public void ParseZoneContainer_SkyMeshUsesGeneratorThatLinksIt_NotTheSameNamedGenerator()
+        {
+            // weat/fine/star: generator 'star' draws mesh section 'sta1', generator 'sta1' draws mesh section 'star'.
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "fine"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("star", "star    star01"), "sta1"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("stardust", "star    star02"), "star"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("sta1", -40f), "star"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("star", -47f), "sta1"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4);
+
+            var stars = Assert.Single(zone.WeatherSkyLayers, l => l.Name == "star");
+            Assert.Equal("star", stars.GeneratorId);
+            Assert.Equal(40f, stars.Position.Y);
+
+            var stardust = Assert.Single(zone.WeatherSkyLayers, l => l.Name == "stardust");
+            Assert.Equal("sta1", stardust.GeneratorId);
+            Assert.Equal(47f, stardust.Position.Y);
+        }
+
+        private static byte[] BuildLinkedGeneratorPayload(string linkedMeshId, float baseY)
+        {
+            byte[] payload = new byte[0x100];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x74, 4), 0x80 + 16); // Section 2 stream
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x80, 4), 0x01 | (10u << 8)); // StandardParticleSetup
+            Encoding.ASCII.GetBytes(linkedMeshId).CopyTo(payload.AsSpan(0x80 + 12, 4));
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(0x80 + 24, 4), baseY);
+            payload[0x80 + 33] = (byte)ParticleLinkedDataType.StaticMesh;
+            return payload;
+        }
+
+        private static byte[] Concat(params byte[][] chunks)
+        {
+            var all = new List<byte>();
+            foreach (var chunk in chunks) all.AddRange(chunk);
+            return all.ToArray();
+        }
+
+        private static byte[] BuildChunk(DatSectionType type, byte[] payload, string datId = "test")
         {
             int total = (16 + payload.Length + 15) & ~15;
             byte[] chunk = new byte[total];
 
-            Encoding.ASCII.GetBytes("test").CopyTo(chunk.AsSpan(0, 4));
+            Encoding.ASCII.GetBytes(datId.PadRight(4)).AsSpan(0, 4).CopyTo(chunk.AsSpan(0, 4));
             uint units = (uint)(total / 16);
             uint meta = ((uint)type & 0x7F) | ((units & 0x7FFFF) << 7);
             BinaryPrimitives.WriteUInt32LittleEndian(chunk.AsSpan(4, 4), meta);

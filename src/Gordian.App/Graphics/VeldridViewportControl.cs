@@ -260,7 +260,7 @@ namespace Gordian.App.Graphics
                                 if (keyframe != null)
                                 {
                                     Environment.ApplyKeyframe(keyframe);
-                                    Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                                    Environment.SetTimeOfDay(vanaHour);
                                     Environment.WeatherId = weather;
                                     _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
                                     GordianLog.Info("Graphics", $"Applied Zone {zoneToLoad} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
@@ -551,7 +551,7 @@ namespace Gordian.App.Graphics
                                     if (kf != null)
                                     {
                                         Environment.ApplyKeyframe(kf);
-                                        Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                                        Environment.SetTimeOfDay(vanaHour);
                                         Environment.WeatherId = activeWeather;
                                         _renderer.SkyDomeRenderer?.UpdateDome(Environment);
                                     }
@@ -659,7 +659,7 @@ namespace Gordian.App.Graphics
                     if (kf != null)
                     {
                         Environment.ApplyKeyframe(kf);
-                        Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                        Environment.SetTimeOfDay(vanaHour);
                         Environment.WeatherId = currentWeather;
                         _lastVanaHour = vanaHour;
                         _lastWeatherId = currentWeather;
@@ -690,7 +690,7 @@ namespace Gordian.App.Graphics
                 if (kf != null)
                 {
                     Environment.ApplyKeyframe(kf);
-                    Environment.SunDirection = VanaTime.GetSunDirection(targetHour);
+                    Environment.SetTimeOfDay(targetHour);
                     Environment.WeatherId = targetWeather;
                     _lastVanaHour = targetHour;
                     _lastWeatherId = targetWeather;
@@ -775,7 +775,7 @@ namespace Gordian.App.Graphics
                 if (kf != null)
                 {
                     Environment.ApplyKeyframe(kf);
-                    Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                    Environment.SetTimeOfDay(vanaHour);
                     _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
                 }
             }

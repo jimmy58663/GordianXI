@@ -172,6 +172,18 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
+        /// Computes the Vana'diel day of the week (0 = Firesday, 1 = Earthsday, 2 = Watersday, 3 = Windsday,
+        /// 4 = Iceday, 5 = Lightningday, 6 = Lightsday, 7 = Darksday) as whole days since the epoch modulo 8.
+        /// Weekday ordering and derivation referenced from LandSandBoat (https://github.com/LandSandBoat/server).
+        /// </summary>
+        public static int GetDayOfWeekIndex(DateTime utcTime)
+        {
+            long totalDays = Math.DivRem(GetVanadielSeconds(utcTime), SecondsPerVanadielDay, out long rem);
+            if (rem < 0) totalDays--;
+            return (int)(((totalDays % 8L) + 8L) % 8L);
+        }
+
+        /// <summary>
         /// Computes the 12-step moon phase index (0 to 11) for sprite-sheet animations and celestial shaders:
         /// 0: New Moon, 6: Full Moon.
         /// Derived from xi-model-viewer (https://github.com/vekien/xi-model-viewer).

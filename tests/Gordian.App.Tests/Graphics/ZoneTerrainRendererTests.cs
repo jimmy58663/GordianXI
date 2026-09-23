@@ -8,12 +8,55 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected304ByteLayout()
+        public void ZoneSceneUniform_HasExpected320ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) = 304 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) = 320 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(304, size);
+            Assert.Equal(320, size);
+            Assert.Equal(ZoneSceneUniform.SizeInBytes, (uint)size);
         }
+
+        public static TheoryData<string, string, string> ShaderStagePairs => new()
+        {
+            { "Opaque", ZoneShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderOpaqueGlsl },
+            { "Cutout", ZoneShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderCutoutGlsl },
+            { "Blend", ZoneShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderBlendGlsl },
+            { "Decal", ZoneShaders.VertexShaderDecalGlsl, ZoneShaders.FragmentShaderBlendGlsl },
+            { "Water", ZoneShaders.VertexShaderWaterGlsl, ZoneShaders.FragmentShaderWaterGlsl },
+            { "WeatherSky", ZoneShaders.VertexShaderWeatherSkyGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
+            { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
+        };
+
+        /// <summary>
+        /// On D3D11 the SPIR-V cross-compiler strips stage inputs that main() never reads, and the remaining
+        /// vertex attributes / varyings shift into the wrong registers (sky UVs read world position, colors read
+        /// normals). Every declared input must be consumed and every varying must match the next stage exactly.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(ShaderStagePairs))]
+        public void ShaderStageInterfaces_MatchAndConsumeEveryInput(string pipeline, string vertexGlsl, string fragmentGlsl)
+        {
+            var vsInputs = ParseInterface(vertexGlsl, "in");
+            var vsOutputs = ParseInterface(vertexGlsl, "out");
+            var fsInputs = ParseInterface(fragmentGlsl, "in");
+
+            Assert.True(vsOutputs.SequenceEqual(fsInputs), $"{pipeline}: vertex outputs [{string.Join(", ", vsOutputs)}] must equal fragment inputs [{string.Join(", ", fsInputs)}].");
+
+            foreach (var (glsl, inputs, stage) in new[] { (vertexGlsl, vsInputs, "vertex"), (fragmentGlsl, fsInputs, "fragment") })
+            {
+                string body = glsl.Substring(glsl.IndexOf("void main", StringComparison.Ordinal));
+                foreach (var input in inputs)
+                {
+                    string name = input.Split(' ')[2];
+                    Assert.True(System.Text.RegularExpressions.Regex.IsMatch(body, $@"\b{name}\b"), $"{pipeline}: {stage} input '{name}' is declared but never read.");
+                }
+            }
+        }
+
+        private static List<string> ParseInterface(string glsl, string direction) =>
+            System.Text.RegularExpressions.Regex.Matches(glsl, $@"layout\(location = (\d+)\) {direction} (\w+) (\w+);")
+                .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value} {m.Groups[3].Value}")
+                .ToList();
 
         [Fact]
         public void VertexShaderDecalGlsl_ContainsDepthBias()
@@ -279,60 +322,53 @@ namespace Gordian.App.Tests.Graphics
             }
             Assert.False(hasYukuWater, "Sunset cloud generators (yuku/ykum) must not be instantiated as static terrain water meshes.");
 
-            // 2. Simulate Pass 0b at midnight under 'fine' weather
-            var midnightSunDir = Gordian.Core.World.VanaTime.GetSunDirection(0.0f); // Midnight
-            var moonDir = -midnightSunDir;
-            string activeWeather = "fine";
-            string canonicalWeather = Gordian.Core.World.VanaTime.GetCanonicalWeatherCategory(activeWeather);
+            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.Contains("ykum", StringComparison.OrdinalIgnoreCase));
 
-            var drawnLayers = new List<string>();
+            // 2. Each celestial mesh is drawn by the generator that links it (weat/*/star cross-links 'star' <-> 'sta1')
+            var star = zone.WeatherSkyLayers.Single(l => l.Name == "star");
+            Assert.Equal("star", star.GeneratorId);
+            Assert.Equal(new System.Numerics.Vector3(0, 40, 0), star.Position);
+            Assert.Equal(-0.785f, star.Rotation.Y, 3);
+            Assert.Equal("ksta", star.ClockAlphaCurve?.DatId);
 
-            foreach (var layer in zone.WeatherSkyLayers)
+            var stardust = zone.WeatherSkyLayers.Single(l => l.Name == "stardust");
+            Assert.Equal("sta1", stardust.GeneratorId);
+            Assert.Equal(new System.Numerics.Vector3(0, 47, 0), stardust.Position);
+
+            // 3. The moon halo is the untextured 0x2E disc drawn by 'kasa'; the moon itself is a 12-phase 0x21 sprite sheet
+            var halo = zone.WeatherSkyLayers.Single(l => l.Name == "moonsphere");
+            Assert.Equal("kasa", halo.GeneratorId);
+            Assert.All(halo.MeshGroups, g => Assert.True(string.IsNullOrEmpty(g.TextureName)));
+
+            var moon = zone.WeatherSkyLayers.Single(l => l.IsMoonPhaseSpriteSheet);
+            Assert.Equal(Gordian.Core.Resources.Graphics.ParticleAttachType.Moon, moon.AttachType);
+            Assert.Equal(12, moon.MeshGroups.Count);
+            Assert.EndsWith("moonshap", moon.TextureName);
+            Assert.Equal(8, moon.DayOfWeekColors?.Length);
+            Assert.Equal(12, moon.MoonPhaseColors?.Length);
+
+            // 4. Time-of-day curves: stars shine at midnight and vanish at noon
+            Assert.True(ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.0f).W > 0.5f);
+            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.5f).W);
+        }
+
+        [Fact]
+        public void ComputeCelestialTextureFactor_AppliesModulate2xTintsAndClockAlpha()
+        {
+            var layer = new Gordian.Core.Resources.Graphics.WeatherSkyLayer
             {
-                foreach (var group in layer.MeshGroups)
-                {
-                    bool isCelestial = layer.IsCelestial;
-                    bool isStar = group.Name.Contains("star", StringComparison.OrdinalIgnoreCase);
-                    bool isMoon = layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Moon || group.Name.Contains("moon", StringComparison.OrdinalIgnoreCase);
-                    bool isSun = layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun || group.Name.Contains("sun", StringComparison.OrdinalIgnoreCase);
+                BaseColor = new System.Numerics.Vector4(0.5f),
+                DayOfWeekColors = [new System.Numerics.Vector4(0.5f, 0.25f, 0.25f, 0.5f), new System.Numerics.Vector4(0.5f)],
+                MoonPhaseColors = [new System.Numerics.Vector4(0.5f, 0.5f, 0.5f, 0.25f)],
+                ClockAlphaCurve = new Gordian.Core.Resources.Graphics.KeyFrameCurve("k000", [new(0f, 1f), new(0.5f, 0f), new(1f, 1f)])
+            };
 
-                    if (!isCelestial)
-                    {
-                        bool matchesWeather = !string.IsNullOrEmpty(layer.WeatherId) &&
-                            (string.Equals(layer.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(layer.WeatherId, canonicalWeather, StringComparison.OrdinalIgnoreCase));
-                        if (!matchesWeather) continue;
-                    }
+            var factor = ZoneTerrainRenderer.ComputeCelestialTextureFactor(layer, dayOfWeek: 0, moonPhaseIndex: 0, dayFraction: 0.0f);
+            Assert.Equal(0.5f, factor.X, 4);  // 0.5 * (0.5*2) * (0.5*2)
+            Assert.Equal(0.25f, factor.Y, 4); // 0.5 * (0.25*2) * (0.5*2)
+            Assert.Equal(0.25f, factor.W, 4); // 0.5 * (0.5*2) * (0.25*2) * clock(0) = 1
 
-                    if (layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun && midnightSunDir.Y <= 0.0f) continue;
-                    if (layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Moon && moonDir.Y <= 0.0f) continue;
-                    if (isStar)
-                    {
-                        float starAlpha = Math.Clamp((-midnightSunDir.Y + 0.15f) / 0.45f, 0.0f, 1.0f);
-                        if (starAlpha <= 0.01f) continue;
-                    }
-
-                    string texName = group.TextureName;
-                    // Untextured geometry rejection
-                    if (string.IsNullOrWhiteSpace(texName) && !isSun)
-                    {
-                        continue;
-                    }
-
-                    drawnLayers.Add($"{layer.Name}:{group.Name}");
-                }
-            }
-
-            // Verify ykum is NOT drawn at midnight
-            Assert.DoesNotContain(drawnLayers, l => l.Contains("ykum"));
-
-            // Verify star sprites (textured group 1) are drawn, but untextured geodesic sphere (group 2) is skipped
-            Assert.Contains(drawnLayers, l => l.StartsWith("star:star"));
-            Assert.Equal(1, drawnLayers.Count(l => l.StartsWith("star:star")));
-
-            // Verify celestial stardust and moonsphere are drawn
-            Assert.Contains(drawnLayers, l => l.StartsWith("stardust:"));
-            Assert.Contains(drawnLayers, l => l.StartsWith("moonsphere:"));
+            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeCelestialTextureFactor(layer, 0, 0, 0.5f).W, 4);
         }
 
         [Fact]
@@ -719,15 +755,15 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void FragmentShaderWeatherSkyGlsl_ContainsEmissiveCelestialAndCloudAmbient()
+        public void FragmentShaderWeatherSkyGlsl_ContainsCelestialGeneratorStagesAndCloudAmbient()
         {
-            // Stars have emissive starlight modulated by starAlpha (WeatherParams.z)
-            Assert.Contains("starAlpha = WeatherParams.z", ZoneShaders.FragmentShaderWeatherSkyGlsl);
-            Assert.Contains("starRgb = 2.0 * fsin_Color.rgb * tex.rgb * starAlpha", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            // Celestial generators: two modulate-2x texture stages with the generator color as texture factor
+            Assert.Contains("stage0 = 2.0 * fsin_Color * tex", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("2.0 * stage0.rgb * SkyTextureFactor.rgb", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("4.0 * stage0.a * SkyTextureFactor.a", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
-            // Moon has self-luminous celestial glow (WeatherParams.w > 2.1)
-            Assert.Contains("WeatherParams.w > 2.1", ZoneShaders.FragmentShaderWeatherSkyGlsl);
-            Assert.Contains("moonRgb = 2.0 * fsin_Color.rgb * tex.rgb", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            // Src_One_Add generators are premultiplied for the One/One additive pipeline
+            Assert.Contains("vec3 added = rgb * alpha", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
             // Sun has golden radiant daylight disc (WeatherParams.w > 1.5)
             Assert.Contains("sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85))", ZoneShaders.FragmentShaderWeatherSkyGlsl);

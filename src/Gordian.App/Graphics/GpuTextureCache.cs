@@ -28,10 +28,18 @@ namespace Gordian.App.Graphics
         private Texture _defaultWaterTexture = null!;
         private TextureView _defaultWaterTextureView = null!;
         private ResourceSet _defaultWaterResourceSet = null!;
+        private Texture _whiteTexture = null!;
+        private TextureView _whiteTextureView = null!;
+        private ResourceSet _whiteResourceSet = null!;
         private bool _disposed;
 
         public ResourceSet DefaultResourceSet => _defaultResourceSet;
         public ResourceSet DefaultWaterResourceSet => _defaultWaterResourceSet;
+
+        /// <summary>
+        /// Opaque white 1x1 texture for authentically untextured geometry (e.g. the moon halo disc).
+        /// </summary>
+        public ResourceSet WhiteResourceSet => _whiteResourceSet;
         public Sampler Sampler => _sampler;
 
         public GpuTextureCache(GraphicsDevice gd, ResourceLayout textureLayout)
@@ -56,6 +64,11 @@ namespace Gordian.App.Graphics
 
             CreateDefaultTexture();
             CreateDefaultWaterTexture();
+
+            _whiteTexture = factory.CreateTexture(TextureDescription.Texture2D(1, 1, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+            _gd.UpdateTexture(_whiteTexture, new byte[] { 255, 255, 255, 255 }, 0, 0, 0, 1, 1, 1, 0, 0);
+            _whiteTextureView = factory.CreateTextureView(_whiteTexture);
+            _whiteResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, _whiteTextureView, _sampler));
         }
 
         private void CreateDefaultTexture()
@@ -270,6 +283,9 @@ namespace Gordian.App.Graphics
             _defaultWaterTextureView.Dispose();
             _defaultWaterTexture.Dispose();
 
+            _whiteResourceSet.Dispose();
+            _whiteTextureView.Dispose();
+            _whiteTexture.Dispose();
             _defaultResourceSet.Dispose();
             _defaultTextureView.Dispose();
             _defaultTexture.Dispose();

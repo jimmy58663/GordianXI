@@ -186,6 +186,76 @@ namespace Gordian.Core.Tests.Resources
             Assert.False(cloudGen!.IsCelestial);
         }
 
+        private static byte[] BuildGeneratorWithStreams(byte attachType, (byte Op, ushort Alloc, byte[] Args)[] initializers, (byte Op, ushort Alloc, byte[] Args)[] updaters)
+        {
+            var payload = new byte[0x200];
+            payload[0] = attachType;
+            int offset = 0x80;
+            for (int stream = 0; stream < 2; stream++)
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x74 + stream * 4, 4), (uint)(offset + 16));
+                foreach (var (op, alloc, args) in stream == 0 ? initializers : updaters)
+                {
+                    int dwords = 1 + args.Length / 4;
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(offset, 4), op | ((uint)dwords << 8) | ((uint)alloc << 13));
+                    args.CopyTo(payload.AsSpan(offset + 4));
+                    offset += dwords * 4;
+                }
+                offset += 4; // opcode 0x00 terminator
+            }
+            return payload;
+        }
+
+        private static byte[] Floats(params float[] values)
+        {
+            var bytes = new byte[values.Length * 4];
+            for (int i = 0; i < values.Length; i++) BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i * 4), values[i]);
+            return bytes;
+        }
+
+        private static byte[] KeyFrameLinkArgs(string datId) => [0, 0, 0, 0, .. Encoding.ASCII.GetBytes(datId), 0, 0, 0, 0];
+
+        [Fact]
+        public void DecodeGenerator_CelestialOpcodes_DecodeRotationClockCurveAndTints()
+        {
+            byte[] dayColors = new byte[4 + 8 * 4];
+            for (int i = 0; i < 8; i++) dayColors[4 + i * 4] = (byte)(0x10 * (i + 1));
+            byte[] phaseColors = new byte[4 + 12 * 4];
+            phaseColors[4 + 6 * 4 + 3] = 0x80; // full-moon alpha
+
+            var payload = BuildGeneratorWithStreams(
+                (byte)ParticleAttachType.Moon,
+                initializers:
+                [
+                    (0x09, 0, Floats(0f, -0.785f, 0f)),
+                    (0x60, 3, KeyFrameLinkArgs("kaaa")),
+                    (0x63, 5, KeyFrameLinkArgs("ksta")),
+                    (0x16, 0, [0x62, 0x62, 0x62, 0x80]),
+                ],
+                updaters:
+                [
+                    (0x3F, 5, []),
+                    (0x45, 0, []),
+                    (0x4E, 0, dayColors),
+                    (0x4F, 0, phaseColors),
+                ]);
+
+            var gen = ParticleGeneratorDecoder.DecodeGenerator(payload, "moon");
+
+            Assert.NotNull(gen);
+            Assert.Equal(-0.785f, gen.Rotation.Y, 4);
+            Assert.Equal("ksta", gen.ClockAlphaKeyFrameId);
+            Assert.Equal(0x62 / 255f, gen.BaseColor.X, 4);
+            Assert.Equal(0x80 / 255f, gen.BaseColor.W, 4);
+            Assert.True(gen.SpriteIndexFromMoonPhase);
+            Assert.Equal(8, gen.DayOfWeekColors!.Length);
+            Assert.Equal(0x10 / 255f, gen.DayOfWeekColors[0].X, 4);
+            Assert.Equal(0x80 / 255f, gen.DayOfWeekColors[7].X, 4);
+            Assert.Equal(12, gen.MoonPhaseColors!.Length);
+            Assert.Equal(0x80 / 255f, gen.MoonPhaseColors[6].W, 4);
+            Assert.Equal(0f, gen.MoonPhaseColors[5].W);
+        }
+
         [Fact]
         public void DecodeGenerator_UndersizedPayload_ReturnsNull()
         {

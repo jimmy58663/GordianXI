@@ -110,6 +110,47 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public bool NoCull { get; set; } = false;
 
+        /// <summary>
+        /// DatId of the Section 0x05 generator that draws this layer, if one was matched.
+        /// </summary>
+        public string? GeneratorId { get; set; }
+
+        /// <summary>
+        /// Generator initial rotation in radians, raw DAT axes.
+        /// </summary>
+        public Vector3 Rotation { get; set; } = Vector3.Zero;
+
+        /// <summary>
+        /// Generator base color (Section 2 Opcode 0x16), half-range: 0.5 (0x80) is neutral.
+        /// </summary>
+        public Vector4 BaseColor { get; set; } = Vector4.One;
+
+        /// <summary>
+        /// Generator blend mode (Section 2 Opcode 0x1E low nibble; 0x08 = additive Src_One_Add, 0x04 = alpha).
+        /// </summary>
+        public byte BlendMode { get; set; } = 0x08;
+
+        /// <summary>
+        /// Time-of-day alpha curve (Section 0x19) sampled over the 24-hour Vana'diel clock, or null.
+        /// </summary>
+        public KeyFrameCurve? ClockAlphaCurve { get; set; }
+
+        /// <summary>
+        /// Per-weekday modulate-2x tints (8 entries), or null.
+        /// </summary>
+        public Vector4[]? DayOfWeekColors { get; set; }
+
+        /// <summary>
+        /// Per-moon-phase modulate-2x tints (12 entries), or null.
+        /// </summary>
+        public Vector4[]? MoonPhaseColors { get; set; }
+
+        /// <summary>
+        /// True if this layer is a Section 0x21 sprite sheet whose MeshGroups are cards,
+        /// of which only the one indexed by the current moon phase is drawn, always facing the camera.
+        /// </summary>
+        public bool IsMoonPhaseSpriteSheet { get; set; }
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }

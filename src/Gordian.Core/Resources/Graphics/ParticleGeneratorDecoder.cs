@@ -118,6 +118,32 @@ namespace Gordian.Core.Resources.Graphics
         public bool IgnoreTextureAlpha { get; set; }
 
         /// <summary>
+        /// Initial particle rotation in radians, raw DAT axes (Section 2 Opcode 0x09).
+        /// </summary>
+        public Vector3 Rotation { get; set; } = Vector3.Zero;
+
+        /// <summary>
+        /// Section 0x19 keyframe DatId whose value, sampled over the 24-hour Vana'diel clock, multiplies
+        /// particle alpha (Section 3 Opcode 0x3F, fed by a Section 2 keyframe-link initializer).
+        /// </summary>
+        public string? ClockAlphaKeyFrameId { get; set; }
+
+        /// <summary>
+        /// Eight RGBA tints indexed by Vana'diel weekday, applied modulate-2x (Section 3 Opcode 0x4E).
+        /// </summary>
+        public Vector4[]? DayOfWeekColors { get; set; }
+
+        /// <summary>
+        /// Twelve RGBA tints indexed by moon phase, applied modulate-2x (Section 3 Opcode 0x4F).
+        /// </summary>
+        public Vector4[]? MoonPhaseColors { get; set; }
+
+        /// <summary>
+        /// True if the drawn sprite-sheet card is selected by the current moon phase (Section 3 Opcode 0x45).
+        /// </summary>
+        public bool SpriteIndexFromMoonPhase { get; set; }
+
+        /// <summary>
         /// True if this generator attaches to the Sun or Moon, or links to celestial geometry.
         /// </summary>
         public bool IsCelestial =>
@@ -198,7 +224,8 @@ namespace Gordian.Core.Resources.Graphics
                 streamOffsets[i] = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0x70 + (i * 4), 4));
             }
 
-            // Parse opcode streams
+            // Parse opcode streams (Section 2 keyframe links must be known before Section 3 updaters consume them)
+            var keyFrameLinks = new Dictionary<ushort, string>();
             for (int sec = 0; sec < 4; sec++)
             {
                 uint rawOffset = streamOffsets[sec];
@@ -207,13 +234,35 @@ namespace Gordian.Core.Resources.Graphics
                 int payloadOffset = (int)(rawOffset - 16);
                 if (payloadOffset < 0 || payloadOffset + 4 > payload.Length) continue;
 
-                ParseOpcodeStream(payload, payloadOffset, sec + 1, def);
+                ParseOpcodeStream(payload, payloadOffset, sec + 1, def, keyFrameLinks);
             }
 
             return def;
         }
 
-        private static void ParseOpcodeStream(ReadOnlySpan<byte> payload, int startOffset, int sectionNumber, ParticleGeneratorDefinition def)
+        /// <summary>
+        /// Section 2 opcodes whose initializer links a Section 0x19 keyframe curve into a particle allocation slot.
+        /// Opcode set referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/initializers.js KEYFRAME_OPCODES, after xim ParticleGeneratorParser).
+        /// </summary>
+        private static bool IsKeyFrameLinkOpcode(byte opCode) => opCode switch
+        {
+            >= 0x21 and <= 0x2F => true,
+            >= 0x33 and <= 0x37 => true,
+            0x39 => true,
+            >= 0x50 and <= 0x52 => true,
+            >= 0x59 and <= 0x66 => true,
+            0x68 or 0x69 or 0x6C => true,
+            >= 0x6D and <= 0x70 => true,
+            >= 0x74 and <= 0x78 => true,
+            0x7C or 0x7D or 0x80 or 0x81 => true,
+            >= 0x83 and <= 0x85 => true,
+            >= 0x8B and <= 0x8D => true,
+            >= 0x95 and <= 0x97 => true,
+            _ => false
+        };
+
+        private static void ParseOpcodeStream(ReadOnlySpan<byte> payload, int startOffset, int sectionNumber, ParticleGeneratorDefinition def, Dictionary<ushort, string> keyFrameLinks)
         {
             int currentOffset = startOffset;
 
@@ -243,10 +292,14 @@ namespace Gordian.Core.Resources.Graphics
                         ParseSection1Opcode(opCode, opPayload, def);
                         break;
                     case 2: // Initializers
+                        if (IsKeyFrameLinkOpcode(opCode) && opPayload.Length >= 12)
+                        {
+                            keyFrameLinks[allocationOffset] = ReadDatId(opPayload.Slice(8, 4));
+                        }
                         ParseSection2Opcode(opCode, opPayload, allocationOffset, def);
                         break;
                     case 3: // Particle Updaters
-                        ParseSection3Opcode(opCode, opPayload, allocationOffset, def);
+                        ParseSection3Opcode(opCode, opPayload, allocationOffset, def, keyFrameLinks);
                         break;
                 }
 
@@ -316,6 +369,16 @@ namespace Gordian.Core.Resources.Graphics
                     }
                     break;
 
+                case 0x09: // RotationInitializer
+                    if (opPayload.Length >= 16)
+                    {
+                        def.Rotation = new Vector3(
+                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4)),
+                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(8, 4)),
+                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(12, 4)));
+                    }
+                    break;
+
                 case 0x0F: // ScaleInitializer
                     if (opPayload.Length >= 16)
                     {
@@ -362,10 +425,29 @@ namespace Gordian.Core.Resources.Graphics
             }
         }
 
-        private static void ParseSection3Opcode(byte opCode, ReadOnlySpan<byte> opPayload, ushort allocationOffset, ParticleGeneratorDefinition def)
+        private static void ParseSection3Opcode(byte opCode, ReadOnlySpan<byte> opPayload, ushort allocationOffset, ParticleGeneratorDefinition def, Dictionary<ushort, string> keyFrameLinks)
         {
             switch (opCode)
             {
+                case 0x3F: // ClockValueUpdater: alpha *= keyframe(time of day)
+                    if (keyFrameLinks.TryGetValue(allocationOffset, out var clockCurveId))
+                    {
+                        def.ClockAlphaKeyFrameId = clockCurveId;
+                    }
+                    break;
+
+                case 0x45: // MoonPhaseSpriteSheetUpdater
+                    def.SpriteIndexFromMoonPhase = true;
+                    break;
+
+                case 0x4E: // DayOfWeekColorUpdater
+                    def.DayOfWeekColors = ReadRgbaColors(opPayload, 8);
+                    break;
+
+                case 0x4F: // MoonPhaseColorUpdater
+                    def.MoonPhaseColors = ReadRgbaColors(opPayload, 12);
+                    break;
+
                 case 0x27: // TextureCoordinateUpdater (Axis X / U)
                     if (opPayload.Length >= 8)
                     {
@@ -390,6 +472,19 @@ namespace Gordian.Core.Resources.Graphics
                     }
                     break;
             }
+        }
+
+        private static Vector4[]? ReadRgbaColors(ReadOnlySpan<byte> opPayload, int count)
+        {
+            // Opcode header word, one reserved word, then RGBA byte quads.
+            if (opPayload.Length < 8 + count * 4) return null;
+            var colors = new Vector4[count];
+            for (int i = 0; i < count; i++)
+            {
+                var c = opPayload.Slice(8 + i * 4, 4);
+                colors[i] = new Vector4(c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, c[3] / 255.0f);
+            }
+            return colors;
         }
 
         private static string ReadDatId(ReadOnlySpan<byte> span)

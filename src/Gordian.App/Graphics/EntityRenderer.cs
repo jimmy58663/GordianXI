@@ -128,7 +128,7 @@ namespace Gordian.App.Graphics
             var factory = _gd.ResourceFactory;
 
             _entityUniformBuffer = factory.CreateBuffer(new BufferDescription(
-                304,
+                ZoneSceneUniform.SizeInBytes,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
             _sceneLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
