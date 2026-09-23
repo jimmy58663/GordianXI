@@ -223,6 +223,12 @@ GordianXI does **not** copy, redistribute, or link source code or binary librari
 * **Copyright:** Copyright (c) vekien and xi-tools Contributors
 * **Referenced For:** FFXI skeletal animation clip format documentation (`docs/anim/format.md`) for clean-room animation decoding.
 
+### XiEvents
+* **Repository:** [https://github.com/atom0s/XiEvents](https://github.com/atom0s/XiEvents)
+* **License:** GNU Affero General Public License v3.0 (AGPLv3)
+* **Copyright:** Copyright (c) atom0s and XiEvents Contributors
+* **Referenced For:** Cross-reference documentation of the FFXI event virtual machine opcode set and event/cutscene byte-code structures for clean-room event script decoding.
+
 ### Disclaimer of Affiliation
 The citations provided above are purely for technical documentation, transparency, and interoperability reference purposes. Reference to these open-source repositories does not constitute or imply endorsement, sponsorship, recommendation, or affiliation with GordianXI by the respective project maintainers, authors, or contributors.
 
