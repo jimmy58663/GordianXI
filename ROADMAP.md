@@ -2,7 +2,7 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 775 Passing Unit Tests (`dotnet test`)
+- **Test Status:** 829 Passing Unit Tests (`dotnet test`)
 - **Active Focus:** Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays (MVP Completion)
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
@@ -152,10 +152,23 @@
 - [ ] **Phase 5E: UI Layering, Stock DAT 2D HUD & ImGui In-Game Overlays:**
   - [ ] **3-Tier Rendering Architecture:**
     - [x] *Tier 1 (3D Scene):* Veldrid terrain, skybox/celestial sky dome (`SkyDomeRenderer`), entity models, directional sun/moon lighting, and authentic FFXI distance fog pass. Clean-room DAT Section `0x2F` Environment decoder (`EnvironmentDecoder`, `ZoneEnvironmentData`) supporting time-of-day keyframe extraction, 8-slice sky dome gradients, and time-of-day cycling (`F10` shortcut / `CycleTimeOfDay`). Fog calibration overhaul with authentic clear visibility presets (Day, Dusk, Night), soft atmospheric haze (Overcast), distant horizon projection for retail `FogStart = 0` keyframes, shader `FogParams.y > 0.0` guards, and runtime fog toggle (`Ctrl+F10` shortcut / `ToggleFog`). Frame composition decoupled into a 3-tier presentation pipeline (`RenderTier1_Scene3D` -> `RenderTier2_StockUi` -> `RenderTier3_ImGuiOverlays`).
-    - [ ] *Phase 5E (Tier 1) Proposed Breakdown:*
-      - [x] **Step: Fog & Sky Horizon Calibration:** Calibrate the linear fog projection for clear outdoor keyframes so islands and distant mountains remain crisp and authentic. Synchronize ClearColor with the horizon color across all time-of-day presets (Day, Dusk, Night, Overcast) and DAT 0x2F slices.
+    - [ ] *Phase 5E (Tier 1) Sky, Weather & Celestial Subsystem (5 Modular Chunks):*
+      - [x] **Chunk 1: Sand & Terrain Lighting Balance:** Calibrated diffuse and ambient lighting coefficients (`0.5 * amb + 0.5 * df0`) in terrain shaders to prevent overexposure of light-colored ground/sand while maintaining shadow depth.
+      - [x] **Chunk 2: Clean Sky Dome & Rasterizer Dithering:**
+        - Authentically rendered 8-slice vertex-interpolated hemispherical sky dome (`SkyDomeRenderer`).
+        - Integrated triangular screen-space dither (`+/- 0.5/255.0` in `SkyDomeFragmentShaderGlsl`) emulating PS2 GS / D3D8 hardware rasterizer dithering, eliminating 8-bit color quantization banding in dark gradients.
+        - Synchronized horizon clear colors and distance fog across Day, Dusk, Night, and Overcast.
+        - Eliminated the overhead concentric ring artifact at dusk by separating the inverted `stardust` dome geometry from additive celestial passes.
+      - [ ] **Chunk 3: Celestial Night Sky (Stars & Moon) [Active Focus]:**
+        - [x] Decoupled celestial night bodies from daytime sun and cloud layers via discrete renderer flags (`EnableWeatherCelestialBodies = true`, `EnableCelestialMoon = true`, `EnableCelestialSun = false`, `EnableWeatherClouds = false`).
+        - [x] Lunar disc (`moonsphere`) and soft lunar halo (`kasa`) billboard rendering with dedicated additive shader and authentic scale (`<20, 20, 20>`).
+        - [x] Gated the inverted 2,004-triangle `stardust` / Milky Way shell (`EnableMilkyWay = false`) to isolate the true 666-star billboard starfield (`sta1`).
+        - [x] Zeroed celestial UV drift offsets to prevent star/moon billboards from moving across the sky like clouds.
+        - [x] Corrected `SunDirection` in `ZoneEnvironmentSettings.CreateNight()` to negative Y (`-0.7f`).
+        - [ ] **Next Step for Fresh Session:** Investigate star vertex color / texture format decoding for `star_rivstar01`: determine why star billboards render with isolated red, magenta, and blue chromatic tints instead of brilliant silver-white pinpricks (verify texture color channels / palette indices and vertex RGBA multipliers in `ZoneShaders.FragmentShaderWeatherSkyGlsl`).
+      - [ ] **Chunk 4: Dynamic Cloud Shells:** Weather-gated dynamic cloud layers (`clod`, `suny`, `fine`, `mist`) drifting with authentic UV velocities and daylight-modulated ambient lighting.
+      - [ ] **Chunk 5: Solar & Horizon Alignment:** Daytime solar disc (`sunsphere`), radiant corona flare, and horizon alignment opposite the moon along the seasonal ecliptic arc.
       - [x] **Step: Base Sea-Level Ocean Water Plane:** Implement an ocean water plane at sea level ($Y=0.0$) in Pass 5 so that island beaches and bays show translucent ocean water over the seabed while awaiting the particle generator engine.
-      - [ ] **Step: Section 0x05 Particle / Weather Sky Decoder:** Clean-room binary decoders for Section 0x19 (`ParticleKeyFrameDecoder`) and Section 0x05 (`ParticleGeneratorDecoder`), integrated into `ZoneDataLoader` and `ZoneGeometry` to extract dynamic cloud layers, drifting weather planes, and celestial discs (Sun, Moon, Stars) scoped to `weat/<weatherId>`. Viewport rendering integration in `ZoneShaders` and `ZoneTerrainRenderer` (Pass 0b) drawing dynamic cloud layers with continuous UV drift and orbiting celestial bodies at far-plane depth behind terrain with fog bypass.
       - [x] **Step: Live Weather & Water Dynamic Simulation:** Dynamic Vana'diel time clock and weather synchronization (`VanaTime`, `WorldState.WeatherId`, `0x00A` login ack, `0x057` weather packet). Automatic per-frame keyframe interpolation and sky dome update in `VeldridViewportControl`. Water surface particle generator instancing (Phase 2b in `ZoneDataLoader` for `shi1..shi5`, `hum1`, `mizu`, `hna0`), per-submesh and zone master UV scroll animations (`UVScrollVelocity`), and high-definition ocean water plane tuning (tile UV 200) matching retail FFXI.
     - [ ] *Tier 2 (Stock FFXI 2D UI):* Authentic DAT-driven menu boxes (blue marble), finger cursor hand, targeting brackets, vitals gauges, status icons, and dialog text.
     - [ ] *Tier 3 (ImGui Overlays & Addons):* Modern translucent HUD (`WindowRounding = 6.0f`), performance profiling overlay, radar/minimap, and addon plugin canvases.

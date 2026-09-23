@@ -178,7 +178,7 @@ namespace Gordian.Core.Graphics
 
         public static ZoneEnvironmentSettings CreateNight() => new()
         {
-            SunDirection = Vector3.Normalize(new Vector3(-0.2f, 0.7f, -0.3f)),
+            SunDirection = Vector3.Normalize(new Vector3(-0.2f, -0.7f, -0.3f)),
             SunColor = new Vector3(0.25f, 0.30f, 0.45f),
             AmbientColor = new Vector3(0.12f, 0.15f, 0.22f),
             FogEnabled = false,

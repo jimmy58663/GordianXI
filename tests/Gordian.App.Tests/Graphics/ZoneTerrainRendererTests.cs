@@ -404,6 +404,151 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void Zone4_NightCelestial_InspectStarsAndMoon()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures) || zone == null) return;
+
+            var starLayer = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => l.Name.Contains("star", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(starLayer);
+            var moonLayer = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => l.Name.Contains("moon", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(moonLayer);
+
+            Assert.True(textures.ContainsKey("star_rivstar01") || textures.ContainsKey("star01"));
+            Assert.True(textures.ContainsKey("moonshap") || textures.ContainsKey("moon    moonshap"));
+            Assert.True(moonLayer.Scale.X > 0);
+            Assert.Equal(new System.Numerics.Vector3(20, 20, 20), moonLayer.Scale);
+            System.Numerics.Vector3 avgNormal = System.Numerics.Vector3.Zero;
+            foreach (var v in moonLayer.MeshGroups[0].Vertices)
+            {
+                avgNormal += v.Normal;
+            }
+            avgNormal = System.Numerics.Vector3.Normalize(avgNormal);
+            Assert.True(MathF.Abs(avgNormal.X) > 0.5f, $"Moon avg normal: {avgNormal}");
+
+            var kasaLayer = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => l.Name.Contains("kasa", StringComparison.OrdinalIgnoreCase));
+            if (kasaLayer != null)
+            {
+                Assert.Equal(Gordian.Core.Resources.Graphics.ParticleAttachType.Moon, kasaLayer.AttachType);
+            }
+            if (textures.TryGetValue("moon    kasa", out var kasaTex))
+            {
+                byte maxR = 0, maxA = 0;
+                for (int i = 0; i < kasaTex.RgbaPixels.Length; i += 4)
+                {
+                    maxR = Math.Max(maxR, kasaTex.RgbaPixels[i]);
+                    maxA = Math.Max(maxA, kasaTex.RgbaPixels[i + 3]);
+                }
+                Assert.True(maxR > 0 && maxA > 0, $"kasa maxR={maxR}, maxA={maxA}");
+            }
+
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern IntPtr CreateWindowExW(uint dwExStyle, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string lpClassName, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string lpWindowName, uint dwStyle, int x, int y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern bool DestroyWindow(IntPtr hWnd);
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "TestStarNight", unchecked((uint)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device;
+            if (gd == null) return;
+
+            try
+            {
+                var renderer = new ZoneTerrainRenderer(gd);
+                renderer.EnableWeatherClouds = false;
+                renderer.EnableWeatherCelestialBodies = true;
+                renderer.EnableCelestialMoon = false;
+                renderer.EnableCelestialSun = false;
+                renderer.LoadZone(zone, textures);
+
+                var camera = new Gordian.Core.Graphics.ViewportCamera();
+                camera.Mode = Gordian.Core.Graphics.CameraMode.FirstPerson;
+                // Pitch -45 degrees looking UP into the night sky
+                camera.Update(new System.Numerics.Vector3(0, 10, 0), -45.0f, 180.0f, 0.0f, 640f / 480f);
+                camera.FarClip = 5000f;
+
+                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                env.WeatherId = "fine";
+                env.SunDirection = Gordian.Core.World.VanaTime.GetSunDirection(0.0f);
+                if (zone.EnvironmentData != null)
+                {
+                    var kf = zone.EnvironmentData.Interpolate(0.0f, "fine");
+                    if (kf != null)
+                    {
+                        env.ApplyKeyframe(kf);
+                        env.SunDirection = Gordian.Core.World.VanaTime.GetSunDirection(0.0f);
+                    }
+                }
+
+                renderer.SkyDomeRenderer?.UpdateDome(env);
+
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    Veldrid.PixelFormat.R32_Float,
+                    Veldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+
+                renderer.Render(camera, env, 0.016f, 640, 480, present: false, targetFramebuffer: offscreenFb);
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    640, 480, 1, 1,
+                    colorTarget.Format,
+                    Veldrid.TextureUsage.Staging));
+
+                cl.Begin();
+                cl.CopyTexture(rtColor, staging);
+                cl.End();
+                gd.SubmitCommands(cl);
+                gd.WaitForIdle();
+
+                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                uint rowPitch = map.RowPitch;
+                IntPtr basePtr = map.Data;
+
+                byte maxB = 0, maxG = 0, maxR = 0;
+                string ptMax = "";
+                for (int y = 0; y < 480; y++)
+                {
+                    for (int x = 0; x < 640; x++)
+                    {
+                        int offset = (int)(y * rowPitch + x * 4);
+                        byte b0 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset);     // B
+                        byte b1 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset + 1); // G
+                        byte b2 = System.Runtime.InteropServices.Marshal.ReadByte(basePtr, offset + 2); // R
+                        if (b2 > maxR) { maxR = b2; ptMax = $"({x},{y})"; }
+                        if (b1 > maxG) maxG = b1;
+                        if (b0 > maxB) maxB = b0;
+                    }
+                }
+                gd.Unmap(staging);
+                staging.Dispose();
+                cl.Dispose();
+                renderer.Dispose();
+
+                Assert.True(renderer.DrawCalls > 0, "Stars should render with positive draw calls.");
+                Assert.True(maxB > 0 || maxR > 0, $"Night sky should display illuminated celestial star pixels (MaxR={maxR}, MaxG={maxG}, MaxB={maxB}).");
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        [Fact]
         public void FragmentShaders_TerrainLighting_CalibratedToPreventSandOverexposure()
         {
             Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderOpaqueGlsl);
@@ -616,13 +761,17 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void WeatherSkySettings_DefaultsEnableCloudsAndCelestialBodies()
         {
-            // Both EnableWeatherClouds and EnableWeatherCelestialBodies are enabled by default so that
-            // dynamic clouds, celestial sun/moon discs, and night stars render automatically out-of-the-box.
             var propClouds = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherClouds");
             var propBodies = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherCelestialBodies");
+            var propMoon = typeof(ZoneTerrainRenderer).GetProperty("EnableCelestialMoon");
+            var propSun = typeof(ZoneTerrainRenderer).GetProperty("EnableCelestialSun");
+            var propMilkyWay = typeof(ZoneTerrainRenderer).GetProperty("EnableMilkyWay");
 
             Assert.NotNull(propClouds);
             Assert.NotNull(propBodies);
+            Assert.NotNull(propMoon);
+            Assert.NotNull(propSun);
+            Assert.NotNull(propMilkyWay);
         }
 
         [Fact]
