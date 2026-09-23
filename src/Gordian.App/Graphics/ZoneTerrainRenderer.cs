@@ -67,17 +67,22 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Controls whether Section 0x05 dynamic weather cloud layers (e.g. cld_fine, suny, clod)
-        /// are rendered drifting across the sky dome in Pass 0b. Defaults to true.
+        /// are rendered drifting across the sky dome in Pass 0b. Defaults to false to isolate base dome.
         /// </summary>
-        public bool EnableWeatherClouds { get; set; } = true;
+        public bool EnableWeatherClouds { get; set; } = false;
 
         /// <summary>
         /// Controls whether raw Section 0x05 celestial particle generator shells (sunsphere, star, moonsphere)
-        /// are rendered statically in Pass 0b. In retail FFXI and xi-model-viewer, the background celestial
-        /// sky is solely the procedural Section 0x2F SkyDome, while 0x05 bodies are dynamic particle systems.
-        /// Defaults to false to prevent untextured spheres and alpha-mask star shells.
+        /// and celestial discs are rendered in Pass 0b. Defaults to false to isolate base dome.
         /// </summary>
         public bool EnableWeatherCelestialBodies { get; set; } = false;
+
+        /// <summary>
+        /// Controls whether raw celestial disc billboards (sun/moon) are rendered.
+        /// Defaults to false matching xi-model-viewer (renderer.js:2798 'positioned: skipped for now')
+        /// to cleanly isolate procedural sky dome, starfields, and dynamic weather clouds.
+        /// </summary>
+        public bool EnableCelestialDiscs { get; set; } = false;
 
         /// <summary>
         /// Indicates whether the ocean water plane was rendered during the most recent frame.
@@ -368,7 +373,16 @@ namespace Gordian.App.Graphics
 
             // 9b. Additive Weather Sky Pipeline (stars, sun, luminous celestial bodies)
             var weatherSkyAdditiveDesc = weatherSkyPipelineDesc;
-            weatherSkyAdditiveDesc.BlendState = BlendStateDescription.SingleAdditiveBlend;
+            weatherSkyAdditiveDesc.BlendState = new BlendStateDescription(
+                RgbaFloat.Black,
+                new BlendAttachmentDescription(
+                    blendEnabled: true,
+                    sourceColorFactor: BlendFactor.One,
+                    destinationColorFactor: BlendFactor.One,
+                    colorFunction: BlendFunction.Add,
+                    sourceAlphaFactor: BlendFactor.One,
+                    destinationAlphaFactor: BlendFactor.One,
+                    alphaFunction: BlendFunction.Add));
             _weatherSkyAdditivePipeline = factory.CreateGraphicsPipeline(weatherSkyAdditiveDesc);
 
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
@@ -479,7 +493,7 @@ namespace Gordian.App.Graphics
                             BasePosition = layer.Position,
                             Scale = layer.Scale,
                             FollowCamera = layer.FollowCamera,
-                            TextureName = !string.IsNullOrEmpty(group.TextureName) ? group.TextureName : layer.TextureName,
+                            TextureName = group.TextureName,
                             VertexBuffer = vb,
                             IndexBuffer = ib,
                             UniformBuffer = ub,
@@ -592,23 +606,27 @@ namespace Gordian.App.Graphics
                 for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
                 {
                     var skyMesh = _weatherSkySubmeshes[i];
-                    if (skyMesh.IsCelestial && !EnableWeatherCelestialBodies) continue;
-                    if (!skyMesh.IsCelestial && !EnableWeatherClouds) continue;
-                    bool isStar = skyMesh.Name.Contains("star", StringComparison.OrdinalIgnoreCase);
+                    bool isCelestial = skyMesh.IsCelestial;
+                    bool isStar = isCelestial && skyMesh.Name.Contains("star", StringComparison.OrdinalIgnoreCase);
+                    bool isMoon = isCelestial && (skyMesh.AttachType == ParticleAttachType.Moon || skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase));
+                    bool isSun = isCelestial && (skyMesh.AttachType == ParticleAttachType.Sun || (skyMesh.Name.Contains("sun", StringComparison.OrdinalIgnoreCase) && !skyMesh.Name.StartsWith("suny", StringComparison.OrdinalIgnoreCase)));
+
+                    if (isCelestial && !EnableWeatherCelestialBodies) continue;
+                    if (!isCelestial && !EnableWeatherClouds) continue;
+                    if ((isSun || isMoon) && !EnableCelestialDiscs) continue;
 
                     // Authentic FFXI Weather Gating:
-                    // In retail FFXI, Clear weather ("fine") has a pure, cloudless sky dome (no cloud geometry is drawn).
-                    // Dynamic cloud layers (suny_*, clod_*, mist_*, etc.) only render in weather types with authored cloud coverage
-                    // (e.g. Sunshine "suny", Clouds "clod", Fog "mist"). Celestial bodies (sun, moon, stars) apply universally.
-                    if (!skyMesh.IsCelestial)
+                    // Dynamic cloud layers render according to active weather.
+                    // For elemental and storm weathers (rain, snow, thdr, etc.), retail zones author cloud layers under
+                    // canonical categories (clod, suny, fine, mist). Celestial bodies (sun, moon, stars) apply universally.
+                    if (!isCelestial)
                     {
-                        if (string.Equals(activeWeather, "fine", StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
+                        string canonicalWeather = VanaTime.GetCanonicalWeatherCategory(activeWeather);
+                        bool matchesWeather = !string.IsNullOrEmpty(skyMesh.WeatherId) &&
+                            (string.Equals(skyMesh.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(skyMesh.WeatherId, canonicalWeather, StringComparison.OrdinalIgnoreCase));
 
-                        if (string.IsNullOrEmpty(skyMesh.WeatherId) ||
-                            !string.Equals(skyMesh.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase))
+                        if (!matchesWeather)
                         {
                             continue;
                         }
@@ -616,11 +634,11 @@ namespace Gordian.App.Graphics
 
                     // Celestial disc and star visibility gating based on sun/moon elevation
                     float starAlpha = 0.0f;
-                    if (skyMesh.AttachType == ParticleAttachType.Sun)
+                    if (isSun)
                     {
                         if (sunDir.Y <= 0.0f) continue; // Sun below horizon
                     }
-                    else if (skyMesh.AttachType == ParticleAttachType.Moon)
+                    else if (isMoon)
                     {
                         if (moonDir.Y <= 0.0f) continue; // Moon below horizon
                     }
@@ -632,7 +650,7 @@ namespace Gordian.App.Graphics
                     }
 
                     // Select pipeline: Stars and Sun use Additive; Moon and Clouds use Alpha Blend
-                    bool useAdditive = isStar || skyMesh.AttachType == ParticleAttachType.Sun;
+                    bool useAdditive = isStar || isSun;
                     Pipeline targetSkyPipeline = useAdditive ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
 
                     if (currentSkyPipeline != targetSkyPipeline)
@@ -693,11 +711,18 @@ namespace Gordian.App.Graphics
                     // Compute scrolling UV offset based on UVScroll velocity and elapsed time (scaled to 60 FPS effect rate)
                     Vector2 uvOffset = (skyMesh.UVScroll * 60.0f) * _cloudAccumulatedTime;
 
+                    // Reject sky or celestial meshes with no authored texture (e.g. untextured celestial bounding/sphere shells in star layer).
+                    // Exception: Sun disc geometry is intentionally untextured and colored via shader / vertex colors.
+                    if (string.IsNullOrWhiteSpace(skyMesh.TextureName) && !isSun)
+                    {
+                        continue;
+                    }
+
                     // Resolve texture with keyword fallback
                     string texName = skyMesh.TextureName;
                     if ((string.IsNullOrWhiteSpace(texName) || _activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName)) && _activeDecodedTextures != null)
                     {
-                        if (skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase))
+                        if (isMoon)
                         {
                             texName = FindTextureKey(_activeDecodedTextures, "moonshap", "moon") ?? texName;
                         }
@@ -705,7 +730,7 @@ namespace Gordian.App.Graphics
                         {
                             texName = FindTextureKey(_activeDecodedTextures, "star01", "star02", "star") ?? texName;
                         }
-                        else if (skyMesh.Name.Contains("sun", StringComparison.OrdinalIgnoreCase))
+                        else if (isSun)
                         {
                             texName = FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty;
                         }
@@ -723,19 +748,26 @@ namespace Gordian.App.Graphics
                         }
                     }
 
-                    // Skip untextured sky meshes to prevent fallback checkerboard / dithered artifacts
-                    if (string.IsNullOrWhiteSpace(texName))
+                    // For cloud, moon, and star meshes, ensure genuine texture exists in cache/active textures;
+                    // never fall back to default checkerboard on sky shells.
+                    // For celestial sun disc, untextured geometry is supported by binding default white texture.
+                    if (string.IsNullOrWhiteSpace(texName) || (_activeDecodedTextures != null && !_activeDecodedTextures.ContainsKey(texName)))
                     {
-                        continue;
-                    }
-
-                    // Ensure genuine texture exists in cache/active textures; never fall back to default checkerboard on sky shells
-                    if (_activeDecodedTextures != null && !_activeDecodedTextures.ContainsKey(texName))
-                    {
-                        string? match = FindTextureKey(_activeDecodedTextures, texName);
-                        if (match != null)
+                        if (isSun)
                         {
-                            texName = match;
+                            texName = string.Empty; // Bound to DefaultResourceSet below
+                        }
+                        else if (_activeDecodedTextures != null)
+                        {
+                            string? match = !string.IsNullOrWhiteSpace(texName) ? FindTextureKey(_activeDecodedTextures, texName) : null;
+                            if (match != null)
+                            {
+                                texName = match;
+                            }
+                            else
+                            {
+                                continue;
+                            }
                         }
                         else
                         {
@@ -746,11 +778,11 @@ namespace Gordian.App.Graphics
                     // Update dedicated sky mesh uniform buffer and bind its resource set
                     // WeatherParams:
                     //   xy: continuous UV scrolling offset
-                    //   z: starAlpha for stars (0.0..1.0), or _cloudAccumulatedTime for clouds/discs
+                    //   z: starAlpha for stars (0.0..1.0), moonPhase (0.05..1.0) for moon, or _cloudAccumulatedTime for clouds/discs
                     //   w: layer depth/type (3.0 = stars, 2.2 = moon, 2.0 = sun, 1.0 = clouds)
-                    bool isMoon = skyMesh.AttachType == ParticleAttachType.Moon || skyMesh.Name.Contains("moon", StringComparison.OrdinalIgnoreCase);
-                    float layerType = isStar ? 3.0f : (isMoon ? 2.2f : (skyMesh.IsCelestial ? 2.0f : 1.0f));
-                    float paramZ = isStar ? starAlpha : _cloudAccumulatedTime;
+                    float layerType = isStar ? 3.0f : (isMoon ? 2.2f : (isSun ? 2.0f : 1.0f));
+                    float moonPhase = (float)VanaTime.GetMoonPhase(DateTime.UtcNow) / 100.0f;
+                    float paramZ = isStar ? starAlpha : (isMoon ? moonPhase : _cloudAccumulatedTime);
                     var layerUniform = sceneUniform;
                     layerUniform.World = worldMatrix;
                     layerUniform.WeatherParams = new Vector4(uvOffset.X, uvOffset.Y, paramZ, layerType);

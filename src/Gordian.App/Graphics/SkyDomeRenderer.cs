@@ -152,6 +152,12 @@ namespace Gordian.App.Graphics
                         var s = environment.SkySlices[i];
                         slices.Add((s.Elevation, s.Color));
                     }
+
+                    // If the highest slice does not reach 1.0 (zenith), cap the top pole so the dome is fully closed
+                    if (slices[^1].Elevation < 0.999f)
+                    {
+                        slices.Add((1.0f, environment.SkySlices[^1].Color));
+                    }
                 }
             }
 

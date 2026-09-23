@@ -32,13 +32,14 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void S2C_0x00A_LoginAck_DecodesWeatherNumber()
+        public void S2C_0x00A_LoginAck_DecodesWeatherNumberAndGameTime()
         {
             byte[] payload = new byte[128];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x1234);     // PlayerId
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 42);         // TargetIndex
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(44, 2), 4);        // ZoneId (Bibiki Bay) at offset 44
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(100, 2), 2);       // WeatherNumber (clod) at offset 100
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(56, 4), 780000000u); // GameTime at offset 56
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(100, 2), 0);       // WeatherNumber (fine/clear) at offset 100
 
             var loginAck = new S2C_0x00A_LoginAck(payload);
 
@@ -46,7 +47,44 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x1234u, loginAck.UniqueNo);
             Assert.Equal(42, loginAck.ActorIndex);
             Assert.Equal(4, loginAck.ZoneId);
-            Assert.Equal(2, loginAck.WeatherNumber);
+            Assert.Equal(780000000u, loginAck.GameTime);
+            Assert.Equal(0, loginAck.WeatherNumber);
+        }
+
+        [Fact]
+        public void LifecyclePacketModule_LoginAck_DispatchesWeatherZeroAndSynchronizesServerTime()
+        {
+            VanaTime.ResetClockOffset();
+            var profile = new SessionProfile();
+            var module = new LifecyclePacketModule(profile, (m, h) => Task.CompletedTask);
+            int weatherEventsCount = 0;
+            ushort receivedWeather = 999;
+            module.WeatherReceived += w =>
+            {
+                weatherEventsCount++;
+                receivedWeather = w;
+            };
+
+            var dispatcher = new PacketDispatcher();
+            module.Register(dispatcher);
+
+            byte[] subPacket = new byte[132]; // 4-byte header + 128-byte payload
+            PacketHeader.Write(subPacket.AsSpan(), 0x00A, (ushort)(subPacket.Length / 4), 0);
+
+            BinaryPrimitives.WriteUInt32LittleEndian(subPacket.AsSpan(4, 4), 0xABCD);
+            BinaryPrimitives.WriteUInt16LittleEndian(subPacket.AsSpan(8, 2), 10);
+            BinaryPrimitives.WriteUInt16LittleEndian(subPacket.AsSpan(4 + 44, 2), 4); // Zone 4
+            uint simulatedServerGameTime = (uint)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds + 3600);
+            BinaryPrimitives.WriteUInt32LittleEndian(subPacket.AsSpan(4 + 56, 4), simulatedServerGameTime); // GameTime
+            BinaryPrimitives.WriteUInt16LittleEndian(subPacket.AsSpan(4 + 100, 2), 0); // Weather 0 (fine)
+
+            var header = new PacketHeader(0x00A, (ushort)subPacket.Length, 0);
+            dispatcher.Dispatch(header, subPacket.AsSpan(4));
+
+            Assert.Equal(1, weatherEventsCount);
+            Assert.Equal(0, receivedWeather);
+            Assert.NotEqual(0, VanaTime.ServerClockOffsetSeconds);
+            VanaTime.ResetClockOffset();
         }
 
         [Fact]

@@ -212,6 +212,7 @@ namespace Gordian.App.Graphics
         private ZoneGeometry? _currentZoneGeom;
         private float _lastVanaHour = -1f;
         private string? _lastWeatherId;
+        private int _timeOfDayCycleIndex = 0;
 
         private void OnWorldZoneChanged(ushort zoneId)
         {
@@ -537,7 +538,8 @@ namespace Gordian.App.Graphics
                         try
                         {
                             // Dynamic Vana'diel time and weather evaluation for 0x2F environment lighting and sky dome
-                            if (_currentZoneGeom?.EnvironmentData != null)
+                            // Only advances automatically when in live mode (_timeOfDayCycleIndex == 0); manual F10 presets are preserved.
+                            if (_currentZoneGeom?.EnvironmentData != null && _timeOfDayCycleIndex == 0)
                             {
                                 float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
                                 string activeWeather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
@@ -640,71 +642,102 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Sets a specific time-of-day environment preset (day, dusk, night, overcast) or evaluates from 0x2F keyframes.
+        /// Sets a specific time-of-day environment preset (day, dusk, night, overcast, live) or evaluates from 0x2F keyframes.
         /// </summary>
         public void SetTimeOfDayPreset(string preset)
         {
             string currentWeather = Environment.WeatherId ?? "fine";
             string p = (preset ?? string.Empty).Trim().ToLowerInvariant();
-            switch (p)
+
+            if (p == "live")
             {
-                case "day":
-                    Environment = ZoneEnvironmentSettings.CreateDay();
-                    break;
-                case "dusk":
-                case "sunset":
-                    Environment = ZoneEnvironmentSettings.CreateDusk();
-                    break;
-                case "night":
-                case "midnight":
-                    Environment = ZoneEnvironmentSettings.CreateNight();
-                    break;
-                case "overcast":
-                case "cloudy":
-                    Environment = ZoneEnvironmentSettings.CreateOvercast();
-                    break;
-                default:
-                    if (float.TryParse(p, out float hour) && _renderer?.LoadedZone?.EnvironmentData != null)
+                _timeOfDayCycleIndex = 0;
+                if (_currentZoneGeom?.EnvironmentData != null)
+                {
+                    float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                    var kf = _currentZoneGeom.EnvironmentData.Interpolate(vanaHour, currentWeather);
+                    if (kf != null)
                     {
-                        var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(hour, currentWeather);
-                        if (kf != null)
-                        {
-                            Environment.ApplyKeyframe(kf);
-                            Environment.WeatherId = currentWeather;
-                            _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-                            GordianLog.Info("Graphics", $"Applied 0x2F environment for hour {hour:F1} ({currentWeather}).");
-                            return;
-                        }
+                        Environment.ApplyKeyframe(kf);
+                        Environment.SunDirection = VanaTime.GetSunDirection(vanaHour);
+                        Environment.WeatherId = currentWeather;
+                        _lastVanaHour = vanaHour;
+                        _lastWeatherId = currentWeather;
+                        _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                        GordianLog.Info("Graphics", $"Returned to live Vana'diel time ({vanaHour:F1}, weather={currentWeather}).");
+                        return;
                     }
-                    Environment = ZoneEnvironmentSettings.CreateDay();
-                    break;
+                }
+                Environment = ZoneEnvironmentSettings.CreateDay();
+                Environment.WeatherId = currentWeather;
+                _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                return;
             }
-            Environment.WeatherId = currentWeather;
-            _lastWeatherId = currentWeather;
+
+            float targetHour = p switch
+            {
+                "day" => 12.0f,
+                "dusk" or "sunset" => 18.0f,
+                "night" or "midnight" => 0.0f,
+                "overcast" or "cloudy" => 12.0f,
+                _ => float.TryParse(p, out float h) ? h : 12.0f
+            };
+            string targetWeather = (p is "overcast" or "cloudy") ? "clod" : currentWeather;
+
+            if (_currentZoneGeom?.EnvironmentData != null)
+            {
+                var kf = _currentZoneGeom.EnvironmentData.Interpolate(targetHour, targetWeather);
+                if (kf != null)
+                {
+                    Environment.ApplyKeyframe(kf);
+                    Environment.SunDirection = VanaTime.GetSunDirection(targetHour);
+                    Environment.WeatherId = targetWeather;
+                    _lastVanaHour = targetHour;
+                    _lastWeatherId = targetWeather;
+                    _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
+                    GordianLog.Info("Graphics", $"Applied 0x2F environment for preset '{p}' (hour={targetHour:F1}, weather={targetWeather}).");
+                    return;
+                }
+            }
+
+            // Fallback presets if the zone has no 0x2F environment data
+            Environment = p switch
+            {
+                "day" => ZoneEnvironmentSettings.CreateDay(),
+                "dusk" or "sunset" => ZoneEnvironmentSettings.CreateDusk(),
+                "night" or "midnight" => ZoneEnvironmentSettings.CreateNight(),
+                "overcast" or "cloudy" => ZoneEnvironmentSettings.CreateOvercast(),
+                _ => ZoneEnvironmentSettings.CreateDay()
+            };
+            Environment.WeatherId = targetWeather;
+            _lastWeatherId = targetWeather;
             _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-            GordianLog.Info("Graphics", $"Switched time of day to {preset} (weather={currentWeather}).");
+            GordianLog.Info("Graphics", $"Switched fallback time of day to {preset} (weather={targetWeather}).");
         }
 
         /// <summary>
-        /// Cycles through time-of-day presets (Day -> Dusk -> Night -> Overcast).
+        /// Cycles through time-of-day presets (Day -> Dusk -> Night -> Overcast -> Live).
         /// </summary>
         public void CycleTimeOfDay()
         {
-            if (Environment.SunColor == ZoneEnvironmentSettings.CreateDay().SunColor)
+            _timeOfDayCycleIndex = (_timeOfDayCycleIndex + 1) % 5;
+            switch (_timeOfDayCycleIndex)
             {
-                SetTimeOfDayPreset("dusk");
-            }
-            else if (Environment.SunColor == ZoneEnvironmentSettings.CreateDusk().SunColor)
-            {
-                SetTimeOfDayPreset("night");
-            }
-            else if (Environment.SunColor == ZoneEnvironmentSettings.CreateNight().SunColor)
-            {
-                SetTimeOfDayPreset("overcast");
-            }
-            else
-            {
-                SetTimeOfDayPreset("day");
+                case 1:
+                    SetTimeOfDayPreset("day");
+                    break;
+                case 2:
+                    SetTimeOfDayPreset("dusk");
+                    break;
+                case 3:
+                    SetTimeOfDayPreset("night");
+                    break;
+                case 4:
+                    SetTimeOfDayPreset("overcast");
+                    break;
+                default:
+                    SetTimeOfDayPreset("live");
+                    break;
             }
         }
 

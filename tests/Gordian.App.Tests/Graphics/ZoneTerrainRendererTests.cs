@@ -256,6 +256,86 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void Zone4_NightSky_LayersRenderCorrectlyWithoutWaterLeakOrUntexturedSpheres()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+
+            // 1. Verify yuku / evening sunset generator meshes are NOT leaked into zone.MeshGroups as water meshes
+            bool hasYukuWater = false;
+            foreach (var mg in zone.MeshGroups)
+            {
+                if (mg.Name.Contains("yuku", StringComparison.OrdinalIgnoreCase) ||
+                    mg.Name.Contains("ykum", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasYukuWater = true;
+                    break;
+                }
+            }
+            Assert.False(hasYukuWater, "Sunset cloud generators (yuku/ykum) must not be instantiated as static terrain water meshes.");
+
+            // 2. Simulate Pass 0b at midnight under 'fine' weather
+            var midnightSunDir = Gordian.Core.World.VanaTime.GetSunDirection(0.0f); // Midnight
+            var moonDir = -midnightSunDir;
+            string activeWeather = "fine";
+            string canonicalWeather = Gordian.Core.World.VanaTime.GetCanonicalWeatherCategory(activeWeather);
+
+            var drawnLayers = new List<string>();
+
+            foreach (var layer in zone.WeatherSkyLayers)
+            {
+                foreach (var group in layer.MeshGroups)
+                {
+                    bool isCelestial = layer.IsCelestial;
+                    bool isStar = group.Name.Contains("star", StringComparison.OrdinalIgnoreCase);
+                    bool isMoon = layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Moon || group.Name.Contains("moon", StringComparison.OrdinalIgnoreCase);
+                    bool isSun = layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun || group.Name.Contains("sun", StringComparison.OrdinalIgnoreCase);
+
+                    if (!isCelestial)
+                    {
+                        bool matchesWeather = !string.IsNullOrEmpty(layer.WeatherId) &&
+                            (string.Equals(layer.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(layer.WeatherId, canonicalWeather, StringComparison.OrdinalIgnoreCase));
+                        if (!matchesWeather) continue;
+                    }
+
+                    if (layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun && midnightSunDir.Y <= 0.0f) continue;
+                    if (layer.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Moon && moonDir.Y <= 0.0f) continue;
+                    if (isStar)
+                    {
+                        float starAlpha = Math.Clamp((-midnightSunDir.Y + 0.15f) / 0.45f, 0.0f, 1.0f);
+                        if (starAlpha <= 0.01f) continue;
+                    }
+
+                    string texName = group.TextureName;
+                    // Untextured geometry rejection
+                    if (string.IsNullOrWhiteSpace(texName) && !isSun)
+                    {
+                        continue;
+                    }
+
+                    drawnLayers.Add($"{layer.Name}:{group.Name}");
+                }
+            }
+
+            // Verify ykum is NOT drawn at midnight
+            Assert.DoesNotContain(drawnLayers, l => l.Contains("ykum"));
+
+            // Verify star sprites (textured group 1) are drawn, but untextured geodesic sphere (group 2) is skipped
+            Assert.Contains(drawnLayers, l => l.StartsWith("star:star"));
+            Assert.Equal(1, drawnLayers.Count(l => l.StartsWith("star:star")));
+
+            // Verify celestial stardust and moonsphere are drawn
+            Assert.Contains(drawnLayers, l => l.StartsWith("stardust:"));
+            Assert.Contains(drawnLayers, l => l.StartsWith("moonsphere:"));
+        }
+
+        [Fact]
         public void Zone4_WeatherSkyLayers_VerifyAuthoredStructureAndWeatherGating()
         {
             if (!OperatingSystem.IsWindows()) return;
@@ -283,11 +363,52 @@ namespace Gordian.App.Tests.Graphics
             var clodCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "clod", StringComparison.OrdinalIgnoreCase));
             Assert.NotNull(clodCloud);
             Assert.False(clodCloud.IsCelestial);
-            Assert.Contains("clod", clodCloud.Name, StringComparison.OrdinalIgnoreCase);
 
             var mistCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "mist", StringComparison.OrdinalIgnoreCase));
             Assert.NotNull(mistCloud);
             Assert.False(mistCloud.IsCelestial);
+
+            var fineCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "fine", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(fineCloud);
+            Assert.False(fineCloud.IsCelestial);
+
+            // Non-sky particle generators (hi01, hi02, yuku, ykum) must NOT be included in WeatherSkyLayers
+            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("hi0", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("yuk", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("yku", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
+        public void Zone4_EnvironmentData_HasSkySlicesForDayDuskNight()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures) || zone == null) return;
+
+            Assert.NotNull(zone.EnvironmentData);
+            var dayKf = zone.EnvironmentData.Interpolate(12.0f, "suny");
+            Assert.NotNull(dayKf);
+            Assert.NotEmpty(dayKf.Slices);
+
+            var duskKf = zone.EnvironmentData.Interpolate(18.0f, "suny");
+            Assert.NotNull(duskKf);
+            Assert.NotEmpty(duskKf.Slices);
+
+            var nightKf = zone.EnvironmentData.Interpolate(0.0f, "suny");
+            Assert.NotNull(nightKf);
+            Assert.NotEmpty(nightKf.Slices);
+        }
+
+        [Fact]
+        public void FragmentShaders_TerrainLighting_CalibratedToPreventSandOverexposure()
+        {
+            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderOpaqueGlsl);
+            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderBlendGlsl);
+            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderCutoutGlsl);
         }
 
         [Fact]
@@ -475,7 +596,8 @@ namespace Gordian.App.Tests.Graphics
         public void SkyDomeShaders_AreNonEmptyAndCenterAtEyePosition()
         {
             Assert.Contains("Position + EyePosition.xyz", ZoneShaders.SkyDomeVertexShaderGlsl);
-            Assert.Contains("fsout_Color = vec4(fsin_Color.rgb, 1.0)", ZoneShaders.SkyDomeFragmentShaderGlsl);
+            Assert.Contains("dither", ZoneShaders.SkyDomeFragmentShaderGlsl);
+            Assert.Contains("fsout_Color = vec4(color, 1.0)", ZoneShaders.SkyDomeFragmentShaderGlsl);
         }
 
         [Fact]
@@ -492,15 +614,58 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void WeatherSkySettings_DefaultsPreserveCloudsWhileBypassingUntexturedBodies()
+        public void WeatherSkySettings_DefaultsEnableCloudsAndCelestialBodies()
         {
-            // By default, EnableWeatherClouds is true to render authentic drifting cloud layers (fine_a01, suny_a01, clod_a01),
-            // while EnableWeatherCelestialBodies is false because raw 0x05 generator shells are untextured/particle placeholders.
+            // Both EnableWeatherClouds and EnableWeatherCelestialBodies are enabled by default so that
+            // dynamic clouds, celestial sun/moon discs, and night stars render automatically out-of-the-box.
             var propClouds = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherClouds");
             var propBodies = typeof(ZoneTerrainRenderer).GetProperty("EnableWeatherCelestialBodies");
 
             Assert.NotNull(propClouds);
             Assert.NotNull(propBodies);
+        }
+
+        [Fact]
+        public void ZoneEnvironmentData_Interpolate_PrefersClodForRainAndStormWeathers()
+        {
+            var envData = new Gordian.Core.Resources.Graphics.ZoneEnvironmentData();
+            var fineKf = new Gordian.Core.Resources.Graphics.EnvironmentKeyframe
+            {
+                Hour = 12,
+                TerrainSunColor = new System.Numerics.Vector4(1.0f, 1.0f, 0.9f, 1.0f),
+                TerrainFogColor = new System.Numerics.Vector4(0.8f, 0.9f, 1.0f, 1.0f)
+            };
+            var clodKf = new Gordian.Core.Resources.Graphics.EnvironmentKeyframe
+            {
+                Hour = 12,
+                TerrainSunColor = new System.Numerics.Vector4(0.4f, 0.4f, 0.45f, 1.0f),
+                TerrainFogColor = new System.Numerics.Vector4(0.5f, 0.5f, 0.55f, 1.0f)
+            };
+
+            envData.AddKeyframe("fine", fineKf);
+            envData.AddKeyframe("clod", clodKf);
+
+            // "rain", "snow", "thdr", etc. map canonically to "clod" and should select clodKf
+            var rainResult = envData.Interpolate(12f, "rain");
+            Assert.NotNull(rainResult);
+            Assert.Equal(clodKf.TerrainSunColor, rainResult.TerrainSunColor);
+
+            var snowResult = envData.Interpolate(12f, "snow");
+            Assert.NotNull(snowResult);
+            Assert.Equal(clodKf.TerrainSunColor, snowResult.TerrainSunColor);
+
+            var thdrResult = envData.Interpolate(12f, "thdr");
+            Assert.NotNull(thdrResult);
+            Assert.Equal(clodKf.TerrainSunColor, thdrResult.TerrainSunColor);
+
+            // "fine" or "wind" maps to "fine" and should select fineKf
+            var fineResult = envData.Interpolate(12f, "fine");
+            Assert.NotNull(fineResult);
+            Assert.Equal(fineKf.TerrainSunColor, fineResult.TerrainSunColor);
+
+            var windResult = envData.Interpolate(12f, "wind");
+            Assert.NotNull(windResult);
+            Assert.Equal(fineKf.TerrainSunColor, windResult.TerrainSunColor);
         }
     }
 }

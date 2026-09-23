@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Resources.Graphics
 {
@@ -143,12 +144,28 @@ namespace Gordian.Core.Resources.Graphics
             if (!string.IsNullOrEmpty(weather))
             {
                 _weatherKeyframes.TryGetValue(weather, out frames);
+                if (frames == null || frames.Count == 0)
+                {
+                    string canonical = VanaTime.GetCanonicalWeatherCategory(weather);
+                    if (!string.Equals(canonical, weather, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _weatherKeyframes.TryGetValue(canonical, out frames);
+                    }
+                }
             }
 
             if (frames == null || frames.Count == 0)
             {
-                // Fallback to "weat", "fine", "suny", "default", or first available weather
-                foreach (var pref in new[] { "weat", "fine", "suny", "clod", "default" })
+                // Fallback: If requested weather maps to an overcast or foggy category, prioritize "clod" or "mist"
+                // before "fine" so stormy weathers receive dark overcast lighting and fog instead of sunny daylight.
+                string canonical = VanaTime.GetCanonicalWeatherCategory(weather);
+                string[] fallbackOrder = string.Equals(canonical, "clod", StringComparison.OrdinalIgnoreCase)
+                    ? new[] { "clod", "mist", "fine", "suny", "weat", "default" }
+                    : string.Equals(canonical, "mist", StringComparison.OrdinalIgnoreCase)
+                        ? new[] { "mist", "clod", "fine", "suny", "weat", "default" }
+                        : new[] { "fine", "suny", "clod", "mist", "weat", "default" };
+
+                foreach (var pref in fallbackOrder)
                 {
                     if (_weatherKeyframes.TryGetValue(pref, out frames) && frames.Count > 0)
                     {

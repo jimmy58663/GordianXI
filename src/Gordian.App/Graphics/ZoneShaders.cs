@@ -332,7 +332,8 @@ void main()
     float NdotL = max(dot(N, L), 0.0);
     vec3 amb = fsin_Color.rgb * AmbientColor.rgb;
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
-    vec3 lit = clamp(amb + df0, 0.0, 1.0);
+    // Calibrate lighting: ambient and diffuse are balanced to prevent blowing out light-colored textures (e.g. beach sand) under PS2 modulate2x
+    vec3 lit = clamp(0.5 * amb + 0.5 * df0, 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
@@ -394,7 +395,8 @@ void main()
     float NdotL = max(dot(N, L), 0.0);
     vec3 amb = fsin_Color.rgb * AmbientColor.rgb;
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
-    vec3 lit = clamp(amb + df0, 0.0, 1.0);
+    // Calibrate lighting: ambient and diffuse are balanced to prevent blowing out light-colored textures (e.g. beach sand) under PS2 modulate2x
+    vec3 lit = clamp(0.5 * amb + 0.5 * df0, 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
@@ -455,7 +457,8 @@ void main()
     float NdotL = max(dot(N, L), 0.0);
     vec3 amb = fsin_Color.rgb * AmbientColor.rgb;
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
-    vec3 lit = clamp(amb + df0, 0.0, 1.0);
+    // Calibrate lighting: ambient and diffuse are balanced to prevent blowing out light-colored textures (e.g. beach sand) under PS2 modulate2x
+    vec3 lit = clamp(0.5 * amb + 0.5 * df0, 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
@@ -619,26 +622,29 @@ void main()
 
     // WeatherParams.w encodes layer type:
     // > 2.5: Stars (additive celestial points)
-    // > 1.5: Sun / Moon (self-luminous celestial discs)
+    // > 2.1: Moon (self-luminous lunar disc with crater detail modulated by phase)
+    // > 1.5: Sun (self-luminous radiant golden daylight disc)
     // <= 1.5: Dynamic Cloud Shells
     if (WeatherParams.w > 2.5)
     {
-        // Stars: Emissive, unlit points of celestial light modulated by starAlpha (WeatherParams.z)
+        // Stars: Emissive, unlit points of celestial light modulated by starAlpha (WeatherParams.z).
+        // Rendered with additive blend factor (One, One).
         float starAlpha = WeatherParams.z;
         vec3 starRgb = 2.0 * fsin_Color.rgb * tex.rgb * starAlpha;
-        float alpha = clamp(tex.a * 2.0, 0.0, 1.0);
-        if (alpha < 0.01 || length(starRgb) < 0.005)
+        if (tex.a < 0.04 || length(starRgb) < 0.001)
         {
             discard;
         }
-        fsout_Color = vec4(starRgb, alpha);
+        fsout_Color = vec4(starRgb, 1.0);
         return;
     }
     else if (WeatherParams.w > 2.1)
     {
-        // Moon (WeatherParams.w ~ 2.2): Silver-white celestial glow with crater detail
-        vec3 moonRgb = 2.0 * fsin_Color.rgb * tex.rgb * vec3(1.15, 1.20, 1.30);
-        float moonAlpha = clamp(tex.a * 2.2, 0.0, 1.0);
+        // Moon (WeatherParams.w ~ 2.2): Silver-white celestial glow with crater detail modulated by lunar phase.
+        // WeatherParams.z carries moon phase factor (0.05 to 1.0).
+        float moonPhase = clamp(WeatherParams.z, 0.05, 1.0);
+        vec3 moonRgb = 2.0 * fsin_Color.rgb * tex.rgb * vec3(1.15, 1.20, 1.30) * (0.35 + 0.65 * moonPhase);
+        float moonAlpha = clamp(tex.a * 2.2 * (0.40 + 0.60 * moonPhase), 0.0, 1.0);
         if (moonAlpha < 0.02)
         {
             discard;
@@ -648,41 +654,31 @@ void main()
     }
     else if (WeatherParams.w > 1.5)
     {
-        // Sun (WeatherParams.w ~ 2.0): Radiant golden daylight disc
+        // Sun (WeatherParams.w ~ 2.0): Radiant golden daylight disc rendered with additive blend factor (One, One).
+        // Untextured geometry uses vertex colors to project brilliant solar radiance.
         vec3 sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85)) * vec3(1.35, 1.25, 0.95);
-        float sunAlpha = clamp(tex.a * 2.0, 0.0, 1.0);
-        if (sunAlpha < 0.02)
-        {
-            discard;
-        }
-        fsout_Color = vec4(sunRgb, sunAlpha);
+        fsout_Color = vec4(sunRgb, 1.0);
+        return;
     }
     else
     {
-        // For partial cloud textures (such as suny_a01 and fine_a01), background texels have alpha < 50/255 (~0.196).
-        // Discarding texels with tex.a < 0.20 allows the underlying procedural sky dome, sun, moon, and stars to
-        // shine cleanly through the open spaces between drifting cloud bodies without gray blanket haze or moiré scanlines.
-        if (tex.a < 0.20)
-        {
-            discard;
-        }
-
-        // Atmospheric lighting modulation: daylight clouds are luminous white, night clouds are dark silvery slate
+        // Dynamic Cloud Shells:
+        // Atmospheric lighting modulation: daylight clouds are luminous white, night clouds are dark nocturnal slate
         float dayFactor = clamp(SunDirection.y + 0.35, 0.0, 1.0);
-        vec3 nightCloudAmbient = vec3(0.40, 0.45, 0.58);
+        vec3 nightCloudAmbient = max(AmbientColor.rgb * 1.2, vec3(0.08, 0.10, 0.15));
         vec3 dayCloudAmbient = vec3(1.0, 1.0, 1.0);
         vec3 cloudLighting = mix(nightCloudAmbient, dayCloudAmbient, dayFactor);
 
         vec3 cloudRgb = clamp(tex.rgb * cloudLighting, 0.0, 1.0);
 
-        // Stage 1 alpha:
-        // Smoothly ramp alpha from the outer cloud threshold (0.20) to full density
-        // For continuous overcast textures (clod_a01, where tex.a >= 0.40), preserves authentic overcast coverage
-        float normTexAlpha = clamp((tex.a - 0.20) / 0.80, 0.0, 1.0);
-        float nightAlphaFactor = mix(0.50, 1.0, dayFactor);
-        float alpha = clamp(2.0 * fsin_Color.a * normTexAlpha * nightAlphaFactor, 0.0, 0.85);
+        // Alpha calculation:
+        // Retail FFXI cloud textures use feathered alpha gradients.
+        // Discarding texels with alpha < 0.04 eliminates fully transparent background regions
+        // while preserving feathered cloud edges and full overcast coverage (clod_a01).
+        float nightAlphaFactor = mix(0.35, 1.0, dayFactor);
+        float alpha = clamp(2.0 * fsin_Color.a * tex.a * nightAlphaFactor, 0.0, 1.0);
 
-        if (alpha < 0.02)
+        if (alpha < 0.04)
         {
             discard;
         }
@@ -740,7 +736,11 @@ layout(location = 0) out vec4 fsout_Color;
 
 void main()
 {
-    fsout_Color = vec4(fsin_Color.rgb, 1.0);
+    // Screen-space triangular dither (sub-LSB amplitude: +/- 0.5 / 255.0)
+    // Emulates authentic PS2 GS / D3D8 hardware rasterizer dithering to eliminate 8-bit color quantization banding in dark gradients.
+    float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+    vec3 color = clamp(fsin_Color.rgb + (dither / 255.0), 0.0, 1.0);
+    fsout_Color = vec4(color, 1.0);
 }
 ";
     }

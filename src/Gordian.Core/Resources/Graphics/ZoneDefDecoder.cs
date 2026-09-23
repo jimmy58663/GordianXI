@@ -303,12 +303,14 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// Checks whether a mesh name represents dynamic weather/sky geometry that should not be baked into static world terrain.
-        /// Derived from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// Derived from xi-model-viewer (https://github.com/vekien/xi-model-viewer) and xi-tools (https://github.com/vekien/xi-tools).
         /// </summary>
         public static bool IsSkyMesh(string name)
         {
             if (string.IsNullOrEmpty(name)) return false;
             string n = name.ToLowerInvariant();
+            if (n.StartsWith("suna")) return false; // Wall texture (sunakabe), not sky
+
             for (int i = 0; i < SkyPrefixes.Length; i++)
             {
                 if (n.StartsWith(SkyPrefixes[i])) return true;
@@ -317,7 +319,7 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
-        /// Checks whether a mesh name represents a celestial body (Sun, Moon, Stars, celestial sphere).
+        /// Checks whether a mesh name represents a celestial body (Sun, Moon, Stars, celestial sphere, halo).
         /// Note that 'suny_*' represents sunshine cloud layers, not celestial bodies.
         /// Protocol specification referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
@@ -325,9 +327,10 @@ namespace Gordian.Core.Resources.Graphics
         {
             if (string.IsNullOrEmpty(name)) return false;
             string n = name.ToLowerInvariant();
-            if (n.StartsWith("suny")) return false;
-            return n.StartsWith("sun") || n.StartsWith("moon") || n.StartsWith("star") || n.Contains("sphere");
+            if (n.StartsWith("suny") || n.StartsWith("suna")) return false;
+            return n.StartsWith("sun") || n.StartsWith("moon") || n.StartsWith("star") || n.Contains("sphere") || n.StartsWith("kasa");
         }
+
 
         private static string Norm(string s) => s.Replace(" ", "").Replace("_", "").ToLowerInvariant();
 

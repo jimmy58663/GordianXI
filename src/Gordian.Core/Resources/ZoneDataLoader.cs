@@ -24,8 +24,9 @@ namespace Gordian.Core.Resources
         {
             "fine", "suny", "clod", "mist", "dryw", "heat", "rain", "squl",
             "dust", "sand", "wind", "stom", "snow", "bliz", "thdr", "bolt",
-            "aura", "ligt", "fogd", "dark"
+            "aura", "ligt", "fogd", "dark", "even"
         };
+
 
         private static string? ResolveCurrentWeather(Stack<string> stack)
         {
@@ -345,7 +346,8 @@ namespace Gordian.Core.Resources
                 }
                 else if (isCelestial)
                 {
-                    if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase))
+                    if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase) ||
+                        meshName.Contains("kasa", StringComparison.OrdinalIgnoreCase) || datId.Contains("kasa", StringComparison.OrdinalIgnoreCase))
                     {
                         attachType = ParticleAttachType.Moon;
                     }
@@ -368,18 +370,24 @@ namespace Gordian.Core.Resources
                     uvScroll = new Vector2(0.00015f, 0.00003f);
                 }
 
-                string textureName = submeshes.Count > 0 ? submeshes[0].TextureName : string.Empty;
-                if (string.IsNullOrWhiteSpace(textureName))
+                string inferredTexture = string.Empty;
+                if (submeshes.All(s => string.IsNullOrWhiteSpace(s.TextureName)))
                 {
                     if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase))
                     {
-                        textureName = "moonshap";
+                        inferredTexture = "moonshap";
+                    }
+                    else if (meshName.Contains("kasa", StringComparison.OrdinalIgnoreCase) || datId.Contains("kasa", StringComparison.OrdinalIgnoreCase))
+                    {
+                        inferredTexture = "kasa";
                     }
                     else if (meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase))
                     {
-                        textureName = string.Empty; // Celestial sun disc uses golden self-luminous untextured shading; avoid matching cloud texture
+                        inferredTexture = "sunsphere"; // Celestial sun disc identifier; rendered untextured with radiant golden core
                     }
                 }
+
+                string textureName = submeshes.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.TextureName))?.TextureName ?? inferredTexture;
 
                 Vector3 layerScale = matchedGen?.Scale ?? Vector3.One;
                 if (isCelestial && (attachType == ParticleAttachType.Sun || meshName.Contains("sun", StringComparison.OrdinalIgnoreCase)))
@@ -436,7 +444,7 @@ namespace Gordian.Core.Resources
                     layer.MeshGroups.Add(new MeshGroup
                     {
                         Name = submesh.Name,
-                        TextureName = submesh.TextureName,
+                        TextureName = !string.IsNullOrWhiteSpace(submesh.TextureName) ? submesh.TextureName : inferredTexture,
                         Vertices = dstVerts,
                         Indices = indices,
                         MinBounds = minBounds,
@@ -495,7 +503,10 @@ namespace Gordian.Core.Resources
                 if (gen.Setup == null || string.IsNullOrWhiteSpace(gen.Setup.LinkedDataId)) continue;
 
                 string linkId = gen.Setup.LinkedDataId;
-                if (ZoneDefDecoder.IsSkyMesh(linkId) || ZoneDefDecoder.IsCelestialMesh(linkId)) continue;
+                if (ZoneDefDecoder.IsSkyMesh(linkId) || ZoneDefDecoder.IsCelestialMesh(linkId) ||
+                    linkId.StartsWith("yuk", StringComparison.OrdinalIgnoreCase) ||
+                    linkId.StartsWith("yku", StringComparison.OrdinalIgnoreCase) ||
+                    linkId.StartsWith("hi0", StringComparison.OrdinalIgnoreCase)) continue;
 
                 var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(linkId, templates, realMeshNames);
                 if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
@@ -661,7 +672,7 @@ namespace Gordian.Core.Resources
             string n = name.ToLowerInvariant();
             return n.StartsWith("umi") || n.StartsWith("shi") || n.StartsWith("sea") ||
                    n.StartsWith("water") || n.StartsWith("ocean") || n.StartsWith("lowsea") ||
-                   n.StartsWith("suimen") || n.StartsWith("huw") || n.StartsWith("yuku") ||
+                   n.StartsWith("suimen") || n.StartsWith("huw") ||
                    n.StartsWith("ka") || n.StartsWith("kb") || n.StartsWith("hum") ||
                    n.StartsWith("hna") || n.StartsWith("mizu");
         }

@@ -453,5 +453,61 @@ namespace Gordian.Core.Tests.Resources
                 }
             }
         }
+
+        [Fact]
+
+        public void DiagnosticSkyInspection()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new ResourceManager(gameDir);
+            rm.InitializeFileTable();
+
+            foreach (int zoneId in new[] { 4, 100, 102, 103, 115 })
+            {
+                if (!rm.TryLoadZone(zoneId, out var zone, out var textures) || zone == null) continue;
+
+                Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_ZONE", $"=== ZONE {zoneId} ===");
+                if (zone.EnvironmentData != null)
+                {
+                    var weathers = string.Join(", ", zone.EnvironmentData.WeatherKeyframes.Keys);
+                    Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_ZONE", $"  Weather Keyframes: [{weathers}]");
+                    var gens = string.Join(", ", zone.EnvironmentData.ParticleGenerators.Keys);
+                    Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_ZONE", $"  Generators ({zone.EnvironmentData.ParticleGenerators.Count}): [{gens}]");
+                }
+                foreach (var l in zone.WeatherSkyLayers)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_ZONE", $"  SkyLayer: Name='{l.Name}', Weather='{l.WeatherId}', Celestial={l.IsCelestial}, Attach={l.AttachType}, FollowCam={l.FollowCamera}, Pos={l.Position}, Scale={l.Scale}, Tex='{l.TextureName}'");
+                    foreach (var mg in l.MeshGroups)
+                    {
+                        var v0 = mg.Vertices.Length > 0 ? mg.Vertices[0] : default;
+                        Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_ZONE", $"    Submesh: '{mg.Name}' Tex='{mg.TextureName}' Verts={mg.Vertices.Length} Bounds=[{mg.MinBounds}..{mg.MaxBounds}] V0_Pos={v0.Position} V0_Norm={v0.Normal} V0_UV={v0.TexCoord} V0_Col=0x{v0.ColorRgba:X8}");
+                    }
+                }
+                foreach (var kvp in textures)
+                {
+                    string k = kvp.Key.ToLowerInvariant();
+                    if (k.Contains("moon") || k.Contains("star") || k.Contains("sun") || k.Contains("cld") || k.Contains("fine") || k.Contains("clod") || k.Contains("mist") || k.Contains("rain") || k.Contains("snow") || k.Contains("thdr") || k.Contains("yuh") || k.Contains("kasa") || k.Contains("lf0"))
+                    {
+                        var t = kvp.Value;
+                        byte minA = 255, maxA = 0, minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
+                        int nonZeroAlpha = 0;
+                        for (int p = 0; p < t.RgbaPixels.Length; p += 4)
+                        {
+                            byte r = t.RgbaPixels[p]; byte g = t.RgbaPixels[p + 1]; byte b = t.RgbaPixels[p + 2]; byte a = t.RgbaPixels[p + 3];
+                            if (a < minA) minA = a; if (a > maxA) maxA = a;
+                            if (r < minR) minR = r; if (r > maxR) maxR = r;
+                            if (g < minG) minG = g; if (g > maxG) maxG = g;
+                            if (b < minB) minB = b; if (b > maxB) maxB = b;
+                            if (a > 10) nonZeroAlpha++;
+                        }
+                        Gordian.Core.Diagnostics.GordianLog.Info("DIAG_SKY_TEX", $"  Tex '{kvp.Key}': W={t.Width}, H={t.Height}, A=[{minA}..{maxA}], R=[{minR}..{maxR}], G=[{minG}..{maxG}], B=[{minB}..{maxB}], NonZeroA={nonZeroAlpha}/{t.RgbaPixels.Length/4}");
+                    }
+                }
+
+            }
+        }
     }
 }
+

@@ -27,6 +27,34 @@ namespace Gordian.Core.World
         /// </summary>
         public const int SecondsPerVanadielDay = 86400;
 
+        private static long _serverClockOffsetSeconds = 0;
+
+        /// <summary>
+        /// Synchronizes the local Vana'diel clock with the authoritative game time sent by the server.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
+        /// and XiPackets (https://github.com/atom0s/XiPackets).
+        /// </summary>
+        /// <param name="serverGameTime">The server's Earth seconds since the Vana'diel epoch (1009810800).</param>
+        public static void SynchronizeServerTime(uint serverGameTime)
+        {
+            if (serverGameTime == 0) return;
+            long clientDeltaEarthSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - VanadielEpochUnixSeconds;
+            _serverClockOffsetSeconds = (long)serverGameTime - clientDeltaEarthSeconds;
+        }
+
+        /// <summary>
+        /// Gets the current server clock offset in Earth seconds.
+        /// </summary>
+        public static long ServerClockOffsetSeconds => _serverClockOffsetSeconds;
+
+        /// <summary>
+        /// Resets the server clock offset to zero (used for testing and disconnection).
+        /// </summary>
+        public static void ResetClockOffset()
+        {
+            _serverClockOffsetSeconds = 0;
+        }
+
         /// <summary>
         /// Canonical weather directory and chunk names matching retail FFXI DAT conventions and server weather numbers.
         /// Mappings correspond to weather numbers 0 through 19.
@@ -56,12 +84,13 @@ namespace Gordian.Core.World
         };
 
         /// <summary>
-        /// Converts an Earth UTC date/time into total accumulated Vana'diel seconds since the epoch.
+        /// Converts an Earth UTC date/time into total accumulated Vana'diel seconds since the epoch,
+        /// including any synchronized server clock offset.
         /// </summary>
         public static long GetVanadielSeconds(DateTime utcTime)
         {
             long earthUnixSeconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
-            long deltaEarthSeconds = earthUnixSeconds - VanadielEpochUnixSeconds;
+            long deltaEarthSeconds = (earthUnixSeconds - VanadielEpochUnixSeconds) + _serverClockOffsetSeconds;
             return deltaEarthSeconds * TimeMultiplier;
         }
 
@@ -90,6 +119,75 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
+        /// Maps an authentic 4-character FFXI weather code into one of the four primary authored
+        /// DAT sky environment categories ("fine", "suny", "clod", "mist").
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
+        /// and xi-tools (https://github.com/vekien/xi-tools).
+        /// </summary>
+        public static string GetCanonicalWeatherCategory(string? weatherId)
+        {
+            if (string.IsNullOrWhiteSpace(weatherId)) return "fine";
+            string w = weatherId.Trim().ToLowerInvariant();
+
+            return w switch
+            {
+                "suny" or "dryw" or "heat" => "suny",
+                "clod" or "rain" or "squl" or "dust" or "sand" or "stom" or
+                "snow" or "bliz" or "thdr" or "bolt" or "dark" or "fogd" => "clod",
+                "mist" => "mist",
+                _ => "fine"
+            };
+        }
+
+        /// <summary>
+        /// Computes the authentic Vana'diel moon phase percentage (0% to 100%) for a given Earth UTC date/time.
+        /// Protocol specification and 84-day lunar calendar referenced from LandSandBoat (https://github.com/LandSandBoat/server).
+        /// </summary>
+        public static int GetMoonPhase(DateTime utcTime)
+        {
+            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
+
+            if (daysMod >= 42L)
+            {
+                return (int)(100.0 * ((daysMod - 42L) / 42.0) + 0.5);
+            }
+            else
+            {
+                return (int)(100.0 * (1.0 - (daysMod / 42.0)) + 0.5);
+            }
+        }
+
+        /// <summary>
+        /// Computes the moon direction (0 = neither, 1 = waning, 2 = waxing).
+        /// Referenced from LandSandBoat (https://github.com/LandSandBoat/server).
+        /// </summary>
+        public static int GetMoonDirection(DateTime utcTime)
+        {
+            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
+
+            if (daysMod == 42L || daysMod == 0L) return 0;
+            return daysMod < 42L ? 1 : 2;
+        }
+
+        /// <summary>
+        /// Computes the 12-step moon phase index (0 to 11) for sprite-sheet animations and celestial shaders:
+        /// 0: New Moon, 6: Full Moon.
+        /// Derived from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// </summary>
+        public static int GetMoonPhaseIndex(DateTime utcTime)
+        {
+            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
+
+            // 84 days per lunar cycle / 12 phases = 7 days per phase.
+            // Center New Moon (phase 0) at daysMod 42 and Full Moon (phase 6) at daysMod 0/84.
+            int phase = (int)MathF.Floor((((daysMod + 3.5f) % 84f) / 7.0f));
+            return Math.Clamp((phase + 6) % 12, 0, 11);
+        }
+
+        /// <summary>
         /// Computes the dynamic celestial sun direction vector in display space (+Y up, +X east, -X west)
         /// for a given Vana'diel hour (0.0 to 24.0).
         /// Protocol and celestial orbit referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
@@ -109,3 +207,4 @@ namespace Gordian.Core.World
         }
     }
 }
+

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Network.Packets
 {
@@ -122,6 +123,15 @@ namespace Gordian.Core.Network.Packets
         public float Z { get; }
         public ushort ZoneId { get; }
         public ushort WeatherNumber { get; }
+
+        /// <summary>
+        /// Earth seconds elapsed since the Vana'diel epoch (1009810800) according to the server.
+        /// Located at wire offset 56 (4 bytes).
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
+        /// and XiPackets (https://github.com/atom0s/XiPackets).
+        /// </summary>
+        public uint GameTime { get; }
+
         public bool IsValid { get; }
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
@@ -137,6 +147,7 @@ namespace Gordian.Core.Network.Packets
                 Z = 0f;
                 ZoneId = 0;
                 WeatherNumber = 0;
+                GameTime = 0;
                 IsValid = false;
                 return;
             }
@@ -153,6 +164,9 @@ namespace Gordian.Core.Network.Packets
             ZoneId = payload.Length >= 46
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
                 : (ushort)0;
+            GameTime = payload.Length >= 60
+                ? BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(56, 4))
+                : 0;
             WeatherNumber = payload.Length >= 102
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(100, 2))
                 : (ushort)0;
@@ -840,16 +854,18 @@ namespace Gordian.Core.Network.Packets
                     LoginAppearanceReceived?.Invoke(ack.UniqueNo, grap.ToArray(), name);
                 }
 
-                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}");
+                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}, GameTime={ack.GameTime}");
+                if (ack.GameTime > 0)
+                {
+                    VanaTime.SynchronizeServerTime(ack.GameTime);
+                }
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
                 if (ack.ZoneId != 0)
                 {
                     ZoneReceived?.Invoke(ack.ZoneId);
                 }
-                if (ack.WeatherNumber != 0)
-                {
-                    WeatherReceived?.Invoke(ack.WeatherNumber);
-                }
+                // Weather 0 is Clear/Fine ("fine") in FFXI; invoke unconditionally so initial zone weather is applied
+                WeatherReceived?.Invoke(ack.WeatherNumber);
             }
 
             byte[] gameOk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);
