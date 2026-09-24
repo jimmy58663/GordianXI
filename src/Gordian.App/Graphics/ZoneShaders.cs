@@ -7,12 +7,12 @@ namespace Gordian.App.Graphics
     /// <summary>
     /// Uniform buffer structure containing scene transform matrices, directional sun/moon lighting,
     /// authentic FFXI distance fog parameters, and dynamic weather / cloud scroll parameters.
-    /// Matched to GLSL std140 layout (320 bytes).
+    /// Matched to GLSL std140 layout (336 bytes).
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Size = (int)SizeInBytes)]
     public struct ZoneSceneUniform
     {
-        public const uint SizeInBytes = 320;
+        public const uint SizeInBytes = 336;
 
         public Matrix4x4 World;
         public Matrix4x4 View;
@@ -25,6 +25,7 @@ namespace Gordian.App.Graphics
         public Vector4 EyePosition;
         public Vector4 WeatherParams; // X = UVOffset.X, Y = UVOffset.Y, Z = Time, W = IsCelestial (1.0 = bypass fog)
         public Vector4 SkyTextureFactor; // Weather-sky generator color (texture factor), read only by the weather-sky shaders
+        public Vector4 SkyLayerParams; // Weather-sky only: X = fog enabled, Y = fog toward black (additive layers)
     }
 
     /// <summary>
@@ -179,6 +180,7 @@ layout(location = 2) in vec4 Color;
 
 layout(location = 0) out vec2 fsin_TexCoord;
 layout(location = 1) out vec4 fsin_Color;
+layout(location = 2) out float fsin_Fog;
 
 layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 {
@@ -193,6 +195,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 EyePosition;
     vec4 WeatherParams;
     vec4 SkyTextureFactor;
+    vec4 SkyLayerParams;
 };
 
 void main()
@@ -204,12 +207,21 @@ void main()
         // Screen-space lens-flare sprite centred at WeatherParams.xy (NDC), sized at 1/16 NDC per sprite unit on
         // both axes; card vertices are in display axes (-x, -y, z), so raw +X maps to screen right and raw +Y down.
         fsin_TexCoord = TexCoord;
+        fsin_Fog = 1.0;
         gl_Position = vec4(WeatherParams.xy + vec2(-Position.x, Position.y) * 0.0625, 0.9998, 1.0);
         return;
     }
 
     vec4 worldPos = World * vec4(Position, 1.0);
     fsin_TexCoord = TexCoord + WeatherParams.xy;
+
+    // Linear distance fog factor (1 = clear), only for generators that enable fog.
+    float fog = 1.0;
+    if (SkyLayerParams.x > 0.5 && FogParams.y > 0.0)
+    {
+        fog = clamp((FogParams.y - length(worldPos.xyz - EyePosition.xyz)) * FogParams.z, 0.0, 1.0);
+    }
+    fsin_Fog = fog;
 
     vec4 clipPos = Projection * View * worldPos;
     gl_Position = vec4(clipPos.xy, clipPos.w * 0.9998, clipPos.w);
@@ -594,12 +606,12 @@ void main()
 ";
 
         /// <summary>
-        /// Fragment shader for Section 0x05 weather sky elements: dynamic drifting cloud layers,
-        /// celestial generator geometry (stars, Milky Way, moon disc and halo, pole star, lens flares), and the sun disc.
+        /// Fragment shader for Section 0x05 weather sky generators (cloud shells, stars, Milky Way, moon disc and halo,
+        /// pole star, lens flares) and the legacy sun disc.
         /// Uses WeatherParams:
         ///   xy: continuous UV scrolling offset (lens flares: sprite centre in NDC, consumed by the vertex shader)
-        ///   z: 1.0 = additive (Src_One_Add) generator blend, 0.0 = alpha blend
-        ///   w: layer type (4.0 = screen-space lens flare, 3.0 = celestial generator, 2.0 = sun disc, 1.0 = clouds)
+        ///   z: blend output (0 = straight alpha, 1 = premultiplied for additive / reverse subtract, 2 = darken by alpha)
+        ///   w: layer type (4.0 = screen-space lens flare, 3.0 = sky generator, 2.0 = sun disc)
         /// Celestial generators reproduce the client's two modulate-2x texture stages, with the generator
         /// color (day-of-week, moon-phase and time-of-day modulated) as the texture factor.
         /// Stage math referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
@@ -609,6 +621,7 @@ void main()
 
 layout(location = 0) in vec2 fsin_TexCoord;
 layout(location = 1) in vec4 fsin_Color;
+layout(location = 2) in float fsin_Fog;
 
 layout(location = 0) out vec4 fsout_Color;
 
@@ -625,6 +638,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 EyePosition;
     vec4 WeatherParams;
     vec4 SkyTextureFactor;
+    vec4 SkyLayerParams;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -639,19 +653,31 @@ void main()
         vec4 stage0 = 2.0 * fsin_Color * tex;
         vec3 rgb = clamp(2.0 * stage0.rgb * SkyTextureFactor.rgb, 0.0, 1.0);
         float alpha = clamp(4.0 * stage0.a * SkyTextureFactor.a, 0.0, 1.0);
+        rgb = mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog);
 
-        if (WeatherParams.z > 0.5)
+        if (WeatherParams.z > 1.5)
         {
-            // Src_One_Add (SRC_ALPHA, ONE), premultiplied for the One/One additive pipeline.
-            vec3 added = rgb * alpha;
-            if (max(added.r, max(added.g, added.b)) < 0.002)
+            // Zero_InvSrc_Add (ZERO, ONE_MINUS_SRC_ALPHA): darken the destination by alpha.
+            if (alpha < 0.004)
             {
                 discard;
             }
-            fsout_Color = vec4(added, 0.0);
+            fsout_Color = vec4(0.0, 0.0, 0.0, alpha);
+        }
+        else if (WeatherParams.z > 0.5)
+        {
+            // Src_One_Add / Src_One_RevSub (SRC_ALPHA, ONE), premultiplied for the One/One additive or
+            // reverse-subtract pipeline.
+            vec3 premultiplied = rgb * alpha;
+            if (max(premultiplied.r, max(premultiplied.g, premultiplied.b)) < 0.002)
+            {
+                discard;
+            }
+            fsout_Color = vec4(premultiplied, 0.0);
         }
         else
         {
+            // Src_InvSrc_Add (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
             if (alpha < 0.004)
             {
                 discard;
@@ -660,39 +686,12 @@ void main()
         }
         return;
     }
-    else if (WeatherParams.w > 1.5)
+    else
     {
         // Sun (WeatherParams.w ~ 2.0): Radiant golden daylight disc rendered with additive blend factor (One, One).
         // Untextured geometry uses vertex colors to project brilliant solar radiance.
         vec3 sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85)) * vec3(1.35, 1.25, 0.95);
         fsout_Color = vec4(sunRgb, 1.0);
-        return;
-    }
-    else
-    {
-        // Dynamic Cloud Shells:
-        // Atmospheric lighting modulation: daylight clouds are luminous white, night clouds are dark nocturnal slate
-        float dayFactor = clamp(SunDirection.y + 0.35, 0.0, 1.0);
-        vec3 nightCloudAmbient = max(AmbientColor.rgb * 1.2, vec3(0.08, 0.10, 0.15));
-        vec3 dayCloudAmbient = vec3(1.0, 1.0, 1.0);
-        vec3 cloudLighting = mix(nightCloudAmbient, dayCloudAmbient, dayFactor);
-
-        vec3 cloudRgb = clamp(tex.rgb * cloudLighting, 0.0, 1.0);
-
-        // Alpha calculation:
-        // Retail FFXI cloud textures use feathered alpha gradients.
-        // Discarding texels with alpha < 0.04 eliminates fully transparent background regions
-        // while preserving feathered cloud edges and full overcast coverage (clod_a01).
-        float nightAlphaFactor = mix(0.35, 1.0, dayFactor);
-        float alpha = clamp(2.0 * fsin_Color.a * tex.a * nightAlphaFactor, 0.0, 1.0);
-
-        if (alpha < 0.04)
-        {
-            discard;
-        }
-
-        fsout_Color = vec4(cloudRgb, alpha);
-        return;
     }
 }
 ";

@@ -179,6 +179,60 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ParseZoneContainer_CelestialLayersRecordOnlyTheWeathersThatAuthorThem()
+        {
+            // Stars are duplicated under fine and suny only; an overcast (clod) directory authors none.
+            byte[] StarDirectory(string weather) => Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), weather),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("star", "star    star01"), "sta1"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                StarDirectory("fine"),
+                StarDirectory("suny"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "clod"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4);
+
+            var star = Assert.Single(zone.WeatherSkyLayers, l => l.Name == "star");
+            Assert.Equal(new[] { "fine", "suny" }, star.WeatherIds.OrderBy(w => w));
+        }
+
+        [Fact]
+        public void ParseZoneContainer_CloudShellsAreOneLayerPerCameraFollowingGenerator()
+        {
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "fine"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("cld_fine_a01", "fine    fine_a01"), "cld_"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rain_a01", "rain    rain_a01"), "rain"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("cld_", 50f, followCamera: true), "cld1"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("cld_", 53f, followCamera: true), "cld2"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("cld_", 0f, followCamera: false), "cldx"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("rain", 0f, followCamera: true), "~1cl"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4);
+
+            var clouds = zone.WeatherSkyLayers.Where(l => !l.IsCelestial).OrderBy(l => l.GeneratorId).ToList();
+            Assert.Equal(new[] { "cld1", "cld2" }, clouds.Select(l => l.GeneratorId));
+            Assert.All(clouds, c =>
+            {
+                Assert.Equal("fine", c.WeatherId);
+                Assert.Equal("cld_fine_a01", c.Name);
+                Assert.Equal("fine    fine_a01", c.TextureName);
+            });
+
+            // Raw DAT +Y is down: cloud domes sit below the camera so their rim meets the horizon.
+            Assert.Equal(-50f, clouds[0].Position.Y);
+            Assert.Equal(-53f, clouds[1].Position.Y);
+        }
+
+        [Fact]
         public void SharedEffectResources_Parse_IndexesSpriteSheetsByDatIdAndTexturesByName()
         {
             byte[] dat = Concat(

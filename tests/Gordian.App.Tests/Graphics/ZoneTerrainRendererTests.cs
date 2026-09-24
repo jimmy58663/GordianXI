@@ -8,11 +8,11 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected320ByteLayout()
+        public void ZoneSceneUniform_HasExpected336ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) = 320 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) = 336 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(320, size);
+            Assert.Equal(336, size);
             Assert.Equal(ZoneSceneUniform.SizeInBytes, (uint)size);
         }
 
@@ -322,7 +322,13 @@ namespace Gordian.App.Tests.Graphics
             }
             Assert.False(hasYukuWater, "Sunset cloud generators (yuku/ykum) must not be instantiated as static terrain water meshes.");
 
-            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.Contains("ykum", StringComparison.OrdinalIgnoreCase));
+            // 'ykum' is the authored sunset cloud band: drawn by cloud generator cld3 with reverse-subtract blending
+            Assert.All(zone.WeatherSkyLayers.Where(l => l.Name == "ykum"), l =>
+            {
+                Assert.Equal("cld3", l.GeneratorId);
+                Assert.Equal(Gordian.Core.Resources.Graphics.ParticleBlendFunc.SrcOneRevSub, l.BlendFunc);
+                Assert.NotNull(l.ClockAlphaCurve);
+            });
 
             // 2. Each celestial mesh is drawn by the generator that links it (weat/*/star cross-links 'star' <-> 'sta1')
             var star = zone.WeatherSkyLayers.Single(l => l.Name == "star");
@@ -358,8 +364,8 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(flare.MeshGroups.Count, flare.FlareOffsets.Count);
 
             // 5. Time-of-day curves: stars shine at midnight and vanish at noon
-            Assert.True(ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.0f).W > 0.5f);
-            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.5f).W);
+            Assert.True(ZoneTerrainRenderer.ComputeSkyTextureFactor(star, 0, 6, 0.0f).W > 0.5f);
+            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeSkyTextureFactor(star, 0, 6, 0.5f).W);
         }
 
         [Fact]
@@ -385,7 +391,7 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void ComputeCelestialTextureFactor_AppliesModulate2xTintsAndClockAlpha()
+        public void ComputeSkyTextureFactor_AppliesModulate2xTintsAndClockAlpha()
         {
             var layer = new Gordian.Core.Resources.Graphics.WeatherSkyLayer
             {
@@ -395,12 +401,60 @@ namespace Gordian.App.Tests.Graphics
                 ClockAlphaCurve = new Gordian.Core.Resources.Graphics.KeyFrameCurve("k000", [new(0f, 1f), new(0.5f, 0f), new(1f, 1f)])
             };
 
-            var factor = ZoneTerrainRenderer.ComputeCelestialTextureFactor(layer, dayOfWeek: 0, moonPhaseIndex: 0, dayFraction: 0.0f);
+            var factor = ZoneTerrainRenderer.ComputeSkyTextureFactor(layer, dayOfWeek: 0, moonPhaseIndex: 0, dayFraction: 0.0f);
             Assert.Equal(0.5f, factor.X, 4);  // 0.5 * (0.5*2) * (0.5*2)
             Assert.Equal(0.25f, factor.Y, 4); // 0.5 * (0.25*2) * (0.5*2)
             Assert.Equal(0.25f, factor.W, 4); // 0.5 * (0.5*2) * (0.25*2) * clock(0) = 1
 
-            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeCelestialTextureFactor(layer, 0, 0, 0.5f).W, 4);
+            Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeSkyTextureFactor(layer, 0, 0, 0.5f).W, 4);
+        }
+
+        [Fact]
+        public void ComputeSkyTextureFactor_ClockColorCurvesReplaceBaseColorChannels()
+        {
+            var red = new Gordian.Core.Resources.Graphics.KeyFrameCurve("kcr1", [new(0f, 0.04f), new(0.5f, 0.28f), new(1f, 0.04f)]);
+            var layer = new Gordian.Core.Resources.Graphics.WeatherSkyLayer
+            {
+                BaseColor = new System.Numerics.Vector4(0.5f, 0.5f, 0.5f, 0.27f),
+                ClockColorCurves = [red, null, null]
+            };
+
+            var noon = ZoneTerrainRenderer.ComputeSkyTextureFactor(layer, 0, 0, 0.5f);
+            Assert.Equal(0.28f, noon.X, 4);
+            Assert.Equal(0.5f, noon.Y, 4);   // no green curve: base color kept
+            Assert.Equal(0.27f, noon.W, 4);  // alpha untouched by color curves
+
+            Assert.Equal(0.04f, ZoneTerrainRenderer.ComputeSkyTextureFactor(layer, 0, 0, 0.0f).X, 4);
+        }
+
+        [Fact]
+        public void Zone4_CloudShells_AreOneLayerPerGeneratorWithAuthoredMotionAndColor()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out _) || zone == null) return;
+
+            // weat/fine: cld1 and cld2 both draw mesh 'cld_' (alpha + additive), sitting below the camera so the rim meets the horizon
+            var fine = zone.WeatherSkyLayers.Where(l => l.WeatherId == "fine" && l.Name == "cld_fine_a01").OrderBy(l => l.GeneratorId).ToList();
+            Assert.Equal(new[] { "cld1", "cld2" }, fine.Select(l => l.GeneratorId));
+            Assert.Equal(Gordian.Core.Resources.Graphics.ParticleBlendFunc.SrcInvSrcAdd, fine[0].BlendFunc);
+            Assert.Equal(Gordian.Core.Resources.Graphics.ParticleBlendFunc.SrcOneAdd, fine[1].BlendFunc);
+            Assert.Equal(-50f, fine[0].Position.Y);
+            Assert.True(fine[0].RotationVelocity.Y > 0f);
+            Assert.Equal("kcr1", fine[0].ClockColorCurves?[0]?.DatId);
+            Assert.True(fine[0].DrawPriority < fine[1].DrawPriority);
+
+            // weat/suny clouds scroll their texture and take k00r/k00g/k00b colors
+            var suny = zone.WeatherSkyLayers.Single(l => l.WeatherId == "suny" && l.GeneratorId == "cld1");
+            Assert.True(suny.UVScroll.X > 0f);
+            Assert.Equal("k00r", suny.ClockColorCurves?[0]?.DatId);
+
+            // Rain, lightning and smoke generators are not cloud shells
+            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("rain", StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]
@@ -423,7 +477,7 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains(zone.WeatherSkyLayers, l => l.IsCelestial && l.Name.Contains("star", StringComparison.OrdinalIgnoreCase));
 
             // Authored cloud layers must match their specific weather types
-            var sunyCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "suny", StringComparison.OrdinalIgnoreCase));
+            var sunyCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "suny", StringComparison.OrdinalIgnoreCase) && l.GeneratorId == "cld1");
             Assert.NotNull(sunyCloud);
             Assert.False(sunyCloud.IsCelestial);
             Assert.Contains("suny", sunyCloud.Name, StringComparison.OrdinalIgnoreCase);
@@ -440,10 +494,9 @@ namespace Gordian.App.Tests.Graphics
             Assert.NotNull(fineCloud);
             Assert.False(fineCloud.IsCelestial);
 
-            // Non-sky particle generators (hi01, hi02, yuku, ykum) must NOT be included in WeatherSkyLayers
+            // Sunset glow generators (weat/*/yuhi: hi01, hi02, yuku) are not cloud shells
             Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("hi0", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("yuk", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(zone.WeatherSkyLayers, l => l.Name.StartsWith("yku", StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]
@@ -787,22 +840,23 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void FragmentShaderWeatherSkyGlsl_ContainsCelestialGeneratorStagesAndCloudAmbient()
+        public void FragmentShaderWeatherSkyGlsl_ContainsGeneratorStagesFogAndBlendOutputs()
         {
             // Celestial generators: two modulate-2x texture stages with the generator color as texture factor
             Assert.Contains("stage0 = 2.0 * fsin_Color * tex", ZoneShaders.FragmentShaderWeatherSkyGlsl);
             Assert.Contains("2.0 * stage0.rgb * SkyTextureFactor.rgb", ZoneShaders.FragmentShaderWeatherSkyGlsl);
             Assert.Contains("4.0 * stage0.a * SkyTextureFactor.a", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
-            // Src_One_Add generators are premultiplied for the One/One additive pipeline
-            Assert.Contains("vec3 added = rgb * alpha", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            // Src_One_Add / Src_One_RevSub generators are premultiplied for their One/One pipelines
+            Assert.Contains("vec3 premultiplied = rgb * alpha", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+
+            // Zero_InvSrc_Add darkens by alpha; fog blends toward black for additive layers, fog color otherwise
+            Assert.Contains("fsout_Color = vec4(0.0, 0.0, 0.0, alpha)", ZoneShaders.FragmentShaderWeatherSkyGlsl);
+            Assert.Contains("mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog)", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
             // Sun has golden radiant daylight disc (WeatherParams.w > 1.5)
             Assert.Contains("sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85))", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
-            // Clouds use atmospheric sky ambient and are wispy/translucent at night
-            Assert.Contains("nightCloudAmbient", ZoneShaders.FragmentShaderWeatherSkyGlsl);
-            Assert.Contains("nightAlphaFactor", ZoneShaders.FragmentShaderWeatherSkyGlsl);
         }
 
         [Fact]

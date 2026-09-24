@@ -53,6 +53,12 @@ namespace Gordian.Core.Resources.Graphics
         public string? WeatherId { get; set; }
 
         /// <summary>
+        /// Every weather directory this layer is authored under (celestial bodies are duplicated per weather that shows
+        /// them, e.g. only `fine`/`suny` carry `star` and `moon`); empty means the layer is not weather-scoped.
+        /// </summary>
+        public HashSet<string> WeatherIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// True if this layer represents a celestial body (Sun, Moon, Stars, celestial sphere)
         /// rather than a cloud layer or weather precipitation plane.
         /// </summary>
@@ -126,9 +132,29 @@ namespace Gordian.Core.Resources.Graphics
         public Vector4 BaseColor { get; set; } = Vector4.One;
 
         /// <summary>
-        /// Generator blend mode (Section 2 Opcode 0x1E low nibble; 0x08 = additive Src_One_Add, 0x04 = alpha).
+        /// Generator blend function (Section 2 Opcode 0x1E).
         /// </summary>
-        public byte BlendMode { get; set; } = 0x08;
+        public ParticleBlendFunc BlendFunc { get; set; } = ParticleBlendFunc.SrcOneAdd;
+
+        /// <summary>
+        /// Rotation velocity in radians per 60 Hz frame, raw DAT axes.
+        /// </summary>
+        public Vector3 RotationVelocity { get; set; } = Vector3.Zero;
+
+        /// <summary>
+        /// Time-of-day curves that set the color's R, G and B (null entries keep the base color channel), or null.
+        /// </summary>
+        public KeyFrameCurve?[]? ClockColorCurves { get; set; }
+
+        /// <summary>
+        /// Time-of-day curves for the X, Y and Z position offset in raw DAT axes (null entries are zero), or null.
+        /// </summary>
+        public KeyFrameCurve?[]? ClockPositionCurves { get; set; }
+
+        /// <summary>
+        /// Painter's-order weight from the generator's projection bias: larger values draw first.
+        /// </summary>
+        public float DrawPriority { get; set; }
 
         /// <summary>
         /// Time-of-day alpha curve (Section 0x19) sampled over the 24-hour Vana'diel clock, or null.

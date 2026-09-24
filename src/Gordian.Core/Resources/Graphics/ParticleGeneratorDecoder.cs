@@ -41,6 +41,25 @@ namespace Gordian.Core.Resources.Graphics
     }
 
     /// <summary>
+    /// Particle blend function selected by Section 2 Opcode 0x1E.
+    /// Mapping referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+    /// ui/js/particle/ops/initializers.js BlendFuncInitializer, after xim).
+    /// </summary>
+    public enum ParticleBlendFunc
+    {
+        /// <summary>(SRC_ALPHA, ONE) additive; the default when a generator declares no blend opcode.</summary>
+        SrcOneAdd,
+        /// <summary>(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) alpha blending.</summary>
+        SrcInvSrcAdd,
+        /// <summary>(SRC_ALPHA, ONE) reverse subtract: darkens the destination.</summary>
+        SrcOneRevSub,
+        /// <summary>(ZERO, ONE_MINUS_SRC_ALPHA): darkens the destination by source alpha.</summary>
+        ZeroInvSrcAdd,
+        /// <summary>(ONE, ZERO) opaque.</summary>
+        OneZero
+    }
+
+    /// <summary>
     /// Standard particle initialization configuration (Section 2 Opcode 0x01).
     /// </summary>
     public sealed class StandardParticleSetup
@@ -112,8 +131,8 @@ namespace Gordian.Core.Resources.Graphics
         // Draw distance (from Section 3 Opcode 0x2E or 0x0A)
         public float MaxDrawDistance { get; set; }
 
-        // Blend state from Section 2 Opcode 0x1E (default 0x08 = Src_One_Add / Additive)
-        public byte BlendMode { get; set; } = 0x08;
+        // Blend state from Section 2 Opcode 0x1E (default Src_One_Add / additive)
+        public ParticleBlendFunc BlendFunc { get; set; } = ParticleBlendFunc.SrcOneAdd;
         public byte? AlphaOverride { get; set; }
         public bool IgnoreTextureAlpha { get; set; }
 
@@ -142,6 +161,29 @@ namespace Gordian.Core.Resources.Graphics
         /// True if the drawn sprite-sheet card is selected by the current moon phase (Section 3 Opcode 0x45).
         /// </summary>
         public bool SpriteIndexFromMoonPhase { get; set; }
+
+        /// <summary>
+        /// Painter's-order weight (Section 2 Opcode 0x30 param0): larger values draw earlier (farther).
+        /// </summary>
+        public float ProjectionBias { get; set; }
+
+        /// <summary>
+        /// Rotation velocity in radians per 60 Hz frame, raw DAT axes
+        /// (Section 2 Opcode 0x0B consumed by Section 3 RotationUpdater Opcode 0x05).
+        /// </summary>
+        public Vector3 RotationVelocity { get; set; } = Vector3.Zero;
+
+        /// <summary>
+        /// Section 0x19 keyframe DatIds that set the particle color's R, G and B over the 24-hour clock
+        /// (Section 3 Opcodes 0x3C / 0x3D / 0x3E); null entries leave that channel at the base color.
+        /// </summary>
+        public string?[] ClockColorKeyFrameIds { get; } = new string?[3];
+
+        /// <summary>
+        /// Section 0x19 keyframe DatIds that set the particle's X, Y and Z position offset (raw DAT axes)
+        /// over the 24-hour clock (Section 3 Opcodes 0x6B / 0x6C / 0x6D).
+        /// </summary>
+        public string?[] ClockPositionKeyFrameIds { get; } = new string?[3];
 
         /// <summary>
         /// True if this generator attaches to the Sun or Moon, or links to celestial geometry.
@@ -226,6 +268,7 @@ namespace Gordian.Core.Resources.Graphics
 
             // Parse opcode streams (Section 2 keyframe links must be known before Section 3 updaters consume them)
             var keyFrameLinks = new Dictionary<ushort, string>();
+            var rotationVelocities = new Dictionary<ushort, Vector3>();
             for (int sec = 0; sec < 4; sec++)
             {
                 uint rawOffset = streamOffsets[sec];
@@ -234,7 +277,7 @@ namespace Gordian.Core.Resources.Graphics
                 int payloadOffset = (int)(rawOffset - 16);
                 if (payloadOffset < 0 || payloadOffset + 4 > payload.Length) continue;
 
-                ParseOpcodeStream(payload, payloadOffset, sec + 1, def, keyFrameLinks);
+                ParseOpcodeStream(payload, payloadOffset, sec + 1, def, keyFrameLinks, rotationVelocities);
             }
 
             return def;
@@ -262,7 +305,13 @@ namespace Gordian.Core.Resources.Graphics
             _ => false
         };
 
-        private static void ParseOpcodeStream(ReadOnlySpan<byte> payload, int startOffset, int sectionNumber, ParticleGeneratorDefinition def, Dictionary<ushort, string> keyFrameLinks)
+        private static void ParseOpcodeStream(
+            ReadOnlySpan<byte> payload,
+            int startOffset,
+            int sectionNumber,
+            ParticleGeneratorDefinition def,
+            Dictionary<ushort, string> keyFrameLinks,
+            Dictionary<ushort, Vector3> rotationVelocities)
         {
             int currentOffset = startOffset;
 
@@ -296,10 +345,14 @@ namespace Gordian.Core.Resources.Graphics
                         {
                             keyFrameLinks[allocationOffset] = ReadDatId(opPayload.Slice(8, 4));
                         }
+                        if (opCode == 0x0B && opPayload.Length >= 16) // RotationVelocitySetup
+                        {
+                            rotationVelocities[allocationOffset] = ReadVector3(opPayload.Slice(4));
+                        }
                         ParseSection2Opcode(opCode, opPayload, allocationOffset, def);
                         break;
                     case 3: // Particle Updaters
-                        ParseSection3Opcode(opCode, opPayload, allocationOffset, def, keyFrameLinks);
+                        ParseSection3Opcode(opCode, opPayload, allocationOffset, def, keyFrameLinks, rotationVelocities);
                         break;
                 }
 
@@ -372,10 +425,14 @@ namespace Gordian.Core.Resources.Graphics
                 case 0x09: // RotationInitializer
                     if (opPayload.Length >= 16)
                     {
-                        def.Rotation = new Vector3(
-                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4)),
-                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(8, 4)),
-                            BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(12, 4)));
+                        def.Rotation = ReadVector3(opPayload.Slice(4));
+                    }
+                    break;
+
+                case 0x30: // DepthBiasInitializer (projection bias / painter's-order weight)
+                    if (opPayload.Length >= 8)
+                    {
+                        def.ProjectionBias = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));
                     }
                     break;
 
@@ -408,14 +465,15 @@ namespace Gordian.Core.Resources.Graphics
                         def.AlphaOverride = (p0 & 0x20) != 0 ? (byte)Math.Min(255, p1 * 2) : null;
                         byte highNibble = (byte)((p0 >> 4) & 0b1101);
                         byte lowNibble = (byte)(p0 & 0x0F);
-                        if ((highNibble & 0x01) != 0)
-                        {
-                            def.BlendMode = 0x01; // One_Zero
-                        }
-                        else
-                        {
-                            def.BlendMode = lowNibble;
-                        }
+                        def.BlendFunc = (highNibble & 0x01) != 0
+                            ? ParticleBlendFunc.OneZero
+                            : lowNibble switch
+                            {
+                                0x1 or 0x2 => ParticleBlendFunc.SrcOneRevSub,
+                                0x4 => ParticleBlendFunc.SrcInvSrcAdd,
+                                0x6 => ParticleBlendFunc.ZeroInvSrcAdd,
+                                _ => ParticleBlendFunc.SrcOneAdd
+                            };
                         if (def.AlphaOverride != null)
                         {
                             def.IgnoreTextureAlpha = true;
@@ -425,10 +483,41 @@ namespace Gordian.Core.Resources.Graphics
             }
         }
 
-        private static void ParseSection3Opcode(byte opCode, ReadOnlySpan<byte> opPayload, ushort allocationOffset, ParticleGeneratorDefinition def, Dictionary<ushort, string> keyFrameLinks)
+        private static void ParseSection3Opcode(
+            byte opCode,
+            ReadOnlySpan<byte> opPayload,
+            ushort allocationOffset,
+            ParticleGeneratorDefinition def,
+            Dictionary<ushort, string> keyFrameLinks,
+            Dictionary<ushort, Vector3> rotationVelocities)
         {
             switch (opCode)
             {
+                case 0x05: // RotationUpdater: rotation += velocity per frame
+                    if (rotationVelocities.TryGetValue(allocationOffset, out var rotationVelocity))
+                    {
+                        def.RotationVelocity = rotationVelocity;
+                    }
+                    break;
+
+                case 0x3C: // ClockValueUpdater: color R = keyframe(time of day)
+                case 0x3D: // ClockValueUpdater: color G
+                case 0x3E: // ClockValueUpdater: color B
+                    if (keyFrameLinks.TryGetValue(allocationOffset, out var colorCurveId))
+                    {
+                        def.ClockColorKeyFrameIds[opCode - 0x3C] = colorCurveId;
+                    }
+                    break;
+
+                case 0x6B: // ClockValueUpdater: position X = keyframe(time of day)
+                case 0x6C: // ClockValueUpdater: position Y
+                case 0x6D: // ClockValueUpdater: position Z
+                    if (keyFrameLinks.TryGetValue(allocationOffset, out var positionCurveId))
+                    {
+                        def.ClockPositionKeyFrameIds[opCode - 0x6B] = positionCurveId;
+                    }
+                    break;
+
                 case 0x3F: // ClockValueUpdater: alpha *= keyframe(time of day)
                     if (keyFrameLinks.TryGetValue(allocationOffset, out var clockCurveId))
                     {
@@ -473,6 +562,11 @@ namespace Gordian.Core.Resources.Graphics
                     break;
             }
         }
+
+        private static Vector3 ReadVector3(ReadOnlySpan<byte> span) => new(
+            BinaryPrimitives.ReadSingleLittleEndian(span),
+            BinaryPrimitives.ReadSingleLittleEndian(span.Slice(4)),
+            BinaryPrimitives.ReadSingleLittleEndian(span.Slice(8)));
 
         private static Vector4[]? ReadRgbaColors(ReadOnlySpan<byte> opPayload, int count)
         {

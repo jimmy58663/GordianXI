@@ -82,17 +82,64 @@ namespace Gordian.Core.Resources
 
             layer.GeneratorId = gen.DatId;
             layer.Rotation = gen.Rotation;
+            layer.RotationVelocity = gen.RotationVelocity;
             layer.BaseColor = gen.BaseColor;
-            layer.BlendMode = gen.BlendMode;
+            layer.BlendFunc = gen.BlendFunc;
+            layer.DrawPriority = gen.ProjectionBias;
             layer.DayOfWeekColors = gen.DayOfWeekColors;
             layer.MoonPhaseColors = gen.MoonPhaseColors;
+            layer.ClockAlphaCurve = ResolveCurve(gen.ClockAlphaKeyFrameId);
+            layer.ClockColorCurves = ResolveCurves(gen.ClockColorKeyFrameIds);
+            layer.ClockPositionCurves = ResolveCurves(gen.ClockPositionKeyFrameIds);
 
-            if (!string.IsNullOrEmpty(gen.ClockAlphaKeyFrameId))
+            KeyFrameCurve?[]? ResolveCurves(string?[] ids)
             {
+                if (Array.TrueForAll(ids, string.IsNullOrEmpty)) return null;
+                return Array.ConvertAll(ids, ResolveCurve);
+            }
+
+            KeyFrameCurve? ResolveCurve(string? id)
+            {
+                if (string.IsNullOrEmpty(id)) return null;
                 KeyFrameCurve? curve = null;
-                if (!string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{gen.ClockAlphaKeyFrameId}", out curve);
-                if (curve == null) envData.KeyFrameCurves.TryGetValue(gen.ClockAlphaKeyFrameId, out curve);
-                layer.ClockAlphaCurve = curve;
+                if (!string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{id}", out curve);
+                if (curve == null) envData.KeyFrameCurves.TryGetValue(id, out curve);
+                return curve;
+            }
+        }
+
+        /// <summary>
+        /// Adds a sky layer's geometry converted to display coordinates (-x, -y, z), matching world placements.
+        /// </summary>
+        private static void AddDisplayMeshGroups(WeatherSkyLayer layer, List<MeshGroup> submeshes, string fallbackTexture)
+        {
+            foreach (var submesh in submeshes)
+            {
+                var srcVerts = submesh.Vertices;
+                var dstVerts = new MeshVertex[srcVerts.Length];
+                Vector3 minBounds = new(float.MaxValue);
+                Vector3 maxBounds = new(float.MinValue);
+
+                for (int v = 0; v < srcVerts.Length; v++)
+                {
+                    var sv = srcVerts[v];
+                    var displayPos = new Vector3(-sv.Position.X, -sv.Position.Y, sv.Position.Z);
+                    minBounds = Vector3.Min(minBounds, displayPos);
+                    maxBounds = Vector3.Max(maxBounds, displayPos);
+                    dstVerts[v] = new MeshVertex(displayPos, new Vector3(-sv.Normal.X, -sv.Normal.Y, sv.Normal.Z), sv.TexCoord, sv.ColorRgba);
+                }
+
+                layer.MeshGroups.Add(new MeshGroup
+                {
+                    Name = submesh.Name,
+                    TextureName = !string.IsNullOrWhiteSpace(submesh.TextureName) ? submesh.TextureName : fallbackTexture,
+                    Vertices = dstVerts,
+                    Indices = (int[])submesh.Indices.Clone(),
+                    MinBounds = minBounds,
+                    MaxBounds = maxBounds,
+                    IsBlend = true,
+                    NoCull = true
+                });
             }
         }
 
@@ -130,6 +177,7 @@ namespace Gordian.Core.Resources
             var pendingSkyMeshes = new List<(string Name, string DatId, string? Weather, List<MeshGroup> Submeshes)>();
             var generatorPlacements = new List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)>();
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
+            var zoneMeshSections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
@@ -209,9 +257,15 @@ namespace Gordian.Core.Resources
                         {
                             raw0x2ESubmeshes.AddRange(submeshes);
                             string primaryName = submeshes[0].Name;
+                            string? currentWeather = ResolveCurrentWeather(dirStack);
+                            if (!string.IsNullOrEmpty(currentWeather))
+                            {
+                                zoneMeshSections.TryAdd($"{currentWeather}/{header.DatId}", submeshes);
+                            }
+                            zoneMeshSections.TryAdd(header.DatId, submeshes);
+
                             if (ZoneDefDecoder.IsSkyMesh(primaryName) || ZoneDefDecoder.IsSkyMesh(header.DatId))
                             {
-                                string? currentWeather = ResolveCurrentWeather(dirStack);
                                 pendingSkyMeshes.Add((primaryName, header.DatId, currentWeather, submeshes));
                             }
 
@@ -350,21 +404,23 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            // Resolve pending weather sky layers and celestial discs
-            var seenCelestialSkyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Resolve celestial sky meshes (stars, stardust, sun and moon discs). Cloud shells are generator-driven below.
+            var celestialByMesh = new Dictionary<string, WeatherSkyLayer>(StringComparer.OrdinalIgnoreCase);
             for (int s = 0; s < pendingSkyMeshes.Count; s++)
             {
                 var (meshName, datId, weather, submeshes) = pendingSkyMeshes[s];
                 bool isCelestial = ZoneDefDecoder.IsCelestialMesh(meshName) || ZoneDefDecoder.IsCelestialMesh(datId);
+                if (!isCelestial) continue;
 
-                if (isCelestial)
+                // Star/moon/sun are duplicated under each weather directory that shows them (not every weather:
+                // clod/mist author none); keep one layer and record every weather it belongs to.
+                if (celestialByMesh.TryGetValue(meshName, out var existingCelestial))
                 {
-                    if (!seenCelestialSkyNames.Add(meshName))
-                    {
-                        continue; // Star/moon/sun are duplicated under every weather folder — keep one
-                    }
-                    weather = null; // Universal across all weathers
+                    if (!string.IsNullOrEmpty(weather)) existingCelestial.WeatherIds.Add(weather);
+                    continue;
                 }
+                string? authoredWeather = weather;
+                weather = null;
 
                 // Match the generator that draws this mesh: a generator names its geometry by LinkedDataId,
                 // and its own DatId may coincide with an unrelated mesh (weat/*/star: generator 'star' draws
@@ -398,30 +454,14 @@ namespace Gordian.Core.Resources
                 {
                     attachType = matchedGen.AttachType;
                 }
-                else if (isCelestial)
+                else if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase) ||
+                         meshName.Contains("kasa", StringComparison.OrdinalIgnoreCase) || datId.Contains("kasa", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (meshName.Contains("moon", StringComparison.OrdinalIgnoreCase) || datId.Contains("moon", StringComparison.OrdinalIgnoreCase) ||
-                        meshName.Contains("kasa", StringComparison.OrdinalIgnoreCase) || datId.Contains("kasa", StringComparison.OrdinalIgnoreCase))
-                    {
-                        attachType = ParticleAttachType.Moon;
-                    }
-                    else if (meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase))
-                    {
-                        attachType = ParticleAttachType.Sun;
-                    }
-                    else
-                    {
-                        // Star domes, stardust, and celestial spheres wrap camera
-                        attachType = ParticleAttachType.None;
-                    }
+                    attachType = ParticleAttachType.Moon;
                 }
-
-                // Default cloud drift velocity: if no generator specified a UV drift and it's not a celestial body,
-                // clouds drift gently across the sky dome at canonical speed
-                Vector2 uvScroll = matchedGen?.UVScrollVelocity ?? Vector2.Zero;
-                if (uvScroll == Vector2.Zero && !isCelestial)
+                else if (meshName.Contains("sun", StringComparison.OrdinalIgnoreCase) || datId.Contains("sun", StringComparison.OrdinalIgnoreCase))
                 {
-                    uvScroll = new Vector2(0.00015f, 0.00003f);
+                    attachType = ParticleAttachType.Sun;
                 }
 
                 // Untextured celestial meshes (e.g. the moon halo disc) are authentic and draw with a white texel.
@@ -435,7 +475,7 @@ namespace Gordian.Core.Resources
                 string textureName = submeshes.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.TextureName))?.TextureName ?? inferredTexture;
 
                 Vector3 layerScale = matchedGen?.Scale ?? Vector3.One;
-                if (isCelestial && (attachType == ParticleAttachType.Sun || meshName.Contains("sun", StringComparison.OrdinalIgnoreCase)))
+                if (attachType == ParticleAttachType.Sun || meshName.Contains("sun", StringComparison.OrdinalIgnoreCase))
                 {
                     if (layerScale.X > 5.0f || layerScale.Y > 5.0f || layerScale.Z > 5.0f)
                     {
@@ -451,9 +491,9 @@ namespace Gordian.Core.Resources
                     Name = meshName,
                     DatId = datId,
                     WeatherId = weather,
-                    IsCelestial = isCelestial,
+                    IsCelestial = true,
                     AttachType = attachType,
-                    UVScroll = uvScroll,
+                    UVScroll = matchedGen?.UVScrollVelocity ?? Vector2.Zero,
                     Position = displayBasePos,
                     Scale = layerScale,
                     TextureName = textureName,
@@ -463,53 +503,58 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(layer, matchedGen, matchedGenWeather, envData);
-
-                // Convert sky geometry to display coordinates (-x, -y, z) matching retail FFXI and world placements
-                foreach (var submesh in submeshes)
-                {
-                    var srcVerts = submesh.Vertices;
-                    var dstVerts = new MeshVertex[srcVerts.Length];
-                    Vector3 minBounds = new(float.MaxValue);
-                    Vector3 maxBounds = new(float.MinValue);
-
-                    for (int v = 0; v < srcVerts.Length; v++)
-                    {
-                        var sv = srcVerts[v];
-                        var displayPos = new Vector3(-sv.Position.X, -sv.Position.Y, sv.Position.Z);
-                        var displayNormal = new Vector3(-sv.Normal.X, -sv.Normal.Y, sv.Normal.Z);
-
-                        minBounds = Vector3.Min(minBounds, displayPos);
-                        maxBounds = Vector3.Max(maxBounds, displayPos);
-
-                        dstVerts[v] = new MeshVertex(displayPos, displayNormal, sv.TexCoord, sv.ColorRgba);
-                    }
-
-                    int[] indices = new int[submesh.Indices.Length];
-                    Array.Copy(submesh.Indices, indices, submesh.Indices.Length);
-
-                    layer.MeshGroups.Add(new MeshGroup
-                    {
-                        Name = submesh.Name,
-                        TextureName = !string.IsNullOrWhiteSpace(submesh.TextureName) ? submesh.TextureName : inferredTexture,
-                        Vertices = dstVerts,
-                        Indices = indices,
-                        MinBounds = minBounds,
-                        MaxBounds = maxBounds,
-                        IsWater = false,
-                        IsBlend = true,
-                        NoCull = true,
-                        IsFoliage = false
-                    });
-                }
+                AddDisplayMeshGroups(layer, submeshes, inferredTexture);
+                if (!string.IsNullOrEmpty(authoredWeather)) layer.WeatherIds.Add(authoredWeather);
+                celestialByMesh[meshName] = layer;
 
                 zone.WeatherSkyLayers.Add(layer);
                 envData.AddWeatherSkyLayer(layer);
             }
 
+            // Cloud shells: every camera-following generator declared directly in a weather directory that draws a
+            // Section 0x2E cloud mesh becomes its own layer, so a mesh drawn by several generators (fine: cld1 + cld2
+            // over 'cld_') composites as authored. Rain, lightning and smoke generators live alongside them but draw
+            // non-sky meshes and are not cloud shells.
+            foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
+            {
+                if (string.IsNullOrEmpty(genWeather) || !string.Equals(parentDir, genWeather, StringComparison.OrdinalIgnoreCase)) continue;
+                var setup = gen.Setup;
+                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh || !setup.FollowCamera) continue;
+
+                if (!zoneMeshSections.TryGetValue($"{genWeather}/{setup.LinkedDataId}", out var cloudMeshes) &&
+                    !zoneMeshSections.TryGetValue(setup.LinkedDataId, out cloudMeshes)) continue;
+                string cloudMeshName = cloudMeshes[0].Name;
+                if (!ZoneDefDecoder.IsSkyMesh(cloudMeshName) || ZoneDefDecoder.IsCelestialMesh(cloudMeshName)) continue;
+
+                Vector3 rawBase = setup.BasePosition;
+                var cloud = new WeatherSkyLayer
+                {
+                    Name = cloudMeshName,
+                    DatId = setup.LinkedDataId,
+                    WeatherId = genWeather,
+                    IsCelestial = false,
+                    AttachType = gen.AttachType,
+                    UVScroll = gen.UVScrollVelocity,
+                    Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
+                    Scale = gen.Scale,
+                    TextureName = cloudMeshes.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.TextureName))?.TextureName ?? string.Empty,
+                    FollowCamera = true,
+                    FogEnabled = setup.FogEnabled,
+                    IsBlend = true,
+                    NoCull = true
+                };
+                ApplyGeneratorRenderState(cloud, gen, genWeather, envData);
+                cloud.WeatherIds.Add(genWeather);
+                AddDisplayMeshGroups(cloud, cloudMeshes, string.Empty);
+
+                zone.WeatherSkyLayers.Add(cloud);
+                envData.AddWeatherSkyLayer(cloud);
+            }
+
             // Celestial sprite sheets and lens flares: generators in a weather's star/moon directory that draw a
             // Section 0x21 sheet (the moon disc's twelve phases, the pole star) or a lens-flare sheet (the moon flare).
             // Sheets resolve from the weather directory, then the zone, then the shared ROM/0/0.DAT effects.
-            var seenSpriteGenerators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var spriteLayersByGenerator = new Dictionary<string, WeatherSkyLayer>(StringComparer.OrdinalIgnoreCase);
             foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
                 if (!string.Equals(parentDir, "star", StringComparison.OrdinalIgnoreCase) &&
@@ -517,7 +562,11 @@ namespace Gordian.Core.Resources
                 if (gen.Setup == null) continue;
                 bool isFlare = gen.Setup.LinkedDataType == ParticleLinkedDataType.LensFlare;
                 if (!isFlare && gen.Setup.LinkedDataType != ParticleLinkedDataType.SpriteSheet) continue;
-                if (!seenSpriteGenerators.Add(genId)) continue;
+                if (spriteLayersByGenerator.TryGetValue(genId, out var existingSprite))
+                {
+                    if (!string.IsNullOrEmpty(genWeather)) existingSprite.WeatherIds.Add(genWeather);
+                    continue;
+                }
 
                 string linkId = gen.Setup.LinkedDataId;
                 SpriteSheetMesh? sheet = null;
@@ -550,6 +599,8 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(layer, gen, genWeather, envData);
+                if (!string.IsNullOrEmpty(genWeather)) layer.WeatherIds.Add(genWeather);
+                spriteLayersByGenerator[genId] = layer;
 
                 for (int c = 0; c < sheet.Cards.Count; c++)
                 {

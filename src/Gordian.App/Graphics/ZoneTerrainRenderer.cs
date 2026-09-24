@@ -36,6 +36,7 @@ namespace Gordian.App.Graphics
         private Pipeline _waterPipeline = null!;
         private Pipeline _weatherSkyPipeline = null!;
         private Pipeline _weatherSkyAdditivePipeline = null!;
+        private Pipeline _weatherSkyReverseSubtractPipeline = null!;
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
@@ -66,10 +67,9 @@ namespace Gordian.App.Graphics
         public bool HasOceanWaterPlane => _oceanWaterSubmesh != null;
 
         /// <summary>
-        /// Controls whether Section 0x05 dynamic weather cloud layers (e.g. cld_fine, suny, clod)
-        /// are rendered drifting across the sky dome in Pass 0b. Defaults to false to isolate base dome.
+        /// Controls whether the weather's Section 0x05 cloud-shell generators (e.g. cld_fine, suny, clod) are rendered in Pass 0b.
         /// </summary>
-        public bool EnableWeatherClouds { get; set; } = false;
+        public bool EnableWeatherClouds { get; set; } = true;
 
         /// <summary>
         /// Controls whether raw Section 0x05 celestial particle generator shells (sunsphere, star, moonsphere)
@@ -410,6 +410,20 @@ namespace Gordian.App.Graphics
                     alphaFunction: BlendFunction.Add));
             _weatherSkyAdditivePipeline = factory.CreateGraphicsPipeline(weatherSkyAdditiveDesc);
 
+            // 9c. Reverse-subtract Weather Sky Pipeline (Src_One_RevSub: premultiplied source darkens the sky, e.g. sunset cloud bands)
+            var weatherSkyReverseSubtractDesc = weatherSkyPipelineDesc;
+            weatherSkyReverseSubtractDesc.BlendState = new BlendStateDescription(
+                RgbaFloat.Black,
+                new BlendAttachmentDescription(
+                    blendEnabled: true,
+                    sourceColorFactor: BlendFactor.One,
+                    destinationColorFactor: BlendFactor.One,
+                    colorFunction: BlendFunction.ReverseSubtract,
+                    sourceAlphaFactor: BlendFactor.One,
+                    destinationAlphaFactor: BlendFactor.One,
+                    alphaFunction: BlendFunction.ReverseSubtract));
+            _weatherSkyReverseSubtractPipeline = factory.CreateGraphicsPipeline(weatherSkyReverseSubtractDesc);
+
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
             _commandList = factory.CreateCommandList();
         }
@@ -533,15 +547,11 @@ namespace Gordian.App.Graphics
                     }
                 }
 
-                // Draw order: Stars (1, additive) -> Celestial discs / Moon / Sun (2, unlit/alpha) -> Clouds (3, translucent alpha)
-                // Ensures soft translucent clouds composite over celestial bodies and stars.
-                static int GetSkyDrawPriority(GpuWeatherSkySubmesh s)
-                {
-                    if (s.Name.Contains("star", StringComparison.OrdinalIgnoreCase)) return 1;
-                    if (s.IsCelestial || s.AttachType == ParticleAttachType.Sun || s.AttachType == ParticleAttachType.Moon) return 2;
-                    return 3;
-                }
-                _weatherSkySubmeshes.Sort((a, b) => GetSkyDrawPriority(a).CompareTo(GetSkyDrawPriority(b)));
+                // Painter's order by each generator's projection bias, larger first (stars 50000, clouds 40000-28000, moon 20000);
+                // alpha-blended layers draw just after equal-priority additive ones (xim ParticleDrawer priority).
+                static float SortKey(GpuWeatherSkySubmesh s) =>
+                    s.Layer.DrawPriority + (s.Layer.BlendFunc == ParticleBlendFunc.SrcInvSrcAdd ? -0.01f : 0.0f);
+                _weatherSkySubmeshes.Sort((a, b) => SortKey(b).CompareTo(SortKey(a)));
             }
 
             TotalVertices = vertCount;
@@ -635,6 +645,19 @@ namespace Gordian.App.Graphics
                 int moonPhaseIndex = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
                 float dayFraction = environment.TimeOfDayHours / 24.0f;
 
+                // Sky layers come from the zone's directory for the active weather; zones that author no directory for an
+                // elemental weather (rain, snow, thdr, ...) fall back to its canonical category (clod, suny, fine, mist).
+                // Celestial bodies are weather-scoped too: e.g. only fine/suny author star and moon, so overcast skies have none.
+                string skyWeather = VanaTime.GetCanonicalWeatherCategory(activeWeather);
+                foreach (var candidate in _weatherSkySubmeshes)
+                {
+                    if (candidate.Layer.WeatherIds.Contains(activeWeather))
+                    {
+                        skyWeather = activeWeather;
+                        break;
+                    }
+                }
+
                 for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
                 {
                     var skyMesh = _weatherSkySubmeshes[i];
@@ -649,29 +672,15 @@ namespace Gordian.App.Graphics
                     if (isMoon && !EnableCelestialMoon && !EnableCelestialDiscs) continue;
                     if (isStardust && !EnableMilkyWay) continue;
 
-                    // Authentic FFXI Weather Gating:
-                    // Dynamic cloud layers render according to active weather.
-                    // For elemental and storm weathers (rain, snow, thdr, etc.), retail zones author cloud layers under
-                    // canonical categories (clod, suny, fine, mist). Celestial bodies (sun, moon, stars) apply universally.
-                    if (!isCelestial)
-                    {
-                        string canonicalWeather = VanaTime.GetCanonicalWeatherCategory(activeWeather);
-                        bool matchesWeather = !string.IsNullOrEmpty(skyMesh.WeatherId) &&
-                            (string.Equals(skyMesh.WeatherId, activeWeather, StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(skyMesh.WeatherId, canonicalWeather, StringComparison.OrdinalIgnoreCase));
-
-                        if (!matchesWeather)
-                        {
-                            continue;
-                        }
-                    }
+                    var weatherIds = skyMesh.Layer.WeatherIds;
+                    if (weatherIds.Count > 0 && !weatherIds.Contains(skyWeather)) continue;
 
                     if (isSun && sunDir.Y <= 0.0f) continue; // Sun below horizon
                     if (isMoon && moonDir.Y <= 0.0f) continue; // Moon below horizon
 
-                    if (isCelestial && !isSun)
+                    if (!isSun)
                     {
-                        if (DrawCelestialGenerator(skyMesh, camera, moonDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
+                        if (DrawSkyGenerator(skyMesh, camera, moonDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
                         {
                             draws++;
                             visible++;
@@ -679,8 +688,8 @@ namespace Gordian.App.Graphics
                         continue;
                     }
 
-                    // Select pipeline: the sun disc is additive; clouds use alpha blending
-                    Pipeline targetSkyPipeline = isSun ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
+                    // Legacy sun disc (Chunk 5): additive, untextured radiant disc
+                    Pipeline targetSkyPipeline = _weatherSkyAdditivePipeline;
 
                     if (currentSkyPipeline != targetSkyPipeline)
                     {
@@ -688,89 +697,25 @@ namespace Gordian.App.Graphics
                         currentSkyPipeline = targetSkyPipeline;
                     }
 
-                    // Determine world position
-                    Vector3 centerPos;
-                    if (skyMesh.AttachType == ParticleAttachType.Sun)
-                    {
-                        centerPos = camera.Position + sunDir * 900.0f;
-                    }
-                    else if (skyMesh.FollowCamera)
-                    {
-                        centerPos = camera.Position + skyMesh.BasePosition;
-                    }
-                    else
-                    {
-                        centerPos = skyMesh.BasePosition;
-                    }
-
+                    Vector3 centerPos = skyMesh.AttachType == ParticleAttachType.Sun
+                        ? camera.Position + sunDir * 900.0f
+                        : skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
                     Matrix4x4 worldMatrix = skyMesh.AttachType == ParticleAttachType.Sun
                         ? CreateCelestialDiscMatrix(camera, centerPos, skyMesh.Scale)
                         : Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateTranslation(centerPos);
 
-                    // Compute scrolling UV offset based on UVScroll velocity and elapsed time (scaled to 60 FPS effect rate)
-                    Vector2 uvOffset = isSun
-                        ? Vector2.Zero
-                        : (skyMesh.UVScroll * 60.0f) * _cloudAccumulatedTime;
-
-                    // Reject cloud meshes with no authored texture.
-                    // Exception: Sun disc geometry is intentionally untextured and colored via shader / vertex colors.
-                    if (string.IsNullOrWhiteSpace(skyMesh.TextureName) && !isSun)
-                    {
-                        continue;
-                    }
-
-                    // Resolve texture with keyword fallback
                     string texName = skyMesh.TextureName;
-                    if ((string.IsNullOrWhiteSpace(texName) || _activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName)) && _activeDecodedTextures != null)
+                    if (_activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName))
                     {
-                        if (isSun)
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty;
-                        }
-                        else if (skyMesh.Name.Contains("cld", StringComparison.OrdinalIgnoreCase) || skyMesh.Name.Contains("fine", StringComparison.OrdinalIgnoreCase))
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "fine_a01", "fine", "cld") ?? texName;
-                        }
-                        else if (skyMesh.Name.Contains("suny", StringComparison.OrdinalIgnoreCase))
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "suny_a01", "suny") ?? texName;
-                        }
-                        else if (skyMesh.Name.Contains("clod", StringComparison.OrdinalIgnoreCase) || skyMesh.Name.Contains("mist", StringComparison.OrdinalIgnoreCase))
-                        {
-                            texName = FindTextureKey(_activeDecodedTextures, "clod_a01", "clod", "mist") ?? texName;
-                        }
+                        texName = _activeDecodedTextures != null
+                            ? FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty
+                            : string.Empty;
                     }
 
-                    // Cloud meshes need their genuine texture (never the default checkerboard on sky shells);
-                    // the untextured sun disc binds the default texture.
-                    if (string.IsNullOrWhiteSpace(texName) || (_activeDecodedTextures != null && !_activeDecodedTextures.ContainsKey(texName)))
-                    {
-                        if (isSun)
-                        {
-                            texName = string.Empty; // Bound to DefaultResourceSet below
-                        }
-                        else if (_activeDecodedTextures != null)
-                        {
-                            string? match = !string.IsNullOrWhiteSpace(texName) ? FindTextureKey(_activeDecodedTextures, texName) : null;
-                            if (match != null)
-                            {
-                                texName = match;
-                            }
-                            else
-                            {
-                                continue;
-                            }
-                        }
-                        else
-                        {
-                            continue;
-                        }
-                    }
-
-                    // WeatherParams: xy = UV scroll offset, z = elapsed time, w = layer type (2.0 = sun, 1.0 = clouds)
+                    // WeatherParams: w = 2.0 selects the sun disc shading
                     var layerUniform = sceneUniform;
                     layerUniform.World = worldMatrix;
-                    layerUniform.WeatherParams = new Vector4(uvOffset.X, uvOffset.Y, _cloudAccumulatedTime, isSun ? 2.0f : 1.0f);
+                    layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, _cloudAccumulatedTime, 2.0f);
 
                     _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
                     _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
@@ -1150,13 +1095,13 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Draws a celestial Section 0x05 generator layer (stars, Milky Way, moon disc and halo, pole star, moon lens
-        /// flare) with its authored placement, blend mode and texture factor. Returns false if it contributes nothing
-        /// this frame.
+        /// Draws a Section 0x05 sky generator layer (cloud shells, stars, Milky Way, moon disc and halo, pole star,
+        /// moon lens flare) with its authored placement, motion, blend function, fog and texture factor.
+        /// Returns false if it contributes nothing this frame.
         /// Placement and color rules referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
         /// ui/js/particle/runtime.js and ui/js/particleDrawer.js, after xim Particle / GLDrawer).
         /// </summary>
-        private bool DrawCelestialGenerator(
+        private bool DrawSkyGenerator(
             GpuWeatherSkySubmesh skyMesh,
             ViewportCamera camera,
             Vector3 moonDir,
@@ -1173,20 +1118,24 @@ namespace Gordian.App.Graphics
                 if (skyMesh.CardIndex != card) return false;
             }
 
-            Vector4 textureFactor = ComputeCelestialTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
+            Vector4 textureFactor = ComputeSkyTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
             if (textureFactor.W <= 0.001f) return false;
+
+            // Generator effects advance at 60 frames per second.
+            float frames = _cloudAccumulatedTime * 60.0f;
 
             Vector3 center = skyMesh.AttachType == ParticleAttachType.Moon
                 ? camera.Position + moonDir * 900.0f
                 : skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
+            center += ToDisplay(EvaluateClockVector(layer.ClockPositionCurves, dayFraction));
 
             Matrix4x4 world = Matrix4x4.Identity;
-            Vector2 flareCenter = Vector2.Zero;
+            Vector2 uvOrFlareCenter = skyMesh.UVScroll * frames;
             float layerType = 3.0f;
             if (layer.IsLensFlare)
             {
                 float offset = skyMesh.CardIndex < layer.FlareOffsets.Count ? layer.FlareOffsets[skyMesh.CardIndex] : 0.0f;
-                if (!TryComputeFlareCenter(center, camera.ViewMatrix * camera.ProjectionMatrix, offset, out flareCenter)) return false;
+                if (!TryComputeFlareCenter(center, camera.ViewMatrix * camera.ProjectionMatrix, offset, out uvOrFlareCenter)) return false;
                 layerType = 4.0f;
             }
             else if (layer.IsSpriteSheet)
@@ -1200,16 +1149,22 @@ namespace Gordian.App.Graphics
             else
             {
                 // Generator rotation is authored in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
+                Vector3 rotation = layer.Rotation + layer.RotationVelocity * frames;
                 world = Matrix4x4.CreateScale(skyMesh.Scale) *
-                        Matrix4x4.CreateRotationX(-layer.Rotation.X) *
-                        Matrix4x4.CreateRotationY(-layer.Rotation.Y) *
-                        Matrix4x4.CreateRotationZ(layer.Rotation.Z) *
+                        Matrix4x4.CreateRotationX(-rotation.X) *
+                        Matrix4x4.CreateRotationY(-rotation.Y) *
+                        Matrix4x4.CreateRotationZ(rotation.Z) *
                         Matrix4x4.CreateTranslation(center);
             }
 
-            // Blend 0x04 is Src_InvSrc_Add (alpha); everything else here is authored additive (0x08 Src_One_Add).
-            bool additive = layer.BlendMode != 0x04;
-            Pipeline pipeline = additive ? _weatherSkyAdditivePipeline : _weatherSkyPipeline;
+            // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
+            (Pipeline pipeline, float blendOutput) = layer.BlendFunc switch
+            {
+                ParticleBlendFunc.SrcInvSrcAdd or ParticleBlendFunc.OneZero => (_weatherSkyPipeline, 0.0f),
+                ParticleBlendFunc.ZeroInvSrcAdd => (_weatherSkyPipeline, 2.0f),
+                ParticleBlendFunc.SrcOneRevSub => (_weatherSkyReverseSubtractPipeline, 1.0f),
+                _ => (_weatherSkyAdditivePipeline, 1.0f)
+            };
             if (currentPipeline != pipeline)
             {
                 _commandList.SetPipeline(pipeline);
@@ -1218,8 +1173,14 @@ namespace Gordian.App.Graphics
 
             var layerUniform = sceneUniform;
             layerUniform.World = world;
-            layerUniform.WeatherParams = new Vector4(flareCenter.X, flareCenter.Y, additive ? 1.0f : 0.0f, layerType);
+            layerUniform.WeatherParams = new Vector4(uvOrFlareCenter.X, uvOrFlareCenter.Y, blendOutput, layerType);
             layerUniform.SkyTextureFactor = textureFactor;
+            // Additive layers fog toward black so distant haze never glows (xim computeLightingParams).
+            layerUniform.SkyLayerParams = new Vector4(
+                layer.FogEnabled ? 1.0f : 0.0f,
+                layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
+                0.0f,
+                0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.WhiteResourceSet
@@ -1234,13 +1195,29 @@ namespace Gordian.App.Graphics
             return true;
         }
 
+        private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
+
+        private static Vector3 EvaluateClockVector(KeyFrameCurve?[]? curves, float dayFraction)
+        {
+            if (curves == null) return Vector3.Zero;
+            float t = Math.Clamp(dayFraction, 0.0f, 1.0f);
+            return new Vector3(curves[0]?.Evaluate(t) ?? 0.0f, curves[1]?.Evaluate(t) ?? 0.0f, curves[2]?.Evaluate(t) ?? 0.0f);
+        }
+
         /// <summary>
-        /// Generator texture factor: base color, modulate-2x by the weekday and moon-phase tints,
-        /// alpha scaled by the time-of-day clock curve, clamped to [0, 1].
+        /// Generator texture factor: base color (with R/G/B replaced by any time-of-day color curves), modulate-2x by
+        /// the weekday and moon-phase tints, alpha scaled by the time-of-day clock curve, clamped to [0, 1].
         /// </summary>
-        internal static Vector4 ComputeCelestialTextureFactor(WeatherSkyLayer layer, int dayOfWeek, int moonPhaseIndex, float dayFraction)
+        internal static Vector4 ComputeSkyTextureFactor(WeatherSkyLayer layer, int dayOfWeek, int moonPhaseIndex, float dayFraction)
         {
             Vector4 factor = layer.BaseColor;
+            if (layer.ClockColorCurves is { } colorCurves)
+            {
+                float t = Math.Clamp(dayFraction, 0.0f, 1.0f);
+                if (colorCurves[0] != null) factor.X = colorCurves[0]!.Evaluate(t);
+                if (colorCurves[1] != null) factor.Y = colorCurves[1]!.Evaluate(t);
+                if (colorCurves[2] != null) factor.Z = colorCurves[2]!.Evaluate(t);
+            }
             if (layer.DayOfWeekColors is { Length: > 0 } dayColors)
             {
                 factor *= dayColors[Math.Clamp(dayOfWeek, 0, dayColors.Length - 1)] * 2.0f;
@@ -1381,6 +1358,7 @@ namespace Gordian.App.Graphics
             _waterPipeline?.Dispose();
             _weatherSkyPipeline?.Dispose();
             _weatherSkyAdditivePipeline?.Dispose();
+            _weatherSkyReverseSubtractPipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();
             _sceneLayout?.Dispose();

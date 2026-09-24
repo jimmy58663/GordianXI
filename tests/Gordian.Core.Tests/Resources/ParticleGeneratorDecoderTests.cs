@@ -256,6 +256,59 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(0f, gen.MoonPhaseColors[5].W);
         }
 
+        [Theory]
+        [InlineData(0x48, ParticleBlendFunc.SrcOneAdd)]
+        [InlineData(0x44, ParticleBlendFunc.SrcInvSrcAdd)]
+        [InlineData(0x42, ParticleBlendFunc.SrcOneRevSub)]
+        [InlineData(0x46, ParticleBlendFunc.ZeroInvSrcAdd)]
+        [InlineData(0x58, ParticleBlendFunc.OneZero)]
+        public void DecodeGenerator_BlendFuncInitializer_MapsBlendFunctions(byte flags, ParticleBlendFunc expected)
+        {
+            var payload = BuildGeneratorWithStreams(0, initializers: [(0x1E, 0, [flags, 0, 0, 0])], updaters: []);
+
+            Assert.Equal(expected, ParticleGeneratorDecoder.DecodeGenerator(payload, "cld1")!.BlendFunc);
+        }
+
+        [Fact]
+        public void DecodeGenerator_NoBlendOpcode_DefaultsToAdditive()
+        {
+            var payload = BuildGeneratorWithStreams(0, initializers: [(0x09, 0, Floats(0f, 0f, 0f))], updaters: []);
+
+            Assert.Equal(ParticleBlendFunc.SrcOneAdd, ParticleGeneratorDecoder.DecodeGenerator(payload, "kasa")!.BlendFunc);
+        }
+
+        [Fact]
+        public void DecodeGenerator_CloudOpcodes_DecodePriorityRotationVelocityAndClockCurves()
+        {
+            var payload = BuildGeneratorWithStreams(
+                0,
+                initializers:
+                [
+                    (0x30, 0, Floats(40000f)),
+                    (0x0B, 6, Floats(0f, 0.00017453f, 0f)),
+                    (0x60, 4, KeyFrameLinkArgs("kcr1")),
+                    (0x61, 2, KeyFrameLinkArgs("kcg1")),
+                    (0x62, 0, KeyFrameLinkArgs("kcb1")),
+                    (0x96, 8, KeyFrameLinkArgs("k007")),
+                ],
+                updaters:
+                [
+                    (0x05, 6, []),
+                    (0x3C, 4, []),
+                    (0x3D, 2, []),
+                    (0x3E, 0, []),
+                    (0x6C, 8, []),
+                ]);
+
+            var gen = ParticleGeneratorDecoder.DecodeGenerator(payload, "cld1");
+
+            Assert.NotNull(gen);
+            Assert.Equal(40000f, gen.ProjectionBias);
+            Assert.Equal(0.00017453f, gen.RotationVelocity.Y, 6);
+            Assert.Equal(new[] { "kcr1", "kcg1", "kcb1" }, gen.ClockColorKeyFrameIds);
+            Assert.Equal(new[] { null, "k007", null }, gen.ClockPositionKeyFrameIds);
+        }
+
         [Fact]
         public void DecodeGenerator_UndersizedPayload_ReturnsNull()
         {
