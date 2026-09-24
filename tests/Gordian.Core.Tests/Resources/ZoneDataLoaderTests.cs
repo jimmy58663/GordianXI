@@ -147,14 +147,111 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(47f, stardust.Position.Y);
         }
 
-        private static byte[] BuildLinkedGeneratorPayload(string linkedMeshId, float baseY)
+        [Fact]
+        public void ParseZoneContainer_PoleStarResolvesSpriteSheetFromSharedEffects()
+        {
+            // weat/fine/star/pole links sprite sheet 'hit6', which only exists in the shared ROM/0/0.DAT effects.
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "fine"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "star"),
+                BuildChunk(DatSectionType.ParticleGenerator,
+                    BuildLinkedGeneratorPayload("hit6", -110f, ParticleLinkedDataType.SpriteSheet, baseZ: 300f, followCamera: true), "pole"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var sharedTexture = new DecodedTexture("hit3    hit31", 1, 1, new byte[] { 255, 255, 255, 255 });
+            var shared = new SharedEffectResources();
+            shared.SpriteSheets["hit6"] = SpriteSheetDecoder.Decode(BuildSpriteSheetPayload("hit3    hit31", lensFlareOffset: null), "hit6")!;
+            shared.Textures[sharedTexture.Name] = sharedTexture;
+
+            var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4, outTextures: textures, sharedEffects: shared);
+
+            var pole = Assert.Single(zone.WeatherSkyLayers, l => l.Name == "pole");
+            Assert.True(pole.IsSpriteSheet);
+            Assert.False(pole.IsLensFlare);
+            Assert.True(pole.FollowCamera);
+            Assert.Equal(new Vector3(0f, 110f, 300f), pole.Position);
+            Assert.Equal("hit3    hit31", pole.TextureName);
+            Assert.Same(sharedTexture, textures["hit3    hit31"]);
+        }
+
+        [Fact]
+        public void SharedEffectResources_Parse_IndexesSpriteSheetsByDatIdAndTexturesByName()
+        {
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "syst"),
+                BuildChunk(DatSectionType.SpriteSheetMesh, BuildSpriteSheetPayload("hit3    hit31", lensFlareOffset: null), "hit6"),
+                BuildChunk(DatSectionType.Texture, BuildSyntheticTexturePayload("hit3    hit31", 2, 2), "hit8"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var shared = SharedEffectResources.Parse(dat);
+
+            Assert.Equal("hit3    hit31", shared.SpriteSheets["hit6"].TextureName);
+            Assert.True(shared.Textures.ContainsKey("hit3    hit31"));
+        }
+
+        [Fact]
+        public void ParseZoneContainer_MoonLensFlareBuildsFlareLayerWithOffsets()
+        {
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "fine"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "moon"),
+                BuildChunk(DatSectionType.ParticleGenerator,
+                    BuildLinkedGeneratorPayload("molf", 0f, ParticleLinkedDataType.LensFlare, attach: ParticleAttachType.Moon), "kas1"),
+                BuildChunk(DatSectionType.SpriteSheetMesh, BuildSpriteSheetPayload("moon    kasa", lensFlareOffset: 0.25f), "molf"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4);
+
+            var flare = Assert.Single(zone.WeatherSkyLayers, l => l.Name == "kas1");
+            Assert.True(flare.IsLensFlare);
+            Assert.False(flare.IsSpriteSheet);
+            Assert.Equal(ParticleAttachType.Moon, flare.AttachType);
+            Assert.Equal(new[] { 0.25f }, flare.FlareOffsets);
+            Assert.Single(flare.MeshGroups);
+        }
+
+        private static byte[] BuildLinkedGeneratorPayload(
+            string linkedMeshId,
+            float baseY,
+            ParticleLinkedDataType linkedType = ParticleLinkedDataType.StaticMesh,
+            float baseZ = 0f,
+            bool followCamera = false,
+            ParticleAttachType attach = ParticleAttachType.None)
         {
             byte[] payload = new byte[0x100];
+            payload[0] = (byte)attach;
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x74, 4), 0x80 + 16); // Section 2 stream
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x80, 4), 0x01 | (10u << 8)); // StandardParticleSetup
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x80 + 4, 2), (ushort)(followCamera ? 0x0004 : 0));
             Encoding.ASCII.GetBytes(linkedMeshId).CopyTo(payload.AsSpan(0x80 + 12, 4));
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(0x80 + 24, 4), baseY);
-            payload[0x80 + 33] = (byte)ParticleLinkedDataType.StaticMesh;
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(0x80 + 28, 4), baseZ);
+            payload[0x80 + 33] = (byte)linkedType;
+            return payload;
+        }
+
+        private static byte[] BuildSpriteSheetPayload(string textureName, float? lensFlareOffset)
+        {
+            int cardSize = 4 + (lensFlareOffset.HasValue ? 16 : 0) + 6 * 24;
+            byte[] payload = new byte[0x18 + cardSize];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0, 2), 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2, 2), 1); // one card
+            payload[4] = (byte)(lensFlareOffset.HasValue ? 1 : 0);
+            payload[7] = 1; // UVs already normalized
+            Encoding.ASCII.GetBytes(textureName.PadRight(16)).CopyTo(payload.AsSpan(8, 16));
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x18, 2), 1);
+            payload[0x18 + 2] = 1; // one quad
+            if (lensFlareOffset.HasValue)
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(0x18 + 4, 4), lensFlareOffset.Value);
+            }
             return payload;
         }
 

@@ -25,6 +25,12 @@ namespace Gordian.Core.Resources.Graphics
         public bool IsLensFlare { get; init; }
 
         /// <summary>
+        /// Lens-flare sheets only: each card's position along the screen line from the light source (0)
+        /// through the screen centre (0.5) to the opposite side (1).
+        /// </summary>
+        public IReadOnlyList<float> FlareOffsets { get; init; } = Array.Empty<float>();
+
+        /// <summary>
         /// One triangle-list vertex array per card (6 vertices per quad).
         /// </summary>
         public IReadOnlyList<MeshVertex[]> Cards { get; init; } = Array.Empty<MeshVertex[]>();
@@ -58,6 +64,7 @@ namespace Gordian.Core.Resources.Graphics
             float uvScale = (flag == 1 && normalization == 0) ? 1.0f / 256.0f : 1.0f;
 
             var cards = new List<MeshVertex[]>(cardCount);
+            var flareOffsets = new List<float>();
             int offset = HeaderSize;
             for (int c = 0; c < cardCount; c++)
             {
@@ -65,7 +72,12 @@ namespace Gordian.Core.Resources.Graphics
                 if (BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(offset)) != 1) return null;
                 int quadCount = payload[offset + 2];
                 offset += 4;
-                if (lensFlare) offset += LensFlareParamsSize;
+                if (lensFlare)
+                {
+                    if (offset + LensFlareParamsSize > payload.Length) return null;
+                    flareOffsets.Add(BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(offset)));
+                    offset += LensFlareParamsSize;
+                }
 
                 int vertexCount = 6 * quadCount;
                 if (offset + vertexCount * VertexStride > payload.Length) return null;
@@ -94,6 +106,7 @@ namespace Gordian.Core.Resources.Graphics
                 DatId = datId ?? string.Empty,
                 TextureName = textureName,
                 IsLensFlare = lensFlare,
+                FlareOffsets = flareOffsets,
                 Cards = cards
             };
         }

@@ -24,6 +24,7 @@ namespace Gordian.Core.Tests.Resources
                 int o = 0x18 + c * cardSize;
                 BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(o), 1);
                 payload[o + 2] = 1; // one quad
+                if (lensFlare) BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(o + 4), 0.25f * c);
                 int vo = o + 4 + (lensFlare ? 16 : 0);
                 for (int v = 0; v < 6; v++)
                 {
@@ -64,7 +65,9 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(sheet);
             Assert.True(sheet.IsLensFlare);
             Assert.Equal(2, sheet.Cards.Count);
+            Assert.Equal(new[] { 0.0f, 0.25f }, sheet.FlareOffsets);
             Assert.Equal(63f, sheet.Cards[0][0].TexCoord.X);
+            Assert.Equal(-2f, sheet.Cards[1][0].Position.X);
         }
 
         [Fact]

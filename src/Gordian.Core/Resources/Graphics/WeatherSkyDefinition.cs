@@ -146,10 +146,26 @@ namespace Gordian.Core.Resources.Graphics
         public Vector4[]? MoonPhaseColors { get; set; }
 
         /// <summary>
-        /// True if this layer is a Section 0x21 sprite sheet whose MeshGroups are cards,
-        /// of which only the one indexed by the current moon phase is drawn, always facing the camera.
+        /// True if this layer is a Section 0x21 sprite sheet whose MeshGroups are camera-facing cards,
+        /// of which one is drawn (card 0, or the moon phase when <see cref="IsMoonPhaseSpriteSheet"/>).
+        /// </summary>
+        public bool IsSpriteSheet { get; set; }
+
+        /// <summary>
+        /// True if the drawn sprite-sheet card is selected by the current moon phase.
         /// </summary>
         public bool IsMoonPhaseSpriteSheet { get; set; }
+
+        /// <summary>
+        /// True if this layer is a screen-space lens flare: every card is drawn, positioned along the line from the
+        /// light source's screen position through the screen centre by <see cref="FlareOffsets"/>.
+        /// </summary>
+        public bool IsLensFlare { get; set; }
+
+        /// <summary>
+        /// Per-card lens-flare offsets (0 = on the source, 0.5 = screen centre, 1 = opposite side).
+        /// </summary>
+        public IReadOnlyList<float> FlareOffsets { get; set; } = Array.Empty<float>();
 
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";

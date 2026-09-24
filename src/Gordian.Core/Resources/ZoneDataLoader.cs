@@ -48,14 +48,14 @@ namespace Gordian.Core.Resources
         /// ui/js/particle/system.js linked-data resolution).
         /// </summary>
         private static (ParticleGeneratorDefinition? Generator, string? Weather) FindDrawingGenerator(
-            List<(string DatId, string? Weather, ParticleGeneratorDefinition Generator)> generators,
+            List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)> generators,
             string meshDatId,
             string meshName,
             string? weather,
             bool preferCompactScale)
         {
             (ParticleGeneratorDefinition? Generator, string? Weather) best = (null, null);
-            foreach (var (_, genWeather, gen) in generators)
+            foreach (var (_, genWeather, _, gen) in generators)
             {
                 var setup = gen.Setup;
                 if (setup == null) continue;
@@ -117,7 +117,8 @@ namespace Gordian.Core.Resources
             int zoneId,
             ReadOnlySpan<byte> table1 = default,
             ReadOnlySpan<byte> table2 = default,
-            Dictionary<string, DecodedTexture>? outTextures = null)
+            Dictionary<string, DecodedTexture>? outTextures = null,
+            SharedEffectResources? sharedEffects = null)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -127,7 +128,7 @@ namespace Gordian.Core.Resources
             var realMeshNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var raw0x2ESubmeshes = new List<MeshGroup>();
             var pendingSkyMeshes = new List<(string Name, string DatId, string? Weather, List<MeshGroup> Submeshes)>();
-            var generatorPlacements = new List<(string DatId, string? Weather, ParticleGeneratorDefinition Generator)>();
+            var generatorPlacements = new List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)>();
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
@@ -260,7 +261,7 @@ namespace Gordian.Core.Resources
                                 envData.AddParticleGenerator($"{weather}/{header.DatId}", generator);
                             }
                             envData.AddParticleGenerator(header.DatId, generator);
-                            generatorPlacements.Add((header.DatId, weather, generator));
+                            generatorPlacements.Add((header.DatId, weather, dirStack.Count > 0 ? dirStack.Peek() : null, generator));
 
                             // Detect zone water surface generators with UV scroll velocity
                             if (generator.UVScrollVelocity != Vector2.Zero &&
@@ -505,20 +506,31 @@ namespace Gordian.Core.Resources
                 envData.AddWeatherSkyLayer(layer);
             }
 
-            // Moon disc: a Moon-attached generator drawing one Section 0x21 sprite-sheet card per moon phase.
+            // Celestial sprite sheets and lens flares: generators in a weather's star/moon directory that draw a
+            // Section 0x21 sheet (the moon disc's twelve phases, the pole star) or a lens-flare sheet (the moon flare).
+            // Sheets resolve from the weather directory, then the zone, then the shared ROM/0/0.DAT effects.
             var seenSpriteGenerators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (genId, genWeather, gen) in generatorPlacements)
+            foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
-                if (gen.AttachType != ParticleAttachType.Moon || !gen.SpriteIndexFromMoonPhase) continue;
-                if (gen.Setup == null || gen.Setup.LinkedDataType != ParticleLinkedDataType.SpriteSheet) continue;
+                if (!string.Equals(parentDir, "star", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(parentDir, "moon", StringComparison.OrdinalIgnoreCase)) continue;
+                if (gen.Setup == null) continue;
+                bool isFlare = gen.Setup.LinkedDataType == ParticleLinkedDataType.LensFlare;
+                if (!isFlare && gen.Setup.LinkedDataType != ParticleLinkedDataType.SpriteSheet) continue;
                 if (!seenSpriteGenerators.Add(genId)) continue;
 
                 string linkId = gen.Setup.LinkedDataId;
                 SpriteSheetMesh? sheet = null;
                 if (!string.IsNullOrEmpty(genWeather)) spriteSheets.TryGetValue($"{genWeather}/{linkId}", out sheet);
                 if (sheet == null) spriteSheets.TryGetValue(linkId, out sheet);
-                if (sheet == null || sheet.IsLensFlare || sheet.Cards.Count == 0) continue;
+                if (sheet == null && sharedEffects != null && sharedEffects.SpriteSheets.TryGetValue(linkId, out sheet) &&
+                    outTextures != null && sharedEffects.Textures.TryGetValue(sheet.TextureName, out var sharedTexture))
+                {
+                    outTextures.TryAdd(sheet.TextureName, sharedTexture);
+                }
+                if (sheet == null || sheet.IsLensFlare != isFlare || sheet.Cards.Count == 0) continue;
 
+                Vector3 rawBase = gen.Setup.BasePosition;
                 var layer = new WeatherSkyLayer
                 {
                     Name = genId,
@@ -526,11 +538,15 @@ namespace Gordian.Core.Resources
                     WeatherId = null,
                     IsCelestial = true,
                     AttachType = gen.AttachType,
+                    Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
                     Scale = gen.Scale,
                     TextureName = sheet.TextureName,
-                    FollowCamera = true,
+                    FollowCamera = gen.Setup.FollowCamera,
                     FogEnabled = false,
-                    IsMoonPhaseSpriteSheet = true,
+                    IsSpriteSheet = !isFlare,
+                    IsMoonPhaseSpriteSheet = !isFlare && gen.SpriteIndexFromMoonPhase,
+                    IsLensFlare = isFlare,
+                    FlareOffsets = sheet.FlareOffsets,
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(layer, gen, genWeather, envData);
@@ -601,7 +617,7 @@ namespace Gordian.Core.Resources
             // are positioned dynamically by particle generators rather than static Section 0x1C placements.
             for (int g = 0; g < generatorPlacements.Count; g++)
             {
-                var (datId, weather, gen) = generatorPlacements[g];
+                var (datId, weather, _, gen) = generatorPlacements[g];
                 if (gen.Setup == null || string.IsNullOrWhiteSpace(gen.Setup.LinkedDataId)) continue;
 
                 string linkId = gen.Setup.LinkedDataId;

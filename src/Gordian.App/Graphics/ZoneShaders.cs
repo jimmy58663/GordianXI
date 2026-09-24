@@ -197,9 +197,19 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 
 void main()
 {
+    fsin_Color = Color;
+
+    if (WeatherParams.w > 3.5)
+    {
+        // Screen-space lens-flare sprite centred at WeatherParams.xy (NDC), sized at 1/16 NDC per sprite unit on
+        // both axes; card vertices are in display axes (-x, -y, z), so raw +X maps to screen right and raw +Y down.
+        fsin_TexCoord = TexCoord;
+        gl_Position = vec4(WeatherParams.xy + vec2(-Position.x, Position.y) * 0.0625, 0.9998, 1.0);
+        return;
+    }
+
     vec4 worldPos = World * vec4(Position, 1.0);
     fsin_TexCoord = TexCoord + WeatherParams.xy;
-    fsin_Color = Color;
 
     vec4 clipPos = Projection * View * worldPos;
     gl_Position = vec4(clipPos.xy, clipPos.w * 0.9998, clipPos.w);
@@ -585,11 +595,11 @@ void main()
 
         /// <summary>
         /// Fragment shader for Section 0x05 weather sky elements: dynamic drifting cloud layers,
-        /// celestial generator geometry (stars, Milky Way, moon disc and halo), and the sun disc.
+        /// celestial generator geometry (stars, Milky Way, moon disc and halo, pole star, lens flares), and the sun disc.
         /// Uses WeatherParams:
-        ///   xy: continuous UV scrolling offset
+        ///   xy: continuous UV scrolling offset (lens flares: sprite centre in NDC, consumed by the vertex shader)
         ///   z: 1.0 = additive (Src_One_Add) generator blend, 0.0 = alpha blend
-        ///   w: layer type (3.0 = celestial generator, 2.0 = sun disc, 1.0 = clouds)
+        ///   w: layer type (4.0 = screen-space lens flare, 3.0 = celestial generator, 2.0 = sun disc, 1.0 = clouds)
         /// Celestial generators reproduce the client's two modulate-2x texture stages, with the generator
         /// color (day-of-week, moon-phase and time-of-day modulated) as the texture factor.
         /// Stage math referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,

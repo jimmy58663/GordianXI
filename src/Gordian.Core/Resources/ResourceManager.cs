@@ -33,6 +33,8 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
+        private SharedEffectResources? _sharedEffects;
+        private volatile bool _sharedEffectsLoaded;
 
         public string GameDirectory => _gameDirectory;
         public IVirtualFileSystem Vfs => _vfs;
@@ -461,7 +463,8 @@ namespace Gordian.Core.Resources
                     zoneId,
                     _keyTable1 ?? ReadOnlySpan<byte>.Empty,
                     _keyTable2 ?? ReadOnlySpan<byte>.Empty,
-                    textures);
+                    textures,
+                    GetSharedEffects());
 
                 _zoneCache[zoneId] = (zone, textures);
                 GordianLog.Info("RES", $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
@@ -476,6 +479,25 @@ namespace Gordian.Core.Resources
 
             zone = null;
             return false;
+        }
+
+        /// <summary>
+        /// Loads (once) the shared ROM/0/0.DAT effects tree that zone particle generators fall back to.
+        /// </summary>
+        private SharedEffectResources? GetSharedEffects()
+        {
+            if (_sharedEffectsLoaded) return _sharedEffects;
+            lock (_lock)
+            {
+                if (!_sharedEffectsLoaded)
+                {
+                    byte[]? bytes = LoadDatBytes(Path.Combine("ROM", "0", "0.DAT"));
+                    _sharedEffects = bytes != null && bytes.Length > 0 ? SharedEffectResources.Parse(bytes) : null;
+                    if (_sharedEffects == null) GordianLog.Warning("RES", "Shared effects DAT ROM/0/0.DAT unavailable; generators linking shared effects will be skipped.");
+                    _sharedEffectsLoaded = true;
+                }
+                return _sharedEffects;
+            }
         }
 
         /// <summary>

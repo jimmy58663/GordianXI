@@ -347,9 +347,41 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(8, moon.DayOfWeekColors?.Length);
             Assert.Equal(12, moon.MoonPhaseColors?.Length);
 
-            // 4. Time-of-day curves: stars shine at midnight and vanish at noon
+            // 4. Pole star comes from the shared ROM/0/0.DAT sprite sheet 'hit6'; the moon flare is kas1's lens-flare sheet
+            var pole = zone.WeatherSkyLayers.Single(l => l.Name == "pole");
+            Assert.True(pole.IsSpriteSheet);
+            Assert.Equal(new System.Numerics.Vector3(0, 110, 300), pole.Position);
+            Assert.True(textures.ContainsKey(pole.TextureName));
+
+            var flare = zone.WeatherSkyLayers.Single(l => l.Name == "kas1");
+            Assert.True(flare.IsLensFlare);
+            Assert.Equal(flare.MeshGroups.Count, flare.FlareOffsets.Count);
+
+            // 5. Time-of-day curves: stars shine at midnight and vanish at noon
             Assert.True(ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.0f).W > 0.5f);
             Assert.Equal(0.0f, ZoneTerrainRenderer.ComputeCelestialTextureFactor(star, 0, 6, 0.5f).W);
+        }
+
+        [Fact]
+        public void TryComputeFlareCenter_StringsSpritesThroughScreenCentre()
+        {
+            var view = System.Numerics.Matrix4x4.CreateLookAt(System.Numerics.Vector3.Zero, -System.Numerics.Vector3.UnitZ, System.Numerics.Vector3.UnitY);
+            var projection = System.Numerics.Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2f, 1f, 0.1f, 5000f);
+            var viewProjection = view * projection;
+            var source = new System.Numerics.Vector3(450f, 0f, -900f); // right of centre, NDC x = 0.5
+
+            Assert.True(ZoneTerrainRenderer.TryComputeFlareCenter(source, viewProjection, 0.0f, out var onSource));
+            Assert.Equal(0.5f, onSource.X, 4);
+            Assert.Equal(0.0f, onSource.Y, 4);
+
+            Assert.True(ZoneTerrainRenderer.TryComputeFlareCenter(source, viewProjection, 0.5f, out var atCentre));
+            Assert.Equal(0.0f, atCentre.X, 4);
+
+            Assert.True(ZoneTerrainRenderer.TryComputeFlareCenter(source, viewProjection, 1.0f, out var opposite));
+            Assert.Equal(-0.5f, opposite.X, 4);
+
+            Assert.False(ZoneTerrainRenderer.TryComputeFlareCenter(new System.Numerics.Vector3(0f, 0f, 900f), viewProjection, 0.0f, out _)); // behind
+            Assert.False(ZoneTerrainRenderer.TryComputeFlareCenter(new System.Numerics.Vector3(2000f, 0f, -900f), viewProjection, 0.0f, out _)); // far off-screen
         }
 
         [Fact]

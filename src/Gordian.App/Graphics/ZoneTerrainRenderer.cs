@@ -521,7 +521,7 @@ namespace Gordian.App.Graphics
                             FollowCamera = layer.FollowCamera,
                             TextureName = group.TextureName,
                             Layer = layer,
-                            CardIndex = layer.IsMoonPhaseSpriteSheet ? g : -1,
+                            CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
                             VertexBuffer = vb,
                             IndexBuffer = ib,
                             UniformBuffer = ub,
@@ -1150,8 +1150,9 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Draws a celestial Section 0x05 generator layer (stars, Milky Way, moon disc, moon halo) with its
-        /// authored placement, blend mode and texture factor. Returns false if it contributes nothing this frame.
+        /// Draws a celestial Section 0x05 generator layer (stars, Milky Way, moon disc and halo, pole star, moon lens
+        /// flare) with its authored placement, blend mode and texture factor. Returns false if it contributes nothing
+        /// this frame.
         /// Placement and color rules referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
         /// ui/js/particle/runtime.js and ui/js/particleDrawer.js, after xim Particle / GLDrawer).
         /// </summary>
@@ -1166,23 +1167,39 @@ namespace Gordian.App.Graphics
             ref Pipeline? currentPipeline)
         {
             var layer = skyMesh.Layer;
-            if (skyMesh.CardIndex >= 0 && skyMesh.CardIndex != Math.Min(moonPhaseIndex, layer.MeshGroups.Count - 1)) return false;
+            if (layer.IsSpriteSheet)
+            {
+                int card = layer.IsMoonPhaseSpriteSheet ? Math.Min(moonPhaseIndex, layer.MeshGroups.Count - 1) : 0;
+                if (skyMesh.CardIndex != card) return false;
+            }
 
             Vector4 textureFactor = ComputeCelestialTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
             if (textureFactor.W <= 0.001f) return false;
 
-            Matrix4x4 world;
-            if (skyMesh.AttachType == ParticleAttachType.Moon)
+            Vector3 center = skyMesh.AttachType == ParticleAttachType.Moon
+                ? camera.Position + moonDir * 900.0f
+                : skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
+
+            Matrix4x4 world = Matrix4x4.Identity;
+            Vector2 flareCenter = Vector2.Zero;
+            float layerType = 3.0f;
+            if (layer.IsLensFlare)
             {
-                Vector3 center = camera.Position + moonDir * 900.0f;
-                world = skyMesh.CardIndex >= 0
-                    ? CreateCameraFacingCardMatrix(camera, center, skyMesh.Scale)
-                    : CreateCelestialDiscMatrix(camera, center, skyMesh.Scale);
+                float offset = skyMesh.CardIndex < layer.FlareOffsets.Count ? layer.FlareOffsets[skyMesh.CardIndex] : 0.0f;
+                if (!TryComputeFlareCenter(center, camera.ViewMatrix * camera.ProjectionMatrix, offset, out flareCenter)) return false;
+                layerType = 4.0f;
+            }
+            else if (layer.IsSpriteSheet)
+            {
+                world = CreateCameraFacingCardMatrix(camera, center, skyMesh.Scale);
+            }
+            else if (skyMesh.AttachType == ParticleAttachType.Moon)
+            {
+                world = CreateCelestialDiscMatrix(camera, center, skyMesh.Scale);
             }
             else
             {
                 // Generator rotation is authored in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
-                Vector3 center = skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
                 world = Matrix4x4.CreateScale(skyMesh.Scale) *
                         Matrix4x4.CreateRotationX(-layer.Rotation.X) *
                         Matrix4x4.CreateRotationY(-layer.Rotation.Y) *
@@ -1201,7 +1218,7 @@ namespace Gordian.App.Graphics
 
             var layerUniform = sceneUniform;
             layerUniform.World = world;
-            layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, additive ? 1.0f : 0.0f, 3.0f);
+            layerUniform.WeatherParams = new Vector4(flareCenter.X, flareCenter.Y, additive ? 1.0f : 0.0f, layerType);
             layerUniform.SkyTextureFactor = textureFactor;
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
@@ -1237,6 +1254,26 @@ namespace Gordian.App.Graphics
                 factor.W *= layer.ClockAlphaCurve.Evaluate(Math.Clamp(dayFraction, 0.0f, 1.0f));
             }
             return Vector4.Clamp(factor, Vector4.Zero, Vector4.One);
+        }
+
+        /// <summary>
+        /// Screen position (NDC) of one lens-flare sprite: the light source's projected position scaled along the line
+        /// through the screen centre (offset 0 on the source, 0.5 at the centre, 1 opposite). Returns false when the
+        /// source is behind the camera or well off-screen, where the client draws no flare.
+        /// Flare layout referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particleDrawer.js drawLensFlares, after xim).
+        /// </summary>
+        internal static bool TryComputeFlareCenter(Vector3 sourceWorld, Matrix4x4 viewProjection, float offset, out Vector2 center)
+        {
+            center = Vector2.Zero;
+            Vector4 clip = Vector4.Transform(new Vector4(sourceWorld, 1.0f), viewProjection);
+            if (clip.W <= 0.0f) return false;
+
+            var ndc = new Vector2(clip.X / clip.W, clip.Y / clip.W);
+            if (MathF.Abs(ndc.X) > 1.6f || MathF.Abs(ndc.Y) > 1.6f) return false;
+
+            center = ndc * (1.0f - 2.0f * offset);
+            return true;
         }
 
         /// <summary>
