@@ -175,7 +175,8 @@ namespace Gordian.Core.World
                     }
                     else
                     {
-                        float diffRad = HeadingRadians - moveAngleRad;
+                        // Positive = travel is to the character's right, since increasing heading turns right.
+                        float diffRad = moveAngleRad - HeadingRadians;
                         while (diffRad > MathF.PI) diffRad -= MathF.PI * 2.0f;
                         while (diffRad < -MathF.PI) diffRad += MathF.PI * 2.0f;
 
@@ -233,6 +234,12 @@ namespace Gordian.Core.World
         /// Unit ground-plane (X, Z) forward vector for a wire-convention heading in radians.
         /// </summary>
         public static Vector2 ForwardOf(float headingRad) => new(MathF.Cos(headingRad), -MathF.Sin(headingRad));
+
+        /// <summary>
+        /// Unit ground-plane (X, Z) vector pointing to the character's right for a wire-convention heading in radians,
+        /// i.e. the forward vector of the heading a quarter turn further on.
+        /// </summary>
+        public static Vector2 RightOf(float headingRad) => ForwardOf(headingRad + (MathF.PI / 2.0f));
 
         /// <summary>
         /// Quantizes a wire-convention heading in radians to a <see cref="Direction"/> byte.

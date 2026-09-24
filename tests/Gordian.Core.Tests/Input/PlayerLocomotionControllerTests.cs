@@ -173,6 +173,79 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Update_WhenHoldingStrafeRight_MovesToTheSameSideAsCameraRelativeRight()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.CameraYaw = 0.0f;
+
+            // E strafes without turning; it must land on the side D (camera-relative right) runs to: -Z.
+            input.SetKeyDown(GordianKey.E);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(0, localEnt.Direction);
+            Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
+            Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
+            Assert.InRange(localEnt.Position.Z, -5.01f, -4.99f);
+        }
+
+        [Fact]
+        public void Update_WhenHoldingForwardAndLeft_RunsInACircleToTheLeft()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 0;
+            localEnt.Position = Vector3.Zero;
+            controller.CameraYaw = 0.0f;
+
+            input.SetKeyDown(GordianKey.W);
+            input.SetKeyDown(GordianKey.A);
+
+            // Retail reference: a held W+A run completes a full circle in about 11.75 seconds (60 Hz frames).
+            float totalTurnDeg = 0f;
+            float maxDistance = 0f;
+            float previousDeg = 0f;
+            for (int frame = 0; frame < (int)(11.75f * 60); frame++)
+            {
+                controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+                float headingDeg = localEnt.Direction / 256.0f * 360.0f;
+                float step = headingDeg - previousDeg;
+                if (step > 180f) step -= 360f;
+                if (step < -180f) step += 360f;
+                totalTurnDeg += step;
+                previousDeg = headingDeg;
+                maxDistance = MathF.Max(maxDistance, new Vector2(localEnt.Position.X, localEnt.Position.Z).Length());
+            }
+
+            // The camera swings in behind the character, so the camera-relative 45-degree offset keeps turning it left
+            // (decreasing heading). Beyond the initial 45-degree turn, it sweeps one full circle and arrives back at the
+            // start, having reached the far side of a circle about 19 yalms across.
+            Assert.InRange(totalTurnDeg + 45f, -380f, -340f);
+            float endDistance = new Vector2(localEnt.Position.X, localEnt.Position.Z).Length();
+            Assert.True(endDistance < 2.0f, $"Ended {endDistance:F1} yalms from the start");
+            Assert.InRange(maxDistance, 16f, 22f);
+        }
+
+        [Fact]
+        public void Update_WhenHoldingForward_TurnsTowardCameraGraduallyInsteadOfSnapping()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+
+            localEnt.Direction = 128; // Facing the camera
+            localEnt.Position = Vector3.Zero;
+            controller.CameraYaw = 0.0f;
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+
+            // One frame at 720 degrees/sec turns 12 degrees (about 8.5 heading steps), not the full half turn.
+            int turned = Math.Abs(localEnt.Direction - 128);
+            Assert.InRange(turned, 7, 10);
+        }
+
+        [Fact]
         public void Update_ResetCamera_AlignsWithPlayerHeading()
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
@@ -307,10 +380,10 @@ namespace Gordian.Core.Tests.Input
             input.SetKeyDown(GordianKey.E);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
-            // Facing +X, strafing right moves towards +Z
+            // Facing +X, strafing right moves towards -Z: the same on-screen right as camera-relative D with the camera facing +X
             Assert.Equal(50, localEnt.Speed);
             Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
-            Assert.InRange(localEnt.Position.Z, 4.9f, 5.1f);
+            Assert.InRange(localEnt.Position.Z, -5.1f, -4.9f);
 
             // Facing should remain oriented towards target (within ~3 degrees of 0 / East)
             Assert.True(localEnt.Direction is <= 2 or >= 254);

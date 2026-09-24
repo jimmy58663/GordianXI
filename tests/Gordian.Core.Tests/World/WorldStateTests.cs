@@ -393,6 +393,26 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void WorldEntity_EngagedPlayerStrafing_ClassifiesSideFromHeading()
+        {
+            // Engaged players keep their server facing and strafe; facing +X, travel toward -Z is to their right
+            // (the same side a local character strafes to with E).
+            var entity = new WorldEntity(0x558, 103, EntityType.Player)
+            {
+                Position = new Vector3(0f, 0f, 0f),
+                TargetPosition = new Vector3(0f, 0f, -5f),
+                Direction = 0,
+                AnimationState = 1,
+                Speed = 40
+            };
+
+            entity.InterpolatePosition(0.1f);
+
+            Assert.Equal(0, entity.Direction);
+            Assert.Equal(LocomotionDirection.Right, entity.LocomotionDirection);
+        }
+
+        [Fact]
         public void WorldEntity_Stationary_DoesNotOverwriteWireDirection()
         {
             var entity = new WorldEntity(0x102, 51, EntityType.Npc)

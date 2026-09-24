@@ -267,6 +267,30 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void CharacterRelativeLocomotion_StickRightTurnsRight()
+        {
+            _profile.GamepadSettings.LocomotionMode = GamepadLocomotionMode.CharacterRelative;
+            Assert.True(_world.TryGetByServerId(1001, out var ent));
+            Assert.NotNull(ent);
+            ent.Direction = 0;
+
+            // Stick right with no forward component turns in place; turning right increases the wire heading,
+            // matching camera-relative right (CameraYaw + 90).
+            var padState = new GamepadState(
+                isConnected: true,
+                buttons: GamepadButton.None,
+                leftThumb: new Vector2(1.0f, 0.0f),
+                rightThumb: Vector2.Zero,
+                leftTrigger: 0f,
+                rightTrigger: 0f);
+
+            _inputState.SetGamepadState(padState);
+            _controller.Update(TimeSpan.FromSeconds(0.1));
+
+            Assert.InRange(ent.Direction, 1, 127);
+        }
+
+        [Fact]
         public void CharacterRelativeLocomotion_DirectTankMovement()
         {
             _profile.GamepadSettings.LocomotionMode = GamepadLocomotionMode.CharacterRelative;

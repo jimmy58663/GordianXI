@@ -50,6 +50,21 @@ namespace Gordian.Core.Input
                 : CameraMode.FreeCam;
         }
 
+        /// <summary>
+        /// Rate at which camera-relative input turns the character toward the input direction, instead of snapping.
+        /// </summary>
+        private const float FacingTurnSpeedDegreesPerSec = 720.0f;
+
+        /// <summary>
+        /// Fraction per second of the remaining gap by which the orbital camera swings in behind a character running with
+        /// forward input. Because the input direction is camera-relative, this curves diagonal input (e.g. W+A) into an
+        /// arc that closes into a full circle when held, as in the legacy client. Calibrated against retail, where a held W+A
+        /// run completes a circle in about 11.75 seconds: W+A holds a 45-degree offset, so 45 * rate = 360 / 11.75 degrees/sec.
+        /// </summary>
+        private const float CameraFollowRate = 0.68f;
+
+        private bool _cameraYawInputThisFrame;
+
         // Camera Spherical Angles (in degrees and yalms)
         public float CameraPitch { get; set; } = 15.0f; // degrees (-80 to +80)
         public float CameraYaw { get; set; } = 0.0f;    // degrees (0 to 360)
@@ -223,6 +238,7 @@ namespace Gordian.Core.Input
             // Camera yaw shares the wire heading convention (increasing yaw turns the view right); positive
             // input yaw deltas orbit the camera the other way, as the camera controls always have.
             yawDelta = -yawDelta;
+            _cameraYawInputThisFrame = yawDelta != 0;
 
             // Mode toggling shortcuts
             if (_inputState.WasActionTriggered(InputAction.ToggleCameraMode))
@@ -472,8 +488,9 @@ namespace Gordian.Core.Input
                     float distance = speedYalmsPerSec * dt;
 
                     var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    float dx = (fwd.X * lockFwd - fwd.Y * lockStrafe) * distance;
-                    float dz = (fwd.Y * lockFwd + fwd.X * lockStrafe) * distance;
+                    var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                    float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
+                    float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
 
                     localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
 
@@ -503,8 +520,9 @@ namespace Gordian.Core.Input
                 // Angle relative to Camera Yaw: stick Up (0, 1) is 0 offset, Right (1, 0) is +90, Down is +180, Left is -90.
                 // Increasing heading turns right on screen, so camera-right is CameraYaw + 90.
                 float stickAngleDeg = MathF.Atan2(leftStick.X, leftStick.Y) * (180.0f / MathF.PI);
-                localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(CameraYaw + stickAngleDeg));
+                TurnTowards(localEnt, NormalizeDegrees(CameraYaw + stickAngleDeg), dt);
                 localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                if (leftStick.Y > 0.1f) FollowHeadingWithCamera(localEnt, dt);
 
                 float stickMagnitude = leftStick.Length();
                 byte effectiveRun = GetEffectiveRunSpeed(localEnt);
@@ -542,8 +560,9 @@ namespace Gordian.Core.Input
                 {
                     // Same formula as the gamepad stick above.
                     float stickAngleDeg = MathF.Atan2(keyX, keyY) * (180.0f / MathF.PI);
-                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(CameraYaw + stickAngleDeg));
+                    TurnTowards(localEnt, NormalizeDegrees(CameraYaw + stickAngleDeg), dt);
                     localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                    if (keyY > 0f) FollowHeadingWithCamera(localEnt, dt);
 
                     byte effectiveRun = GetEffectiveRunSpeed(localEnt);
                     byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
@@ -592,8 +611,9 @@ namespace Gordian.Core.Input
             // 3. Update Heading if turning
             if (turnInput != 0)
             {
+                // Positive turn input (stick right) turns right, which is an increasing wire heading.
                 float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                headingDeg = NormalizeDegrees(headingDeg - (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
+                headingDeg = NormalizeDegrees(headingDeg + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
                 localEnt.Direction = WorldEntity.DirectionFromDegrees(headingDeg);
             }
 
@@ -635,8 +655,9 @@ namespace Gordian.Core.Input
                 }
 
                 var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                float dx = (fwd.X * forwardInput - fwd.Y * strafeInput) * distance;
-                float dz = (fwd.Y * forwardInput + fwd.X * strafeInput) * distance;
+                var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                float dx = (fwd.X * forwardInput + right.X * strafeInput) * distance;
+                float dz = (fwd.Y * forwardInput + right.Y * strafeInput) * distance;
 
                 localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
             }
@@ -647,6 +668,30 @@ namespace Gordian.Core.Input
             }
 
             LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+        }
+
+        private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
+        {
+            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float diff = WrapDegrees(targetHeadingDeg - headingDeg);
+            float maxStep = FacingTurnSpeedDegreesPerSec * dt;
+            headingDeg = MathF.Abs(diff) <= maxStep ? targetHeadingDeg : headingDeg + (MathF.Sign(diff) * maxStep);
+            localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg));
+        }
+
+        private void FollowHeadingWithCamera(WorldEntity localEnt, float dt)
+        {
+            if (_cameraYawInputThisFrame || _camera.Mode != CameraMode.ThirdPersonOrbital) return;
+
+            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float diff = WrapDegrees(headingDeg - CameraYaw);
+            CameraYaw = NormalizeDegrees(CameraYaw + (diff * MathF.Min(1.0f, dt * CameraFollowRate)));
+        }
+
+        private static float WrapDegrees(float deg)
+        {
+            deg = NormalizeDegrees(deg);
+            return deg > 180.0f ? deg - 360.0f : deg;
         }
 
         private void UpdateActionTriggers()
