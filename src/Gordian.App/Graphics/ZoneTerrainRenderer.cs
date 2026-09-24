@@ -57,6 +57,29 @@ namespace Gordian.App.Graphics
         private readonly List<(GpuWeatherSkySubmesh Mesh, float Distance)> _effectDrawList = new();
         private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private bool _emittersWarm;
+        private ResourceLayout _lightLayout = null!;
+        private DeviceBuffer _lightTableBuffer = null!;
+        private DeviceBuffer _noLightRefsBuffer = null!;
+        private ResourceSet _noLightSet = null!;
+        private readonly float[] _lightTable = new float[PointLightTableLayout.SizeInBytes / sizeof(float)];
+        private readonly List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> _pointLights = new();
+        private string _effectWeather = "fine";
+
+        /// <summary>
+        /// Point-light falloff exponent: a light's contribution is color x power x (1 - distance / range) ^ exponent. The
+        /// client's attenuation is not documented in any available reference; 2 matched Windower captures of Southern
+        /// San d'Oria's wall lamps at night (2026-09-24).
+        /// </summary>
+        public float PointLightFalloffExponent { get; set; } = 2.0f;
+
+        /// <summary>
+        /// Scale from a light's power (theta x theta multiplier) to its intensity; 1 matched the same captures.
+        /// </summary>
+        public float PointLightPowerScale { get; set; } = 1.0f;
+        private readonly Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
+        private WeatherRoutinePlayer? _weatherRoutines;
+        private Vector3 _viewerFloorProbe = new(float.NaN);
+        private bool _viewerInSubEnvironment;
         private const float EmitterWarmupFrames = 1200.0f;
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
@@ -145,10 +168,18 @@ namespace Gordian.App.Graphics
             public bool IsWater { get; init; }
             public Vector2 UVScroll { get; init; }
 
+            /// <summary>
+            /// Point-light binding (set 2) for a placement lit by zone lights; null uses the renderer's unlit set.
+            /// </summary>
+            public ResourceSet? LightSet { get; init; }
+            public DeviceBuffer? LightRefsBuffer { get; init; }
+
             public void Dispose()
             {
                 VertexBuffer?.Dispose();
                 IndexBuffer?.Dispose();
+                LightSet?.Dispose();
+                LightRefsBuffer?.Dispose();
             }
         }
 
@@ -216,6 +247,14 @@ namespace Gordian.App.Graphics
             _textureLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("uTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                 new ResourceLayoutElementDescription("uSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
+
+            // Set 2: zone point lights (the frame's light table and the placement's light slots)
+            _lightLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
+                new ResourceLayoutElementDescription("PointLightTable", ResourceKind.UniformBuffer, ShaderStages.Fragment),
+                new ResourceLayoutElementDescription("PointLightRefs", ResourceKind.UniformBuffer, ShaderStages.Fragment)));
+            _lightTableBuffer = factory.CreateBuffer(new BufferDescription(PointLightTableLayout.SizeInBytes, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            _noLightRefsBuffer = CreateLightRefsBuffer(Array.Empty<int>());
+            _noLightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, _noLightRefsBuffer));
 
             _sceneResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _sceneUniformBuffer));
             _waterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _waterUniformBuffer));
@@ -301,7 +340,7 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, opaqueShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
@@ -328,7 +367,7 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, decalShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
@@ -349,7 +388,7 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, cutoutShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
@@ -370,7 +409,7 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, blendShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
@@ -393,7 +432,7 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
+                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, waterShaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
@@ -526,8 +565,18 @@ namespace Gordian.App.Graphics
                     BufferUsage.IndexBuffer));
                 _gd.UpdateBuffer(ib, 0, ushortIndices);
 
+                DeviceBuffer? lightRefs = null;
+                ResourceSet? lightSet = null;
+                if (group.PointLightSlots.Length > 0)
+                {
+                    lightRefs = CreateLightRefsBuffer(group.PointLightSlots);
+                    lightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, lightRefs));
+                }
+
                 _zoneSubmeshes.Add(new GpuSubmesh
                 {
+                    LightRefsBuffer = lightRefs,
+                    LightSet = lightSet,
                     Name = group.Name,
                     TextureName = group.TextureName,
                     VertexBuffer = vb,
@@ -572,16 +621,36 @@ namespace Gordian.App.Graphics
             }
 
             // Parents spawn into their child generators' emitters.
-            var emittersByTemplate = new Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter>(ReferenceEqualityComparer.Instance);
+            var emittersByTemplate = _emittersByTemplate;
+            emittersByTemplate.Clear();
             foreach (var emitter in _emitters.Values) emittersByTemplate[emitter.Template] = emitter;
             foreach (var emitter in _emitters.Values)
             {
                 emitter.ChildResolver = template => emittersByTemplate.TryGetValue(template, out var child) ? child : null;
             }
+            _weatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
+            _pointLights.Clear();
+            foreach (var (layer, emitter) in _emitters)
+            {
+                if (layer.PointLightSlot >= 0 && layer.PointLightSlot < PointLightTableLayout.Slots) _pointLights.Add((layer, emitter));
+            }
             _emittersWarm = false;
+            _viewerFloorProbe = new Vector3(float.NaN);
 
             TotalVertices = vertCount;
             GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) to GPU.");
+        }
+
+        /// <summary>
+        /// A placement's light-slot uniform: four zero-based light-table slots, -1 for none.
+        /// </summary>
+        private DeviceBuffer CreateLightRefsBuffer(int[] slots)
+        {
+            var refs = new int[4] { -1, -1, -1, -1 };
+            for (int i = 0; i < Math.Min(4, slots.Length); i++) refs[i] = slots[i];
+            var buffer = _gd.ResourceFactory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
+            _gd.UpdateBuffer(buffer, 0, refs);
+            return buffer;
         }
 
         /// <summary>
@@ -766,6 +835,14 @@ namespace Gordian.App.Graphics
                 }
             }
 
+            // Zone particle emitters (surf, weather, lamp lights) advance before the world draws, so this frame's point
+            // lights shine on the terrain.
+            if (EnableZoneEffects && _emitters.Count > 0)
+            {
+                UpdateZoneEmitters(camera, environment, deltaSeconds);
+            }
+            UploadPointLights();
+
             _commandList.SetPipeline(_pipeline);
             _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
 
@@ -820,6 +897,7 @@ namespace Gordian.App.Graphics
                 // Bind Texture Resource Set
                 var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, texSet);
+                _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
@@ -846,6 +924,7 @@ namespace Gordian.App.Graphics
 
                 var texSet = _textureCache.GetOrCreateResourceSet(string.Empty, _activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, texSet);
+                _commandList.SetGraphicsResourceSet(2, _noLightSet);
                 _commandList.SetVertexBuffer(0, _groundPlaneSubmesh.VertexBuffer);
                 _commandList.SetIndexBuffer(_groundPlaneSubmesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(_groundPlaneSubmesh.IndexCount, 1, 0, 0, 0);
@@ -913,6 +992,7 @@ namespace Gordian.App.Graphics
                 // Every surface, water included, samples its own authored texture
                 var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, texSet);
+                _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
@@ -946,25 +1026,6 @@ namespace Gordian.App.Graphics
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
                         : b.Distance.CompareTo(a.Distance));
 
-                // Particle emitters (surf, wave crests) advance on the 60 Hz effect clock; the first frame after a zone
-                // load pre-warms them so the shoreline is not empty while the first waves roll in.
-                if (_emitters.Count > 0)
-                {
-                    var frame = new ZoneParticleFrame(ToDisplay(camera.Position), effectDayFraction, StrongestLight(environment),
-                        ToDisplay(camera.Forward), effectDayOfWeek, effectMoonPhase);
-                    float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
-                    foreach (var (emitterLayer, emitter) in _emitters)
-                    {
-                        // Weather emitters run only under their weather; a weather change starts them afresh.
-                        if (emitterLayer.WeatherIds.Count > 0 && !emitterLayer.WeatherIds.Contains(effectWeather))
-                        {
-                            if (emitter.Particles.Count > 0) emitter.Particles.Clear();
-                            continue;
-                        }
-                        emitter.Update(emitterFrames, frame);
-                    }
-                    _emittersWarm = true;
-                }
 
                 Pipeline? currentEffectPipeline = null;
                 foreach (var (effectMesh, _) in _effectDrawList)
@@ -1014,6 +1075,7 @@ namespace Gordian.App.Graphics
                 // Sample native DAT water texture if present, or procedural ocean wave texture
                 var waterTexSet = _textureCache.GetOrCreateWaterResourceSet(_activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, waterTexSet);
+                _commandList.SetGraphicsResourceSet(2, _noLightSet);
 
                 _commandList.SetVertexBuffer(0, _oceanWaterSubmesh.VertexBuffer);
                 _commandList.SetIndexBuffer(_oceanWaterSubmesh.IndexBuffer, IndexFormat.UInt16);
@@ -1318,7 +1380,7 @@ namespace Gordian.App.Graphics
                     ParticleBillBoardType.Camera => ToDisplay(camera.Position) - particle.WorldPosition,
                     _ => null
                 };
-                if (direction is { } towards) local *= ToDisplayRotation(CreateDirectionOrientation(towards));
+                if (direction is { } towards) local *= ToDisplayRotation(ZoneParticleEmitter.CreateDirectionOrientation(towards));
 
                 float radius = skyMesh.BoundingRadius * MathF.Max(MathF.Abs(particle.Scale.X), MathF.Max(MathF.Abs(particle.Scale.Y), MathF.Abs(particle.Scale.Z)));
                 Matrix4x4 oriented = local * facing;
@@ -1337,28 +1399,6 @@ namespace Gordian.App.Graphics
                 }
             }
             return drawn;
-        }
-
-        /// <summary>
-        /// The client's movement/camera billboard orientation, raw DAT axes: pitches the particle about its left axis
-        /// toward <paramref name="direction"/>, then yaws it about Y to face the direction's heading (straight up or down
-        /// turns it a quarter about Z). Row-vector form of xim's axis-angle then Y rotation.
-        /// Semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
-        /// ui/js/particle/runtime.js applyMovementOrientation, after xim).
-        /// </summary>
-        internal static Matrix4x4 CreateDirectionOrientation(Vector3 direction)
-        {
-            if (direction.LengthSquared() < 1e-12f) return Matrix4x4.Identity;
-            var movement = Vector3.Normalize(direction);
-            if (MathF.Abs(movement.Y) >= 0.999f)
-            {
-                return Matrix4x4.CreateRotationZ(MathF.Sign(movement.Y) * MathF.PI / 2.0f);
-            }
-
-            var left = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, movement));
-            var up = Vector3.Normalize(Vector3.Cross(movement, left));
-            float angle = -MathF.Acos(Math.Clamp(Vector3.Dot(up, Vector3.UnitY), -1.0f, 1.0f)) * MathF.Sign(movement.Y);
-            return Matrix4x4.CreateRotationY(-MathF.Atan2(movement.Z, movement.X)) * Matrix4x4.CreateFromAxisAngle(left, angle);
         }
 
         /// <summary>
@@ -1439,6 +1479,93 @@ namespace Gordian.App.Graphics
         }
 
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
+
+        /// <summary>
+        /// Advances every zone emitter on the 60 Hz effect clock; the first frame after a zone load pre-warms them so the
+        /// shoreline is not empty while the first waves roll in. Weather emitters run only under their weather.
+        /// </summary>
+        private void UpdateZoneEmitters(ViewportCamera camera, ZoneEnvironmentSettings environment, float deltaSeconds)
+        {
+            _effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
+            var frame = new ZoneParticleFrame(ToDisplay(camera.Position), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
+                ToDisplay(camera.Forward), VanaTime.GetDayOfWeekIndex(DateTime.UtcNow), VanaTime.GetMoonPhaseIndex(DateTime.UtcNow),
+                IsViewerInSubEnvironment(camera.Position));
+            float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
+            // Lightning strikes and other short weather routines start their generators at random.
+            _weatherRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f, _effectWeather,
+                template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null);
+            foreach (var (emitterLayer, emitter) in _emitters)
+            {
+                // Weather emitters run only under their weather; a weather change starts them afresh.
+                if (emitterLayer.WeatherIds.Count > 0 && !emitterLayer.WeatherIds.Contains(_effectWeather))
+                {
+                    if (emitter.Particles.Count > 0) emitter.Particles.Clear();
+                    continue;
+                }
+                emitter.Update(emitterFrames, frame);
+            }
+            _emittersWarm = true;
+        }
+
+        /// <summary>
+        /// Fills the frame's point-light table from the running light generators: each slot takes its generator's live
+        /// particle (display-space position, range x range multiplier, color x2 from the half-range particle color with
+        /// the particle's fades, power = theta x theta multiplier).
+        /// </summary>
+        private void UploadPointLights()
+        {
+            Array.Clear(_lightTable);
+            _lightTable[0] = PointLightFalloffExponent;
+            _lightTable[1] = PointLightPowerScale;
+            const int positionBase = 4;
+            const int colorBase = 4 + PointLightTableLayout.Slots * 4;
+            if (EnableZoneEffects)
+            {
+                foreach (var (layer, emitter) in _pointLights)
+                {
+                    if (layer.WeatherIds.Count > 0 && !layer.WeatherIds.Contains(_effectWeather)) continue;
+                    ZoneParticle? light = null;
+                    foreach (var particle in emitter.Particles)
+                    {
+                        if (!particle.IsExpired) { light = particle; break; }
+                    }
+                    if (light == null) continue;
+
+                    float range = light.LightRange * light.LightRangeMultiplier;
+                    var factor = light.TextureFactor;
+                    float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
+                    if (range <= 0.0f || power <= 0.0f) continue;
+
+                    int slot = layer.PointLightSlot;
+                    var position = ToDisplay(light.WorldPosition);
+                    _lightTable[positionBase + slot * 4] = position.X;
+                    _lightTable[positionBase + slot * 4 + 1] = position.Y;
+                    _lightTable[positionBase + slot * 4 + 2] = position.Z;
+                    _lightTable[positionBase + slot * 4 + 3] = range;
+                    _lightTable[colorBase + slot * 4] = 2.0f * light.Color.X;
+                    _lightTable[colorBase + slot * 4 + 1] = 2.0f * light.Color.Y;
+                    _lightTable[colorBase + slot * 4 + 2] = 2.0f * light.Color.Z;
+                    _lightTable[colorBase + slot * 4 + 3] = power;
+                }
+            }
+            _commandList.UpdateBuffer(_lightTableBuffer, 0, _lightTable);
+        }
+
+        /// <summary>
+        /// True while the floor under the camera belongs to a placement linked to a sub-environment (a cave or interior).
+        /// The client picks the viewer's environment from the floor under the camera; re-cast only when the eye moves.
+        /// </summary>
+        private bool IsViewerInSubEnvironment(Vector3 eye)
+        {
+            if (LoadedZone == null) return false;
+            if (!(Vector3.DistanceSquared(eye, _viewerFloorProbe) < 0.25f))
+            {
+                _viewerFloorProbe = eye;
+                var floor = ZoneRaycaster.FindFloor(LoadedZone, eye, 500.0f);
+                _viewerInSubEnvironment = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId);
+            }
+            return _viewerInSubEnvironment;
+        }
 
         /// <summary>
         /// The stronger of the model sun and moon light colors, for daylight-tinted particles.
@@ -1625,6 +1752,8 @@ namespace Gordian.App.Graphics
             }
             _effectSubmeshes.Clear();
             _emitters.Clear();
+            _emittersByTemplate.Clear();
+            _weatherRoutines = null;
         }
 
         public void Dispose()
@@ -1663,6 +1792,10 @@ namespace Gordian.App.Graphics
             _waterResourceSet?.Dispose();
             _sceneLayout?.Dispose();
             _textureLayout?.Dispose();
+            _noLightSet?.Dispose();
+            _noLightRefsBuffer?.Dispose();
+            _lightTableBuffer?.Dispose();
+            _lightLayout?.Dispose();
             _sceneUniformBuffer?.Dispose();
             _waterUniformBuffer?.Dispose();
         }

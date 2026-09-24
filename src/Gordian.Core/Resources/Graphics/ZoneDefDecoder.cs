@@ -180,16 +180,71 @@ namespace Gordian.Core.Resources.Graphics
                     continue;
                 }
 
+                string environmentId = string.Empty;
+                int[] lightSlots = Array.Empty<int>();
+                if (stride >= StrideModern && b + 0x64 <= payload.Length)
+                {
+                    environmentId = ReadCString(payload.Slice(b + 0x4C, 4));
+                    lightSlots = ReadLightReferences(payload.Slice(b + 0x54, 16));
+                }
+
                 placements.Add(new ZonePlacement(
                     meshId,
                     new Vector3(px, py, pz),
                     new Vector3(rx, ry, rz),
                     new Vector3(sx, sy, sz),
-                    drawDist
+                    drawDist,
+                    environmentId,
+                    lightSlots
                 ));
             }
 
             return placements;
+        }
+
+        /// <summary>
+        /// Converts a record's four 1-based light-table references (0 = none) to zero-based slots.
+        /// </summary>
+        private static int[] ReadLightReferences(ReadOnlySpan<byte> refs)
+        {
+            int count = 0;
+            Span<int> slots = stackalloc int[4];
+            for (int i = 0; i < 4; i++)
+            {
+                uint reference = BinaryPrimitives.ReadUInt32LittleEndian(refs.Slice(i * 4, 4));
+                if (reference is > 0 and <= LightTableEntries) slots[count++] = (int)reference - 1;
+            }
+            return count == 0 ? Array.Empty<int>() : slots.Slice(0, count).ToArray();
+        }
+
+        /// <summary>
+        /// Number of entries in the ZoneDef point-light table (the client's fixed light pool).
+        /// </summary>
+        public const int LightTableEntries = 256;
+
+        private const int LightTableEntrySize = 0x4C;
+
+        /// <summary>
+        /// Reads the decrypted ZoneDef point-light table: the table sits at the payload offset stored at header +0x18 and
+        /// runs to the collision block (header +0x08) or the payload end, 256 entries of 0x4C bytes at most, each naming
+        /// a point-light generator by its FourCC at +0 (all-zero for an unused slot). A point-light generator lights
+        /// nothing unless its FourCC has a slot here and placements reference that slot.
+        /// Table layout referenced from xi-tools (docs/zone/format.md "Light table", src/xi/zone/xi_zonedef.py).
+        /// </summary>
+        public static List<string> ParsePointLightTable(ReadOnlySpan<byte> payload)
+        {
+            var ids = new List<string>();
+            if (payload.Length < 0x20) return ids;
+            int tableOffset = (int)BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0x18, 4));
+            if (tableOffset <= 0 || tableOffset >= payload.Length) return ids;
+            int collisionOffset = (int)BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0x08, 4));
+            int end = collisionOffset > tableOffset ? Math.Min(collisionOffset, payload.Length) : payload.Length;
+            int count = Math.Min(LightTableEntries, (end - tableOffset) / LightTableEntrySize);
+            for (int i = 0; i < count; i++)
+            {
+                ids.Add(ReadCString(payload.Slice(tableOffset + i * LightTableEntrySize, 4)));
+            }
+            return ids;
         }
 
         /// <summary>

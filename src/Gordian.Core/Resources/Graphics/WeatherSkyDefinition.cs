@@ -237,6 +237,12 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public Gordian.Core.Graphics.ZoneEmitterTemplate? Emitter { get; set; }
 
+        /// <summary>
+        /// For a point-light generator (linked type 0x47): its zero-based slot in the ZoneDef light table, whose placements
+        /// it lights. -1 for every other layer.
+        /// </summary>
+        public int PointLightSlot { get; set; } = -1;
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }

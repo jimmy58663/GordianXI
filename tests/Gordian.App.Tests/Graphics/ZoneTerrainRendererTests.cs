@@ -700,8 +700,9 @@ namespace Gordian.App.Tests.Graphics
         [MemberData(nameof(TerrainFragmentShaders))]
         public void TerrainFragmentShaders_UseLegacyAmbientSunMoonLighting(string fragmentGlsl)
         {
-            // xim terrain lighting: lit = clamp(vColor*ambient + vColor*N.L*sun + vColor*N.(-L)*moon), no extra scaling
-            Assert.Contains("clamp(amb + df0 + df1, 0.0, 1.0)", fragmentGlsl);
+            // xim terrain lighting: lit = clamp(vColor*ambient + vColor*N.L*sun + vColor*N.(-L)*moon + point lights), no extra scaling
+            Assert.Contains("clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0)", fragmentGlsl);
+            Assert.Contains("int slot = LightSlots[i];", fragmentGlsl);
             Assert.Contains("max(dot(N, -L), 0.0) * MoonColor.rgb", fragmentGlsl);
             Assert.DoesNotContain("0.5 * amb", fragmentGlsl);
         }

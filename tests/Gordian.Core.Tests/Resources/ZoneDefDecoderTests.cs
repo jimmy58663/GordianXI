@@ -154,6 +154,44 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ParseZonePlacements_ReadsEnvironmentLinkAndPointLightReferences()
+        {
+            int stride = ZoneDefDecoder.StrideModern;
+            byte[] payload = new byte[0x20 + stride];
+            int b = 0x20;
+            Encoding.ASCII.GetBytes("cave_floor").CopyTo(payload.AsSpan(b, 10));
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x28, 4), 1.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x2C, 4), 1.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x30, 4), 1.0f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x40, 4), 50.0f);
+            Encoding.ASCII.GetBytes("ev01").CopyTo(payload.AsSpan(b + 0x4C, 4));
+            // 1-based light-table references; 0 means none.
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(b + 0x54, 4), 14);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(b + 0x58, 4), 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(b + 0x5C, 4), 37);
+
+            var placement = Assert.Single(ZoneDefDecoder.ParseZonePlacements(payload, 1));
+
+            Assert.Equal("ev01", placement.EnvironmentId);
+            Assert.Equal(new[] { 13, 36 }, placement.PointLightSlots);
+        }
+
+        [Fact]
+        public void ParsePointLightTable_ReadsGeneratorIdsUpToTheCollisionBlock()
+        {
+            const int tableOffset = 0x40;
+            byte[] payload = new byte[tableOffset + 3 * 0x4C + 0x10];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x18, 4), tableOffset);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x08, 4), tableOffset + 3 * 0x4C);
+            Encoding.ASCII.GetBytes("pl01").CopyTo(payload.AsSpan(tableOffset, 4));
+            Encoding.ASCII.GetBytes("pl03").CopyTo(payload.AsSpan(tableOffset + 2 * 0x4C, 4));
+
+            var ids = ZoneDefDecoder.ParsePointLightTable(payload);
+
+            Assert.Equal(new[] { "pl01", "", "pl03" }, ids);
+        }
+
+        [Fact]
         public void ResolveTemplate_PrefersHighLodAndMatchesVariants()
         {
             var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase)

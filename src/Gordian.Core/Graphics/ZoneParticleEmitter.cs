@@ -81,13 +81,16 @@ namespace Gordian.Core.Graphics
     /// <param name="CameraRawForward">Camera view direction in raw DAT space (angular-distance rotation).</param>
     /// <param name="DayOfWeek">Vana'diel weekday index (0-7) for day-of-week tints.</param>
     /// <param name="MoonPhase">Moon phase index (0-11) for moon-phase tints.</param>
+    /// <param name="ViewerInSubEnvironment">True while the floor under the camera links a sub-environment (a cave or
+    /// interior, e.g. <c>ev01</c>): camera-following and camera-anchored weather effects stop emitting there.</param>
     public readonly record struct ZoneParticleFrame(
         Vector3 CameraRawPosition,
         float DayFraction,
         Vector3 DaylightColor,
         Vector3 CameraRawForward = default,
         int DayOfWeek = 0,
-        int MoonPhase = 0);
+        int MoonPhase = 0,
+        bool ViewerInSubEnvironment = false);
 
     /// <summary>
     /// A particle's velocity state for one allocation slot (position, rotation or scale transform).
@@ -122,6 +125,16 @@ namespace Gordian.Core.Graphics
         internal Vector3[]? SubRelativeVelocities;
 
         /// <summary>
+        /// For a child spawned by a transform-following stream (0x33 / 0x46): the parent it follows, how, and the parent's
+        /// orientation (rotation and scale, raw DAT axes) that its base and local offset are expressed in.
+        /// </summary>
+        internal ZoneParticle? FollowedParent;
+        internal ChildFollow FollowMode;
+        internal Matrix4x4 ParentLinear = Matrix4x4.Identity;
+        internal Vector3 ParentBase;
+        internal ParticleGeneratorDefinition? Definition;
+
+        /// <summary>
         /// Raw DAT-space origin the particle's local offset is measured from: its generator's base position, the camera
         /// plus that base for camera-following and camera-anchored generators, or for a child particle the
         /// parent-derived position it was spawned at.
@@ -142,7 +155,9 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// World position in raw DAT space.
         /// </summary>
-        public Vector3 WorldPosition => Origin + LocalOffset;
+        public Vector3 WorldPosition => FollowedParent == null
+            ? Origin + LocalOffset
+            : Origin + Vector3.TransformNormal(ParentBase + LocalOffset, ParentLinear);
 
         public float Age { get; internal set; }
         public float MaxAge { get; internal set; }
@@ -186,6 +201,21 @@ namespace Gordian.Core.Graphics
         /// </summary>
         public int SpriteIndex { get; internal set; }
 
+        /// <summary>
+        /// Point-light parameters (opcode 0x58, animated by 0x49 / 0x5B-0x5E): range in yalms, theta (the light's power),
+        /// and their multipliers.
+        /// </summary>
+        public float LightRange { get; internal set; }
+
+        /// <inheritdoc cref="LightRange"/>
+        public float LightTheta { get; internal set; } = 1f;
+
+        /// <inheritdoc cref="LightRange"/>
+        public float LightRangeMultiplier { get; internal set; } = 1f;
+
+        /// <inheritdoc cref="LightRange"/>
+        public float LightThetaMultiplier { get; internal set; } = 1f;
+
         public bool IsExpired => Age >= MaxAge;
 
         public float Progress => float.IsPositiveInfinity(MaxAge) || MaxAge <= 0f ? 0f : Math.Clamp(Age / MaxAge, 0f, 1f);
@@ -209,6 +239,21 @@ namespace Gordian.Core.Graphics
                 return factor;
             }
         }
+    }
+
+    /// <summary>
+    /// How a child particle takes its placement from its parent.
+    /// </summary>
+    internal enum ChildFollow
+    {
+        /// <summary>Own base position (or the parent's position with 0x45), fixed at birth.</summary>
+        None,
+
+        /// <summary>0x33: base and offset expressed in the parent's transform, tracked while both follow.</summary>
+        Transform,
+
+        /// <summary>0x46: as <see cref="Transform"/>, with the parent's orientation billboarded toward the camera.</summary>
+        TransformBillboard
     }
 
     /// <summary>
@@ -258,6 +303,7 @@ namespace Gordian.Core.Graphics
         private float _emitLifeTime;
         private float _maxEmitTime;
         private int _emittedSinceArm;
+        private readonly List<(float Delay, int Duration)> _pendingTriggers = new();
 
         public ZoneParticleEmitter(ZoneEmitterTemplate template, int seed = 0)
         {
@@ -302,6 +348,7 @@ namespace Gordian.Core.Graphics
 
             if (Template.ChildOnly) return;
             AdvanceSchedule(frames);
+            AdvanceTriggers(frames);
             _emitLifeTime += frames;
             if (IsDoneEmitting()) return;
 
@@ -309,17 +356,23 @@ namespace Gordian.Core.Graphics
                           Vector3.Distance(frame.CameraRawPosition, Template.RawBasePosition) > Def.MaxEmitDistance;
             if (culled) return;
 
+            // Camera-attached weather (rain, snow) only emits while the viewer is in the main environment, which keeps
+            // it out of caves and interiors; particles already falling finish their lives.
+            if (frame.ViewerInSubEnvironment && IsCameraAttachedWeather) return;
+
             _framesUntilNextParticle -= frames;
             while (_framesUntilNextParticle <= 0.0f)
             {
                 // A continuous singleton keeps exactly one particle alive.
                 if (Def.ContinuousSingleton && Particles.Count > 0) break;
+                // A generator whose particle lives forever emits exactly once (per start, for a routine-started one).
+                if (LivesForever && (Def.AutoRun ? _totalEmitted : _emittedSinceArm) > 0) break;
 
                 _framesUntilNextParticle += Def.FramesPerEmission + PosRand(Def.EmissionVariance);
                 int count = ParticlesPerEmission;
                 for (int i = 0; i < count; i++)
                 {
-                    Particles.Add(CreateParticle(null, false));
+                    Particles.Add(CreateParticle(null, ChildFollow.None));
                     _totalEmitted++;
                     _emittedSinceArm++;
                 }
@@ -359,6 +412,28 @@ namespace Gordian.Core.Graphics
             }
         }
 
+        /// <summary>
+        /// Starts a non-auto-running generator from outside (a weather routine the client plays at random): after
+        /// <paramref name="delayFrames"/> it emits for <paramref name="durationFrames"/> (at least once).
+        /// </summary>
+        public void Trigger(int delayFrames, int durationFrames) => _pendingTriggers.Add((delayFrames, durationFrames));
+
+        private void AdvanceTriggers(float frames)
+        {
+            for (int i = _pendingTriggers.Count - 1; i >= 0; i--)
+            {
+                var (delay, duration) = _pendingTriggers[i];
+                delay -= frames;
+                if (delay > 0f)
+                {
+                    _pendingTriggers[i] = (delay, duration);
+                    continue;
+                }
+                _pendingTriggers.RemoveAt(i);
+                Arm(duration);
+            }
+        }
+
         private void Arm(int duration)
         {
             _armed = true;
@@ -374,15 +449,27 @@ namespace Gordian.Core.Graphics
         /// Spawns one emission's worth of particles as children of <paramref name="parent"/> (a birth or expiry burst, or
         /// one step of a continuous child stream).
         /// </summary>
-        internal void EmitChildren(ZoneParticle parent, bool followParent)
+        internal void EmitChildren(ZoneParticle parent, ChildFollow follow)
         {
             int count = ParticlesPerEmission;
             for (int i = 0; i < count; i++)
             {
-                Particles.Add(CreateParticle(parent, followParent));
+                Particles.Add(CreateParticle(parent, follow));
                 _totalEmitted++;
             }
         }
+
+        /// <summary>
+        /// A life span of 0 means a particle that never expires (a sea plane, a fixed glow, a lamp's light); a point light
+        /// authored with a 1-frame life is treated the same way, as the client does, instead of flickering.
+        /// Semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/initializers.js StandardParticleSetup, after xim).
+        /// </summary>
+        private bool LivesForever => Def.Setup is { } lifeSetup &&
+            (lifeSetup.MaxLifeSpan == 0 || (lifeSetup.MaxLifeSpan == 1 && lifeSetup.LinkedDataType == ParticleLinkedDataType.PointLight));
+
+        private bool IsCameraAttachedWeather =>
+            Template.IsWeather && Def.Setup is { } setup && (setup.FollowCamera || setup.CameraAttachedBasePosition);
 
         /// <summary>
         /// Particles created per emission: one for a continuous singleton or a batched generator (whose single particle
@@ -405,14 +492,21 @@ namespace Gordian.Core.Graphics
         }
 
         /// <summary>
-        /// Creates a particle. A child copies its parent's position when it carries opcode 0x45 (or follows the parent
-        /// through a transform-following stream); otherwise it starts at its own generator's base position.
+        /// Creates a particle. A child of a transform-following stream sits in its parent's transform; a child with opcode
+        /// 0x45 / 0x9B copies its parent's position; otherwise a particle starts at its own generator's base position.
         /// </summary>
-        private ZoneParticle CreateParticle(ZoneParticle? parent, bool followParent)
+        private ZoneParticle CreateParticle(ZoneParticle? parent, ChildFollow follow)
         {
-            var p = new ZoneParticle { Scale = Vector3.Zero, Origin = Template.RawBasePosition };
+            var p = new ZoneParticle { Scale = Vector3.Zero, Origin = Template.RawBasePosition, Definition = Def };
             var config = Def.Setup;
-            if (parent != null && (followParent || HasInitializer(0x45)))
+            if (parent != null && follow != ChildFollow.None)
+            {
+                p.FollowedParent = parent;
+                p.FollowMode = follow;
+                p.ParentBase = Template.RawBasePosition;
+                FollowParent(p);
+            }
+            else if (parent != null && (HasInitializer(0x45) || HasInitializer(0x9B)))
             {
                 // A batched parent stands in for its sub-particles; children copy the first one's position.
                 var batchOffset = parent.SubOffsets is { Length: > 0 } parentSubs ? parentSubs[0] : Vector3.Zero;
@@ -441,7 +535,7 @@ namespace Gordian.Core.Graphics
                     {
                         var setup = Def.Setup;
                         int life = setup?.MaxLifeSpan ?? 0;
-                        p.MaxAge = life == 0 ? float.PositiveInfinity : life + PosRand(setup?.LifeSpanVariance ?? 0);
+                        p.MaxAge = LivesForever ? float.PositiveInfinity : life + PosRand(setup?.LifeSpanVariance ?? 0);
                         break;
                     }
 
@@ -578,6 +672,30 @@ namespace Gordian.Core.Graphics
                         break;
                     case 0x91: p.DaylightColored = true; break; // DaylightBasedColorSetup
 
+                    case 0x58: // PointLightParamsInitializer: range, theta, range multiplier, theta multiplier
+                        p.LightRange = op.Float(0);
+                        p.LightTheta = op.Float(1);
+                        p.LightRangeMultiplier = LightMultiplier(op.Float(2));
+                        p.LightThetaMultiplier = LightMultiplier(op.Float(3));
+                        break;
+                    case 0x7E when parent != null: p.LightTheta = parent.LightTheta; break; // ParentThetaConfig
+                    case 0x7F when parent != null: p.LightRange = parent.LightRange; break; // ParentRangeConfig
+
+                    // Parent-copy initializers: a child takes its parent's state at birth.
+                    case 0x46 when parent != null: // ParentVelocityConfig: the parent's travel velocity, scaled
+                        if (p.Transforms.TryGetValue(slot, out var inherited))
+                        {
+                            inherited.State.Velocity = ParentVelocity(parent) * op.Float(0);
+                        }
+                        break;
+                    case 0x47 when parent != null: // ParentRotateConfig
+                    case 0x79 when parent != null:
+                        p.Rotation = parent.Rotation;
+                        break;
+                    case 0x48 when parent != null: p.Color = parent.TextureFactor; break; // ParentColorConfig
+                    case 0x49 when parent != null: p.Scale = parent.Scale; break; // ParentScaleConfig
+                    case 0x4A when parent != null: p.TexCoordTranslate = parent.TexCoordTranslate; break; // ParentTexCoordConfig
+
                     case 0x44: // ChildGeneratorSetup: a child generator that lives as long as this particle
                     case 0x53:
                     case 0x6A:
@@ -593,9 +711,97 @@ namespace Gordian.Core.Graphics
             // 0x3C OnceChildGeneratorSetup: emit the child exactly once, at birth, from the finished particle.
             foreach (var op in Def.Initializers)
             {
-                if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, false);
+                if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, ChildFollow.None);
             }
             return p;
+        }
+
+        /// <summary>
+        /// Places a following child in its parent's transform: the parent's world position, with the child's base and
+        /// local offset turned and scaled by the parent's orientation (rotation forced to X-Y-Z order, scale before or
+        /// after rotation as the parent authors it; 0x46 billboards it toward the camera, 0x33 applies the parent's
+        /// movement / camera billboard).
+        /// Semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/updaters.js ChildGeneratorUpdater and runtime.js computeWorldSpaceTransform, after xim).
+        /// </summary>
+        private void FollowParent(ZoneParticle p)
+        {
+            var parent = p.FollowedParent!;
+            p.Origin = parent.WorldPosition;
+            p.ParentLinear = ParentOrientation(parent, p.FollowMode == ChildFollow.TransformBillboard);
+        }
+
+        private Matrix4x4 ParentOrientation(ZoneParticle parent, bool billboard)
+        {
+            var setup = parent.Definition?.Setup;
+            float yMul = parent.NegateRotationY ? -1f : 1f;
+            // Column-form Rx * Ry * Rz (X-Y-Z order) as a row-vector matrix.
+            var rotation = Matrix4x4.CreateRotationZ(parent.Rotation.Z) * Matrix4x4.CreateRotationY(yMul * parent.Rotation.Y) *
+                           Matrix4x4.CreateRotationX(parent.Rotation.X);
+            var scale = Matrix4x4.CreateScale(parent.Scale);
+            var oriented = setup?.ScaleBeforeRotate == true ? rotation * scale : scale * rotation;
+
+            if (billboard)
+            {
+                oriented *= AxisBillboardMatrix(_cameraRawForward);
+            }
+            else if (setup != null)
+            {
+                Vector3? direction = setup.BillBoardType switch
+                {
+                    ParticleBillBoardType.Movement when parent.SubOffsets == null => parent.LastMovement,
+                    ParticleBillBoardType.MovementHorizontal when parent.SubOffsets == null => parent.LastMovement with { Y = 0f },
+                    ParticleBillBoardType.Camera => _cameraRawPosition - parent.WorldPosition,
+                    _ => null
+                };
+                if (direction is { } towards) oriented *= CreateDirectionOrientation(towards);
+            }
+            return oriented;
+        }
+
+        /// <summary>
+        /// The parent particle's travel velocity (its first position transform, turned by its velocity rotation).
+        /// </summary>
+        private static Vector3 ParentVelocity(ZoneParticle parent)
+        {
+            foreach (var t in parent.Transforms.Values)
+            {
+                if (t.Kind == ParticleTransformKind.Position) return TotalVelocity(parent, t.State);
+            }
+            return Vector3.Zero;
+        }
+
+        /// <summary>
+        /// Row-vector form of <see cref="AxisBillboard"/>.
+        /// </summary>
+        internal static Matrix4x4 AxisBillboardMatrix(Vector3 direction)
+        {
+            var x = AxisBillboard(Vector3.UnitX, direction);
+            var y = AxisBillboard(Vector3.UnitY, direction);
+            var z = AxisBillboard(Vector3.UnitZ, direction);
+            return new Matrix4x4(x.X, x.Y, x.Z, 0f, y.X, y.Y, y.Z, 0f, z.X, z.Y, z.Z, 0f, 0f, 0f, 0f, 1f);
+        }
+
+        /// <summary>
+        /// The client's movement/camera billboard orientation, raw DAT axes: pitches the particle about its left axis
+        /// toward <paramref name="direction"/>, then yaws it about Y to face the direction's heading (straight up or down
+        /// turns it a quarter about Z). Row-vector form of xim's axis-angle then Y rotation.
+        /// Semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/runtime.js applyMovementOrientation, after xim).
+        /// </summary>
+        public static Matrix4x4 CreateDirectionOrientation(Vector3 direction)
+        {
+            if (direction.LengthSquared() < 1e-12f) return Matrix4x4.Identity;
+            var movement = Vector3.Normalize(direction);
+            if (MathF.Abs(movement.Y) >= 0.999f)
+            {
+                return Matrix4x4.CreateRotationZ(MathF.Sign(movement.Y) * MathF.PI / 2.0f);
+            }
+
+            var left = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, movement));
+            var up = Vector3.Normalize(Vector3.Cross(movement, left));
+            float angle = -MathF.Acos(Math.Clamp(Vector3.Dot(up, Vector3.UnitY), -1.0f, 1.0f)) * MathF.Sign(movement.Y);
+            return Matrix4x4.CreateRotationY(-MathF.Atan2(movement.Z, movement.X)) * Matrix4x4.CreateFromAxisAngle(left, angle);
         }
 
         private bool HasInitializer(byte opCode)
@@ -616,7 +822,7 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// Advances a continuous child stream: while the parent lives (or the child auto-runs), emit at the child's cadence.
         /// </summary>
-        private static void AdvanceChildStream(ZoneParticle parent, ChildStream stream, float frames, bool followParent)
+        private static void AdvanceChildStream(ZoneParticle parent, ChildStream stream, float frames, ChildFollow follow)
         {
             var childDef = stream.Child.Template.Definition;
             stream.LifeTime += frames;
@@ -626,7 +832,7 @@ namespace Gordian.Core.Graphics
             while (stream.FramesUntilNext <= 0.0f)
             {
                 stream.FramesUntilNext += childDef.FramesPerEmission + stream.Child.PosRand(childDef.EmissionVariance);
-                stream.Child.EmitChildren(parent, followParent);
+                stream.Child.EmitChildren(parent, follow);
                 stream.Emitted++;
                 if (childDef.ContinuousSingleton) break;
             }
@@ -712,13 +918,15 @@ namespace Gordian.Core.Graphics
                 // 0x05 repeat: the particle loops instead of dying; 0x01 emits a child generator where it died.
                 foreach (var handler in Def.ExpirationOpcodes)
                 {
-                    if (handler.OpCode == 0x01) ResolveChild(handler.Id(1))?.EmitChildren(particle, false);
+                    if (handler.OpCode == 0x01) ResolveChild(handler.Id(1))?.EmitChildren(particle, ChildFollow.None);
                 }
                 if (Def.ExpirationHandlers.Contains(0x05)) particle.Age = 1e-7f;
                 else return;
             }
 
             if (particle.FollowsCamera) particle.Origin = frame.CameraRawPosition + Template.RawBasePosition;
+            // A following child tracks its live parent when it follows its generator.
+            if (particle.FollowedParent is { IsExpired: false } && Def.Setup?.FollowGenerator != false) FollowParent(particle);
 
             var previousPosition = particle.Position;
             particle.ColorMultiplier = Vector4.One;
@@ -801,11 +1009,13 @@ namespace Gordian.Core.Graphics
                 case 0x1D: Progress(p, slot, null, w => p.TexCoordTranslate = p.TexCoordTranslate with { Y = w }); break;
 
                 case 0x25: // ChildGeneratorBasicUpdater: the child emits from its own base (or the parent via 0x45)
-                    if (p.ChildStreams.TryGetValue(slot, out var basicStream)) AdvanceChildStream(p, basicStream, frames, false);
+                    if (p.ChildStreams.TryGetValue(slot, out var basicStream)) AdvanceChildStream(p, basicStream, frames, ChildFollow.None);
                     break;
-                case 0x33: // ChildGeneratorUpdater: the child follows the parent particle
-                case 0x46:
-                    if (p.ChildStreams.TryGetValue(slot, out var followStream)) AdvanceChildStream(p, followStream, frames, true);
+                case 0x33: // ChildGeneratorUpdater: the child sits in the parent particle's transform
+                    if (p.ChildStreams.TryGetValue(slot, out var followStream)) AdvanceChildStream(p, followStream, frames, ChildFollow.Transform);
+                    break;
+                case 0x46: // ChildGeneratorUpdater, camera-billboarded parent orientation
+                    if (p.ChildStreams.TryGetValue(slot, out var billboardStream)) AdvanceChildStream(p, billboardStream, frames, ChildFollow.TransformBillboard);
                     break;
 
                 case 0x26: // VelocityRotator
@@ -883,6 +1093,12 @@ namespace Gordian.Core.Graphics
                     MultiplyAlpha(p, DoubleRangeWeight(distance, op.Float(0), op.Float(1), op.Float(2), op.Float(3)));
                     break;
                 }
+
+                case 0x49: Clock(slot, frame.DayFraction, t => p.LightTheta = t); break; // point-light theta by time of day
+                case 0x5B: Progress(p, slot, p.LightTheta, t => p.LightTheta = t); break;
+                case 0x5C: Progress(p, slot, p.LightRange, r => p.LightRange = r); break;
+                case 0x5D: Progress(p, slot, p.LightThetaMultiplier, m => p.LightThetaMultiplier = m); break;
+                case 0x5E: Progress(p, slot, p.LightRangeMultiplier, m => p.LightRangeMultiplier = m); break;
 
                 case 0x4E: // DayOfWeekColorUpdater
                     p.DayOfWeekTint = TintAt(op, 8, frame.DayOfWeek);
@@ -1056,6 +1272,11 @@ namespace Gordian.Core.Graphics
             if (distance < farEnd) return 1f - (distance - farStart) / (farEnd - farStart);
             return 0f;
         }
+
+        /// <summary>
+        /// Point-light multiplier encoding: 2^x for x >= 0, 1 + x for -1 <= x < 0, otherwise 0.
+        /// </summary>
+        internal static float LightMultiplier(float x) => x >= 0f ? MathF.Pow(2f, x) : x >= -1f ? 1f + x : 0f;
 
         private static Vector4? TintAt(ParticleOpcode op, int count, int index)
         {

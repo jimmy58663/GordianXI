@@ -237,6 +237,86 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void TransformFollowingChild_SitsInTheParentsRotatedScaledFrameAndTracksIt()
+        {
+            var parentDef = Surf(life: 1000, framesPerEmission: 10000);   // scale (20, 1, 20), drifting -Z
+            parentDef.Initializers.Add(new ParticleOpcode(0x09, 0, Args(0f, MathF.PI / 2f, 0f)));
+            parentDef.Initializers.Add(new ParticleOpcode(0x44, 20, new[] { 0u, IdArg("kid1") }));
+            parentDef.Updaters.Add(new ParticleOpcode(0x33, 20, Array.Empty<uint>()));
+            var childDef = Surf(life: 1000, framesPerEmission: 10000);
+            childDef.Setup!.BasePosition = new Vector3(1f, 0f, 0f);
+            var (parent, child) = ParentAndChild(parentDef, childDef, "kid1");
+
+            parent.Update(1f, Frame);
+            parent.Update(1f, Frame);
+            var p = parent.Particles[0];
+            var c = Assert.Single(child.Particles);
+            // Base (1, 0, 0) scaled by 20 and turned a quarter about Y lands 20 yalms along -Z of the parent.
+            AssertNear(p.WorldPosition + new Vector3(0f, 0f, -20f), c.WorldPosition);
+
+            // The child follows its generator, so it re-anchors to the moved parent on its next update.
+            parent.Update(50f, Frame);
+            child.Update(1f, Frame);
+            AssertNear(p.WorldPosition, c.Origin);
+        }
+
+        [Fact]
+        public void ParentCopyInitializers_TakeTheParentsRotationScaleColorAndUv()
+        {
+            var parentDef = Surf(life: 1000, framesPerEmission: 10000);
+            parentDef.Initializers.Add(new ParticleOpcode(0x09, 0, Args(0.1f, 0.2f, 0.3f)));
+            parentDef.Initializers.Add(new ParticleOpcode(0x3C, 0, new[] { 0u, IdArg("kid1") }));
+            var childDef = ChildDef();
+            childDef.Initializers.Add(new ParticleOpcode(0x47, 0, Array.Empty<uint>()));
+            childDef.Initializers.Add(new ParticleOpcode(0x48, 0, Array.Empty<uint>()));
+            childDef.Initializers.Add(new ParticleOpcode(0x49, 0, Array.Empty<uint>()));
+            childDef.Initializers.Add(new ParticleOpcode(0x4A, 0, Array.Empty<uint>()));
+            var (parent, child) = ParentAndChild(parentDef, childDef, "kid1");
+
+            parent.Update(1f, Frame);
+
+            var p = parent.Particles[0];
+            var c = Assert.Single(child.Particles);
+            Assert.Equal(p.Rotation, c.Rotation);
+            Assert.Equal(p.Scale, c.Scale);
+            Assert.Equal(p.TextureFactor, c.Color);
+            Assert.Equal(p.TexCoordTranslate, c.TexCoordTranslate);
+        }
+
+        [Fact]
+        public void PointLight_TakesItsParamsAndClockPowerAndEmitsOnce()
+        {
+            var def = new ParticleGeneratorDefinition
+            {
+                DatId = "pl18",
+                AutoRun = true,
+                FramesPerEmission = 1,
+                Setup = new StandardParticleSetup { MaxLifeSpan = 0, LinkedDataType = ParticleLinkedDataType.PointLight }
+            };
+            def.Initializers.Add(new ParticleOpcode(0x01, 0, Array.Empty<uint>()));
+            def.Initializers.Add(new ParticleOpcode(0x58, 0, Args(3f, 6f, 1f, -0.5f)));
+            def.Updaters.Add(new ParticleOpcode(0x49, 4, Array.Empty<uint>()));
+            // Power 0 at midday, 2 at midnight.
+            var power = new KeyFrameCurve("pttm", new[] { new KeyFrameEntry(0f, 2f), new KeyFrameEntry(0.5f, 0f), new KeyFrameEntry(1f, 2f) });
+            var emitter = new ZoneParticleEmitter(new ZoneEmitterTemplate(def, new Dictionary<ushort, KeyFrameCurve> { [4] = power }));
+
+            emitter.Update(120f, new ZoneParticleFrame(Vector3.Zero, 0f, Vector3.One));
+
+            var light = Assert.Single(emitter.Particles);
+            Assert.Equal(3f, light.LightRange);
+            Assert.Equal(2f, light.LightRangeMultiplier);        // 2^1
+            Assert.Equal(0.5f, light.LightThetaMultiplier);      // 1 + (-0.5)
+            Assert.Equal(2f, light.LightTheta, 3);                // clock curve at midnight replaces the authored 6
+            emitter.Update(1f, new ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One));
+            Assert.Equal(0f, light.LightTheta, 3);
+        }
+
+        private static void AssertNear(Vector3 expected, Vector3 actual)
+        {
+            Assert.True(Vector3.Distance(expected, actual) < 1e-3f, $"expected {expected}, got {actual}");
+        }
+
+        [Fact]
         public void SpriteSheetFrameUpdater_StepsThroughCardsOverLife()
         {
             var def = Surf(life: 100, framesPerEmission: 10000);
@@ -371,6 +451,20 @@ namespace Gordian.Core.Tests.Graphics
 
             emitter.Update(1f, new ZoneParticleFrame(new Vector3(110f, 5f, 50f), 0.5f, Vector3.One));
             Assert.Equal(new Vector3(110f, -25f, 50f), emitter.Particles[0].Origin);
+        }
+
+        [Fact]
+        public void CameraAttachedWeather_StopsEmittingInASubEnvironment()
+        {
+            var inside = new ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One, ViewerInSubEnvironment: true);
+            var rain = WeatherEmitter(Rain(followCamera: true));
+            rain.Update(100f, inside);
+            Assert.Empty(rain.Particles);
+
+            // World-placed weather emitters (a rain patch at a fixed spot) are not tied to the viewer.
+            var patch = WeatherEmitter(Rain());
+            patch.Update(1f, inside);
+            Assert.Single(patch.Particles);
         }
 
         [Fact]

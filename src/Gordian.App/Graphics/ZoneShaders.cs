@@ -35,6 +35,15 @@ namespace Gordian.App.Graphics
     /// and distance fog blending.
     /// Derived from community research in xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
+    /// <summary>
+    /// The per-frame zone point-light table (set 2, binding 0): a falloff header, then 256 ZoneDef light slots.
+    /// </summary>
+    public static class PointLightTableLayout
+    {
+        public const int Slots = 256;
+        public const uint SizeInBytes = 16 + Slots * 16 * 2;
+    }
+
     public static class ZoneShaders
     {
         public const string VertexShaderGlsl = @"#version 450
@@ -414,6 +423,39 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
+// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
+layout(set = 2, binding = 0) uniform PointLightTable
+{
+    vec4 LightFalloff;               // x = falloff exponent, y = power scale
+    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
+    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
+};
+
+layout(set = 2, binding = 1) uniform PointLightRefs
+{
+    ivec4 LightSlots;                // -1 = none
+};
+
+vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
+{
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 4; i++)
+    {
+        int slot = LightSlots[i];
+        if (slot < 0) continue;
+        vec4 positionRange = LightPositionRange[slot];
+        if (positionRange.w <= 0.0) continue;
+        vec3 toLight = positionRange.xyz - worldPos;
+        float dist = length(toLight);
+        if (dist >= positionRange.w) continue;
+        vec4 colorPower = LightColorPower[slot];
+        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
+        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
+        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
+    }
+    return sum;
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -426,7 +468,8 @@ void main()
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
     // Moonlight shines opposite the sun (xim terrain lighting: ambient + sun + moon)
     vec3 df1 = fsin_Color.rgb * max(dot(N, -L), 0.0) * MoonColor.rgb;
-    vec3 lit = clamp(amb + df0 + df1, 0.0, 1.0);
+    // Zone point lights shine on the placements that reference them (at most four).
+    vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
@@ -474,6 +517,39 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
+// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
+layout(set = 2, binding = 0) uniform PointLightTable
+{
+    vec4 LightFalloff;               // x = falloff exponent, y = power scale
+    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
+    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
+};
+
+layout(set = 2, binding = 1) uniform PointLightRefs
+{
+    ivec4 LightSlots;                // -1 = none
+};
+
+vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
+{
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 4; i++)
+    {
+        int slot = LightSlots[i];
+        if (slot < 0) continue;
+        vec4 positionRange = LightPositionRange[slot];
+        if (positionRange.w <= 0.0) continue;
+        vec3 toLight = positionRange.xyz - worldPos;
+        float dist = length(toLight);
+        if (dist >= positionRange.w) continue;
+        vec4 colorPower = LightColorPower[slot];
+        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
+        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
+        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
+    }
+    return sum;
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -493,7 +569,8 @@ void main()
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
     // Moonlight shines opposite the sun (xim terrain lighting: ambient + sun + moon)
     vec3 df1 = fsin_Color.rgb * max(dot(N, -L), 0.0) * MoonColor.rgb;
-    vec3 lit = clamp(amb + df0 + df1, 0.0, 1.0);
+    // Zone point lights shine on the placements that reference them (at most four).
+    vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;
@@ -541,6 +618,39 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
+// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
+layout(set = 2, binding = 0) uniform PointLightTable
+{
+    vec4 LightFalloff;               // x = falloff exponent, y = power scale
+    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
+    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
+};
+
+layout(set = 2, binding = 1) uniform PointLightRefs
+{
+    ivec4 LightSlots;                // -1 = none
+};
+
+vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
+{
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 4; i++)
+    {
+        int slot = LightSlots[i];
+        if (slot < 0) continue;
+        vec4 positionRange = LightPositionRange[slot];
+        if (positionRange.w <= 0.0) continue;
+        vec3 toLight = positionRange.xyz - worldPos;
+        float dist = length(toLight);
+        if (dist >= positionRange.w) continue;
+        vec4 colorPower = LightColorPower[slot];
+        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
+        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
+        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
+    }
+    return sum;
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -559,7 +669,8 @@ void main()
     vec3 df0 = fsin_Color.rgb * NdotL * SunColor.rgb;
     // Moonlight shines opposite the sun (xim terrain lighting: ambient + sun + moon)
     vec3 df1 = fsin_Color.rgb * max(dot(N, -L), 0.0) * MoonColor.rgb;
-    vec3 lit = clamp(amb + df0 + df1, 0.0, 1.0);
+    // Zone point lights shine on the placements that reference them (at most four).
+    vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;

@@ -22,6 +22,33 @@ namespace Gordian.Core.Tests.Graphics
             IsWater = isWater
         };
 
+        private static MeshGroup Floor(float y, string environmentId) => new()
+        {
+            Vertices =
+            [
+                new MeshVertex(new Vector3(-10f, y, -10f), Vector3.UnitY, Vector2.Zero, 0),
+                new MeshVertex(new Vector3(10f, y, -10f), Vector3.UnitY, Vector2.Zero, 0),
+                new MeshVertex(new Vector3(0f, y, 10f), Vector3.UnitY, Vector2.Zero, 0),
+            ],
+            Indices = [0, 1, 2],
+            MinBounds = new Vector3(-10f, y, -10f),
+            MaxBounds = new Vector3(10f, y, 10f),
+            EnvironmentId = environmentId
+        };
+
+        [Fact]
+        public void FindFloor_ReturnsTheNearestSurfaceBelow()
+        {
+            var zone = new ZoneGeometry();
+            zone.MeshGroups.Add(Floor(-20f, "deep"));
+            zone.MeshGroups.Add(Floor(-2f, "ev01"));
+            zone.MeshGroups.Add(Floor(5f, "ceiling"));
+
+            Assert.Equal("ev01", ZoneRaycaster.FindFloor(zone, Vector3.Zero, 500f)?.EnvironmentId);
+            Assert.Null(ZoneRaycaster.FindFloor(zone, new Vector3(50f, 0f, 0f), 500f));
+            Assert.Null(ZoneRaycaster.FindFloor(zone, Vector3.Zero, 1f));
+        }
+
         [Fact]
         public void IsOccluded_HitsSolidGeometryInFrontWithinRange()
         {
