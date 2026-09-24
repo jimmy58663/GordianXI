@@ -167,17 +167,15 @@ namespace Gordian.Core.World
                 float distToTarget = Vector3.Distance(Position, TargetPosition);
                 if (flatDistSq > 0.0025f && distToTarget > 0.05f && (Speed > 0 || LastMovTime > 1))
                 {
+                    float moveAngleRad = HeadingOf(travel.X, travel.Z);
                     if (AnimationState != 1 && ClaimServerId == 0)
                     {
-                        float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
-                        if (moveAngleRad < 0f) moveAngleRad += MathF.PI * 2.0f;
-                        Direction = (byte)Math.Round((moveAngleRad / (MathF.PI * 2.0f)) * 256.0f);
+                        Direction = DirectionFromRadians(moveAngleRad);
                         LocomotionDirection = LocomotionDirection.Forward;
                     }
                     else
                     {
-                        float moveAngleRad = MathF.Atan2(travel.Z, travel.X);
-                        float diffRad = moveAngleRad - HeadingRadians;
+                        float diffRad = HeadingRadians - moveAngleRad;
                         while (diffRad > MathF.PI) diffRad -= MathF.PI * 2.0f;
                         while (diffRad < -MathF.PI) diffRad += MathF.PI * 2.0f;
 
@@ -213,15 +211,40 @@ namespace Gordian.Core.World
             RenderHeadingRadians += diff * Math.Min(1.0f, deltaSeconds * 15.0f);
         }
 
+        /// <summary>
+        /// Facing rotation exactly as carried on the wire (0x00D/0x00E inbound, 0x015 outbound): 256 steps per turn on the
+        /// (X, Z) ground plane — 0 = +X, 64 = -Z, 128 = -X, 192 = +Z. Increasing the heading turns the character to its right
+        /// as seen on screen.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) position_t rotation.
+        /// </summary>
         public byte Direction { get; set; }
         public float HeadingRadians => (Direction / 256.0f) * MathF.PI * 2.0f;
 
         /// <summary>
-        /// Converts between the FFXI wire heading (counter-clockwise) and the GordianXI world heading held in <see cref="Direction"/>.
-        /// The mapping is its own inverse, so it applies both when decoding inbound headings and when encoding outbound 0x015 headings.
-        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) position_t rotation.
+        /// Heading in radians (wire convention, [0, 2π)) of a ground-plane vector.
         /// </summary>
-        public static byte ConvertWireDirection(byte direction) => (byte)((256 - direction) & 0xFF);
+        public static float HeadingOf(float dx, float dz)
+        {
+            float rad = MathF.Atan2(-dz, dx);
+            return rad < 0f ? rad + (MathF.PI * 2.0f) : rad;
+        }
+
+        /// <summary>
+        /// Unit ground-plane (X, Z) forward vector for a wire-convention heading in radians.
+        /// </summary>
+        public static Vector2 ForwardOf(float headingRad) => new(MathF.Cos(headingRad), -MathF.Sin(headingRad));
+
+        /// <summary>
+        /// Quantizes a wire-convention heading in radians to a <see cref="Direction"/> byte.
+        /// </summary>
+        public static byte DirectionFromRadians(float headingRad) =>
+            (byte)((int)MathF.Round(headingRad / (MathF.PI * 2.0f) * 256.0f) & 0xFF);
+
+        /// <summary>
+        /// Quantizes a wire-convention heading in degrees to a <see cref="Direction"/> byte.
+        /// </summary>
+        public static byte DirectionFromDegrees(float headingDeg) =>
+            (byte)((int)MathF.Round(headingDeg / 360.0f * 256.0f) & 0xFF);
 
         public byte Speed { get; set; }
         public byte SpeedBase { get; set; }

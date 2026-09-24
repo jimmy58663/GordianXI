@@ -626,13 +626,13 @@ namespace Gordian.App.ViewModels
             deg %= 360.0f;
             if (deg < 0) deg += 360.0f;
             if (deg >= 337.5f || deg < 22.5f) return "East";
-            if (deg >= 22.5f && deg < 67.5f) return "South-East";
-            if (deg >= 67.5f && deg < 112.5f) return "South";
-            if (deg >= 112.5f && deg < 157.5f) return "South-West";
+            if (deg >= 22.5f && deg < 67.5f) return "North-East";
+            if (deg >= 67.5f && deg < 112.5f) return "North";
+            if (deg >= 112.5f && deg < 157.5f) return "North-West";
             if (deg >= 157.5f && deg < 202.5f) return "West";
-            if (deg >= 202.5f && deg < 247.5f) return "North-West";
-            if (deg >= 247.5f && deg < 292.5f) return "North";
-            return "North-East";
+            if (deg >= 202.5f && deg < 247.5f) return "South-West";
+            if (deg >= 247.5f && deg < 292.5f) return "South";
+            return "South-East";
         }
     }
 }

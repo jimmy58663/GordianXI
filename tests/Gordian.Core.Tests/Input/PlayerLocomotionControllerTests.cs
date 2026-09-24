@@ -65,9 +65,9 @@ namespace Gordian.Core.Tests.Input
 
             // W is camera-relative (see Update_WhenHoldingTurnRight_... below): facing follows the
             // camera, not whatever the character happened to already be facing. Point the camera
-            // South (heading 64 = 90 degrees) so pressing W faces and moves that way.
-            controller.CameraYaw = 90.0f;
-            localEnt.Direction = 64;
+            // South (wire heading 192 = 270 degrees) so pressing W faces and moves that way.
+            controller.CameraYaw = 270.0f;
+            localEnt.Direction = 192;
             localEnt.Position = new Vector3(10f, 15f, 20f);
 
             input.SetKeyDown(GordianKey.W);
@@ -113,9 +113,9 @@ namespace Gordian.Core.Tests.Input
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             // Mirrors the tested gamepad CameraRelative "strafe right" behavior: with the camera
-            // facing world East, the camera's true rendered right side is world North (Direction
-            // 192), because the renderer displays entities at a mirrored X coordinate.
-            Assert.Equal(192, localEnt.Direction);
+            // facing world East, the camera's true rendered right side is world North (wire
+            // Direction 64), because the renderer displays entities at a mirrored X coordinate.
+            Assert.Equal(64, localEnt.Direction);
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
             Assert.InRange(localEnt.Position.Z, -5.01f, -4.99f);
@@ -134,7 +134,7 @@ namespace Gordian.Core.Tests.Input
             input.SetKeyDown(GordianKey.A);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
-            Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(192, localEnt.Direction);
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
             Assert.InRange(localEnt.Position.Z, 4.99f, 5.01f);
@@ -177,7 +177,7 @@ namespace Gordian.Core.Tests.Input
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
 
-            // Set player facing South (64 = 90 degrees)
+            // Set player facing North (wire 64 = 90 degrees)
             localEnt.Direction = 64;
             controller.CameraYaw = 270.0f;
 
@@ -282,9 +282,9 @@ namespace Gordian.Core.Tests.Input
 
             controller.Update(TimeSpan.FromMilliseconds(16));
 
-            // Heading towards (0, 0, 10) from (0, 0, 0) is South (Direction = 64)
-            Assert.Equal(64, localEnt.Direction);
-            Assert.InRange(localEnt.RenderHeadingRadians, MathF.PI / 2.0f - 0.05f, MathF.PI / 2.0f + 0.05f);
+            // Heading towards (0, 0, 10) from (0, 0, 0) is South (wire Direction = 192)
+            Assert.Equal(192, localEnt.Direction);
+            Assert.InRange(localEnt.RenderHeadingRadians, 3.0f * MathF.PI / 2.0f - 0.05f, 3.0f * MathF.PI / 2.0f + 0.05f);
         }
 
         [Fact]
@@ -307,7 +307,7 @@ namespace Gordian.Core.Tests.Input
             input.SetKeyDown(GordianKey.E);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
-            // Facing East (+X), strafing right moves towards South (+Z)
+            // Facing +X, strafing right moves towards +Z
             Assert.Equal(50, localEnt.Speed);
             Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
             Assert.InRange(localEnt.Position.Z, 4.9f, 5.1f);

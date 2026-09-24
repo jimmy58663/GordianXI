@@ -310,13 +310,13 @@ namespace Gordian.App.Graphics
 
                 visible++;
 
-                // Heading angle: FFXI Direction 0=East(+X), 64=South(+Z), 128=West(-X), 192=North(-Z)
+                // Heading angle is the wire convention: 0=+X, 64=-Z, 128=-X, 192=+Z.
                 // In display space (pos = (-x, -y, z)), entity model at rest faces (+1, 0, 0),
-                // so rotating by (headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
+                // so rotating by (-headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
                 float headingRad = (entity.RenderHeadingRadians != 0f || entity.Direction != 0)
                     ? entity.RenderHeadingRadians
                     : entity.HeadingRadians;
-                var headingRot = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
+                var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
 
                 bool isFallback = ReferenceEquals(gpuModel, _fallbackPlayerProxy) ||
                                   ReferenceEquals(gpuModel, _fallbackNpcProxy) ||

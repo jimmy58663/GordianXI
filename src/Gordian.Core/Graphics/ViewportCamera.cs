@@ -130,12 +130,12 @@ namespace Gordian.Core.Graphics
             float cosY = MathF.Cos(yawRad);
             float sinY = MathF.Sin(yawRad);
 
-            // Yaw is expressed in the same FFXI world-heading convention as locomotion
-            // (0=East/+X, 90=South/+Z), but the renderer displays entities at a mirrored
-            // X coordinate (see EntityRenderer/VeldridViewportControl: pos = (-x, -y, z)).
-            // The camera's forward vector must be mirrored the same way (negate X) so it
-            // stays aimed at wherever the mirrored player mesh actually is.
-            var forwardDir = new Vector3(-cosY * cosP, sinP, sinY * cosP);
+            // Yaw is expressed in the wire heading convention shared with WorldEntity.Direction
+            // (0=+X, 90=-Z; increasing yaw turns the view right), whose world forward is (cos, -sin) on (X, Z).
+            // The renderer displays entities at a mirrored X coordinate (see EntityRenderer/VeldridViewportControl:
+            // pos = (-x, -y, z)), so the camera's forward vector is mirrored the same way (negate X) to stay
+            // aimed at wherever the mirrored player mesh actually is.
+            var forwardDir = new Vector3(-cosY * cosP, sinP, -sinY * cosP);
 
             switch (_mode)
             {
@@ -163,7 +163,7 @@ namespace Gordian.Core.Graphics
                     _position = new Vector3(
                         _target.X - (-cosY * cosP * _distance),
                         camY,
-                        _target.Z - (sinY * cosP * _distance)
+                        _target.Z - (-sinY * cosP * _distance)
                     );
                     break;
 
@@ -199,7 +199,7 @@ namespace Gordian.Core.Graphics
             float cosY = MathF.Cos(yawRad);
             float sinY = MathF.Sin(yawRad);
 
-            var forward = new Vector3(-cosY * cosP, sinP, sinY * cosP);
+            var forward = new Vector3(-cosY * cosP, sinP, -sinY * cosP);
             var right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
             var up = Vector3.Normalize(Vector3.Cross(right, forward));
 

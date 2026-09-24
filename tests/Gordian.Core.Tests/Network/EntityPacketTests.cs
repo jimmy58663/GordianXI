@@ -818,7 +818,7 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void EntityPacketModule_CharNpc_ConvertsWireRotationToWorldHeading()
+        public void EntityPacketModule_CharNpc_StoresWireRotationUnchanged()
         {
             var world = new WorldState();
             var localPlayer = new LocalPlayerState();
@@ -838,14 +838,13 @@ namespace Gordian.Core.Tests.Network
 
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
             Assert.True(world.TryGetByServerId(0x01000009, out var entity));
-            // Converted to GordianXI North (192)
-            Assert.Equal(192, entity!.Direction);
+            // Stored as-is: GordianXI headings use the wire convention
+            Assert.Equal(64, entity!.Direction);
 
             // Wire South is 192 in LandSandBoat
             payload[7] = 192;
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
-            // Converted to GordianXI South (64)
-            Assert.Equal(64, entity.Direction);
+            Assert.Equal(192, entity.Direction);
         }
 
         [Fact]

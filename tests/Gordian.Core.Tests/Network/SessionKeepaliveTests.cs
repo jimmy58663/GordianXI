@@ -123,7 +123,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(12.34f, mgr.PositionX);
             Assert.Equal(56.78f, mgr.PositionY);
             Assert.Equal(90.12f, mgr.PositionZ);
-            Assert.Equal(192, mgr.Direction); // Wire heading 64 converted to world heading (256 - 64)
+            Assert.Equal(64, mgr.Direction);
             Assert.Equal(101, mgr.TargetIndex);
         }
 
@@ -194,7 +194,8 @@ namespace Gordian.Core.Tests.Network
                 var localEnt = new Gordian.Core.World.PlayerEntity(serverId, 123)
                 {
                     Position = new System.Numerics.Vector3(10f, 2f, -30f),
-                    Direction = 128,
+                    Direction = 40, // Asymmetric under negation, so a stray 256 - d conversion would be caught
+
                     Speed = 50, // Running
                     IsSpawned = true
                 };
@@ -214,6 +215,7 @@ namespace Gordian.Core.Tests.Network
                     Assert.Equal(10f, posX);
                     Assert.Equal(2f, wireElev);  // Wire offset 8 is Elevation (3D Y)
                     Assert.Equal(-30f, wireNorth); // Wire offset 12 is North/South (3D Z)
+                    Assert.Equal(40, lastPos.RawBytes[20]); // Heading goes out exactly as held on the entity
                     ushort movTime = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(16, 2));
                     Assert.Equal(0, movTime); // MovTime is always 0 on retail FFXI protocol
                     ushort moveFrame = BinaryPrimitives.ReadUInt16LittleEndian(lastPos.RawBytes.AsSpan(18, 2));

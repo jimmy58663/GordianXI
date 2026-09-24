@@ -220,6 +220,10 @@ namespace Gordian.Core.Input
                 }
             }
 
+            // Camera yaw shares the wire heading convention (increasing yaw turns the view right); positive
+            // input yaw deltas orbit the camera the other way, as the camera controls always have.
+            yawDelta = -yawDelta;
+
             // Mode toggling shortcuts
             if (_inputState.WasActionTriggered(InputAction.ToggleCameraMode))
             {
@@ -409,9 +413,8 @@ namespace Gordian.Core.Input
                 float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
                 if (distSq > 0.0001f)
                 {
-                    float toTargetRad = MathF.Atan2(toTgtZ, toTgtX);
-                    if (toTargetRad < 0f) toTargetRad += MathF.PI * 2.0f;
-                    localEnt.Direction = (byte)Math.Round((toTargetRad / (MathF.PI * 2.0f)) * 256.0f);
+                    float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
+                    localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
                     localEnt.RenderHeadingRadians = toTargetRad;
                 }
 
@@ -468,13 +471,9 @@ namespace Gordian.Core.Input
                     float speedYalmsPerSec = moveSpeed * 0.1f;
                     float distance = speedYalmsPerSec * dt;
 
-                    float headingRad = localEnt.HeadingRadians;
-                    // FFXI coordinate math:
-                    // Heading 0 = East (+X), 64 = South (+Z), 128 = West (-X), 192 = North (-Z)
-                    // Forward vector = (cos(theta), sin(theta))
-                    // Strafe right vector = (-sin(theta), cos(theta))
-                    float dx = (MathF.Cos(headingRad) * lockFwd - MathF.Sin(headingRad) * lockStrafe) * distance;
-                    float dz = (MathF.Sin(headingRad) * lockFwd + MathF.Cos(headingRad) * lockStrafe) * distance;
+                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                    float dx = (fwd.X * lockFwd - fwd.Y * lockStrafe) * distance;
+                    float dz = (fwd.Y * lockFwd + fwd.X * lockStrafe) * distance;
 
                     localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
 
@@ -483,9 +482,8 @@ namespace Gordian.Core.Input
                     toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
                     if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f)
                     {
-                        float toTargetRad = MathF.Atan2(toTgtZ, toTgtX);
-                        if (toTargetRad < 0f) toTargetRad += MathF.PI * 2.0f;
-                        localEnt.Direction = (byte)Math.Round((toTargetRad / (MathF.PI * 2.0f)) * 256.0f);
+                        float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
+                        localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
                         localEnt.RenderHeadingRadians = toTargetRad;
                     }
                 }
@@ -503,12 +501,9 @@ namespace Gordian.Core.Input
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
             {
                 // Angle relative to Camera Yaw: stick Up (0, 1) is 0 offset, Right (1, 0) is +90, Down is +180, Left is -90.
-                // Subtracted (not added) because the renderer displays the world at a mirrored X
-                // coordinate (see ViewportCamera/EntityRenderer), which flips the handedness of
-                // "camera right": in world-heading terms, camera-right is CameraYaw - 90, not + 90.
+                // Increasing heading turns right on screen, so camera-right is CameraYaw + 90.
                 float stickAngleDeg = MathF.Atan2(leftStick.X, leftStick.Y) * (180.0f / MathF.PI);
-                float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
-                localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+                localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(CameraYaw + stickAngleDeg));
                 localEnt.LocomotionDirection = LocomotionDirection.Forward;
 
                 float stickMagnitude = leftStick.Length();
@@ -522,11 +517,8 @@ namespace Gordian.Core.Input
                 float speedYalmsPerSec = padSpeed * 0.1f;
                 float distance = speedYalmsPerSec * dt;
 
-                float headingRad = localEnt.HeadingRadians;
-                float dx = MathF.Cos(headingRad) * distance;
-                float dz = MathF.Sin(headingRad) * distance;
-
-                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                localEnt.Position = new Vector3(localEnt.Position.X + (fwd.X * distance), localEnt.Position.Y, localEnt.Position.Z + (fwd.Y * distance));
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -548,10 +540,9 @@ namespace Gordian.Core.Input
 
                 if (keyX != 0f || keyY != 0f)
                 {
-                    // Same formula and mirrored-render reasoning as the gamepad stick above.
+                    // Same formula as the gamepad stick above.
                     float stickAngleDeg = MathF.Atan2(keyX, keyY) * (180.0f / MathF.PI);
-                    float targetHeadingDeg = NormalizeDegrees(CameraYaw - stickAngleDeg);
-                    localEnt.Direction = (byte)Math.Round((targetHeadingDeg / 360.0f) * 256.0f);
+                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(CameraYaw + stickAngleDeg));
                     localEnt.LocomotionDirection = LocomotionDirection.Forward;
 
                     byte effectiveRun = GetEffectiveRunSpeed(localEnt);
@@ -562,11 +553,8 @@ namespace Gordian.Core.Input
                     float speedYalmsPerSec = keySpeed * 0.1f;
                     float distance = speedYalmsPerSec * dt;
 
-                    float headingRad = localEnt.HeadingRadians;
-                    float dx = MathF.Cos(headingRad) * distance;
-                    float dz = MathF.Sin(headingRad) * distance;
-
-                    localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                    localEnt.Position = new Vector3(localEnt.Position.X + (fwd.X * distance), localEnt.Position.Y, localEnt.Position.Z + (fwd.Y * distance));
                     LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                     return;
                 }
@@ -605,8 +593,8 @@ namespace Gordian.Core.Input
             if (turnInput != 0)
             {
                 float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                headingDeg = NormalizeDegrees(headingDeg + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
-                localEnt.Direction = (byte)Math.Round((headingDeg / 360.0f) * 256.0f);
+                headingDeg = NormalizeDegrees(headingDeg - (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
+                localEnt.Direction = WorldEntity.DirectionFromDegrees(headingDeg);
             }
 
             // 4. Calculate displacement
@@ -646,14 +634,9 @@ namespace Gordian.Core.Input
                     distance /= MathF.Sqrt(2.0f);
                 }
 
-                float headingRad = localEnt.HeadingRadians;
-
-                // FFXI coordinate math:
-                // Heading 0 = East (+X), 64 = South (+Z), 128 = West (-X), 192 = North (-Z)
-                // Forward vector = (cos(theta), sin(theta)) on (X, Z) ground plane
-                // Strafe right vector = (-sin(theta), cos(theta)) on (X, Z) ground plane
-                float dx = (MathF.Cos(headingRad) * forwardInput - MathF.Sin(headingRad) * strafeInput) * distance;
-                float dz = (MathF.Sin(headingRad) * forwardInput + MathF.Cos(headingRad) * strafeInput) * distance;
+                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                float dx = (fwd.X * forwardInput - fwd.Y * strafeInput) * distance;
+                float dz = (fwd.Y * forwardInput + fwd.X * strafeInput) * distance;
 
                 localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
             }
