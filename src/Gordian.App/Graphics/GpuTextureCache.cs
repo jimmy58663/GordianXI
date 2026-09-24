@@ -28,18 +28,21 @@ namespace Gordian.App.Graphics
         private Texture _defaultWaterTexture = null!;
         private TextureView _defaultWaterTextureView = null!;
         private ResourceSet _defaultWaterResourceSet = null!;
-        private Texture _whiteTexture = null!;
-        private TextureView _whiteTextureView = null!;
-        private ResourceSet _whiteResourceSet = null!;
+        private Texture _neutralTexture = null!;
+        private TextureView _neutralTextureView = null!;
+        private ResourceSet _neutralResourceSet = null!;
         private bool _disposed;
 
         public ResourceSet DefaultResourceSet => _defaultResourceSet;
         public ResourceSet DefaultWaterResourceSet => _defaultWaterResourceSet;
 
         /// <summary>
-        /// Opaque white 1x1 texture for authentically untextured geometry (e.g. the moon halo disc).
+        /// Neutral 0x80 grey 1x1 texture (all channels) bound for untextured particle geometry such as the sun dome and
+        /// moon halo. The particle stage doubles the texel, so grey is neutral; white would double color and alpha.
+        /// Default particle texel referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particleDrawer.js default texture).
         /// </summary>
-        public ResourceSet WhiteResourceSet => _whiteResourceSet;
+        public ResourceSet NeutralResourceSet => _neutralResourceSet;
         public Sampler Sampler => _sampler;
 
         public GpuTextureCache(GraphicsDevice gd, ResourceLayout textureLayout)
@@ -65,10 +68,10 @@ namespace Gordian.App.Graphics
             CreateDefaultTexture();
             CreateDefaultWaterTexture();
 
-            _whiteTexture = factory.CreateTexture(TextureDescription.Texture2D(1, 1, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
-            _gd.UpdateTexture(_whiteTexture, new byte[] { 255, 255, 255, 255 }, 0, 0, 0, 1, 1, 1, 0, 0);
-            _whiteTextureView = factory.CreateTextureView(_whiteTexture);
-            _whiteResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, _whiteTextureView, _sampler));
+            _neutralTexture = factory.CreateTexture(TextureDescription.Texture2D(1, 1, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+            _gd.UpdateTexture(_neutralTexture, new byte[] { 0x80, 0x80, 0x80, 0x80 }, 0, 0, 0, 1, 1, 1, 0, 0);
+            _neutralTextureView = factory.CreateTextureView(_neutralTexture);
+            _neutralResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, _neutralTextureView, _sampler));
         }
 
         private void CreateDefaultTexture()
@@ -283,9 +286,9 @@ namespace Gordian.App.Graphics
             _defaultWaterTextureView.Dispose();
             _defaultWaterTexture.Dispose();
 
-            _whiteResourceSet.Dispose();
-            _whiteTextureView.Dispose();
-            _whiteTexture.Dispose();
+            _neutralResourceSet.Dispose();
+            _neutralTextureView.Dispose();
+            _neutralTexture.Dispose();
             _defaultResourceSet.Dispose();
             _defaultTextureView.Dispose();
             _defaultTexture.Dispose();

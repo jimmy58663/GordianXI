@@ -1143,7 +1143,7 @@ namespace Gordian.App.Graphics
                 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
-                ? _textureCache.WhiteResourceSet
+                ? _textureCache.NeutralResourceSet
                 : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, _activeDecodedTextures);
 
             if (layer.IsLensFlare)
