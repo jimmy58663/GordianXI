@@ -737,12 +737,16 @@ namespace Gordian.Core.Resources
             // ambient Section 0x07 routine in its directory starts it (e.g. Bibiki Bay's umi2/s000 rolls kwa1..kwa3 in).
             // Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
             // ui/js/particle/runtime.js, ui/js/particle/system.js registerZoneEffects and ops/initializers.js, after xim).
+            var layerDirectories = new Dictionary<WeatherSkyLayer, string?>(ReferenceEqualityComparer.Instance);
             foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
                 var setup = gen.Setup;
-                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh) continue;
+                if (setup == null) continue;
+                bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) continue;
                 if (gen.AttachType != ParticleAttachType.None || setup.FollowCamera) continue;
-                bool isEmitter = setup.MaxLifeSpan != 0;
+                // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle).
+                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite;
                 if (isEmitter && !string.IsNullOrEmpty(genWeather)) continue;
 
                 // A non-auto-running generator only runs when a looping ambient routine in its directory starts it.
@@ -764,12 +768,74 @@ namespace Gordian.Core.Resources
                     if (schedule == null) continue;
                 }
 
+                var effect = BuildEffectLayer(genId, genWeather, parentDir, gen, isEmitter, schedule, scheduleLoop, childOnly: false);
+                if (effect == null) continue;
+                zone.EffectLayers.Add(effect);
+                layerDirectories[effect] = parentDir;
+            }
+
+            // Child generators (0x3C once at birth, 0x44 / 0x53 / 0x6A for the parent's life, expiration 0x01 on death):
+            // each gets a child-only emitter layer that its parents spawn into, resolved from the parent's directory first.
+            var childLayers = new Dictionary<ParticleGeneratorDefinition, WeatherSkyLayer>(ReferenceEqualityComparer.Instance);
+            var pendingParents = new Queue<WeatherSkyLayer>(zone.EffectLayers.Where(l => l.Emitter != null));
+            while (pendingParents.Count > 0)
+            {
+                var parentLayer = pendingParents.Dequeue();
+                var parentTemplate = parentLayer.Emitter!;
+                layerDirectories.TryGetValue(parentLayer, out string? parentLayerDir);
+                foreach (string childId in ChildGeneratorIds(parentTemplate.Definition))
+                {
+                    if (parentTemplate.Children.ContainsKey(childId)) continue;
+
+                    (string Id, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)? match = null;
+                    foreach (var placement in generatorPlacements)
+                    {
+                        if (!string.Equals(placement.DatId, childId, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (match == null || string.Equals(placement.ParentDir, parentLayerDir, StringComparison.OrdinalIgnoreCase)) match = placement;
+                        if (string.Equals(placement.ParentDir, parentLayerDir, StringComparison.OrdinalIgnoreCase)) break;
+                    }
+                    if (match is not { } child) continue;
+
+                    if (!childLayers.TryGetValue(child.Generator, out var childLayer))
+                    {
+                        var built = BuildEffectLayer(child.Id, child.Weather, child.ParentDir, child.Generator, isEmitter: true, null, 0, childOnly: true);
+                        if (built == null) continue;
+                        childLayer = built;
+                        childLayers[child.Generator] = childLayer;
+                        layerDirectories[childLayer] = child.ParentDir;
+                        zone.EffectLayers.Add(childLayer);
+                        pendingParents.Enqueue(childLayer);
+                    }
+                    parentTemplate.Children[childId] = childLayer.Emitter!;
+                }
+            }
+
+            WeatherSkyLayer? BuildEffectLayer(
+                string genId,
+                string? genWeather,
+                string? parentDir,
+                ParticleGeneratorDefinition gen,
+                bool isEmitter,
+                List<EffectRoutineSpawn>? schedule,
+                int scheduleLoop,
+                bool childOnly)
+            {
+                var setup = gen.Setup;
+                if (setup == null) return null;
+                bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) return null;
+
                 string linkId = setup.LinkedDataId;
-                if (string.IsNullOrWhiteSpace(linkId) || ZoneDefDecoder.IsSkyMesh(linkId)) continue;
+                if (string.IsNullOrWhiteSpace(linkId) || ZoneDefDecoder.IsSkyMesh(linkId)) return null;
 
                 bool isParticleMesh = true;
                 List<MeshGroup>? effectMeshes = null;
-                if (!string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
+                if (isSprite)
+                {
+                    effectMeshes = ResolveSpriteCards(linkId, genWeather, spriteSheets, sharedEffects, outTextures);
+                    if (effectMeshes == null) return null;
+                }
+                if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                 if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
                 if (effectMeshes == null)
                 {
@@ -777,7 +843,7 @@ namespace Gordian.Core.Resources
                     if (!string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                     if (effectMeshes == null) zoneMeshSections.TryGetValue(linkId, out effectMeshes);
                 }
-                if (effectMeshes == null || effectMeshes.Count == 0) continue;
+                if (effectMeshes == null || effectMeshes.Count == 0) return null;
 
                 Vector3 rawBase = setup.BasePosition;
                 var effect = new WeatherSkyLayer
@@ -795,7 +861,7 @@ namespace Gordian.Core.Resources
                     FogEnabled = setup.FogEnabled,
                     LightingEnabled = setup.LightingEnabled,
                     DepthWrite = setup.DepthMask,
-                    IsParticleMesh = isParticleMesh,
+                    IsParticleMesh = isParticleMesh || isSprite,
                     FadeNear = gen.FadeNear,
                     FadeFar = gen.FadeFar,
                     IsBlend = true,
@@ -803,10 +869,14 @@ namespace Gordian.Core.Resources
                 };
                 ApplyGeneratorRenderState(effect, gen, genWeather, envData, authoredOrder);
                 if (!string.IsNullOrEmpty(genWeather)) effect.WeatherIds.Add(genWeather);
-                if (isEmitter) effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData), schedule, scheduleLoop);
+                if (isSprite) effect.IsSpriteSheet = true;
+                if (isEmitter || isSprite)
+                {
+                    effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
+                        schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly);
+                }
                 AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
-
-                zone.EffectLayers.Add(effect);
+                return effect;
             }
 
             // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C)
@@ -958,6 +1028,68 @@ namespace Gordian.Core.Resources
         }
 
         private static string DirectoryCurveKey(string directory, string curveId) => $"dir:{directory}/{curveId}";
+
+        /// <summary>
+        /// DatIds of the child generators a generator's particles spawn: Section 2 opcodes 0x3C (once at birth) and
+        /// 0x44 / 0x53 / 0x6A (for the particle's life), and Section 4 expiration handler 0x01 (on death).
+        /// </summary>
+        private static IEnumerable<string> ChildGeneratorIds(ParticleGeneratorDefinition gen)
+        {
+            foreach (var op in gen.Initializers)
+            {
+                if (op.OpCode is 0x3C or 0x44 or 0x53 or 0x6A)
+                {
+                    string id = op.Id(1);
+                    if (id.Length > 0) yield return id;
+                }
+            }
+            foreach (var op in gen.ExpirationOpcodes)
+            {
+                if (op.OpCode != 0x01) continue;
+                string id = op.Id(1);
+                if (id.Length > 0) yield return id;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a Section 0x21 sprite sheet (weather directory, zone, then the shared ROM/0/0.DAT effects) into one
+        /// raw-space triangle-list mesh per card, registering a shared sheet's texture with the zone's textures.
+        /// </summary>
+        private static List<MeshGroup>? ResolveSpriteCards(
+            string linkId,
+            string? genWeather,
+            Dictionary<string, SpriteSheetMesh> spriteSheets,
+            SharedEffectResources? sharedEffects,
+            Dictionary<string, DecodedTexture>? outTextures)
+        {
+            SpriteSheetMesh? sheet = null;
+            if (!string.IsNullOrEmpty(genWeather)) spriteSheets.TryGetValue($"{genWeather}/{linkId}", out sheet);
+            if (sheet == null) spriteSheets.TryGetValue(linkId, out sheet);
+            if (sheet == null && sharedEffects != null && sharedEffects.SpriteSheets.TryGetValue(linkId, out sheet) &&
+                outTextures != null && sharedEffects.Textures.TryGetValue(sheet.TextureName, out var sharedTexture))
+            {
+                outTextures.TryAdd(sheet.TextureName, sharedTexture);
+            }
+            if (sheet == null || sheet.IsLensFlare || sheet.Cards.Count == 0) return null;
+
+            var cards = new List<MeshGroup>(sheet.Cards.Count);
+            for (int c = 0; c < sheet.Cards.Count; c++)
+            {
+                var card = sheet.Cards[c];
+                var indices = new int[card.Length];
+                for (int v = 0; v < card.Length; v++) indices[v] = v;
+                cards.Add(new MeshGroup
+                {
+                    Name = $"{linkId}#{c}",
+                    TextureName = sheet.TextureName,
+                    Vertices = card,
+                    Indices = indices,
+                    IsBlend = true,
+                    NoCull = true
+                });
+            }
+            return cards;
+        }
 
         public static bool IsWaterGenerator(string name)
         {

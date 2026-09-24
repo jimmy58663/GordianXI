@@ -17,7 +17,7 @@ namespace Gordian.Core.Tests.Network
         #region Crypto Tests
 
         [Fact]
-        public void LegacyBlowfishCryptoSuite_AdvanceZoneKey_IncrementsByte4AndReinitializes()
+        public void LegacyBlowfishCryptoSuite_AdvanceZoneKey_AddsTwoToTheFifthKeyWordAndReinitializes()
         {
             using var suite = new LegacyBlowfishCryptoSuite();
             byte[] initialKey = new byte[20]
@@ -29,12 +29,12 @@ namespace Gordian.Core.Tests.Network
 
             suite.InitializeKey(initialKey);
             Assert.True(suite.IsKeyInitialized);
-            Assert.Equal(0x10, suite.CurrentRawKey[4]);
 
-            // Advance zone key
+            // Advance zone key: key is uint32[5]; LandSandBoat adds 2 to key[4] (bytes 16-19, little-endian).
             bool advanced = suite.AdvanceZoneKey();
             Assert.True(advanced);
-            Assert.Equal(0x12, suite.CurrentRawKey[4]); // 0x10 + 2 = 0x12
+            Assert.Equal(0x14131211u + 2u, BinaryPrimitives.ReadUInt32LittleEndian(suite.CurrentRawKey.Slice(16, 4)));
+            Assert.Equal(0x10, suite.CurrentRawKey[4]); // byte 4 is untouched
 
             // Encrypt and decrypt a test datagram with the new advanced key
             byte[] datagram = new byte[28 + 16 + 16]; // 28 header + 16 payload + 16 md5
@@ -66,7 +66,7 @@ namespace Gordian.Core.Tests.Network
 
             // suiteNew transitions zones, advancing its key
             suiteNew.AdvanceZoneKey();
-            Assert.Equal(0x06, suiteNew.CurrentRawKey[4]); // 0x04 + 2 = 0x06
+            Assert.Equal(0x55443322u + 2u, BinaryPrimitives.ReadUInt32LittleEndian(suiteNew.CurrentRawKey.Slice(16, 4)));
 
             // Datagram is encrypted by old zone map server using the old key
             byte[] datagram = new byte[28 + 24 + 16];
@@ -366,8 +366,9 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(54235, netManager.ServerPort);
             Assert.Equal(SessionState.LoadingWorldData, netManager.CurrentState);
 
-            // Blowfish key byte 4 should have advanced by 2: 0x20 + 2 = 0x22
-            Assert.Equal(0x22, crypto.CurrentRawKey[4]);
+            // The fifth 32-bit key word (bytes 17..20 little-endian = 0x14131211) advances by 2; byte 4 is untouched.
+            Assert.Equal(0x14131211u + 2u, BinaryPrimitives.ReadUInt32LittleEndian(crypto.CurrentRawKey.Slice(16, 4)));
+            Assert.Equal(0x20, crypto.CurrentRawKey[4]);
         }
 
         #endregion

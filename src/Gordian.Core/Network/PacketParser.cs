@@ -348,6 +348,14 @@ namespace Gordian.Core.Network
                     PacketInspected?.Invoke(this, undecryptedEntry);
                     return false;
                 }
+
+                // A datagram that only verifies with the previous zone's key is a straggler from the map server the
+                // session just left (e.g. a retransmitted 0x00B). Its contents describe the old zone: never dispatch it.
+                if (_cryptoSuite.LastDecryptUsedPreviousKey)
+                {
+                    GordianLog.Debug("PARSER", "Dropped stale datagram from the previous zone's map server.");
+                    return false;
+                }
             }
             else
             {

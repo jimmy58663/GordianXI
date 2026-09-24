@@ -315,6 +315,9 @@ namespace Gordian.Core.Network.Crypto
             InitializeKeyCore(key);
         }
 
+        /// <inheritdoc />
+        public bool LastDecryptUsedPreviousKey { get; private set; }
+
         public bool AdvanceZoneKey()
         {
             if (_rawKey == null || _rawKey.Length != 20)
@@ -327,8 +330,11 @@ namespace Gordian.Core.Network.Crypto
             Array.Copy(_s, _prevS, _s.Length);
             _hasPrevKey = true;
 
-            _rawKey[4] = (byte)(_rawKey[4] + 2);
-            GordianLog.Info("CRYPTO", $"Advancing session Blowfish key for zone transition. New key[4]=0x{_rawKey[4]:X2} (full: {Convert.ToHexString(_rawKey)})");
+            // The session key is five little-endian 32-bit words; each zone change adds 2 to the fifth word (bytes 16-19).
+            // Key schedule referenced from LandSandBoat (https://github.com/LandSandBoat/server, MapSession::incrementBlowfish).
+            uint word4 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_rawKey.AsSpan(16, 4));
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(_rawKey.AsSpan(16, 4), word4 + 2);
+            GordianLog.Info("CRYPTO", $"Advancing session Blowfish key for zone transition. New key word[4]=0x{word4 + 2:X8} (full: {Convert.ToHexString(_rawKey)})");
             InitializeKeyCore(_rawKey);
             return true;
         }
@@ -446,6 +452,7 @@ namespace Gordian.Core.Network.Crypto
             Span<byte> computedHash = stackalloc byte[16];
             MD5.HashData(payloadRegion, computedHash);
 
+            LastDecryptUsedPreviousKey = false;
             if (CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
             {
                 decryptedPayloadLength = payloadRegionLength;
@@ -463,6 +470,7 @@ namespace Gordian.Core.Network.Crypto
                 if (CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
                 {
                     GordianLog.Debug("CRYPTO", "Decryption succeeded using fallback previous zone Blowfish key.");
+                    LastDecryptUsedPreviousKey = true;
                     decryptedPayloadLength = payloadRegionLength;
                     return true;
                 }

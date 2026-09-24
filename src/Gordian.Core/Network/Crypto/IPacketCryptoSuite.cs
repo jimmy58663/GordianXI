@@ -26,7 +26,7 @@ namespace Gordian.Core.Network.Crypto
         void InitializeKey(ReadOnlySpan<byte> key);
 
         /// <summary>
-        /// Advances the session cryptographic key when transitioning zones (e.g. key[4] += 2 in LandSandBoat).
+        /// Advances the session cryptographic key when transitioning zones (LandSandBoat adds 2 to the fifth 32-bit key word).
         /// </summary>
         /// <returns>True if the key was successfully advanced; false if no underlying key material exists.</returns>
         bool AdvanceZoneKey();
@@ -39,6 +39,12 @@ namespace Gordian.Core.Network.Crypto
         /// <param name="decryptedPayloadLength">Outputs the length of valid decrypted payload data.</param>
         /// <returns>True if decryption and checksum verification succeeded; false if corrupted or forged.</returns>
         bool TryDecryptAndVerify(Span<byte> packetData, int headerSize, out int decryptedPayloadLength);
+
+        /// <summary>
+        /// True when the most recent successful <see cref="TryDecryptAndVerify"/> only verified with the previous zone's
+        /// key, i.e. the datagram is a straggler from the map server the session just left.
+        /// </summary>
+        bool LastDecryptUsedPreviousKey => false;
 
         /// <summary>
         /// Encrypts and appends integrity checks/signatures to an outbound packet in-place.

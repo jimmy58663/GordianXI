@@ -183,6 +183,70 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0, mgr.Performance.DuplicateDatagramsDropped);
         }
 
+        /// <summary>
+        /// Builds a datagram encrypted and signed the way a map server does with the given session key.
+        /// </summary>
+        private static byte[] BuildEncryptedDatagram(IPacketCryptoSuite serverSuite, ushort serverSeq, ReadOnlySpan<byte> subPacket)
+        {
+            byte[] compressed = new byte[512];
+            int compBytes = FfxiCodec.Default.Compress(subPacket, compressed);
+            byte[] buffer = new byte[28 + compBytes + 16 + 16];
+            BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(0, 2), serverSeq);
+            compressed.AsSpan(0, compBytes).CopyTo(buffer.AsSpan(28));
+            int length = serverSuite.EncryptAndSign(buffer, 28, compBytes);
+            return buffer.AsSpan(0, length).ToArray();
+        }
+
+        [Fact]
+        public async Task ZoneTransition_StaleOldZoneDatagramsDoNotPoisonTheNewServerSequence()
+        {
+            byte[] sessionKey = new byte[20] { 0x10, 0x20, 0x30, 0x40, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0x58, 0xE0, 0x5D, 0xAD };
+            using var oldServer = new LegacyBlowfishCryptoSuite();
+            using var newServer = new LegacyBlowfishCryptoSuite();
+            oldServer.InitializeKey(sessionKey);
+            newServer.InitializeKey(sessionKey);
+            newServer.AdvanceZoneKey();
+
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230);
+            mgr.Parser.CryptoSuite.InitializeKey(sessionKey);
+            byte[] chat = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "Zone");
+
+            // Old zone traffic up to server Seq 176, then the zone change.
+            Assert.True(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(oldServer, 176, chat)));
+            await mgr.PerformZoneTransitionAsync(System.Net.IPAddress.Loopback, 54230);
+            Assert.True(mgr.ZoneTransitionPending);
+
+            // A straggler from the old map server (retransmitted, old key, old sequence) must be ignored entirely.
+            Assert.False(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(oldServer, 177, chat)));
+            Assert.True(mgr.ZoneTransitionPending);
+
+            // The new map server restarts its sequence at 1: accepted, and it becomes the baseline.
+            Assert.True(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(newServer, 1, chat)));
+            Assert.False(mgr.ZoneTransitionPending);
+            Assert.Equal(1, mgr.ServerPacketIdSequence);
+            Assert.True(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(newServer, 2, chat)));
+
+            // Normal duplicate suppression resumes on the new server.
+            Assert.False(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(newServer, 2, chat)));
+        }
+
+        [Fact]
+        public void LegacyBlowfishCryptoSuite_ReportsWhenOnlyThePreviousZoneKeyVerifies()
+        {
+            byte[] sessionKey = new byte[20] { 0x10, 0x20, 0x30, 0x40, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0x58, 0xE0, 0x5D, 0xAD };
+            using var oldServer = new LegacyBlowfishCryptoSuite();
+            using var client = new LegacyBlowfishCryptoSuite();
+            oldServer.InitializeKey(sessionKey);
+            client.InitializeKey(sessionKey);
+            client.AdvanceZoneKey();
+
+            byte[] chat = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "Stale");
+            byte[] stale = BuildEncryptedDatagram(oldServer, 5, chat);
+
+            Assert.True(client.TryDecryptAndVerify(stale, 28, out _));
+            Assert.True(client.LastDecryptUsedPreviousKey);
+        }
+
         [Fact]
         public async Task PerformZoneTransitionAsync_ResetsSequenceHistory()
         {

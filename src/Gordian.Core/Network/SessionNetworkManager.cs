@@ -337,6 +337,12 @@ namespace Gordian.Core.Network
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
                 GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
+                if ((state == LogoutState.ZoneChange || state == LogoutState.MyRoom) && ZoneTransitionPending)
+                {
+                    // The server resends 0x00B until the client reappears on the new map server; act on it once.
+                    GordianLog.Debug("NET", "Ignoring repeated zone change while a transition is already in progress.");
+                    return;
+                }
                 if (state == LogoutState.ZoneChange || state == LogoutState.MyRoom)
                 {
                     World.Clear();
@@ -899,6 +905,28 @@ namespace Gordian.Core.Network
             }
 
             ushort newSeq = BinaryPrimitives.ReadUInt16LittleEndian(activeChunk.Slice(0, 2));
+
+            // Mid zone transition, stragglers from the old map server (which restarts nothing and keeps its own
+            // sequence numbers) still arrive. Only a datagram that parses with the new zone's key may set the new
+            // server's sequence baseline and our ACK; otherwise the new server's packets (starting again at 1) would
+            // look ancient and be discarded as duplicates.
+            if (ZoneTransitionPending)
+            {
+                // Until the key has advanced, anything arriving is still old-zone traffic.
+                if (!_zoneKeyAdvanced) return false;
+
+                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                if (accepted)
+                {
+                    ResetSequenceTracking();
+                    CheckAndTrackSequence(newSeq);
+                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
+                    ZoneTransitionPending = false;
+                    GordianLog.Info("NET", $"First datagram from the new map server accepted (Seq={newSeq}); zone transition complete.");
+                }
+                return accepted;
+            }
+
             Volatile.Write(ref _serverPacketIdSequence, newSeq);
 
             if (EnableSequenceDeduplication && CheckAndTrackSequence(newSeq))
@@ -975,6 +1003,18 @@ namespace Gordian.Core.Network
             _sequenceHistoryBitmask = 0;
         }
 
+        private volatile bool _zoneTransitionPending;
+        private volatile bool _zoneKeyAdvanced;
+
+        /// <summary>
+        /// True from the start of a zone transition until the first datagram from the new map server is accepted.
+        /// </summary>
+        public bool ZoneTransitionPending
+        {
+            get => _zoneTransitionPending;
+            private set => _zoneTransitionPending = value;
+        }
+
         private async Task HandleZoneTransitionAsync(IPAddress targetIp, ushort targetPort)
         {
             try
@@ -1011,6 +1051,8 @@ namespace Gordian.Core.Network
             ObjectDisposedException.ThrowIf(_isDisposed, this);
 
             GordianLog.Info("NET", $"Starting dynamic zone transition to {targetIp}:{targetPort} for character '{CharacterName}'...");
+            _zoneKeyAdvanced = false;
+            ZoneTransitionPending = true;
             CurrentState = SessionState.LoadingWorldData;
             World.Clear();
             ZoneTransitionStarted?.Invoke(targetIp, targetPort);
@@ -1023,7 +1065,7 @@ namespace Gordian.Core.Network
                 _serverEndpoint = new IPEndPoint(targetIp, targetPort);
                 _currentBufferLength = 0;
 
-                // Advance cryptographic session key (matching LandSandBoat key[4] += 2)
+                // Advance cryptographic session key (LandSandBoat adds 2 to the fifth 32-bit key word)
                 bool advanced = _parser.CryptoSuite.AdvanceZoneKey();
                 GordianLog.Debug("NET", $"Session crypto key advanced for zone transition: {advanced}");
 
@@ -1031,6 +1073,7 @@ namespace Gordian.Core.Network
                 _clientPacketIdSequence = 1;
                 Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
                 ResetSequenceTracking();
+                _zoneKeyAdvanced = true;
             }
             finally
             {
