@@ -68,6 +68,25 @@ namespace Gordian.Core.Resources.Graphics
         public float Float(int index) => index < Args.Length ? BitConverter.UInt32BitsToSingle(Args[index]) : 0f;
 
         public Vector3 Vector(int index) => new(Float(index), Float(index + 1), Float(index + 2));
+
+        /// <summary>
+        /// A 4-character DatId stored in argument <paramref name="index"/> (e.g. a child generator reference).
+        /// </summary>
+        public string Id(int index)
+        {
+            if (index >= Args.Length) return string.Empty;
+            uint v = Args[index];
+            Span<char> chars = stackalloc char[4];
+            int length = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                char c = (char)((v >> (8 * i)) & 0xFF);
+                if (c == '\0') break;
+                if (c < 0x20 || c > 0x7E) return string.Empty;
+                chars[length++] = c;
+            }
+            return new string(chars.Slice(0, length)).TrimEnd();
+        }
     }
 
     /// <summary>
@@ -204,6 +223,11 @@ namespace Gordian.Core.Resources.Graphics
         /// Section 4 expiration-handler opcodes (e.g. 0x05 repeat: the particle loops instead of dying).
         /// </summary>
         public List<byte> ExpirationHandlers { get; } = new();
+
+        /// <summary>
+        /// Section 4 expiration-handler opcodes with their arguments (0x01 names the child generator to emit).
+        /// </summary>
+        public List<ParticleOpcode> ExpirationOpcodes { get; } = new();
 
         /// <summary>
         /// Section 2 keyframe links by allocation slot.
@@ -424,6 +448,7 @@ namespace Gordian.Core.Resources.Graphics
                         break;
                     case 4: // Expiration handlers
                         def.ExpirationHandlers.Add(opCode);
+                        def.ExpirationOpcodes.Add(ToParticleOpcode(opCode, allocationOffset, opPayload));
                         break;
                 }
 

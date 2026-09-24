@@ -565,6 +565,14 @@ namespace Gordian.App.Graphics
                     _emitters[effectLayer] = new ZoneParticleEmitter(effectLayer.Emitter, seed: i);
                 }
             }
+
+            // Parents spawn into their child generators' emitters.
+            var emittersByTemplate = new Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter>(ReferenceEqualityComparer.Instance);
+            foreach (var emitter in _emitters.Values) emittersByTemplate[emitter.Template] = emitter;
+            foreach (var emitter in _emitters.Values)
+            {
+                emitter.ChildResolver = template => emittersByTemplate.TryGetValue(template, out var child) ? child : null;
+            }
             _emittersWarm = false;
 
             TotalVertices = vertCount;
@@ -929,7 +937,8 @@ namespace Gordian.App.Graphics
                 // load pre-warms them so the shoreline is not empty while the first waves roll in.
                 if (_emitters.Count > 0)
                 {
-                    var frame = new ZoneParticleFrame(ToDisplay(camera.Position), effectDayFraction, StrongestLight(environment));
+                    var frame = new ZoneParticleFrame(ToDisplay(camera.Position), effectDayFraction, StrongestLight(environment),
+                        ToDisplay(camera.Forward), effectDayOfWeek, effectMoonPhase);
                     float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
                     foreach (var emitter in _emitters.Values) emitter.Update(emitterFrames, frame);
                     _emittersWarm = true;
@@ -940,7 +949,7 @@ namespace Gordian.App.Graphics
                 {
                     if (_emitters.TryGetValue(effectMesh.Layer, out var emitter))
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, sceneUniform, ref currentEffectPipeline);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, sceneUniform, ref currentEffectPipeline);
                         visible++;
                     }
                     else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, sceneUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
@@ -1247,14 +1256,15 @@ namespace Gordian.App.Graphics
         /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
         /// Returns the number of draw calls issued.
         /// </summary>
-        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline)
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline)
         {
             var layer = skyMesh.Layer;
-            Vector3 rawBase = emitter.Template.RawBasePosition;
             int drawn = 0;
+            var billboard = emitter.Template.Definition.Setup?.BillBoardType ?? ParticleBillBoardType.None;
             foreach (var particle in emitter.Particles)
             {
-                if (particle.IsExpired) continue;
+                if (particle.IsExpired || particle.IsOcclusionProbe) continue;
+                if (skyMesh.CardIndex >= 0 && skyMesh.CardIndex != particle.SpriteIndex) continue;
                 Vector4 textureFactor = Vector4.Clamp(particle.TextureFactor, Vector4.Zero, Vector4.One);
                 if (layer.IsParticleMesh && layer.BlendFunc == ParticleBlendFunc.SrcInvSrcAdd && textureFactor.W >= 127.0f / 255.0f)
                 {
@@ -1263,12 +1273,20 @@ namespace Gordian.App.Graphics
                 if (textureFactor.W <= 0.001f) continue;
 
                 // Particle rotation is in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
-                Vector3 rotation = particle.Rotation;
-                Matrix4x4 world = Matrix4x4.CreateScale(particle.Scale) *
+                Vector3 rotation = particle.NegateRotationY ? particle.Rotation with { Y = -particle.Rotation.Y } : particle.Rotation;
+                Matrix4x4 local = Matrix4x4.CreateScale(particle.Scale) *
                                   Matrix4x4.CreateRotationX(-rotation.X) *
                                   Matrix4x4.CreateRotationY(-rotation.Y) *
-                                  Matrix4x4.CreateRotationZ(rotation.Z) *
-                                  Matrix4x4.CreateTranslation(ToDisplay(rawBase + particle.LocalOffset));
+                                  Matrix4x4.CreateRotationZ(rotation.Z);
+                // Billboards replace the orientation after the particle's own rotation and scale: XYZ faces the camera,
+                // XZ keeps world up and turns only about it (xim applies both to the model-view's upper 3x3).
+                Matrix4x4 facing = billboard switch
+                {
+                    ParticleBillBoardType.XYZ => CreateBillboardBasis(camera.Right, camera.Up, camera.Forward),
+                    ParticleBillBoardType.XZ => CreateBillboardBasis(camera.Right, Vector3.UnitY, camera.Forward),
+                    _ => Matrix4x4.Identity
+                };
+                Matrix4x4 world = local * facing * Matrix4x4.CreateTranslation(ToDisplay(particle.WorldPosition));
 
                 if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
                 {
@@ -1349,12 +1367,12 @@ namespace Gordian.App.Graphics
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
 
         /// <summary>
-        /// The stronger of the sun and moon light colors, for daylight-tinted particles.
+        /// The stronger of the model sun and moon light colors, for daylight-tinted particles.
         /// </summary>
         private static Vector3 StrongestLight(ZoneEnvironmentSettings environment)
         {
-            var sun = environment.SunColor;
-            var moon = environment.MoonColor;
+            var sun = environment.ModelSunColor;
+            var moon = environment.ModelMoonColor;
             return sun.X + sun.Y + sun.Z >= moon.X + moon.Y + moon.Z ? sun : moon;
         }
 
@@ -1486,6 +1504,16 @@ namespace Gordian.App.Graphics
         /// XYZ billboard for a sprite-sheet card stored in display axes (-x, -y, z): the card's image-left
         /// (raw -X) maps to screen left and image-top (raw -Y) to screen top, as xim's LOOK_AT_NEG_Z basis does.
         /// </summary>
+        /// <summary>
+        /// Maps display-local particle axes (raw DAT axes with X and Y flipped) onto a camera-facing frame: local X to
+        /// camera left, local Y to <paramref name="up"/>, local Z to the view direction.
+        /// </summary>
+        private static Matrix4x4 CreateBillboardBasis(Vector3 right, Vector3 up, Vector3 forward) => new(
+            -right.X, -right.Y, -right.Z, 0f,
+            up.X, up.Y, up.Z, 0f,
+            forward.X, forward.Y, forward.Z, 0f,
+            0f, 0f, 0f, 1f);
+
         private static Matrix4x4 CreateCameraFacingCardMatrix(ViewportCamera camera, Vector3 center, Vector3 scale)
         {
             Vector3 right = camera.Right * -scale.X;

@@ -16,13 +16,32 @@ namespace Gordian.Core.Graphics
             ParticleGeneratorDefinition definition,
             IReadOnlyDictionary<ushort, KeyFrameCurve> curves,
             IReadOnlyList<EffectRoutineSpawn>? schedule = null,
-            int scheduleLoopFrames = 0)
+            int scheduleLoopFrames = 0,
+            int spriteFrameCount = 0,
+            bool childOnly = false)
         {
+            ChildOnly = childOnly;
             Definition = definition ?? throw new ArgumentNullException(nameof(definition));
             Curves = curves ?? throw new ArgumentNullException(nameof(curves));
             Schedule = schedule;
             ScheduleLoopFrames = scheduleLoopFrames;
+            SpriteFrameCount = spriteFrameCount;
         }
+
+        /// <summary>
+        /// Number of cards in the generator's Section 0x21 sprite sheet (0 for mesh generators).
+        /// </summary>
+        public int SpriteFrameCount { get; }
+
+        /// <summary>
+        /// True for a generator that only runs as another particle's child: it never emits on its own.
+        /// </summary>
+        public bool ChildOnly { get; }
+
+        /// <summary>
+        /// Child generators this generator's particles spawn (opcodes 0x3C, 0x44, 0x53, 0x6A and expiration 0x01), by DatId.
+        /// </summary>
+        public Dictionary<string, ZoneEmitterTemplate> Children { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// For a generator started by a looping zone effect routine (Section 0x07), when in the routine it starts and
@@ -51,18 +70,57 @@ namespace Gordian.Core.Graphics
     /// <param name="CameraRawPosition">Camera position in raw DAT space.</param>
     /// <param name="DayFraction">Vana'diel time of day in [0, 1).</param>
     /// <param name="DaylightColor">The strongest of the model sun and moon light colors (daylight-based color).</param>
-    public readonly record struct ZoneParticleFrame(Vector3 CameraRawPosition, float DayFraction, Vector3 DaylightColor);
+    /// <param name="CameraRawForward">Camera view direction in raw DAT space (angular-distance rotation).</param>
+    /// <param name="DayOfWeek">Vana'diel weekday index (0-7) for day-of-week tints.</param>
+    /// <param name="MoonPhase">Moon phase index (0-11) for moon-phase tints.</param>
+    public readonly record struct ZoneParticleFrame(
+        Vector3 CameraRawPosition,
+        float DayFraction,
+        Vector3 DaylightColor,
+        Vector3 CameraRawForward = default,
+        int DayOfWeek = 0,
+        int MoonPhase = 0);
+
+    /// <summary>
+    /// A particle's velocity state for one allocation slot (position, rotation or scale transform).
+    /// </summary>
+    internal sealed class ParticleTransformState
+    {
+        public Vector3 Velocity;
+        public Vector3 RelativeVelocity;
+        public Vector3 VelocityRotation;
+        public float? DampeningFactor;
+    }
+
+    internal enum ParticleTransformKind
+    {
+        Position,
+        Rotation,
+        Scale
+    }
 
     /// <summary>
     /// One live particle, in raw DAT space relative to its generator's base position.
     /// </summary>
     public sealed class ZoneParticle
     {
-        internal readonly Dictionary<ushort, Vector3> Velocities = new();
-        internal readonly Dictionary<ushort, Vector3> RotationVelocities = new();
-        internal readonly Dictionary<ushort, Vector3> ScaleVelocities = new();
+        internal readonly Dictionary<ushort, (ParticleTransformKind Kind, ParticleTransformState State)> Transforms = new();
+        internal readonly Dictionary<ushort, (Vector3 Acceleration, Vector3 PreviousAmplitude)> Oscillations = new();
+        internal readonly Dictionary<ushort, int[]> ColorTransforms = new();
         internal readonly Dictionary<ushort, float> InitialValues = new();
+        internal readonly Dictionary<ushort, ChildStream> ChildStreams = new();
         internal bool DaylightColored;
+
+        /// <summary>
+        /// Raw DAT-space origin the particle's local offset is measured from: its generator's base position, or for a
+        /// child particle the parent-derived position it was spawned at.
+        /// </summary>
+        public Vector3 Origin { get; internal set; }
+
+        /// <summary>
+        /// World position in raw DAT space.
+        /// </summary>
+        public Vector3 WorldPosition => Origin + LocalOffset;
 
         public float Age { get; internal set; }
         public float MaxAge { get; internal set; }
@@ -70,6 +128,16 @@ namespace Gordian.Core.Graphics
         public Vector3 Position { get; internal set; }
         public Vector3 Rotation { get; internal set; }
         public Vector3 Scale { get; internal set; }
+
+        /// <summary>
+        /// True when the particle's Y rotation is negated in its orientation (incremental rotation, opcode 0x3B).
+        /// </summary>
+        public bool NegateRotationY { get; internal set; }
+
+        /// <summary>
+        /// True for occlusion-probe particles (opcode 0x53): they feed a visibility query and are never drawn.
+        /// </summary>
+        public bool IsOcclusionProbe { get; internal set; }
 
         /// <summary>
         /// Particle color, half-range (0.5 = 0x80 neutral).
@@ -81,7 +149,20 @@ namespace Gordian.Core.Graphics
         /// </summary>
         public Vector4 ColorMultiplier { get; internal set; } = Vector4.One;
 
+        /// <summary>
+        /// Day-of-week and moon-phase tints, applied modulate-2x (null when the generator has none).
+        /// </summary>
+        public Vector4? DayOfWeekTint { get; internal set; }
+
+        /// <inheritdoc cref="DayOfWeekTint"/>
+        public Vector4? MoonPhaseTint { get; internal set; }
+
         public Vector2 TexCoordTranslate { get; internal set; }
+
+        /// <summary>
+        /// The sprite-sheet card this particle draws (sprite-sheet generators only).
+        /// </summary>
+        public int SpriteIndex { get; internal set; }
 
         public bool IsExpired => Age >= MaxAge;
 
@@ -93,21 +174,51 @@ namespace Gordian.Core.Graphics
         public Vector3 LocalOffset => InitialPosition + Position;
 
         /// <summary>
-        /// The texture factor handed to the particle shader: color times the frame's multiplier.
+        /// The texture factor handed to the particle shader: color times the frame's multiplier, with any day-of-week
+        /// and moon-phase tints applied modulate-2x.
         /// </summary>
-        public Vector4 TextureFactor => Color * ColorMultiplier;
+        public Vector4 TextureFactor
+        {
+            get
+            {
+                var factor = Color * ColorMultiplier;
+                if (DayOfWeekTint is { } day) factor *= day * 2.0f;
+                if (MoonPhaseTint is { } moon) factor *= moon * 2.0f;
+                return factor;
+            }
+        }
     }
 
     /// <summary>
-    /// Clean-room runtime for one zone-anchored particle generator (shoreline surf, wave crests), auto-running or started
-    /// by a looping ambient routine:
-    /// emits particles at the authored cadence and advances each through its life with the generator's
-    /// Section 2 initializers and Section 3 updaters, driven by the 60 Hz effect clock.
-    /// Supported opcodes cover what zone water effects use: velocity, acceleration, rotation and scale velocity,
-    /// progress curves for position/rotation/scale/color/UV, constant UV scroll, clock color and alpha, draw-distance
-    /// fade, daylight tint and the repeat expiration handler. Other opcodes are ignored.
+    /// A child generator running for the life of its parent particle (opcodes 0x44 / 0x53 / 0x6A): it emits at the child's
+    /// own cadence while the parent lives, from the parent's current position.
+    /// </summary>
+    internal sealed class ChildStream
+    {
+        public ChildStream(ZoneParticleEmitter child, float maxEmitTime)
+        {
+            Child = child;
+            MaxEmitTime = maxEmitTime;
+        }
+
+        public ZoneParticleEmitter Child { get; }
+        public float MaxEmitTime { get; }
+        public float LifeTime;
+        public float FramesUntilNext;
+        public int Emitted;
+    }
+
+    /// <summary>
+    /// Clean-room runtime for one zone-anchored particle generator (shoreline surf, wave crests, drifting leaves, sparks),
+    /// auto-running or started by a looping ambient routine: emits particles at the authored cadence and advances each
+    /// through its life with the generator's Section 2 initializers and Section 3 updaters, driven by the 60 Hz effect
+    /// clock. Covers the initializers and updaters zone effect meshes use (velocity, relative velocity and their variance,
+    /// spherical spawn scatter, rotation/scale velocity and variance, incremental rotation, oscillation, dampening,
+    /// velocity rotation, progress and clock curves for position/rotation/scale/color/UV/velocity, color transforms,
+    /// constant and integrated UV scroll, single/double-range distance fades, daylight, day-of-week and moon-phase tints,
+    /// occlusion probes and the repeat expiration handler). Child generators, specular and point-light opcodes are ignored.
     /// Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
-    /// ui/js/particle/runtime.js, ops/initializers.js, ops/updaters.js and ops/generator.js, after xim).
+    /// ui/js/particle/runtime.js, types.js, ops/initializers.js, ops/updaters.js and ops/generator.js, after xim).
     /// </summary>
     public sealed class ZoneParticleEmitter
     {
@@ -130,6 +241,11 @@ namespace Gordian.Core.Graphics
         public ZoneEmitterTemplate Template { get; }
 
         public List<ZoneParticle> Particles { get; } = new();
+
+        /// <summary>
+        /// Finds the running emitter for a child generator's template (wired by the owner of all emitters).
+        /// </summary>
+        public Func<ZoneEmitterTemplate, ZoneParticleEmitter?>? ChildResolver { get; set; }
 
         private ParticleGeneratorDefinition Def => Template.Definition;
 
@@ -154,6 +270,7 @@ namespace Gordian.Core.Graphics
             }
             Particles.RemoveAll(p => p.IsExpired);
 
+            if (Template.ChildOnly) return;
             AdvanceSchedule(frames);
             _emitLifeTime += frames;
             if (IsDoneEmitting()) return;
@@ -172,7 +289,7 @@ namespace Gordian.Core.Graphics
                 int count = Def.ContinuousSingleton ? 1 : Def.ParticlesPerEmission + 1;
                 for (int i = 0; i < count; i++)
                 {
-                    Particles.Add(CreateParticle());
+                    Particles.Add(CreateParticle(null, false));
                     _totalEmitted++;
                     _emittedSinceArm++;
                 }
@@ -221,55 +338,250 @@ namespace Gordian.Core.Graphics
             _framesUntilNextParticle = 0.0f;
         }
 
-        private ZoneParticle CreateParticle()
+        // ── initializers ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Spawns one emission's worth of particles as children of <paramref name="parent"/> (a birth or expiry burst, or
+        /// one step of a continuous child stream).
+        /// </summary>
+        internal void EmitChildren(ZoneParticle parent, bool followParent)
         {
-            var particle = new ZoneParticle { Scale = Vector3.Zero };
+            int count = Def.ContinuousSingleton ? 1 : Def.ParticlesPerEmission + 1;
+            for (int i = 0; i < count; i++)
+            {
+                Particles.Add(CreateParticle(parent, followParent));
+                _totalEmitted++;
+            }
+        }
+
+        /// <summary>
+        /// Creates a particle. A child copies its parent's position when it carries opcode 0x45 (or follows the parent
+        /// through a transform-following stream); otherwise it starts at its own generator's base position.
+        /// </summary>
+        private ZoneParticle CreateParticle(ZoneParticle? parent, bool followParent)
+        {
+            var p = new ZoneParticle { Scale = Vector3.Zero, Origin = Template.RawBasePosition };
+            if (parent != null && (followParent || HasInitializer(0x45)))
+            {
+                p.Origin = parent.WorldPosition + Template.RawBasePosition;
+            }
+
             foreach (var op in Def.Initializers)
             {
+                ushort slot = op.Allocation;
                 switch (op.OpCode)
                 {
                     case 0x01: // StandardParticleSetup: life span (0 = forever) plus variance
                     {
                         var setup = Def.Setup;
                         int life = setup?.MaxLifeSpan ?? 0;
-                        particle.MaxAge = life == 0 ? float.PositiveInfinity : life + PosRand(setup?.LifeSpanVariance ?? 0);
+                        p.MaxAge = life == 0 ? float.PositiveInfinity : life + PosRand(setup?.LifeSpanVariance ?? 0);
                         break;
                     }
-                    case 0x02: // TranslationVelocitySetup
-                        particle.Velocities[op.Allocation] = op.Vector(0);
+
+                    case 0x02: Allocate(p, slot, ParticleTransformKind.Position).Velocity = op.Vector(0); break;
+                    case 0x0B: Allocate(p, slot, ParticleTransformKind.Rotation).Velocity = op.Vector(0); break;
+                    case 0x12: Allocate(p, slot, ParticleTransformKind.Scale).Velocity = op.Vector(0); break;
+
+                    case 0x03: // velocity variance (position / rotation / scale transform at the slot)
+                    case 0x0C:
+                    case 0x13:
+                        if (p.Transforms.TryGetValue(slot, out var varied))
+                        {
+                            var v = op.Vector(0);
+                            varied.State.Velocity += new Vector3(v.X * Rand(), v.Y * Rand(), v.Z * Rand());
+                        }
                         break;
-                    case 0x09: // RotationInitializer
-                        particle.Rotation = op.Vector(0);
+
+                    case 0x06: // SphericalPositionVarianceSimple
+                        p.InitialPosition += SphericalOffset(op.Float(0), op.Float(1), Vector3.One, 0f, 0f, 0f, MathF.PI, 1);
                         break;
-                    case 0x0B: // RotationVelocitySetup
-                        particle.RotationVelocities[op.Allocation] = op.Vector(0);
+                    case 0x07: // SphericalPositionVarianceMedium
+                        p.InitialPosition += SphericalOffset(op.Float(0) * (Def.Batched ? 2f : 1f), op.Float(1),
+                            new Vector3(op.Float(2), op.Float(3), op.Float(4)), 0f, op.Float(6), 0f, MathF.PI, 1);
                         break;
-                    case 0x0F: // ScaleInitializer
-                        particle.Scale = op.Vector(0);
+                    case 0x1F: // SphericalPositionVarianceFull
+                        p.InitialPosition += SphericalOffset(op.Float(0), op.Float(1),
+                            new Vector3(op.Float(2), op.Float(3), op.Float(4)), op.Float(5), op.Float(6), op.Float(7), op.Float(8),
+                            1 + (op.Args.Length > 10 ? (int)op.Args[10] : 0));
                         break;
+
+                    case 0x08: // RelativeVelocitySetup: velocity along the spawn offset direction
+                        if (p.Transforms.TryGetValue(slot, out var relative) && p.InitialPosition.LengthSquared() > 0f)
+                        {
+                            relative.State.RelativeVelocity = Vector3.Normalize(p.InitialPosition) * op.Float(0);
+                        }
+                        break;
+                    case 0x41: // RelativeVelocityVarianceSetup
+                        if (p.Transforms.TryGetValue(slot, out var relVar) && p.InitialPosition.LengthSquared() > 0f)
+                        {
+                            relVar.State.RelativeVelocity += Vector3.Normalize(p.InitialPosition) * (op.Float(0) * Rand());
+                        }
+                        break;
+                    case 0x31: // RandomVelocitySetup: one random value on all three axes
+                        if (p.Transforms.TryGetValue(slot, out var random))
+                        {
+                            float r = op.Float(0) * Rand();
+                            random.State.Velocity = new Vector3(r, r, r);
+                        }
+                        break;
+                    case 0x67: // ReverseDisplacementSetup: start at the end of the trajectory and run it backwards
+                        if (p.Transforms.TryGetValue(slot, out var reverse) && reverse.Kind == ParticleTransformKind.Position &&
+                            !float.IsPositiveInfinity(p.MaxAge))
+                        {
+                            p.Position += TotalVelocity(p, reverse.State) * p.MaxAge;
+                            reverse.State.Velocity = -reverse.State.Velocity;
+                            reverse.State.RelativeVelocity = -reverse.State.RelativeVelocity;
+                        }
+                        break;
+
+                    case 0x09: p.Rotation = op.Vector(0); break; // RotationInitializer
+                    case 0x0A: // RotationVarianceInitializer
+                    {
+                        var v = op.Vector(0);
+                        p.Rotation += new Vector3(v.X * Rand(), v.Y * Rand(), v.Z * Rand());
+                        break;
+                    }
+                    case 0x3B: // IncrementalRotationApplier: each successive particle turns one more step
+                        p.Rotation += op.Vector(0) * (1 + _totalEmitted);
+                        p.NegateRotationY = true;
+                        break;
+
+                    case 0x0F: p.Scale = op.Vector(0); break; // ScaleInitializer
                     case 0x10: // ScaleVarianceInitializer
                     {
                         var v = op.Vector(0);
-                        particle.Scale += new Vector3(v.X * PosRand(1f), v.Y * PosRand(1f), v.Z * PosRand(1f));
+                        p.Scale += new Vector3(v.X * PosRand(1f), v.Y * PosRand(1f), v.Z * PosRand(1f));
                         break;
                     }
-                    case 0x12: // ScaleVelocitySetup
-                        particle.ScaleVelocities[op.Allocation] = op.Vector(0);
-                        break;
-                    case 0x16: // ColorSetup: RGBA bytes
+                    case 0x11: // SingleScaleVarianceInitializer
                     {
-                        uint rgba = op.Args.Length > 0 ? op.Args[0] : 0;
-                        particle.Color = new Vector4(
-                            (rgba & 0xFF) / 255f, ((rgba >> 8) & 0xFF) / 255f, ((rgba >> 16) & 0xFF) / 255f, (rgba >> 24) / 255f);
+                        float v = PosRand(op.Float(0));
+                        p.Scale += new Vector3(v);
                         break;
                     }
-                    case 0x91: // DaylightBasedColorSetup
-                        particle.DaylightColored = true;
+
+                    case 0x16: p.Color = Rgba(op.Args.Length > 0 ? op.Args[0] : 0); break; // ColorSetup
+                    case 0x17: // ColorVarianceSetup
+                    {
+                        var v = Rgba(op.Args.Length > 0 ? op.Args[0] : 0);
+                        p.Color += new Vector4(v.X * PosRand(1f), v.Y * PosRand(1f), v.Z * PosRand(1f), v.W * PosRand(1f));
+                        break;
+                    }
+                    case 0x18: // UniformColorVarianceSetup
+                    {
+                        float f = ((op.Args.Length > 0 ? op.Args[0] : 0) & 0xFF) / 255f * PosRand(1f);
+                        p.Color += new Vector4(f);
+                        break;
+                    }
+                    case 0x19: // ColorTransformSetup: four signed 16-bit rates
+                        p.ColorTransforms[slot] = SignedShorts(op);
+                        break;
+                    case 0x1A: // ColorTransformVariance
+                        if (p.ColorTransforms.TryGetValue(slot, out var transform))
+                        {
+                            var variance = SignedShorts(op);
+                            for (int i = 0; i < 4; i++) transform[i] += (int)MathF.Round(PosRand(1f) * variance[i]);
+                        }
+                        break;
+
+                    case 0x3D: // OscillationSetup
+                        p.Oscillations[slot] = (Vector3.Zero, Vector3.Zero);
+                        break;
+                    case 0x3E: // OscillationAccelerationSetup (X, Y, Z)
+                    case 0x3F:
+                    case 0x40:
+                        if (p.Oscillations.TryGetValue(slot, out var oscillation))
+                        {
+                            int axis = op.OpCode - 0x3E;
+                            float value = op.Float(0) + op.Float(1) * Rand();
+                            p.Oscillations[slot] = (WithAxis(oscillation.Acceleration, axis, value), oscillation.PreviousAmplitude);
+                        }
+                        break;
+
+                    case 0x91: p.DaylightColored = true; break; // DaylightBasedColorSetup
+
+                    case 0x44: // ChildGeneratorSetup: a child generator that lives as long as this particle
+                    case 0x53:
+                    case 0x6A:
+                        if (ResolveChild(op.Id(1)) is { } streamChild)
+                        {
+                            float lifeSpan = Def.ContinuousSingleton ? float.PositiveInfinity : p.MaxAge;
+                            p.ChildStreams[slot] = new ChildStream(streamChild, lifeSpan);
+                        }
                         break;
                 }
             }
-            return particle;
+
+            // 0x3C OnceChildGeneratorSetup: emit the child exactly once, at birth, from the finished particle.
+            foreach (var op in Def.Initializers)
+            {
+                if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, false);
+            }
+            return p;
         }
+
+        private bool HasInitializer(byte opCode)
+        {
+            foreach (var op in Def.Initializers)
+            {
+                if (op.OpCode == opCode) return true;
+            }
+            return false;
+        }
+
+        private ZoneParticleEmitter? ResolveChild(string generatorId)
+        {
+            if (string.IsNullOrEmpty(generatorId) || ChildResolver == null) return null;
+            return Template.Children.TryGetValue(generatorId, out var child) ? ChildResolver(child) : null;
+        }
+
+        /// <summary>
+        /// Advances a continuous child stream: while the parent lives (or the child auto-runs), emit at the child's cadence.
+        /// </summary>
+        private static void AdvanceChildStream(ZoneParticle parent, ChildStream stream, float frames, bool followParent)
+        {
+            var childDef = stream.Child.Template.Definition;
+            stream.LifeTime += frames;
+            if (!childDef.AutoRun && stream.LifeTime >= stream.MaxEmitTime && stream.Emitted > 0) return;
+
+            stream.FramesUntilNext -= frames;
+            while (stream.FramesUntilNext <= 0.0f)
+            {
+                stream.FramesUntilNext += childDef.FramesPerEmission + stream.Child.PosRand(childDef.EmissionVariance);
+                stream.Child.EmitChildren(parent, followParent);
+                stream.Emitted++;
+                if (childDef.ContinuousSingleton) break;
+            }
+        }
+
+        private static ParticleTransformState Allocate(ZoneParticle p, ushort slot, ParticleTransformKind kind)
+        {
+            var state = new ParticleTransformState();
+            p.Transforms[slot] = (kind, state);
+            return state;
+        }
+
+        /// <summary>
+        /// A spawn offset on a (scaled, tilted) sphere shell: radius base + variance * cbrt(u) along +X, tilted about Z,
+        /// spun about Y by a random (or evenly divided) angle, scaled, then turned by the authored Z and Y axis rotations.
+        /// </summary>
+        private Vector3 SphericalOffset(float radiusVariance, float baseRadius, Vector3 radiusScale,
+            float rotationZ, float rotationY, float tilt, float tiltVariance, int rotationDivisor)
+        {
+            float phi = rotationDivisor <= 1
+                ? PosRand(MathF.Tau)
+                : MathF.PI + MathF.Tau / rotationDivisor * (_totalEmitted % rotationDivisor);
+            float random = radiusVariance == 0f ? 0f : MathF.Cbrt(PosRand(1f));
+            var v = new Vector3(baseRadius + radiusVariance * random, 0f, 0f);
+            v = RotateZ(v, tilt + tiltVariance * Rand());
+            v = RotateY(v, phi);
+            v *= radiusScale;
+            v = RotateZ(v, rotationZ);
+            return RotateY(v, rotationY);
+        }
+
+        // ── updaters ─────────────────────────────────────────────────────────────
 
         private void UpdateParticle(ZoneParticle particle, float frames, in ZoneParticleFrame frame)
         {
@@ -278,7 +590,11 @@ namespace Gordian.Core.Graphics
             particle.Age += frames;
             if (particle.IsExpired)
             {
-                // 0x05 repeat: the particle loops instead of dying.
+                // 0x05 repeat: the particle loops instead of dying; 0x01 emits a child generator where it died.
+                foreach (var handler in Def.ExpirationOpcodes)
+                {
+                    if (handler.OpCode == 0x01) ResolveChild(handler.Id(1))?.EmitChildren(particle, false);
+                }
                 if (Def.ExpirationHandlers.Contains(0x05)) particle.Age = 1e-7f;
                 else return;
             }
@@ -296,16 +612,44 @@ namespace Gordian.Core.Graphics
             switch (op.OpCode)
             {
                 case 0x02: // PositionUpdater
-                    if (p.Velocities.TryGetValue(slot, out var velocity)) p.Position += velocity * frames;
+                    if (p.Transforms.TryGetValue(slot, out var moving)) p.Position += TotalVelocity(p, moving.State) * frames;
                     break;
                 case 0x03: // VelocityAccelerator
-                    if (p.Velocities.TryGetValue(slot, out var v)) p.Velocities[slot] = v + op.Vector(0) * frames;
+                case 0x06:
+                case 0x09:
+                    if (p.Transforms.TryGetValue(slot, out var accelerating)) accelerating.State.Velocity += op.Vector(0) * frames;
                     break;
                 case 0x05: // RotationUpdater
-                    if (p.RotationVelocities.TryGetValue(slot, out var rv)) p.Rotation += rv * frames;
+                    if (p.Transforms.TryGetValue(slot, out var spinning)) p.Rotation += spinning.State.Velocity * frames;
                     break;
                 case 0x08: // ScaleUpdater
-                    if (p.ScaleVelocities.TryGetValue(slot, out var sv)) p.Scale += sv * frames;
+                    if (p.Transforms.TryGetValue(slot, out var growing)) p.Scale += growing.State.Velocity * frames;
+                    break;
+
+                case 0x0B: // ColorTransformApplier
+                    if (p.ColorTransforms.TryGetValue(slot, out var ct))
+                    {
+                        var delta = new Vector4(ct[0] >> 7, ct[1] >> 7, ct[2] >> 7, ct[3] >> 7) * (0.5f * frames);
+                        p.Color += delta;
+                    }
+                    break;
+                case 0x0C: // ColorTransformModifier
+                    if (p.ColorTransforms.TryGetValue(slot, out var modified))
+                    {
+                        var modifier = SignedShorts(op);
+                        float rate = frames / 30f;
+                        for (int i = 0; i < 4; i++) modified[i] += (int)MathF.Floor(modifier[i] * rate);
+                    }
+                    break;
+
+                case 0x0D: // SpriteSheetFrameUpdater: step through the cards over the particle's life
+                {
+                    int cards = Template.SpriteFrameCount;
+                    if (cards > 0) p.SpriteIndex = Math.Min(cards - 1, (int)MathF.Floor((cards + 1) * p.Progress));
+                    break;
+                }
+                case 0x45: // MoonPhaseSpriteSheetUpdater
+                    if (Template.SpriteFrameCount > 0) p.SpriteIndex = Math.Min(Template.SpriteFrameCount - 1, frame.MoonPhase);
                     break;
 
                 case 0x0F: Progress(p, slot, null, x => p.Position = p.Position with { X = x }); break;
@@ -329,6 +673,18 @@ namespace Gordian.Core.Graphics
                 case 0x1C: Progress(p, slot, null, u => p.TexCoordTranslate = p.TexCoordTranslate with { X = u }); break;
                 case 0x1D: Progress(p, slot, null, w => p.TexCoordTranslate = p.TexCoordTranslate with { Y = w }); break;
 
+                case 0x25: // ChildGeneratorBasicUpdater: the child emits from its own base (or the parent via 0x45)
+                    if (p.ChildStreams.TryGetValue(slot, out var basicStream)) AdvanceChildStream(p, basicStream, frames, false);
+                    break;
+                case 0x33: // ChildGeneratorUpdater: the child follows the parent particle
+                case 0x46:
+                    if (p.ChildStreams.TryGetValue(slot, out var followStream)) AdvanceChildStream(p, followStream, frames, true);
+                    break;
+
+                case 0x26: // VelocityRotator
+                    if (p.Transforms.TryGetValue(slot, out var turning)) turning.State.VelocityRotation += op.Vector(0) * (0.5f * frames);
+                    break;
+
                 case 0x27: // TextureCoordinateUpdater (U)
                     p.TexCoordTranslate += new Vector2(op.Float(0) * frames, 0f);
                     break;
@@ -336,17 +692,104 @@ namespace Gordian.Core.Graphics
                     p.TexCoordTranslate += new Vector2(0f, op.Float(0) * frames);
                     break;
 
+                case 0x29: // OscillationApplier (X, Y, Z)
+                case 0x2A:
+                case 0x2B:
+                    Oscillate(p, slot, op.OpCode - 0x29, op);
+                    break;
+
+                case 0x2C: // VelocityDampener
+                    if (p.Transforms.TryGetValue(slot, out var damped))
+                    {
+                        float f = MathF.Pow(damped.State.DampeningFactor ?? op.Float(0), frames);
+                        damped.State.Velocity *= f;
+                        damped.State.RelativeVelocity *= f;
+                    }
+                    break;
+
                 case 0x2E: // DrawDistanceUpdater: fade by distance to the particle
                 {
-                    float distance = Vector3.Distance(frame.CameraRawPosition, Template.RawBasePosition + p.LocalOffset);
-                    p.ColorMultiplier = p.ColorMultiplier with { W = p.ColorMultiplier.W * FallOff(distance, op.Float(0), op.Float(1)) };
+                    float distance = Vector3.Distance(frame.CameraRawPosition, p.WorldPosition);
+                    MultiplyAlpha(p, FallOff(distance, op.Float(0), op.Float(1)));
                     break;
                 }
+                case 0x2F: // VelocityRotationUpdater: velocity collapses onto +X, turned by the particle's rotation
+                    if (p.Transforms.TryGetValue(slot, out var collapsing))
+                    {
+                        float magnitude = collapsing.State.Velocity.Length() + collapsing.State.RelativeVelocity.Length();
+                        collapsing.State.Velocity = new Vector3(magnitude, 0f, 0f);
+                        collapsing.State.RelativeVelocity = Vector3.Zero;
+                        collapsing.State.VelocityRotation = p.Rotation;
+                    }
+                    break;
+
+                case 0x30: ProgressVelocity(p, slot, 0); break;
+                case 0x31: ProgressVelocity(p, slot, 1); break;
+                case 0x32: ProgressVelocity(p, slot, 2); break;
 
                 case 0x3C: Clock(slot, frame.DayFraction, r => p.Color = p.Color with { X = r }); break;
                 case 0x3D: Clock(slot, frame.DayFraction, g => p.Color = p.Color with { Y = g }); break;
                 case 0x3E: Clock(slot, frame.DayFraction, b => p.Color = p.Color with { Z = b }); break;
-                case 0x3F: Clock(slot, frame.DayFraction, a => p.ColorMultiplier = p.ColorMultiplier with { W = p.ColorMultiplier.W * a }); break;
+                case 0x3F: Clock(slot, frame.DayFraction, a => MultiplyAlpha(p, a)); break;
+                case 0x40: Clock(slot, frame.DayFraction, x => p.Scale = p.Scale with { X = x }); break;
+                case 0x41: Clock(slot, frame.DayFraction, y => p.Scale = p.Scale with { Y = y }); break;
+                case 0x42: Clock(slot, frame.DayFraction, z => p.Scale = p.Scale with { Z = z }); break;
+
+                case 0x44: // progress-driven dampening factor
+                    Progress(p, slot, null, d =>
+                    {
+                        foreach (var t in p.Transforms.Values)
+                        {
+                            if (t.Kind == ParticleTransformKind.Position) { t.State.DampeningFactor = d; break; }
+                        }
+                    });
+                    break;
+
+                case 0x48: // DoubleRangeDrawDistanceUpdater: visible only inside a near..far band
+                {
+                    float distance = Vector3.Distance(frame.CameraRawPosition, p.WorldPosition) +
+                                     1.15f * MathF.Abs(p.Scale.X);
+                    MultiplyAlpha(p, DoubleRangeWeight(distance, op.Float(0), op.Float(1), op.Float(2), op.Float(3)));
+                    break;
+                }
+
+                case 0x4E: // DayOfWeekColorUpdater
+                    p.DayOfWeekTint = TintAt(op, 8, frame.DayOfWeek);
+                    break;
+                case 0x4F: // MoonPhaseColorUpdater
+                    p.MoonPhaseTint = TintAt(op, 12, frame.MoonPhase);
+                    break;
+
+                case 0x53: // OcclusionUpdater: occlusion probe only
+                    p.IsOcclusionProbe = true;
+                    break;
+
+                case 0x54: Progress(p, slot, null, u => p.TexCoordTranslate += new Vector2(u * frames, 0f)); break;
+                case 0x55: Progress(p, slot, null, v => p.TexCoordTranslate += new Vector2(0f, v * frames)); break;
+                case 0x56: Progress(p, slot, null, x => p.Rotation += new Vector3(x * frames * MathF.PI, 0f, 0f)); break;
+                case 0x57: Progress(p, slot, null, y => p.Rotation += new Vector3(0f, y * frames * MathF.PI, 0f)); break;
+                case 0x58: Progress(p, slot, null, z => p.Rotation += new Vector3(0f, 0f, z * frames * MathF.PI)); break;
+
+                case 0x59: // AngularDistanceRotationUpdater: spin relative to the camera
+                {
+                    var particlePos = p.WorldPosition;
+                    var toParticle = particlePos - frame.CameraRawPosition;
+                    float distance = toParticle.Length();
+                    if (distance > 1e-5f && frame.CameraRawForward.LengthSquared() > 0f)
+                    {
+                        float cos = Math.Clamp(Vector3.Dot(Vector3.Normalize(frame.CameraRawForward), toParticle / distance), -1f, 1f);
+                        float angle = 16f * MathF.Acos(cos);
+                        p.Rotation = p.Rotation with { Z = -(op.Float(1) + op.Float(0) * (angle + distance)) };
+                    }
+                    break;
+                }
+
+                case 0x61: Clock(slot, frame.DayFraction, x => p.Rotation += new Vector3(x * MathF.PI, 0f, 0f)); break;
+                case 0x62: Clock(slot, frame.DayFraction, y => p.Rotation += new Vector3(0f, y * MathF.PI, 0f)); break;
+                case 0x63: Clock(slot, frame.DayFraction, z => p.Rotation += new Vector3(0f, 0f, z * MathF.PI)); break;
+                case 0x66: Clock(slot, frame.DayFraction, x => p.Rotation = p.Rotation with { X = x * MathF.PI }); break;
+                case 0x67: Clock(slot, frame.DayFraction, y => p.Rotation = p.Rotation with { Y = y * MathF.PI }); break;
+                case 0x68: Clock(slot, frame.DayFraction, z => p.Rotation = p.Rotation with { Z = z * MathF.PI }); break;
 
                 case 0x69: // DaylightBasedColorApplier
                     if (p.DaylightColored)
@@ -355,7 +798,76 @@ namespace Gordian.Core.Graphics
                         p.ColorMultiplier = new Vector4(p.ColorMultiplier.X * d.X, p.ColorMultiplier.Y * d.Y, p.ColorMultiplier.Z * d.Z, p.ColorMultiplier.W);
                     }
                     break;
+
+                case 0x6B: Clock(slot, frame.DayFraction, x => p.Position = p.Position with { X = x }); break;
+                case 0x6C: Clock(slot, frame.DayFraction, y => p.Position = p.Position with { Y = y }); break;
+                case 0x6D: Clock(slot, frame.DayFraction, z => p.Position = p.Position with { Z = z }); break;
             }
+        }
+
+        /// <summary>
+        /// Total translation velocity: (velocity + relative velocity) turned by the transform's velocity rotation (Z-Y-X).
+        /// </summary>
+        private static Vector3 TotalVelocity(ZoneParticle p, ParticleTransformState t)
+        {
+            var v = t.Velocity + t.RelativeVelocity;
+            var r = t.VelocityRotation;
+            if (r == Vector3.Zero) return v;
+            float yMul = p.NegateRotationY ? -1f : 1f;
+            return Vector3.Transform(v, RotationZyx(r.X, r.Y * yMul, r.Z));
+        }
+
+        /// <summary>
+        /// Z-Y-X Euler rotation matching the client's convention for velocity rotation.
+        /// </summary>
+        private static Matrix4x4 RotationZyx(float x, float y, float z) =>
+            Matrix4x4.CreateRotationX(x) * Matrix4x4.CreateRotationY(y) * Matrix4x4.CreateRotationZ(z);
+
+        /// <summary>
+        /// Sinusoidal sway along one axis (or relative to the particle's direction of travel): applies the change in
+        /// amplitude since the last frame to the position.
+        /// </summary>
+        private void Oscillate(ZoneParticle p, ushort slot, int axis, ParticleOpcode op)
+        {
+            if (!p.Oscillations.TryGetValue(slot, out var osc)) return;
+            float period = op.Float(0);
+            if (period == 0f) return;
+            float rate = 180f / period;
+            float frequency = MathF.PI * (p.Age / rate);
+            float baseOffset = op.Float(1);
+            float baseAmplitude = 0.5f * (MathF.Sin(baseOffset + frequency - MathF.PI / 2f) + MathF.Cos(baseOffset));
+            float amplitude = 0.5f * Axis(osc.Acceleration, axis) * baseAmplitude * rate;
+            float delta = amplitude - Axis(osc.PreviousAmplitude, axis);
+
+            Vector3 direction = WithAxis(Vector3.Zero, axis, 1f);
+            foreach (var t in p.Transforms.Values)
+            {
+                if (t.State.RelativeVelocity.LengthSquared() < 1e-14f) continue;
+                var forward = Vector3.Normalize(t.State.RelativeVelocity);
+                direction = axis switch
+                {
+                    0 => forward,
+                    1 => Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitZ)),
+                    _ => Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY))
+                };
+                break;
+            }
+
+            p.Position += direction * delta;
+            p.Oscillations[slot] = (osc.Acceleration, WithAxis(osc.PreviousAmplitude, axis, amplitude));
+        }
+
+        private void ProgressVelocity(ZoneParticle p, ushort slot, int axis)
+        {
+            Progress(p, slot, null, value =>
+            {
+                foreach (var t in p.Transforms.Values)
+                {
+                    if (t.Kind != ParticleTransformKind.Position) continue;
+                    t.State.Velocity = WithAxis(t.State.Velocity, axis, value);
+                    break;
+                }
+            });
         }
 
         /// <summary>
@@ -388,6 +900,9 @@ namespace Gordian.Core.Graphics
             if (Template.Curves.TryGetValue(slot, out var curve)) set(curve.Evaluate(Math.Clamp(dayFraction, 0f, 1f)));
         }
 
+        private static void MultiplyAlpha(ZoneParticle p, float factor) =>
+            p.ColorMultiplier = p.ColorMultiplier with { W = p.ColorMultiplier.W * factor };
+
         /// <summary>
         /// Distance falloff: 1 within <paramref name="near"/>, 0 beyond <paramref name="far"/>, linear between.
         /// </summary>
@@ -399,6 +914,58 @@ namespace Gordian.Core.Graphics
             return (far - distance) / (far - near);
         }
 
-        private float PosRand(float max) => max <= 0f ? 0f : (float)_random.NextDouble() * max;
+        /// <summary>
+        /// Band visibility: fades in across [nearStart, nearEnd], stays visible to farStart, fades out by farEnd.
+        /// </summary>
+        public static float DoubleRangeWeight(float distance, float nearStart, float nearEnd, float farStart, float farEnd)
+        {
+            if (distance < nearStart) return 0f;
+            if (distance < nearEnd) return 1f - (nearEnd - distance) / (nearEnd - nearStart);
+            if (distance < farStart) return 1f;
+            if (distance < farEnd) return 1f - (distance - farStart) / (farEnd - farStart);
+            return 0f;
+        }
+
+        private static Vector4? TintAt(ParticleOpcode op, int count, int index)
+        {
+            // One reserved dword, then `count` RGBA byte quads.
+            int arg = 1 + Math.Clamp(index, 0, count - 1);
+            return arg < op.Args.Length ? Rgba(op.Args[arg]) : null;
+        }
+
+        private static Vector4 Rgba(uint rgba) =>
+            new((rgba & 0xFF) / 255f, ((rgba >> 8) & 0xFF) / 255f, ((rgba >> 16) & 0xFF) / 255f, (rgba >> 24) / 255f);
+
+        private static int[] SignedShorts(ParticleOpcode op)
+        {
+            uint lo = op.Args.Length > 0 ? op.Args[0] : 0;
+            uint hi = op.Args.Length > 1 ? op.Args[1] : 0;
+            return new[] { (int)(short)(lo & 0xFFFF), (int)(short)(lo >> 16), (int)(short)(hi & 0xFFFF), (int)(short)(hi >> 16) };
+        }
+
+        private static Vector3 RotateZ(Vector3 v, float a)
+        {
+            float c = MathF.Cos(a), s = MathF.Sin(a);
+            return new Vector3(v.X * c - v.Y * s, v.X * s + v.Y * c, v.Z);
+        }
+
+        private static Vector3 RotateY(Vector3 v, float a)
+        {
+            float c = MathF.Cos(a), s = MathF.Sin(a);
+            return new Vector3(v.X * c + v.Z * s, v.Y, -v.X * s + v.Z * c);
+        }
+
+        private static float Axis(Vector3 v, int axis) => axis switch { 0 => v.X, 1 => v.Y, _ => v.Z };
+
+        private static Vector3 WithAxis(Vector3 v, int axis, float value) => axis switch
+        {
+            0 => v with { X = value },
+            1 => v with { Y = value },
+            _ => v with { Z = value }
+        };
+
+        internal float PosRand(float max) => max <= 0f ? 0f : (float)_random.NextDouble() * max;
+
+        private float Rand() => (float)_random.NextDouble() * 2f - 1f;
     }
 }

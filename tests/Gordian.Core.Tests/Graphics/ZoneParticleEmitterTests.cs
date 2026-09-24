@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Graphics/ZoneParticleEmitterTests.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Gordian.Core.Graphics;
 using Gordian.Core.Resources.Graphics;
@@ -138,6 +139,173 @@ namespace Gordian.Core.Tests.Graphics
 
             // Camera at the origin, particle ~20 away: halfway through the 10..30 fade.
             Assert.Equal(0.5f, Assert.Single(emitter.Particles).ColorMultiplier.W, 2);
+        }
+
+        private static uint IdArg(string id) =>
+            BitConverter.ToUInt32(System.Text.Encoding.ASCII.GetBytes(id.PadRight(4, '\0')), 0);
+
+        private static uint[] Args(params float[] values) => Array.ConvertAll(values, BitConverter.SingleToUInt32Bits);
+
+        /// <summary>
+        /// Wires a parent and child emitter the way the renderer does.
+        /// </summary>
+        private static (ZoneParticleEmitter Parent, ZoneParticleEmitter Child) ParentAndChild(
+            ParticleGeneratorDefinition parentDef, ParticleGeneratorDefinition childDef, string childId)
+        {
+            var childTemplate = new ZoneEmitterTemplate(childDef, new Dictionary<ushort, KeyFrameCurve>(), childOnly: true);
+            var parentTemplate = Template(parentDef);
+            parentTemplate.Children[childId] = childTemplate;
+            var parent = new ZoneParticleEmitter(parentTemplate);
+            var child = new ZoneParticleEmitter(childTemplate);
+            parent.ChildResolver = t => ReferenceEquals(t, childTemplate) ? child : null;
+            child.ChildResolver = _ => null;
+            return (parent, child);
+        }
+
+        private static ParticleGeneratorDefinition ChildDef(bool copyParentPosition = true)
+        {
+            var def = Surf(life: 1000, framesPerEmission: 30);
+            def.Setup!.BasePosition = new Vector3(0f, 1f, 0f);
+            if (copyParentPosition) def.Initializers.Add(new ParticleOpcode(0x45, 0, Array.Empty<uint>()));
+            return def;
+        }
+
+        [Fact]
+        public void OnceChildGenerator_BurstsAtBirthFromTheParentPosition()
+        {
+            var parentDef = Surf(life: 100, framesPerEmission: 10000);
+            parentDef.Setup!.BasePosition = new Vector3(50f, 0f, 0f);
+            parentDef.Initializers.Add(new ParticleOpcode(0x3C, 0, new[] { 0u, IdArg("kid1") }));
+            var (parent, child) = ParentAndChild(parentDef, ChildDef(), "kid1");
+
+            parent.Update(1f, Frame);
+
+            var spawned = Assert.Single(child.Particles);
+            // Child base (0, 1, 0) offset from the parent's world position (50, 0, 0).
+            Assert.Equal(new Vector3(50f, 1f, 0f), spawned.Origin);
+        }
+
+        [Fact]
+        public void ChildWithoutParentPositionCopy_StartsAtItsOwnBase()
+        {
+            var parentDef = Surf(life: 100, framesPerEmission: 10000);
+            parentDef.Setup!.BasePosition = new Vector3(50f, 0f, 0f);
+            parentDef.Initializers.Add(new ParticleOpcode(0x3C, 0, new[] { 0u, IdArg("kid1") }));
+            var (parent, child) = ParentAndChild(parentDef, ChildDef(copyParentPosition: false), "kid1");
+
+            parent.Update(1f, Frame);
+
+            Assert.Equal(new Vector3(0f, 1f, 0f), Assert.Single(child.Particles).Origin);
+        }
+
+        [Fact]
+        public void ExpirationChildHandler_BurstsWhereTheParentDied()
+        {
+            var parentDef = Surf(life: 50, framesPerEmission: 10000);
+            parentDef.ExpirationHandlers.Add(0x01);
+            parentDef.ExpirationOpcodes.Add(new ParticleOpcode(0x01, 0, new[] { 0u, IdArg("kid1") }));
+            var (parent, child) = ParentAndChild(parentDef, ChildDef(), "kid1");
+
+            parent.Update(20f, Frame);
+            Assert.Empty(child.Particles);
+
+            parent.Update(40f, Frame); // parent expires at ~50
+            Assert.Empty(parent.Particles);
+            var spawned = Assert.Single(child.Particles);
+            Assert.True(spawned.Origin.Z < 0f); // the parent had drifted toward -Z before dying
+        }
+
+        [Fact]
+        public void ChildStream_EmitsAtTheChildCadenceWhileFollowingTheParent()
+        {
+            var parentDef = Surf(life: 100, framesPerEmission: 10000);
+            parentDef.Initializers.Add(new ParticleOpcode(0x44, 20, new[] { 0u, IdArg("kid1") }));
+            parentDef.Updaters.Add(new ParticleOpcode(0x33, 20, Array.Empty<uint>()));
+            var (parent, child) = ParentAndChild(parentDef, ChildDef(copyParentPosition: false), "kid1");
+
+            parent.Update(1f, Frame);   // parent born
+            parent.Update(64f, Frame);  // child cadence 30: emits at ~0, 30, 60
+
+            Assert.Equal(3, child.Particles.Count);
+            // Transform-following stream: spawned relative to the parent's position at that moment.
+            Assert.Contains(child.Particles, c => c.Origin.Z < -0.5f);
+
+            parent.Update(100f, Frame); // parent dead, window closed: no more children
+            int afterDeath = child.Particles.Count;
+            parent.Update(60f, Frame);
+            Assert.Equal(afterDeath, child.Particles.Count);
+        }
+
+        [Fact]
+        public void SpriteSheetFrameUpdater_StepsThroughCardsOverLife()
+        {
+            var def = Surf(life: 100, framesPerEmission: 10000);
+            def.Updaters.Add(new ParticleOpcode(0x0D, 0, Array.Empty<uint>()));
+            var emitter = new ZoneParticleEmitter(new ZoneEmitterTemplate(def, new Dictionary<ushort, KeyFrameCurve>(), spriteFrameCount: 4));
+
+            emitter.Update(1f, Frame);
+            emitter.Update(1f, Frame);
+            Assert.Equal(0, Assert.Single(emitter.Particles).SpriteIndex);
+
+            emitter.Update(60f, Frame); // age 61, progress 0.61: floor(5 * 0.61) = 3
+            Assert.Equal(3, emitter.Particles[0].SpriteIndex);
+        }
+
+        [Fact]
+        public void SphericalPositionVariance_ScattersOnTheAuthoredShell()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 1);
+            // Medium variance: no radius variance, base radius 5, unit radius scale.
+            def.Initializers.Add(new ParticleOpcode(0x07, 0, Args(0f, 5f, 1f, 1f, 1f, 0f, 0f)));
+            var emitter = new ZoneParticleEmitter(Template(def), seed: 7);
+
+            emitter.Update(20f, Frame);
+
+            Assert.True(emitter.Particles.Count > 10);
+            Assert.All(emitter.Particles, p => Assert.Equal(5f, p.InitialPosition.Length(), 3));
+            Assert.True(emitter.Particles.Select(p => p.InitialPosition).Distinct().Count() > 1);
+        }
+
+        [Fact]
+        public void IncrementalRotation_TurnsEachSuccessiveParticleOneMoreStep()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 10);
+            def.Initializers.Add(new ParticleOpcode(0x3B, 0, Args(0f, 0.5f, 0f)));
+            var emitter = new ZoneParticleEmitter(Template(def));
+
+            emitter.Update(25f, Frame);
+
+            Assert.Equal(new[] { 0.5f, 1.0f, 1.5f }, emitter.Particles.Select(p => p.Rotation.Y));
+            Assert.All(emitter.Particles, p => Assert.True(p.NegateRotationY));
+        }
+
+        [Fact]
+        public void VelocityVariance_AppliesToTheTransformAtItsSlot()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Initializers.Add(new ParticleOpcode(0x12, 30, Args(0.1f, 0f, 0f)));   // scale velocity
+            def.Initializers.Add(new ParticleOpcode(0x13, 30, Args(0.05f, 0f, 0f)));  // scale velocity variance
+            def.Updaters.Add(new ParticleOpcode(0x08, 30, Array.Empty<uint>()));
+            var emitter = new ZoneParticleEmitter(Template(def), seed: 3);
+
+            emitter.Update(1f, Frame);
+            emitter.Update(10f, Frame);
+
+            // Scale X grows at 0.1 +/- 0.05 per frame from 20.
+            float growth = (emitter.Particles[0].Scale.X - 20f) / 10f;
+            Assert.InRange(growth, 0.05f, 0.15f);
+            Assert.NotEqual(0.1f, growth, 4);
+        }
+
+        [Theory]
+        [InlineData(5f, 0f)]
+        [InlineData(15f, 0.5f)]
+        [InlineData(30f, 1f)]
+        [InlineData(60f, 0.5f)]
+        [InlineData(80f, 0f)]
+        public void DoubleRangeWeight_FadesInNearAndOutFar(float distance, float expected)
+        {
+            Assert.Equal(expected, ZoneParticleEmitter.DoubleRangeWeight(distance, 10f, 20f, 50f, 70f), 3);
         }
 
         [Theory]

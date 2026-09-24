@@ -113,6 +113,26 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(2669, effect.Emitter.ScheduleLoopFrames);
         }
 
+        [Fact]
+        public void ParseZoneContainer_ChildGeneratorGetsAChildOnlyEmitterLinkedToItsParent()
+        {
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] parentSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("par1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 100, autoRun: true, onceChildId: "kid1"), "par1");
+            // The child is not auto-running, so it only exists as the parent's child.
+            byte[] childSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("kid1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 50), "kid1");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, parentSection, childSection), zoneId: 4);
+
+            Assert.Equal(2, zone.EffectLayers.Count);
+            var parent = Assert.Single(zone.EffectLayers, l => l.Name == "par1");
+            var child = Assert.Single(zone.EffectLayers, l => l.Name == "kid1");
+            Assert.False(parent.Emitter!.ChildOnly);
+            Assert.True(child.Emitter!.ChildOnly);
+            Assert.Same(child.Emitter, parent.Emitter.Children["kid1"]);
+        }
+
         private static byte[] Concat(params byte[][] sections)
         {
             var all = new List<byte>();
@@ -156,16 +176,17 @@ namespace Gordian.Core.Tests.Resources
             return payload;
         }
 
-        private static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll, ushort maxLifeSpan = 0, bool autoRun = false)
+        private static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll, ushort maxLifeSpan = 0, bool autoRun = false, string? onceChildId = null)
         {
             // Generator payload:
             // Header (128 bytes): +0x48 = DatId (4 chars), +0x70 = Section 1 stream offset, +0x78 = Section 3 stream offset
             // Opcode 0x01 (StandardParticleSetup): config dword (op 0x01, len 10 dwords = 40B), +0x0C=linkedId(4), +0x14=pos(12), +0x21=linkedType(1)
             int op1Offset = 128;
-            int op27Offset = op1Offset + 40;
+            int childOpSize = onceChildId != null ? 12 : 0;
+            int op27Offset = op1Offset + 40 + childOpSize;
             int op28Offset = op27Offset + 8;
 
-            byte[] payload = new byte[128 + 40 + 8 + 8];
+            byte[] payload = new byte[128 + 40 + childOpSize + 8 + 8 + 4];
             Encoding.ASCII.GetBytes(datId.PadRight(4).Substring(0, 4)).CopyTo(payload.AsSpan(0x48));
 
             // Stream offsets relative to section start (including 16B chunk header):
@@ -184,6 +205,14 @@ namespace Gordian.Core.Tests.Resources
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(op1Offset + 34, 2), maxLifeSpan);
             if (autoRun) payload[0x69] = 0x10; // generator flags: auto-run
             payload[op1Offset + 33] = (byte)ParticleLinkedDataType.StaticMesh;
+
+            if (onceChildId != null)
+            {
+                // Opcode 0x3C OnceChildGeneratorSetup: 3 dwords = header, reserved, child DatId.
+                int childOffset = op1Offset + 40;
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(childOffset, 4), 0x3Cu | (3u << 8));
+                Encoding.ASCII.GetBytes(onceChildId.PadRight(4).Substring(0, 4)).CopyTo(payload.AsSpan(childOffset + 8));
+            }
 
             // Opcode 0x27: Axis U scroll, 8 bytes = 2 dwords
             uint op27Config = 0x27 | ((uint)2 << 8);
