@@ -214,8 +214,8 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// Facing rotation exactly as carried on the wire (0x00D/0x00E inbound, 0x015 outbound): 256 steps per turn on the
-        /// (X, Z) ground plane — 0 = +X, 64 = -Z, 128 = -X, 192 = +Z. Increasing the heading turns the character to its right
-        /// as seen on screen.
+        /// (X, Z) ground plane — 0 = East (+X), 64 = South (-Z), 128 = West (-X), 192 = North (+Z), i.e. clockwise on a
+        /// north-up map, so increasing the heading turns the character to its right.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) position_t rotation.
         /// </summary>
         public byte Direction { get; set; }

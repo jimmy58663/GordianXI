@@ -63,10 +63,10 @@ namespace Gordian.Core.Tests.Input
         [Fact]
         public void CameraRelativeLocomotion_RotatesWithCameraYaw()
         {
-            // Camera is facing South (wire Yaw = 270°)
+            // Camera is facing North (wire Yaw = 270°)
             _controller.CameraYaw = 270.0f;
 
-            // Push LeftStick UP (0, 1) -> should face South (wire Direction 192) and advance +Z
+            // Push LeftStick UP (0, 1) -> should face North (wire Direction 192) and advance +Z
             var padState = new GamepadState(
                 isConnected: true,
                 buttons: GamepadButton.None,
@@ -80,23 +80,20 @@ namespace Gordian.Core.Tests.Input
 
             Assert.True(_world.TryGetByServerId(1001, out var ent));
             Assert.NotNull(ent);
-            Assert.Equal(192, ent.Direction); // Facing South (192 in FFXI wire byte)
+            Assert.Equal(192, ent.Direction); // Facing North (192 in FFXI wire byte)
             Assert.Equal(50, ent.Speed);
             Assert.Equal(100.0f, ent.Position.X, 2);
             Assert.Equal(200.0f, ent.Position.Y, 2); // Elevation remains 200.0f
-            Assert.Equal(5.0f, ent.Position.Z, 2);   // 0 + 5.0 = 5.0 along South (+Z)
+            Assert.Equal(5.0f, ent.Position.Z, 2);   // 0 + 5.0 = 5.0 along North (+Z)
         }
 
         [Fact]
         public void CameraRelativeLocomotion_StrafeRightMovesToTheCamerasActualScreenRight()
         {
-            // The renderer displays entities at a mirrored X coordinate (see EntityRenderer /
-            // ViewportCamera), which flips the handedness of "camera right" relative to naive
-            // compass intuition: with the camera facing world East (Yaw = 0), the direction
-            // that actually renders on the right side of the screen is world North (-Z),
-            // i.e. wire Direction 64 - not world South (+Z resp. Direction 192), and definitely not
-            // world East/West. This was reported by a player as "pressing right moves left"
-            // before the sign of the strafe contribution was fixed.
+            // With the camera facing world East (Yaw = 0), the right side of the screen is world
+            // South (-Z), i.e. wire Direction 64 - not North (+Z, Direction 192), and not East/West.
+            // This was reported by a player as "pressing right moves left" before the sign of the
+            // strafe contribution was fixed.
             _controller.CameraYaw = 0.0f;
 
             var padState = new GamepadState(
@@ -112,7 +109,7 @@ namespace Gordian.Core.Tests.Input
 
             Assert.True(_world.TryGetByServerId(1001, out var ent));
             Assert.NotNull(ent);
-            Assert.Equal(64, ent.Direction); // North (-Z) - the camera's true rendered right side
+            Assert.Equal(64, ent.Direction); // South (-Z) - the camera's true rendered right side
             Assert.Equal(50, ent.Speed);
             Assert.Equal(100.0f, ent.Position.X, 2);
             Assert.Equal(-5.0f, ent.Position.Z, 2);
@@ -122,7 +119,7 @@ namespace Gordian.Core.Tests.Input
         public void CameraRelativeLocomotion_StrafeLeftMovesToTheCamerasActualScreenLeft()
         {
             // Mirror image of the strafe-right case: pressing left must move to the opposite
-            // world direction (South/+Z, Direction 192) from pressing right (North/-Z, Direction 64).
+            // world direction (North/+Z, Direction 192) from pressing right (South/-Z, Direction 64).
             _controller.CameraYaw = 0.0f;
 
             var padState = new GamepadState(
@@ -138,7 +135,7 @@ namespace Gordian.Core.Tests.Input
 
             Assert.True(_world.TryGetByServerId(1001, out var ent));
             Assert.NotNull(ent);
-            Assert.Equal(192, ent.Direction); // South (+Z) - opposite of strafe-right
+            Assert.Equal(192, ent.Direction); // North (+Z) - opposite of strafe-right
             Assert.Equal(50, ent.Speed);
             Assert.Equal(100.0f, ent.Position.X, 2);
             Assert.Equal(5.0f, ent.Position.Z, 2);

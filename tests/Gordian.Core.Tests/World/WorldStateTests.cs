@@ -307,24 +307,24 @@ namespace Gordian.Core.Tests.World
             var entity = new WorldEntity(0x557, 102, EntityType.Player)
             {
                 Position = new Vector3(10f, 0f, 10f),
-                TargetPosition = new Vector3(10f, 0f, 20f), // Moving South (+Z)
+                TargetPosition = new Vector3(10f, 0f, 20f), // Moving North (+Z)
                 Speed = 40
             };
 
             // Interpolate a step
             entity.InterpolatePosition(0.1f);
 
-            // On the wire, South (+Z) is Direction 192 (270 degrees, 3pi/2 radians)
+            // On the wire, North (+Z) is Direction 192 (270 degrees, 3pi/2 radians)
             Assert.Equal(192, entity.Direction);
             // Render heading is smoothed along the shortest arc, so it may be unwrapped below zero; compare modulo a full turn.
             float renderHeading = ((entity.RenderHeadingRadians % (MathF.PI * 2.0f)) + (MathF.PI * 2.0f)) % (MathF.PI * 2.0f);
             Assert.InRange(renderHeading, 3.5f, 5.5f);
 
-            // Now turn and move North (-Z)
+            // Now turn and move South (-Z)
             entity.TargetPosition = new Vector3(10f, 0f, 0f);
             entity.InterpolatePosition(0.1f);
 
-            // North (-Z) is Direction 64 (90 degrees, pi/2 radians)
+            // South (-Z) is Direction 64 (90 degrees, pi/2 radians)
             Assert.Equal(64, entity.Direction);
         }
 

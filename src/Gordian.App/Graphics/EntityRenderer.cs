@@ -310,7 +310,7 @@ namespace Gordian.App.Graphics
 
                 visible++;
 
-                // Heading angle is the wire convention: 0=+X, 64=-Z, 128=-X, 192=+Z.
+                // Heading angle is the wire convention: 0=East(+X), 64=South(-Z), 128=West(-X), 192=North(+Z).
                 // In display space (pos = (-x, -y, z)), entity model at rest faces (+1, 0, 0),
                 // so rotating by (-headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
                 float headingRad = (entity.RenderHeadingRadians != 0f || entity.Direction != 0)

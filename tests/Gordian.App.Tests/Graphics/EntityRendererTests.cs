@@ -71,18 +71,18 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void EntityHeading_RotatesAroundYAxis()
         {
-            // Direction 64 = 90 degrees (quarter turn to South/+Z in display space).
-            // In display space, entity model at rest faces (+1, 0, 0).
+            // Direction 64 = 90 degrees = South (-Z); display space keeps Z unchanged.
+            // In display space, entity model at rest faces (+1, 0, 0); EntityRenderer rotates by (-heading - pi).
             byte dir = 64;
             float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
-            var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
+            var rotY = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
 
             var forward = new Vector4(1f, 0f, 0f, 0f);
             var turned = Vector4.Transform(forward, rotY);
 
             Assert.Equal(0f, turned.X, 2);
             Assert.Equal(0f, turned.Y, 2);
-            Assert.Equal(1f, turned.Z, 2);
+            Assert.Equal(-1f, turned.Z, 2);
         }
 
         [Fact]
@@ -96,7 +96,7 @@ namespace Gordian.App.Tests.Graphics
             foreach (byte dir in new byte[] { 0, 32, 64, 96, 128, 160, 192, 224 })
             {
                 float headingRad = (dir / 256.0f) * MathF.PI * 2.0f;
-                var rotY = Matrix4x4.CreateRotationY(headingRad - MathF.PI);
+                var rotY = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
 
                 var forward = new Vector4(1f, 0f, 0f, 0f);
                 var turned = Vector4.Transform(forward, rotY);

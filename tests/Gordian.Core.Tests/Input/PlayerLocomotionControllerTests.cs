@@ -59,13 +59,13 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
-        public void Update_WhenFacingSouth_MovesPlayerAlongZAxisAndKeepsElevationConstant()
+        public void Update_WhenFacingNorth_MovesPlayerAlongZAxisAndKeepsElevationConstant()
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
 
             // W is camera-relative (see Update_WhenHoldingTurnRight_... below): facing follows the
             // camera, not whatever the character happened to already be facing. Point the camera
-            // South (wire heading 192 = 270 degrees) so pressing W faces and moves that way.
+            // North (wire heading 192 = 270 degrees) so pressing W faces and moves that way.
             controller.CameraYaw = 270.0f;
             localEnt.Direction = 192;
             localEnt.Position = new Vector3(10f, 15f, 20f);
@@ -113,8 +113,7 @@ namespace Gordian.Core.Tests.Input
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             // Mirrors the tested gamepad CameraRelative "strafe right" behavior: with the camera
-            // facing world East, the camera's true rendered right side is world North (wire
-            // Direction 64), because the renderer displays entities at a mirrored X coordinate.
+            // facing world East, the right side of the screen is world South (wire Direction 64).
             Assert.Equal(64, localEnt.Direction);
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, -0.01f, 0.01f);
@@ -250,7 +249,7 @@ namespace Gordian.Core.Tests.Input
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
 
-            // Set player facing North (wire 64 = 90 degrees)
+            // Set player facing South (wire 64 = 90 degrees)
             localEnt.Direction = 64;
             controller.CameraYaw = 270.0f;
 
@@ -344,7 +343,7 @@ namespace Gordian.Core.Tests.Input
 
             var target = new WorldEntity(0x9999, 2, EntityType.Monster)
             {
-                Position = new Vector3(0f, 0f, 10f), // South (+Z)
+                Position = new Vector3(0f, 0f, 10f), // North (+Z)
                 IsSpawned = true
             };
             world.UpsertEntity(target);
@@ -355,7 +354,7 @@ namespace Gordian.Core.Tests.Input
 
             controller.Update(TimeSpan.FromMilliseconds(16));
 
-            // Heading towards (0, 0, 10) from (0, 0, 0) is South (wire Direction = 192)
+            // Heading towards (0, 0, 10) from (0, 0, 0) is North (wire Direction = 192)
             Assert.Equal(192, localEnt.Direction);
             Assert.InRange(localEnt.RenderHeadingRadians, 3.0f * MathF.PI / 2.0f - 0.05f, 3.0f * MathF.PI / 2.0f + 0.05f);
         }

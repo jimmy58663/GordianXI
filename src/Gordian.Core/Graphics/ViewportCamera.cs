@@ -131,7 +131,7 @@ namespace Gordian.Core.Graphics
             float sinY = MathF.Sin(yawRad);
 
             // Yaw is expressed in the wire heading convention shared with WorldEntity.Direction
-            // (0=+X, 90=-Z; increasing yaw turns the view right), whose world forward is (cos, -sin) on (X, Z).
+            // (0=East/+X, 90=South/-Z; increasing yaw turns the view right), whose world forward is (cos, -sin) on (X, Z).
             // The renderer displays entities at a mirrored X coordinate (see EntityRenderer/VeldridViewportControl:
             // pos = (-x, -y, z)), so the camera's forward vector is mirrored the same way (negate X) to stay
             // aimed at wherever the mirrored player mesh actually is.

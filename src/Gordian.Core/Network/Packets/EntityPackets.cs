@@ -140,7 +140,7 @@ namespace Gordian.Core.Network.Packets
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
             // FFXI native wire convention: X at +8 (East/West), Elevation at +12, North/South at +16.
             // GordianXI 3D canonical coordinates (Y-up):
-            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(-)/South(+).
+            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(+)/South(-).
             Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
             Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));
@@ -414,7 +414,7 @@ namespace Gordian.Core.Network.Packets
             X = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(8, 4));
             // FFXI native wire convention: X at +8 (East/West), Elevation at +12, North/South at +16.
             // GordianXI 3D canonical coordinates (Y-up):
-            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(-)/South(+).
+            // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(+)/South(-).
             Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
             Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
             Flags0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(20, 4));

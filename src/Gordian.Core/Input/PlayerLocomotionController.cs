@@ -1,6 +1,6 @@
 // src/Gordian.Core/Input/PlayerLocomotionController.cs
 // Clean-room player locomotion and camera control loop for GordianXI.
-// FFXI coordinate space specifications: 0=East (+X), 64=South (+Z), 128=West (-X), 192=North (-Z).
+// FFXI coordinate space specifications: 0=East (+X), 64=South (-Z), 128=West (-X), 192=North (+Z).
 
 using System;
 using System.Numerics;

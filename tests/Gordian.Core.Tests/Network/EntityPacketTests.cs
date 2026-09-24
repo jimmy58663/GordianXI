@@ -830,7 +830,7 @@ namespace Gordian.Core.Tests.Network
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000009);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 302);
             payload[6] = (byte)EntityUpdateFlags.Position;
-            // Wire North is 64 in LandSandBoat
+            // Wire South is 64 in LandSandBoat
             payload[7] = 64;
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), 10.0f);
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), 0.0f);
@@ -841,7 +841,7 @@ namespace Gordian.Core.Tests.Network
             // Stored as-is: GordianXI headings use the wire convention
             Assert.Equal(64, entity!.Direction);
 
-            // Wire South is 192 in LandSandBoat
+            // Wire North is 192 in LandSandBoat
             payload[7] = 192;
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
             Assert.Equal(192, entity.Direction);
