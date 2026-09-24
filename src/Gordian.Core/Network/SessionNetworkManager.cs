@@ -231,9 +231,14 @@ namespace Gordian.Core.Network
         public float PositionZ { get; set; }
 
         /// <summary>
-        /// Current character facing direction / rotation (0..255).
+        /// Current character facing direction / rotation (0..255), in GordianXI world heading (see <see cref="WorldEntity.Direction"/>).
         /// </summary>
         public byte Direction { get; set; }
+
+        /// <summary>
+        /// <see cref="Direction"/> converted to the FFXI wire heading for outbound 0x015 position packets.
+        /// </summary>
+        private byte WireDirection => WorldEntity.ConvertWireDirection(Direction);
 
         /// <summary>
         /// Current target index / actor index in zone.
@@ -298,9 +303,9 @@ namespace Gordian.Core.Network
                 PositionX = x;
                 PositionY = y;
                 PositionZ = z;
-                Direction = dir;
+                Direction = WorldEntity.ConvertWireDirection(dir);
                 TargetIndex = actIndex;
-                EnsureLocalPlayerEntity(x, y, z, dir, actIndex);
+                EnsureLocalPlayerEntity(x, y, z, Direction, actIndex);
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
             _parser.LoginAppearanceReceived += (sid, grap, name) =>
@@ -333,7 +338,7 @@ namespace Gordian.Core.Network
                 PositionZ = pos.Z;
                 Direction = dir;
             };
-            _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex, _moveFrame, _isWalking);
+            _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, WireDirection, TargetIndex, _moveFrame, _isWalking);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
                 GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
@@ -454,7 +459,7 @@ namespace Gordian.Core.Network
                     x: PositionX,
                     y: PositionY,
                     z: PositionZ,
-                    dir: Direction,
+                    dir: WireDirection,
                     moveFrame: _moveFrame,
                     isWalking: _isWalking,
                     targetIndex: TargetIndex
@@ -783,7 +788,7 @@ namespace Gordian.Core.Network
                                     BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionY); // Wire offset 12 is North/South
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(18, 2), _moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
-                                    existingPos[20] = Direction;
+                                    existingPos[20] = WireDirection;
                                     byte modes = (byte)((TargetIndex != 0 ? 0x01 : 0x00) | (_isWalking ? 0x02 : 0x00));
                                     existingPos[21] = modes;
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(22, 2), TargetIndex);
@@ -796,7 +801,7 @@ namespace Gordian.Core.Network
                                         x: PositionX,
                                         y: PositionY,
                                         z: PositionZ,
-                                        dir: Direction,
+                                        dir: WireDirection,
                                         moveFrame: _moveFrame,
                                         isWalking: _isWalking,
                                         targetIndex: TargetIndex

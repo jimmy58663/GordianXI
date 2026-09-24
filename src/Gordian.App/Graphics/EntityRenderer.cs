@@ -292,6 +292,11 @@ namespace Gordian.App.Graphics
 
                 if (gpuModel == null || gpuModel.Submeshes.Count == 0)
                 {
+                    // Doors, elevators and ships carry a door ID that drives zone geometry rather than a model of their own,
+                    // and model-less NPCs are invisible event triggers; the legacy client draws nothing for either.
+                    // Only entities that reference a model we failed to load get a debug proxy.
+                    if (!HasOwnModelReference(entity)) continue;
+
                     gpuModel = entity.Type switch
                     {
                         EntityType.Player => _fallbackPlayerProxy,
@@ -537,6 +542,12 @@ namespace Gordian.App.Graphics
 
             _gpuModelCache[key] = gpuModel;
             return gpuModel;
+        }
+
+        private static bool HasOwnModelReference(WorldEntity entity)
+        {
+            if (entity.Type is EntityType.Door or EntityType.Elevator or EntityType.Ship) return false;
+            return entity.Appearance.ModelId != 0 || entity.Appearance.GrapIdTable is { Length: > 0 };
         }
 
         private void BuildFallbackProxies()

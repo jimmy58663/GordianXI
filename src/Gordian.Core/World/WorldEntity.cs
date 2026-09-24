@@ -216,6 +216,13 @@ namespace Gordian.Core.World
         public byte Direction { get; set; }
         public float HeadingRadians => (Direction / 256.0f) * MathF.PI * 2.0f;
 
+        /// <summary>
+        /// Converts between the FFXI wire heading (counter-clockwise) and the GordianXI world heading held in <see cref="Direction"/>.
+        /// The mapping is its own inverse, so it applies both when decoding inbound headings and when encoding outbound 0x015 headings.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) position_t rotation.
+        /// </summary>
+        public static byte ConvertWireDirection(byte direction) => (byte)((256 - direction) & 0xFF);
+
         public byte Speed { get; set; }
         public byte SpeedBase { get; set; }
         public ushort LastMovTime { get; set; }

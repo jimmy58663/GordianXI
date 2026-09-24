@@ -182,7 +182,7 @@ namespace Gordian.Core.Network.Packets
                     }
 
                     // Convert FFXI wire direction (counter-clockwise) to GordianXI world heading
-                    player.Direction = (byte)((256 - pc.Direction) & 0xFF);
+                    player.Direction = WorldEntity.ConvertWireDirection(pc.Direction);
                     if (isNew)
                     {
                         player.RenderHeadingRadians = player.HeadingRadians;
@@ -371,7 +371,7 @@ namespace Gordian.Core.Network.Packets
                 }
 
                 // Convert FFXI wire direction (counter-clockwise) to GordianXI world heading
-                entity.Direction = (byte)((256 - npcPacket.Direction) & 0xFF);
+                entity.Direction = WorldEntity.ConvertWireDirection(npcPacket.Direction);
                 if (isNew)
                 {
                     entity.RenderHeadingRadians = entity.HeadingRadians;

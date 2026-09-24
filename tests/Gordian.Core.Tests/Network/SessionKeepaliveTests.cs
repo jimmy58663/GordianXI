@@ -123,7 +123,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(12.34f, mgr.PositionX);
             Assert.Equal(56.78f, mgr.PositionY);
             Assert.Equal(90.12f, mgr.PositionZ);
-            Assert.Equal(64, mgr.Direction);
+            Assert.Equal(192, mgr.Direction); // Wire heading 64 converted to world heading (256 - 64)
             Assert.Equal(101, mgr.TargetIndex);
         }
 

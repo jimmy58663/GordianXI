@@ -478,7 +478,7 @@ namespace Gordian.Core.Actions
                     x: targetPos.X,
                     y: targetPos.Y,
                     z: targetPos.Z,
-                    dir: dir,
+                    dir: WorldEntity.ConvertWireDirection(dir),
                     targetIndex: targetIndex,
                     moveFrame: slideFrames);
 
