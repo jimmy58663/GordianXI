@@ -17,7 +17,16 @@ namespace Gordian.Core.Resources.Tables
         TaruMale = 5,
         TaruFemale = 6,
         Mithra = 7,
-        Galka = 8
+        Galka = 8,
+
+        /// <summary>NPC-only child race: Mithra kitten.</summary>
+        MithraChild = 29,
+
+        /// <summary>NPC-only child race: girl (Hume and Elvaan variants).</summary>
+        GirlChild = 30,
+
+        /// <summary>NPC-only child race: boy (Hume and Elvaan variants).</summary>
+        BoyChild = 31
     }
 
     /// <summary>
@@ -153,10 +162,39 @@ namespace Gordian.Core.Resources.Tables
         };
 
         /// <summary>
+        /// First file ID of each child-race outfit slot (Face, Head, Body, Hands, Legs, Feet): each slot spans 64 model
+        /// ids (0-19 Hume variants, 20+ Elvaan variants) and a slot's file is base + model id; children carry no weapons.
+        /// File ids referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/public/lists/characters.json LilMithra / LilGirl / LilBoy) and checked against the looks of every child
+        /// NPC in the AirSkyBoat npc_list.
+        /// </summary>
+        private static int[]? ChildGearBases(CharacterRace race) => race switch
+        {
+            CharacterRace.GirlChild => new[] { 29592, 29784, 29528, 29720, 29848, 29656 },
+            CharacterRace.BoyChild => new[] { 29984, 30176, 29920, 30112, 30240, 30048 },
+            CharacterRace.MithraChild => new[] { 30376, 30568, 30312, 30504, 30632, 30440 },
+            _ => null
+        };
+
+        /// <summary>
+        /// True for the NPC-only child races, which share no motion packs or weapons with the playable races.
+        /// </summary>
+        public static bool IsChildRace(CharacterRace race) =>
+            race is CharacterRace.MithraChild or CharacterRace.GirlChild or CharacterRace.BoyChild;
+
+        /// <summary>
         /// Attempts to resolve a numeric FFXI file ID for a specific character race, equipment slot, and model ID.
         /// </summary>
         public static bool TryResolveGearFileId(CharacterRace race, CharacterSlot slot, ushort modelId, out int fileId)
         {
+            if (ChildGearBases(race) is { } childBases)
+            {
+                fileId = 0;
+                if ((int)slot >= childBases.Length || modelId >= 64) return false;
+                fileId = childBases[(int)slot] + modelId;
+                return true;
+            }
+
             var table = race switch
             {
                 CharacterRace.HumeMale => HumeMaleGear,
@@ -213,6 +251,9 @@ namespace Gordian.Core.Resources.Tables
             CharacterRace.TaruMale or CharacterRace.TaruFemale => (46, 93),
             CharacterRace.Mithra => (51, 89),
             CharacterRace.Galka => (56, 59),
+            CharacterRace.GirlChild => (61, 58),
+            CharacterRace.BoyChild => (61, 85),
+            CharacterRace.MithraChild => (61, 110),
             _ => null
         };
 
@@ -281,6 +322,8 @@ namespace Gordian.Core.Resources.Tables
         {
             var loc = GetBaseSkeletonLocation(race);
             if (!loc.HasValue) return (string.Empty, string.Empty, string.Empty);
+            // Child skeletons carry their own idle / walk / run clips; the neighboring files are outfit parts.
+            if (IsChildRace(race)) return (GetBaseSkeletonPath(race), string.Empty, string.Empty);
 
             return (
                 GetBaseSkeletonPath(race),

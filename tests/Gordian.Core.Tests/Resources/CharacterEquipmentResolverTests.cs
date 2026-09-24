@@ -42,6 +42,20 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(expectedFileId, fileId);
         }
 
+        [Theory]
+        [InlineData(CharacterRace.BoyChild, CharacterSlot.Face, 22, 30006)]      // Authere: Elvaan hair variant
+        [InlineData(CharacterRace.BoyChild, CharacterSlot.Body, 20, 29940)]
+        [InlineData(CharacterRace.GirlChild, CharacterSlot.Hands, 1, 29721)]
+        [InlineData(CharacterRace.MithraChild, CharacterSlot.Feet, 0, 30440)]
+        public void CharacterEquipmentResolver_ResolvesChildRaceOutfits(CharacterRace race, CharacterSlot slot, ushort modelId, int expectedFileId)
+        {
+            Assert.True(CharacterEquipmentResolver.TryResolveGearFileId(race, slot, modelId, out int fileId));
+            Assert.Equal(expectedFileId, fileId);
+            Assert.False(CharacterEquipmentResolver.TryResolveGearFileId(race, CharacterSlot.Main, 1, out _));
+            Assert.Equal(Path.Combine("ROM", "61", "85.DAT"), CharacterEquipmentResolver.GetBaseSkeletonPath(CharacterRace.BoyChild));
+            Assert.Equal(string.Empty, CharacterEquipmentResolver.GetLocomotionPackPaths(race).Upper);
+        }
+
         [Fact]
         public void CharacterEquipmentResolver_ResolvesChainedGearGroups()
         {
