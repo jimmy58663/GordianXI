@@ -31,33 +31,93 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void ParseZoneContainer_Phase2bInstantiatesWaterGeneratorsWithUVScroll()
+        public void ParseZoneContainer_InfiniteLifeGeneratorBecomesWorldEffectLayer()
         {
-            // Build synthetic container with:
-            // 1. Template mesh (Section 0x2E) named "rip1" with texture "umi1"
-            // 2. Section 0x05 Particle Generator named "shi1" linking to "rip1" with UV scroll <-0.01, -0.03>
-            byte[] meshPayload = BuildSyntheticZoneMeshPayload("rip1", "umi1");
-            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, meshPayload, "rip1");
-
-            byte[] genPayload = BuildSyntheticWaterGeneratorPayload("shi1", "rip1", new Vector3(10f, 0f, 20f), new Vector2(-0.01f, -0.03f));
+            // Section 0x2E mesh "rip1" drawn by an infinite-life (max life span 0) generator "shi1" with UV scroll.
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genPayload = BuildSyntheticWaterGeneratorPayload("shi1", "rip1", new Vector3(10f, 2f, 20f), new Vector2(-0.01f, -0.03f));
             byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator, genPayload, "shi1");
 
-            byte[] container = new byte[meshSection.Length + genSection.Length];
-            meshSection.CopyTo(container, 0);
-            genSection.CopyTo(container, meshSection.Length);
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection), zoneId: 4,
+                outTextures: new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase));
 
-            var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
-            var zone = ZoneDataLoader.ParseZoneContainer(container, zoneId: 4, outTextures: textures);
+            // Drawn as a generator-driven world effect at the generator's display-space position.
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.True(effect.IsWorldEffect);
+            Assert.False(effect.IsParticleMesh);
+            Assert.Equal("rip1", effect.DatId);
+            Assert.Equal("umi1", effect.TextureName);
+            Assert.Equal(new Vector2(-0.01f, -0.03f), effect.UVScroll);
+            Assert.Equal(new Vector3(-10f, -2f, 20f), effect.Position);
+            Assert.NotEmpty(effect.MeshGroups);
+        }
 
-            Assert.NotNull(zone);
-            Assert.NotEmpty(zone.MeshGroups);
+        [Fact]
+        public void ParseZoneContainer_GeneratorLinkedToParticleMeshBecomesWorldEffectLayer()
+        {
+            byte[] meshSection = BuildChunk(DatSectionType.ParticleMesh,
+                ParticleMeshDecoderTests.BuildParticleMeshPayload("effect  umi1", 0x40), "umi1");
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("umi1", "umi1", Vector3.Zero, new Vector2(0f, -0.0008f)), "umi1");
 
-            var waterGroup = zone.MeshGroups.Find(g => g.IsWater);
-            Assert.NotNull(waterGroup);
-            Assert.True(waterGroup.IsBlend);
-            Assert.True(waterGroup.NoCull);
-            Assert.Equal("umi1", waterGroup.TextureName);
-            Assert.Equal(new Vector2(-0.01f, -0.03f), waterGroup.UVScroll);
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection), zoneId: 4);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.True(effect.IsParticleMesh);
+            Assert.Equal("effect  umi1", effect.TextureName);
+            Assert.Equal(new Vector2(0f, -0.0008f), effect.UVScroll);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_FiniteLifeGeneratorIsNotInstancedStatically()
+        {
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genPayload = BuildSyntheticWaterGeneratorPayload("shi1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 300);
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator, genPayload, "shi1");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection), zoneId: 4);
+
+            // Not auto-running and no routine starts it: nothing to run (and a static copy of a surf particle would be wrong).
+            Assert.Empty(zone.EffectLayers);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_AutoRunFiniteLifeGeneratorBecomesParticleEmitter()
+        {
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genPayload = BuildSyntheticWaterGeneratorPayload("uma1", "rip1", new Vector3(-360f, 0f, -418f), Vector2.Zero, maxLifeSpan: 500, autoRun: true);
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator, genPayload, "uma1");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection), zoneId: 4);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.NotNull(effect.Emitter);
+            Assert.Null(effect.Emitter.Schedule);
+            Assert.Equal(new Vector3(-360f, 0f, -418f), effect.Emitter.RawBasePosition);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_RoutineStartedGeneratorBecomesScheduledEmitter()
+        {
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("kwa1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 500), "kwa1");
+            byte[] routineSection = BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineDecoderTests.BuildRoutinePayload(2669, ("kwa1", 985, 498), ("kwa2", 1684, 598)), "s000");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection, routineSection), zoneId: 4);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.NotNull(effect.Emitter);
+            Assert.Equal(new[] { new EffectRoutineSpawn("kwa1", 0, 498) }, effect.Emitter.Schedule);
+            Assert.Equal(2669, effect.Emitter.ScheduleLoopFrames);
+        }
+
+        private static byte[] Concat(params byte[][] sections)
+        {
+            var all = new List<byte>();
+            foreach (var section in sections) all.AddRange(section);
+            return all.ToArray();
         }
 
         private static byte[] BuildSyntheticZoneMeshPayload(string meshName, string texName)
@@ -96,7 +156,7 @@ namespace Gordian.Core.Tests.Resources
             return payload;
         }
 
-        private static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll)
+        private static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll, ushort maxLifeSpan = 0, bool autoRun = false)
         {
             // Generator payload:
             // Header (128 bytes): +0x48 = DatId (4 chars), +0x70 = Section 1 stream offset, +0x78 = Section 3 stream offset
@@ -121,7 +181,9 @@ namespace Gordian.Core.Tests.Resources
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(op1Offset + 20, 4), basePos.X);
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(op1Offset + 24, 4), basePos.Y);
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(op1Offset + 28, 4), basePos.Z);
-            payload[op1Offset + 33] = 1; // Mesh
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(op1Offset + 34, 2), maxLifeSpan);
+            if (autoRun) payload[0x69] = 0x10; // generator flags: auto-run
+            payload[op1Offset + 33] = (byte)ParticleLinkedDataType.StaticMesh;
 
             // Opcode 0x27: Axis U scroll, 8 bytes = 2 dwords
             uint op27Config = 0x27 | ((uint)2 << 8);

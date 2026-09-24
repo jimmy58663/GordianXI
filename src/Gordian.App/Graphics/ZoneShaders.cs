@@ -230,6 +230,70 @@ void main()
 ";
 
         /// <summary>
+        /// Vertex shader for world-space zone effects driven by Section 0x05 generators (sea surfaces, sunset glints on
+        /// the water). Paired with <see cref="FragmentShaderWeatherSkyGlsl"/>, whose two modulate-2x stages it feeds.
+        /// With lighting enabled (SkyLayerParams.z), the vertex color is lit like the client's particle shader:
+        /// clamp(color * ambient + color * N.L * sun + color * N.(-L) * moon), alpha unchanged. Fog is linear by
+        /// eye distance when enabled (SkyLayerParams.x). Unlike the sky shaders this keeps real depth.
+        /// Particle lighting referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particleDrawer.js, after xim XimParticleShader).
+        /// </summary>
+        public const string VertexShaderZoneEffectGlsl = @"#version 450
+
+// Every declared input and varying must be consumed (see VertexShaderWeatherSkyGlsl): Normal feeds the lighting.
+layout(location = 0) in vec3 Position;
+layout(location = 1) in vec3 Normal;
+layout(location = 2) in vec2 TexCoord;
+layout(location = 3) in vec4 Color;
+
+layout(location = 0) out vec2 fsin_TexCoord;
+layout(location = 1) out vec4 fsin_Color;
+layout(location = 2) out float fsin_Fog;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+    vec4 SkyTextureFactor;
+    vec4 SkyLayerParams;
+    vec4 MoonColor;
+};
+
+void main()
+{
+    vec4 worldPos = World * vec4(Position, 1.0);
+    fsin_TexCoord = TexCoord + WeatherParams.xy;
+
+    vec3 n = mat3(World) * Normal;
+    float nl = length(n);
+    n = nl > 1e-5 ? n / nl : vec3(0.0, 1.0, 0.0);
+    vec3 L = normalize(SunDirection.xyz);
+    vec3 lit = clamp(
+        Color.rgb * AmbientColor.rgb +
+        Color.rgb * max(dot(n, L), 0.0) * SunColor.rgb +
+        Color.rgb * max(dot(n, -L), 0.0) * MoonColor.rgb, 0.0, 1.0);
+    fsin_Color = SkyLayerParams.z > 0.5 ? vec4(lit, Color.a) : Color;
+
+    float fog = 1.0;
+    if (SkyLayerParams.x > 0.5 && FogParams.y > 0.0)
+    {
+        fog = clamp((FogParams.y - length(worldPos.xyz - EyePosition.xyz)) * FogParams.z, 0.0, 1.0);
+    }
+    fsin_Fog = fog;
+
+    gl_Position = Projection * View * worldPos;
+}
+";
+
+        /// <summary>
         /// Maximum joints in the per-instance skinning palette bound at set 2. Must match
         /// EntityRenderer's palette buffer layout.
         /// </summary>

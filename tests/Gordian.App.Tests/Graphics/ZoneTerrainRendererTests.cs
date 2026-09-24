@@ -24,6 +24,7 @@ namespace Gordian.App.Tests.Graphics
             { "Decal", ZoneShaders.VertexShaderDecalGlsl, ZoneShaders.FragmentShaderBlendGlsl },
             { "Water", ZoneShaders.VertexShaderWaterGlsl, ZoneShaders.FragmentShaderBlendGlsl },
             { "WeatherSky", ZoneShaders.VertexShaderWeatherSkyGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
+            { "ZoneEffect", ZoneShaders.VertexShaderZoneEffectGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
         };
 
@@ -868,6 +869,15 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("Position + EyePosition.xyz", ZoneShaders.SkyDomeVertexShaderGlsl);
             Assert.Contains("dither", ZoneShaders.SkyDomeFragmentShaderGlsl);
             Assert.Contains("fsout_Color = vec4(color, 1.0)", ZoneShaders.SkyDomeFragmentShaderGlsl);
+        }
+
+        [Fact]
+        public void ZoneEffectVertexShader_LightsVertexColorOnlyWhenEnabled()
+        {
+            // Particle lighting: ambient + sun + moon on the vertex color, alpha unchanged, gated by SkyLayerParams.z.
+            Assert.Contains("SkyLayerParams.z > 0.5 ? vec4(lit, Color.a) : Color", ZoneShaders.VertexShaderZoneEffectGlsl);
+            Assert.Contains("max(dot(n, -L), 0.0) * MoonColor.rgb", ZoneShaders.VertexShaderZoneEffectGlsl);
+            Assert.DoesNotContain("0.9998", ZoneShaders.VertexShaderZoneEffectGlsl); // real depth, not the far plane
         }
 
         [Fact]

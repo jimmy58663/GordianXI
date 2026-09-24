@@ -60,6 +60,23 @@ namespace Gordian.Core.Resources.Graphics
     }
 
     /// <summary>
+    /// One raw Section 2 (initializer) or Section 3 (updater) opcode: its code, the particle allocation slot it reads or
+    /// writes, and its argument dwords after the opcode header. Interpreted by the particle runtime.
+    /// </summary>
+    public sealed record ParticleOpcode(byte OpCode, ushort Allocation, uint[] Args)
+    {
+        public float Float(int index) => index < Args.Length ? BitConverter.UInt32BitsToSingle(Args[index]) : 0f;
+
+        public Vector3 Vector(int index) => new(Float(index), Float(index + 1), Float(index + 2));
+    }
+
+    /// <summary>
+    /// A Section 2 keyframe-link initializer: the Section 0x19 curve bound to an allocation slot, sampled
+    /// <see cref="Cycles"/> times over a particle's life by progress-value updaters.
+    /// </summary>
+    public sealed record ParticleKeyFrameLink(string CurveId, int Cycles);
+
+    /// <summary>
     /// Standard particle initialization configuration (Section 2 Opcode 0x01).
     /// </summary>
     public sealed class StandardParticleSetup
@@ -131,6 +148,17 @@ namespace Gordian.Core.Resources.Graphics
         // Draw distance (from Section 3 Opcode 0x2E or 0x0A)
         public float MaxDrawDistance { get; set; }
 
+        /// <summary>
+        /// Distance fade from Section 3 Opcode 0x2E (DrawDistanceUpdater): alpha is 1 within <see cref="FadeNear"/>
+        /// of the camera, 0 beyond <see cref="FadeFar"/>, linear between. Both zero when the generator has no fade.
+        /// Opcode layout referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/updaters.js DrawDistanceUpdater, after xim).
+        /// </summary>
+        public float FadeNear { get; set; }
+
+        /// <inheritdoc cref="FadeNear"/>
+        public float FadeFar { get; set; }
+
         // Blend state from Section 2 Opcode 0x1E (default Src_One_Add / additive)
         public ParticleBlendFunc BlendFunc { get; set; } = ParticleBlendFunc.SrcOneAdd;
         public byte? AlphaOverride { get; set; }
@@ -161,6 +189,32 @@ namespace Gordian.Core.Resources.Graphics
         /// True if the drawn sprite-sheet card is selected by the current moon phase (Section 3 Opcode 0x45).
         /// </summary>
         public bool SpriteIndexFromMoonPhase { get; set; }
+
+        /// <summary>
+        /// Every Section 2 initializer opcode in authored order, for the particle runtime.
+        /// </summary>
+        public List<ParticleOpcode> Initializers { get; } = new();
+
+        /// <summary>
+        /// Every Section 3 per-particle updater opcode in authored order, for the particle runtime.
+        /// </summary>
+        public List<ParticleOpcode> Updaters { get; } = new();
+
+        /// <summary>
+        /// Section 4 expiration-handler opcodes (e.g. 0x05 repeat: the particle loops instead of dying).
+        /// </summary>
+        public List<byte> ExpirationHandlers { get; } = new();
+
+        /// <summary>
+        /// Section 2 keyframe links by allocation slot.
+        /// </summary>
+        public Dictionary<ushort, ParticleKeyFrameLink> KeyFrameLinks { get; } = new();
+
+        /// <summary>
+        /// Section 1 GeneratorCullUpdater (0x0A): the generator stops emitting while the camera is farther than this
+        /// from its base position. Zero when absent.
+        /// </summary>
+        public float MaxEmitDistance { get; set; }
 
         /// <summary>
         /// Painter's-order weight (Section 2 Opcode 0x30 param0): larger values draw earlier (farther).
@@ -347,9 +401,16 @@ namespace Gordian.Core.Resources.Graphics
                         ParseSection1Opcode(opCode, opPayload, def);
                         break;
                     case 2: // Initializers
+                        def.Initializers.Add(ToParticleOpcode(opCode, allocationOffset, opPayload));
                         if (IsKeyFrameLinkOpcode(opCode) && opPayload.Length >= 12)
                         {
-                            keyFrameLinks[allocationOffset] = ReadDatId(opPayload.Slice(8, 4));
+                            string curveId = ReadDatId(opPayload.Slice(8, 4));
+                            keyFrameLinks[allocationOffset] = curveId;
+                            // Bits 5-15 of the link config are the number of cycles over the particle's life.
+                            int cycles = opPayload.Length >= 16
+                                ? Math.Max(1, (int)((BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(12, 4)) & 0xFFFF) >> 5))
+                                : 1;
+                            def.KeyFrameLinks[allocationOffset] = new ParticleKeyFrameLink(curveId, cycles);
                         }
                         if (opCode == 0x0B && opPayload.Length >= 16) // RotationVelocitySetup
                         {
@@ -358,7 +419,11 @@ namespace Gordian.Core.Resources.Graphics
                         ParseSection2Opcode(opCode, opPayload, allocationOffset, def);
                         break;
                     case 3: // Particle Updaters
+                        def.Updaters.Add(ToParticleOpcode(opCode, allocationOffset, opPayload));
                         ParseSection3Opcode(opCode, opPayload, allocationOffset, def, keyFrameLinks, rotationVelocities);
+                        break;
+                    case 4: // Expiration handlers
+                        def.ExpirationHandlers.Add(opCode);
                         break;
                 }
 
@@ -375,6 +440,7 @@ namespace Gordian.Core.Resources.Graphics
                     {
                         float maxEmitDistance = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));
                         if (maxEmitDistance > 0f) def.MaxDrawDistance = maxEmitDistance;
+                        def.MaxEmitDistance = maxEmitDistance;
                     }
                     break;
             }
@@ -574,8 +640,23 @@ namespace Gordian.Core.Resources.Graphics
                         float drawDist = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));
                         if (drawDist > 0f) def.MaxDrawDistance = drawDist;
                     }
+                    if (opPayload.Length >= 12)
+                    {
+                        def.FadeNear = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));
+                        def.FadeFar = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(8, 4));
+                    }
                     break;
             }
+        }
+
+        private static ParticleOpcode ToParticleOpcode(byte opCode, ushort allocationOffset, ReadOnlySpan<byte> opPayload)
+        {
+            var args = new uint[Math.Max(0, opPayload.Length / 4 - 1)];
+            for (int i = 0; i < args.Length; i++)
+            {
+                args[i] = BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(4 + i * 4, 4));
+            }
+            return new ParticleOpcode(opCode, allocationOffset, args);
         }
 
         private static Vector3 ReadVector3(ReadOnlySpan<byte> span) => new(

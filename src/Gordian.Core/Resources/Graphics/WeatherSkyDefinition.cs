@@ -200,6 +200,43 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public IReadOnlyList<float> FlareOffsets { get; set; } = Array.Empty<float>();
 
+        /// <summary>
+        /// True if this layer is a world-space zone effect (e.g. a sea surface) rather than a sky layer: it is drawn
+        /// with real depth among the zone's translucent geometry instead of at the far plane.
+        /// </summary>
+        public bool IsWorldEffect { get; set; }
+
+        /// <summary>
+        /// Generator lighting flag (Section 2 Opcode 0x01): vertex colors are lit by the zone's ambient, sun and moon.
+        /// </summary>
+        public bool LightingEnabled { get; set; }
+
+        /// <summary>
+        /// Generator depth-mask flag (Section 2 Opcode 0x01): the layer writes depth.
+        /// </summary>
+        public bool DepthWrite { get; set; }
+
+        /// <summary>
+        /// True if the geometry is a Section 0x1F particle mesh. Alpha-blended particle meshes whose texture-factor alpha
+        /// reaches 127/255 draw fully opaque (the client's behavior on Bibiki Bay's ocean).
+        /// </summary>
+        public bool IsParticleMesh { get; set; }
+
+        /// <summary>
+        /// Camera-distance alpha fade from the generator (Section 3 Opcode 0x2E): 1 within FadeNear, 0 beyond FadeFar.
+        /// Both zero when the generator has no fade.
+        /// </summary>
+        public float FadeNear { get; set; }
+
+        /// <inheritdoc cref="FadeNear"/>
+        public float FadeFar { get; set; }
+
+        /// <summary>
+        /// For a finite-life particle emitter (e.g. shoreline surf), the generator to simulate; its particles supply
+        /// position, orientation, scale, color and UV per frame. Null for static layers.
+        /// </summary>
+        public Gordian.Core.Graphics.ZoneEmitterTemplate? Emitter { get; set; }
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }

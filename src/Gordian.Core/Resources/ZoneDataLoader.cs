@@ -183,6 +183,8 @@ namespace Gordian.Core.Resources
             var pendingSkyMeshes = new List<(string Name, string DatId, string? Weather, List<MeshGroup> Submeshes)>();
             var generatorPlacements = new List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)>();
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
+            var particleMeshes = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var zoneRoutines = new List<(string? ParentDir, EffectRoutine Routine)>();
             var zoneMeshSections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
@@ -306,6 +308,8 @@ namespace Gordian.Core.Resources
                                 envData.AddKeyFrameCurve($"{weather}/{header.DatId}", curve);
                             }
                             envData.AddKeyFrameCurve(header.DatId, curve);
+                            // Curve ids repeat across directories (umi2/uma1 vs umi5/uma1); generators resolve their own first.
+                            if (dirStack.Count > 0) envData.AddKeyFrameCurve(DirectoryCurveKey(dirStack.Peek(), header.DatId), curve);
                         }
                         break;
                     }
@@ -333,6 +337,33 @@ namespace Gordian.Core.Resources
                                 float vy = Math.Clamp(generator.UVScrollVelocity.Y * 30.0f, -0.025f, 0.025f);
                                 envData.WaterUVScroll = new Vector2(vx, vy);
                             }
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.ParticleMesh:
+                    {
+                        var meshes = ParticleMeshDecoder.Decode(payload, header.DatId);
+                        if (meshes != null && meshes.Count > 0)
+                        {
+                            string? weather = ResolveCurrentWeather(dirStack);
+                            if (!string.IsNullOrEmpty(weather))
+                            {
+                                particleMeshes.TryAdd($"{weather}/{header.DatId}", meshes);
+                            }
+                            particleMeshes.TryAdd(header.DatId, meshes);
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.EffectRoutine:
+                    {
+                        // Ambient zone routines (outside the weather directories) schedule their directory's generators.
+                        if (!string.IsNullOrEmpty(ResolveCurrentWeather(dirStack))) break;
+                        var routine = EffectRoutineDecoder.Decode(payload, header.DatId);
+                        if (routine != null && routine.Spawns.Count > 0)
+                        {
+                            zoneRoutines.Add((dirStack.Count > 0 ? dirStack.Peek() : null, routine));
                         }
                         break;
                     }
@@ -698,46 +729,84 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            // Phase 2b: Water Surface & Wave Ripple Effect Instancing via Section 0x05 Particle Generators
-            // In retail FFXI, shoreline ripples (shi1..shi5), wave crests (hna0, hum1, humt), and localized water ripples (mizu)
-            // are positioned dynamically by particle generators rather than static Section 0x1C placements.
-            for (int g = 0; g < generatorPlacements.Count; g++)
+            // Phase 2b: World effects from zone-anchored Section 0x05 generators drawing a Section 0x1F / 0x2E mesh.
+            // A generator whose particle never expires (max life span 0: sea surfaces, sunset glints on the water) keeps
+            // one static effect mesh, drawn with its generator's color, alpha, blend, UV scroll and lighting.
+            // A generator outside the weather directories whose particles have a finite life (shoreline surf, wave
+            // crests) becomes a particle emitter simulated by ZoneParticleEmitter when it auto-runs, or when a looping
+            // ambient Section 0x07 routine in its directory starts it (e.g. Bibiki Bay's umi2/s000 rolls kwa1..kwa3 in).
+            // Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+            // ui/js/particle/runtime.js, ui/js/particle/system.js registerZoneEffects and ops/initializers.js, after xim).
+            foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
-                var (datId, weather, _, gen) = generatorPlacements[g];
-                if (gen.Setup == null || string.IsNullOrWhiteSpace(gen.Setup.LinkedDataId)) continue;
+                var setup = gen.Setup;
+                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh) continue;
+                if (gen.AttachType != ParticleAttachType.None || setup.FollowCamera) continue;
+                bool isEmitter = setup.MaxLifeSpan != 0;
+                if (isEmitter && !string.IsNullOrEmpty(genWeather)) continue;
 
-                string linkId = gen.Setup.LinkedDataId;
-                if (ZoneDefDecoder.IsSkyMesh(linkId) || ZoneDefDecoder.IsCelestialMesh(linkId) ||
-                    linkId.StartsWith("yuk", StringComparison.OrdinalIgnoreCase) ||
-                    linkId.StartsWith("yku", StringComparison.OrdinalIgnoreCase) ||
-                    linkId.StartsWith("hi0", StringComparison.OrdinalIgnoreCase)) continue;
-
-                var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(linkId, templates, realMeshNames);
-                if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
-
-                bool isWater = IsWaterGenerator(datId) ||
-                               IsWaterGenerator(linkId) ||
-                               ZoneDefDecoder.IsWaterMesh(linkId, templateSubmeshes[0].TextureName);
-
-                // Only instantiate generators that represent genuine water ripples, waves, or surface effects.
-                // Atmospheric effects, heat shimmer, or horizon sunset glare planes must not be baked into static terrain.
-                if (!isWater) continue;
-
-                var trsMatrix = ZoneDefDecoder.CreateTrsMatrix(gen.Setup.BasePosition, Vector3.Zero, gen.Scale);
-
-                for (int s = 0; s < templateSubmeshes.Count; s++)
+                // A non-auto-running generator only runs when a looping ambient routine in its directory starts it.
+                List<EffectRoutineSpawn>? schedule = null;
+                int scheduleLoop = 0;
+                if (isEmitter && !gen.AutoRun)
                 {
-                    var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, datId);
-                    if (isWater)
+                    foreach (var (routineDir, routine) in zoneRoutines)
                     {
-                        instantiated.IsWater = true;
-                        instantiated.IsBlend = true;
-                        instantiated.NoCull = true;
+                        if (!string.Equals(routineDir, parentDir, StringComparison.OrdinalIgnoreCase)) continue;
+                        foreach (var spawn in routine.Spawns)
+                        {
+                            if (!string.Equals(spawn.GeneratorId, genId, StringComparison.OrdinalIgnoreCase)) continue;
+                            schedule ??= new List<EffectRoutineSpawn>();
+                            schedule.Add(spawn);
+                            scheduleLoop = routine.TotalFrames;
+                        }
                     }
-                    instantiated.UVScroll = gen.UVScrollVelocity;
-                    zone.MeshGroups.Add(instantiated);
-                    placedCount++;
+                    if (schedule == null) continue;
                 }
+
+                string linkId = setup.LinkedDataId;
+                if (string.IsNullOrWhiteSpace(linkId) || ZoneDefDecoder.IsSkyMesh(linkId)) continue;
+
+                bool isParticleMesh = true;
+                List<MeshGroup>? effectMeshes = null;
+                if (!string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
+                if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
+                if (effectMeshes == null)
+                {
+                    isParticleMesh = false;
+                    if (!string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
+                    if (effectMeshes == null) zoneMeshSections.TryGetValue(linkId, out effectMeshes);
+                }
+                if (effectMeshes == null || effectMeshes.Count == 0) continue;
+
+                Vector3 rawBase = setup.BasePosition;
+                var effect = new WeatherSkyLayer
+                {
+                    Name = genId,
+                    DatId = linkId,
+                    WeatherId = genWeather,
+                    IsWorldEffect = true,
+                    AttachType = ParticleAttachType.None,
+                    UVScroll = gen.UVScrollVelocity,
+                    Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
+                    Scale = gen.Scale,
+                    TextureName = effectMeshes.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.TextureName))?.TextureName ?? string.Empty,
+                    FollowCamera = false,
+                    FogEnabled = setup.FogEnabled,
+                    LightingEnabled = setup.LightingEnabled,
+                    DepthWrite = setup.DepthMask,
+                    IsParticleMesh = isParticleMesh,
+                    FadeNear = gen.FadeNear,
+                    FadeFar = gen.FadeFar,
+                    IsBlend = true,
+                    NoCull = true
+                };
+                ApplyGeneratorRenderState(effect, gen, genWeather, envData, authoredOrder);
+                if (!string.IsNullOrEmpty(genWeather)) effect.WeatherIds.Add(genWeather);
+                if (isEmitter) effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData), schedule, scheduleLoop);
+                AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
+
+                zone.EffectLayers.Add(effect);
             }
 
             // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C)
@@ -869,6 +938,26 @@ namespace Gordian.Core.Resources
 
             return -1;
         }
+
+        /// <summary>
+        /// Resolves a generator's Section 2 keyframe links to Section 0x19 curves by allocation slot, preferring curves
+        /// declared in the generator's own directory, then its weather directory, then any.
+        /// </summary>
+        private static Dictionary<ushort, KeyFrameCurve> ResolveEmitterCurves(ParticleGeneratorDefinition gen, string? genWeather, string? parentDir, ZoneEnvironmentData envData)
+        {
+            var curves = new Dictionary<ushort, KeyFrameCurve>();
+            foreach (var (slot, link) in gen.KeyFrameLinks)
+            {
+                KeyFrameCurve? curve = null;
+                if (!string.IsNullOrEmpty(parentDir)) envData.KeyFrameCurves.TryGetValue(DirectoryCurveKey(parentDir, link.CurveId), out curve);
+                if (curve == null && !string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{link.CurveId}", out curve);
+                if (curve == null) envData.KeyFrameCurves.TryGetValue(link.CurveId, out curve);
+                if (curve != null) curves[slot] = curve;
+            }
+            return curves;
+        }
+
+        private static string DirectoryCurveKey(string directory, string curveId) => $"dir:{directory}/{curveId}";
 
         public static bool IsWaterGenerator(string name)
         {

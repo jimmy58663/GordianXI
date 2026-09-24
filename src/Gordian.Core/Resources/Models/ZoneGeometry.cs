@@ -57,6 +57,11 @@ namespace Gordian.Core.Resources.Models
         public List<MeshGroup> MeshGroups { get; } = new();
         public List<ZonePlacement> Placements { get; } = new();
         public List<Graphics.WeatherSkyLayer> WeatherSkyLayers { get; } = new();
+
+        /// <summary>
+        /// World-space zone effects driven by Section 0x05 generators (sea surfaces and similar persistent effect meshes).
+        /// </summary>
+        public List<Graphics.WeatherSkyLayer> EffectLayers { get; } = new();
         public Graphics.ZoneEnvironmentData? EnvironmentData { get; set; }
 
         public int TotalVertices

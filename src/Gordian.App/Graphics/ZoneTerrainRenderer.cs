@@ -38,6 +38,8 @@ namespace Gordian.App.Graphics
         private Pipeline _weatherSkyPipeline = null!;
         private Pipeline _weatherSkyAdditivePipeline = null!;
         private Pipeline _weatherSkyReverseSubtractPipeline = null!;
+        // World-space zone effects: [straight alpha, additive, reverse subtract] x [no depth write, depth write]
+        private readonly Pipeline[,] _effectPipelines = new Pipeline[3, 2];
         private Pipeline _lensFlarePipeline = null!;
         private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
         private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
@@ -51,6 +53,11 @@ namespace Gordian.App.Graphics
 
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
+        private readonly List<GpuWeatherSkySubmesh> _effectSubmeshes = new();
+        private readonly List<(GpuWeatherSkySubmesh Mesh, float Distance)> _effectDrawList = new();
+        private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
+        private bool _emittersWarm;
+        private const float EmitterWarmupFrames = 1200.0f;
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
         private GpuSubmesh? _oceanWaterSubmesh;
@@ -110,6 +117,16 @@ namespace Gordian.App.Graphics
         public int TotalVertices { get; private set; }
         public int LoadedZoneSubmeshCount => _zoneSubmeshes.Count;
         public int WeatherSkySubmeshCount => _weatherSkySubmeshes.Count;
+
+        /// <summary>
+        /// Number of GPU submeshes streamed for world-space zone effects (sea surfaces).
+        /// </summary>
+        public int EffectSubmeshCount => _effectSubmeshes.Count;
+
+        /// <summary>
+        /// Controls whether world-space zone effects driven by Section 0x05 generators (sea surfaces) are rendered.
+        /// </summary>
+        public bool EnableZoneEffects { get; set; } = true;
         public Vector3 FirstSubmeshMinBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MinBounds : Vector3.Zero;
         public Vector3 FirstSubmeshMaxBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MaxBounds : Vector3.Zero;
 
@@ -245,6 +262,11 @@ namespace Gordian.App.Graphics
             Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
             Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsWaterDesc);
             Shader[] weatherSkyShaders = factory.CreateFromSpirv(vsWeatherSkyDesc, fsWeatherSkyDesc);
+            var vsZoneEffectDesc = new ShaderDescription(
+                ShaderStages.Vertex,
+                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderZoneEffectGlsl),
+                "main");
+            Shader[] zoneEffectShaders = factory.CreateFromSpirv(vsZoneEffectDesc, fsWeatherSkyDesc);
 
             // 4. Vertex Layout (36-byte MeshVertex stride: Pos(12) + Norm(12) + UV(8) + Color(4))
             var vertexLayout = new VertexLayoutDescription(
@@ -422,6 +444,29 @@ namespace Gordian.App.Graphics
                     alphaFunction: BlendFunction.ReverseSubtract));
             _weatherSkyReverseSubtractPipeline = factory.CreateGraphicsPipeline(weatherSkyReverseSubtractDesc);
 
+            // 9e. World-space zone effect pipelines (sea surfaces): the weather-sky blend states with real depth, testing
+            // against the scene and writing depth only when the generator's depth mask asks for it.
+            var effectBlendStates = new[]
+            {
+                weatherSkyPipelineDesc.BlendState,
+                weatherSkyAdditiveDesc.BlendState,
+                weatherSkyReverseSubtractDesc.BlendState
+            };
+            for (int blend = 0; blend < effectBlendStates.Length; blend++)
+            {
+                for (int depthWrite = 0; depthWrite < 2; depthWrite++)
+                {
+                    var effectDesc = weatherSkyPipelineDesc;
+                    effectDesc.BlendState = effectBlendStates[blend];
+                    effectDesc.DepthStencilState = new DepthStencilStateDescription(
+                        depthTestEnabled: true,
+                        depthWriteEnabled: depthWrite == 1,
+                        comparisonKind: ComparisonKind.LessEqual);
+                    effectDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, zoneEffectShaders);
+                    _effectPipelines[blend, depthWrite] = factory.CreateGraphicsPipeline(effectDesc);
+                }
+            }
+
             // 9d. Lens-flare Pipeline: screen-space additive sprites drawn over the finished scene, no depth test
             var lensFlareDesc = weatherSkyAdditiveDesc;
             lensFlareDesc.DepthStencilState = DepthStencilStateDescription.Disabled;
@@ -446,7 +491,7 @@ namespace Gordian.App.Graphics
                 : new Vector2(0.012f, -0.016f);
             _activeDecodedTextures = textures;
 
-            if (zone == null || (zone.MeshGroups.Count == 0 && zone.WeatherSkyLayers.Count == 0))
+            if (zone == null || (zone.MeshGroups.Count == 0 && zone.WeatherSkyLayers.Count == 0 && zone.EffectLayers.Count == 0))
             {
                 return;
             }
@@ -500,56 +545,7 @@ namespace Gordian.App.Graphics
             {
                 for (int i = 0; i < zone.WeatherSkyLayers.Count; i++)
                 {
-                    var layer = zone.WeatherSkyLayers[i];
-                    for (int g = 0; g < layer.MeshGroups.Count; g++)
-                    {
-                        var group = layer.MeshGroups[g];
-                        if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
-
-                        var vb = factory.CreateBuffer(new BufferDescription(
-                            (uint)(group.Vertices.Length * 36),
-                            BufferUsage.VertexBuffer));
-                        _gd.UpdateBuffer(vb, 0, group.Vertices);
-
-                        var ushortIndices = new ushort[group.Indices.Length];
-                        for (int idx = 0; idx < group.Indices.Length; idx++)
-                        {
-                            ushortIndices[idx] = (ushort)group.Indices[idx];
-                        }
-
-                        var ib = factory.CreateBuffer(new BufferDescription(
-                            (uint)(ushortIndices.Length * sizeof(ushort)),
-                            BufferUsage.IndexBuffer));
-                        _gd.UpdateBuffer(ib, 0, ushortIndices);
-
-                        var ub = factory.CreateBuffer(new BufferDescription(
-                            ZoneSceneUniform.SizeInBytes,
-                            BufferUsage.UniformBuffer | BufferUsage.Dynamic));
-                        var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
-
-                        _weatherSkySubmeshes.Add(new GpuWeatherSkySubmesh
-                        {
-                            Name = group.Name,
-                            LayerName = layer.Name,
-                            WeatherId = layer.WeatherId,
-                            IsCelestial = layer.IsCelestial,
-                            AttachType = layer.AttachType,
-                            UVScroll = layer.UVScroll,
-                            BasePosition = layer.Position,
-                            Scale = layer.Scale,
-                            FollowCamera = layer.FollowCamera,
-                            TextureName = group.TextureName,
-                            Layer = layer,
-                            CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
-                            VertexBuffer = vb,
-                            IndexBuffer = ib,
-                            UniformBuffer = ub,
-                            ResourceSet = rSet,
-                            IndexCount = (uint)ushortIndices.Length
-                        });
-
-                        vertCount += group.Vertices.Length;
-                    }
+                    vertCount += UploadGeneratorLayer(zone.WeatherSkyLayers[i], _weatherSkySubmeshes);
                 }
 
                 // Painter's order: sky generators draw in authored DAT order within their weather (the daytime sun glow
@@ -559,8 +555,80 @@ namespace Gordian.App.Graphics
                 _weatherSkySubmeshes.AddRange(authoredOrder);
             }
 
+            // Stream world-space zone effects (sea surfaces, and the meshes of surf / wave-crest particle emitters)
+            for (int i = 0; i < zone.EffectLayers.Count; i++)
+            {
+                var effectLayer = zone.EffectLayers[i];
+                vertCount += UploadGeneratorLayer(effectLayer, _effectSubmeshes);
+                if (effectLayer.Emitter != null)
+                {
+                    _emitters[effectLayer] = new ZoneParticleEmitter(effectLayer.Emitter, seed: i);
+                }
+            }
+            _emittersWarm = false;
+
             TotalVertices = vertCount;
-            GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes and {_weatherSkySubmeshes.Count} weather sky submeshes ({TotalVertices} vertices) to GPU.");
+            GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) to GPU.");
+        }
+
+        /// <summary>
+        /// Uploads a Section 0x05 generator layer's meshes (sky layer or world effect), one GPU submesh with its own
+        /// uniform buffer per mesh group. Returns the number of vertices streamed.
+        /// </summary>
+        private int UploadGeneratorLayer(WeatherSkyLayer layer, List<GpuWeatherSkySubmesh> target)
+        {
+            var factory = _gd.ResourceFactory;
+            int vertCount = 0;
+            for (int g = 0; g < layer.MeshGroups.Count; g++)
+            {
+                var group = layer.MeshGroups[g];
+                if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
+
+                var vb = factory.CreateBuffer(new BufferDescription(
+                    (uint)(group.Vertices.Length * 36),
+                    BufferUsage.VertexBuffer));
+                _gd.UpdateBuffer(vb, 0, group.Vertices);
+
+                var ushortIndices = new ushort[group.Indices.Length];
+                for (int idx = 0; idx < group.Indices.Length; idx++)
+                {
+                    ushortIndices[idx] = (ushort)group.Indices[idx];
+                }
+
+                var ib = factory.CreateBuffer(new BufferDescription(
+                    (uint)(ushortIndices.Length * sizeof(ushort)),
+                    BufferUsage.IndexBuffer));
+                _gd.UpdateBuffer(ib, 0, ushortIndices);
+
+                var ub = factory.CreateBuffer(new BufferDescription(
+                    ZoneSceneUniform.SizeInBytes,
+                    BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+                var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
+
+                target.Add(new GpuWeatherSkySubmesh
+                {
+                    Name = group.Name,
+                    LayerName = layer.Name,
+                    WeatherId = layer.WeatherId,
+                    IsCelestial = layer.IsCelestial,
+                    AttachType = layer.AttachType,
+                    UVScroll = layer.UVScroll,
+                    BasePosition = layer.Position,
+                    Scale = layer.Scale,
+                    FollowCamera = layer.FollowCamera,
+                    TextureName = group.TextureName,
+                    Layer = layer,
+                    CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
+                    VertexBuffer = vb,
+                    IndexBuffer = ib,
+                    UniformBuffer = ub,
+                    ResourceSet = rSet,
+                    IndexCount = (uint)ushortIndices.Length
+                });
+
+                vertCount += group.Vertices.Length;
+            }
+            return vertCount;
         }
 
         /// <summary>
@@ -654,15 +722,7 @@ namespace Gordian.App.Graphics
                 // Sky layers come from the zone's directory for the active weather; zones that author no directory for an
                 // elemental weather (rain, snow, thdr, ...) fall back to its canonical category (clod, suny, fine, mist).
                 // Celestial bodies are weather-scoped too: e.g. only fine/suny author star and moon, so overcast skies have none.
-                string skyWeather = VanaTime.GetCanonicalWeatherCategory(activeWeather);
-                foreach (var candidate in _weatherSkySubmeshes)
-                {
-                    if (candidate.Layer.WeatherIds.Contains(activeWeather))
-                    {
-                        skyWeather = activeWeather;
-                        break;
-                    }
-                }
+                string skyWeather = ResolveLayerWeather(_weatherSkySubmeshes, activeWeather);
 
                 for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
                 {
@@ -841,6 +901,55 @@ namespace Gordian.App.Graphics
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
+            }
+
+            // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
+            // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
+            if (EnableZoneEffects && _effectSubmeshes.Count > 0)
+            {
+                string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
+                Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
+                int effectDayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
+                int effectMoonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                float effectDayFraction = environment.TimeOfDayHours / 24.0f;
+
+                _effectDrawList.Clear();
+                foreach (var effectMesh in _effectSubmeshes)
+                {
+                    var weatherIds = effectMesh.Layer.WeatherIds;
+                    if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
+                    _effectDrawList.Add((effectMesh, Vector3.Distance(camera.Position, effectMesh.BasePosition)));
+                }
+                _effectDrawList.Sort((a, b) =>
+                    a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
+                        ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
+                        : b.Distance.CompareTo(a.Distance));
+
+                // Particle emitters (surf, wave crests) advance on the 60 Hz effect clock; the first frame after a zone
+                // load pre-warms them so the shoreline is not empty while the first waves roll in.
+                if (_emitters.Count > 0)
+                {
+                    var frame = new ZoneParticleFrame(ToDisplay(camera.Position), effectDayFraction, StrongestLight(environment));
+                    float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
+                    foreach (var emitter in _emitters.Values) emitter.Update(emitterFrames, frame);
+                    _emittersWarm = true;
+                }
+
+                Pipeline? currentEffectPipeline = null;
+                foreach (var (effectMesh, _) in _effectDrawList)
+                {
+                    if (_emitters.TryGetValue(effectMesh.Layer, out var emitter))
+                    {
+                        draws += DrawEmitterParticles(effectMesh, emitter, sceneUniform, ref currentEffectPipeline);
+                        visible++;
+                    }
+                    else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, sceneUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
+                    {
+                        draws++;
+                        visible++;
+                    }
+                }
+                currentBoundBlendPipeline = null;
             }
 
             // Pass 3b: Optional synthetic sea-level ocean water plane (enhancement, not in the legacy client)
@@ -1088,6 +1197,20 @@ namespace Gordian.App.Graphics
             center += ToDisplay(EvaluateClockVector(layer.ClockPositionCurves, dayFraction));
             Vector3 scale = EvaluateClockScale(layer.ClockScaleCurves, skyMesh.Scale, dayFraction);
 
+            if (layer.IsWorldEffect)
+            {
+                // Distance fade toward the generator, then the client's opaque snap for blended particle meshes.
+                if (layer.FadeFar > 0.0f || layer.FadeNear > 0.0f)
+                {
+                    textureFactor.W *= ZoneParticleEmitter.FallOff(Vector3.Distance(camera.Position, center), layer.FadeNear, layer.FadeFar);
+                }
+                if (layer.IsParticleMesh && layer.BlendFunc == ParticleBlendFunc.SrcInvSrcAdd && textureFactor.W >= 127.0f / 255.0f)
+                {
+                    textureFactor.W = 1.0f;
+                }
+                if (textureFactor.W <= 0.001f) return false;
+            }
+
             Matrix4x4 world = Matrix4x4.Identity;
             Vector2 uvOrFlareCenter = skyMesh.UVScroll * frames;
             float layerType = 3.0f;
@@ -1117,6 +1240,58 @@ namespace Gordian.App.Graphics
                         Matrix4x4.CreateTranslation(center);
             }
 
+            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline);
+        }
+
+        /// <summary>
+        /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
+        /// Returns the number of draw calls issued.
+        /// </summary>
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline)
+        {
+            var layer = skyMesh.Layer;
+            Vector3 rawBase = emitter.Template.RawBasePosition;
+            int drawn = 0;
+            foreach (var particle in emitter.Particles)
+            {
+                if (particle.IsExpired) continue;
+                Vector4 textureFactor = Vector4.Clamp(particle.TextureFactor, Vector4.Zero, Vector4.One);
+                if (layer.IsParticleMesh && layer.BlendFunc == ParticleBlendFunc.SrcInvSrcAdd && textureFactor.W >= 127.0f / 255.0f)
+                {
+                    textureFactor.W = 1.0f;
+                }
+                if (textureFactor.W <= 0.001f) continue;
+
+                // Particle rotation is in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
+                Vector3 rotation = particle.Rotation;
+                Matrix4x4 world = Matrix4x4.CreateScale(particle.Scale) *
+                                  Matrix4x4.CreateRotationX(-rotation.X) *
+                                  Matrix4x4.CreateRotationY(-rotation.Y) *
+                                  Matrix4x4.CreateRotationZ(rotation.Z) *
+                                  Matrix4x4.CreateTranslation(ToDisplay(rawBase + particle.LocalOffset));
+
+                if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
+                {
+                    drawn++;
+                }
+            }
+            return drawn;
+        }
+
+        /// <summary>
+        /// Binds the pipeline for a generator layer's blend mode (sky or world effect) and draws one of its meshes with the
+        /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
+        /// </summary>
+        private bool SubmitGeneratorDraw(
+            GpuWeatherSkySubmesh skyMesh,
+            Matrix4x4 world,
+            Vector2 uvOrFlareCenter,
+            float layerType,
+            Vector4 textureFactor,
+            ZoneSceneUniform sceneUniform,
+            ref Pipeline? currentPipeline)
+        {
+            var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
             (Pipeline pipeline, float blendOutput) = layer.BlendFunc switch
             {
@@ -1125,6 +1300,16 @@ namespace Gordian.App.Graphics
                 ParticleBlendFunc.SrcOneRevSub => (_weatherSkyReverseSubtractPipeline, 1.0f),
                 _ => (_weatherSkyAdditivePipeline, 1.0f)
             };
+            if (layer.IsWorldEffect)
+            {
+                int blendIndex = layer.BlendFunc switch
+                {
+                    ParticleBlendFunc.SrcInvSrcAdd or ParticleBlendFunc.OneZero or ParticleBlendFunc.ZeroInvSrcAdd => 0,
+                    ParticleBlendFunc.SrcOneRevSub => 2,
+                    _ => 1
+                };
+                pipeline = _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
+            }
             if (currentPipeline != pipeline)
             {
                 _commandList.SetPipeline(pipeline);
@@ -1139,7 +1324,7 @@ namespace Gordian.App.Graphics
             layerUniform.SkyLayerParams = new Vector4(
                 layer.FogEnabled ? 1.0f : 0.0f,
                 layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
-                0.0f,
+                layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
                 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
@@ -1162,6 +1347,29 @@ namespace Gordian.App.Graphics
         }
 
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
+
+        /// <summary>
+        /// The stronger of the sun and moon light colors, for daylight-tinted particles.
+        /// </summary>
+        private static Vector3 StrongestLight(ZoneEnvironmentSettings environment)
+        {
+            var sun = environment.SunColor;
+            var moon = environment.MoonColor;
+            return sun.X + sun.Y + sun.Z >= moon.X + moon.Y + moon.Z ? sun : moon;
+        }
+
+        /// <summary>
+        /// The weather directory whose generator layers draw for the active weather: the weather itself when the zone
+        /// authors layers for it, otherwise its canonical category (clod, suny, fine, mist).
+        /// </summary>
+        private static string ResolveLayerWeather(List<GpuWeatherSkySubmesh> layers, string activeWeather)
+        {
+            foreach (var candidate in layers)
+            {
+                if (candidate.Layer.WeatherIds.Contains(activeWeather)) return activeWeather;
+            }
+            return VanaTime.GetCanonicalWeatherCategory(activeWeather);
+        }
 
         private static Vector3 EvaluateClockScale(KeyFrameCurve?[]? curves, Vector3 scale, float dayFraction)
         {
@@ -1308,6 +1516,13 @@ namespace Gordian.App.Graphics
                 _weatherSkySubmeshes[i].Dispose();
             }
             _weatherSkySubmeshes.Clear();
+
+            for (int i = 0; i < _effectSubmeshes.Count; i++)
+            {
+                _effectSubmeshes[i].Dispose();
+            }
+            _effectSubmeshes.Clear();
+            _emitters.Clear();
         }
 
         public void Dispose()
@@ -1340,6 +1555,7 @@ namespace Gordian.App.Graphics
             _weatherSkyPipeline?.Dispose();
             _weatherSkyAdditivePipeline?.Dispose();
             _weatherSkyReverseSubtractPipeline?.Dispose();
+            foreach (var effectPipeline in _effectPipelines) effectPipeline?.Dispose();
             _lensFlarePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();
