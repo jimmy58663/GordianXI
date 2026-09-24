@@ -18,9 +18,11 @@ namespace Gordian.Core.Graphics
             IReadOnlyList<EffectRoutineSpawn>? schedule = null,
             int scheduleLoopFrames = 0,
             int spriteFrameCount = 0,
-            bool childOnly = false)
+            bool childOnly = false,
+            bool isWeather = false)
         {
             ChildOnly = childOnly;
+            IsWeather = isWeather;
             Definition = definition ?? throw new ArgumentNullException(nameof(definition));
             Curves = curves ?? throw new ArgumentNullException(nameof(curves));
             Schedule = schedule;
@@ -37,6 +39,12 @@ namespace Gordian.Core.Graphics
         /// True for a generator that only runs as another particle's child: it never emits on its own.
         /// </summary>
         public bool ChildOnly { get; }
+
+        /// <summary>
+        /// True for a generator declared in a weather directory (rain, snow, lightning): it runs only while its weather
+        /// is active and emits a third of its authored particle count, as the client does for weather effects.
+        /// </summary>
+        public bool IsWeather { get; }
 
         /// <summary>
         /// Child generators this generator's particles spawn (opcodes 0x3C, 0x44, 0x53, 0x6A and expiration 0x01), by DatId.
@@ -110,12 +118,26 @@ namespace Gordian.Core.Graphics
         internal readonly Dictionary<ushort, float> InitialValues = new();
         internal readonly Dictionary<ushort, ChildStream> ChildStreams = new();
         internal bool DaylightColored;
+        internal bool FollowsCamera;
+        internal Vector3[]? SubRelativeVelocities;
 
         /// <summary>
-        /// Raw DAT-space origin the particle's local offset is measured from: its generator's base position, or for a
-        /// child particle the parent-derived position it was spawned at.
+        /// Raw DAT-space origin the particle's local offset is measured from: its generator's base position, the camera
+        /// plus that base for camera-following and camera-anchored generators, or for a child particle the
+        /// parent-derived position it was spawned at.
         /// </summary>
         public Vector3 Origin { get; internal set; }
+
+        /// <summary>
+        /// For a batched generator (rain, snow), the raw DAT-space offsets of the sub-particles this particle stands for:
+        /// the particle draws once per offset, translated in world space. Null for an ordinary particle.
+        /// </summary>
+        public Vector3[]? SubOffsets { get; internal set; }
+
+        /// <summary>
+        /// The particle's local movement over its last update, raw DAT axes (Movement billboards face along it).
+        /// </summary>
+        public Vector3 LastMovement { get; internal set; }
 
         /// <summary>
         /// World position in raw DAT space.
@@ -215,8 +237,10 @@ namespace Gordian.Core.Graphics
     /// clock. Covers the initializers and updaters zone effect meshes use (velocity, relative velocity and their variance,
     /// spherical spawn scatter, rotation/scale velocity and variance, incremental rotation, oscillation, dampening,
     /// velocity rotation, progress and clock curves for position/rotation/scale/color/UV/velocity, color transforms,
-    /// constant and integrated UV scroll, single/double-range distance fades, daylight, day-of-week and moon-phase tints,
-    /// occlusion probes and the repeat expiration handler). Child generators, specular and point-light opcodes are ignored.
+    /// constant and integrated UV scroll, single/double-range distance fades, birth and per-frame daylight tints, day-of-week and moon-phase tints,
+    /// occlusion probes, the repeat expiration handler and child generators). Weather generators follow or anchor to the
+    /// camera, scatter camera-oriented spawn shells, and batch their particles as sub-particle offsets drawn with one
+    /// particle's state. Specular and point-light opcodes are ignored.
     /// Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
     /// ui/js/particle/runtime.js, types.js, ops/initializers.js, ops/updaters.js and ops/generator.js, after xim).
     /// </summary>
@@ -224,6 +248,9 @@ namespace Gordian.Core.Graphics
     {
         private const float MaxStepFrames = 4.0f;
         private readonly Random _random;
+        private Vector3 _cameraRawPosition;
+        private Vector3 _cameraRawForward;
+        private Vector3 _daylightColor = Vector3.One;
         private float _framesUntilNextParticle;
         private int _totalEmitted;
         private float _routineClock = -1.0f;
@@ -264,6 +291,9 @@ namespace Gordian.Core.Graphics
 
         private void Step(float frames, in ZoneParticleFrame frame)
         {
+            _cameraRawPosition = frame.CameraRawPosition;
+            _cameraRawForward = frame.CameraRawForward;
+            _daylightColor = frame.DaylightColor;
             for (int i = 0; i < Particles.Count; i++)
             {
                 UpdateParticle(Particles[i], frames, frame);
@@ -286,7 +316,7 @@ namespace Gordian.Core.Graphics
                 if (Def.ContinuousSingleton && Particles.Count > 0) break;
 
                 _framesUntilNextParticle += Def.FramesPerEmission + PosRand(Def.EmissionVariance);
-                int count = Def.ContinuousSingleton ? 1 : Def.ParticlesPerEmission + 1;
+                int count = ParticlesPerEmission;
                 for (int i = 0; i < count; i++)
                 {
                     Particles.Add(CreateParticle(null, false));
@@ -346,11 +376,31 @@ namespace Gordian.Core.Graphics
         /// </summary>
         internal void EmitChildren(ZoneParticle parent, bool followParent)
         {
-            int count = Def.ContinuousSingleton ? 1 : Def.ParticlesPerEmission + 1;
+            int count = ParticlesPerEmission;
             for (int i = 0; i < count; i++)
             {
                 Particles.Add(CreateParticle(parent, followParent));
                 _totalEmitted++;
+            }
+        }
+
+        /// <summary>
+        /// Particles created per emission: one for a continuous singleton or a batched generator (whose single particle
+        /// carries <see cref="AuthoredCount"/> sub-particles), otherwise the authored count.
+        /// </summary>
+        private int ParticlesPerEmission => Def.ContinuousSingleton || Def.Batched ? 1 : AuthoredCount;
+
+        /// <summary>
+        /// The authored particles per emission (+1). Weather generators emit a third of it, doubled first when batched,
+        /// which keeps rain and snow from becoming a solid wall.
+        /// </summary>
+        private int AuthoredCount
+        {
+            get
+            {
+                if (Def.ContinuousSingleton) return 1;
+                if (!Template.IsWeather) return Def.ParticlesPerEmission + 1;
+                return Def.ParticlesPerEmission * (Def.Batched ? 2 : 1) / 3 + 1;
             }
         }
 
@@ -361,9 +411,25 @@ namespace Gordian.Core.Graphics
         private ZoneParticle CreateParticle(ZoneParticle? parent, bool followParent)
         {
             var p = new ZoneParticle { Scale = Vector3.Zero, Origin = Template.RawBasePosition };
+            var config = Def.Setup;
             if (parent != null && (followParent || HasInitializer(0x45)))
             {
-                p.Origin = parent.WorldPosition + Template.RawBasePosition;
+                // A batched parent stands in for its sub-particles; children copy the first one's position.
+                var batchOffset = parent.SubOffsets is { Length: > 0 } parentSubs ? parentSubs[0] : Vector3.Zero;
+                p.Origin = parent.WorldPosition + batchOffset + Template.RawBasePosition;
+            }
+            else if (config != null && (config.FollowCamera || config.CameraAttachedBasePosition))
+            {
+                // Weather effects sit at the camera plus their base: camera-anchored ones (0x0400) where the camera was
+                // at birth, camera-following ones tracking it for as long as they follow their generator.
+                p.Origin = _cameraRawPosition + Template.RawBasePosition;
+                p.FollowsCamera = !config.CameraAttachedBasePosition && config.FollowGenerator;
+            }
+            if (Def.Batched)
+            {
+                int subCount = AuthoredCount;
+                p.SubOffsets = new Vector3[subCount];
+                p.SubRelativeVelocities = new Vector3[subCount];
             }
 
             foreach (var op in Def.Initializers)
@@ -393,23 +459,31 @@ namespace Gordian.Core.Graphics
                         }
                         break;
 
+                    // Spawn scatter: a batched particle scatters each of its sub-particles instead of itself.
                     case 0x06: // SphericalPositionVarianceSimple
-                        p.InitialPosition += SphericalOffset(op.Float(0), op.Float(1), Vector3.One, 0f, 0f, 0f, MathF.PI, 1);
-                        break;
                     case 0x07: // SphericalPositionVarianceMedium
-                        p.InitialPosition += SphericalOffset(op.Float(0) * (Def.Batched ? 2f : 1f), op.Float(1),
-                            new Vector3(op.Float(2), op.Float(3), op.Float(4)), 0f, op.Float(6), 0f, MathF.PI, 1);
-                        break;
                     case 0x1F: // SphericalPositionVarianceFull
-                        p.InitialPosition += SphericalOffset(op.Float(0), op.Float(1),
-                            new Vector3(op.Float(2), op.Float(3), op.Float(4)), op.Float(5), op.Float(6), op.Float(7), op.Float(8),
-                            1 + (op.Args.Length > 10 ? (int)op.Args[10] : 0));
+                        if (p.SubOffsets is { } scattered)
+                        {
+                            for (int i = 0; i < scattered.Length; i++) scattered[i] += SpawnOffset(op);
+                        }
+                        else
+                        {
+                            p.InitialPosition += SpawnOffset(op);
+                        }
                         break;
 
                     case 0x08: // RelativeVelocitySetup: velocity along the spawn offset direction
                         if (p.Transforms.TryGetValue(slot, out var relative) && p.InitialPosition.LengthSquared() > 0f)
                         {
                             relative.State.RelativeVelocity = Vector3.Normalize(p.InitialPosition) * op.Float(0);
+                        }
+                        if (p.SubOffsets is { } subs && p.SubRelativeVelocities is { } subVelocities)
+                        {
+                            for (int i = 0; i < subs.Length; i++)
+                            {
+                                subVelocities[i] = subs[i].LengthSquared() > 0f ? Vector3.Normalize(subs[i]) * op.Float(0) : Vector3.Zero;
+                            }
                         }
                         break;
                     case 0x41: // RelativeVelocityVarianceSetup
@@ -499,6 +573,9 @@ namespace Gordian.Core.Graphics
                         }
                         break;
 
+                    case 0x90: // DaylightBasedColorAdjuster: the birth color takes the strongest model light's tint
+                        p.Color = new Vector4(p.Color.X * _daylightColor.X, p.Color.Y * _daylightColor.Y, p.Color.Z * _daylightColor.Z, p.Color.W);
+                        break;
                     case 0x91: p.DaylightColored = true; break; // DaylightBasedColorSetup
 
                     case 0x44: // ChildGeneratorSetup: a child generator that lives as long as this particle
@@ -563,6 +640,48 @@ namespace Gordian.Core.Graphics
         }
 
         /// <summary>
+        /// One spawn offset for a spherical position-variance initializer (0x06 simple, 0x07 medium with its radius
+        /// variance doubled for batched generators, 0x1F full). A camera-oriented 0x1F shell is turned to face along the
+        /// camera's view unless the particle's local position is already in camera space.
+        /// </summary>
+        private Vector3 SpawnOffset(ParticleOpcode op)
+        {
+            switch (op.OpCode)
+            {
+                case 0x06:
+                    return SphericalOffset(op.Float(0), op.Float(1), Vector3.One, 0f, 0f, 0f, MathF.PI, 1);
+                case 0x07:
+                    return SphericalOffset(op.Float(0) * (Def.Batched ? 2f : 1f), op.Float(1),
+                        new Vector3(op.Float(2), op.Float(3), op.Float(4)), 0f, op.Float(6), 0f, MathF.PI, 1);
+                default:
+                {
+                    var offset = SphericalOffset(op.Float(0), op.Float(1),
+                        new Vector3(op.Float(2), op.Float(3), op.Float(4)), op.Float(5), op.Float(6), op.Float(7), op.Float(8),
+                        1 + (op.Args.Length > 10 ? (int)op.Args[10] : 0));
+                    bool cameraOriented = op.Args.Length > 9 && op.Args[9] == 1;
+                    return cameraOriented && Def.Setup?.LocalPositionInCameraSpace != true
+                        ? AxisBillboard(offset, _cameraRawForward)
+                        : offset;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Re-expresses <paramref name="v"/> in the basis whose forward (+Z) is <paramref name="direction"/> with world up:
+        /// x along the left axis (up x forward), y along the derived up, z along the direction.
+        /// </summary>
+        internal static Vector3 AxisBillboard(Vector3 v, Vector3 direction)
+        {
+            if (direction.LengthSquared() < 1e-12f) return v;
+            var forward = Vector3.Normalize(direction);
+            var left = Vector3.Cross(Vector3.UnitY, forward);
+            if (left.LengthSquared() < 1e-12f) return v;
+            left = Vector3.Normalize(left);
+            var up = Vector3.Normalize(Vector3.Cross(forward, left));
+            return left * v.X + up * v.Y + forward * v.Z;
+        }
+
+        /// <summary>
         /// A spawn offset on a (scaled, tilted) sphere shell: radius base + variance * cbrt(u) along +X, tilted about Z,
         /// spun about Y by a random (or evenly divided) angle, scaled, then turned by the authored Z and Y axis rotations.
         /// </summary>
@@ -599,11 +718,15 @@ namespace Gordian.Core.Graphics
                 else return;
             }
 
+            if (particle.FollowsCamera) particle.Origin = frame.CameraRawPosition + Template.RawBasePosition;
+
+            var previousPosition = particle.Position;
             particle.ColorMultiplier = Vector4.One;
             foreach (var op in Def.Updaters)
             {
                 ApplyUpdater(particle, op, frames, frame);
             }
+            if (frames > 0f) particle.LastMovement = particle.Position - previousPosition;
         }
 
         private void ApplyUpdater(ZoneParticle p, ParticleOpcode op, float frames, in ZoneParticleFrame frame)
@@ -611,8 +734,12 @@ namespace Gordian.Core.Graphics
             ushort slot = op.Allocation;
             switch (op.OpCode)
             {
-                case 0x02: // PositionUpdater
+                case 0x02: // PositionUpdater (sub-particles drift along their own relative velocity)
                     if (p.Transforms.TryGetValue(slot, out var moving)) p.Position += TotalVelocity(p, moving.State) * frames;
+                    if (p.SubOffsets is { } drifting && p.SubRelativeVelocities is { } driftVelocities)
+                    {
+                        for (int i = 0; i < drifting.Length; i++) drifting[i] += driftVelocities[i] * frames;
+                    }
                     break;
                 case 0x03: // VelocityAccelerator
                 case 0x06:
@@ -704,6 +831,10 @@ namespace Gordian.Core.Graphics
                         float f = MathF.Pow(damped.State.DampeningFactor ?? op.Float(0), frames);
                         damped.State.Velocity *= f;
                         damped.State.RelativeVelocity *= f;
+                        if (p.SubRelativeVelocities is { } dampedSubs)
+                        {
+                            for (int i = 0; i < dampedSubs.Length; i++) dampedSubs[i] *= f;
+                        }
                     }
                     break;
 

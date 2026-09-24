@@ -297,6 +297,138 @@ namespace Gordian.Core.Tests.Graphics
             Assert.NotEqual(0.1f, growth, 4);
         }
 
+        /// <summary>
+        /// A rain-like weather generator: batched, <paramref name="particlesPerEmission"/> authored particles scattered on
+        /// a 10-yalm shell, falling at 0.5 per frame, with the given camera placement flags.
+        /// </summary>
+        private static ParticleGeneratorDefinition Rain(byte particlesPerEmission = 149, bool batched = true,
+            bool followCamera = false, bool cameraAnchored = false)
+        {
+            var def = Surf(life: 60, framesPerEmission: 20);
+            def.Batched = batched;
+            def.ParticlesPerEmission = particlesPerEmission;
+            def.Setup!.FollowCamera = followCamera;
+            def.Setup.CameraAttachedBasePosition = cameraAnchored;
+            def.Setup.BasePosition = new Vector3(0f, -30f, 0f);
+            def.Initializers.Add(new ParticleOpcode(0x06, 0, Args(0f, 10f)));
+            def.Initializers.Add(new ParticleOpcode(0x08, 8, Args(0.25f)));
+            return def;
+        }
+
+        private static ZoneParticleEmitter WeatherEmitter(ParticleGeneratorDefinition def) =>
+            new(new ZoneEmitterTemplate(def, new Dictionary<ushort, KeyFrameCurve>(), isWeather: true), seed: 5);
+
+        [Fact]
+        public void BatchedWeatherGenerator_EmitsOneParticleCarryingAThirdOfTheDoubledCountAsSubParticles()
+        {
+            var emitter = WeatherEmitter(Rain(particlesPerEmission: 149));
+
+            emitter.Update(1f, Frame);
+
+            var particle = Assert.Single(emitter.Particles);
+            Assert.NotNull(particle.SubOffsets);
+            Assert.Equal(149 * 2 / 3 + 1, particle.SubOffsets!.Length);
+            // The shell scatters the sub-particles, not the particle itself.
+            Assert.Equal(Vector3.Zero, particle.InitialPosition);
+            Assert.All(particle.SubOffsets, o => Assert.Equal(10f, o.Length(), 3));
+        }
+
+        [Fact]
+        public void UnbatchedWeatherGenerator_EmitsAThirdOfItsAuthoredParticles()
+        {
+            var emitter = WeatherEmitter(Rain(particlesPerEmission: 29, batched: false));
+
+            emitter.Update(1f, Frame);
+
+            Assert.Equal(29 / 3 + 1, emitter.Particles.Count);
+            Assert.All(emitter.Particles, p => Assert.Null(p.SubOffsets));
+        }
+
+        [Fact]
+        public void BatchedSubParticles_DriftAlongTheirRelativeVelocity()
+        {
+            var emitter = WeatherEmitter(Rain());
+            emitter.Update(1f, Frame);
+            var particle = emitter.Particles[0];
+            var before = particle.SubOffsets!.ToArray();
+
+            emitter.Update(4f, Frame);
+
+            // 0.25 per frame outward from the spawn shell.
+            for (int i = 0; i < before.Length; i++)
+            {
+                Assert.Equal(10f + 0.25f * 4f, particle.SubOffsets![i].Length(), 3);
+                Assert.Equal(Vector3.Normalize(before[i]).X, Vector3.Normalize(particle.SubOffsets[i]).X, 3);
+            }
+        }
+
+        [Fact]
+        public void CameraFollowingGenerator_TracksTheCameraPlusItsBase()
+        {
+            var emitter = WeatherEmitter(Rain(followCamera: true));
+            emitter.Update(1f, new ZoneParticleFrame(new Vector3(100f, 0f, 50f), 0.5f, Vector3.One));
+            Assert.Equal(new Vector3(100f, -30f, 50f), emitter.Particles[0].Origin);
+
+            emitter.Update(1f, new ZoneParticleFrame(new Vector3(110f, 5f, 50f), 0.5f, Vector3.One));
+            Assert.Equal(new Vector3(110f, -25f, 50f), emitter.Particles[0].Origin);
+        }
+
+        [Fact]
+        public void CameraAnchoredGenerator_StaysWhereTheCameraWasAtBirth()
+        {
+            var emitter = WeatherEmitter(Rain(cameraAnchored: true));
+            emitter.Update(1f, new ZoneParticleFrame(new Vector3(100f, 0f, 50f), 0.5f, Vector3.One));
+            emitter.Update(1f, new ZoneParticleFrame(new Vector3(200f, 0f, 50f), 0.5f, Vector3.One));
+
+            Assert.Equal(new Vector3(100f, -30f, 50f), emitter.Particles[0].Origin);
+        }
+
+        [Fact]
+        public void CameraOrientedSpawnShell_FacesAlongTheCameraView()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 1000);
+            // Full variance: base radius 4 along +X with no tilt variance, camera oriented.
+            def.Initializers.Add(new ParticleOpcode(0x1F, 0, new[]
+            {
+                0u, BitConverter.SingleToUInt32Bits(4f), BitConverter.SingleToUInt32Bits(1f), BitConverter.SingleToUInt32Bits(0f),
+                BitConverter.SingleToUInt32Bits(1f), 0u, 0u, 0u, 0u, 1u, 0u
+            }));
+            var emitter = new ZoneParticleEmitter(Template(def), seed: 1);
+
+            // Radius scale (1, 0, 1) keeps the shell in the XZ plane; facing +X turns the plane's Z onto world X.
+            emitter.Update(1f, new ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One, CameraRawForward: Vector3.UnitX));
+            var offset = emitter.Particles[0].InitialPosition;
+
+            Assert.Equal(4f, offset.Length(), 3);
+            Assert.Equal(0f, offset.Y, 3);
+            Assert.Equal(new Vector3(0f, 0f, -1f), ZoneParticleEmitter.AxisBillboard(Vector3.UnitX, Vector3.UnitX));
+        }
+
+        [Fact]
+        public void DaylightBasedColorAdjuster_TintsTheBirthColorByTheStrongestLight()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 1000);
+            def.Initializers.Add(new ParticleOpcode(0x90, 0, Array.Empty<uint>()));
+            var emitter = new ZoneParticleEmitter(Template(def));
+
+            emitter.Update(1f, new ZoneParticleFrame(Vector3.Zero, 0.5f, new Vector3(0.5f, 0.25f, 1f)));
+
+            var color = emitter.Particles[0].Color;
+            Assert.Equal(0.5019608f * 0.5f, color.X, 4);
+            Assert.Equal(0.5019608f * 0.25f, color.Y, 4);
+            Assert.Equal(0.5019608f, color.Z, 4);
+        }
+
+        [Fact]
+        public void Particle_RecordsItsLastMovementForMovementBillboards()
+        {
+            var emitter = new ZoneParticleEmitter(Template(Surf(life: 1000, framesPerEmission: 1000)));
+            emitter.Update(1f, Frame);
+            emitter.Update(2f, Frame);
+
+            Assert.Equal(new Vector3(0f, 0f, -0.02f), emitter.Particles[0].LastMovement);
+        }
+
         [Theory]
         [InlineData(5f, 0f)]
         [InlineData(15f, 0.5f)]

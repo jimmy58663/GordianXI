@@ -88,7 +88,8 @@ namespace Gordian.App.ViewModels
 
         public string TargetIndexHex => $"0x{TargetIndex:X3}";
         public string ServerIdHex => $"0x{ServerId:X8}";
-        public string PositionDisplay => $"({Position.X:F1}, {Position.Y:F1}, {Position.Z:F1})";
+        // FFXI/Windower display order: (x, y, z) with z the height (internal Y).
+        public string PositionDisplay => $"({Position.X:F1}, {Position.Z:F1}, {Position.Y:F1})";
         public string DistanceDisplay => $"{Distance:F1}y";
         public string HppDisplay => $"{Hpp}%";
         public string TypeBadge => Type switch

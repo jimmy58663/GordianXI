@@ -431,7 +431,14 @@ namespace Gordian.Core.Actions
         #region Locomotion & Inspection Subsystem
 
         /// <summary>
-        /// Moves towards target coordinates. Gated by <see cref="FeatureRestrictions"/>.
+        /// Formats an internal position (Y = height) in FFXI/Windower display order: X, Y (north/south), Z (height).
+        /// </summary>
+        private static string FormatDisplayPosition(Vector3 pos, string format) =>
+            $"X={pos.X.ToString(format)}, Y={pos.Z.ToString(format)}, Z={pos.Y.ToString(format)}";
+
+        /// <summary>
+        /// Moves towards target coordinates (internal axes, Y = height; a NaN Y keeps the current height).
+        /// Gated by <see cref="FeatureRestrictions"/>.
         /// </summary>
         public async Task<PlayerActionResult> MoveToAsync(Vector3 targetPos)
         {
@@ -447,7 +454,14 @@ namespace Gordian.Core.Actions
             float dist = 0f;
 
             // Update local entity coordinates in WorldState if present
-            if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
+            bool hasLocal = _world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null;
+            if (float.IsNaN(targetPos.Y))
+            {
+                // No height given: stay at the current height.
+                targetPos = targetPos with { Y = hasLocal ? localEnt!.Position.Y : 0f };
+            }
+
+            if (hasLocal && localEnt != null)
             {
                 dist = Vector3.Distance(localEnt.Position, targetPos);
                 localEnt.Position = targetPos;
@@ -484,7 +498,7 @@ namespace Gordian.Core.Actions
 
                 await _sendChunkCallback(posPacket, false).ConfigureAwait(false);
                 return PlayerActionResult.Ok(
-                    $"Locomotion updated: X={targetPos.X:F2}, Y={targetPos.Y:F2}, Z={targetPos.Z:F2}",
+                    $"Locomotion updated: {FormatDisplayPosition(targetPos, "F2")}",
                     ChatCommandResultKind.SyntheticMoveTo);
             }
             catch (Exception ex)
@@ -510,7 +524,7 @@ namespace Gordian.Core.Actions
                 headingDeg = (dir / 256.0f) * 360.0f;
             }
 
-            return $"[Position] X={pos.X:F2}, Y={pos.Y:F2}, Z={pos.Z:F2} | Dir={dir} ({headingDeg:F0}°) | ServerID=0x{_localPlayer.ServerId:X8}";
+            return $"[Position] {FormatDisplayPosition(pos, "F2")} | Dir={dir} ({headingDeg:F0}°) | ServerID=0x{_localPlayer.ServerId:X8}";
         }
 
         /// <summary>
@@ -544,7 +558,7 @@ namespace Gordian.Core.Actions
             {
                 float dist = Vector3.Distance(center, ent.Position);
                 string name = string.IsNullOrWhiteSpace(ent.Name) ? "<Unknown>" : ent.Name;
-                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Y:F1}, {ent.Position.Z:F1})");
+                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Z:F1}, {ent.Position.Y:F1})");
             }
             return sb.ToString().TrimEnd();
         }
@@ -568,7 +582,7 @@ namespace Gordian.Core.Actions
             }
 
             float dist = Vector3.Distance(myPos, t.Position);
-            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Y:F2}, {t.Position.Z:F2})";
+            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Z:F2}, {t.Position.Y:F2})";
         }
 
         /// <summary>
@@ -600,7 +614,7 @@ namespace Gordian.Core.Actions
                     case "moveto" or "goto":
                         if (_profile.IsRestricted(FeatureRestrictions.Movement))
                             return "Command '/moveto' is blocked by server feature restrictions (Movement).";
-                        return "Usage: /moveto <x> <y> [z] - Update position coordinates to target location.";
+                        return "Usage: /moveto <x> <y> [z] - Move to FFXI/Windower coordinates (z = height, optional).";
                     case "pos" or "where" or "loc":
                         return "Usage: /pos - Print current player coordinates, heading, and server ID.";
                     case "target" or "ta":

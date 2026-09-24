@@ -135,6 +135,22 @@ namespace Gordian.Core.Graphics
             return true;
         }
 
+        /// <summary>
+        /// Tests whether a sphere touches the frustum (conservative: may accept spheres just outside a corner).
+        /// </summary>
+        public bool IntersectsSphere(Vector3 center, float radius)
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                var plane = _planes[i];
+                if (Vector3.Dot(plane.Normal, center) + plane.D < -radius)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private static Plane NormalizePlane(Plane plane)
         {
             float length = plane.Normal.Length();

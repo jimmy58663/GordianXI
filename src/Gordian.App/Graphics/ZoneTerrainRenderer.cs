@@ -166,6 +166,11 @@ namespace Gordian.App.Graphics
             public string TextureName { get; init; } = string.Empty;
             public WeatherSkyLayer Layer { get; init; } = null!;
             public int CardIndex { get; init; } = -1;
+
+            /// <summary>
+            /// Largest vertex distance from the mesh origin, for culling scaled particle draws.
+            /// </summary>
+            public float BoundingRadius { get; init; }
             public DeviceBuffer VertexBuffer { get; init; } = null!;
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public DeviceBuffer UniformBuffer { get; init; } = null!;
@@ -613,6 +618,9 @@ namespace Gordian.App.Graphics
                     BufferUsage.UniformBuffer | BufferUsage.Dynamic));
                 var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
 
+                float radiusSquared = 0.0f;
+                foreach (var vertex in group.Vertices) radiusSquared = MathF.Max(radiusSquared, vertex.Position.LengthSquared());
+
                 target.Add(new GpuWeatherSkySubmesh
                 {
                     Name = group.Name,
@@ -627,6 +635,7 @@ namespace Gordian.App.Graphics
                     TextureName = group.TextureName,
                     Layer = layer,
                     CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
+                    BoundingRadius = MathF.Sqrt(radiusSquared),
                     VertexBuffer = vb,
                     IndexBuffer = ib,
                     UniformBuffer = ub,
@@ -926,7 +935,11 @@ namespace Gordian.App.Graphics
                 {
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
-                    _effectDrawList.Add((effectMesh, Vector3.Distance(camera.Position, effectMesh.BasePosition)));
+                    // Camera-following weather effects sit at their base offset from the eye.
+                    float sortDistance = effectMesh.FollowCamera
+                        ? effectMesh.BasePosition.Length()
+                        : Vector3.Distance(camera.Position, effectMesh.BasePosition);
+                    _effectDrawList.Add((effectMesh, sortDistance));
                 }
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
@@ -940,7 +953,16 @@ namespace Gordian.App.Graphics
                     var frame = new ZoneParticleFrame(ToDisplay(camera.Position), effectDayFraction, StrongestLight(environment),
                         ToDisplay(camera.Forward), effectDayOfWeek, effectMoonPhase);
                     float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
-                    foreach (var emitter in _emitters.Values) emitter.Update(emitterFrames, frame);
+                    foreach (var (emitterLayer, emitter) in _emitters)
+                    {
+                        // Weather emitters run only under their weather; a weather change starts them afresh.
+                        if (emitterLayer.WeatherIds.Count > 0 && !emitterLayer.WeatherIds.Contains(effectWeather))
+                        {
+                            if (emitter.Particles.Count > 0) emitter.Particles.Clear();
+                            continue;
+                        }
+                        emitter.Update(emitterFrames, frame);
+                    }
                     _emittersWarm = true;
                 }
 
@@ -1261,6 +1283,7 @@ namespace Gordian.App.Graphics
             var layer = skyMesh.Layer;
             int drawn = 0;
             var billboard = emitter.Template.Definition.Setup?.BillBoardType ?? ParticleBillBoardType.None;
+            var frustum = camera.Frustum;
             foreach (var particle in emitter.Particles)
             {
                 if (particle.IsExpired || particle.IsOcclusionProbe) continue;
@@ -1286,14 +1309,65 @@ namespace Gordian.App.Graphics
                     ParticleBillBoardType.XZ => CreateBillboardBasis(camera.Right, Vector3.UnitY, camera.Forward),
                     _ => Matrix4x4.Identity
                 };
-                Matrix4x4 world = local * facing * Matrix4x4.CreateTranslation(ToDisplay(particle.WorldPosition));
-
-                if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
+                // Movement billboards turn toward the particle's travel (horizontal travel only for MovementHorizontal),
+                // Camera billboards toward the eye; batched particles ignore movement orientation.
+                Vector3? direction = billboard switch
                 {
-                    drawn++;
+                    ParticleBillBoardType.Movement when particle.SubOffsets == null => particle.LastMovement,
+                    ParticleBillBoardType.MovementHorizontal when particle.SubOffsets == null => particle.LastMovement with { Y = 0.0f },
+                    ParticleBillBoardType.Camera => ToDisplay(camera.Position) - particle.WorldPosition,
+                    _ => null
+                };
+                if (direction is { } towards) local *= ToDisplayRotation(CreateDirectionOrientation(towards));
+
+                float radius = skyMesh.BoundingRadius * MathF.Max(MathF.Abs(particle.Scale.X), MathF.Max(MathF.Abs(particle.Scale.Y), MathF.Abs(particle.Scale.Z)));
+                Matrix4x4 oriented = local * facing;
+                Vector3 position = ToDisplay(particle.WorldPosition);
+                var subOffsets = particle.SubOffsets;
+                int drawCount = subOffsets?.Length ?? 1;
+                for (int i = 0; i < drawCount; i++)
+                {
+                    // Sub-particle offsets are raw DAT-space world translations.
+                    Vector3 center = subOffsets == null ? position : position + ToDisplay(subOffsets[i]);
+                    if (!frustum.IntersectsSphere(center, radius)) continue;
+                    if (SubmitGeneratorDraw(skyMesh, oriented * Matrix4x4.CreateTranslation(center), particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
+                    {
+                        drawn++;
+                    }
                 }
             }
             return drawn;
+        }
+
+        /// <summary>
+        /// The client's movement/camera billboard orientation, raw DAT axes: pitches the particle about its left axis
+        /// toward <paramref name="direction"/>, then yaws it about Y to face the direction's heading (straight up or down
+        /// turns it a quarter about Z). Row-vector form of xim's axis-angle then Y rotation.
+        /// Semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/runtime.js applyMovementOrientation, after xim).
+        /// </summary>
+        internal static Matrix4x4 CreateDirectionOrientation(Vector3 direction)
+        {
+            if (direction.LengthSquared() < 1e-12f) return Matrix4x4.Identity;
+            var movement = Vector3.Normalize(direction);
+            if (MathF.Abs(movement.Y) >= 0.999f)
+            {
+                return Matrix4x4.CreateRotationZ(MathF.Sign(movement.Y) * MathF.PI / 2.0f);
+            }
+
+            var left = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, movement));
+            var up = Vector3.Normalize(Vector3.Cross(movement, left));
+            float angle = -MathF.Acos(Math.Clamp(Vector3.Dot(up, Vector3.UnitY), -1.0f, 1.0f)) * MathF.Sign(movement.Y);
+            return Matrix4x4.CreateRotationY(-MathF.Atan2(movement.Z, movement.X)) * Matrix4x4.CreateFromAxisAngle(left, angle);
+        }
+
+        /// <summary>
+        /// Converts a raw DAT-space linear transform to display space (the (-x, -y, z) flip on both sides).
+        /// </summary>
+        private static Matrix4x4 ToDisplayRotation(Matrix4x4 raw)
+        {
+            var flip = Matrix4x4.CreateScale(-1.0f, -1.0f, 1.0f);
+            return flip * raw * flip;
         }
 
         /// <summary>

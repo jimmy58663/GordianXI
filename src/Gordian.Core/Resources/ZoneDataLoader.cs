@@ -452,6 +452,10 @@ namespace Gordian.Core.Resources
                 generatorsPerWeather[weatherKey] = ordinal + 1;
             }
 
+            // Generators drawn as sky layers (celestial shells, sun, clouds, celestial sprites and flares); the weather
+            // particle emitters below skip them.
+            var skyGenerators = new HashSet<ParticleGeneratorDefinition>(ReferenceEqualityComparer.Instance);
+
             // Resolve celestial sky meshes (stars, stardust, moon halo). Clouds and the sun are generator-driven below.
             var celestialByMesh = new Dictionary<string, WeatherSkyLayer>(StringComparer.OrdinalIgnoreCase);
             for (int s = 0; s < pendingSkyMeshes.Count; s++)
@@ -529,6 +533,7 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(layer, matchedGen, matchedGenWeather, envData, authoredOrder);
+                if (matchedGen != null) skyGenerators.Add(matchedGen);
                 AddDisplayMeshGroups(layer, submeshes, string.Empty);
                 if (!string.IsNullOrEmpty(authoredWeather)) layer.WeatherIds.Add(authoredWeather);
                 celestialByMesh[meshName] = layer;
@@ -567,6 +572,7 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(sun, gen, genWeather, envData, authoredOrder);
+                skyGenerators.Add(gen);
                 sun.WeatherIds.Add(genWeather);
                 AddDisplayMeshGroups(sun, sunMeshes, string.Empty);
 
@@ -607,6 +613,7 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(cloud, gen, genWeather, envData, authoredOrder);
+                skyGenerators.Add(gen);
                 cloud.WeatherIds.Add(genWeather);
                 AddDisplayMeshGroups(cloud, cloudMeshes, string.Empty);
 
@@ -631,6 +638,7 @@ namespace Gordian.Core.Resources
                 if (spriteLayersByGenerator.TryGetValue(genId, out var existingSprite))
                 {
                     if (!string.IsNullOrEmpty(genWeather)) existingSprite.WeatherIds.Add(genWeather);
+                    skyGenerators.Add(gen);
                     continue;
                 }
 
@@ -665,6 +673,7 @@ namespace Gordian.Core.Resources
                     NoCull = true
                 };
                 ApplyGeneratorRenderState(layer, gen, genWeather, envData, authoredOrder);
+                skyGenerators.Add(gen);
                 if (!string.IsNullOrEmpty(genWeather)) layer.WeatherIds.Add(genWeather);
                 spriteLayersByGenerator[genId] = layer;
 
@@ -735,6 +744,9 @@ namespace Gordian.Core.Resources
             // A generator outside the weather directories whose particles have a finite life (shoreline surf, wave
             // crests) becomes a particle emitter simulated by ZoneParticleEmitter when it auto-runs, or when a looping
             // ambient Section 0x07 routine in its directory starts it (e.g. Bibiki Bay's umi2/s000 rolls kwa1..kwa3 in).
+            // Auto-running emitters in a weather directory (rain, snow, splashes, lightning bolts) run while their weather
+            // is active, including camera-following and camera-anchored ones; the client starts the rest (lightning
+            // strike routines, actor effects) itself.
             // Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
             // ui/js/particle/runtime.js, ui/js/particle/system.js registerZoneEffects and ops/initializers.js, after xim).
             var layerDirectories = new Dictionary<WeatherSkyLayer, string?>(ReferenceEqualityComparer.Instance);
@@ -744,10 +756,13 @@ namespace Gordian.Core.Resources
                 if (setup == null) continue;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) continue;
-                if (gen.AttachType != ParticleAttachType.None || setup.FollowCamera) continue;
+                if (gen.AttachType != ParticleAttachType.None || skyGenerators.Contains(gen)) continue;
+                bool isWeather = !string.IsNullOrEmpty(genWeather);
                 // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle).
                 bool isEmitter = setup.MaxLifeSpan != 0 || isSprite;
-                if (isEmitter && !string.IsNullOrEmpty(genWeather)) continue;
+                if (isEmitter && isWeather && !gen.AutoRun) continue;
+                // Camera-following generators are weather emitters; the persistent ones are the sky layers above.
+                if (setup.FollowCamera && (!isWeather || setup.MaxLifeSpan == 0)) continue;
 
                 // A non-auto-running generator only runs when a looping ambient routine in its directory starts it.
                 List<EffectRoutineSpawn>? schedule = null;
@@ -857,7 +872,7 @@ namespace Gordian.Core.Resources
                     Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
                     Scale = gen.Scale,
                     TextureName = effectMeshes.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.TextureName))?.TextureName ?? string.Empty,
-                    FollowCamera = false,
+                    FollowCamera = setup.FollowCamera || setup.CameraAttachedBasePosition,
                     FogEnabled = setup.FogEnabled,
                     LightingEnabled = setup.LightingEnabled,
                     DepthWrite = setup.DepthMask,
@@ -873,7 +888,7 @@ namespace Gordian.Core.Resources
                 if (isEmitter || isSprite)
                 {
                     effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
-                        schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly);
+                        schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly, isWeather: !string.IsNullOrEmpty(genWeather));
                 }
                 AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
                 return effect;

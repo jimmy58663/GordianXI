@@ -82,9 +82,8 @@ namespace Gordian.Core.Tests.Actions
 
             Assert.True(res.Success);
             Assert.Contains("Position", res.Message);
-            Assert.Contains("X=10.00", res.Message);
-            Assert.Contains("Y=5.00", res.Message);
-            Assert.Contains("Z=20.00", res.Message);
+            // Windower display order: internal (10, height 5, 20) reads X=10, Y=20, Z=5.
+            Assert.Contains("X=10.00, Y=20.00, Z=5.00", res.Message);
         }
 
         [Fact]
@@ -194,6 +193,27 @@ namespace Gordian.Core.Tests.Actions
             Assert.NotEmpty(_sentChunks);
             // Pos packet (0x015) is 32 bytes
             Assert.Equal(32, _sentChunks[0].Length);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_MoveTo_TakesWindowerOrderWithZAsHeight()
+        {
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
+            await _actionService.ExecuteCommandAsync("/moveto 124.12 -588.277 -5.69");
+
+            Assert.True(_world.TryGetByServerId(0x01020304, out var player));
+            // Internal Y is height, internal Z is the display Y.
+            Assert.Equal(new Vector3(124.12f, -5.69f, -588.277f), player!.Position);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_MoveTo_WithoutHeightKeepsTheCurrentHeight()
+        {
+            _profile.FeatureRestrictions = FeatureRestrictions.None;
+            await _actionService.ExecuteCommandAsync("/moveto 30 40");
+
+            Assert.True(_world.TryGetByServerId(0x01020304, out var player));
+            Assert.Equal(new Vector3(30f, 5f, 40f), player!.Position);
         }
 
         [Fact]

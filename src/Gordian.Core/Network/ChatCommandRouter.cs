@@ -616,18 +616,21 @@ namespace Gordian.Core.Network
                 };
             }
 
-            float z = 0f;
-            if (parts.Length >= 3)
+            // Height is optional; NaN keeps the player's current height.
+            float z = float.NaN;
+            if (parts.Length >= 3 &&
+                !float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out z))
             {
-                float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out z);
+                z = float.NaN;
             }
 
+            // Coordinates are entered in FFXI/Windower display order (x, y, z = height); internally Y is height.
             return new ChatCommandResult
             {
                 Kind = ChatCommandResultKind.SyntheticMoveTo,
                 MoveX = x,
-                MoveY = y,
-                MoveZ = z
+                MoveY = z,
+                MoveZ = y
             };
         }
     }
