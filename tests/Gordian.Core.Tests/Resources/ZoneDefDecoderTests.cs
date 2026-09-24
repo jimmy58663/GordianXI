@@ -93,6 +93,32 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void DecryptZoneObjects_DetectsModernStrideFromMaskedUnderscoreNames()
+        {
+            // City zones (e.g. Southern San d'Oria) name objects like "rig_10": '_' masks to 0x0A, a control byte,
+            // so stride detection must unmask names before scoring them. Record bodies are filled with printable
+            // bytes so a misaligned 0x54 probe would look like a name if the mask were ignored.
+            int stride = ZoneDefDecoder.StrideModern;
+            const int nodes = 8;
+            byte[] payload = new byte[0x20 + (nodes * stride)];
+            payload.AsSpan(0x20).Fill((byte)'A');
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000000);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), nodes);
+
+            for (int n = 0; n < nodes; n++)
+            {
+                byte[] name = Encoding.ASCII.GetBytes($"rig_{n:D2}".PadRight(16));
+                for (int i = 0; i < 16; i++) payload[0x20 + (n * stride) + i] = (byte)(name[i] ^ 0x55);
+            }
+
+            int count = ZoneDefDecoder.DecryptZoneObjects(payload, new byte[256]);
+
+            Assert.Equal(nodes, count);
+            Assert.Equal(ZoneDefDecoder.StrideModern, ZoneDefDecoder.DetectObjectStride(payload, nodes));
+            Assert.Equal("rig_05", Encoding.ASCII.GetString(payload.AsSpan(0x20 + (5 * stride), 6)));
+        }
+
+        [Fact]
         public void ParseZonePlacements_FiltersDeletedAndCollisionProxies()
         {
             int stride = ZoneDefDecoder.StrideModern;

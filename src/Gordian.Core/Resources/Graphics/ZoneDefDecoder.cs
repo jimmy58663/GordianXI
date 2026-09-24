@@ -72,7 +72,8 @@ namespace Gordian.Core.Resources.Graphics
                 }
             }
 
-            int stride = DetectObjectStride(payload, nodeCount);
+            // Names are still XOR-masked here; detection must unmask them or '_' (0x0A masked) reads as a control byte.
+            int stride = DetectObjectStride(payload, nodeCount, namesMasked: true);
 
             // Name unmasking: XOR 0x55 across each object's 16-byte name
             int namePos = 0x20;
@@ -93,8 +94,10 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Detects whether the placement table uses modern 100-byte (0x64) or prototype 84-byte (0x54) records.
         /// </summary>
-        public static int DetectObjectStride(ReadOnlySpan<byte> payload, int nodeCount)
+        /// <param name="namesMasked">True when object names still carry their 0x55 XOR mask.</param>
+        public static int DetectObjectStride(ReadOnlySpan<byte> payload, int nodeCount, bool namesMasked = false)
         {
+            byte mask = namesMasked ? (byte)0x55 : (byte)0;
             if (nodeCount < 2) return StrideModern;
 
             int limit = Math.Min(nodeCount, 32);
@@ -103,8 +106,8 @@ namespace Gordian.Core.Resources.Graphics
 
             for (int i = 0; i < limit; i++)
             {
-                if (IsPrintableName(payload, 0x20 + (i * StrideProto))) score54++;
-                if (IsPrintableName(payload, 0x20 + (i * StrideModern))) score64++;
+                if (IsPrintableName(payload, 0x20 + (i * StrideProto), mask)) score54++;
+                if (IsPrintableName(payload, 0x20 + (i * StrideModern), mask)) score64++;
             }
 
             if (score64 > score54 + 2) return StrideModern;
@@ -113,13 +116,13 @@ namespace Gordian.Core.Resources.Graphics
             return StrideModern;
         }
 
-        private static bool IsPrintableName(ReadOnlySpan<byte> payload, int offset)
+        private static bool IsPrintableName(ReadOnlySpan<byte> payload, int offset, byte mask)
         {
             if (offset + 16 > payload.Length) return false;
             int printable = 0;
             for (int i = 0; i < 16; i++)
             {
-                byte c = payload[offset + i];
+                byte c = (byte)(payload[offset + i] ^ mask);
                 if (c == 0) break;
                 if (c < 0x20 || c > 0x7E) return false;
                 printable++;
