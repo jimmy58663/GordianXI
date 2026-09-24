@@ -164,15 +164,18 @@ namespace Gordian.Core.Tests.World
             var midnight = VanaTime.GetSunDirection(0.0f);
             Assert.True(midnight.Y < -0.9f, "Midnight sun elevation should be near nadir (-Y)");
 
-            // Dawn (06:00): Sun rising in east (+X)
+            // Dawn (06:00): Sun rising in the east, display -X (raw DAT +X)
             var dawn = VanaTime.GetSunDirection(6.0f);
-            Assert.True(dawn.X > 0.9f, "Dawn sun should point towards east (+X)");
+            Assert.True(dawn.X < -0.9f, "Dawn sun should point towards east (display -X)");
             Assert.InRange(dawn.Y, -0.2f, 0.2f);
 
-            // Dusk (18:00): Sun setting in west (-X)
+            // Dusk (18:00): Sun setting in the west, display +X
             var dusk = VanaTime.GetSunDirection(18.0f);
-            Assert.True(dusk.X < -0.9f, "Dusk sun should point towards west (-X)");
+            Assert.True(dusk.X > 0.9f, "Dusk sun should point towards west (display +X)");
             Assert.InRange(dusk.Y, -0.2f, 0.2f);
+
+            // The client's orbit has no inclination: the sun stays in the X/Y plane.
+            Assert.Equal(0.0f, VanaTime.GetSunDirection(9.5f).Z);
         }
 
         [Fact]

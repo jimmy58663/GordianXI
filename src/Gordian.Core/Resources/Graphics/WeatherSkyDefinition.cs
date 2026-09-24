@@ -152,9 +152,16 @@ namespace Gordian.Core.Resources.Graphics
         public KeyFrameCurve?[]? ClockPositionCurves { get; set; }
 
         /// <summary>
-        /// Painter's-order weight from the generator's projection bias: larger values draw first.
+        /// Time-of-day curves that replace the X, Y and Z scale in raw DAT axes (null entries keep <see cref="Scale"/>), or null.
         /// </summary>
-        public float DrawPriority { get; set; }
+        public KeyFrameCurve?[]? ClockScaleCurves { get; set; }
+
+        /// <summary>
+        /// Painter's order: the drawing generator's position among its weather directory's generators in the DAT.
+        /// The client draws sky generators in authored order (e.g. every weather authors its daytime sun glow before
+        /// its clouds, so the sun shines through them), not by the generator's projection-bias weight.
+        /// </summary>
+        public int AuthoredOrder { get; set; } = int.MaxValue;
 
         /// <summary>
         /// Time-of-day alpha curve (Section 0x19) sampled over the 24-hour Vana'diel clock, or null.

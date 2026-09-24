@@ -200,22 +200,17 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
-        /// Computes the dynamic celestial sun direction vector in display space (+Y up, +X east, -X west)
-        /// for a given Vana'diel hour (0.0 to 24.0).
-        /// Protocol and celestial orbit referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// Computes the celestial sun direction in display space (-x, -y, z; +Y up, -X east, +X west) for a Vana'diel
+        /// hour (0.0 to 24.0). The client orbits the sun in the raw DAT X/Y plane as (sin a, cos a, 0) with
+        /// a = hour * pi / 12, so it rises in the east at 06:00, peaks at noon, and sets in the west at 18:00; the moon
+        /// is directly opposite.
+        /// Orbit referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/environment.js
+        /// sunDirDisplay, after xim EnvironmentManager).
         /// </summary>
         public static Vector3 GetSunDirection(float vanaHour)
         {
-            // Sun completes one circle every 24 hours:
-            // Noon (12:00): Sun at peak zenith (+Y), Moon at nadir (-Y).
-            // Midnight (00:00 / 24:00): Sun at nadir (-Y), Moon at zenith (+Y).
-            // Dawn (06:00): Sun rising in east (+X).
-            // Dusk (18:00): Sun setting in west (-X).
             float angle = vanaHour * (MathF.PI / 12f);
-            float x = MathF.Sin(angle);
-            float y = -MathF.Cos(angle);
-            float z = 0.25f; // Slight seasonal ecliptic inclination
-            return Vector3.Normalize(new Vector3(x, y, z));
+            return new Vector3(-MathF.Sin(angle), -MathF.Cos(angle), 0.0f);
         }
     }
 }

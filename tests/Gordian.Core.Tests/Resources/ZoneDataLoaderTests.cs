@@ -179,6 +179,33 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ParseZoneContainer_SunGeneratorsAreOneLayerPerWeatherAndGenerator()
+        {
+            // weat/fine draws the sun mesh twice (glow + disc); weat/clod draws its own single diffuse sun.
+            byte[] dat = Concat(
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "weat"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "fine"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("sunsphere", "sun     sun"), "suns"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("suns", 0f, attach: ParticleAttachType.Sun), "sun1"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("suns", 0f, attach: ParticleAttachType.Sun), "sun2"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), "clod"),
+                BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("sunsphere", "sun     sun"), "sun2"),
+                BuildChunk(DatSectionType.ParticleGenerator, BuildLinkedGeneratorPayload("sun2", 0f, attach: ParticleAttachType.Sun), "sun1"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"),
+                BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end"));
+
+            var zone = ZoneDataLoader.ParseZoneContainer(dat, 4);
+
+            var suns = zone.WeatherSkyLayers.Where(l => l.AttachType == ParticleAttachType.Sun).ToList();
+            Assert.Equal(3, suns.Count);
+            Assert.All(suns, s => Assert.True(s.IsCelestial));
+            Assert.Equal(new[] { "sun1", "sun2" }, suns.Where(s => s.WeatherIds.Contains("fine")).Select(s => s.GeneratorId).OrderBy(g => g));
+            var clodSun = Assert.Single(suns, s => s.WeatherIds.Contains("clod"));
+            Assert.Equal("sun2", clodSun.DatId);
+        }
+
+        [Fact]
         public void ParseZoneContainer_CelestialLayersRecordOnlyTheWeathersThatAuthorThem()
         {
             // Stars are duplicated under fine and suny only; an overcast (clod) directory authors none.

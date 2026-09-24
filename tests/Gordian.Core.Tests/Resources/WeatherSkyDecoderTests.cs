@@ -160,7 +160,7 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void ParseZoneContainer_DeduplicatesCelestialDiscsAcrossWeathers()
+        public void ParseZoneContainer_SunMeshWithoutSunGeneratorIsNotDrawn()
         {
             // [DIR weat]
             //   [DIR fine]
@@ -187,15 +187,9 @@ namespace Gordian.Core.Tests.Resources
 
             var zone = ZoneDataLoader.ParseZoneContainer(container, zoneId: 101);
 
+            // The sun is generator-driven: a sun mesh that no Sun-attached generator draws produces no sky layer.
             Assert.NotNull(zone);
-            Assert.Single(zone.WeatherSkyLayers);
-
-            var celestialLayer = zone.WeatherSkyLayers[0];
-            Assert.Equal("sun", celestialLayer.Name);
-            Assert.Null(celestialLayer.WeatherId); // Universal
-            Assert.True(celestialLayer.IsCelestial);
-            Assert.Equal(ParticleAttachType.Sun, celestialLayer.AttachType);
-            Assert.False(celestialLayer.FogEnabled); // Celestial bodies punch through distance fog
+            Assert.Empty(zone.WeatherSkyLayers);
         }
     }
 }

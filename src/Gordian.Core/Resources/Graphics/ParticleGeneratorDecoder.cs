@@ -186,6 +186,12 @@ namespace Gordian.Core.Resources.Graphics
         public string?[] ClockPositionKeyFrameIds { get; } = new string?[3];
 
         /// <summary>
+        /// Section 0x19 keyframe DatIds that set the particle's X, Y and Z scale over the 24-hour clock
+        /// (Section 3 Opcodes 0x40 / 0x41 / 0x42); null entries keep the initial scale.
+        /// </summary>
+        public string?[] ClockScaleKeyFrameIds { get; } = new string?[3];
+
+        /// <summary>
         /// True if this generator attaches to the Sun or Moon, or links to celestial geometry.
         /// </summary>
         public bool IsCelestial =>
@@ -506,6 +512,15 @@ namespace Gordian.Core.Resources.Graphics
                     if (keyFrameLinks.TryGetValue(allocationOffset, out var colorCurveId))
                     {
                         def.ClockColorKeyFrameIds[opCode - 0x3C] = colorCurveId;
+                    }
+                    break;
+
+                case 0x40: // ClockValueUpdater: scale X = keyframe(time of day)
+                case 0x41: // ClockValueUpdater: scale Y
+                case 0x42: // ClockValueUpdater: scale Z
+                    if (keyFrameLinks.TryGetValue(allocationOffset, out var scaleCurveId))
+                    {
+                        def.ClockScaleKeyFrameIds[opCode - 0x40] = scaleCurveId;
                     }
                     break;
 

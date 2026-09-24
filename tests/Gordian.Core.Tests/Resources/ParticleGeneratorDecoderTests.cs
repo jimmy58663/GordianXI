@@ -290,6 +290,7 @@ namespace Gordian.Core.Tests.Resources
                     (0x61, 2, KeyFrameLinkArgs("kcg1")),
                     (0x62, 0, KeyFrameLinkArgs("kcb1")),
                     (0x96, 8, KeyFrameLinkArgs("k007")),
+                    (0x65, 10, KeyFrameLinkArgs("k003")),
                 ],
                 updaters:
                 [
@@ -298,6 +299,7 @@ namespace Gordian.Core.Tests.Resources
                     (0x3D, 2, []),
                     (0x3E, 0, []),
                     (0x6C, 8, []),
+                    (0x41, 10, []),
                 ]);
 
             var gen = ParticleGeneratorDecoder.DecodeGenerator(payload, "cld1");
@@ -307,6 +309,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(0.00017453f, gen.RotationVelocity.Y, 6);
             Assert.Equal(new[] { "kcr1", "kcg1", "kcb1" }, gen.ClockColorKeyFrameIds);
             Assert.Equal(new[] { null, "k007", null }, gen.ClockPositionKeyFrameIds);
+            Assert.Equal(new[] { null, "k003", null }, gen.ClockScaleKeyFrameIds);
         }
 
         [Fact]

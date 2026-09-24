@@ -607,11 +607,11 @@ void main()
 
         /// <summary>
         /// Fragment shader for Section 0x05 weather sky generators (cloud shells, stars, Milky Way, moon disc and halo,
-        /// pole star, lens flares) and the legacy sun disc.
+        /// pole star, sun glow/disc/corona, lens flares).
         /// Uses WeatherParams:
         ///   xy: continuous UV scrolling offset (lens flares: sprite centre in NDC, consumed by the vertex shader)
         ///   z: blend output (0 = straight alpha, 1 = premultiplied for additive / reverse subtract, 2 = darken by alpha)
-        ///   w: layer type (4.0 = screen-space lens flare, 3.0 = sky generator, 2.0 = sun disc)
+        ///   w: layer type (4.0 = screen-space lens flare, 3.0 = sky generator; consumed by the vertex shader)
         /// Celestial generators reproduce the client's two modulate-2x texture stages, with the generator
         /// color (day-of-week, moon-phase and time-of-day modulated) as the texture factor.
         /// Stage math referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
@@ -648,50 +648,39 @@ void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
 
-    if (WeatherParams.w > 2.5)
-    {
-        vec4 stage0 = 2.0 * fsin_Color * tex;
-        vec3 rgb = clamp(2.0 * stage0.rgb * SkyTextureFactor.rgb, 0.0, 1.0);
-        float alpha = clamp(4.0 * stage0.a * SkyTextureFactor.a, 0.0, 1.0);
-        rgb = mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog);
+    vec4 stage0 = 2.0 * fsin_Color * tex;
+    vec3 rgb = clamp(2.0 * stage0.rgb * SkyTextureFactor.rgb, 0.0, 1.0);
+    float alpha = clamp(4.0 * stage0.a * SkyTextureFactor.a, 0.0, 1.0);
+    rgb = mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog);
 
-        if (WeatherParams.z > 1.5)
+    if (WeatherParams.z > 1.5)
+    {
+        // Zero_InvSrc_Add (ZERO, ONE_MINUS_SRC_ALPHA): darken the destination by alpha.
+        if (alpha < 0.004)
         {
-            // Zero_InvSrc_Add (ZERO, ONE_MINUS_SRC_ALPHA): darken the destination by alpha.
-            if (alpha < 0.004)
-            {
-                discard;
-            }
-            fsout_Color = vec4(0.0, 0.0, 0.0, alpha);
+            discard;
         }
-        else if (WeatherParams.z > 0.5)
+        fsout_Color = vec4(0.0, 0.0, 0.0, alpha);
+    }
+    else if (WeatherParams.z > 0.5)
+    {
+        // Src_One_Add / Src_One_RevSub (SRC_ALPHA, ONE), premultiplied for the One/One additive or
+        // reverse-subtract pipeline.
+        vec3 premultiplied = rgb * alpha;
+        if (max(premultiplied.r, max(premultiplied.g, premultiplied.b)) < 0.002)
         {
-            // Src_One_Add / Src_One_RevSub (SRC_ALPHA, ONE), premultiplied for the One/One additive or
-            // reverse-subtract pipeline.
-            vec3 premultiplied = rgb * alpha;
-            if (max(premultiplied.r, max(premultiplied.g, premultiplied.b)) < 0.002)
-            {
-                discard;
-            }
-            fsout_Color = vec4(premultiplied, 0.0);
+            discard;
         }
-        else
-        {
-            // Src_InvSrc_Add (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
-            if (alpha < 0.004)
-            {
-                discard;
-            }
-            fsout_Color = vec4(rgb, alpha);
-        }
-        return;
+        fsout_Color = vec4(premultiplied, 0.0);
     }
     else
     {
-        // Sun (WeatherParams.w ~ 2.0): Radiant golden daylight disc rendered with additive blend factor (One, One).
-        // Untextured geometry uses vertex colors to project brilliant solar radiance.
-        vec3 sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85)) * vec3(1.35, 1.25, 0.95);
-        fsout_Color = vec4(sunRgb, 1.0);
+        // Src_InvSrc_Add (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+        if (alpha < 0.004)
+        {
+            discard;
+        }
+        fsout_Color = vec4(rgb, alpha);
     }
 }
 ";

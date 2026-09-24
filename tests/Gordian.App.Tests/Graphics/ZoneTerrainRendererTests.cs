@@ -446,7 +446,14 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(-50f, fine[0].Position.Y);
             Assert.True(fine[0].RotationVelocity.Y > 0f);
             Assert.Equal("kcr1", fine[0].ClockColorCurves?[0]?.DatId);
-            Assert.True(fine[0].DrawPriority < fine[1].DrawPriority);
+            Assert.True(fine[0].AuthoredOrder < fine[1].AuthoredOrder);
+
+            // Every weather authors its daytime sun glow before its clouds, so the clouds veil it
+            foreach (var weather in new[] { "fine", "suny", "clod", "mist" })
+            {
+                int sunGlow = zone.WeatherSkyLayers.Single(l => l.WeatherIds.Contains(weather) && l.AttachType == Gordian.Core.Resources.Graphics.ParticleAttachType.Sun && l.GeneratorId == "sun1").AuthoredOrder;
+                Assert.All(zone.WeatherSkyLayers.Where(l => l.WeatherId == weather && !l.IsCelestial && l.GeneratorId != "cld3"), c => Assert.True(sunGlow < c.AuthoredOrder));
+            }
 
             // weat/suny clouds scroll their texture and take k00r/k00g/k00b colors
             var suny = zone.WeatherSkyLayers.Single(l => l.WeatherId == "suny" && l.GeneratorId == "cld1");
@@ -482,15 +489,15 @@ namespace Gordian.App.Tests.Graphics
             Assert.False(sunyCloud.IsCelestial);
             Assert.Contains("suny", sunyCloud.Name, StringComparison.OrdinalIgnoreCase);
 
-            var clodCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "clod", StringComparison.OrdinalIgnoreCase));
+            var clodCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "clod", StringComparison.OrdinalIgnoreCase) && l.GeneratorId == "cld1");
             Assert.NotNull(clodCloud);
             Assert.False(clodCloud.IsCelestial);
 
-            var mistCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "mist", StringComparison.OrdinalIgnoreCase));
+            var mistCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "mist", StringComparison.OrdinalIgnoreCase) && l.GeneratorId == "cld1");
             Assert.NotNull(mistCloud);
             Assert.False(mistCloud.IsCelestial);
 
-            var fineCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "fine", StringComparison.OrdinalIgnoreCase));
+            var fineCloud = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "fine", StringComparison.OrdinalIgnoreCase) && l.GeneratorId == "cld1");
             Assert.NotNull(fineCloud);
             Assert.False(fineCloud.IsCelestial);
 
@@ -854,8 +861,6 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("fsout_Color = vec4(0.0, 0.0, 0.0, alpha)", ZoneShaders.FragmentShaderWeatherSkyGlsl);
             Assert.Contains("mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog)", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
-            // Sun has golden radiant daylight disc (WeatherParams.w > 1.5)
-            Assert.Contains("sunRgb = 2.0 * fsin_Color.rgb * max(tex.rgb, vec3(0.85))", ZoneShaders.FragmentShaderWeatherSkyGlsl);
 
         }
 

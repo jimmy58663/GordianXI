@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/ZoneTerrainRenderer.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using Gordian.Core.Diagnostics;
@@ -37,6 +38,9 @@ namespace Gordian.App.Graphics
         private Pipeline _weatherSkyPipeline = null!;
         private Pipeline _weatherSkyAdditivePipeline = null!;
         private Pipeline _weatherSkyReverseSubtractPipeline = null!;
+        private Pipeline _lensFlarePipeline = null!;
+        private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
+        private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
         private CommandList _commandList = null!;
         private GpuTextureCache _textureCache = null!;
         private EntityRenderer? _entityRenderer;
@@ -89,16 +93,9 @@ namespace Gordian.App.Graphics
         public bool EnableMilkyWay { get; set; } = true;
 
         /// <summary>
-        /// Controls whether the solar disc and radiance flare are rendered during daytime.
-        /// Defaults to false until Chunk 5 (Solar & Horizon Alignment).
+        /// Controls whether the weather's sun generators (daytime glow, sunset disc and corona) and sun lens flares are rendered.
         /// </summary>
-        public bool EnableCelestialSun { get; set; } = false;
-
-        /// <summary>
-        /// Controls whether raw celestial disc billboards (sun/moon) are rendered.
-        /// Kept for backward compatibility.
-        /// </summary>
-        public bool EnableCelestialDiscs { get; set; } = false;
+        public bool EnableCelestialSun { get; set; } = true;
 
         /// <summary>
         /// Indicates whether the ocean water plane was rendered during the most recent frame.
@@ -424,6 +421,11 @@ namespace Gordian.App.Graphics
                     alphaFunction: BlendFunction.ReverseSubtract));
             _weatherSkyReverseSubtractPipeline = factory.CreateGraphicsPipeline(weatherSkyReverseSubtractDesc);
 
+            // 9d. Lens-flare Pipeline: screen-space additive sprites drawn over the finished scene, no depth test
+            var lensFlareDesc = weatherSkyAdditiveDesc;
+            lensFlareDesc.DepthStencilState = DepthStencilStateDescription.Disabled;
+            _lensFlarePipeline = factory.CreateGraphicsPipeline(lensFlareDesc);
+
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
             _commandList = factory.CreateCommandList();
         }
@@ -435,6 +437,8 @@ namespace Gordian.App.Graphics
         {
             ClearZoneSubmeshes();
             ClearWeatherSkySubmeshes();
+            LoadedZone = zone;
+            _lightSourceVisibility.Clear();
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
                 ? envWaterUv.Value
@@ -547,11 +551,11 @@ namespace Gordian.App.Graphics
                     }
                 }
 
-                // Painter's order by each generator's projection bias, larger first (stars 50000, clouds 40000-28000, moon 20000);
-                // alpha-blended layers draw just after equal-priority additive ones (xim ParticleDrawer priority).
-                static float SortKey(GpuWeatherSkySubmesh s) =>
-                    s.Layer.DrawPriority + (s.Layer.BlendFunc == ParticleBlendFunc.SrcInvSrcAdd ? -0.01f : 0.0f);
-                _weatherSkySubmeshes.Sort((a, b) => SortKey(b).CompareTo(SortKey(a)));
+                // Painter's order: sky generators draw in authored DAT order within their weather (the daytime sun glow
+                // precedes the clouds that veil it); stable, so each layer keeps its submesh order.
+                var authoredOrder = _weatherSkySubmeshes.OrderBy(s => s.Layer.AuthoredOrder).ToList();
+                _weatherSkySubmeshes.Clear();
+                _weatherSkySubmeshes.AddRange(authoredOrder);
             }
 
             TotalVertices = vertCount;
@@ -664,70 +668,22 @@ namespace Gordian.App.Graphics
                     bool isCelestial = skyMesh.IsCelestial;
                     bool isStardust = isCelestial && skyMesh.LayerName.Contains("stardust", StringComparison.OrdinalIgnoreCase);
                     bool isMoon = isCelestial && skyMesh.AttachType == ParticleAttachType.Moon;
-                    bool isSun = isCelestial && (skyMesh.AttachType == ParticleAttachType.Sun || ((skyMesh.Name.Contains("sun", StringComparison.OrdinalIgnoreCase) || skyMesh.LayerName.Contains("sun", StringComparison.OrdinalIgnoreCase)) && !skyMesh.Name.StartsWith("suny", StringComparison.OrdinalIgnoreCase) && !skyMesh.LayerName.StartsWith("suny", StringComparison.OrdinalIgnoreCase)));
+                    bool isSun = skyMesh.AttachType == ParticleAttachType.Sun;
 
                     if (isCelestial && !EnableWeatherCelestialBodies) continue;
                     if (!isCelestial && !EnableWeatherClouds) continue;
-                    if (isSun && !EnableCelestialSun && !EnableCelestialDiscs) continue;
-                    if (isMoon && !EnableCelestialMoon && !EnableCelestialDiscs) continue;
+                    if (isSun && !EnableCelestialSun) continue;
+                    if (isMoon && !EnableCelestialMoon) continue;
                     if (isStardust && !EnableMilkyWay) continue;
 
                     var weatherIds = skyMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(skyWeather)) continue;
 
-                    if (isSun && sunDir.Y <= 0.0f) continue; // Sun below horizon
-                    if (isMoon && moonDir.Y <= 0.0f) continue; // Moon below horizon
-
-                    if (!isSun)
+                    if (DrawSkyGenerator(skyMesh, camera, sunDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
                     {
-                        if (DrawSkyGenerator(skyMesh, camera, moonDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
-                        {
-                            draws++;
-                            visible++;
-                        }
-                        continue;
+                        draws++;
+                        visible++;
                     }
-
-                    // Legacy sun disc (Chunk 5): additive, untextured radiant disc
-                    Pipeline targetSkyPipeline = _weatherSkyAdditivePipeline;
-
-                    if (currentSkyPipeline != targetSkyPipeline)
-                    {
-                        _commandList.SetPipeline(targetSkyPipeline);
-                        currentSkyPipeline = targetSkyPipeline;
-                    }
-
-                    Vector3 centerPos = skyMesh.AttachType == ParticleAttachType.Sun
-                        ? camera.Position + sunDir * 900.0f
-                        : skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
-                    Matrix4x4 worldMatrix = skyMesh.AttachType == ParticleAttachType.Sun
-                        ? CreateCelestialDiscMatrix(camera, centerPos, skyMesh.Scale)
-                        : Matrix4x4.CreateScale(skyMesh.Scale) * Matrix4x4.CreateTranslation(centerPos);
-
-                    string texName = skyMesh.TextureName;
-                    if (_activeDecodedTextures == null || !_activeDecodedTextures.ContainsKey(texName))
-                    {
-                        texName = _activeDecodedTextures != null
-                            ? FindTextureKey(_activeDecodedTextures, "sundisc", "sun_disc") ?? string.Empty
-                            : string.Empty;
-                    }
-
-                    // WeatherParams: w = 2.0 selects the sun disc shading
-                    var layerUniform = sceneUniform;
-                    layerUniform.World = worldMatrix;
-                    layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, _cloudAccumulatedTime, 2.0f);
-
-                    _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
-                    _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
-                    var texSet = _textureCache.GetOrCreateResourceSet(texName, _activeDecodedTextures);
-                    _commandList.SetGraphicsResourceSet(1, texSet);
-
-                    _commandList.SetVertexBuffer(0, skyMesh.VertexBuffer);
-                    _commandList.SetIndexBuffer(skyMesh.IndexBuffer, IndexFormat.UInt16);
-                    _commandList.DrawIndexed(skyMesh.IndexCount, 1, 0, 0, 0);
-
-                    draws++;
-                    visible++;
                 }
             }
 
@@ -945,6 +901,24 @@ namespace Gordian.App.Graphics
                 visible++;
             }
 
+            // Pass 4: Lens flares (sun and moon), screen-space over the finished scene
+            if (_pendingLensFlares.Count > 0)
+            {
+                _commandList.SetPipeline(_lensFlarePipeline);
+                foreach (var (flareMesh, flareUniform, flareTexture) in _pendingLensFlares)
+                {
+                    var uniform = flareUniform;
+                    _commandList.UpdateBuffer(flareMesh.UniformBuffer, 0, ref uniform);
+                    _commandList.SetGraphicsResourceSet(0, flareMesh.ResourceSet);
+                    _commandList.SetGraphicsResourceSet(1, flareTexture);
+                    _commandList.SetVertexBuffer(0, flareMesh.VertexBuffer);
+                    _commandList.SetIndexBuffer(flareMesh.IndexBuffer, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(flareMesh.IndexCount, 1, 0, 0, 0);
+                    draws++;
+                }
+                _pendingLensFlares.Clear();
+            }
+
             _commandList.End();
 
             // 4. Submit & Present
@@ -1104,7 +1078,7 @@ namespace Gordian.App.Graphics
         private bool DrawSkyGenerator(
             GpuWeatherSkySubmesh skyMesh,
             ViewportCamera camera,
-            Vector3 moonDir,
+            Vector3 sunDir,
             ZoneSceneUniform sceneUniform,
             int dayOfWeek,
             int moonPhaseIndex,
@@ -1124,10 +1098,14 @@ namespace Gordian.App.Graphics
             // Generator effects advance at 60 frames per second.
             float frames = _cloudAccumulatedTime * 60.0f;
 
-            Vector3 center = skyMesh.AttachType == ParticleAttachType.Moon
-                ? camera.Position + moonDir * 900.0f
+            // Sun and moon generators ride the celestial orbit 900 yalms out; the moon is opposite the sun.
+            Vector3 lightDirection = skyMesh.AttachType == ParticleAttachType.Moon ? -sunDir : sunDir;
+            bool attachedToLight = skyMesh.AttachType is ParticleAttachType.Sun or ParticleAttachType.Moon;
+            Vector3 center = attachedToLight
+                ? camera.Position + lightDirection * 900.0f
                 : skyMesh.FollowCamera ? camera.Position + skyMesh.BasePosition : skyMesh.BasePosition;
             center += ToDisplay(EvaluateClockVector(layer.ClockPositionCurves, dayFraction));
+            Vector3 scale = EvaluateClockScale(layer.ClockScaleCurves, skyMesh.Scale, dayFraction);
 
             Matrix4x4 world = Matrix4x4.Identity;
             Vector2 uvOrFlareCenter = skyMesh.UVScroll * frames;
@@ -1136,21 +1114,22 @@ namespace Gordian.App.Graphics
             {
                 float offset = skyMesh.CardIndex < layer.FlareOffsets.Count ? layer.FlareOffsets[skyMesh.CardIndex] : 0.0f;
                 if (!TryComputeFlareCenter(center, camera.ViewMatrix * camera.ProjectionMatrix, offset, out uvOrFlareCenter)) return false;
+                if (!IsLightSourceVisible(skyMesh.AttachType, camera.Position, lightDirection)) return false;
                 layerType = 4.0f;
             }
             else if (layer.IsSpriteSheet)
             {
-                world = CreateCameraFacingCardMatrix(camera, center, skyMesh.Scale);
+                world = CreateCameraFacingCardMatrix(camera, center, scale);
             }
-            else if (skyMesh.AttachType == ParticleAttachType.Moon)
+            else if (attachedToLight)
             {
-                world = CreateCelestialDiscMatrix(camera, center, skyMesh.Scale);
+                world = CreateCelestialDiscMatrix(camera, center, scale);
             }
             else
             {
                 // Generator rotation is authored in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
                 Vector3 rotation = layer.Rotation + layer.RotationVelocity * frames;
-                world = Matrix4x4.CreateScale(skyMesh.Scale) *
+                world = Matrix4x4.CreateScale(scale) *
                         Matrix4x4.CreateRotationX(-rotation.X) *
                         Matrix4x4.CreateRotationY(-rotation.Y) *
                         Matrix4x4.CreateRotationZ(rotation.Z) *
@@ -1186,6 +1165,12 @@ namespace Gordian.App.Graphics
                 ? _textureCache.WhiteResourceSet
                 : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, _activeDecodedTextures);
 
+            if (layer.IsLensFlare)
+            {
+                _pendingLensFlares.Add((skyMesh, layerUniform, texSet));
+                return true;
+            }
+
             _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
             _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
             _commandList.SetGraphicsResourceSet(1, texSet);
@@ -1196,6 +1181,36 @@ namespace Gordian.App.Graphics
         }
 
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
+
+        private static Vector3 EvaluateClockScale(KeyFrameCurve?[]? curves, Vector3 scale, float dayFraction)
+        {
+            if (curves == null) return scale;
+            float t = Math.Clamp(dayFraction, 0.0f, 1.0f);
+            return new Vector3(
+                curves[0]?.Evaluate(t) ?? scale.X,
+                curves[1]?.Evaluate(t) ?? scale.Y,
+                curves[2]?.Evaluate(t) ?? scale.Z);
+        }
+
+        /// <summary>
+        /// All-or-nothing visibility of the sun or moon for its lens flare, standing in for the client's occlusion query:
+        /// a ray from the eye toward the light against the zone's opaque geometry, re-cast only when the eye or the light
+        /// has moved noticeably.
+        /// </summary>
+        private bool IsLightSourceVisible(ParticleAttachType source, Vector3 eye, Vector3 direction)
+        {
+            if (LoadedZone == null) return true;
+            if (_lightSourceVisibility.TryGetValue(source, out var cached) &&
+                Vector3.DistanceSquared(cached.Eye, eye) < 0.25f &&
+                Vector3.Dot(cached.Direction, direction) > 0.99999f)
+            {
+                return cached.Visible;
+            }
+
+            bool visible = !ZoneRaycaster.IsOccluded(LoadedZone, eye, direction, 900.0f);
+            _lightSourceVisibility[source] = (eye, direction, visible);
+            return visible;
+        }
 
         private static Vector3 EvaluateClockVector(KeyFrameCurve?[]? curves, float dayFraction)
         {
@@ -1294,21 +1309,6 @@ namespace Gordian.App.Graphics
                 center.X, center.Y, center.Z, 1f);
         }
 
-        private static string? FindTextureKey(IReadOnlyDictionary<string, DecodedTexture> textures, params string[] keywords)
-        {
-            foreach (var kw in keywords)
-            {
-                foreach (var key in textures.Keys)
-                {
-                    if (key.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return key;
-                    }
-                }
-            }
-            return null;
-        }
-
         private void ClearZoneSubmeshes()
         {
             for (int i = 0; i < _zoneSubmeshes.Count; i++)
@@ -1359,6 +1359,7 @@ namespace Gordian.App.Graphics
             _weatherSkyPipeline?.Dispose();
             _weatherSkyAdditivePipeline?.Dispose();
             _weatherSkyReverseSubtractPipeline?.Dispose();
+            _lensFlarePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();
             _sceneLayout?.Dispose();
