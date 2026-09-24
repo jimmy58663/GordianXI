@@ -28,7 +28,7 @@ namespace Gordian.App.Graphics
         public bool IsPipEnabled { get; set; } = false;
         public int MaxPipStreams { get; set; } = 5;
         public bool IsVsyncEnabled { get; set; } = true;
-        public bool EnableOceanWaterPlane { get; set; } = true;
+        public bool EnableOceanWaterPlane { get; set; }
 
         public static string GetDefaultSettingsPath()
         {

@@ -8,11 +8,11 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected336ByteLayout()
+        public void ZoneSceneUniform_HasExpected352ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) = 336 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) + MoonColor(16) = 352 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(336, size);
+            Assert.Equal(352, size);
             Assert.Equal(ZoneSceneUniform.SizeInBytes, (uint)size);
         }
 
@@ -22,7 +22,7 @@ namespace Gordian.App.Tests.Graphics
             { "Cutout", ZoneShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderCutoutGlsl },
             { "Blend", ZoneShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderBlendGlsl },
             { "Decal", ZoneShaders.VertexShaderDecalGlsl, ZoneShaders.FragmentShaderBlendGlsl },
-            { "Water", ZoneShaders.VertexShaderWaterGlsl, ZoneShaders.FragmentShaderWaterGlsl },
+            { "Water", ZoneShaders.VertexShaderWaterGlsl, ZoneShaders.FragmentShaderBlendGlsl },
             { "WeatherSky", ZoneShaders.VertexShaderWeatherSkyGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
         };
@@ -677,14 +677,6 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void FragmentShaders_TerrainLighting_CalibratedToPreventSandOverexposure()
-        {
-            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderOpaqueGlsl);
-            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderBlendGlsl);
-            Assert.Contains("0.5 * amb + 0.5 * df0", ZoneShaders.FragmentShaderCutoutGlsl);
-        }
-
-        [Fact]
         public void FragmentShaders_AreNonEmptyAndValidGlsl()
         {
             Assert.False(string.IsNullOrWhiteSpace(ZoneShaders.FragmentShaderOpaqueGlsl));
@@ -703,17 +695,22 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("mix(litColor, FogColor.rgb, fogFactor)", ZoneShaders.FragmentShaderBlendGlsl);
         }
 
-        [Fact]
-        public void FragmentShaderWaterGlsl_ContainsDualWaveCausticsAndFresnel()
+        [Theory]
+        [MemberData(nameof(TerrainFragmentShaders))]
+        public void TerrainFragmentShaders_UseLegacyAmbientSunMoonLighting(string fragmentGlsl)
         {
-            Assert.False(string.IsNullOrWhiteSpace(ZoneShaders.FragmentShaderWaterGlsl));
-            Assert.Contains("mix(tex1, tex2, 0.5)", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("crest", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("aquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("dayAquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("nightAquaticGlow", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("fresnel", ZoneShaders.FragmentShaderWaterGlsl);
+            // xim terrain lighting: lit = clamp(vColor*ambient + vColor*N.L*sun + vColor*N.(-L)*moon), no extra scaling
+            Assert.Contains("clamp(amb + df0 + df1, 0.0, 1.0)", fragmentGlsl);
+            Assert.Contains("max(dot(N, -L), 0.0) * MoonColor.rgb", fragmentGlsl);
+            Assert.DoesNotContain("0.5 * amb", fragmentGlsl);
         }
+
+        public static TheoryData<string> TerrainFragmentShaders => new()
+        {
+            ZoneShaders.FragmentShaderOpaqueGlsl,
+            ZoneShaders.FragmentShaderCutoutGlsl,
+            ZoneShaders.FragmentShaderBlendGlsl,
+        };
 
         [Fact]
         public void ViewportCamera_FarClip_DefaultsTo5000Yalms()
@@ -817,8 +814,9 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void ViewportSettings_EnableOceanWaterPlane_PersistsDefault()
         {
+            // The synthetic ocean plane is an enhancement the legacy client lacks, so it is off by default
             var settings = new ViewportSettings();
-            Assert.True(settings.EnableOceanWaterPlane);
+            Assert.False(settings.EnableOceanWaterPlane);
         }
 
         [Fact]
@@ -873,16 +871,10 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void FragmentShaderWaterGlsl_ContainsDualCounterScrollingCaustics()
+        public void WaterVertexShader_AppliesAuthoredUvScroll()
         {
-            // Dual-layer counter-scrolling caustics with 50/50 mix
-            Assert.Contains("uv1 = fsin_TexCoord + waterOffset", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("crossDrift", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("uv2 = fsin_TexCoord * 1.20", ZoneShaders.FragmentShaderWaterGlsl);
-            Assert.Contains("waterTex = mix(tex1, tex2, 0.5)", ZoneShaders.FragmentShaderWaterGlsl);
-
-            // Vibrant aquatic glow floor
-            Assert.Contains("nightAquaticGlow = vec3(0.04, 0.32, 0.52)", ZoneShaders.FragmentShaderWaterGlsl);
+            // Water is an ordinary blended zone surface; only its generator's UV scroll animates it
+            Assert.Contains("fsin_TexCoord = TexCoord + WeatherParams.xy", ZoneShaders.VertexShaderWaterGlsl);
         }
 
         [Fact]

@@ -24,12 +24,17 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// RGB intensity and color of the primary directional sunlight.
         /// </summary>
-        public Vector3 SunColor { get; set; } = new(1.0f, 0.98f, 0.92f);
+        public Vector3 SunColor { get; set; } = new(0.5f, 0.49f, 0.46f);
+
+        /// <summary>
+        /// RGB intensity and color of the directional moonlight, shining opposite the sun (outdoors only).
+        /// </summary>
+        public Vector3 MoonColor { get; set; } = Vector3.Zero;
 
         /// <summary>
         /// RGB intensity and color of the ambient light preventing completely black shadows.
         /// </summary>
-        public Vector3 AmbientColor { get; set; } = new(0.35f, 0.38f, 0.45f);
+        public Vector3 AmbientColor { get; set; } = new(0.18f, 0.19f, 0.23f);
 
         /// <summary>
         /// Controls whether atmospheric distance fog blending is enabled.
@@ -116,8 +121,11 @@ namespace Gordian.Core.Graphics
             if (keyframe == null) return;
 
             Indoors = keyframe.Indoors;
-            SunColor = new Vector3(keyframe.TerrainSunColor.X, keyframe.TerrainSunColor.Y, keyframe.TerrainSunColor.Z);
-            AmbientColor = new Vector3(keyframe.TerrainAmbientColor.X, keyframe.TerrainAmbientColor.Y, keyframe.TerrainAmbientColor.Z);
+            float diffuseMult = keyframe.TerrainDiffuseMult > 0f ? keyframe.TerrainDiffuseMult : 1.0f;
+            SunColor = DiffuseToLight(keyframe.TerrainSunColor, diffuseMult);
+            // Indoors the moon slot packs a signed light direction rather than a color.
+            MoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.TerrainMoonColor, diffuseMult);
+            AmbientColor = AmbientToLight(keyframe.TerrainAmbientColor);
             FogColor = keyframe.TerrainFogColor;
 
             // FFXI retail keyframes often author FogStart=0 because original PS2 hardware used an
@@ -177,12 +185,45 @@ namespace Gordian.Core.Graphics
             }
         }
 
+        // Colors whose channels all sit below 0xCC are lifted by this per-channel bias.
+        private const float DarkLightThreshold = 0xCC / 255.0f;
+        private static readonly Vector3 DarkLightBias = new(1.4f, 1.36f, 1.45f);
+
+        /// <summary>
+        /// Converts an authored 0x2F ambient color (normalized RGBA) into the shader ambient term:
+        /// half the byte value, dark-color bias, clamped to 0.5.
+        /// Lighting conversion referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/environment.js, after xim EnvironmentLighting.ambientToColor).
+        /// </summary>
+        public static Vector3 AmbientToLight(Vector4 authored)
+        {
+            var c = new Vector3(authored.X, authored.Y, authored.Z);
+            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
+            return Vector3.Min(new Vector3(0.5f), bias * c * 0.5f);
+        }
+
+        /// <summary>
+        /// Converts an authored 0x2F sun/moon color (normalized RGBA) and diffuse multiplier into the shader
+        /// directional light color: scaled by the multiplier, dark-color bias, clamped to 1.
+        /// Lighting conversion referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/environment.js, after xim EnvironmentLighting.diffuseToColor).
+        /// </summary>
+        public static Vector3 DiffuseToLight(Vector4 authored, float diffuseMult)
+        {
+            var c = new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
+            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
+            return Vector3.Min(Vector3.One, bias * c);
+        }
+
+        private static bool IsDark(Vector3 c) =>
+            c.X < DarkLightThreshold && c.Y < DarkLightThreshold && c.Z < DarkLightThreshold;
+
         public static ZoneEnvironmentSettings CreateDay() => new()
         {
             TimeOfDayHours = 12.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.4f, 0.8f, 0.4f)),
-            SunColor = new Vector3(1.0f, 0.98f, 0.92f),
-            AmbientColor = new Vector3(0.38f, 0.40f, 0.46f),
+            SunColor = new Vector3(0.5f, 0.49f, 0.46f),
+            AmbientColor = new Vector3(0.19f, 0.2f, 0.23f),
             FogEnabled = false,
             FogColor = new Vector4(0.58f, 0.72f, 0.88f, 1.0f),
             FogStart = 400.0f,
@@ -196,8 +237,8 @@ namespace Gordian.Core.Graphics
         {
             TimeOfDayHours = 0.0f,
             SunDirection = Vector3.Normalize(new Vector3(-0.2f, -0.7f, -0.3f)),
-            SunColor = new Vector3(0.25f, 0.30f, 0.45f),
-            AmbientColor = new Vector3(0.12f, 0.15f, 0.22f),
+            SunColor = new Vector3(0.125f, 0.15f, 0.225f),
+            AmbientColor = new Vector3(0.06f, 0.075f, 0.11f),
             FogEnabled = false,
             FogColor = new Vector4(0.08f, 0.12f, 0.20f, 1.0f),
             FogStart = 300.0f,
@@ -211,8 +252,8 @@ namespace Gordian.Core.Graphics
         {
             TimeOfDayHours = 18.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.7f, 0.3f, 0.2f)),
-            SunColor = new Vector3(1.0f, 0.65f, 0.45f),
-            AmbientColor = new Vector3(0.30f, 0.25f, 0.35f),
+            SunColor = new Vector3(0.5f, 0.325f, 0.225f),
+            AmbientColor = new Vector3(0.15f, 0.125f, 0.175f),
             FogEnabled = false,
             FogColor = new Vector4(0.85f, 0.42f, 0.25f, 1.0f),
             FogStart = 350.0f,
@@ -226,8 +267,8 @@ namespace Gordian.Core.Graphics
         {
             TimeOfDayHours = 12.0f,
             SunDirection = Vector3.Normalize(new Vector3(0.0f, 1.0f, 0.0f)),
-            SunColor = new Vector3(0.55f, 0.55f, 0.58f),
-            AmbientColor = new Vector3(0.40f, 0.42f, 0.45f),
+            SunColor = new Vector3(0.275f, 0.275f, 0.29f),
+            AmbientColor = new Vector3(0.2f, 0.21f, 0.225f),
             FogEnabled = true,
             FogColor = new Vector4(0.52f, 0.55f, 0.60f, 1.0f),
             FogStart = 150.0f,

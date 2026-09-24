@@ -61,9 +61,10 @@ namespace Gordian.App.Graphics
         private bool _disposed;
 
         /// <summary>
-        /// Controls whether the base sea-level ocean water plane is rendered in outdoor zones with sea-level elevation.
+        /// Controls whether the synthetic sea-level ocean water plane is rendered in outdoor zones with sea-level elevation.
+        /// Off by default: the legacy client has no such plane and draws only the zone's own water geometry (Ctrl+F9 toggles it).
         /// </summary>
-        public bool EnableOceanWaterPlane { get; set; } = true;
+        public bool EnableOceanWaterPlane { get; set; }
 
         /// <summary>
         /// Indicates whether the ocean water plane GPU geometry is currently allocated.
@@ -231,7 +232,7 @@ namespace Gordian.App.Graphics
 
             var fsWaterDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderWaterGlsl),
+                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
                 "main");
             var fsWeatherSkyDesc = new ShaderDescription(
                 ShaderStages.Fragment,
@@ -599,7 +600,8 @@ namespace Gordian.App.Graphics
                 FogColor = environment.FogColor,
                 FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                 EyePosition = new Vector4(camera.Position, 1.0f),
-                WeatherParams = Vector4.Zero
+                WeatherParams = Vector4.Zero,
+                MoonColor = new Vector4(environment.MoonColor, 1.0f)
             };
 
             // 2. Select submesh list (loaded zone or fallback scene)
@@ -789,11 +791,11 @@ namespace Gordian.App.Graphics
             // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
             // Water submeshes use _waterPipeline with linear W-scaled depth bias to eliminate distance z-fighting over shallow seabed.
-            Vector2 defaultWaterUv = _waterScrollVelocity * _cloudAccumulatedTime;
+            // Generator effects advance at 60 frames per second; static water meshes do not scroll.
+            float effectFrames = _cloudAccumulatedTime * 60.0f;
             var waterUniform = sceneUniform;
-            waterUniform.WeatherParams = new Vector4(defaultWaterUv.X, defaultWaterUv.Y, _cloudAccumulatedTime, 0.0f);
             _commandList.UpdateBuffer(_waterUniformBuffer, 0, ref waterUniform);
-            Vector2 currentBoundWaterUv = defaultWaterUv;
+            Vector2 currentBoundWaterUv = Vector2.Zero;
 
             Pipeline? currentBoundBlendPipeline = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
@@ -819,19 +821,8 @@ namespace Gordian.App.Graphics
 
                 if (submesh.IsWater)
                 {
-                    Vector2 targetUv;
-                    if (submesh.UVScroll != Vector2.Zero)
-                    {
-                        // Scale per-frame UVScroll from DAT effect generators to authentic calm ocean speeds (max ~0.035/sec)
-                        float vx = Math.Clamp(submesh.UVScroll.X * 30.0f, -0.035f, 0.035f);
-                        float vy = Math.Clamp(submesh.UVScroll.Y * 30.0f, -0.035f, 0.035f);
-                        targetUv = new Vector2(vx, vy) * _cloudAccumulatedTime;
-                    }
-                    else
-                    {
-                        targetUv = defaultWaterUv;
-                    }
-
+                    // Section 0x05 UV scroll is authored per effect frame
+                    Vector2 targetUv = submesh.UVScroll * effectFrames;
                     if (targetUv != currentBoundWaterUv)
                     {
                         waterUniform.WeatherParams = new Vector4(targetUv.X, targetUv.Y, _cloudAccumulatedTime, 0.0f);
@@ -842,19 +833,8 @@ namespace Gordian.App.Graphics
 
                 visible++;
 
-                // Bind Texture Resource Set
-                ResourceSet texSet;
-                bool hasDedicatedWaterTex = !string.IsNullOrEmpty(submesh.TextureName) &&
-                    ZoneDefDecoder.IsWaterMesh(string.Empty, submesh.TextureName);
-
-                if (submesh.IsWater && !hasDedicatedWaterTex)
-                {
-                    texSet = _textureCache.GetOrCreateWaterResourceSet(_activeDecodedTextures);
-                }
-                else
-                {
-                    texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
-                }
+                // Every surface, water included, samples its own authored texture
+                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures);
                 _commandList.SetGraphicsResourceSet(1, texSet);
 
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
@@ -863,7 +843,7 @@ namespace Gordian.App.Graphics
                 draws++;
             }
 
-            // Pass 3b: Base Sea-Level Ocean Water Plane
+            // Pass 3b: Optional synthetic sea-level ocean water plane (enhancement, not in the legacy client)
             // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.
             // Translucent ocean water composites over seabed, reefs, and wading entities while
             // dry land / island beaches (Y > 0) naturally occlude it.
@@ -876,6 +856,7 @@ namespace Gordian.App.Graphics
             IsOceanWaterPlaneActive = shouldRenderOcean;
             if (shouldRenderOcean && _oceanWaterSubmesh != null)
             {
+                Vector2 defaultWaterUv = _waterScrollVelocity * _cloudAccumulatedTime;
                 if (currentBoundWaterUv != defaultWaterUv)
                 {
                     waterUniform.WeatherParams = new Vector4(defaultWaterUv.X, defaultWaterUv.Y, _cloudAccumulatedTime, 0.0f);

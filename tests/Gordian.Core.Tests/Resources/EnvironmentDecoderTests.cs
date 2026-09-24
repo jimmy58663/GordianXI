@@ -300,6 +300,70 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(320f, indoorSettings.FogEnd);
         }
 
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_ConvertsLightingLikeLegacyClient()
+        {
+            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var keyframe = new EnvironmentKeyframe
+            {
+                Hour = 0,
+                Indoors = false,
+                // Bright ambient (a channel >= 0xCC): no dark bias, half value, clamped to 0.5
+                TerrainAmbientColor = new Vector4(0xFF / 255f, 0x80 / 255f, 0x40 / 255f, 1f),
+                // Dark sun (all channels < 0xCC after the multiplier): per-channel bias applies
+                TerrainSunColor = new Vector4(0x40 / 255f, 0x40 / 255f, 0x40 / 255f, 1f),
+                TerrainMoonColor = new Vector4(0x60 / 255f, 0x60 / 255f, 0x80 / 255f, 1f),
+                TerrainDiffuseMult = 2.0f
+            };
+
+            settings.ApplyKeyframe(keyframe);
+
+            Assert.Equal(0.5f, settings.AmbientColor.X, 3);
+            Assert.Equal(0x80 / 510f, settings.AmbientColor.Y, 3);
+            Assert.Equal(0x40 / 510f, settings.AmbientColor.Z, 3);
+
+            float sun = 0x40 / 255f * 2.0f;
+            Assert.Equal(sun * 1.4f, settings.SunColor.X, 3);
+            Assert.Equal(sun * 1.36f, settings.SunColor.Y, 3);
+            Assert.Equal(sun * 1.45f, settings.SunColor.Z, 3);
+
+            // Moon doubled: 0x100 on blue crosses the threshold, so no bias; blue clamps to 1
+            Assert.Equal(0x60 / 255f * 2.0f, settings.MoonColor.X, 3);
+            Assert.Equal(1.0f, settings.MoonColor.Z, 3);
+        }
+
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_IndoorsHasNoMoonLight()
+        {
+            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var keyframe = new EnvironmentKeyframe
+            {
+                Indoors = true,
+                // Indoors the moon slot packs a light direction, not a color
+                TerrainMoonColor = new Vector4(0.9f, 0.1f, 0.5f, 1f),
+                TerrainDiffuseMult = 1.0f
+            };
+
+            settings.ApplyKeyframe(keyframe);
+
+            Assert.Equal(Vector3.Zero, settings.MoonColor);
+        }
+
+        [Fact]
+        public void ZoneEnvironmentSettings_ApplyKeyframe_TreatsZeroDiffuseMultAsOne()
+        {
+            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var keyframe = new EnvironmentKeyframe
+            {
+                TerrainSunColor = new Vector4(1f, 1f, 1f, 1f),
+                TerrainDiffuseMult = 0f
+            };
+
+            settings.ApplyKeyframe(keyframe);
+
+            Assert.Equal(Vector3.One, settings.SunColor);
+        }
+
         private static byte[] BuildChunk(DatSectionType type, byte[] payload, string datId = "")
         {
             int payloadPadded = (payload.Length + 15) & ~15;

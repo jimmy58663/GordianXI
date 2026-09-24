@@ -331,7 +331,8 @@ namespace Gordian.App.Graphics
                     FogColor = environment.FogColor,
                     FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                     EyePosition = new Vector4(camera.Position, 1.0f),
-                    WeatherParams = Vector4.Zero
+                    WeatherParams = Vector4.Zero,
+                    MoonColor = new Vector4(environment.MoonColor, 1.0f)
                 };
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
