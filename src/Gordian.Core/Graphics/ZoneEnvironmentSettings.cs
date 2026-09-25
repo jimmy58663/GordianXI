@@ -134,6 +134,7 @@ namespace Gordian.Core.Graphics
             SunColor = DiffuseToLight(keyframe.TerrainSunColor, diffuseMult);
             // Indoors the moon slot packs a signed light direction rather than a color.
             MoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.TerrainMoonColor, diffuseMult);
+            if (keyframe.Indoors) SunDirection = IndoorLightDirection(keyframe.TerrainMoonColor);
             AmbientColor = AmbientToLight(keyframe.TerrainAmbientColor);
             float modelDiffuseMult = keyframe.ModelDiffuseMult > 0f ? keyframe.ModelDiffuseMult : 1.0f;
             ModelSunColor = DiffuseToLight(keyframe.ModelSunColor, modelDiffuseMult);
@@ -195,6 +196,25 @@ namespace Gordian.Core.Graphics
             {
                 ClearColor = keyframe.ClearColor != Vector4.Zero ? keyframe.ClearColor : SkyHorizonColor;
             }
+        }
+
+        /// <summary>
+        /// Decodes an indoor keyframe's directional light: the moon RGB bytes are a signed direction in FFXI space
+        /// (+Y down) along which the light shines, returned as the display-space direction toward the light (Metalworks'
+        /// interiors author (0, 0x7F, 0): light from straight above).
+        /// Encoding referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/environment.js).
+        /// </summary>
+        public static Vector3 IndoorLightDirection(Vector4 moonSlot)
+        {
+            static float Signed(float channel)
+            {
+                int b = (int)MathF.Round(channel * 255.0f);
+                return (b > 127 ? b - 256 : b) / 128.0f;
+            }
+            var raw = new Vector3(Signed(moonSlot.X), Signed(moonSlot.Y), Signed(moonSlot.Z));
+            if (raw.LengthSquared() < 1e-6f) return Vector3.UnitY;
+            raw = Vector3.Normalize(raw);
+            return new Vector3(raw.X, raw.Y, -raw.Z);
         }
 
         // Colors whose channels all sit below 0xCC are lifted by this per-channel bias.

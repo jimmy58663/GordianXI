@@ -29,6 +29,10 @@ namespace Gordian.App.Graphics
         private ResourceLayout _sceneLayout = null!;
         private ResourceLayout _textureLayout = null!;
         private ResourceSet _sceneResourceSet = null!;
+
+        // Sub-environment lighting (indoor areas such as Metalworks' ev01/ev02): one scene uniform and set per id.
+        private readonly Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
+            new(StringComparer.OrdinalIgnoreCase);
         private ResourceSet _waterResourceSet = null!;
         private Pipeline _pipeline = null!;
         private Pipeline _terrainBlendPipeline = null!;
@@ -76,6 +80,16 @@ namespace Gordian.App.Graphics
         /// Scale from a light's power (theta x theta multiplier) to its intensity; 1 matched the same captures.
         /// </summary>
         public float PointLightPowerScale { get; set; } = 1.0f;
+
+        /// <summary>
+        /// Brightness of a saturated point light. Each light's colour is its half-range colour x2 x power (theta x
+        /// theta multiplier), clamped to 1 per channel, times this strength. Calibrated against two Windower captures
+        /// (2026-09-25): Southern San d'Oria's auction-house lamps at 22:03 (gold, power 2 via their clock curve) and
+        /// Bastok Metalworks' always-on interior lights (orange, power 12-40, which saturate to a pale yellow-white);
+        /// the clamp reproduces both zones' colour balance, where scaling by power made Metalworks 6-20x too bright and
+        /// orange. The client's exact light pipeline is not decoded.
+        /// </summary>
+        public float PointLightStrength { get; set; } = 0.75f;
         private readonly Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
         private Vector3 _viewerFloorProbe = new(float.NaN);
@@ -173,6 +187,11 @@ namespace Gordian.App.Graphics
             /// </summary>
             public ResourceSet? LightSet { get; init; }
             public DeviceBuffer? LightRefsBuffer { get; init; }
+
+            /// <summary>
+            /// The placement's sub-environment (e.g. <c>ev01</c>); empty for the zone's outdoor environment.
+            /// </summary>
+            public string EnvironmentId { get; init; } = string.Empty;
 
             public void Dispose()
             {
@@ -528,6 +547,7 @@ namespace Gordian.App.Graphics
             ClearZoneSubmeshes();
             ClearWeatherSkySubmeshes();
             LoadedZone = zone;
+            CreateSubEnvironmentScenes(zone);
             _lightSourceVisibility.Clear();
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
@@ -588,7 +608,8 @@ namespace Gordian.App.Graphics
                     NoCull = group.NoCull,
                     IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
                     IsWater = group.IsWater || ZoneDefDecoder.IsWaterMesh(group.Name, group.TextureName),
-                    UVScroll = group.UVScroll
+                    UVScroll = group.UVScroll,
+                    EnvironmentId = group.EnvironmentId
                 });
 
                 vertCount += group.Vertices.Length;
@@ -767,6 +788,7 @@ namespace Gordian.App.Graphics
 
             // Update Scene Uniform Buffer within command stream
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
+            UpdateSubEnvironmentScenes(sceneUniform, environment);
 
             // Clear to atmospheric clear/horizon color for authentic FFXI horizon blending
             _commandList.ClearColorTarget(0, new RgbaFloat(
@@ -855,6 +877,7 @@ namespace Gordian.App.Graphics
             // DISABLED. Placed structures and props render after decals, writing authoritative depth and
             // permanently preventing decals from creeping over props or corrupting depth buffers at any distance.
             Pipeline? currentBoundPipeline = null;
+            ResourceSet? currentSceneSet = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
@@ -885,11 +908,17 @@ namespace Gordian.App.Graphics
                     targetPipeline = _pipeline;
                 }
 
+                var sceneSet = SceneSetFor(submesh);
                 if (currentBoundPipeline != targetPipeline)
                 {
                     _commandList.SetPipeline(targetPipeline);
-                    _commandList.SetGraphicsResourceSet(0, _sceneResourceSet);
                     currentBoundPipeline = targetPipeline;
+                    currentSceneSet = null;
+                }
+                if (!ReferenceEquals(currentSceneSet, sceneSet))
+                {
+                    _commandList.SetGraphicsResourceSet(0, sceneSet);
+                    currentSceneSet = sceneSet;
                 }
 
                 visible++;
@@ -954,6 +983,7 @@ namespace Gordian.App.Graphics
             Vector2 currentBoundWaterUv = Vector2.Zero;
 
             Pipeline? currentBoundBlendPipeline = null;
+            ResourceSet? currentBlendSceneSet = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
@@ -967,12 +997,17 @@ namespace Gordian.App.Graphics
                 }
 
                 var targetPipeline = submesh.IsWater ? _waterPipeline : _blendPipeline;
-                var targetSet0 = submesh.IsWater ? _waterResourceSet : _sceneResourceSet;
+                var targetSet0 = submesh.IsWater ? _waterResourceSet : SceneSetFor(submesh);
                 if (currentBoundBlendPipeline != targetPipeline)
                 {
                     _commandList.SetPipeline(targetPipeline);
-                    _commandList.SetGraphicsResourceSet(0, targetSet0);
                     currentBoundBlendPipeline = targetPipeline;
+                    currentBlendSceneSet = null;
+                }
+                if (!ReferenceEquals(currentBlendSceneSet, targetSet0))
+                {
+                    _commandList.SetGraphicsResourceSet(0, targetSet0);
+                    currentBlendSceneSet = targetSet0;
                 }
 
                 if (submesh.IsWater)
@@ -1509,8 +1544,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Fills the frame's point-light table from the running light generators: each slot takes its generator's live
-        /// particle (display-space position, range x range multiplier, color x2 from the half-range particle color with
-        /// the particle's fades, power = theta x theta multiplier).
+        /// particle (display-space position, range x range multiplier, and the saturated colour described at
+        /// <see cref="PointLightStrength"/>).
         /// </summary>
         private void UploadPointLights()
         {
@@ -1542,10 +1577,14 @@ namespace Gordian.App.Graphics
                     _lightTable[positionBase + slot * 4 + 1] = position.Y;
                     _lightTable[positionBase + slot * 4 + 2] = position.Z;
                     _lightTable[positionBase + slot * 4 + 3] = range;
-                    _lightTable[colorBase + slot * 4] = 2.0f * light.Color.X;
-                    _lightTable[colorBase + slot * 4 + 1] = 2.0f * light.Color.Y;
-                    _lightTable[colorBase + slot * 4 + 2] = 2.0f * light.Color.Z;
-                    _lightTable[colorBase + slot * 4 + 3] = power;
+                    // The client saturates each light's colour x power per channel: a strong light washes out toward
+                    // white instead of scaling its hue, so power sets how pale a light is, not how bright.
+                    var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One)
+                                     * PointLightStrength;
+                    _lightTable[colorBase + slot * 4] = lightColor.X;
+                    _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
+                    _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
+                    _lightTable[colorBase + slot * 4 + 3] = 1.0f;
                 }
             }
             _commandList.UpdateBuffer(_lightTableBuffer, 0, _lightTable);
@@ -1727,6 +1766,55 @@ namespace Gordian.App.Graphics
                 center.X, center.Y, center.Z, 1f);
         }
 
+        private void CreateSubEnvironmentScenes(ZoneGeometry? zone)
+        {
+            foreach (var (buffer, set) in _subEnvironmentScenes.Values)
+            {
+                set.Dispose();
+                buffer.Dispose();
+            }
+            _subEnvironmentScenes.Clear();
+            if (zone?.EnvironmentData == null) return;
+
+            var factory = _gd.ResourceFactory;
+            foreach (string id in zone.EnvironmentData.SubEnvironmentIds)
+            {
+                var buffer = factory.CreateBuffer(new BufferDescription(ZoneSceneUniform.SizeInBytes, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+                var set = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, buffer));
+                _subEnvironmentScenes[id] = (buffer, set);
+            }
+        }
+
+        /// <summary>
+        /// Fills each sub-environment's scene uniform: the frame's camera and fog with that environment's own lights
+        /// (indoor sun and ambient, no moon), as the legacy client lights each placement by its linked environment.
+        /// </summary>
+        private void UpdateSubEnvironmentScenes(ZoneSceneUniform sceneUniform, ZoneEnvironmentSettings environment)
+        {
+            var data = LoadedZone?.EnvironmentData;
+            if (data == null) return;
+            foreach (var (id, scene) in _subEnvironmentScenes)
+            {
+                var uniform = sceneUniform;
+                var keyframe = data.InterpolateSubEnvironment(id, environment.TimeOfDayHours, environment.WeatherId);
+                if (keyframe != null)
+                {
+                    var lighting = new ZoneEnvironmentSettings();
+                    lighting.ApplyKeyframe(keyframe);
+                    uniform.SunDirection = new Vector4(lighting.SunDirection, 0.0f);
+                    uniform.SunColor = new Vector4(lighting.SunColor, 1.0f);
+                    uniform.AmbientColor = new Vector4(lighting.AmbientColor, 1.0f);
+                    uniform.MoonColor = new Vector4(lighting.MoonColor, 1.0f);
+                }
+                _commandList.UpdateBuffer(scene.Buffer, 0, ref uniform);
+            }
+        }
+
+        private ResourceSet SceneSetFor(GpuSubmesh submesh) =>
+            submesh.EnvironmentId.Length > 0 && _subEnvironmentScenes.TryGetValue(submesh.EnvironmentId, out var scene)
+                ? scene.Set
+                : _sceneResourceSet;
+
         private void ClearZoneSubmeshes()
         {
             for (int i = 0; i < _zoneSubmeshes.Count; i++)
@@ -1796,6 +1884,7 @@ namespace Gordian.App.Graphics
             _noLightRefsBuffer?.Dispose();
             _lightTableBuffer?.Dispose();
             _lightLayout?.Dispose();
+            CreateSubEnvironmentScenes(null);
             _sceneUniformBuffer?.Dispose();
             _waterUniformBuffer?.Dispose();
         }

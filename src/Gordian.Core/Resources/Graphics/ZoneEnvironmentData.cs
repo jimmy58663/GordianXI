@@ -97,12 +97,44 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public Vector2 WaterUVScroll { get; set; } = new Vector2(0.015f, -0.045f);
 
-        public void AddKeyframe(string weather, EnvironmentKeyframe keyframe)
+        private readonly Dictionary<string, Dictionary<string, List<EnvironmentKeyframe>>> _subEnvironments =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Ids of the zone's sub-environments (e.g. <c>ev01</c>): indoor areas whose placements link to them through
+        /// ZoneDef record +0x4C and are lit by their own keyframes instead of the outdoor weather.
+        /// </summary>
+        public IEnumerable<string> SubEnvironmentIds => _subEnvironments.Keys;
+
+        public void AddKeyframe(string weather, EnvironmentKeyframe keyframe) => Add(_weatherKeyframes, weather, keyframe);
+
+        /// <summary>
+        /// Adds a keyframe of sub-environment <paramref name="environmentId"/> (a <c>ev??</c> directory) for a weather.
+        /// </summary>
+        public void AddSubEnvironmentKeyframe(string environmentId, string weather, EnvironmentKeyframe keyframe)
         {
-            if (!_weatherKeyframes.TryGetValue(weather, out var list))
+            if (string.IsNullOrEmpty(environmentId)) return;
+            if (!_subEnvironments.TryGetValue(environmentId, out var byWeather))
+            {
+                byWeather = new Dictionary<string, List<EnvironmentKeyframe>>(StringComparer.OrdinalIgnoreCase);
+                _subEnvironments[environmentId] = byWeather;
+            }
+            Add(byWeather, weather, keyframe);
+        }
+
+        /// <summary>
+        /// Interpolates sub-environment <paramref name="environmentId"/>'s lighting for the time and weather, or null when
+        /// the zone has no such sub-environment.
+        /// </summary>
+        public EnvironmentKeyframe? InterpolateSubEnvironment(string environmentId, float timeOfDayHours, string? weather = null) =>
+            _subEnvironments.TryGetValue(environmentId, out var byWeather) ? Interpolate(byWeather, timeOfDayHours, weather) : null;
+
+        private static void Add(Dictionary<string, List<EnvironmentKeyframe>> source, string weather, EnvironmentKeyframe keyframe)
+        {
+            if (!source.TryGetValue(weather, out var list))
             {
                 list = new List<EnvironmentKeyframe>();
-                _weatherKeyframes[weather] = list;
+                source[weather] = list;
             }
 
             list.Add(keyframe);
@@ -136,20 +168,23 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Interpolates lighting, fog, and sky dome slices for the given time of day (in hours, e.g. 14.5 for 2:30 PM).
         /// </summary>
-        public EnvironmentKeyframe? Interpolate(float timeOfDayHours, string? weather = null)
+        public EnvironmentKeyframe? Interpolate(float timeOfDayHours, string? weather = null) =>
+            Interpolate(_weatherKeyframes, timeOfDayHours, weather);
+
+        private static EnvironmentKeyframe? Interpolate(Dictionary<string, List<EnvironmentKeyframe>> source, float timeOfDayHours, string? weather)
         {
-            if (_weatherKeyframes.Count == 0) return null;
+            if (source.Count == 0) return null;
 
             List<EnvironmentKeyframe>? frames = null;
             if (!string.IsNullOrEmpty(weather))
             {
-                _weatherKeyframes.TryGetValue(weather, out frames);
+                source.TryGetValue(weather, out frames);
                 if (frames == null || frames.Count == 0)
                 {
                     string canonical = VanaTime.GetCanonicalWeatherCategory(weather);
                     if (!string.Equals(canonical, weather, StringComparison.OrdinalIgnoreCase))
                     {
-                        _weatherKeyframes.TryGetValue(canonical, out frames);
+                        source.TryGetValue(canonical, out frames);
                     }
                 }
             }
@@ -167,7 +202,7 @@ namespace Gordian.Core.Resources.Graphics
 
                 foreach (var pref in fallbackOrder)
                 {
-                    if (_weatherKeyframes.TryGetValue(pref, out frames) && frames.Count > 0)
+                    if (source.TryGetValue(pref, out frames) && frames.Count > 0)
                     {
                         break;
                     }
@@ -175,7 +210,7 @@ namespace Gordian.Core.Resources.Graphics
 
                 if (frames == null || frames.Count == 0)
                 {
-                    using var it = _weatherKeyframes.Values.GetEnumerator();
+                    using var it = source.Values.GetEnumerator();
                     if (it.MoveNext()) frames = it.Current;
                 }
             }

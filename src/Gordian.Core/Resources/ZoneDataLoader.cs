@@ -425,6 +425,21 @@ namespace Gordian.Core.Resources
                                 }
                             }
 
+                            // Sub-environments (indoor areas such as Metalworks' ev01/ev02) keep their own keyframes: the
+                            // placements that link to them are lit by those, not by the outdoor weather.
+                            if (isSubEnv)
+                            {
+                                string? subEnvironment = null;
+                                foreach (var d in dirStack)
+                                {
+                                    if (d.StartsWith("ev", StringComparison.OrdinalIgnoreCase)) { subEnvironment = d; break; }
+                                }
+                                if (subEnvironment != null)
+                                {
+                                    envData.AddSubEnvironmentKeyframe(subEnvironment, ResolveCurrentWeather(dirStack) ?? "fine", keyframe);
+                                }
+                            }
+
                             if ((underWeat || dirStack.Count == 0 || !isSubEnv) && !keyframe.Indoors)
                             {
                                 string weather = ResolveCurrentWeather(dirStack) ?? "fine";
