@@ -21,6 +21,8 @@ GordianXI does **not** contain, host, distribute, or bundle:
 * Any game data archives (`.dat` files), textures, 3D character meshes, level geometries, sound files, or musical compositions.
 * Any leaked internal development tools, internal documentation, or source code.
 
+**Screenshots:** The images in `docs/images/` are screenshots of GordianXI rendering a user's own locally installed retail game data. They are included solely to illustrate the software's functionality; the depicted game content remains the property of Square Enix Co., Ltd., and no game data or assets can be extracted from them.
+
 ---
 
 ## 💿 Requirement of Genuine Retail Client Files
