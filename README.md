@@ -12,6 +12,22 @@ By replacing the legacy 2002 executable entirely, GordianXI cuts through decades
 
 ---
 
+## 📸 Screenshots
+
+Every scene below is rendered by GordianXI itself from the retail `.dat` files of a local Final Fantasy XI installation.
+
+<!-- Gallery: add images to docs/images/ and a <td> cell per screenshot, two cells per row. -->
+<table>
+  <tr>
+    <td align="center" colspan="2">
+      <a href="docs/images/southern_sandoria_ah.jpg"><img src="docs/images/southern_sandoria_ah.jpg" alt="Southern San d'Oria auction house plaza rendered in GordianXI" width="100%"></a>
+      <br><sub><b>Southern San d'Oria</b> · auction house plaza with player and NPC models</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## ✨ Core Pillars & Architectural Features
 
 *   **⚡ Permanent 64-Bit Memory Scaling:** Compiling natively as an `x64` application completely eliminates the legacy 32-bit 4 GB RAM ceiling. GordianXI can stream extensive community high-definition texture packages and heavy zone geometries directly into memory simultaneously without encountering allocation crashes.
