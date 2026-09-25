@@ -17,7 +17,7 @@ namespace Gordian.Core.Resources.Ui
     ///          +0x00  4 x (i16 x, i16 y)     destination quad: TL, TR, BL, BR
     ///          +0x10  u16 srcW, srcH, srcX, srcY
     ///          +0x18  u8                     flags
-    ///          +0x19  4 x RGBA                per-corner colours (TL, TR, BL, BR)
+    ///          +0x19  4 x RGBA                per-corner colours, bottom row first (BL, BR, TL, TR)
     ///          +0x29  u32                    texture attributes
     ///          +0x2D  char[16]               sampled texture resource id
     /// </code>
@@ -92,10 +92,12 @@ namespace Gordian.Core.Resources.Ui
                 SourceX = BinaryPrimitives.ReadUInt16LittleEndian(s.Slice(0x14)),
                 SourceY = BinaryPrimitives.ReadUInt16LittleEndian(s.Slice(0x16)),
                 Flags = s[0x18],
-                ColorTopLeft = ReadColor(s, 0x19),
-                ColorTopRight = ReadColor(s, 0x1D),
-                ColorBottomLeft = ReadColor(s, 0x21),
-                ColorBottomRight = ReadColor(s, 0x25),
+                // Colours run bottom row first, unlike the quad: window backgrounds author 7F 7F 7F 7F then
+                // 40 40 40 40, and retail (compared against Windower) is translucent at the top, opaque at the bottom.
+                ColorBottomLeft = ReadColor(s, 0x19),
+                ColorBottomRight = ReadColor(s, 0x1D),
+                ColorTopLeft = ReadColor(s, 0x21),
+                ColorTopRight = ReadColor(s, 0x25),
                 TextureAttributes = BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(0x29)),
                 TextureName = ReadResourceId(s.Slice(0x2D, ResourceIdLength)),
             };

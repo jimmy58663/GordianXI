@@ -26,6 +26,7 @@ namespace Gordian.App.Tests.Graphics
             { "WeatherSky", ZoneShaders.VertexShaderWeatherSkyGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "ZoneEffect", ZoneShaders.VertexShaderZoneEffectGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
+            { "StockUi", StockUiRenderer.VertexShaderGlsl, StockUiRenderer.FragmentShaderGlsl },
         };
 
         /// <summary>

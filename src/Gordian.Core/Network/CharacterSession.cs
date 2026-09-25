@@ -121,6 +121,7 @@ namespace Gordian.Core.Network
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
+            ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,
                 Input.InputProfile.CreateCompact(),

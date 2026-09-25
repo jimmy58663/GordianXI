@@ -144,7 +144,11 @@ namespace Gordian.Core.World
             }
         }
 
-        public void UpsertMember(PartyMember member)
+        /// <summary>
+        /// Adds a member or updates it (matched by server id, else name). <paramref name="includeVitals"/> false keeps
+        /// the stored HP/MP/TP: roster packets (S2C 0x0C8) carry no vitals and must not zero them.
+        /// </summary>
+        public void UpsertMember(PartyMember member, bool includeVitals = true)
         {
             ArgumentNullException.ThrowIfNull(member);
             bool isNew = false;
@@ -158,11 +162,14 @@ namespace Gordian.Core.World
                     existing.ServerId = member.ServerId != 0 ? member.ServerId : existing.ServerId;
                     existing.TargetIndex = member.TargetIndex != 0 ? member.TargetIndex : existing.TargetIndex;
                     if (!string.IsNullOrEmpty(member.Name)) existing.Name = member.Name;
-                    existing.Hp = member.Hp;
-                    existing.Mp = member.Mp;
-                    existing.Tp = member.Tp;
-                    existing.Hpp = member.Hpp;
-                    existing.Mpp = member.Mpp;
+                    if (includeVitals)
+                    {
+                        existing.Hp = member.Hp;
+                        existing.Mp = member.Mp;
+                        existing.Tp = member.Tp;
+                        existing.Hpp = member.Hpp;
+                        existing.Mpp = member.Mpp;
+                    }
                     existing.ZoneId = member.ZoneId != 0 ? member.ZoneId : existing.ZoneId;
                     if (member.MainJob != JobId.None) existing.MainJob = member.MainJob;
                     if (member.MainJobLevel > 0) existing.MainJobLevel = member.MainJobLevel;
@@ -189,6 +196,31 @@ namespace Gordian.Core.World
             {
                 MemberUpdated?.Invoke(notifyMember);
             }
+        }
+
+        /// <summary>
+        /// Updates a known member's vitals (S2C 0x0DF, sent to the party whenever a member's HP/MP/TP change).
+        /// Returns false when the id is not a party member.
+        /// </summary>
+        public bool UpdateVitals(uint serverId, uint hp, uint mp, uint tp, byte hpp, byte mpp)
+        {
+            PartyMember? updated = null;
+            lock (_lock)
+            {
+                var existing = _members.FirstOrDefault(m => m.ServerId == serverId);
+                if (existing != null)
+                {
+                    existing.Hp = hp;
+                    existing.Mp = mp;
+                    existing.Tp = tp;
+                    existing.Hpp = hpp;
+                    existing.Mpp = mpp;
+                    updated = existing.Clone();
+                }
+            }
+            if (updated == null) return false;
+            MemberUpdated?.Invoke(updated);
+            return true;
         }
 
         public void RemoveMember(uint serverId)

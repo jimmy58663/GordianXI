@@ -114,13 +114,26 @@ namespace Gordian.Core.Tests.Resources
             }
             canvas.Save(Path.Combine(dumpDir, "hud_layout.png"));
 
-            foreach (string groupName in (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_GROUPS") ?? "yubi,fontshp,framesus").Split(','))
+            // GORDIAN_UI_DUMP_GROUPS: comma-separated groups, each optionally restricted to images ("windowps:38-40+75").
+            foreach (string spec in (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_GROUPS") ?? "yubi,fontshp,framesus").Split(','))
             {
+                string groupName = spec.Split(':')[0];
                 if (!ui.TryGetGroup(groupName, out var group)) continue;
+                var only = new System.Collections.Generic.HashSet<int>();
+                if (spec.Contains(':'))
+                {
+                    foreach (string range in spec.Split(':')[1].Split('+'))
+                    {
+                        var ends = range.Split('-');
+                        int from = int.Parse(ends[0]), to = int.Parse(ends[^1]);
+                        for (int i = from; i <= to; i++) only.Add(i);
+                    }
+                }
                 var sheet = new SoftwareCanvas(512, 512);
                 int x = 8, y = 8, rowHeight = 0;
                 for (int i = 0; i < group.Images.Count && y < 480; i++)
                 {
+                    if (only.Count > 0 && !only.Contains(i)) continue;
                     var bounds = SoftwareCanvas.Bounds(group.Images[i]);
                     int w = Math.Max(4, bounds.MaxX - bounds.MinX), h = Math.Max(4, bounds.MaxY - bounds.MinY);
                     if (x + w > 504) { x = 8; y += rowHeight + 6; rowHeight = 0; }
@@ -128,7 +141,7 @@ namespace Gordian.Core.Tests.Resources
                     x += w + 6;
                     rowHeight = Math.Max(rowHeight, h);
                 }
-                sheet.Save(Path.Combine(dumpDir, $"group_{group.Name}.png"));
+                sheet.Save(Path.Combine(dumpDir, $"group_{group.Name}{(only.Count > 0 ? "_subset" : string.Empty)}.png"));
             }
         }
 

@@ -16,6 +16,7 @@ namespace Gordian.Core.Network.Packets
     {
         private readonly WorldState _world;
         private readonly LocalPlayerState _localPlayer;
+        private readonly PartyState? _party;
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
         private readonly Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? _logPacketCallback;
         private readonly Dictionary<ushort, DateTime> _pendingEntityRequests = new();
@@ -35,8 +36,10 @@ namespace Gordian.Core.Network.Packets
             WorldState world,
             LocalPlayerState localPlayer,
             Func<ReadOnlyMemory<byte>, bool, Task> sendChunkCallback,
-            Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? logPacketCallback = null)
+            Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? logPacketCallback = null,
+            PartyState? party = null)
         {
+            _party = party;
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _localPlayer = localPlayer ?? throw new ArgumentNullException(nameof(localPlayer));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
@@ -512,6 +515,9 @@ namespace Gordian.Core.Network.Packets
                 _localPlayer.UpdateFromGroupAttr(groupAttr);
                 GordianLog.Debug("ENTITY", $"Updated local player vitals from GroupAttr: HP={groupAttr.Hp}, MP={groupAttr.Mp}, TP={groupAttr.Tp}, HPP={groupAttr.Hpp}%, Job={groupAttr.MainJob} Lv{groupAttr.MainJobLevel}");
             }
+
+            // 0x0DF also carries every party member's vitals as they change (0x0DD only on roster changes).
+            _party?.UpdateVitals(groupAttr.UniqueNo, groupAttr.Hp, groupAttr.Mp, groupAttr.Tp, groupAttr.Hpp, groupAttr.Mpp);
 
             if (_world.TryGetByServerId(groupAttr.UniqueNo, out var entity) && entity != null)
             {

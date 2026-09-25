@@ -1,5 +1,6 @@
 // tests/Gordian.Core.Tests/Network/PartyPacketTests.cs
 using System;
+using System.Linq;
 using System.Buffers.Binary;
 using System.Text;
 using System.Threading.Tasks;
@@ -259,5 +260,45 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0, sentBytes[4]); // Res = 0 (Decline)
             Assert.False(partyState.HasPendingInvite);
         }
-    }
+    
+        [Fact]
+        public void PartyVitals_SurviveRosterUpdates_AndFollowGroupAttr()
+        {
+            var party = new PartyState();
+            var localPlayer = new LocalPlayerState { ServerId = 1001 };
+            var dispatcher = new PacketDispatcher();
+            Task Send(ReadOnlyMemory<byte> chunk, bool urgent) => Task.CompletedTask;
+            new PartyPacketModule(party, Send).Register(dispatcher);
+            new EntityPacketModule(new WorldState(), localPlayer, Send, null, party).Register(dispatcher);
+
+            party.UpsertMember(new PartyMember { ServerId = 1001, Name = "Cybin", Hp = 1658, Mp = 571, Hpp = 100, Mpp = 100 });
+            party.UpsertMember(new PartyMember { ServerId = 1002, Name = "Tarudrake", Hp = 9999, Mp = 2794, Hpp = 100, Mpp = 100 });
+
+            // A group table (0x0C8) carries the roster only; it must not zero anyone's vitals.
+            byte[] table = new byte[244];
+            table[0] = (byte)PartyKind.Party;
+            BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(4, 4), 1001);
+            table[10] = 0x04;
+            BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(16, 4), 1002);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0C8_GroupTbl.PacketId, (ushort)(table.Length + 4), 1), table);
+
+            var tarudrake = party.Members.Single(m => m.ServerId == 1002);
+            Assert.Equal(9999u, tarudrake.Hp);
+            Assert.True(party.Members.Single(m => m.ServerId == 1001).IsLeader);
+
+            // A member's HP change arrives as 0x0DF.
+            byte[] attr = new byte[36];
+            BinaryPrimitives.WriteUInt32LittleEndian(attr.AsSpan(0, 4), 1002);
+            BinaryPrimitives.WriteUInt32LittleEndian(attr.AsSpan(4, 4), 1409);
+            BinaryPrimitives.WriteUInt32LittleEndian(attr.AsSpan(8, 4), 254);
+            BinaryPrimitives.WriteUInt32LittleEndian(attr.AsSpan(12, 4), 300);
+            attr[18] = 14;
+            attr[19] = 9;
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0DF_GroupAttr.PacketId, (ushort)(attr.Length + 4), 2), attr);
+
+            tarudrake = party.Members.Single(m => m.ServerId == 1002);
+            Assert.Equal((1409u, 254u, 300u, (byte)14, (byte)9), (tarudrake.Hp, tarudrake.Mp, tarudrake.Tp, tarudrake.Hpp, tarudrake.Mpp));
+            Assert.False(party.UpdateVitals(9999, 1, 1, 1, 1, 1)); // not a member
+        }
+}
 }

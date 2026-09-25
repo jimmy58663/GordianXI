@@ -34,7 +34,7 @@ namespace Gordian.Core.Tests.Resources
                 foreach (int v in new[] { -3, -2, 23, -2, -3, 30, 23, 30 }) WriteI16(b, v + part);
                 foreach (int v in new[] { 26, 32, 6, 0 }) WriteI16(b, v);
                 b.Add(1);
-                for (int c = 0; c < 4; c++) b.AddRange(new byte[] { 0x7F, 0x40, 0x40, 0x60 });
+                for (int c = 0; c < 4; c++) b.AddRange(new byte[] { 0x7F, 0x40, 0x40, (byte)(0x60 + c) });
                 b.AddRange(new byte[] { 0x01, 0x00, 0x02, 0x01 });
                 WriteId(b, part == 0 ? "menu    hfr1" : "menu    corner");
             }
@@ -66,7 +66,10 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal((ushort)6, part.SourceX);
             Assert.Equal((ushort)0, part.SourceY);
             Assert.Equal((byte)1, part.Flags);
-            Assert.Equal(new UiColor(0x7F, 0x40, 0x40, 0x60), part.ColorBottomRight);
+            Assert.Equal(new UiColor(0x7F, 0x40, 0x40, 0x60), part.ColorBottomLeft); // colours run bottom row first
+            Assert.Equal(new UiColor(0x7F, 0x40, 0x40, 0x61), part.ColorBottomRight);
+            Assert.Equal(new UiColor(0x7F, 0x40, 0x40, 0x62), part.ColorTopLeft);
+            Assert.Equal(new UiColor(0x7F, 0x40, 0x40, 0x63), part.ColorTopRight);
             Assert.Equal(0x01020001u, part.TextureAttributes);
             Assert.Equal("menu    corner  ", part.TextureName);
         }
@@ -153,6 +156,17 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal((ushort)765, second.Shapes[1].ImageIndex);
             Assert.Equal(321, second.HelpTextId);
             Assert.Equal(81, second.TitleTextId);
+        }
+
+        [Theory]
+        [InlineData(new byte[] { 0x01, 0x00, 0x01, 0x01 }, UiBlendMode.Alpha)]    // backgrounds, glyphs
+        [InlineData(new byte[] { 0x01, 0x02, 0x00, 0x01 }, UiBlendMode.Subtract)] // text shadows, title bands
+        [InlineData(new byte[] { 0x01, 0x01, 0x00, 0x01 }, UiBlendMode.Add)]
+        [InlineData(new byte[] { 0x01, 0x07, 0x00, 0x01 }, UiBlendMode.Alpha)]    // unknown modes fall back
+        public void SpritePart_BlendModeIsTheAttributesSecondByte(byte[] attributes, UiBlendMode expected)
+        {
+            var part = new UiSpritePart { TextureAttributes = BinaryPrimitives.ReadUInt32LittleEndian(attributes) };
+            Assert.Equal(expected, part.BlendMode);
         }
 
         [Theory]

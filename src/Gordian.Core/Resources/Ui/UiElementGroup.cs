@@ -20,6 +20,16 @@ namespace Gordian.Core.Resources.Ui
     }
 
     /// <summary>
+    /// Blend mode of a UI sprite part.
+    /// </summary>
+    public enum UiBlendMode : byte
+    {
+        Alpha = 0,
+        Add = 1,
+        Subtract = 2,
+    }
+
+    /// <summary>
     /// One textured quad of a UI image: a destination quad (corners TL, TR, BL, BR), a source rectangle on the named
     /// texture, and per-corner colours.
     /// </summary>
@@ -46,9 +56,17 @@ namespace Gordian.Core.Resources.Ui
         public UiColor ColorBottomRight { get; init; }
 
         /// <summary>
-        /// Bytes +0x29..+0x2C preceding the texture name (e.g. 01 00 02 01); meaning not yet decoded.
+        /// Bytes +0x29..+0x2C preceding the texture name (little-endian u32; bytes e.g. 01 00 01 01). The second byte
+        /// is the blend mode (<see cref="BlendMode"/>); the others are not yet decoded.
         /// </summary>
         public uint TextureAttributes { get; init; }
+
+        /// <summary>
+        /// How the part combines with what is behind it: the attributes' second byte. 2 darkens (text shadows, the
+        /// band behind window titles, separator lines: 6.4k parts), matching the dark title band of a Windower
+        /// capture; 1 is taken to be additive; 0 is ordinary alpha blending.
+        /// </summary>
+        public UiBlendMode BlendMode => (UiBlendMode)((TextureAttributes >> 8) & 0xFF) is var mode && mode <= UiBlendMode.Subtract ? mode : UiBlendMode.Alpha;
 
         /// <summary>
         /// The sampled texture's 16-character resource id (8-character category + 8-character name, space padded,

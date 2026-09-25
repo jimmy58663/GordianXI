@@ -314,6 +314,7 @@ namespace Gordian.App.Graphics
 
         private readonly VeldridDeviceManager _deviceManager = new();
         private ZoneTerrainRenderer? _renderer;
+        private StockUiRenderer? _stockUiRenderer;
         private IntPtr _childHwnd = IntPtr.Zero;
         private readonly object _renderLock = new();
         private CancellationTokenSource? _renderLoopCts;
@@ -345,6 +346,7 @@ namespace Gordian.App.Graphics
                         ActiveBackendName = _deviceManager.ActiveBackend.ToString();
                         GpuDeviceName = _deviceManager.DeviceName;
                         _renderer = new ZoneTerrainRenderer(_deviceManager.Device);
+                        _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, _deviceManager.Device.SwapchainFramebuffer.OutputDescription);
 
                         ushort initialZone = _activeSession?.World.CurrentZoneId ?? _worldState?.CurrentZoneId ?? 0;
                         if (initialZone != 0)
@@ -374,6 +376,8 @@ namespace Gordian.App.Graphics
                 _lastWeatherId = null;
                 _renderer?.Dispose();
                 _renderer = null;
+                _stockUiRenderer?.Dispose();
+                _stockUiRenderer = null;
 
                 _deviceManager.Dispose();
 
@@ -688,12 +692,19 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Tier 2: Stock FFXI 2D UI render pass (orthographic HUD projection).
-        /// Reserved hook for Phase 5E Tier 2.
+        /// The stock FFXI 2D HUD (Tier 2): layout, visibility and resources.
+        /// </summary>
+        public StockUiHud StockUi { get; } = new();
+
+        /// <summary>
+        /// Tier 2: Stock FFXI 2D UI render pass, drawn in screen space over the finished 3D scene.
         /// </summary>
         private void RenderTier2_StockUi()
         {
-            // Future Phase 5E Tier 2 implementation: Blue marble menus, finger cursor, vitals gauges, status icons
+            var gd = _deviceManager.Device;
+            if (_stockUiRenderer == null || gd == null) return;
+            StockUi.EnsureLoading(ResourceManager);
+            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, _deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
         }
 
         /// <summary>

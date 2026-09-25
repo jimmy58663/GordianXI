@@ -33,6 +33,7 @@ namespace Gordian.Core.Network
         ToggleLockOn,
         SyntheticMoveTo,
         CollisionToggle,
+        UiLayout,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -146,6 +147,9 @@ namespace Gordian.Core.Network
                     // Synthetic Locomotion (Policy-Gated)
                     "moveto" or "goto" => ParseMoveToCommand(args),
                     "collision" or "col" or "noclip" => new ChatCommandResult { Kind = ChatCommandResultKind.CollisionToggle, Message = args },
+
+                    // Stock UI layout
+                    "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },
 
                     // Command Discovery & Help
                     "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)

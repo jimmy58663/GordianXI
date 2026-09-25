@@ -109,7 +109,7 @@ namespace Gordian.Core.Network.Packets
                     IsLeader = isLeader,
                     ZoneId = zoneId,
                     MemberNumber = (byte)i
-                });
+                }, includeVitals: false);
             }
         }
 

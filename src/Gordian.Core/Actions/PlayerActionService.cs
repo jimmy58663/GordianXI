@@ -13,6 +13,8 @@ using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
+using Gordian.Core.Resources.Ui;
+using Gordian.Core.Ui;
 
 namespace Gordian.Core.Actions
 {
@@ -105,6 +107,11 @@ namespace Gordian.Core.Actions
         /// The session's collision toggles (<c>/collision</c>), read by the locomotion controller.
         /// </summary>
         public CollisionSettings Collision { get; } = new();
+
+        /// <summary>
+        /// The character's stock UI layout, edited by <c>/uilayout</c> and read by the HUD.
+        /// </summary>
+        public StockUiLayout UiLayout { get; set; } = new();
 
         public PlayerActionService(
             SessionProfile profile,
@@ -682,6 +689,8 @@ namespace Gordian.Core.Actions
                         return "Usage: /disband - Disband party (party leader only).";
                     case "kick":
                         return "Usage: /kick <player> - Remove player from party.";
+                    case "uilayout" or "uil":
+                        return UiLayoutUsage;
                     case "help" or "commands":
                         return "Usage: /help [command] - Show available client commands or detailed help.";
                     case "gmhelp" or "gmcommands":
@@ -703,6 +712,7 @@ namespace Gordian.Core.Actions
                 sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
+            sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows (/uil)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -823,6 +833,102 @@ namespace Gordian.Core.Actions
                 : PlayerActionResult.Ok(summary, Kind);
         }
 
+        private const string UiLayoutUsage =
+            "Usage: /uilayout [scale <n> | tp <on|off> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Windows: log, chat, party, alliance, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner.";
+
+        private static readonly string[] UiWindowIds =
+        {
+            StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance,
+            StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu,
+        };
+
+        /// <summary>
+        /// Handles <c>/uilayout</c>: the global stock UI scale and per-window overrides (move, re-anchor, scale, hide,
+        /// reset). No arguments reports the current layout. Changes save to the character's layout file at once.
+        /// </summary>
+        public PlayerActionResult ApplyUiLayoutCommand(string args)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.UiLayout;
+            var layout = UiLayout;
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            static bool TryFloat(string text, out float value) =>
+                float.TryParse(text.Trim(',', '(', ')'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
+            if (parts.Length == 0) return PlayerActionResult.Info(DescribeUiLayout(layout), Kind);
+
+            string first = parts[0].ToLowerInvariant();
+            if (first == "reset" && parts.Length == 1)
+            {
+                layout.ResetAll();
+                return PlayerActionResult.Ok("Stock UI restored to the retail layout.", Kind);
+            }
+            if (first == "tp" && parts.Length == 2 && parts[1].ToLowerInvariant() is "on" or "off")
+            {
+                layout.SetShowPartyTp(parts[1].Equals("on", StringComparison.OrdinalIgnoreCase));
+                return PlayerActionResult.Ok($"Party window TP {(layout.ShowPartyTp ? "shown" : "hidden (retail)")}.", Kind);
+            }
+            if (first == "scale" && parts.Length == 2 && TryFloat(parts[1], out float globalScale))
+            {
+                layout.SetScale(globalScale);
+                return PlayerActionResult.Ok($"Stock UI scale {layout.Scale:0.##}.", Kind);
+            }
+
+            string? window = Array.Find(UiWindowIds, id => id == first);
+            if (window == null || parts.Length < 2) return PlayerActionResult.Warn(UiLayoutUsage, Kind);
+
+            switch (parts[1].ToLowerInvariant())
+            {
+                case "hide":
+                    layout.SetHidden(window, true);
+                    return PlayerActionResult.Ok($"Stock {window} window hidden.", Kind);
+                case "show":
+                    layout.SetHidden(window, false);
+                    return PlayerActionResult.Ok($"Stock {window} window shown.", Kind);
+                case "reset":
+                    layout.Reset(window);
+                    return PlayerActionResult.Ok($"Stock {window} window restored to its retail placement.", Kind);
+                case "scale" when parts.Length == 3:
+                    if (parts[2].Equals("default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        layout.SetWindowScale(window, null);
+                        return PlayerActionResult.Ok($"Stock {window} window uses the global scale.", Kind);
+                    }
+                    if (!TryFloat(parts[2], out float windowScale)) break;
+                    layout.SetWindowScale(window, windowScale);
+                    return PlayerActionResult.Ok($"Stock {window} window scale x{windowScale:0.##}.", Kind);
+                case "move" when parts.Length is 4 or 5:
+                    if (!TryFloat(parts[2], out float x) || !TryFloat(parts[3], out float y)) break;
+                    UiAnchor? anchor = null;
+                    if (parts.Length == 5)
+                    {
+                        if (!Enum.TryParse(parts[4], ignoreCase: true, out UiAnchor parsed) || !Enum.IsDefined(parsed)) break;
+                        anchor = parsed;
+                    }
+                    layout.SetPosition(window, x, y, anchor);
+                    string anchored = anchor != null ? $", anchored {anchor}" : string.Empty;
+                    return PlayerActionResult.Ok($"Stock {window} window moved to ({x:0.#}, {y:0.#}){anchored}.", Kind);
+            }
+            return PlayerActionResult.Warn(UiLayoutUsage, Kind);
+        }
+
+        private static string DescribeUiLayout(StockUiLayout layout)
+        {
+            var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}");
+            var overrides = layout.GetOverrides();
+            if (overrides.Count == 0) return sb.Append("; every window at its retail placement.").ToString();
+            foreach (var (id, o) in overrides)
+            {
+                var details = new List<string>();
+                if (o.X != null || o.Y != null) details.Add($"at ({o.X:0.#}, {o.Y:0.#})");
+                if (o.Anchor != null) details.Add($"anchored {o.Anchor}");
+                if (o.Scale != null) details.Add($"scale x{o.Scale:0.##}");
+                if (o.Hidden) details.Add("hidden");
+                sb.Append($"; {id}: {string.Join(", ", details)}");
+            }
+            return sb.Append('.').ToString();
+        }
+
         #region Unified Command Router Dispatcher
 
         /// <summary>
@@ -898,6 +1004,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.CollisionToggle:
                     return ApplyCollisionCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.UiLayout:
+                    return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

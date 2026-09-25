@@ -82,7 +82,7 @@ namespace Gordian.Core.Network
                 _world.UpdateWeather(weatherNumber);
             };
 
-            _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket);
+            _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket, _party);
             _entityModule.Register(_dispatcher);
 
             _chatModule = new ChatPacketModule(_sendChunkCallback, LogPacket);
