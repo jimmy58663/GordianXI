@@ -338,11 +338,10 @@ namespace Gordian.Core.World.Collision
                         ref readonly var t = ref _triangles[_cellTriangles[k]];
                         if (MathF.Abs(t.Normal.Y) >= MaxWallNormalY) continue;
                         if (Vector3.Dot(direction, t.Normal) >= 0.0f) continue; // moving out of the face, not into it
-                        foreach (float y in stackalloc float[] { lowY, highY })
-                        {
-                            float hit = RayTriangleDistance(new Vector3(from.X, y, from.Y), direction, t.A, t.B, t.C);
-                            if (hit >= 0.0f && hit <= length) return true;
-                        }
+                        float low = RayTriangleDistance(new Vector3(from.X, lowY, from.Y), direction, t.A, t.B, t.C);
+                        if (low >= 0.0f && low <= length) return true;
+                        float high = RayTriangleDistance(new Vector3(from.X, highY, from.Y), direction, t.A, t.B, t.C);
+                        if (high >= 0.0f && high <= length) return true;
                     }
                 }
             }
