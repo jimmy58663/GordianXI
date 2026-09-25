@@ -176,6 +176,12 @@ namespace Gordian.Core.Network.Packets
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
         /// </summary>
         public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
+
+        /// <summary>
+        /// GroundFlag (Flags0 bit 15): the entity ignores world collision (walks through walls, is not placed on the
+        /// ground). Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags0_t.
+        /// </summary>
+        public bool IgnoresWorldCollision => ((Flags0 >> 15) & 0x01) != 0;
         public bool IsMoving => IsMovingMovTime(MovTime);
 
         /// <summary>
@@ -466,6 +472,12 @@ namespace Gordian.Core.Network.Packets
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
         /// </summary>
         public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
+
+        /// <summary>
+        /// GroundFlag (Flags0 bit 15): the entity ignores world collision (walks through walls, is not placed on the
+        /// ground). Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags0_t.
+        /// </summary>
+        public bool IgnoresWorldCollision => ((Flags0 >> 15) & 0x01) != 0;
         public bool IsMoving => MovTime != 0;
 
         /// <summary>

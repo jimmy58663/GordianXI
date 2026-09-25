@@ -12,6 +12,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
+using Gordian.Core.World.Collision;
 using Veldrid;
 using Veldrid.SPIRV;
 
@@ -234,7 +235,8 @@ namespace Gordian.App.Graphics
             float deltaSeconds = 0f,
             uint localPlayerServerId = 0,
             bool isLocalPlayerEngaged = false,
-            Vector3? localPlayerDisplayPos = null)
+            Vector3? localPlayerDisplayPos = null,
+            ZoneCollisionMesh? collision = null)
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -270,9 +272,10 @@ namespace Gordian.App.Graphics
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).
                 // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
+                // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
                 Vector3 pos = (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
-                    : new Vector3(-entity.Position.X, -entity.Position.Y, entity.Position.Z);
+                    : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision), entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);
                 Vector3 maxBox = pos + new Vector3(1.0f, 2.2f, 1.0f);
 

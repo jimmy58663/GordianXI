@@ -938,7 +938,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;

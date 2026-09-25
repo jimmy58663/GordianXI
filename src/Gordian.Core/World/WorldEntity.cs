@@ -642,6 +642,12 @@ namespace Gordian.Core.World
         /// The server marked this entity as one the local player passes straight through.
         /// </summary>
         public bool IsNonBlocking { get; set; }
+
+        /// <summary>
+        /// The server's GroundFlag: this entity ignores world collision, so it is drawn at its reported height instead of
+        /// on the floor.
+        /// </summary>
+        public bool IgnoresWorldCollision { get; set; }
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
         public DateTime LastPositionChangeUtc { get; set; } = DateTime.MinValue;
 

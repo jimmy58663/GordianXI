@@ -212,6 +212,7 @@ namespace Gordian.Core.Network.Packets
             player.GraphSize = pc.GraphSize;
             player.IsHidden = pc.IsHidden;
             player.IsNonBlocking = pc.IsNonBlocking;
+            if (pc.HasPosition) player.IgnoresWorldCollision = pc.IgnoresWorldCollision;
             player.HasBazaar = pc.HasBazaar;
             player.IsCharmed = pc.IsCharmed;
             player.IsMentor = pc.IsMentor;
@@ -355,6 +356,7 @@ namespace Gordian.Core.Network.Packets
                 entity.GraphSize = npcPacket.GraphSize;
                 entity.IsHidden = npcPacket.IsHidden;
                 entity.IsInvisible = npcPacket.IsInvisible;
+                if (npcPacket.HasPosition) entity.IgnoresWorldCollision = npcPacket.IgnoresWorldCollision;
             }
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
