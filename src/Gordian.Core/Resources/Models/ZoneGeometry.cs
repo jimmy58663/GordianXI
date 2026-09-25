@@ -86,6 +86,11 @@ namespace Gordian.Core.Resources.Models
         public Graphics.ZoneEnvironmentData? EnvironmentData { get; set; }
 
         /// <summary>
+        /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none.
+        /// </summary>
+        public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+
+        /// <summary>
         /// Short weather routines (lightning strikes) grouped by directory, played one random routine at a time.
         /// </summary>
         public List<Gordian.Core.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();

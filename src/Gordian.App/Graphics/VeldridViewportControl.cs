@@ -207,6 +207,13 @@ namespace Gordian.App.Graphics
         }
 
         private ushort _loadedZoneId;
+        private static double TickSeconds(long timestamp) => (double)timestamp / Stopwatch.Frequency;
+
+        private readonly TickPositionSmoother _playerSmoother = new();
+        private uint _smoothedPlayerServerId;
+        private readonly TickPositionSmoother _cameraOrbitSmoother = new(snapDistance: 120.0f);
+        private float _lastRawCameraYaw;
+        private float _unwrappedCameraYaw;
         private volatile int _pendingZoneLoad;
         private int _isZoneLoading;
         private ZoneGeometry? _currentZoneGeom;
@@ -216,8 +223,24 @@ namespace Gordian.App.Graphics
 
         private void OnWorldZoneChanged(ushort zoneId)
         {
+            ShareZoneCollision();
             if (zoneId == 0 || zoneId == _loadedZoneId) return;
             _pendingZoneLoad = zoneId;
+        }
+
+        /// <summary>
+        /// Hands the loaded zone's collision mesh to the displayed world states that are in that zone, so local movement
+        /// follows the ground (a world state clears its collision whenever its zone changes).
+        /// </summary>
+        private void ShareZoneCollision()
+        {
+            var zone = _currentZoneGeom;
+            ushort loaded = _loadedZoneId;
+            if (zone?.Collision == null || loaded == 0) return;
+            foreach (var world in new[] { _activeSession?.World, _worldState })
+            {
+                if (world != null && world.CurrentZoneId == loaded) world.Collision = zone.Collision;
+            }
         }
 
         private void CheckAndLoadPendingZone()
@@ -249,6 +272,7 @@ namespace Gordian.App.Graphics
                             _renderer?.LoadZone(zoneGeom, zoneTextures);
                             _loadedZoneId = zoneToLoad;
                             _currentZoneGeom = zoneGeom;
+                            ShareZoneCollision();
 
                             if (zoneGeom?.EnvironmentData != null)
                             {
@@ -505,10 +529,35 @@ namespace Gordian.App.Graphics
 
                 if (_activeSession?.Locomotion != null)
                 {
-                    Camera.Pitch = _activeSession.Locomotion.CameraPitch;
-                    Camera.Yaw = _activeSession.Locomotion.CameraYaw;
-                    Camera.Distance = _activeSession.Locomotion.CameraDistance;
-                    Camera.Mode = _activeSession.Locomotion.Camera.Mode;
+                    // The orbit angles also advance on the locomotion tick (turning, swinging in behind a runner), so
+                    // interpolate them too; yaw is unwrapped first so 359 -> 1 degrees never spins the long way round.
+                    var locomotion = _activeSession.Locomotion;
+                    float rawYaw = locomotion.CameraYaw;
+                    float yawStep = rawYaw - _lastRawCameraYaw;
+                    yawStep -= 360.0f * MathF.Round(yawStep / 360.0f);
+                    _unwrappedCameraYaw += yawStep;
+                    _lastRawCameraYaw = rawYaw;
+                    var orbit = _cameraOrbitSmoother.Update(
+                        new Vector3(_unwrappedCameraYaw, locomotion.CameraPitch, locomotion.CameraDistance),
+                        TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
+                    Camera.Yaw = orbit.X;
+                    Camera.Pitch = orbit.Y;
+                    Camera.Distance = orbit.Z;
+                    Camera.Mode = locomotion.Camera.Mode;
+                }
+
+                // Locomotion ticks on a UI timer (irregular ~16/31 ms); interpolate between ticks so the camera and the
+                // player move evenly every frame instead of in uneven jumps.
+                if (localPlayerServerId != _smoothedPlayerServerId)
+                {
+                    _playerSmoother.Reset();
+                    _smoothedPlayerServerId = localPlayerServerId;
+                }
+                if (hasPlayerPos)
+                {
+                    long tick = _activeSession?.Locomotion?.LastUpdateTimestamp ?? 0;
+                    long frameTimestamp = Stopwatch.GetTimestamp();
+                    playerPos = _playerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
                 }
 
                 Vector3? displayPlayerPos = hasPlayerPos
@@ -519,7 +568,7 @@ namespace Gordian.App.Graphics
                 {
                     if (displayPlayerPos.HasValue)
                     {
-                        Camera.Update(displayPlayerPos.Value, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect);
+                        Camera.Update(displayPlayerPos.Value, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect, deltaSeconds);
                     }
                     else
                     {

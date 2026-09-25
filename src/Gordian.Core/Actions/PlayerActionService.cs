@@ -12,6 +12,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
+using Gordian.Core.World.Collision;
 
 namespace Gordian.Core.Actions
 {
@@ -99,6 +100,11 @@ namespace Gordian.Core.Actions
         public WorldState World => _world;
         public LocalPlayerState LocalPlayer => _localPlayer;
         public SessionProfile Profile => _profile;
+
+        /// <summary>
+        /// The session's collision toggles (<c>/collision</c>), read by the locomotion controller.
+        /// </summary>
+        public CollisionSettings Collision { get; } = new();
 
         public PlayerActionService(
             SessionProfile profile,
@@ -457,8 +463,15 @@ namespace Gordian.Core.Actions
             bool hasLocal = _world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null;
             if (float.IsNaN(targetPos.Y))
             {
-                // No height given: stay at the current height.
-                targetPos = targetPos with { Y = hasLocal ? localEnt!.Position.Y : 0f };
+                // No height given: land on the floor there nearest the current height, else keep the current height.
+                float currentHeight = hasLocal ? localEnt!.Position.Y : 0f;
+                var collision = _world.Collision;
+                targetPos = targetPos with
+                {
+                    Y = collision != null && collision.TryGetNearestGround(targetPos.X, targetPos.Z, currentHeight, out var ground)
+                        ? ground.Height
+                        : currentHeight
+                };
             }
 
             if (hasLocal && localEnt != null)
@@ -689,6 +702,7 @@ namespace Gordian.Core.Actions
             {
                 sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
             }
+            sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -768,6 +782,47 @@ namespace Gordian.Core.Actions
 
         #endregion
 
+        /// <summary>
+        /// Handles <c>/collision [ground|walls|entities|all] [on|off]</c>: no arguments reports the state, a layer alone
+        /// toggles it, and on/off alone applies to every layer. Layers the server protects stay on.
+        /// </summary>
+        public PlayerActionResult ApplyCollisionCommand(string args)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var layers = CollisionLayers.None;
+            bool? turnOn = null;
+            foreach (string part in parts)
+            {
+                string word = part.ToLowerInvariant();
+                if (word is "on" or "enable") turnOn = true;
+                else if (word is "off" or "disable") turnOn = false;
+                else if (CollisionSettings.TryParseLayer(word, out var layer)) layers |= layer;
+                else return PlayerActionResult.Warn("Usage: /collision [ground|walls|entities|all] [on|off]", Kind);
+            }
+
+            if (parts.Length > 0)
+            {
+                if (layers == CollisionLayers.None) layers = CollisionLayers.All;
+                bool enable = turnOn ?? (Collision.Requested & layers) != layers;
+                Collision.Requested = enable ? Collision.Requested | layers : Collision.Requested & ~layers;
+            }
+
+            var locked = CollisionSettings.GetLocked(_profile);
+            var effective = Collision.GetEffective(_profile);
+            string Describe(CollisionLayers layer, string name)
+            {
+                string state = (effective & layer) != 0 ? "on" : "off";
+                return (locked & layer) != 0 && (Collision.Requested & layer) == 0 ? $"{name} {state} (server-enforced)" : $"{name} {state}";
+            }
+
+            string summary = $"Collision: {Describe(CollisionLayers.Ground, "ground")}, {Describe(CollisionLayers.Walls, "walls")}, " +
+                             $"{Describe(CollisionLayers.Entities, "entities")}.";
+            return (Collision.Requested | locked) != Collision.Requested && parts.Length > 0
+                ? PlayerActionResult.Warn(summary, Kind)
+                : PlayerActionResult.Ok(summary, Kind);
+        }
+
         #region Unified Command Router Dispatcher
 
         /// <summary>
@@ -840,6 +895,9 @@ namespace Gordian.Core.Actions
                     }
                     ToggleLockOn();
                     return PlayerActionResult.Ok(IsLockedOn ? $"Locked on to {CurrentTarget.Name}." : "Lock-on released.", ChatCommandResultKind.ToggleLockOn);
+
+                case ChatCommandResultKind.CollisionToggle:
+                    return ApplyCollisionCommand(cmd.Message ?? string.Empty);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

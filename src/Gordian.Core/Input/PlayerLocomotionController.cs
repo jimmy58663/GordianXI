@@ -8,6 +8,7 @@ using Gordian.Core.Actions;
 using Gordian.Core.Config;
 using Gordian.Core.Graphics;
 using Gordian.Core.World;
+using Gordian.Core.World.Collision;
 
 namespace Gordian.Core.Input
 {
@@ -64,6 +65,40 @@ namespace Gordian.Core.Input
         private const float CameraFollowRate = 0.68f;
 
         private bool _cameraYawInputThisFrame;
+
+        /// <summary>
+        /// <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/> of the latest tick, so a renderer can interpolate the
+        /// tick-driven position and camera angles by when they were actually simulated.
+        /// </summary>
+        public long LastUpdateTimestamp { get; private set; }
+
+        /// <summary>
+        /// Highest floor rise, in yalms, the player steps onto without being blocked (stairs, curbs, steep slopes).
+        /// </summary>
+        public const float StepUpHeight = 0.75f;
+
+        /// <summary>
+        /// Radius, in yalms, of the rounded foot the player rests on, which turns stairs into a ramp as in the legacy
+        /// client (see <see cref="ZoneCollisionMesh.TryGetSteppedGround"/>).
+        /// </summary>
+        public const float FootRadius = 0.9f;
+
+        /// <summary>
+        /// Deepest drop, in yalms, the player falls to a floor below; beyond it the height is left alone.
+        /// </summary>
+        public const float MaxGroundDrop = 60.0f;
+
+        private readonly CollisionSettings _ownCollision = new();
+
+        /// <summary>
+        /// The session's collision toggles (shared with <see cref="PlayerActionService.Collision"/> when there is one).
+        /// </summary>
+        public CollisionSettings Collision => _actionService?.Collision ?? _ownCollision;
+
+        /// <summary>
+        /// The collision layers local movement obeys right now, after server policy.
+        /// </summary>
+        public CollisionLayers EffectiveCollision => Collision.GetEffective(_actionService?.Profile);
 
         // Camera Spherical Angles (in degrees and yalms)
         public float CameraPitch { get; set; } = 15.0f; // degrees (-80 to +80)
@@ -167,6 +202,7 @@ namespace Gordian.Core.Input
         public void Update(TimeSpan elapsed)
         {
             if (elapsed <= TimeSpan.Zero) return;
+            LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
             // 1. Evaluate physical keys and mouse against active profile
             _inputState.Update(_profile, elapsed);
@@ -401,6 +437,9 @@ namespace Gordian.Core.Input
 
             float dt = (float)elapsed.TotalSeconds;
 
+            // Keeps the player on the floor while standing still too, e.g. after zone-in or a teleport.
+            SnapToGround(localEnt);
+
             // Check gamepad analog left stick
             var pad = _inputState.CurrentGamepad;
             var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
@@ -492,7 +531,7 @@ namespace Gordian.Core.Input
                     float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
                     float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
 
-                    localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+                    MoveHorizontally(localEnt, dx, dz);
 
                     // Re-align facing to target after displacement
                     toTgtX = lockTgt.Position.X - localEnt.Position.X;
@@ -536,7 +575,7 @@ namespace Gordian.Core.Input
                 float distance = speedYalmsPerSec * dt;
 
                 var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                localEnt.Position = new Vector3(localEnt.Position.X + (fwd.X * distance), localEnt.Position.Y, localEnt.Position.Z + (fwd.Y * distance));
+                MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -573,7 +612,7 @@ namespace Gordian.Core.Input
                     float distance = speedYalmsPerSec * dt;
 
                     var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    localEnt.Position = new Vector3(localEnt.Position.X + (fwd.X * distance), localEnt.Position.Y, localEnt.Position.Z + (fwd.Y * distance));
+                    MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
                     LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                     return;
                 }
@@ -659,7 +698,7 @@ namespace Gordian.Core.Input
                 float dx = (fwd.X * forwardInput + right.X * strafeInput) * distance;
                 float dz = (fwd.Y * forwardInput + right.Y * strafeInput) * distance;
 
-                localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+                MoveHorizontally(localEnt, dx, dz);
             }
             else
             {
@@ -668,6 +707,34 @@ namespace Gordian.Core.Input
             }
 
             LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+        }
+
+        /// <summary>
+        /// Moves the player across the ground by a horizontal displacement and settles it onto the floor there.
+        /// </summary>
+        private void MoveHorizontally(WorldEntity localEnt, float dx, float dz)
+        {
+            localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
+            SnapToGround(localEnt);
+        }
+
+        /// <summary>
+        /// Sets the player's height to the walkable surface under it: the highest floor at most
+        /// <see cref="StepUpHeight"/> above its feet, rounded over tread edges by <see cref="FootRadius"/>, so it
+        /// climbs stairs and slopes, descends them, and drops off
+        /// ledges, but never pops up onto a bridge or upper floor overhead. Leaves the height alone where the zone has
+        /// no collision (not yet loaded, or a gap in the mesh) or when ground collision is off.
+        /// </summary>
+        private void SnapToGround(WorldEntity localEnt)
+        {
+            if ((EffectiveCollision & CollisionLayers.Ground) == 0) return;
+            var collision = _world.Collision;
+            if (collision == null) return;
+            var position = localEnt.Position;
+            if (collision.TryGetSteppedGround(position, StepUpHeight, MaxGroundDrop, FootRadius, out var ground))
+            {
+                localEnt.Position = new Vector3(position.X, ground.Height, position.Z);
+            }
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)

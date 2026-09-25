@@ -112,10 +112,34 @@ namespace Gordian.Core.Graphics
         }
 
         /// <summary>
+        /// Rate (per second) at which the orbital camera's follow height closes the gap to the character's height, so
+        /// steps and slopes raise and lower the view smoothly instead of jolting it. About 95% of a step is absorbed
+        /// in half a second.
+        /// </summary>
+        public const float FollowHeightRate = 6.0f;
+
+        /// <summary>
+        /// Height changes larger than this (yalms) are teleports or zone-ins, which the camera follows immediately.
+        /// </summary>
+        public const float FollowHeightSnapDistance = 8.0f;
+
+        private float _followHeight;
+        private bool _hasFollowHeight;
+
+        /// <summary>
         /// Updates the camera from the target player position and spherical angles.
         /// </summary>
         public void Update(Vector3 targetPosition, float pitch, float yaw, float distance, float aspectRatio)
+            => Update(targetPosition, pitch, yaw, distance, aspectRatio, deltaSeconds: 0.0f);
+
+        /// <summary>
+        /// Updates the camera from the target player position and spherical angles, easing the orbital camera's
+        /// follow height toward the character's height over <paramref name="deltaSeconds"/> (0 snaps to it).
+        /// </summary>
+        public void Update(Vector3 targetPosition, float pitch, float yaw, float distance, float aspectRatio, float deltaSeconds)
         {
+            float followHeight = EaseFollowHeight(targetPosition.Y, deltaSeconds);
+
             _pitch = Math.Clamp(pitch, -80.0f, 80.0f);
             _yaw = NormalizeDegrees(yaw);
             _distance = Math.Clamp(distance, 0.5f, 50.0f);
@@ -146,7 +170,7 @@ namespace Gordian.Core.Graphics
                     cosP = MathF.Cos(pitchRad);
                     sinP = MathF.Sin(pitchRad);
 
-                    _target = targetPosition + _eyeOffset;
+                    _target = new Vector3(targetPosition.X, followHeight, targetPosition.Z) + _eyeOffset;
                     float camY = _target.Y + (sinP * _distance);
 
                     // Ground floor safeguard: when orbiting an avatar (EyeOffset.Y > 0),
@@ -222,6 +246,18 @@ namespace Gordian.Core.Graphics
             _projectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView(_fov, _aspectRatio, _nearClip, _farClip);
             _viewProjectionMatrix = Matrix4x4.Multiply(_viewMatrix, _projectionMatrix);
             _frustum.Update(_viewProjectionMatrix);
+        }
+
+        private float EaseFollowHeight(float height, float deltaSeconds)
+        {
+            if (!_hasFollowHeight || deltaSeconds <= 0.0f || MathF.Abs(height - _followHeight) > FollowHeightSnapDistance)
+            {
+                _followHeight = height;
+                _hasFollowHeight = true;
+                return height;
+            }
+            _followHeight += (height - _followHeight) * (1.0f - MathF.Exp(-FollowHeightRate * deltaSeconds));
+            return _followHeight;
         }
 
         private void UpdateMatrices()

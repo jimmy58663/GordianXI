@@ -31,7 +31,13 @@ namespace Gordian.Core.Config
         ReadGameState = 1UL << 4,
 
         /// <summary>Blocks the addon scripting runtime from loading or executing any script.</summary>
-        Addons = 1UL << 5
+        Addons = 1UL << 5,
+
+        /// <summary>Blocks turning off ground and wall collision (walking through walls).</summary>
+        WallCollisionOverride = 1UL << 6,
+
+        /// <summary>Blocks turning off collision with NPCs and monsters.</summary>
+        EntityCollisionOverride = 1UL << 7
     }
 
     /// <summary>

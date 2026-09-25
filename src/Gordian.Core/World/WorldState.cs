@@ -45,6 +45,18 @@ namespace Gordian.Core.World
         public event Action<string>? WeatherChanged;
 
         private ushort _currentZoneId;
+        private volatile Collision.ZoneCollisionMesh? _collision;
+
+        /// <summary>
+        /// The current zone's player-collision mesh, set once the zone's geometry is loaded and cleared on zone change;
+        /// null while unavailable, in which case movement is not collision-checked.
+        /// </summary>
+        public Collision.ZoneCollisionMesh? Collision
+        {
+            get => _collision;
+            set => _collision = value;
+        }
+
         public ushort CurrentZoneId
         {
             get
@@ -59,6 +71,7 @@ namespace Gordian.Core.World
                     if (_currentZoneId != value)
                     {
                         _currentZoneId = value;
+                        _collision = null;
                         changed = true;
                     }
                 }

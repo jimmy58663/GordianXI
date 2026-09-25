@@ -393,6 +393,92 @@ namespace Gordian.Core.Resources
             return string.Empty;
         }
 
+        private readonly ConcurrentDictionary<int, World.Collision.ZoneCollisionMesh?> _collisionCache = new();
+
+        /// <summary>
+        /// Loads (once per zone) just the player-collision mesh of a zone, without its meshes, textures or effects, so
+        /// every session, displayed or not, can follow the ground of the zone it is in. Null when unavailable.
+        /// </summary>
+        public World.Collision.ZoneCollisionMesh? TryLoadZoneCollision(int zoneId)
+        {
+            if (_collisionCache.TryGetValue(zoneId, out var cached)) return cached;
+            if (_zoneCache.TryGetValue(zoneId, out var zone)) return _collisionCache.GetOrAdd(zoneId, zone.Geometry.Collision);
+
+            EnsureKeyTables();
+            byte[]? datBytes = ReadZoneModelDat(zoneId);
+            World.Collision.ZoneCollisionMesh? collision = null;
+            if (datBytes != null && _keyTable1 != null)
+            {
+                var headers = DatSectionWalker.ReadHeaders(datBytes);
+                for (int i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    if (header.TypeCode != DatSectionType.ZoneDef || header.DataOffset + header.DataSizeBytes > datBytes.Length) continue;
+                    byte[] payload = datBytes.AsSpan(header.DataOffset, header.DataSizeBytes).ToArray();
+                    ZoneDefDecoder.DecryptZoneObjects(payload, _keyTable1);
+                    collision = ZoneCollisionDecoder.Decode(payload);
+                    break;
+                }
+            }
+
+            GordianLog.Info("RES", collision != null
+                ? $"Loaded zone {zoneId} collision ({collision.TriangleCount} triangles)."
+                : $"Zone {zoneId} has no collision mesh.");
+            return _collisionCache.GetOrAdd(zoneId, collision);
+        }
+
+        private void EnsureKeyTables()
+        {
+            if (_keyTable1 == null || _keyTable2 == null)
+            {
+                if (ZoneDataLoader.TryExtractKeyTables(_gameDirectory, out var t1, out var t2))
+                {
+                    _keyTable1 = t1;
+                    _keyTable2 = t2;
+                }
+                else
+                {
+                    GordianLog.Warning("RES", "Could not extract key tables from FFXiMain.dll — zone geometry will not be decrypted.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads a zone's model DAT through the FTABLE, VFS or game directory; null when it cannot be found.
+        /// </summary>
+        private byte[]? ReadZoneModelDat(int zoneId)
+        {
+            int fileId = ZoneDataLoader.GetZoneModelFileId(zoneId);
+            GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): fileId={fileId}, ftable entries={_fileTable.Count}, gameDir='{_gameDirectory}'");
+
+            byte[]? datBytes = null;
+
+            if (TryResolveFile(fileId, out string fullPath) && File.Exists(fullPath))
+            {
+                GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): resolved to '{fullPath}' via TryResolveFile.");
+                datBytes = File.ReadAllBytes(fullPath);
+            }
+            else if (_fileTable.TryResolve(fileId, out string relPath))
+            {
+                GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): FTABLE resolved fileId={fileId} -> '{relPath}', trying VFS/gameDir.");
+                if (_vfs.TryResolveDat(relPath, out var resolved))
+                {
+                    datBytes = resolved!.ReadAllBytes();
+                }
+                else if (!string.IsNullOrEmpty(_gameDirectory))
+                {
+                    string p = Path.Combine(_gameDirectory, relPath);
+                    if (File.Exists(p)) datBytes = File.ReadAllBytes(p);
+                    else GordianLog.Warning("RES", $"ReadZoneModelDat({zoneId}): DAT file does not exist on disk: '{p}'");
+                }
+            }
+            else
+            {
+                GordianLog.Warning("RES", $"ReadZoneModelDat({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
+            }
+            return datBytes;
+        }
+
         /// <summary>
         /// Attempts to load and parse a zone's 3D terrain geometry and texture resources.
         /// </summary>
@@ -413,48 +499,8 @@ namespace Gordian.Core.Resources
                 GordianLog.Warning("RES", $"TryLoadZone({zoneId}): FileTable is empty — InitializeFileTable() may have failed or game directory not found.");
             }
 
-            // Ensure key tables are extracted if possible
-            if (_keyTable1 == null || _keyTable2 == null)
-            {
-                if (ZoneDataLoader.TryExtractKeyTables(_gameDirectory, out var t1, out var t2))
-                {
-                    _keyTable1 = t1;
-                    _keyTable2 = t2;
-                }
-                else
-                {
-                    GordianLog.Warning("RES", $"TryLoadZone({zoneId}): Could not extract key tables from FFXiMain.dll — zone geometry will not be decrypted.");
-                }
-            }
-
-            int fileId = ZoneDataLoader.GetZoneModelFileId(zoneId);
-            GordianLog.Debug("RES", $"TryLoadZone({zoneId}): fileId={fileId}, ftable entries={_fileTable.Count}, gameDir='{_gameDirectory}'");
-
-            byte[]? datBytes = null;
-
-            if (TryResolveFile(fileId, out string fullPath) && File.Exists(fullPath))
-            {
-                GordianLog.Debug("RES", $"TryLoadZone({zoneId}): resolved to '{fullPath}' via TryResolveFile.");
-                datBytes = File.ReadAllBytes(fullPath);
-            }
-            else if (_fileTable.TryResolve(fileId, out string relPath))
-            {
-                GordianLog.Debug("RES", $"TryLoadZone({zoneId}): FTABLE resolved fileId={fileId} -> '{relPath}', trying VFS/gameDir.");
-                if (_vfs.TryResolveDat(relPath, out var resolved))
-                {
-                    datBytes = resolved!.ReadAllBytes();
-                }
-                else if (!string.IsNullOrEmpty(_gameDirectory))
-                {
-                    string p = Path.Combine(_gameDirectory, relPath);
-                    if (File.Exists(p)) datBytes = File.ReadAllBytes(p);
-                    else GordianLog.Warning("RES", $"TryLoadZone({zoneId}): DAT file does not exist on disk: '{p}'");
-                }
-            }
-            else
-            {
-                GordianLog.Warning("RES", $"TryLoadZone({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
-            }
+            EnsureKeyTables();
+            byte[]? datBytes = ReadZoneModelDat(zoneId);
 
             if (datBytes != null && datBytes.Length > 0)
             {
@@ -465,6 +511,10 @@ namespace Gordian.Core.Resources
                     _keyTable2 ?? ReadOnlySpan<byte>.Empty,
                     textures,
                     GetSharedEffects());
+
+                // Share one collision mesh per zone with sessions that loaded it on their own.
+                if (_collisionCache.TryGetValue(zoneId, out var sharedCollision) && sharedCollision != null) zone.Collision = sharedCollision;
+                else _collisionCache[zoneId] = zone.Collision;
 
                 _zoneCache[zoneId] = (zone, textures);
                 GordianLog.Info("RES", $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");

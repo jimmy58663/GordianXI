@@ -718,6 +718,7 @@ namespace Gordian.Core.Resources
                 var placements = ZoneDefDecoder.ParseZonePlacements(zdPayload, nodeCount);
                 zone.Placements.AddRange(placements);
                 zone.PointLightIds.AddRange(ZoneDefDecoder.ParsePointLightTable(zdPayload));
+                zone.Collision = ZoneCollisionDecoder.Decode(zdPayload);
 
                 for (int p = 0; p < placements.Count; p++)
                 {
