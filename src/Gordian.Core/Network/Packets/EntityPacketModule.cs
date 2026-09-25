@@ -61,6 +61,23 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x0DF_GroupAttr.PacketId, HandleGroupAttr);
         }
 
+        /// <summary>
+        /// Monotonic clock (seconds) used to timestamp remote position samples; must match the clock the render thread
+        /// plays them back with. Injectable for deterministic tests.
+        /// </summary>
+        public Func<double> Clock { get; set; } = () => WorldEntity.ClockSeconds;
+
+        /// <summary>
+        /// Adds a server position to a remote entity's motion timeline (see <see cref="WorldEntity.AddServerSample"/>).
+        /// A stop clears <see cref="WorldEntity.Speed"/> once playback reaches the final position, so the locomotion
+        /// animation plays until then.
+        /// </summary>
+        private void AddMotionSample(WorldEntity entity, Vector3 newPos, bool isMoving, ushort movTime, byte direction)
+        {
+            entity.AddServerSample(newPos, isMoving, movTime, direction, Clock());
+            entity.StopOnArrival = !isMoving;
+        }
+
         private void HandleCharPc(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var pc = new S2C_0x00D_CharPc(payload);
@@ -92,7 +109,7 @@ namespace Gordian.Core.Network.Packets
 
             ushort movTime = pc.MovTime;
             bool movTimeChanged = player.LastMovTime != 0 && movTime != player.LastMovTime;
-            bool isMovingByMovTime = movTime > 1 && (player.LastMovTime <= 1 || movTimeChanged);
+            bool isMovingByMovTime = S2C_0x00D_CharPc.IsMovingMovTime(movTime) && (!S2C_0x00D_CharPc.IsMovingMovTime(player.LastMovTime) || movTimeChanged);
             player.LastMovTime = movTime;
 
             if (pc.HasPosition)
@@ -109,79 +126,53 @@ namespace Gordian.Core.Network.Packets
                             ? (now - player.LastPositionChangeUtc).TotalMilliseconds
                             : 0;
 
-                        if (movTime > 1 && (dist > 0.05f || isMovingByMovTime))
+                        if (S2C_0x00D_CharPc.IsMovingMovTime(movTime) && (dist > 0.05f || isMovingByMovTime))
                         {
                             byte prevSpeed = player.Speed;
                             player.Speed = pc.Speed > 0 ? pc.Speed : (byte)50;
+                            player.StopOnArrival = false;
                             if (pc.SpeedBase > 0)
                             {
                                 player.SpeedBase = pc.SpeedBase;
                             }
 
-                            // Authentic FFXI travel speed in yalms per second (Speed 50 => 5.0 yalms/sec)
-                            float speedYalms = Math.Max(1.0f, player.Speed / 10.0f);
-                            float naturalDuration = dist / speedYalms;
-
-                            if (isMovingByMovTime)
-                            {
-                                float dtSeconds = (float)(dtMs / 1000.0);
-                                if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
-                                {
-                                    // Synchronize duration with server packet interval, but bounded to authentic run speed [0.90x, 1.15x]
-                                    player.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
-                                }
-                                else
-                                {
-                                    player.InterpolationDuration = naturalDuration;
-                                }
-                            }
-                            else
-                            {
-                                // Stopping or residual step: traverse at authentic speed directly to destination
-                                player.InterpolationDuration = Math.Max(0.05f, naturalDuration);
-                            }
-
                             player.LastPositionChangeUtc = now;
-                            player.TargetPosition = newPos;
+                            AddMotionSample(player, newPos, isMoving: true, movTime, pc.Direction);
 
-                            if (prevSpeed == 0)
-                            {
-                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, speed={player.Speed}, interp={player.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
-                            }
-                            else
-                            {
-                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, interp={player.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
-                            }
-
-                            if (Vector3.Distance(newPos, player.Position) > 15.0f)
-                            {
-                                player.Position = newPos;
-                                player.StartPosition = newPos;
-                            }
+                            string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
+                            GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, speed={player.Speed}, packetDelta={dtMs:F0}ms, sampleAge={player.LastSampleAgeSeconds:F2}s, delay={player.PlaybackDelaySeconds:F2}s, behind={Vector3.Distance(newPos, player.Position):F2}");
+                        }
+                        else if (S2C_0x00D_CharPc.IsMovingMovTime(movTime))
+                        {
+                            // Repeat of the last movement sample (e.g. a status refresh mid-run): nothing new to play back.
                         }
                         else
                         {
+                            // Stopped (or a non-movement update): let the character finish walking to the final position
+                            // rather than snapping, and drop to idle once it gets there.
                             if (player.Speed > 0)
                             {
-                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), movTime={movTime}, setting speed=0 (was {player.Speed})");
+                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, remaining={Vector3.Distance(newPos, player.Position):F2}");
                             }
-                            player.Position = newPos;
-                            player.StartPosition = newPos;
-                            player.TargetPosition = newPos;
-                            player.Speed = 0;
-                            player.InterpolationElapsed = 0f;
-                            player.LocomotionDirection = LocomotionDirection.Forward;
+                            if (dist > 0.05f)
+                            {
+                                player.LastPositionChangeUtc = now;
+                            }
+                            AddMotionSample(player, newPos, isMoving: false, movTime, pc.Direction);
                         }
                     }
                     else
                     {
                         player.Position = newPos;
                         player.TargetPosition = newPos;
-                        player.StartPosition = newPos;
                         player.Speed = 0;
                     }
 
-                    player.Direction = pc.Direction;
+                    if (!player.HasMotionTimeline)
+                    {
+                        // Once the entity has a motion timeline, facing is played back from it in step with position.
+                        player.Direction = pc.Direction;
+                    }
                     if (isNew)
                     {
                         player.RenderHeadingRadians = player.HeadingRadians;
@@ -316,60 +307,34 @@ namespace Gordian.Core.Network.Packets
                             entity.SpeedBase = npcPacket.SpeedBase;
                         }
 
-                        // Authentic FFXI travel speed in yalms per second (Speed 40 => 4.0 yalms/sec)
-                        float speedYalms = Math.Max(1.0f, entity.Speed / 10.0f);
-                        float naturalDuration = dist / speedYalms;
-
-                        float dtSeconds = (float)(dtMs / 1000.0);
-                        if (dtSeconds >= 0.40f && dtSeconds <= 2.50f)
-                        {
-                            entity.InterpolationDuration = Math.Clamp(naturalDuration, dtSeconds * 0.90f, dtSeconds * 1.15f);
-                        }
-                        else
-                        {
-                            entity.InterpolationDuration = Math.Max(0.05f, naturalDuration);
-                        }
-
+                        entity.StopOnArrival = false;
                         entity.LastPositionChangeUtc = now;
-                        entity.TargetPosition = newPos;
+                        AddMotionSample(entity, newPos, isMoving: true, movTime: 0, npcPacket.Direction);
 
-                        if (prevSpeed == 0)
-                        {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE START: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), speed={entity.Speed}, interp={entity.InterpolationDuration:F2}s, dtSinceLastMove={dtMs:F0}ms");
-                        }
-                        else
-                        {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, interp={entity.InterpolationDuration:F2}s, packetDelta={dtMs:F0}ms");
-                        }
-
-                        if (Vector3.Distance(newPos, entity.Position) > 15.0f)
-                        {
-                            entity.Position = newPos;
-                            entity.StartPosition = newPos;
-                        }
+                        string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
+                        GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, speed={entity.Speed}, packetDelta={dtMs:F0}ms, delay={entity.PlaybackDelaySeconds:F2}s, behind={Vector3.Distance(newPos, entity.Position):F2}");
                     }
                     else
                     {
                         if (entity.Speed > 0)
                         {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), setting speed=0 (was {entity.Speed})");
+                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), remaining={Vector3.Distance(newPos, entity.Position):F2}");
                         }
-                        entity.Position = newPos;
-                        entity.StartPosition = newPos;
-                        entity.TargetPosition = newPos;
-                        entity.Speed = 0;
-                        entity.InterpolationElapsed = 0f;
+                        AddMotionSample(entity, newPos, isMoving: false, movTime: 0, npcPacket.Direction);
                     }
                 }
                 else
                 {
                     entity.Position = newPos;
                     entity.TargetPosition = newPos;
-                    entity.StartPosition = newPos;
                     entity.Speed = 0;
                 }
 
-                entity.Direction = npcPacket.Direction;
+                if (!entity.HasMotionTimeline)
+                {
+                    // Once the entity has a motion timeline, facing is played back from it in step with position.
+                    entity.Direction = npcPacket.Direction;
+                }
                 if (isNew)
                 {
                     entity.RenderHeadingRadians = entity.HeadingRadians;

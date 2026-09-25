@@ -1,6 +1,7 @@
 // src/Gordian.Core/Animation/AnimationStateClassifier.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
 namespace Gordian.Core.Animation
@@ -17,6 +18,12 @@ namespace Gordian.Core.Animation
         /// Defaults to 1750ms to gracefully span LandSandBoat's ~1.35s-1.5s entity broadcast batching interval without mid-stride timeout drops.
         /// </summary>
         public static int RemoteEntityIdleTimeoutMs { get; set; } = 1750;
+
+        /// <summary>
+        /// How long (in milliseconds) a remote entity still flagged as moving keeps its locomotion animation after its
+        /// render position reaches the latest server position.
+        /// </summary>
+        public static int RemoteArrivalGraceMs { get; set; } = 300;
 
         /// <summary>
         /// Classifies an entity's current animation category.
@@ -36,24 +43,37 @@ namespace Gordian.Core.Animation
             DateTime now = utcNow ?? DateTime.UtcNow;
             bool isRemotePlayer = !isLocalPlayer && entity.Type == EntityType.Player;
             bool isTimedOut = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && (now - entity.LastPositionChangeUtc).TotalMilliseconds >= RemoteEntityIdleTimeoutMs;
-            bool isPhysicallyMoving = !isLocalPlayer && Vector3.Distance(entity.Position, entity.TargetPosition) > 0.05f;
+            bool isPhysicallyMoving = !isLocalPlayer && (entity.HasMotionTimeline
+                ? entity.IsTranslating
+                : Vector3.Distance(entity.Position, entity.TargetPosition) > 0.05f);
 
             bool isMoving;
             if (isLocalPlayer)
             {
                 isMoving = entity.Speed > 0;
             }
-            else if (isRemotePlayer)
-            {
-                // Remote players can extrapolate while running (LastMovTime > 1)
-                bool hasArrived = entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.LastMovTime <= 1;
-                isMoving = !hasArrived && (isPhysicallyMoving || entity.Speed > 0 || entity.LastMovTime > 1) && !isTimedOut;
-            }
             else
             {
-                // NPCs and Monsters move when they have speed or are physically translating across ground
-                bool hasArrived = entity.LastPositionChangeUtc != DateTime.MinValue && !isPhysicallyMoving && entity.Speed == 0;
-                isMoving = !hasArrived && (isPhysicallyMoving || entity.Speed > 0) && !isTimedOut;
+                // Remote entities animate while their render position is travelling. The server often sends no separate
+                // "stopped" update, so an entity still flagged as moving (a moving LastMovTime for players, Speed > 0 otherwise)
+                // only keeps its locomotion pose for a short grace after arriving, to bridge a slightly late next update
+                // without running in place.
+                bool flaggedMoving = isRemotePlayer ? (S2C_0x00D_CharPc.IsMovingMovTime(entity.LastMovTime) || entity.Speed > 0) : entity.Speed > 0;
+                if (entity.LastPositionChangeUtc == DateTime.MinValue && entity.ArrivedUtc == DateTime.MinValue)
+                {
+                    // Never observed moving: trust the flags alone.
+                    isMoving = isPhysicallyMoving || flaggedMoving;
+                }
+                else
+                {
+                    // With a motion timeline the grace runs only from when playback actually stopped travelling; a packet that
+                    // has arrived but not yet been played must not start a run in place.
+                    DateTime arrived = entity.HasMotionTimeline
+                        ? entity.ArrivedUtc
+                        : (entity.ArrivedUtc > entity.LastPositionChangeUtc ? entity.ArrivedUtc : entity.LastPositionChangeUtc);
+                    bool withinGrace = arrived != DateTime.MinValue && (now - arrived).TotalMilliseconds < RemoteArrivalGraceMs;
+                    isMoving = isPhysicallyMoving || (flaggedMoving && withinGrace && !isTimedOut);
+                }
             }
 
             if (isMoving)
@@ -64,7 +84,7 @@ namespace Gordian.Core.Animation
                 // (e.g. NPCs/monsters that don't transmit it). Speed <= 25 yalms/s walk, > 25 run.
                 int effectiveBase = entity.SpeedBase > 0 ? entity.SpeedBase : 50;
                 int walkThreshold = Math.Max(1, effectiveBase / 2);
-                int effectiveSpeed = (entity.Speed == 0 && isRemotePlayer && entity.LastMovTime > 1)
+                int effectiveSpeed = (entity.Speed == 0 && isRemotePlayer && S2C_0x00D_CharPc.IsMovingMovTime(entity.LastMovTime))
                     ? (entity.LocomotionDirection == LocomotionDirection.Backward ? walkThreshold : effectiveBase)
                     : entity.Speed;
                 bool isWalking = effectiveSpeed <= walkThreshold;

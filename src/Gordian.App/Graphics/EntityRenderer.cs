@@ -362,7 +362,7 @@ namespace Gordian.App.Graphics
 
                         GordianLog.Info("Locomotion",
                             $"[Entity 0x{entity.ServerId:X8}:{entity.Name}] ANIMATION STATE CHANGED: {entity.Animation.Current} -> {category} " +
-                            $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, Interp={entity.InterpolationElapsed:F2}/{entity.InterpolationDuration:F2})");
+                            $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, MovTime={entity.LastMovTime})");
                     }
 
                     entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, entityModel);

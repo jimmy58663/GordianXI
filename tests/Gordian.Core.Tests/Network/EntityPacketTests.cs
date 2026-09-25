@@ -812,8 +812,14 @@ namespace Gordian.Core.Tests.Network
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
             Assert.Equal(50, entity.Speed);
 
-            // 3. Stays at (12, 0, 20) -> dist = 0 -> Speed = 0
+            // 3. Stays at (12, 0, 20) -> dist = 0 -> Speed = 0 once the render position arrives there
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 3), payload);
+            Assert.True(entity.StopOnArrival);
+            for (int i = 0; i < 60; i++)
+            {
+                // Render well past the playback delay so the motion timeline plays out fully
+                entity.InterpolatePosition(1.0f / 60.0f, WorldEntity.ClockSeconds + 10.0);
+            }
             Assert.Equal(0, entity.Speed);
         }
 
@@ -844,6 +850,9 @@ namespace Gordian.Core.Tests.Network
             // Wire North is 192 in LandSandBoat
             payload[7] = 192;
             dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 2), payload);
+
+            // Facing plays back in step with position; a turn in place while at rest applies on the next rendered frame
+            entity.InterpolatePosition(1.0f / 60.0f, WorldEntity.ClockSeconds + (1.0 / 60.0));
             Assert.Equal(192, entity.Direction);
         }
 
@@ -887,8 +896,14 @@ namespace Gordian.Core.Tests.Network
             Assert.True(entity.Speed > 0);
 
             // 4. Stops moving: same position (12.0, 0, 20) with MovTime = 1 (StationaryRunCount) -> Speed drops to 0
+            // once the render position reaches it
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(20, 4), 1);
             dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(payload.Length + 4), 4), payload);
+            for (int i = 0; i < 60; i++)
+            {
+                // Render well past the playback delay so the motion timeline plays out fully
+                entity.InterpolatePosition(1.0f / 60.0f, WorldEntity.ClockSeconds + 10.0);
+            }
             Assert.Equal(0, entity.Speed);
         }
 
@@ -1022,8 +1037,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(world.TryGetByServerId(0x01020304, out var entity));
             var player = Assert.IsAssignableFrom<PlayerEntity>(entity);
 
-            // Simulate dead reckoning: player was moving and extrapolated past 5 to 6
-            player.Position = new Vector3(0f, 0f, 6f);
+            // Render-side chase has carried the player part of the way (it never passes the server position)
+            player.Position = new Vector3(0f, 0f, 4f);
             player.LocomotionDirection = LocomotionDirection.Backward;
 
             // 2. Stop packet arrives (MovTime = 0, final stop position Z = 5.2)
@@ -1038,10 +1053,20 @@ namespace Gordian.Core.Tests.Network
 
             dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(stopPayload.Length + 4), 2), stopPayload);
 
-            // Must settle immediately at stop position with speed = 0, never triggering forward run
+            // No snap: the player keeps moving and finishes the last stretch to the stop position
+            Assert.Equal(new Vector3(0f, 0f, 4f), player.Position);
+            Assert.Equal(new Vector3(0f, 0f, 5.2f), player.TargetPosition);
+            Assert.True(player.StopOnArrival);
+
+            for (int i = 0; i < 60; i++)
+            {
+                // Render well past the playback delay so the motion timeline plays out fully
+                player.InterpolatePosition(1.0f / 60.0f, WorldEntity.ClockSeconds + 10.0);
+            }
+
+            // Settles at the stop position with speed = 0 once it arrives
             Assert.Equal(0, player.Speed);
             Assert.Equal(new Vector3(0f, 0f, 5.2f), player.Position);
-            Assert.Equal(new Vector3(0f, 0f, 5.2f), player.TargetPosition);
             Assert.Equal(LocomotionDirection.Forward, player.LocomotionDirection);
         }
 
@@ -1077,6 +1102,187 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(50, localPlayer.SpeedBase);
             Assert.Equal(80, localEnt.Speed);
             Assert.Equal(50, localEnt.SpeedBase);
+        }
+
+        private const uint RemotePcId = 0x0A0B0C0D;
+
+        /// <summary>
+        /// Drives an <see cref="EntityPacketModule"/> and the render-side playback of one remote PC on a shared fake clock.
+        /// </summary>
+        private sealed class RemotePcHarness
+        {
+            public readonly PacketDispatcher Dispatcher = new();
+            public readonly WorldState World = new();
+            public double Now = 1000.0;
+            public readonly List<(double Time, Vector3 Position, bool Translating, Gordian.Core.Animation.AnimationCategory Animation)> Frames = new();
+
+            public RemotePcHarness()
+            {
+                var module = new EntityPacketModule(World, new LocalPlayerState(), (chunk, enc) => Task.CompletedTask)
+                {
+                    Clock = () => Now
+                };
+                module.Register(Dispatcher);
+            }
+
+            public WorldEntity Pc
+            {
+                get
+                {
+                    Assert.True(World.TryGetByServerId(RemotePcId, out var pc));
+                    return pc!;
+                }
+            }
+
+            public void Send(float x, float z, ushort movTime, bool general = false)
+            {
+                byte[] payload = new byte[0x70];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), RemotePcId);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x0200);
+                payload[6] = (byte)(EntityUpdateFlags.Position | (general ? EntityUpdateFlags.General : 0));
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), x);
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), z);
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(20, 4), movTime);
+                payload[24] = 50;
+                payload[25] = 50;
+                payload[26] = 100;
+                Dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(payload.Length + 4), 1), payload);
+            }
+
+            /// <summary>
+            /// Renders <paramref name="seconds"/> at 60 FPS, recording each frame's position and whether it was travelling.
+            /// </summary>
+            public void Render(float seconds)
+            {
+                const float dt = 1.0f / 60.0f;
+                int frames = (int)MathF.Round(seconds * 60f);
+                for (int i = 0; i < frames; i++)
+                {
+                    Now += dt;
+                    Pc.InterpolatePosition(dt, Now);
+                    var animation = Gordian.Core.Animation.AnimationStateClassifier.Classify(Pc, isEngaged: false, isLocalPlayer: false);
+                    Frames.Add((Now, Pc.Position, Pc.IsTranslating, animation));
+                }
+            }
+
+            /// <summary>
+            /// Asserts that once travel began it continued without a pause until the final position was reached.
+            /// </summary>
+            public void AssertContinuousTravel()
+            {
+                int first = Frames.FindIndex(f => f.Translating);
+                int last = Frames.FindLastIndex(f => f.Translating);
+                Assert.True(first >= 0, "never moved");
+                for (int i = first; i <= last; i++)
+                {
+                    Assert.True(Frames[i].Translating, $"paused mid-run at t={Frames[i].Time - Frames[first].Time:F2}s");
+                }
+            }
+        }
+
+        [Fact]
+        public void RemotePc_ShortMoveThenStop_WalksOnceWithoutOvershootOrReturn()
+        {
+            var h = new RemotePcHarness();
+            h.Send(0f, 0f, movTime: 2, general: true);
+
+            // 1 yalm in the first 12 ticks (0.2s), stopping 0.2 yalms further on
+            h.Send(1.0f, 0f, movTime: 12);
+            h.Render(0.6f);
+            h.Send(1.2f, 0f, movTime: 2);
+            h.Render(3.0f);
+
+            float lastX = 0f;
+            foreach (var frame in h.Frames)
+            {
+                Assert.True(frame.Position.X >= lastX - 0.0001f, $"moved backward: {frame.Position.X} < {lastX}");
+                Assert.True(frame.Position.X <= 1.2001f, $"overshot: {frame.Position.X}");
+                lastX = frame.Position.X;
+            }
+            h.AssertContinuousTravel();
+            Assert.Equal(1.2f, h.Pc.Position.X, 3);
+            Assert.Equal(0, h.Pc.Speed);
+        }
+
+        [Fact]
+        public void RemotePc_CapturedRunEndingWithMovTime2_PlaysContinuouslyAtTrueSpeedThenIdles()
+        {
+            // Captured 0x00D sequence for a remote player: ~1.4s arrival cadence, but each position was sampled at the time
+            // given by its movement counter (60 ticks/sec); the final update reports MovTime = 2 (stopped).
+            var h = new RemotePcHarness();
+            h.Send(136.05f, 103.94f, movTime: 2, general: true);
+
+            (float X, float Z, ushort MovTime, float SecondsUntilNext)[] capture =
+            {
+                (139.41f, 104.48f, 40, 1.32f),
+                (146.13f, 111.44f, 158, 1.37f),
+                (146.05f, 117.66f, 232, 1.45f),
+                (141.55f, 123.26f, 318, 1.39f),
+                (133.49f, 124.19f, 418, 1.34f),
+                (129.52f, 121.94f, 476, 1.48f),
+                (128.73f, 119.80f, 2, 4.0f),
+            };
+            foreach (var (x, z, movTime, wait) in capture)
+            {
+                h.Send(x, z, movTime);
+                h.Render(wait);
+            }
+
+            h.AssertContinuousTravel();
+
+            // Before playback starts moving the character it stays idle: no running in place while the move is buffered
+            int firstMove = h.Frames.FindIndex(f => f.Translating);
+            for (int i = 0; i < firstMove; i++)
+            {
+                Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle, h.Frames[i].Animation);
+            }
+
+            // A move from rest starts StartLeadSeconds sooner than the default playback delay: the player really began
+            // 40 ticks (0.67s) before the first packet arrived
+            double firstMoveAfterArrival = h.Frames[firstMove].Time - 1000.0;
+            Assert.InRange(firstMoveAfterArrival, 0.0, WorldEntity.DefaultPlaybackDelaySeconds - WorldEntity.StartLeadSeconds - (40 / 60.0) + 0.05);
+
+            // Playback speed stays close to the true 5 yalms/sec run speed (no sprint-then-wait segments)
+            for (int i = 1; i < h.Frames.Count; i++)
+            {
+                if (!h.Frames[i].Translating) continue;
+                float speed = Vector3.Distance(h.Frames[i].Position, h.Frames[i - 1].Position) * 60f;
+                Assert.InRange(speed, 0f, 6.5f);
+            }
+
+            Assert.Equal(new Vector3(128.73f, 0f, 119.80f), h.Pc.Position);
+            Assert.Equal(0, h.Pc.Speed);
+            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle,
+                Gordian.Core.Animation.AnimationStateClassifier.Classify(h.Pc, isEngaged: false, isLocalPlayer: false));
+        }
+
+        [Fact]
+        public void RemotePc_StatusUpdateMidRun_DoesNotSnapPosition()
+        {
+            var h = new RemotePcHarness();
+            h.Send(0f, 0f, movTime: 2, general: true);
+
+            h.Send(5.0f, 0f, movTime: 60);
+            h.Render(2.0f);
+            float before = h.Pc.Position.X;
+
+            // Same position again with an unchanged move counter (e.g. an HP/status refresh)
+            h.Send(5.0f, 0f, movTime: 60, general: true);
+            h.Render(1.0f / 60.0f);
+
+            Assert.True(h.Pc.Position.X - before < 0.2f, $"snapped from {before} to {h.Pc.Position.X}");
+        }
+
+        [Fact]
+        public void RemotePc_LargeJump_SnapsInsteadOfRunning()
+        {
+            var h = new RemotePcHarness();
+            h.Send(0f, 0f, movTime: 2, general: true);
+
+            h.Send(80.0f, 0f, movTime: 2);
+            h.Render(1.0f / 60.0f);
+
+            Assert.Equal(80.0f, h.Pc.Position.X);
         }
     }
 }

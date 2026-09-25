@@ -171,11 +171,23 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Movement frame timer / timestamp (bits 0..12 of Flags0).
-        /// Value 1 (or 0) indicates stationary (MoveFlame=1); value > 1 indicates active movement (accumulating 60 FPS Run Count).
+        /// Values up to <see cref="StationaryMovTimeMax"/> indicate stationary; larger values indicate active movement
+        /// (an accumulating ~60 FPS run count that resets when the character stops).
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
         /// </summary>
         public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
-        public bool IsMoving => MovTime > 1;
+        public bool IsMoving => IsMovingMovTime(MovTime);
+
+        /// <summary>
+        /// Largest <see cref="MovTime"/> a stationary character reports. Captured traffic shows both 1 and 2 at rest
+        /// (the final update after a run carries 2), while running counts climb from single digits upward.
+        /// </summary>
+        public const ushort StationaryMovTimeMax = 2;
+
+        /// <summary>
+        /// Whether a 0x00D movement counter indicates the character is actively moving.
+        /// </summary>
+        public static bool IsMovingMovTime(ushort movTime) => movTime > StationaryMovTimeMax;
 
         // Flags1 properties
         public byte ChocoboIndex => (byte)((Flags1 >> 5) & 0x07);

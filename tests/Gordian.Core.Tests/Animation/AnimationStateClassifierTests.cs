@@ -139,16 +139,21 @@ namespace Gordian.Core.Tests.Animation
             entity.LastMovTime = 1;
             Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
 
-            // Active runner (LastMovTime > 1) that reaches target before next packet arrives preserves Run (no mid-stride hitch)
+            // Active runner (LastMovTime > 1) that only just reached its target keeps Run briefly, bridging a slightly late update
             entity.LastMovTime = 50;
+            entity.LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(100);
             Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
 
-            entity.Position = Vector3.Zero; // restore for timeout check
-            entity.LastMovTime = 1;
-
-            // Timed-out remote entity (>=1750ms) returns to Idle
-            entity.LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(1850);
+            // ...but once past the arrival grace it idles rather than running in place waiting for a stop update
+            entity.LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(AnimationStateClassifier.RemoteArrivalGraceMs + 50);
             Assert.Equal(AnimationCategory.Idle, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
+
+            entity.LastMovTime = 1;
+            entity.LastPositionChangeUtc = now - TimeSpan.FromMilliseconds(1850);
+
+            // Still physically travelling after a long gap keeps Run rather than sliding across the ground in Idle
+            entity.Position = Vector3.Zero;
+            Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: false, utcNow: now));
 
             // Local player ignores remote position packet timeout
             Assert.Equal(AnimationCategory.Run, AnimationStateClassifier.Classify(entity, isEngaged: false, isLocalPlayer: true, utcNow: now));

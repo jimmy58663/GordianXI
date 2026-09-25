@@ -280,25 +280,71 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
-        public void WorldEntity_InterpolatePosition_GlidesContinuouslyAcrossInterval()
+        public void WorldEntity_InterpolatePosition_TravelsAtEntitySpeed()
         {
             var entity = new WorldEntity(0x556, 101, EntityType.Monster)
             {
                 Position = new Vector3(10f, 0f, 10f),
-                TargetPosition = new Vector3(20f, 0f, 10f),
-                InterpolationDuration = 0.40f,
-                Speed = 40
+                TargetPosition = new Vector3(15f, 0f, 10f),
+                Speed = 40 // 4.0 yalms/sec
             };
 
-            // Halfway through the 0.40s duration (0.20s = 12 frames at 60 FPS)
+            // 0.5s at 60 FPS covers 2 yalms at 4 yalms/sec
             float dt = 1.0f / 60.0f;
-            for (int i = 0; i < 12; i++)
+            for (int i = 0; i < 30; i++)
             {
                 entity.InterpolatePosition(dt);
             }
 
-            // At t = 0.2s / 0.4s = 0.5, Position.X should be exactly halfway (15.0)
-            Assert.Equal(15.0f, entity.Position.X, 1);
+            Assert.Equal(12.0f, entity.Position.X, 2);
+        }
+
+        [Fact]
+        public void WorldEntity_SlowNpcWalk_PlaysContinuouslyAtObservedPace()
+        {
+            // Captured NPC pattern: walk speed 40 on the wire, but it advances only ~1 yalm per ~1.4s update
+            var entity = new WorldEntity(0x560, 105, EntityType.Npc) { Position = new Vector3(0f, 0f, 0f), Speed = 40 };
+            double now = 500.0;
+            float[] gaps = { 1.40f, 1.35f, 1.44f, 1.33f, 1.47f, 1.35f, 1.38f, 1.52f };
+            var translating = new List<bool>();
+            float x = 0f;
+            foreach (float gap in gaps)
+            {
+                x += 1.0f;
+                entity.AddServerSample(new Vector3(x, 0f, 0f), isMoving: true, movTime: 0, direction: 0, now);
+                int frames = (int)MathF.Round(gap * 60f);
+                for (int i = 0; i < frames; i++)
+                {
+                    now += 1.0 / 60.0;
+                    entity.InterpolatePosition(1.0f / 60.0f, now);
+                    translating.Add(entity.IsTranslating);
+                }
+            }
+
+            // Once it starts walking it keeps walking at the observed pace instead of dashing 1 yalm and idling
+            int first = translating.IndexOf(true);
+            Assert.True(first >= 0);
+            Assert.DoesNotContain(false, translating.GetRange(first, translating.Count - first));
+        }
+
+        [Fact]
+        public void WorldEntity_LateSample_ContinuesFromHeldPositionWithoutPopping()
+        {
+            var entity = new WorldEntity(0x561, 106, EntityType.Npc) { Position = new Vector3(0f, 0f, 0f), Speed = 40 };
+            double now = 500.0;
+            entity.AddServerSample(new Vector3(2f, 0f, 0f), isMoving: true, movTime: 0, direction: 0, now);
+            for (int i = 0; i < 300; i++) // 5s: playback catches up to the only sample and holds there
+            {
+                now += 1.0 / 60.0;
+                entity.InterpolatePosition(1.0f / 60.0f, now);
+            }
+            Assert.Equal(2f, entity.Position.X, 3);
+
+            // A sample far behind the playback clock is played from the held position at movement speed, not jumped to
+            entity.AddServerSample(new Vector3(6f, 0f, 0f), isMoving: true, movTime: 0, direction: 0, now);
+            now += 1.0 / 60.0;
+            entity.InterpolatePosition(1.0f / 60.0f, now);
+            Assert.InRange(entity.Position.X, 2f, 2.2f);
         }
 
         [Fact]
@@ -336,12 +382,11 @@ namespace Gordian.Core.Tests.World
                 Position = new Vector3(0f, 0f, 0f),
                 TargetPosition = new Vector3(10f, 0f, 0f),
                 Speed = 40,
-                LastMovTime = 2000,
-                InterpolationDuration = 1.0f
+                LastMovTime = 2000
             };
 
-            // Advance past 1.0s to 1.5s
-            for (int i = 0; i < 90; i++) // 90 frames at 60 FPS = 1.5s
+            // Advance 3.0s, past the 2.5s the 10-yalm trip takes at 4 yalms/sec
+            for (int i = 0; i < 180; i++) // 180 frames at 60 FPS = 3.0s
             {
                 entity.InterpolatePosition(1.0f / 60.0f);
             }
@@ -368,27 +413,25 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
-        public void WorldEntity_Extrapolation_MaintainsForwardHeadingPastDestination()
+        public void WorldEntity_RunningPlayer_NeverPassesLatestServerPosition()
         {
             var entity = new WorldEntity(0x101, 50, EntityType.Player)
             {
                 Position = new Vector3(0f, 0f, 0f),
-                TargetPosition = new Vector3(10f, 0f, 0f), // Moving East (+X)
+                TargetPosition = new Vector3(5f, 0f, 0f), // Moving East (+X)
                 Speed = 50,
-                LastMovTime = 38000,
-                InterpolationDuration = 1.0f
+                LastMovTime = 38000
             };
 
-            // Advance past the 1.0s duration into dead-reckoning extrapolation (e.g. 1.2s)
-            for (int i = 0; i < 72; i++) // 72 frames at 60 FPS = 1.2s
+            // Run well past the 1.0s the trip takes, as if the next update were late
+            for (int i = 0; i < 90; i++)
             {
                 entity.InterpolatePosition(1.0f / 60.0f);
             }
 
-            // Position should have coasted past 10.0f along +X
-            Assert.True(entity.Position.X > 10.0f);
-
-            // East (+X) is Direction 0. It must NOT have flipped 180 degrees backwards (West/128)!
+            // Holds at the server position instead of coasting beyond it (which forced a run back on the next update)
+            Assert.Equal(5.0f, entity.Position.X);
+            // East (+X) is Direction 0
             Assert.Equal(0, entity.Direction);
         }
 
