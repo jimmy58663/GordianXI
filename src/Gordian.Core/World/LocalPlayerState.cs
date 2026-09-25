@@ -11,6 +11,55 @@ namespace Gordian.Core.World
     {
         private readonly object _lock = new object();
 
+        #region Server Position Authority
+        private System.Numerics.Vector3? _pendingPosition;
+        private byte _pendingDirection;
+        private bool _hasPendingCorrection;
+        private volatile bool _isMovementLocked;
+
+        /// <summary>
+        /// Queues a server-authoritative placement (a warp, a draw-in, charm movement) or, with a null position, a
+        /// facing change. The locomotion loop applies it at the start of its next tick, so a movement tick in flight on
+        /// another thread can never overwrite the correction or report a stale position back to the server.
+        /// </summary>
+        public void RequestPositionCorrection(System.Numerics.Vector3? position, byte direction)
+        {
+            lock (_lock)
+            {
+                if (position.HasValue) _pendingPosition = position;
+                else if (!_hasPendingCorrection) _pendingPosition = null;
+                _pendingDirection = direction;
+                _hasPendingCorrection = true;
+            }
+        }
+
+        /// <summary>
+        /// Takes the pending server correction, if any; <paramref name="position"/> is null for a facing-only change.
+        /// </summary>
+        public bool TryTakePositionCorrection(out System.Numerics.Vector3? position, out byte direction)
+        {
+            lock (_lock)
+            {
+                position = _pendingPosition;
+                direction = _pendingDirection;
+                bool had = _hasPendingCorrection;
+                _pendingPosition = null;
+                _hasPendingCorrection = false;
+                return had;
+            }
+        }
+
+        /// <summary>
+        /// Set while the server has locked the player in place (WPOS mode 0x08, e.g. an event fade), until it unlocks
+        /// (0x09 / 0x05) or the player changes zone.
+        /// </summary>
+        public bool IsMovementLocked
+        {
+            get => _isMovementLocked;
+            set => _isMovementLocked = value;
+        }
+        #endregion
+
         #region Vitals
         public int CurrentHp { get; private set; }
         public int MaxHp { get; private set; }

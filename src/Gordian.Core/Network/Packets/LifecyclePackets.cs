@@ -48,6 +48,19 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// A server-set entity position from S2C 0x05B / 0x065 (WPOS): which entity it moves, and how (<see cref="PosMode"/>).
+    /// </summary>
+    public readonly record struct WorldPositionUpdate(uint UniqueNo, ushort ActorIndex, System.Numerics.Vector3 Position,
+                                                      byte Direction, PosMode Mode)
+    {
+        /// <summary>
+        /// Modes that place the entity at <see cref="Position"/> (the rest rotate, lock or clear flags only).
+        /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B.
+        /// </summary>
+        public bool MovesEntity => (byte)Mode is 0x00 or 0x01 or 0x03 or 0x05 or 0x06 or 0x07;
+    }
+
+    /// <summary>
     /// Logout and Shutdown request mode in C2S 0x0E7 (GP_CLI_COMMAND_REQLOGOUT).
     /// </summary>
     public enum ReqLogoutMode : ushort
@@ -806,6 +819,12 @@ namespace Gordian.Core.Network.Packets
 
         public event Action? HandshakeCompleted;
         public event Action<float, float, float, byte, ushort>? PlayerPositionUpdated;
+
+        /// <summary>
+        /// Raised for every WPOS (0x05B / 0x065) packet. The server sends these to everyone in range, so the update may
+        /// move any entity, not just the local player: route it by <see cref="WorldPositionUpdate.UniqueNo"/>.
+        /// </summary>
+        public event Action<WorldPositionUpdate>? WorldPositionReceived;
         public event Action<ushort>? ZoneReceived;
         public event Action<ushort>? WeatherReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
@@ -937,8 +956,9 @@ namespace Gordian.Core.Network.Packets
             var wpos = new S2C_0x05B_WPos(payload);
             if (!wpos.IsValid) return;
 
-            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS (0x05B): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
-            PlayerPositionUpdated?.Invoke(wpos.X, wpos.Y, wpos.Z, wpos.Direction, wpos.ActorIndex);
+            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS (0x05B): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            WorldPositionReceived?.Invoke(new WorldPositionUpdate(wpos.UniqueNo, wpos.ActorIndex,
+                new System.Numerics.Vector3(wpos.X, wpos.Y, wpos.Z), wpos.Direction, wpos.Mode));
         }
 
         private void HandleWPos2(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -946,8 +966,9 @@ namespace Gordian.Core.Network.Packets
             var wpos = new S2C_0x065_WPos2(payload);
             if (!wpos.IsValid) return;
 
-            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS2 (0x065): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
-            PlayerPositionUpdated?.Invoke(wpos.X, wpos.Y, wpos.Z, wpos.Direction, wpos.ActorIndex);
+            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS2 (0x065): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            WorldPositionReceived?.Invoke(new WorldPositionUpdate(wpos.UniqueNo, wpos.ActorIndex,
+                new System.Numerics.Vector3(wpos.X, wpos.Y, wpos.Z), wpos.Direction, wpos.Mode));
         }
 
         private void HandlePosPing(PacketHeader header, ReadOnlySpan<byte> payload)

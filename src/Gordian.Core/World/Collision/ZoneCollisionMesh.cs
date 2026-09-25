@@ -254,6 +254,196 @@ namespace Gordian.Core.World.Collision
         }
 
         /// <summary>
+        /// Triangles whose normal is flatter than this (|normal.Y| below it: walls, cliffs, steep banks) block horizontal
+        /// movement; see <see cref="ResolveWalls"/>.
+        /// </summary>
+        public const float MaxWallNormalY = 0.5f;
+
+        /// <summary>
+        /// Moves a body from <paramref name="start"/> toward <paramref name="end"/> (same height, internal space) and
+        /// returns where it ends up after being pushed out of walls, sliding along them. The body is a column of spheres
+        /// of <paramref name="radius"/> from <paramref name="stepUp"/> above the feet to <paramref name="bodyHeight"/>,
+        /// so anything lower than a step (stair risers, curbs) is left to ground following. Walls block only from their
+        /// front face, as the client's collision is one-sided: a body behind a face walks out through it.
+        /// </summary>
+        public Vector3 ResolveWalls(Vector3 start, Vector3 end, float radius, float stepUp, float bodyHeight)
+        {
+            if (_triangles.Length == 0 || radius <= 0.0f) return end;
+
+            Vector2 delta = new(end.X - start.X, end.Z - start.Z);
+            float length = delta.Length();
+            int steps = Math.Max(1, (int)MathF.Ceiling(length / (radius * 0.5f)));
+            Vector2 stepDelta = delta / steps;
+
+            // Sphere centers above the feet (internal -Y is up): the lowest clears a step, the highest reaches the head.
+            float lowest = stepUp + radius;
+            float highest = MathF.Max(lowest, bodyHeight - radius);
+            int sphereCount = Math.Max(1, (int)MathF.Ceiling((highest - lowest) / radius) + 1);
+
+            var position = new Vector2(start.X, start.Z);
+            for (int step = 0; step < steps; step++)
+            {
+                var before = position;
+                position += stepDelta;
+                for (int pass = 0; pass < 4; pass++)
+                {
+                    bool pushed = false;
+                    for (int sphere = 0; sphere < sphereCount; sphere++)
+                    {
+                        float lift = sphereCount == 1 ? lowest : lowest + ((highest - lowest) * sphere / (sphereCount - 1));
+                        var center = new Vector3(position.X, start.Y - lift, position.Y);
+                        if (PushOutOfWalls(ref center, radius))
+                        {
+                            position = new Vector2(center.X, center.Z);
+                            pushed = true;
+                        }
+                    }
+                    if (!pushed) break;
+                }
+
+                // Pushes from several faces at once (a body wedged against a prop) can add up past a thin wall: never
+                // let a sub-step carry the body through the front of a wall; stop where it was instead.
+                if (CrossesWallFront(before, position, start.Y - lowest, start.Y - highest))
+                {
+                    position = before;
+                    break;
+                }
+            }
+
+            return new Vector3(position.X, end.Y, position.Y);
+        }
+
+        /// <summary>
+        /// Whether moving horizontally from <paramref name="from"/> to <paramref name="to"/> at either body height passes
+        /// through the front face of a wall.
+        /// </summary>
+        private bool CrossesWallFront(Vector2 from, Vector2 to, float lowY, float highY)
+        {
+            Vector2 move = to - from;
+            float length = move.Length();
+            if (length < 1e-5f) return false;
+            var direction = new Vector3(move.X / length, 0.0f, move.Y / length);
+
+            int cx0 = Math.Max((int)MathF.Floor((MathF.Min(from.X, to.X) - _minX) / CellSize), 0);
+            int cx1 = Math.Min((int)MathF.Floor((MathF.Max(from.X, to.X) - _minX) / CellSize), _columns - 1);
+            int cz0 = Math.Max((int)MathF.Floor((MathF.Min(from.Y, to.Y) - _minZ) / CellSize), 0);
+            int cz1 = Math.Min((int)MathF.Floor((MathF.Max(from.Y, to.Y) - _minZ) / CellSize), _rows - 1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            {
+                for (int cx = cx0; cx <= cx1; cx++)
+                {
+                    int cell = (cz * _columns) + cx;
+                    for (int k = _cellStart[cell], end = _cellStart[cell + 1]; k < end; k++)
+                    {
+                        ref readonly var t = ref _triangles[_cellTriangles[k]];
+                        if (MathF.Abs(t.Normal.Y) >= MaxWallNormalY) continue;
+                        if (Vector3.Dot(direction, t.Normal) >= 0.0f) continue; // moving out of the face, not into it
+                        foreach (float y in stackalloc float[] { lowY, highY })
+                        {
+                            float hit = RayTriangleDistance(new Vector3(from.X, y, from.Y), direction, t.A, t.B, t.C);
+                            if (hit >= 0.0f && hit <= length) return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Distance along a ray to a triangle (Möller-Trumbore, double-sided), or -1 on a miss.
+        /// </summary>
+        private static float RayTriangleDistance(Vector3 origin, Vector3 direction, Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 edge1 = b - a, edge2 = c - a;
+            Vector3 p = Vector3.Cross(direction, edge2);
+            float determinant = Vector3.Dot(edge1, p);
+            if (MathF.Abs(determinant) < 1e-8f) return -1.0f;
+            float inverse = 1.0f / determinant;
+            Vector3 s = origin - a;
+            float u = Vector3.Dot(s, p) * inverse;
+            if (u < 0.0f || u > 1.0f) return -1.0f;
+            Vector3 q = Vector3.Cross(s, edge1);
+            float v = Vector3.Dot(direction, q) * inverse;
+            if (v < 0.0f || u + v > 1.0f) return -1.0f;
+            return Vector3.Dot(edge2, q) * inverse;
+        }
+
+        /// <summary>
+        /// Pushes a sphere horizontally out of every wall triangle it penetrates from the front; true when it moved.
+        /// </summary>
+        private bool PushOutOfWalls(ref Vector3 center, float radius)
+        {
+            int cx0 = Math.Max((int)MathF.Floor((center.X - radius - _minX) / CellSize), 0);
+            int cx1 = Math.Min((int)MathF.Floor((center.X + radius - _minX) / CellSize), _columns - 1);
+            int cz0 = Math.Max((int)MathF.Floor((center.Z - radius - _minZ) / CellSize), 0);
+            int cz1 = Math.Min((int)MathF.Floor((center.Z + radius - _minZ) / CellSize), _rows - 1);
+
+            bool moved = false;
+            float radiusSquared = radius * radius;
+            for (int cz = cz0; cz <= cz1; cz++)
+            {
+                for (int cx = cx0; cx <= cx1; cx++)
+                {
+                    int cell = (cz * _columns) + cx;
+                    for (int k = _cellStart[cell], end = _cellStart[cell + 1]; k < end; k++)
+                    {
+                        ref readonly var t = ref _triangles[_cellTriangles[k]];
+                        if (MathF.Abs(t.Normal.Y) >= MaxWallNormalY) continue;
+                        if (Vector3.Dot(center - t.A, t.Normal) <= 0.0f) continue; // behind the face
+
+                        Vector3 closest = ClosestPointOnTriangle(center, t.A, t.B, t.C);
+                        Vector3 away = center - closest;
+                        if (away.LengthSquared() >= radiusSquared) continue;
+
+                        // Separate horizontally only: the body keeps its height, ground following owns that.
+                        var horizontal = new Vector2(away.X, away.Z);
+                        float horizontalDistance = horizontal.Length();
+                        float needed = MathF.Sqrt(MathF.Max(radiusSquared - (away.Y * away.Y), 0.0f));
+                        Vector2 direction = horizontalDistance > 1e-4f
+                            ? horizontal / horizontalDistance
+                            : Vector2.Normalize(new Vector2(t.Normal.X, t.Normal.Z));
+                        float push = needed - horizontalDistance + 1e-3f;
+                        if (push <= 0.0f || float.IsNaN(direction.X)) continue;
+                        center += new Vector3(direction.X * push, 0.0f, direction.Y * push);
+                        moved = true;
+                    }
+                }
+            }
+            return moved;
+        }
+
+        /// <summary>
+        /// The point of triangle ABC closest to P (Ericson, Real-Time Collision Detection, 5.1.5).
+        /// </summary>
+        private static Vector3 ClosestPointOnTriangle(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 ab = b - a, ac = c - a, ap = p - a;
+            float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+            if (d1 <= 0.0f && d2 <= 0.0f) return a;
+
+            Vector3 bp = p - b;
+            float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+            if (d3 >= 0.0f && d4 <= d3) return b;
+
+            float vc = (d1 * d4) - (d3 * d2);
+            if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) return a + (ab * (d1 / (d1 - d3)));
+
+            Vector3 cp = p - c;
+            float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+            if (d6 >= 0.0f && d5 <= d6) return c;
+
+            float vb = (d5 * d2) - (d1 * d6);
+            if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) return a + (ac * (d2 / (d2 - d6)));
+
+            float va = (d3 * d6) - (d5 * d4);
+            if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+                return b + ((c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))));
+
+            float denominator = 1.0f / (va + vb + vc);
+            return a + (ab * (vb * denominator)) + (ac * (vc * denominator));
+        }
+
+        /// <summary>
         /// Finds the walkable surface under the XZ point nearest in height to <paramref name="referenceHeight"/>, e.g. to
         /// land a teleport on the floor of the level it was aimed at.
         /// </summary>

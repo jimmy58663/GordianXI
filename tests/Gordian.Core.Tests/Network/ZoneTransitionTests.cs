@@ -273,39 +273,34 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void LifecycleModule_WPosPackets_UpdatePlayerPosition()
+        public void LifecycleModule_WPosPackets_RaiseWorldPositionUpdates()
         {
             var profile = new SessionProfile();
             var module = new LifecyclePacketModule(profile, (d, h) => Task.CompletedTask);
             var dispatcher = new PacketDispatcher();
             module.Register(dispatcher);
 
-            float lastX = 0, lastY = 0, lastZ = 0;
-            byte lastDir = 0;
-            ushort lastAct = 0;
-            module.PlayerPositionUpdated += (x, y, z, dir, act) =>
-            {
-                lastX = x;
-                lastY = y;
-                lastZ = z;
-                lastDir = dir;
-                lastAct = act;
-            };
+            WorldPositionUpdate? last = null;
+            module.WorldPositionReceived += update => last = update;
 
             // Test 0x05B WPos
             byte[] payload05B = new byte[24];
             BinaryPrimitives.WriteSingleLittleEndian(payload05B.AsSpan(0, 4), 50.0f);
             BinaryPrimitives.WriteSingleLittleEndian(payload05B.AsSpan(4, 4), 1.5f);
             BinaryPrimitives.WriteSingleLittleEndian(payload05B.AsSpan(8, 4), -100.0f);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload05B.AsSpan(12, 4), 0x01020304);
             BinaryPrimitives.WriteUInt16LittleEndian(payload05B.AsSpan(16, 2), 10);
+            payload05B[18] = (byte)PosMode.Reset;
             payload05B[19] = 128;
 
             dispatcher.Dispatch(new PacketHeader(0x05B, 28, 1), payload05B);
-            Assert.Equal(50.0f, lastX);
-            Assert.Equal(1.5f, lastY);
-            Assert.Equal(-100.0f, lastZ);
-            Assert.Equal(10, lastAct);
-            Assert.Equal(128, lastDir);
+            Assert.NotNull(last);
+            Assert.Equal(new System.Numerics.Vector3(50.0f, 1.5f, -100.0f), last!.Value.Position);
+            Assert.Equal(0x01020304u, last.Value.UniqueNo);
+            Assert.Equal(10, last.Value.ActorIndex);
+            Assert.Equal(128, last.Value.Direction);
+            Assert.Equal(PosMode.Reset, last.Value.Mode);
+            Assert.True(last.Value.MovesEntity);
 
             // Test 0x065 WPos2
             byte[] payload065 = new byte[24];
@@ -313,14 +308,14 @@ namespace Gordian.Core.Tests.Network
             BinaryPrimitives.WriteSingleLittleEndian(payload065.AsSpan(4, 4), 0.0f);
             BinaryPrimitives.WriteSingleLittleEndian(payload065.AsSpan(8, 4), 200.0f);
             BinaryPrimitives.WriteUInt16LittleEndian(payload065.AsSpan(16, 2), 20);
+            payload065[18] = (byte)PosMode.Rotate;
             payload065[19] = 64;
 
             dispatcher.Dispatch(new PacketHeader(0x065, 28, 2), payload065);
-            Assert.Equal(-25.0f, lastX);
-            Assert.Equal(0.0f, lastY);
-            Assert.Equal(200.0f, lastZ);
-            Assert.Equal(20, lastAct);
-            Assert.Equal(64, lastDir);
+            Assert.Equal(new System.Numerics.Vector3(-25.0f, 0.0f, 200.0f), last!.Value.Position);
+            Assert.Equal(20, last.Value.ActorIndex);
+            Assert.Equal(64, last.Value.Direction);
+            Assert.False(last.Value.MovesEntity);
         }
 
         [Fact]

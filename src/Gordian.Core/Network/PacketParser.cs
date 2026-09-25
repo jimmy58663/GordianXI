@@ -225,6 +225,15 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Raised for every server-set entity position (WPOS 0x05B / 0x065), for any entity in range.
+        /// </summary>
+        public event Action<WorldPositionUpdate>? WorldPositionReceived
+        {
+            add => _lifecycleModule.WorldPositionReceived += value;
+            remove => _lifecycleModule.WorldPositionReceived -= value;
+        }
+
+        /// <summary>
         /// Raised when server confirms current zone ID in GP_SERV_LOGIN (0x00A).
         /// </summary>
         public event Action<ushort>? ZoneReceived

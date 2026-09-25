@@ -178,6 +178,11 @@ namespace Gordian.Core.Network.Packets
                         player.RenderHeadingRadians = player.HeadingRadians;
                     }
                 }
+                else if (pc.IsCharmed)
+                {
+                    // Charmed: the server moves the local player and ignores the client's reported position.
+                    _localPlayer.RequestPositionCorrection(new Vector3(pc.X, pc.Y, pc.Z), pc.Direction);
+                }
                 player.SpeedBase = pc.SpeedBase;
             }
 
@@ -204,6 +209,9 @@ namespace Gordian.Core.Network.Packets
             player.IsAnonymous = pc.IsAnonymous;
             player.IsAway = pc.IsAway;
             player.IsInvisible = pc.IsInvisible;
+            player.GraphSize = pc.GraphSize;
+            player.IsHidden = pc.IsHidden;
+            player.IsNonBlocking = pc.IsNonBlocking;
             player.HasBazaar = pc.HasBazaar;
             player.IsCharmed = pc.IsCharmed;
             player.IsMentor = pc.IsMentor;
@@ -342,8 +350,15 @@ namespace Gordian.Core.Network.Packets
                 entity.SpeedBase = npcPacket.SpeedBase;
             }
 
+            if (isNew || (npcPacket.UpdateFlags & (EntityUpdateFlags.Position | EntityUpdateFlags.General)) != 0)
+            {
+                entity.GraphSize = npcPacket.GraphSize;
+                entity.IsHidden = npcPacket.IsHidden;
+                entity.IsInvisible = npcPacket.IsInvisible;
+            }
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
+                entity.IsNonBlocking = npcPacket.IsNonBlocking;
                 entity.Hpp = npcPacket.Hpp;
                 entity.AnimationState = npcPacket.ServerStatus;
                 entity.AnimationSub = npcPacket.AnimationSub;

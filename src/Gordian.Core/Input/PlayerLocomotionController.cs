@@ -74,8 +74,10 @@ namespace Gordian.Core.Input
 
         /// <summary>
         /// Highest floor rise, in yalms, the player steps onto without being blocked (stairs, curbs, steep slopes).
+        /// Slightly more forgiving than the legacy client, which will not let the player up the low side walls of
+        /// Southern San d'Oria's ramps.
         /// </summary>
-        public const float StepUpHeight = 0.75f;
+        public const float StepUpHeight = 0.5f;
 
         /// <summary>
         /// Radius, in yalms, of the rounded foot the player rests on, which turns stairs into a ramp as in the legacy
@@ -89,6 +91,49 @@ namespace Gordian.Core.Input
         public const float MaxGroundDrop = 60.0f;
 
         private readonly CollisionSettings _ownCollision = new();
+        private readonly EntityBumpCollision _entityBump = new();
+        private float _tickSeconds;
+        private bool _airborne;
+        private float _fallSpeed;
+
+        /// <summary>
+        /// Downward acceleration of a falling player, in yalms per second squared. Fitted to a Windower capture of three
+        /// falls (12 and 20 yalms) in Southern San d'Oria (2026-09-25): the legacy client falls far faster than real
+        /// gravity, reaching <see cref="MaxFallSpeed"/> in under half a second.
+        /// </summary>
+        public const float Gravity = 66.0f;
+
+        /// <summary>
+        /// Fastest a falling player descends, in yalms per second: the same capture shows a steady 1.001 yalms per
+        /// 1/30-second frame once up to speed.
+        /// </summary>
+        public const float MaxFallSpeed = 30.0f;
+
+        /// <summary>
+        /// A floor further than this below the feet (yalms) is fallen to under gravity instead of settled on at once.
+        /// </summary>
+        public const float FallThreshold = 0.5f;
+
+        /// <summary>
+        /// Deepest floor, in yalms, a player falls to.
+        /// </summary>
+        public const float MaxFallDistance = 500.0f;
+
+        /// <summary>
+        /// True while the player is falling.
+        /// </summary>
+        public bool IsFalling => _airborne;
+
+        /// <summary>
+        /// Radius, in yalms, of the player's body against walls. Measured from a Windower capture of a character pressed
+        /// into a Southern San d'Oria wall corner: 0.529 and 0.535 yalms from the two walls.
+        /// </summary>
+        public const float BodyRadius = 0.53f;
+
+        /// <summary>
+        /// Height, in yalms, of the player's body against walls (overhangs above it do not block).
+        /// </summary>
+        public const float BodyHeight = 1.6f;
 
         /// <summary>
         /// The session's collision toggles (shared with <see cref="PlayerActionService.Collision"/> when there is one).
@@ -436,9 +481,30 @@ namespace Gordian.Core.Input
             }
 
             float dt = (float)elapsed.TotalSeconds;
+            _tickSeconds = dt;
 
-            // Keeps the player on the floor while standing still too, e.g. after zone-in or a teleport.
-            SnapToGround(localEnt);
+            // Server placements (warps, draw-ins, charm) win over local movement: apply them before moving.
+            if (_localPlayer.TryTakePositionCorrection(out var correctedPosition, out byte correctedDirection))
+            {
+                if (correctedPosition is { } placed)
+                {
+                    localEnt.Position = placed;
+                    _airborne = false; // a placement in mid-air holds until the player moves
+                    _fallSpeed = 0.0f;
+                }
+                localEnt.Direction = correctedDirection;
+            }
+
+            // Locked by the server (an event) or charmed (the server drives the character): no input movement.
+            if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true }))
+            {
+                localEnt.Speed = 0;
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
+
+            // A fall, once started by stepping off a height, continues whether or not the player keeps moving.
+            if (_airborne) FallStep(localEnt, dt);
 
             // Check gamepad analog left stick
             var pad = _inputState.CurrentGamepad;
@@ -710,12 +776,38 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// Moves the player across the ground by a horizontal displacement and settles it onto the floor there.
+        /// Moves the player across the ground by a horizontal displacement and settles it onto the floor there. Height is
+        /// only settled when the player moves: a placement in mid-air (<c>/moveto</c> or <c>!pos</c> with a height) holds
+        /// until the next step, which drops the player onto whatever is below, e.g. a ledge it was lifted above.
         /// </summary>
         private void MoveHorizontally(WorldEntity localEnt, float dx, float dz)
         {
-            localEnt.Position = new Vector3(localEnt.Position.X + dx, localEnt.Position.Y, localEnt.Position.Z + dz);
-            SnapToGround(localEnt);
+            var layers = EffectiveCollision;
+            var start = localEnt.Position;
+            var target = new Vector3(start.X + dx, start.Y, start.Z + dz);
+
+            // Characters stop the player briefly (the legacy soft bump), then let it through.
+            if ((layers & CollisionLayers.Entities) != 0 && !_entityBump.TryMove(_world, localEnt, start, target, _tickSeconds))
+            {
+                target = start;
+            }
+
+            var collision = _world.Collision;
+            if (collision != null && (layers & CollisionLayers.Walls) != 0 && target != start)
+            {
+                target = collision.ResolveWalls(start, target, BodyRadius, StepUpHeight, BodyHeight);
+
+                // Never step off the collision mesh onto nothing (a gap, a cliff top out of reach): stay put instead.
+                if ((layers & CollisionLayers.Ground) != 0 &&
+                    collision.TryGetGround(start, StepUpHeight, MaxFallDistance, out _) &&
+                    !collision.TryGetGround(target, StepUpHeight, MaxFallDistance, out _))
+                {
+                    target = start;
+                }
+            }
+
+            localEnt.Position = target;
+            if (!_airborne) SnapToGround(localEnt); // an airborne player's height is owned by FallStep
         }
 
         /// <summary>
@@ -731,10 +823,47 @@ namespace Gordian.Core.Input
             var collision = _world.Collision;
             if (collision == null) return;
             var position = localEnt.Position;
-            if (collision.TryGetSteppedGround(position, StepUpHeight, MaxGroundDrop, FootRadius, out var ground))
+            if (!collision.TryGetSteppedGround(position, StepUpHeight, MaxFallDistance, FootRadius, out var ground)) return;
+
+            // Stairs, slopes and small ledges settle at once; anything deeper is a fall (internal +Y is down).
+            if (ground.Height - position.Y > FallThreshold)
             {
-                localEnt.Position = new Vector3(position.X, ground.Height, position.Z);
+                _airborne = true;
+                _fallSpeed = 0.0f;
+                return;
             }
+            localEnt.Position = new Vector3(position.X, ground.Height, position.Z);
+        }
+
+        /// <summary>
+        /// Advances a fall by one tick under <see cref="Gravity"/> and lands on the floor below. Horizontal input keeps
+        /// moving the player meanwhile, so the higher the drop the further forward it carries, as in the legacy client.
+        /// </summary>
+        private void FallStep(WorldEntity localEnt, float dt)
+        {
+            var collision = _world.Collision;
+            if (collision == null || (EffectiveCollision & CollisionLayers.Ground) == 0)
+            {
+                _airborne = false;
+                return;
+            }
+
+            var position = localEnt.Position;
+            if (!collision.TryGetSteppedGround(position, StepUpHeight, MaxFallDistance, FootRadius, out var ground))
+            {
+                _airborne = false; // nothing below at all: hold the height rather than fall forever
+                return;
+            }
+
+            _fallSpeed = MathF.Min(_fallSpeed + (Gravity * dt), MaxFallSpeed);
+            float height = position.Y + (_fallSpeed * dt);
+            if (height >= ground.Height)
+            {
+                height = ground.Height;
+                _airborne = false;
+                _fallSpeed = 0.0f;
+            }
+            localEnt.Position = new Vector3(position.X, height, position.Z);
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)

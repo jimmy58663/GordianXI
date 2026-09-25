@@ -753,7 +753,7 @@ namespace Gordian.Core.Actions
             var sb = new StringBuilder();
             sb.AppendLine($"--- Game Master (GM) Commands [Restrictions: {restrictions}] ---");
             sb.AppendLine("[Locomotion & Teleportation]");
-            sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates");
+            sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates (Windower order, z = height)");
             sb.AppendLine("  !goto <player>            - Teleport to player");
             sb.AppendLine("  !bring <player>           - Teleport player to you");
             sb.AppendLine("  !zone <zone_id>           - Teleport to specified zone");

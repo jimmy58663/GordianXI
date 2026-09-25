@@ -174,9 +174,9 @@ namespace Gordian.Core.Tests.World.Collision
             var input = new InputState();
             var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player);
 
-            // Standing still settles the floating player onto the ramp.
+            // Standing still holds a height placed in mid-air (like /moveto); the first step drops onto the ramp.
             controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
-            Assert.Equal(0.0f, localEnt.Position.Y, 3);
+            Assert.Equal(-3.0f, localEnt.Position.Y, 3);
 
             input.SetKeyDown(GordianKey.W);
             for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));

@@ -303,6 +303,8 @@ namespace Gordian.Core.Network
                 EnsureLocalPlayerEntity(x, y, z, dir, actIndex);
                 GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
+            _parser.WorldPositionReceived += OnWorldPositionReceived;
+            _parser.World.ZoneChanged += _ => _parser.LocalPlayer.IsMovementLocked = false;
             _parser.LoginAppearanceReceived += (sid, grap, name) =>
             {
                 if (sid != 0)
@@ -354,6 +356,54 @@ namespace Gordian.Core.Network
                     Disconnect();
                 }
             };
+        }
+
+        /// <summary>
+        /// Routes a server-set position (WPOS 0x05B / 0x065). The server broadcasts these to everyone in range, so one
+        /// naming another entity (a player being drawn in, an NPC repositioned by a script) moves that entity; only one
+        /// naming the local player (or no one, before the local id is known) corrects the local player. LandSandBoat
+        /// trusts the client's reported position otherwise, so these are the server's only corrections.
+        /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B and
+        /// LandSandBoat (https://github.com/LandSandBoat/server) packets/s2c/0x05b_wpos.cpp.
+        /// </summary>
+        private void OnWorldPositionReceived(WorldPositionUpdate update)
+        {
+            uint localId = _parser.LocalPlayer.ServerId != 0 ? _parser.LocalPlayer.ServerId : CharacterId;
+            bool isLocal = update.UniqueNo == 0 || localId == 0 || update.UniqueNo == localId;
+            var position = update.Position;
+
+            if (!isLocal)
+            {
+                if (!_parser.World.TryGetByServerId(update.UniqueNo, out var entity) || entity == null) return;
+                if (update.MovesEntity) entity.Warp(position, update.Direction, WorldEntity.ClockSeconds);
+                else if (update.Mode == PosMode.Rotate) entity.Direction = update.Direction;
+                return;
+            }
+
+            switch (update.Mode)
+            {
+                case PosMode.Lock:
+                    _parser.LocalPlayer.IsMovementLocked = true;
+                    return;
+                case PosMode.Unlock:
+                    _parser.LocalPlayer.IsMovementLocked = false;
+                    return;
+                case PosMode.Rotate:
+                    Direction = update.Direction;
+                    _parser.LocalPlayer.RequestPositionCorrection(null, update.Direction);
+                    return;
+            }
+            if (!update.MovesEntity) return;
+            if (update.Mode == PosMode.Reset) _parser.LocalPlayer.IsMovementLocked = false;
+
+            PositionX = position.X;
+            PositionY = position.Y;
+            PositionZ = position.Z;
+            Direction = update.Direction;
+            TargetIndex = update.ActorIndex;
+            EnsureLocalPlayerEntity(position.X, position.Y, position.Z, update.Direction, update.ActorIndex);
+            _parser.LocalPlayer.RequestPositionCorrection(position, update.Direction);
+            GordianLog.Info("NET", $"Server placed local player at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) dir={update.Direction} mode={update.Mode}");
         }
 
         private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)

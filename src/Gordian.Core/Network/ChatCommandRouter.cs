@@ -86,7 +86,7 @@ namespace Gordian.Core.Network
                 {
                     Kind = ChatCommandResultKind.ServerCommand,
                     SpeechKind = ChatSendKind.Say,
-                    Message = trimmed
+                    Message = ToServerCoordinateOrder(trimmed)
                 };
             }
 
@@ -567,6 +567,33 @@ namespace Gordian.Core.Network
                 Kind = ChatCommandResultKind.InspectNearby,
                 ParamFloat = radius
             };
+        }
+
+        /// <summary>
+        /// Rewrites <c>!pos x y z [...]</c> typed in FFXI/Windower order (z = height) into the server's order
+        /// (x, height, y), which LandSandBoat's <c>!pos</c> passes straight to <c>setPos</c>. Anything else, including a
+        /// <c>!pos</c> without three numeric coordinates, is sent unchanged.
+        /// </summary>
+        public static string ToServerCoordinateOrder(string command)
+        {
+            if (!command.StartsWith("!pos", StringComparison.OrdinalIgnoreCase) ||
+                (command.Length > 4 && !char.IsWhiteSpace(command[4])))
+            {
+                return command;
+            }
+
+            // Accept the same separators /moveto does: "1 2 3", "1, 2, 3", "(1, 2, 3)".
+            var parts = command.Substring(4).Split(new[] { ' ', ',', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) return command;
+            for (int i = 0; i < 3; i++)
+            {
+                if (!float.TryParse(parts[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                {
+                    return command;
+                }
+            }
+            (parts[1], parts[2]) = (parts[2], parts[1]);
+            return "!pos " + string.Join(' ', parts);
         }
 
         private static ChatCommandResult ParseMoveToCommand(string args)

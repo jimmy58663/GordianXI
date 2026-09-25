@@ -1,3 +1,4 @@
+using Gordian.Core.Input;
 using System.Numerics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
@@ -81,8 +82,11 @@ namespace Gordian.Core.Tests.World.Collision
             int next = 0;
             while (next < RetailStairClimb.Length)
             {
-                feet.X -= 0.01f;
-                Assert.True(collision.TryGetSteppedGround(feet, 0.75f, 60.0f, 0.9f, out var ground));
+                // Walls on, as in play: the stairwell's railings and side walls must not get in the way.
+                var moved = collision.ResolveWalls(feet, feet with { X = feet.X - 0.01f }, PlayerLocomotionController.BodyRadius, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.BodyHeight);
+                Assert.True(MathF.Abs(moved.Z - feet.Z) < 0.05f && moved.X < feet.X, $"blocked at {feet}");
+                feet = moved;
+                Assert.True(collision.TryGetSteppedGround(feet, PlayerLocomotionController.StepUpHeight, 60.0f, PlayerLocomotionController.FootRadius, out var ground));
                 feet.Y = ground.Height;
                 if (feet.X > RetailStairClimb[next].X) continue;
 
@@ -95,6 +99,71 @@ namespace Gordian.Core.Tests.World.Collision
             float meanError = totalError / RetailStairClimb.Length;
             _output.WriteLine($"mean |retail - stepped| = {meanError:F3}, mean |retail - snapped| = {snapError / RetailStairClimb.Length:F3}");
             Assert.True(meanError < 0.06f, $"mean stair height error {meanError}");
+        }
+
+        [Theory]
+        [InlineData(230)] // Southern San d'Oria
+        [InlineData(4)]   // Bibiki Bay
+        public void Walls_StopAPlayerRunningStraightAtThem(int zoneId)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(zoneId);
+            if (collision == null) return;
+
+            // Pick tall walls standing on a floor, start 2 yalms in front of each and run 3 yalms straight at it.
+            var random = new Random(99);
+            var triangles = collision.Triangles.ToArray();
+            int tried = 0, crossed = 0;
+            for (int i = 0; i < 200000 && tried < 300; i++)
+            {
+                var wall = triangles[random.Next(triangles.Length)];
+                if (MathF.Abs(wall.Normal.Y) > 0.05f) continue;
+                var center = (wall.A + wall.B + wall.C) / 3.0f;
+                var facing = Vector3.Normalize(new Vector3(wall.Normal.X, 0, wall.Normal.Z));
+                var start = center + (facing * 2.0f);
+                if (!collision.TryGetNearestGround(start.X, start.Z, center.Y, out var floor)) continue;
+                start.Y = floor.Height;
+
+                // The wall must cover the body there: from a step above the feet to above the head (internal -Y up).
+                float top = MathF.Min(wall.A.Y, MathF.Min(wall.B.Y, wall.C.Y));
+                float bottom = MathF.Max(wall.A.Y, MathF.Max(wall.B.Y, wall.C.Y));
+                if (bottom < start.Y - 0.8f || top > start.Y - 1.7f) continue;
+                if (Vector3.Dot(start - wall.A, wall.Normal) <= 0.0f) continue;
+
+                // The body's path must actually meet this triangle (at the height of the wall-test spheres).
+                var chest = start with { Y = start.Y - 1.15f };
+                float hit = DownHit(chest + new Vector3(0, 0, 0), wall.A, wall.B, wall.C, -facing);
+                if (hit < 0.0f || hit > 2.5f) continue;
+
+                tried++;
+                // Sliding off the edge of a narrow face (a post, a wall end) is fine; passing through the face is not.
+                var position = start;
+                bool passedThrough = false;
+                for (int step = 0; step < 30 && !passedThrough; step++)
+                {
+                    var next = collision.ResolveWalls(position, position - (facing * 0.1f), PlayerLocomotionController.BodyRadius, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.BodyHeight);
+                    var from = position with { Y = position.Y - 1.15f };
+                    var move = (next with { Y = next.Y - 1.15f }) - from;
+                    float length = move.Length();
+                    if (length > 1e-5f)
+                    {
+                        float t = DownHit(from, wall.A, wall.B, wall.C, move / length);
+                        passedThrough = t >= 0.0f && t <= length;
+                    }
+                    position = next;
+                }
+                if (passedThrough)
+                {
+                    crossed++;
+                    _output.WriteLine($"  passed through wall {wall.A} {wall.B} {wall.C} n={wall.Normal} from {start}");
+                }
+            }
+
+            _output.WriteLine($"Zone {zoneId}: {tried} walls tried, {crossed} crossed");
+            Assert.True(tried >= 50, $"only {tried} usable walls");
+            Assert.Equal(0, crossed);
         }
 
         private static float Lerp(float a, float b, float t) => a + ((b - a) * t);
@@ -122,9 +191,10 @@ namespace Gordian.Core.Tests.World.Collision
             return true;
         }
 
-        private static float DownHit(Vector3 origin, Vector3 a, Vector3 b, Vector3 c)
+        private static float DownHit(Vector3 origin, Vector3 a, Vector3 b, Vector3 c) => DownHit(origin, a, b, c, -Vector3.UnitY);
+
+        private static float DownHit(Vector3 origin, Vector3 a, Vector3 b, Vector3 c, Vector3 direction)
         {
-            var direction = -Vector3.UnitY;
             Vector3 e1 = b - a, e2 = c - a;
             Vector3 p = Vector3.Cross(direction, e2);
             float det = Vector3.Dot(e1, p);

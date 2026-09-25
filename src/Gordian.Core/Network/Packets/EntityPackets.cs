@@ -216,6 +216,17 @@ namespace Gordian.Core.Network.Packets
         public bool IsMentor => ((Flags3 >> 24) & 0x01) != 0;
 
         /// <summary>
+        /// Non-blocking (Flags3 bit 28): the local player passes through without the client's actor contact check.
+        /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t unknown_3_4.
+        /// </summary>
+        public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
+
+        /// <summary>
+        /// Fully hidden and untargetable (Flags1 bit 1, HideFlag).
+        /// </summary>
+        public bool IsHidden => ((Flags1 >> 1) & 0x01) != 0;
+
+        /// <summary>
         /// Reads the 9-element equipment/model visual appearance table (GrapIDTbl) if model flag is set.
         /// Slot indices: 0:Race/Face, 1:Head, 2:Body, 3:Hands, 4:Legs, 5:Feet, 6:Main, 7:Sub, 8:Ranged.
         /// </summary>
@@ -456,6 +467,30 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public ushort MovTime => (ushort)(Flags0 & 0x1FFF);
         public bool IsMoving => MovTime != 0;
+
+        /// <summary>
+        /// Body size class (Flags1 bits 9-10): 0 = small, 1 = medium, 2 = large.
+        /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t.
+        /// </summary>
+        public byte GraphSize => (byte)((Flags1 >> 9) & 0x03);
+
+        /// <summary>
+        /// Fully hidden and untargetable (Flags1 bit 1, HideFlag).
+        /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t.
+        /// </summary>
+        public bool IsHidden => ((Flags1 >> 1) & 0x01) != 0;
+
+        /// <summary>
+        /// Invisible and untargetable (Flags1 bit 29, InvisFlag).
+        /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t.
+        /// </summary>
+        public bool IsInvisible => ((Flags1 >> 29) & 0x01) != 0;
+
+        /// <summary>
+        /// Non-blocking (Flags3 bit 28): the local player passes through without the client's actor contact check.
+        /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t unknown_3_4.
+        /// </summary>
+        public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
 
         /// <summary>
         /// Reads look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc.

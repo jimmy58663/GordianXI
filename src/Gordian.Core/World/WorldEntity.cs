@@ -359,6 +359,26 @@ namespace Gordian.Core.World
         public void InterpolatePosition(float deltaSeconds) => InterpolatePosition(deltaSeconds, ClockSeconds);
 
         /// <summary>
+        /// Places the entity at a server-set position (WPOS), discarding any motion in flight: the render thread jumps
+        /// there on its next tick instead of walking over.
+        /// </summary>
+        public void Warp(Vector3 position, byte direction, double now)
+        {
+            lock (_motionLock)
+            {
+                if (_hasMotionTimeline)
+                {
+                    _samples.Clear();
+                    _samples.Add(new MotionSample(now, position, direction));
+                    _moveSessionActive = false;
+                }
+                Direction = direction;
+                TargetPosition = position;
+                SnapToTargetPending = true;
+            }
+        }
+
+        /// <summary>
         /// Plays the motion timeline back at <paramref name="now"/> minus the playback delay, interpolating between server
         /// samples so the entity travels at its true speed along its true path, never past the newest sample. Entities
         /// without a timeline move toward <see cref="TargetPosition"/> at their movement speed. Aligns the visual heading
@@ -602,6 +622,26 @@ namespace Gordian.Core.World
         public EntityAnimationState Animation { get; } = new EntityAnimationState();
 
         public bool IsSpawned { get; set; } = true;
+
+        /// <summary>
+        /// Invisible and untargetable (InvisFlag).
+        /// </summary>
+        public bool IsInvisible { get; set; }
+
+        /// <summary>
+        /// Body size class from the entity update (0 = small, 1 = medium, 2 = large); sizes its bump collision.
+        /// </summary>
+        public byte GraphSize { get; set; }
+
+        /// <summary>
+        /// Fully hidden and untargetable (HideFlag).
+        /// </summary>
+        public bool IsHidden { get; set; }
+
+        /// <summary>
+        /// The server marked this entity as one the local player passes straight through.
+        /// </summary>
+        public bool IsNonBlocking { get; set; }
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
         public DateTime LastPositionChangeUtc { get; set; } = DateTime.MinValue;
 
@@ -636,7 +676,6 @@ namespace Gordian.Core.World
         public bool IsSeekingParty { get; set; }
         public bool IsAnonymous { get; set; }
         public bool IsAway { get; set; }
-        public bool IsInvisible { get; set; }
         public bool HasBazaar { get; set; }
         public bool IsCharmed { get; set; }
         public bool IsMentor { get; set; }
