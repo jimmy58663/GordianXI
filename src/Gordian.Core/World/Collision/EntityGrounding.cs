@@ -1,4 +1,5 @@
 // src/Gordian.Core/World/Collision/EntityGrounding.cs
+using System;
 using System.Numerics;
 using Gordian.Core.Input;
 
@@ -25,15 +26,47 @@ namespace Gordian.Core.World.Collision
         /// reported position (at most a step above it), rounded over stair edges like the local player, or the reported
         /// height when there is no collision, no floor below, or the entity is not grounded.
         /// </summary>
-        public static float GetDisplayHeight(WorldEntity entity, ZoneCollisionMesh? collision)
+        public static float GetDisplayHeight(WorldEntity entity, ZoneCollisionMesh? collision) =>
+            GetDisplayHeight(entity, collision, ReadOnlySpan<PlatformHeight>.Empty);
+
+        /// <summary>
+        /// As <see cref="GetDisplayHeight(WorldEntity, ZoneCollisionMesh?)"/>, with moving platforms: a character
+        /// standing on one is drawn on its floor and keeps riding it while it stays within the platform's footprint,
+        /// however far it moves from the character's reported height (a Windower capture shows a player standing still
+        /// on a Metalworks lift drawn riding it up and down on another client).
+        /// </summary>
+        public static float GetDisplayHeight(WorldEntity entity, ZoneCollisionMesh? collision, ReadOnlySpan<PlatformHeight> platforms)
         {
             var position = entity.Position;
-            if (collision == null || !IsGrounded(entity)) return position.Y;
-            return collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
-                                                 PlayerLocomotionController.MaxFallDistance,
-                                                 PlayerLocomotionController.FootRadius, out var ground)
-                ? ground.Height
-                : position.Y;
+            if (!IsGrounded(entity))
+            {
+                entity.RidingPlatformId = string.Empty;
+                return position.Y;
+            }
+
+            if (entity.RidingPlatformId.Length > 0)
+            {
+                foreach (var platform in platforms)
+                {
+                    if (platform.Platform.Id == entity.RidingPlatformId && platform.Platform.Contains(position.X, position.Z))
+                    {
+                        return platform.Height;
+                    }
+                }
+                entity.RidingPlatformId = string.Empty;
+            }
+
+            float stepUp = PlayerLocomotionController.StepUpHeight, maxDrop = PlayerLocomotionController.MaxFallDistance;
+            GroundHit ground = default;
+            bool found = collision != null &&
+                         collision.TryGetSteppedGround(position, stepUp, maxDrop, PlayerLocomotionController.FootRadius, out ground);
+            if (MovingPlatforms.TryGetPlatformUnder(platforms, position, stepUp, maxDrop, out var under) &&
+                (!found || under.Height <= ground.Height + MovingPlatforms.LevelTolerance))
+            {
+                entity.RidingPlatformId = under.Platform.Id;
+                return under.Height;
+            }
+            return found ? ground.Height : position.Y;
         }
     }
 }

@@ -124,6 +124,40 @@ namespace Gordian.Core.World.Collision
         }
 
         public ReadOnlySpan<CollisionTriangle> Triangles => _triangles;
+
+        /// <summary>
+        /// The zone's moving platforms (elevators); set once when the zone loads.
+        /// </summary>
+        public IReadOnlyList<MovingPlatform> MovingPlatforms { get; internal set; } = Array.Empty<MovingPlatform>();
+
+        /// <summary>
+        /// The level walkable floors (|normal.Y| above 0.7) whose centroid lies in the XZ rectangle: height, area, XZ centroid.
+        /// </summary>
+        public IEnumerable<(float Height, float Area, Vector2 Centroid)> FloorsNear(Vector2 min, Vector2 max)
+        {
+            if (_triangles.Length == 0) yield break;
+            var seen = new HashSet<int>();
+            int cx0 = Math.Max((int)MathF.Floor((min.X - _minX) / CellSize), 0);
+            int cx1 = Math.Min((int)MathF.Floor((max.X - _minX) / CellSize), _columns - 1);
+            int cz0 = Math.Max((int)MathF.Floor((min.Y - _minZ) / CellSize), 0);
+            int cz1 = Math.Min((int)MathF.Floor((max.Y - _minZ) / CellSize), _rows - 1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            {
+                for (int cx = cx0; cx <= cx1; cx++)
+                {
+                    int cell = (cz * _columns) + cx;
+                    for (int k = _cellStart[cell], end = _cellStart[cell + 1]; k < end; k++)
+                    {
+                        int index = _cellTriangles[k];
+                        var t = _triangles[index];
+                        if (t.Normal.Y > -0.7f || !seen.Add(index)) continue;
+                        var centroid = (t.A + t.B + t.C) / 3.0f;
+                        if (centroid.X < min.X || centroid.X > max.X || centroid.Z < min.Y || centroid.Z > max.Y) continue;
+                        yield return (centroid.Y, 0.5f * Vector3.Cross(t.B - t.A, t.C - t.A).Length(), new Vector2(centroid.X, centroid.Z));
+                    }
+                }
+            }
+        }
         public int TriangleCount => _triangles.Length;
         public Vector3 MinBounds { get; }
         public Vector3 MaxBounds { get; }

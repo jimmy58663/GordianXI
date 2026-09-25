@@ -648,6 +648,33 @@ namespace Gordian.Core.World
         /// on the floor.
         /// </summary>
         public bool IgnoresWorldCollision { get; set; }
+
+        /// <summary>
+        /// For an elevator or ship: the FourCC of the zone object it moves (its door id), empty otherwise.
+        /// </summary>
+        public string TransportId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// For an elevator or ship: the Earth second since the Vana'diel epoch its current leg started.
+        /// </summary>
+        public uint TransportStartSeconds { get; set; }
+
+        /// <summary>
+        /// For an elevator: how many seconds a leg takes.
+        /// </summary>
+        public byte TransportTravelSeconds { get; set; }
+
+        /// <summary>
+        /// For an elevator or ship: when (Earth seconds since the Vana'diel epoch, on this client's synced clock) the
+        /// current leg's update arrived; 0 when not seen arriving.
+        /// </summary>
+        public double TransportObservedSeconds { get; set; }
+
+        /// <summary>
+        /// The moving platform this character was last drawn standing on, so it rides the platform as it moves even
+        /// though its own reported position stays put (the legacy client carries riders itself).
+        /// </summary>
+        public string RidingPlatformId { get; set; } = string.Empty;
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
         public DateTime LastPositionChangeUtc { get; set; } = DateTime.MinValue;
 

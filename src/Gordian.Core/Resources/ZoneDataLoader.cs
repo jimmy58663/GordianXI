@@ -7,6 +7,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.World.Collision;
 
 namespace Gordian.Core.Resources
 {
@@ -160,6 +161,85 @@ namespace Gordian.Core.Resources
             }
 
             return ModelBaseHi + (zoneId - 256);
+        }
+
+        /// <summary>
+        /// Builds the zone's moving platforms (elevators) from the world-space parts of each <c>@</c> BlockID object: the
+        /// footprint is the parts' XZ bounds and the authored floor is the first part's placement height.
+        /// </summary>
+        public static List<MovingPlatform> CreateMovingPlatforms(IReadOnlyList<ZonePlacement> placements,
+                                                                IReadOnlyDictionary<string, List<MeshGroup>> partsById,
+                                                                ZoneCollisionMesh collision)
+        {
+            var platforms = new List<MovingPlatform>();
+            foreach (var (id, parts) in partsById)
+            {
+                if (parts.Count == 0) continue;
+                float? authored = null;
+                foreach (var placement in placements)
+                {
+                    if (placement.BlockId == id) { authored = placement.Position.Y; break; }
+                }
+                if (authored == null) continue;
+
+                // Mesh bounds are in display space (-X, -Y, Z); the footprint is internal (X, Z).
+                var min = new Vector2(float.MaxValue);
+                var max = new Vector2(float.MinValue);
+                foreach (var part in parts)
+                {
+                    min = Vector2.Min(min, new Vector2(-part.MaxBounds.X, part.MinBounds.Z));
+                    max = Vector2.Max(max, new Vector2(-part.MinBounds.X, part.MaxBounds.Z));
+                }
+
+                var platform = MovingPlatforms.Create(id, min, max, authored.Value, collision);
+                if (platform != null) platforms.Add(platform);
+            }
+            return platforms;
+        }
+
+        /// <summary>
+        /// Builds the moving platforms for a zone loaded for collision only: decrypts the zone's mesh sections (only when
+        /// the zone has <c>@</c> objects) to find the parts' footprints.
+        /// </summary>
+        public static List<MovingPlatform> CreateMovingPlatforms(ReadOnlySpan<byte> datBytes, ReadOnlySpan<byte> table1,
+                                                                ReadOnlySpan<byte> table2, IReadOnlyList<ZonePlacement> placements,
+                                                                ZoneCollisionMesh collision)
+        {
+            var wanted = new List<ZonePlacement>();
+            foreach (var placement in placements) if (placement.IsMovingPlatformPart) wanted.Add(placement);
+            if (wanted.Count == 0) return new List<MovingPlatform>();
+
+            var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var realNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
+            {
+                if (header.TypeCode != DatSectionType.ZoneMesh || header.DataOffset + header.DataSizeBytes > datBytes.Length) continue;
+                byte[] payload = datBytes.Slice(header.DataOffset, header.DataSizeBytes).ToArray();
+                if (!table1.IsEmpty && !table2.IsEmpty && payload.Length >= 16) ZoneMeshDecoder.DecryptZoneMesh(payload, table1, table2);
+                var submeshes = ZoneMeshDecoder.ParseZoneMesh(payload);
+                if (submeshes.Count == 0) continue;
+                string name = submeshes[0].Name;
+                templates.TryAdd(name, submeshes);
+                realNames.Add(name);
+                int space = name.LastIndexOf(' ');
+                if (space >= 0 && space < name.Length - 1)
+                {
+                    string tail = name.Substring(space + 1).Trim();
+                    templates.TryAdd(tail, submeshes);
+                    realNames.Add(tail);
+                }
+            }
+
+            var partsById = new Dictionary<string, List<MeshGroup>>(StringComparer.Ordinal);
+            foreach (var placement in wanted)
+            {
+                var template = ZoneDefDecoder.ResolveTemplate(placement.MeshId, templates, realNames);
+                if (template == null) continue;
+                var transform = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+                if (!partsById.TryGetValue(placement.BlockId, out var parts)) partsById[placement.BlockId] = parts = new List<MeshGroup>();
+                foreach (var submesh in template) parts.Add(ZoneDefDecoder.InstantiateSubmesh(submesh, transform, placement.MeshId));
+            }
+            return CreateMovingPlatforms(placements, partsById, collision);
         }
 
         /// <summary>
@@ -750,9 +830,26 @@ namespace Gordian.Core.Resources
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
                         instantiated.PointLightSlots = placement.PointLightSlots ?? Array.Empty<int>();
-                        zone.MeshGroups.Add(instantiated);
+                        if (placement.IsMovingPlatformPart)
+                        {
+                            // Elevator parts move with their platform; the renderer draws them at its live height.
+                            if (!zone.MovingPlatformGroups.TryGetValue(placement.BlockId, out var parts))
+                            {
+                                zone.MovingPlatformGroups[placement.BlockId] = parts = new List<MeshGroup>();
+                            }
+                            parts.Add(instantiated);
+                        }
+                        else
+                        {
+                            zone.MeshGroups.Add(instantiated);
+                        }
                         placedCount++;
                     }
+                }
+
+                if (zone.Collision != null)
+                {
+                    zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision);
                 }
             }
 

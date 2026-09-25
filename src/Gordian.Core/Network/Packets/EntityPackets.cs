@@ -521,6 +521,35 @@ namespace Gordian.Core.Network.Packets
         public byte AnimationSub => _payload.Length >= 0x27 ? _payload[0x26] : (byte)0;
 
         /// <summary>
+        /// For an elevator or ship (look size 3 / 4): the FourCC of the zone object it moves (packet 0x34), the Earth
+        /// second since the Vana'diel epoch its current leg started (0x38) and, for an elevator, the leg's travel time in
+        /// seconds (0x3C). False when the packet carries no transport data.
+        /// Layout referenced from LandSandBoat (https://github.com/LandSandBoat/server) packets/entity_update.cpp
+        /// getTransportNPCName.
+        /// </summary>
+        public bool TryGetTransport(out string objectId, out uint legStartSeconds, out byte travelSeconds)
+        {
+            objectId = string.Empty;
+            legStartSeconds = 0;
+            travelSeconds = 0;
+            if (SubKind is not (EntitySubKind.Elevator or EntitySubKind.Ship) || _payload.Length < 0x39) return false;
+
+            var id = _payload.Slice(0x30, 4);
+            int length = id.IndexOf((byte)0);
+            if (length < 0) length = 4;
+            if (length == 0) return false;
+            foreach (byte b in id.Slice(0, length))
+            {
+                if (b < 0x20 || b > 0x7E) return false;
+            }
+
+            objectId = System.Text.Encoding.ASCII.GetString(id.Slice(0, length));
+            legStartSeconds = BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x34, 4));
+            travelSeconds = SubKind == EntitySubKind.Elevator ? _payload[0x38] : (byte)0;
+            return true;
+        }
+
+        /// <summary>
         /// Indicates if the NPC/entity uses the equipped appearance model (look_t, 20 bytes).
         /// MODEL_EQUIPPED (size=1) and MODEL_CHOCOBO (size=7) both use the full equipped look_t.
         /// </summary>

@@ -180,6 +180,7 @@ namespace Gordian.Core.Resources.Graphics
                     continue;
                 }
 
+                string blockId = b + 0x38 <= payload.Length ? ReadCString(payload.Slice(b + 0x34, 4)) : string.Empty;
                 string environmentId = string.Empty;
                 int[] lightSlots = Array.Empty<int>();
                 if (stride >= StrideModern && b + 0x64 <= payload.Length)
@@ -195,7 +196,8 @@ namespace Gordian.Core.Resources.Graphics
                     new Vector3(sx, sy, sz),
                     drawDist,
                     environmentId,
-                    lightSlots
+                    lightSlots,
+                    blockId
                 ));
             }
 

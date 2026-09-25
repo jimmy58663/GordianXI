@@ -236,7 +236,8 @@ namespace Gordian.App.Graphics
             uint localPlayerServerId = 0,
             bool isLocalPlayerEngaged = false,
             Vector3? localPlayerDisplayPos = null,
-            ZoneCollisionMesh? collision = null)
+            ZoneCollisionMesh? collision = null,
+            PlatformHeight[]? platforms = null)
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -275,7 +276,7 @@ namespace Gordian.App.Graphics
                 // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
                 Vector3 pos = (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
-                    : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision), entity.Position.Z);
+                    : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);
                 Vector3 maxBox = pos + new Vector3(1.0f, 2.2f, 1.0f);
 

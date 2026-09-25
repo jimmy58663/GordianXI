@@ -10,6 +10,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
+using Gordian.Core.World.Collision;
 using Veldrid;
 using Veldrid.SPIRV;
 
@@ -29,6 +30,16 @@ namespace Gordian.App.Graphics
         private ResourceLayout _sceneLayout = null!;
         private ResourceLayout _textureLayout = null!;
         private ResourceSet _sceneResourceSet = null!;
+
+        // Moving platform (elevator) parts, drawn at their platform's live height.
+        private readonly List<GpuSubmesh> _platformSubmeshes = new();
+        private readonly Dictionary<string, ZoneSceneUniform> _subEnvironmentUniforms = new(StringComparer.OrdinalIgnoreCase);
+        private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
+
+        /// <summary>
+        /// The displayed session's world, whose elevator entities drive the zone's moving platforms.
+        /// </summary>
+        public WorldState? World { get; set; }
 
         // Sub-environment lighting (indoor areas such as Metalworks' ev01/ev02): one scene uniform and set per id.
         private readonly Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
@@ -192,6 +203,11 @@ namespace Gordian.App.Graphics
             /// The placement's sub-environment (e.g. <c>ev01</c>); empty for the zone's outdoor environment.
             /// </summary>
             public string EnvironmentId { get; init; } = string.Empty;
+
+            /// <summary>
+            /// The moving platform (elevator) this part belongs to; empty for static scenery.
+            /// </summary>
+            public string PlatformId { get; init; } = string.Empty;
 
             public void Dispose()
             {
@@ -563,9 +579,16 @@ namespace Gordian.App.Graphics
             var factory = _gd.ResourceFactory;
             int vertCount = 0;
 
-            for (int i = 0; i < zone.MeshGroups.Count; i++)
+            var allGroups = new List<(MeshGroup Group, string PlatformId)>(zone.MeshGroups.Count);
+            foreach (var group in zone.MeshGroups) allGroups.Add((group, string.Empty));
+            foreach (var (platformId, parts) in zone.MovingPlatformGroups)
             {
-                var group = zone.MeshGroups[i];
+                foreach (var part in parts) allGroups.Add((part, platformId));
+            }
+
+            for (int i = 0; i < allGroups.Count; i++)
+            {
+                var (group, platformId) = allGroups[i];
                 if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
 
                 var vb = factory.CreateBuffer(new BufferDescription(
@@ -593,8 +616,9 @@ namespace Gordian.App.Graphics
                     lightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, lightRefs));
                 }
 
-                _zoneSubmeshes.Add(new GpuSubmesh
+                (platformId.Length > 0 ? _platformSubmeshes : _zoneSubmeshes).Add(new GpuSubmesh
                 {
+                    PlatformId = platformId,
                     LightRefsBuffer = lightRefs,
                     LightSet = lightSet,
                     Name = group.Name,
@@ -789,6 +813,9 @@ namespace Gordian.App.Graphics
             // Update Scene Uniform Buffer within command stream
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
             UpdateSubEnvironmentScenes(sceneUniform, environment);
+            _platformHeights = World != null
+                ? MovingPlatforms.Evaluate(LoadedZone?.Collision, World, VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
+                : Array.Empty<PlatformHeight>();
 
             // Clear to atmospheric clear/horizon color for authentic FFXI horizon blending
             _commandList.ClearColorTarget(0, new RgbaFloat(
@@ -934,6 +961,8 @@ namespace Gordian.App.Graphics
                 draws++;
             }
 
+            DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
+
             // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
             // render the adaptive ground plane centered under the player so character stands on solid ground.
             if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null)
@@ -967,7 +996,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;
@@ -1807,6 +1836,50 @@ namespace Gordian.App.Graphics
                     uniform.MoonColor = new Vector4(lighting.MoonColor, 1.0f);
                 }
                 _commandList.UpdateBuffer(scene.Buffer, 0, ref uniform);
+                _subEnvironmentUniforms[id] = uniform;
+            }
+        }
+
+        /// <summary>
+        /// Draws the moving platforms' parts offset by each platform's live height (a per-draw world translation in the
+        /// scene uniform of the part's environment, restored afterwards).
+        /// </summary>
+        private void DrawMovingPlatforms(ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+        {
+            if (_platformSubmeshes.Count == 0) return;
+            foreach (var submesh in _platformSubmeshes)
+            {
+                float offset = 0.0f;
+                foreach (var platform in _platformHeights)
+                {
+                    if (platform.Platform.Id == submesh.PlatformId) { offset = platform.Offset; break; }
+                }
+
+                // Internal +Y is down; display space is (-X, -Y, Z).
+                var shift = new Vector3(0.0f, -offset, 0.0f);
+                if (!frustum.IntersectsBox(submesh.MinBounds + shift, submesh.MaxBounds + shift))
+                {
+                    culled++;
+                    continue;
+                }
+
+                bool sub = submesh.EnvironmentId.Length > 0 && _subEnvironmentScenes.TryGetValue(submesh.EnvironmentId, out _);
+                var buffer = sub ? _subEnvironmentScenes[submesh.EnvironmentId].Buffer : _sceneUniformBuffer;
+                var baseUniform = sub && _subEnvironmentUniforms.TryGetValue(submesh.EnvironmentId, out var subUniform) ? subUniform : sceneUniform;
+                var moved = baseUniform;
+                moved.World = Matrix4x4.CreateTranslation(shift);
+                _commandList.UpdateBuffer(buffer, 0, ref moved);
+
+                _commandList.SetPipeline(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline);
+                _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
+                _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures));
+                _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
+                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.UpdateBuffer(buffer, 0, ref baseUniform);
+                draws++;
+                visible++;
             }
         }
 
@@ -1822,6 +1895,8 @@ namespace Gordian.App.Graphics
                 _zoneSubmeshes[i].Dispose();
             }
             _zoneSubmeshes.Clear();
+            foreach (var submesh in _platformSubmeshes) submesh.Dispose();
+            _platformSubmeshes.Clear();
             _textureCache?.Clear();
             TotalVertices = 0;
         }

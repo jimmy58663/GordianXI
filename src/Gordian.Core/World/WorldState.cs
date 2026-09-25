@@ -57,6 +57,12 @@ namespace Gordian.Core.World
             set => _collision = value;
         }
 
+        /// <summary>
+        /// Learned gap (seconds) between a transport leg's stamp and when its update arrives on this session's clock
+        /// (see <see cref="Collision.MovingPlatforms.RefineClockSkew"/>).
+        /// </summary>
+        public double TransportClockSkewSeconds { get; set; }
+
         public ushort CurrentZoneId
         {
             get

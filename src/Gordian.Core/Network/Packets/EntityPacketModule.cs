@@ -154,11 +154,21 @@ namespace Gordian.Core.Network.Packets
                             {
                                 GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, remaining={Vector3.Distance(newPos, player.Position):F2}");
                             }
-                            if (dist > 0.05f)
+                            float horizontal = Vector2.Distance(new Vector2(newPos.X, newPos.Z),
+                                                                new Vector2(player.TargetPosition.X, player.TargetPosition.Z));
+                            if (horizontal < 0.05f && player.Speed == 0)
                             {
-                                player.LastPositionChangeUtc = now;
+                                // Only the height changed while standing (e.g. riding a lift): no step to walk.
+                                player.Warp(newPos, pc.Direction, WorldEntity.ClockSeconds);
                             }
-                            AddMotionSample(player, newPos, isMoving: false, movTime, pc.Direction);
+                            else
+                            {
+                                if (dist > 0.05f)
+                                {
+                                    player.LastPositionChangeUtc = now;
+                                }
+                                AddMotionSample(player, newPos, isMoving: false, movTime, pc.Direction);
+                            }
                         }
                     }
                     else
@@ -372,6 +382,23 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.ClaimStatus) != 0)
             {
                 entity.ClaimServerId = npcPacket.ClaimId;
+            }
+
+            if (npcPacket.TryGetTransport(out string transportId, out uint legStart, out byte travel))
+            {
+                double arrival = VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
+                if (!isNew && legStart != entity.TransportStartSeconds)
+                {
+                    // A new leg is sent as it starts: play it from here (see MovingPlatforms.LegStart).
+                    entity.TransportObservedSeconds = arrival;
+                    _world.TransportClockSkewSeconds = global::Gordian.Core.World.Collision.MovingPlatforms.RefineClockSkew(_world.TransportClockSkewSeconds, arrival, legStart);
+                }
+                GordianLog.Debug("Elevator", $"[0x00E 0x{npcPacket.UniqueNo:X8}] id={transportId} flags={npcPacket.UpdateFlags} anim={entity.AnimationState} " +
+                    $"stamp={legStart} (was {entity.TransportStartSeconds}) travel={travel} arrival={arrival:F3} (arrival-stamp={arrival - legStart:F3}) " +
+                    $"observed={entity.TransportObservedSeconds:F3} isNew={isNew} pos=({entity.Position.X:F2},{entity.Position.Y:F2},{entity.Position.Z:F2})");
+                entity.TransportId = transportId;
+                entity.TransportStartSeconds = legStart;
+                entity.TransportTravelSeconds = travel;
             }
 
             if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))

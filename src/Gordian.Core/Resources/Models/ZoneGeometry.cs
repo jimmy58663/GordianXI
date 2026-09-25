@@ -53,6 +53,8 @@ namespace Gordian.Core.Resources.Models
     /// </summary>
     /// <param name="EnvironmentId">Sub-environment link at record +0x4C (e.g. <c>ev01</c>); empty for the main environment.</param>
     /// <param name="PointLightSlots">Zero-based light-table indices from the four 1-based references at record +0x54.</param>
+    /// <param name="BlockId">Record +0x34 FourCC: empty for a static object; one starting <c>_</c>/<c>@</c> marks a part of
+    /// an animated multi-part object (a door or an elevator) moved by the client.</param>
     public readonly record struct ZonePlacement(
         string MeshId,
         Vector3 Position,
@@ -60,8 +62,15 @@ namespace Gordian.Core.Resources.Models
         Vector3 Scale,
         float DrawDistance,
         string EnvironmentId = "",
-        int[]? PointLightSlots = null
-    );
+        int[]? PointLightSlots = null,
+        string BlockId = ""
+    )
+    {
+        /// <summary>
+        /// True for a part of an elevator or other moving platform (BlockID starting <c>@</c>).
+        /// </summary>
+        public bool IsMovingPlatformPart => BlockId.Length > 0 && BlockId[0] == '@';
+    }
 
     /// <summary>
     /// Represents a complete zone terrain model composed of multiple submeshes.
@@ -84,6 +93,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public List<Graphics.WeatherSkyLayer> EffectLayers { get; } = new();
         public Graphics.ZoneEnvironmentData? EnvironmentData { get; set; }
+
+        /// <summary>
+        /// Mesh groups of moving platforms (elevators), keyed by their BlockID FourCC, in world space at their authored
+        /// pose. They are drawn offset by the platform's live height instead of with the static scenery.
+        /// </summary>
+        public Dictionary<string, List<MeshGroup>> MovingPlatformGroups { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none.

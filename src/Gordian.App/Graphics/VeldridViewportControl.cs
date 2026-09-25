@@ -555,9 +555,23 @@ namespace Gordian.App.Graphics
                 }
                 if (hasPlayerPos)
                 {
+                    // Riding a moving platform: stand on its live height this frame. The tick-smoothed height trails a
+                    // moving lift by a tick, which sinks the feet into it going up and floats them going down.
+                    string ridingId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
+                    float? rideHeight = null;
+                    if (ridingId.Length > 0 && _activeSession != null)
+                    {
+                        foreach (var platform in Gordian.Core.World.Collision.MovingPlatforms.Evaluate(
+                                     _activeSession.World.Collision, _activeSession.World, VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow)))
+                        {
+                            if (platform.Platform.Id == ridingId) rideHeight = platform.Height;
+                        }
+                    }
+
                     long tick = _activeSession?.Locomotion?.LastUpdateTimestamp ?? 0;
                     long frameTimestamp = Stopwatch.GetTimestamp();
                     playerPos = _playerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                    if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
                 }
 
                 Vector3? displayPlayerPos = hasPlayerPos
@@ -582,6 +596,7 @@ namespace Gordian.App.Graphics
 
                 lock (_renderLock)
                 {
+                    if (_renderer != null) _renderer.World = _activeSession?.World ?? WorldState;
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {
                         try

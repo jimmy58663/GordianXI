@@ -95,6 +95,12 @@ namespace Gordian.Core.Input
         private float _tickSeconds;
         private bool _airborne;
         private float _fallSpeed;
+        private PlatformHeight[] _platforms = Array.Empty<PlatformHeight>();
+
+        /// <summary>
+        /// Test hook: the Earth seconds since the Vana'diel epoch used to place moving platforms (defaults to now).
+        /// </summary>
+        internal Func<double>? PlatformClock { get; set; }
 
         /// <summary>
         /// Downward acceleration of a falling player, in yalms per second squared. Fitted to a Windower capture of three
@@ -503,6 +509,12 @@ namespace Gordian.Core.Input
                 return;
             }
 
+            var previousPlatforms = _platforms;
+            double platformClock = PlatformClock?.Invoke() ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
+            _platforms = MovingPlatforms.Evaluate(_world.Collision, _world, platformClock);
+            LogPlatformJumps(previousPlatforms, platformClock);
+            RideMovingPlatform(localEnt);
+
             // A fall, once started by stepping off a height, continues whether or not the player keeps moving.
             if (_airborne) FallStep(localEnt, dt);
 
@@ -797,10 +809,13 @@ namespace Gordian.Core.Input
             {
                 target = collision.ResolveWalls(start, target, BodyRadius, StepUpHeight, BodyHeight);
 
+                // The shaft doors keep the player out of an elevator shaft unless its platform is at the player's level.
+                if (MovingPlatforms.EntersEmptyShaft(_platforms, start, target, StepUpHeight)) target = start;
+
                 // Never step off the collision mesh onto nothing (a gap, a cliff top out of reach): stay put instead.
                 if ((layers & CollisionLayers.Ground) != 0 &&
-                    collision.TryGetGround(start, StepUpHeight, MaxFallDistance, out _) &&
-                    !collision.TryGetGround(target, StepUpHeight, MaxFallDistance, out _))
+                    TryFindGround(collision, start, 0.0f, out _) &&
+                    !TryFindGround(collision, target, 0.0f, out _))
                 {
                     target = start;
                 }
@@ -823,7 +838,7 @@ namespace Gordian.Core.Input
             var collision = _world.Collision;
             if (collision == null) return;
             var position = localEnt.Position;
-            if (!collision.TryGetSteppedGround(position, StepUpHeight, MaxFallDistance, FootRadius, out var ground)) return;
+            if (!TryFindGround(collision, position, FootRadius, out var ground)) return;
 
             // Stairs, slopes and small ledges settle at once; anything deeper is a fall (internal +Y is down).
             if (ground.Height - position.Y > FallThreshold)
@@ -849,7 +864,7 @@ namespace Gordian.Core.Input
             }
 
             var position = localEnt.Position;
-            if (!collision.TryGetSteppedGround(position, StepUpHeight, MaxFallDistance, FootRadius, out var ground))
+            if (!TryFindGround(collision, position, FootRadius, out var ground))
             {
                 _airborne = false; // nothing below at all: hold the height rather than fall forever
                 return;
@@ -864,6 +879,75 @@ namespace Gordian.Core.Input
                 _fallSpeed = 0.0f;
             }
             localEnt.Position = new Vector3(position.X, height, position.Z);
+        }
+
+        /// <summary>
+        /// The floor under <paramref name="feet"/>: the zone's static collision (rounded over tread edges when
+        /// <paramref name="footRadius"/> is positive), or a moving platform's floor above it.
+        /// </summary>
+        private bool TryFindGround(ZoneCollisionMesh collision, Vector3 feet, float footRadius, out GroundHit ground)
+        {
+            bool found = footRadius > 0.0f
+                ? collision.TryGetSteppedGround(feet, StepUpHeight, MaxFallDistance, footRadius, out ground)
+                : collision.TryGetGround(feet, StepUpHeight, MaxFallDistance, out ground);
+            return MovingPlatforms.TryOverride(_platforms, feet, StepUpHeight, MaxFallDistance, found, ref ground) || found;
+        }
+
+        /// <summary>
+        /// Carries a player standing on a moving platform with it, even while it stands still: the legacy client moves
+        /// riders itself, and the server keeps whatever position the client reports.
+        /// </summary>
+        private void RideMovingPlatform(WorldEntity localEnt)
+        {
+            if (_platforms.Length == 0 || _airborne || (EffectiveCollision & CollisionLayers.Ground) == 0) return;
+            var feet = localEnt.Position;
+            string riding = string.Empty;
+            if (MovingPlatforms.TryGetPlatformUnder(_platforms, feet, StepUpHeight, StepUpHeight, out var platform))
+            {
+                localEnt.Position = feet with { Y = platform.Height };
+                riding = platform.Platform.Id;
+            }
+            if (riding != _ridingPlatformId)
+            {
+                string nearby = string.Empty;
+                foreach (var candidate in _platforms)
+                {
+                    if (candidate.Platform.Contains(feet.X, feet.Z)) nearby = $" (over {candidate.Platform.Id} at {candidate.Height:F3})";
+                }
+                Gordian.Core.Diagnostics.GordianLog.Info("Elevator", riding.Length > 0
+                    ? $"Riding {riding}: feet {feet.Y:F3} -> {platform.Height:F3}"
+                    : $"Stopped riding {_ridingPlatformId}: feet ({feet.X:F2},{feet.Y:F3},{feet.Z:F2}){nearby}");
+                _ridingPlatformId = riding;
+            }
+        }
+
+        private string _ridingPlatformId = string.Empty;
+
+        /// <summary>
+        /// The moving platform the player is riding (empty when none), so a renderer can draw the player on the
+        /// platform's live height instead of the last tick's.
+        /// </summary>
+        public string RidingPlatformId => _ridingPlatformId;
+
+        /// <summary>
+        /// Diagnostics: logs a platform that moved further in one tick than any leg could (an elevator glitch).
+        /// </summary>
+        private void LogPlatformJumps(PlatformHeight[] previous, double clock)
+        {
+            if (previous.Length != _platforms.Length) return;
+            for (int i = 0; i < _platforms.Length; i++)
+            {
+                float moved = MathF.Abs(_platforms[i].Height - previous[i].Height);
+                if (moved <= 0.3f) continue;
+                string detail = "no elevator";
+                foreach (var entity in _world.Entities)
+                {
+                    if (entity.Type != EntityType.Elevator) continue;
+                    if (!ReferenceEquals(MovingPlatforms.PlatformOf(_world.Collision!.MovingPlatforms, entity), _platforms[i].Platform)) continue;
+                    detail = $"elevator 0x{entity.ServerId:X8} anim={entity.AnimationState} stamp={entity.TransportStartSeconds} observed={entity.TransportObservedSeconds:F3} legStart={MovingPlatforms.LegStart(entity, _world.TransportClockSkewSeconds):F3}";
+                }
+                Gordian.Core.Diagnostics.GordianLog.Info("Elevator", $"Platform {_platforms[i].Platform.Id} jumped {previous[i].Height:F3} -> {_platforms[i].Height:F3} at clock {clock:F3}; {detail}");
+            }
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)

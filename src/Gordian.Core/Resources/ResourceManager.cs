@@ -415,8 +415,13 @@ namespace Gordian.Core.Resources
                     var header = headers[i];
                     if (header.TypeCode != DatSectionType.ZoneDef || header.DataOffset + header.DataSizeBytes > datBytes.Length) continue;
                     byte[] payload = datBytes.AsSpan(header.DataOffset, header.DataSizeBytes).ToArray();
-                    ZoneDefDecoder.DecryptZoneObjects(payload, _keyTable1);
+                    int nodeCount = ZoneDefDecoder.DecryptZoneObjects(payload, _keyTable1);
                     collision = ZoneCollisionDecoder.Decode(payload);
+                    if (collision != null)
+                    {
+                        var placements = ZoneDefDecoder.ParseZonePlacements(payload, nodeCount);
+                        collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision);
+                    }
                     break;
                 }
             }

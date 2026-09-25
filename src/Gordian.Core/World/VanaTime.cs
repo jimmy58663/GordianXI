@@ -48,6 +48,16 @@ namespace Gordian.Core.World
         public static long ServerClockOffsetSeconds => _serverClockOffsetSeconds;
 
         /// <summary>
+        /// Earth seconds (fractional) since the Vana'diel epoch on the server's clock: the timebase of transport legs
+        /// (elevators, ships) in entity updates.
+        /// </summary>
+        public static double GetEarthSecondsSinceEpoch(DateTime utcTime)
+        {
+            double unixSeconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds() / 1000.0;
+            return (unixSeconds - VanadielEpochUnixSeconds) + _serverClockOffsetSeconds;
+        }
+
+        /// <summary>
         /// Resets the server clock offset to zero (used for testing and disconnection).
         /// </summary>
         public static void ResetClockOffset()
