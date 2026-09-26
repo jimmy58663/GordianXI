@@ -79,6 +79,21 @@ namespace Gordian.Core.Resources.Ui
             return library;
         }
 
+        /// <summary>
+        /// Builds a library holding only the given menu layouts and element groups (no textures): for tests and for
+        /// hosts that drive navigation without the DATs.
+        /// </summary>
+        public static UiResourceLibrary FromDefinitions(IEnumerable<UiMenuDefinition> menus, IEnumerable<UiElementGroup>? groups = null)
+        {
+            var library = new UiResourceLibrary { WindowSkin = 1 };
+            foreach (var menu in menus) library._menus.TryAdd(menu.Name, menu);
+            if (groups != null)
+            {
+                foreach (var group in groups) library._groups.TryAdd(group.Name, group);
+            }
+            return library;
+        }
+
         private void AddDat(byte[] dat)
         {
             var memory = new ReadOnlyMemory<byte>(dat);

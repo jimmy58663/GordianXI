@@ -135,18 +135,60 @@ namespace Gordian.Core.Input
         /// Resolves an input chord to its mapped action.
         /// Returns the first matching action if bound to multiple.
         /// </summary>
-        public bool TryGetAction(InputChord chord, out InputAction action)
+        public bool TryGetAction(InputChord chord, out InputAction action) => TryGetAction(chord, false, out action);
+
+        /// <summary>
+        /// Resolves an input chord to its mapped action for a context. The menu navigation actions
+        /// (<see cref="InputAction.MenuUp"/>..<see cref="InputAction.MenuRight"/>) share their keys with the camera
+        /// and party-targeting bindings, as in the retail client: while a stock menu is open
+        /// (<paramref name="menuContext"/>) they win, otherwise they are skipped.
+        /// </summary>
+        public bool TryGetAction(InputChord chord, bool menuContext, out InputAction action)
         {
+            InputAction fallback = InputAction.None;
             foreach (var kvp in Bindings)
             {
-                if (kvp.Value.Contains(chord))
+                if (!kvp.Value.Contains(chord)) continue;
+                bool isMenu = IsMenuNavigationAction(kvp.Key);
+                if (isMenu == menuContext)
                 {
                     action = kvp.Key;
                     return true;
                 }
+                if (!isMenu && fallback == InputAction.None) fallback = kvp.Key;
             }
-            action = InputAction.None;
-            return false;
+            action = fallback;
+            return fallback != InputAction.None;
+        }
+
+        /// <summary>True for the actions that move the cursor of an open stock menu.</summary>
+        public static bool IsMenuNavigationAction(InputAction action) =>
+            action is InputAction.MenuUp or InputAction.MenuDown or InputAction.MenuLeft or InputAction.MenuRight;
+
+        /// <summary>
+        /// Binds the retail menu navigation keys (arrows, the numeric keypad's 8/2/4/6 and the gamepad d-pad) when
+        /// the profile has none, so profiles saved before menus existed still navigate them.
+        /// </summary>
+        public void EnsureMenuNavigationBindings()
+        {
+            if (GetChords(InputAction.MenuUp).Count > 0 || GetChords(InputAction.MenuDown).Count > 0) return;
+            BindMenuNavigationDefaults(this);
+        }
+
+        private static void BindMenuNavigationDefaults(InputProfile p)
+        {
+            p.Bind(InputAction.MenuUp, new InputChord(GordianKey.Up));
+            p.Bind(InputAction.MenuDown, new InputChord(GordianKey.Down));
+            p.Bind(InputAction.MenuLeft, new InputChord(GordianKey.Left));
+            p.Bind(InputAction.MenuRight, new InputChord(GordianKey.Right));
+            p.Bind(InputAction.MenuUp, new InputChord(GordianKey.NumPad8));
+            p.Bind(InputAction.MenuDown, new InputChord(GordianKey.NumPad2));
+            p.Bind(InputAction.MenuLeft, new InputChord(GordianKey.NumPad4));
+            p.Bind(InputAction.MenuRight, new InputChord(GordianKey.NumPad6));
+            p.Bind(InputAction.MenuUp, new InputChord(GamepadButton.DPadUp));
+            p.Bind(InputAction.MenuDown, new InputChord(GamepadButton.DPadDown));
+            p.Bind(InputAction.MenuLeft, new InputChord(GamepadButton.DPadLeft));
+            p.Bind(InputAction.MenuRight, new InputChord(GamepadButton.DPadRight));
         }
 
         /// <summary>
@@ -277,6 +319,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.OemMinus));
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.M));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
+            BindMenuNavigationDefaults(p);
 
             // Macro Palettes
             BindDefaultMacros(p);
@@ -335,6 +378,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.NumPadDecimal));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.Space));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
+            BindMenuNavigationDefaults(p);
 
             // Macro Palettes
             BindDefaultMacros(p);
@@ -422,8 +466,10 @@ namespace Gordian.Core.Input
         public static InputProfile FromJson(string json)
         {
             ArgumentNullException.ThrowIfNull(json);
-            return JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
+            var profile = JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
+            profile.EnsureMenuNavigationBindings();
+            return profile;
         }
 
         public void SaveToFile(string filePath)

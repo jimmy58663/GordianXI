@@ -202,6 +202,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.Party.PartyDisbanded -= OnPartyDisbanded;
                 _hookedSession.Combat.ActionExecuted -= OnCombatActionExecuted;
                 _hookedSession.Combat.BattleMessageReceived -= OnBattleMessageReceived;
+                _hookedSession.ActionService.Menus.NoticePosted -= OnMenuNoticePosted;
                 _hookedSession = null;
             }
 
@@ -218,6 +219,7 @@ namespace Gordian.App.ViewModels
                 session.Party.PartyDisbanded += OnPartyDisbanded;
                 session.Combat.ActionExecuted += OnCombatActionExecuted;
                 session.Combat.BattleMessageReceived += OnBattleMessageReceived;
+                session.ActionService.Menus.NoticePosted += OnMenuNoticePosted;
                 _hookedSession = session;
                 StatusText = $"Connected to chat stream for {session.CharacterName}";
             }
@@ -281,6 +283,12 @@ namespace Gordian.App.ViewModels
                 var item = ChatItemViewModel.FromChatMessage(msg);
                 AddMessageItem(item);
             });
+        }
+
+        /// <summary>Client messages from the stock menus (entries without a window yet, the current time).</summary>
+        private void OnMenuNoticePosted(string message)
+        {
+            DispatchToUi(() => AddMessageItem(ChatItemViewModel.CreateLocalNotice(message)));
         }
 
         private void OnSystemMessageReceived(SystemMessage msg)
@@ -750,6 +758,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.Party.PartyDisbanded -= OnPartyDisbanded;
                 _hookedSession.Combat.ActionExecuted -= OnCombatActionExecuted;
                 _hookedSession.Combat.BattleMessageReceived -= OnBattleMessageReceived;
+                _hookedSession.ActionService.Menus.NoticePosted -= OnMenuNoticePosted;
                 _hookedSession = null;
             }
         }

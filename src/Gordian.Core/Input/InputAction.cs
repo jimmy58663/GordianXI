@@ -49,6 +49,12 @@ namespace Gordian.Core.Input
         OpenMenu,
         OpenChat,
 
+        // Menu navigation (only resolved while a stock menu is open; the same keys drive the camera otherwise)
+        MenuUp = 60,
+        MenuDown,
+        MenuLeft,
+        MenuRight,
+
         // Hotbar / Macro Palettes (Palette 1: Ctrl 1-10, Palette 2: Alt 1-10)
         MacroCtrl1 = 70,
         MacroCtrl2,

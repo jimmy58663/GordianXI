@@ -137,6 +137,184 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the open main menu (cursor on the third entry) and a "Log out?" prompt at 1:1 through the menu
+        /// controller and <see cref="StockUiMenuWindow"/>; writes gpu_menu.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersOpenMainMenuWithCursor()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiMenuTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var menus = new StockUiMenuController { Library = library };
+                Assert.True(menus.OpenMainMenu());
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                var prompt = menus.PromptYesNoAsync("Log out?", defaultYes: false);
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var main = menus.OpenMenus[0];
+                var placement = layout.Resolve(StockUiWindowIds.MainMenu, main.Menu.Frame, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, main, placement, 0);
+                var promptMenu = menus.OpenMenus[1];
+                var promptFrame = promptMenu.Menu.Frame;
+                var promptPlacement = StockUiLayout.Place(promptFrame.Anchor, promptFrame.X, promptFrame.Y, promptFrame.Width, promptFrame.Height, 1, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, promptMenu, promptPlacement, 0);
+                renderer.End(framebuffer, width, height);
+                Assert.True(renderer.LastQuadCount > 60, $"{renderer.LastQuadCount} quads");
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_menu.png"), pixels, (int)width, (int)height);
+                }
+
+                // The cursor (gold arrow) sits left of the third entry, in the frame's margin: the row through its
+                // middle holds a pixel redder than the green clear colour and than the navy window background.
+                var selected = main.SelectedButton!;
+                Assert.Equal(3, selected.ButtonId);
+                int rowY = (int)(placement.Y + selected.Y + 8);
+                bool gold = false;
+                for (int x = (int)placement.X - 16; x < (int)placement.X + 16 && !gold; x++)
+                {
+                    var p = Pixel(pixels, width, x, rowY);
+                    gold = p.R > p.G + 20 && p.R > p.B + 20;
+                }
+                Assert.True(gold, "no cursor pixel beside the selected entry");
+
+                // The selected label's glyphs are tinted orange (retail FFC05C-ish): brighter red than blue in its text.
+                bool orange = false;
+                for (int x = (int)placement.X + selected.X + 6; x < (int)placement.X + selected.X + 40 && !orange; x++)
+                {
+                    var p = Pixel(pixels, width, x, rowY);
+                    orange = p.R > 200 && p.R > p.B + 80;
+                }
+                Assert.True(orange, "selected label is not tinted");
+                menus.CloseAll();
+                Assert.False(prompt.Result);
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
+        /// Renders the Windows config flow (Config -> Windows -> Shared) at 1:1: the "Shared" list replaces the config
+        /// list in the top-right corner while the Window Settings page opens at the left, with skin 3's digit
+        /// highlighted under the cursor and the red bar under the skin in effect (1). Writes gpu_settings.png when
+        /// GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersWindowSettingsPage()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiSettingsTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var menus = new StockUiMenuController { Library = library, CurrentWindowSkin = () => 1 };
+                Assert.True(menus.Open(StockUiMenuEntries.ConfigMenu));
+                Assert.True(menus.Open(StockUiMenuEntries.WindowsMenu));
+                Assert.True(menus.Open(StockUiMenuEntries.WindowSettingsPage));
+                for (int i = 0; i < 2; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown); // to the Window Type row
+                for (int i = 0; i < 2; i++) menus.Move(Gordian.Core.Input.InputAction.MenuRight); // digit 3
+                Assert.Equal(StockUiMenuEntries.WindowSkinFirstButton + 2, menus.Top!.SelectedButtonId);
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var open = menus.OpenMenus;
+                for (int i = 0; i < open.Count; i++)
+                {
+                    bool covered = false;
+                    for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].OverlapsAuthored(open[i]);
+                    if (covered) continue;
+                    var frame = open[i].Menu.Frame;
+                    var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, width, height);
+                    StockUiMenuWindow.Draw(renderer, library, font, open[i], placement, 0);
+                }
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_settings.png"), pixels, (int)width, (int)height);
+                }
+
+                // The red bar sits just under digit 1 (button 7 at (78, 126), 15 x 15) of the page at (16, 48).
+                var settings = open[^1].Menu;
+                var digit1 = settings.FindButton(StockUiMenuEntries.WindowSkinFirstButton)!;
+                var bar = Pixel(pixels, width, 16 + digit1.X + 7, 48 + digit1.Y + digit1.Height);
+                Assert.True(bar.R > bar.G + 40 && bar.R > bar.B + 40, $"red bar {bar}");
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders a two-member party window at 1:1 with the values of a Windower capture (Tarudrake 9999 / 2794, leader, shown "Tarudra..";
         /// Cybin 1658 / 571) for side-by-side comparison; writes party_rows.png when GORDIAN_UI_DUMP is set.
         /// </summary>

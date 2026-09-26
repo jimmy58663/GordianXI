@@ -28,6 +28,8 @@ namespace Gordian.App.Graphics
         private volatile UiFont? _font;
         private volatile StatusIconLibrary? _statusIcons;
         private int _loadStarted;
+        private ResourceManager? _resources;
+        private int _skinReloading;
 
         /// <summary>The layout used for the last frame (the session's shared layout, see StockUiLayoutStore).</summary>
         public StockUiLayout Layout { get; private set; } = new();
@@ -43,11 +45,12 @@ namespace Gordian.App.Graphics
         public void EnsureLoading(ResourceManager? resources)
         {
             if (resources == null || Interlocked.CompareExchange(ref _loadStarted, 1, 0) != 0) return;
+            _resources = resources;
             Task.Run(() =>
             {
                 try
                 {
-                    var library = UiResourceLibrary.Load(resources);
+                    var library = UiResourceLibrary.Load(resources, Layout.WindowSkin);
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
@@ -56,6 +59,34 @@ namespace Gordian.App.Graphics
                 catch (Exception ex)
                 {
                     GordianLog.Error("UI", $"Failed to load stock UI resources: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Reloads the UI resources with another window skin (1-8) in the background when the layout's skin changed
+        /// (the config menu's "Window Type", or <c>/uilayout skin</c>); the current library draws until it is ready.
+        /// </summary>
+        private void EnsureWindowSkin(UiResourceLibrary current, int skin)
+        {
+            var resources = _resources;
+            if (resources == null || current.WindowSkin == skin || Interlocked.CompareExchange(ref _skinReloading, 1, 0) != 0) return;
+            Task.Run(() =>
+            {
+                try
+                {
+                    var library = UiResourceLibrary.Load(resources, skin);
+                    if (library == null) return;
+                    _font = UiFont.FromLibrary(library);
+                    _library = library;
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("UI", $"Failed to load window skin {skin}: {ex.Message}");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _skinReloading, 0);
                 }
             });
         }
@@ -70,6 +101,10 @@ namespace Gordian.App.Graphics
             var library = _library;
             if (!Enabled || library == null || session == null) return;
             Layout = session.ActionService.UiLayout;
+            EnsureWindowSkin(library, Layout.WindowSkin);
+
+            var menus = session.ActionService.Menus;
+            if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
 
             renderer.Begin(library);
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
@@ -82,7 +117,51 @@ namespace Gordian.App.Graphics
             DrawLogWindow(renderer, library, party, width, height);
             DrawTargetWindow(renderer, library, session, party, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
+            DrawMenus(renderer, library, session, menus, width, height);
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// Draws the open stock menus, root first. The root (the main menu, or a prompt opened on its own) takes the
+        /// layout's placement for the main menu; sub-menus keep their authored place relative to it (they follow a
+        /// moved main menu rather than taking overrides of their own). A window whose authored rectangle a later
+        /// window covers is not drawn: a sub-menu opened in the same corner replaces its parent, as in retail.
+        /// </summary>
+        private void DrawMenus(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
+            StockUiMenuController menus, uint width, uint height)
+        {
+            var open = menus.OpenMenus;
+            if (open.Count == 0) return;
+            long timestamp = Stopwatch.GetTimestamp();
+
+            var rootFrame = open[0].Menu.Frame;
+            var root = Layout.Resolve(StockUiWindowIds.MainMenu, rootFrame, width, height);
+            if (root.Hidden) return;
+            var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
+            float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
+
+            for (int i = 0; i < open.Count; i++)
+            {
+                var menu = open[i];
+                bool covered = false;
+                for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].OverlapsAuthored(menu);
+                if (covered) continue;
+
+                StockUiPlacement placement;
+                if (i == 0)
+                {
+                    placement = root;
+                }
+                else
+                {
+                    var frame = menu.Menu.Frame;
+                    var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
+                    float x = Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    placement = new StockUiPlacement(x, y, root.Scale, false);
+                }
+                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp);
+            }
         }
 
         /// <summary>

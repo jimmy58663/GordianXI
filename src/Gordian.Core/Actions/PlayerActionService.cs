@@ -119,6 +119,12 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiLayout UiLayout { get; set; } = new();
 
+        /// <summary>
+        /// The stock menu system (main menu, sub-menus, yes/no prompts), fed by the locomotion controller's input
+        /// tick and drawn by the HUD.
+        /// </summary>
+        public StockUiMenuController Menus { get; }
+
         public PlayerActionService(
             SessionProfile profile,
             WorldState world,
@@ -139,6 +145,15 @@ namespace Gordian.Core.Actions
             _entityModule = entityModule ?? throw new ArgumentNullException(nameof(entityModule));
             _lifecycleModule = lifecycleModule ?? throw new ArgumentNullException(nameof(lifecycleModule));
             _sendChunkCallback = sendChunkCallback ?? throw new ArgumentNullException(nameof(sendChunkCallback));
+
+            Menus = new StockUiMenuController
+            {
+                LogoutRequested = shutdown => _lifecycleModule.RequestLogoutAsync(
+                    shutdown ? ReqLogoutMode.ShutdownOn : ReqLogoutMode.LogoutOn,
+                    shutdown ? ReqLogoutKind.Shutdown : ReqLogoutKind.Logout),
+                CurrentWindowSkin = () => UiLayout.WindowSkin,
+                WindowSkinSelected = skin => UiLayout.SetWindowSkin(skin),
+            };
         }
 
         #region Targeting Subsystem
@@ -844,7 +859,7 @@ namespace Gordian.Core.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [scale <n> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Usage: /uilayout [scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
             "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner.";
 
         private static readonly string[] UiWindowIds =
@@ -872,6 +887,11 @@ namespace Gordian.Core.Actions
             {
                 layout.ResetAll();
                 return PlayerActionResult.Ok("Stock UI restored to the retail layout.", Kind);
+            }
+            if (first == "skin" && parts.Length == 2 && int.TryParse(parts[1], out int skin))
+            {
+                layout.SetWindowSkin(skin);
+                return PlayerActionResult.Ok($"Window skin {layout.WindowSkin} (the config menu's Window Type).", Kind);
             }
             if (first == "tp" && parts.Length == 2 && parts[1].ToLowerInvariant() is "on" or "off")
             {
@@ -934,7 +954,7 @@ namespace Gordian.Core.Actions
 
         private static string DescribeUiLayout(StockUiLayout layout)
         {
-            var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}" +
+            var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}, window skin {layout.WindowSkin}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}" +
                 (layout.ShowPartyStatusIcons ? $", party status icons on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()}" : string.Empty));
             var overrides = layout.GetOverrides();
             if (overrides.Count == 0) return sb.Append("; every window at its retail placement.").ToString();

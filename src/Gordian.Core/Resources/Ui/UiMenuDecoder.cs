@@ -112,10 +112,12 @@ namespace Gordian.Core.Resources.Ui
                 SelectRectOffsetX = I16(r, 14),
                 SelectRectOffsetY = I16(r, 16),
                 ButtonId = I16(r, 18),
+                // Link order is up, down, right, left: verified on the three-column rows of "conf5win" (the leftmost
+                // button's byte +25 names the middle one) and in-game, where the earlier left/right reading was reversed.
                 NavUp = (sbyte)r[23],
                 NavDown = (sbyte)r[24],
-                NavLeft = (sbyte)r[25],
-                NavRight = (sbyte)r[26],
+                NavRight = (sbyte)r[25],
+                NavLeft = (sbyte)r[26],
                 Shapes = shapes,
                 HelpTextId = help,
                 TitleTextId = title,

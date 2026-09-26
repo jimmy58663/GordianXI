@@ -255,18 +255,28 @@ namespace Gordian.Core.Input
             if (elapsed <= TimeSpan.Zero) return;
             LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            // 1. Evaluate physical keys and mouse against active profile
+            // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
+            //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
+            var menus = _actionService?.Menus;
+            _inputState.MenuContext = menus?.IsOpen ?? false;
             _inputState.Update(_profile, elapsed);
 
-            // 2. Update Camera from keyboard & mouse impulses
+            // 2. Feed the stock menus: with one open, Confirm/Cancel and targeting belong to it (movement keys and
+            //    the left stick still move the character, as in retail).
+            _menuOpen = menus != null && menus.ProcessInput(_inputState, elapsed);
+
+            // 3. Update Camera from keyboard & mouse impulses
             UpdateCamera(elapsed);
 
-            // 3. Update Locomotion (movement, strafing, turning)
+            // 4. Update Locomotion (movement, strafing, turning)
             UpdateLocomotion(elapsed);
 
-            // 4. Evaluate Action Triggers (Targeting, Selection)
-            UpdateActionTriggers();
+            // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
+            if (!_menuOpen) UpdateActionTriggers();
         }
+
+        /// <summary>True while a stock menu took this tick's input (movement keys and stick still work, as in retail).</summary>
+        private bool _menuOpen;
 
         private void UpdateCamera(TimeSpan elapsed)
         {

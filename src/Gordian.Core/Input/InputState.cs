@@ -35,6 +35,13 @@ namespace Gordian.Core.Input
         public bool AutorunActive { get; set; }
         public bool IsWalking { get; set; }
 
+        /// <summary>
+        /// True while a stock menu is open: the menu navigation bindings (arrows, keypad, d-pad) then win over the
+        /// camera and party-targeting bindings that share their keys. Set by the menu controller before each tick's
+        /// <see cref="Update"/>. The gamepad's left stick is untouched: it keeps moving the character, like WASD.
+        /// </summary>
+        public bool MenuContext { get; set; }
+
         public GamepadState CurrentGamepad
         {
             get { lock (_lock) return _gamepadState; }
@@ -193,6 +200,7 @@ namespace Gordian.Core.Input
 
             lock (_lock)
             {
+                bool menuContext = MenuContext;
                 _previousActions.Clear();
                 foreach (var a in _heldActions)
                 {
@@ -208,7 +216,7 @@ namespace Gordian.Core.Input
                 {
                     // Chord with exact modifiers
                     var chord = new InputChord(key, _modifiers);
-                    if (profile.TryGetAction(chord, out var act))
+                    if (profile.TryGetAction(chord, menuContext, out var act))
                     {
                         _heldActions.Add(act);
                     }
@@ -216,7 +224,7 @@ namespace Gordian.Core.Input
                     else if (_modifiers != InputModifiers.None)
                     {
                         var plainChord = new InputChord(key, InputModifiers.None);
-                        if (profile.TryGetAction(plainChord, out var plainAct))
+                        if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
                         {
                             _heldActions.Add(plainAct);
                         }
@@ -237,14 +245,14 @@ namespace Gordian.Core.Input
                         if (_heldMouseButtons.HasFlag(btn))
                         {
                             var chord = new InputChord(btn, _modifiers);
-                            if (profile.TryGetAction(chord, out var act))
+                            if (profile.TryGetAction(chord, menuContext, out var act))
                             {
                                 _heldActions.Add(act);
                             }
                             else if (_modifiers != InputModifiers.None)
                             {
                                 var plainChord = new InputChord(btn, InputModifiers.None);
-                                if (profile.TryGetAction(plainChord, out var plainAct))
+                                if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
                                 {
                                     _heldActions.Add(plainAct);
                                 }
@@ -277,14 +285,14 @@ namespace Gordian.Core.Input
                             {
                                 var padBtn = (GamepadButton)mask;
                                 var chord = new InputChord(padBtn, _modifiers);
-                                if (profile.TryGetAction(chord, out var act))
+                                if (profile.TryGetAction(chord, menuContext, out var act))
                                 {
                                     _heldActions.Add(act);
                                 }
                                 else if (_modifiers != InputModifiers.None)
                                 {
                                     var plainChord = new InputChord(padBtn, InputModifiers.None);
-                                    if (profile.TryGetAction(plainChord, out var plainAct))
+                                    if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
                                     {
                                         _heldActions.Add(plainAct);
                                     }

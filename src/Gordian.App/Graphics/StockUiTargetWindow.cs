@@ -116,12 +116,21 @@ namespace Gordian.App.Graphics
         /// the rest of the UI. Retail shades it through the group's six frames and back, about 67 ms a step (a 0.8 s
         /// cycle, measured from a capture, 2026-09-26); <paramref name="timestamp"/> is a Stopwatch timestamp.
         /// </summary>
+        /// <summary>
+        /// The frame of an animated cursor group ("anc_s" and its siblings) at a Stopwatch timestamp: the frames play
+        /// forward then backward at <see cref="CursorStepSeconds"/> per step.
+        /// </summary>
+        public static UiImage SelectCursorFrame(UiElementGroup group, long timestamp)
+        {
+            int frames = group.Images.Count;
+            int step = (int)(timestamp / (Stopwatch.Frequency * CursorStepSeconds) % (2 * frames));
+            return group.Images[step < frames ? step : 2 * frames - 1 - step];
+        }
+
         public static void DrawCursor(StockUiRenderer renderer, UiResourceLibrary library, Vector2 tip, float scale, long timestamp)
         {
             if (!library.TryGetGroup("anc_s", out var group) || group.Images.Count == 0) return;
-            int frames = group.Images.Count;
-            int step = (int)(timestamp / (Stopwatch.Frequency * CursorStepSeconds) % (2 * frames));
-            var image = group.Images[step < frames ? step : 2 * frames - 1 - step];
+            var image = SelectCursorFrame(group, timestamp);
             if (image.Parts.Count == 0) return;
 
             // The authored sprite points right; its tip is the rightmost point, halfway down.

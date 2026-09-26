@@ -105,6 +105,11 @@ namespace Gordian.Core.Ui
         public PartyStatusIconSide PartyStatusIconSide { get; set; } = PartyStatusIconSide.Left;
 
         /// <summary>
+        /// The window skin (1-8, ROM/0/14-21), chosen on the config menu's Windows page ("Window Type") as in retail.
+        /// </summary>
+        public int WindowSkin { get; set; } = 1;
+
+        /// <summary>
         /// Overrides keyed by logical window id (<see cref="StockUiWindowIds"/>), case-insensitive. Ids are logical
         /// rather than menu names because a window swaps layouts at runtime (the party window uses "ptw1".."ptw6" by
         /// member count, the log window "log1".."log8" by line count), all sharing one anchor.
@@ -239,6 +244,13 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
+        /// <summary>Selects the window skin (clamped to 1-8).</summary>
+        public void SetWindowSkin(int skin)
+        {
+            lock (_sync) WindowSkin = Math.Clamp(skin, 1, UiResourceLibrary.WindowSkinCount);
+            Changed?.Invoke();
+        }
+
         /// <summary>Restores one window's authored placement.</summary>
         public void Reset(string windowId)
         {
@@ -254,6 +266,7 @@ namespace Gordian.Core.Ui
             {
                 Windows.Clear();
                 Scale = 1.0f;
+                WindowSkin = 1;
                 ShowPartyTp = false;
                 ShowPartyStatusIcons = false;
                 PartyStatusIconSide = PartyStatusIconSide.Left;
@@ -315,6 +328,7 @@ namespace Gordian.Core.Ui
                         // Re-key case-insensitively (the deserializer builds a case-sensitive dictionary).
                         layout.Windows = new Dictionary<string, StockUiWindowOverride>(layout.Windows, StringComparer.OrdinalIgnoreCase);
                         layout.Scale = Math.Clamp(layout.Scale, 0.25f, 8.0f);
+                        layout.WindowSkin = Math.Clamp(layout.WindowSkin, 1, UiResourceLibrary.WindowSkinCount);
                         return layout;
                     }
                 }
