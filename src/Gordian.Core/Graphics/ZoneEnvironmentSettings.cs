@@ -223,38 +223,28 @@ namespace Gordian.Core.Graphics
             return new Vector3(raw.X, raw.Y, -raw.Z);
         }
 
-        // Colors whose channels all sit below 0xCC are lifted by this per-channel bias.
-        private const float DarkLightThreshold = 0xCC / 255.0f;
-        private static readonly Vector3 DarkLightBias = new(1.4f, 1.36f, 1.45f);
+        /// <summary>
+        /// Converts an authored 0x2F ambient color (normalized RGBA) into the shader ambient term: the byte value
+        /// as is (byte / 255), the way a fixed-function global ambient takes it.
+        /// <para>
+        /// This replaced xi-model-viewer's conversion (byte / 510 with a 1.4x lift for dark colours, capped at 0.5)
+        /// on 2026-09-26: a Windower capture of Bibiki Bay at 15:58 (Windower (642.7, 879.3, -20), `suny`, the 16:00
+        /// keyframe: ambient (83,57,47), sun (226,129,75) x1.5) showed the flat sunlit sand at (182,105,77) where the
+        /// halved ambient gave (137,93,66); the byte/255 ambient with the unclamped sun predicts (186,105,75). The
+        /// halved ambient also left east-facing cliffs in the same capture about 40% too dark.
+        /// </para>
+        /// </summary>
+        public static Vector3 AmbientToLight(Vector4 authored) => new(authored.X, authored.Y, authored.Z);
 
         /// <summary>
-        /// Converts an authored 0x2F ambient color (normalized RGBA) into the shader ambient term:
-        /// half the byte value, dark-color bias, clamped to 0.5.
-        /// Lighting conversion referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
-        /// ui/js/environment.js, after xim EnvironmentLighting.ambientToColor).
+        /// Converts an authored 0x2F sun/moon color (normalized RGBA) and light power (<c>light_power</c> in the
+        /// XiColorEnv record) into the shader directional light color: byte / 255 times the power, not clamped.
+        /// Only the lit vertex result is clamped (in the shaders), as fixed-function vertex lighting does; clamping the
+        /// light itself had capped the 16:00 sun's red at 1.0 instead of 1.33 and lost the dusk saturation retail shows.
+        /// Field naming referenced from xi-tools (https://github.com/vekien/xi-tools, docs/reference/ps2_decomp_crosscheck.md).
         /// </summary>
-        public static Vector3 AmbientToLight(Vector4 authored)
-        {
-            var c = new Vector3(authored.X, authored.Y, authored.Z);
-            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
-            return Vector3.Min(new Vector3(0.5f), bias * c * 0.5f);
-        }
-
-        /// <summary>
-        /// Converts an authored 0x2F sun/moon color (normalized RGBA) and diffuse multiplier into the shader
-        /// directional light color: scaled by the multiplier, dark-color bias, clamped to 1.
-        /// Lighting conversion referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
-        /// ui/js/environment.js, after xim EnvironmentLighting.diffuseToColor).
-        /// </summary>
-        public static Vector3 DiffuseToLight(Vector4 authored, float diffuseMult)
-        {
-            var c = new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
-            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
-            return Vector3.Min(Vector3.One, bias * c);
-        }
-
-        private static bool IsDark(Vector3 c) =>
-            c.X < DarkLightThreshold && c.Y < DarkLightThreshold && c.Z < DarkLightThreshold;
+        public static Vector3 DiffuseToLight(Vector4 authored, float diffuseMult) =>
+            new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
 
         public static ZoneEnvironmentSettings CreateDay() => new()
         {

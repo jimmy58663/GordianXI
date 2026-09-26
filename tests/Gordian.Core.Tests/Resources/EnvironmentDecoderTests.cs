@@ -308,9 +308,9 @@ namespace Gordian.Core.Tests.Resources
             {
                 Hour = 0,
                 Indoors = false,
-                // Bright ambient (a channel >= 0xCC): no dark bias, half value, clamped to 0.5
+                // Ambient is the byte value as is (no halving, no dark lift, no cap)
                 TerrainAmbientColor = new Vector4(0xFF / 255f, 0x80 / 255f, 0x40 / 255f, 1f),
-                // Dark sun (all channels < 0xCC after the multiplier): per-channel bias applies
+                // Sun and moon: byte value times the light power, not clamped
                 TerrainSunColor = new Vector4(0x40 / 255f, 0x40 / 255f, 0x40 / 255f, 1f),
                 TerrainMoonColor = new Vector4(0x60 / 255f, 0x60 / 255f, 0x80 / 255f, 1f),
                 TerrainDiffuseMult = 2.0f
@@ -318,18 +318,18 @@ namespace Gordian.Core.Tests.Resources
 
             settings.ApplyKeyframe(keyframe);
 
-            Assert.Equal(0.5f, settings.AmbientColor.X, 3);
-            Assert.Equal(0x80 / 510f, settings.AmbientColor.Y, 3);
-            Assert.Equal(0x40 / 510f, settings.AmbientColor.Z, 3);
+            Assert.Equal(1.0f, settings.AmbientColor.X, 3);
+            Assert.Equal(0x80 / 255f, settings.AmbientColor.Y, 3);
+            Assert.Equal(0x40 / 255f, settings.AmbientColor.Z, 3);
 
             float sun = 0x40 / 255f * 2.0f;
-            Assert.Equal(sun * 1.4f, settings.SunColor.X, 3);
-            Assert.Equal(sun * 1.36f, settings.SunColor.Y, 3);
-            Assert.Equal(sun * 1.45f, settings.SunColor.Z, 3);
+            Assert.Equal(sun, settings.SunColor.X, 3);
+            Assert.Equal(sun, settings.SunColor.Y, 3);
+            Assert.Equal(sun, settings.SunColor.Z, 3);
 
-            // Moon doubled: 0x100 on blue crosses the threshold, so no bias; blue clamps to 1
+            // Moon doubled: blue exceeds 1 and stays so (only the lit vertex result is clamped, in the shader)
             Assert.Equal(0x60 / 255f * 2.0f, settings.MoonColor.X, 3);
-            Assert.Equal(1.0f, settings.MoonColor.Z, 3);
+            Assert.Equal(0x80 / 255f * 2.0f, settings.MoonColor.Z, 3);
         }
 
         [Fact]

@@ -1685,7 +1685,8 @@ namespace Gordian.App.Graphics
         {
             var sun = environment.ModelSunColor;
             var moon = environment.ModelMoonColor;
-            return sun.X + sun.Y + sun.Z >= moon.X + moon.Y + moon.Z ? sun : moon;
+            // Light colours are no longer clamped at conversion; particle tints saturate at 1 like a vertex colour.
+            return Vector3.Min(Vector3.One, sun.X + sun.Y + sun.Z >= moon.X + moon.Y + moon.Z ? sun : moon);
         }
 
         /// <summary>
