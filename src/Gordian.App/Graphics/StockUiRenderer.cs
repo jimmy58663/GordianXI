@@ -205,6 +205,7 @@ void main()
 
             float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
             float u1 = (part.SourceX + srcWidth) / texWidth, v1 = (part.SourceY + srcHeight) / texHeight;
+            ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
 
             var tl = new UiVertex { Position = Point(part.TopLeft, x, y, scale, stretch), TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) };
             var tr = new UiVertex { Position = Point(part.TopRight, x, y, scale, stretch), TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) };
@@ -226,6 +227,7 @@ void main()
                 if (!TryGetTextureSet(part.TextureName, out var set, out float texWidth, out float texHeight)) continue;
                 float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
                 float u1 = (part.SourceX + part.SourceWidth) / texWidth, v1 = (part.SourceY + part.SourceHeight) / texHeight;
+                ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
                 Vector2 P(UiPoint p) => Vector2.Transform(new Vector2(p.X, p.Y), transform);
                 AddQuad(set, part.BlendMode,
                     new UiVertex { Position = P(part.TopLeft), TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) },
@@ -233,6 +235,17 @@ void main()
                     new UiVertex { Position = P(part.BottomLeft), TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) },
                     new UiVertex { Position = P(part.BottomRight), TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) });
             }
+        }
+
+        /// <summary>
+        /// A part's flags mirror its texture: bit 0 horizontally, bit 1 vertically. The lock-on overlay (windowps image
+        /// 212) draws its four corner brackets from one bracket texel rect with flags 0/1/2/3, and its left arrow as the
+        /// right arrow with bit 0.
+        /// </summary>
+        private static void ApplyFlips(UiSpritePart part, ref float u0, ref float v0, ref float u1, ref float v1)
+        {
+            if ((part.Flags & 0x01) != 0) (u0, u1) = (u1, u0);
+            if ((part.Flags & 0x02) != 0) (v0, v1) = (v1, v0);
         }
 
         private void AddQuad(ResourceSet set, UiBlendMode blend, UiVertex tl, UiVertex tr, UiVertex bl, UiVertex br)
