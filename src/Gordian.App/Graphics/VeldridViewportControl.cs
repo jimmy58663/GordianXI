@@ -582,6 +582,9 @@ namespace Gordian.App.Graphics
                     ? new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z)
                     : null;
 
+                // The orbital camera stays in front of the zone's walls (it pulls in rather than clipping outside).
+                Camera.Collision = (_activeSession?.World ?? WorldState)?.Collision;
+
                 if (Camera.Mode != CameraMode.FreeCam)
                 {
                     if (displayPlayerPos.HasValue)

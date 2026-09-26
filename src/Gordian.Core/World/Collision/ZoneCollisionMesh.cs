@@ -195,6 +195,65 @@ namespace Gordian.Core.World.Collision
         }
 
         /// <summary>
+        /// Casts the segment <paramref name="start"/> -> <paramref name="end"/> (internal space) against the soup and
+        /// returns the fraction along it of the first triangle hit (either face). With
+        /// <paramref name="skipCameraTransparent"/>, triangles the camera passes through (the collision block's camera
+        /// transparency bit) are ignored. Only the grid cells under the segment's XZ bounds are searched.
+        /// </summary>
+        public bool TryRaycast(Vector3 start, Vector3 end, bool skipCameraTransparent, out float fraction)
+        {
+            fraction = 1.0f;
+            if (_triangles.Length == 0) return false;
+            var dir = end - start;
+            if (dir.LengthSquared() < 1e-10f) return false;
+
+            int x0 = Math.Clamp((int)MathF.Floor((MathF.Min(start.X, end.X) - _minX) / CellSize), 0, _columns - 1);
+            int x1 = Math.Clamp((int)MathF.Floor((MathF.Max(start.X, end.X) - _minX) / CellSize), 0, _columns - 1);
+            int z0 = Math.Clamp((int)MathF.Floor((MathF.Min(start.Z, end.Z) - _minZ) / CellSize), 0, _rows - 1);
+            int z1 = Math.Clamp((int)MathF.Floor((MathF.Max(start.Z, end.Z) - _minZ) / CellSize), 0, _rows - 1);
+
+            bool found = false;
+            for (int z = z0; z <= z1; z++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    int cell = (z * _columns) + x;
+                    for (int k = _cellStart[cell], stop = _cellStart[cell + 1]; k < stop; k++)
+                    {
+                        ref readonly var t = ref _triangles[_cellTriangles[k]];
+                        if (skipCameraTransparent && t.CameraTransparent) continue;
+                        if (IntersectSegment(t, start, dir, out float f) && f < fraction)
+                        {
+                            fraction = f;
+                            found = true;
+                        }
+                    }
+                }
+            }
+            return found;
+        }
+
+        // Moller-Trumbore, double-sided, t in [0, 1].
+        private static bool IntersectSegment(in CollisionTriangle t, Vector3 origin, Vector3 dir, out float fraction)
+        {
+            fraction = 0.0f;
+            var e1 = t.B - t.A;
+            var e2 = t.C - t.A;
+            var p = Vector3.Cross(dir, e2);
+            float det = Vector3.Dot(e1, p);
+            if (MathF.Abs(det) < 1e-9f) return false;
+            float inv = 1.0f / det;
+            var s = origin - t.A;
+            float u = Vector3.Dot(s, p) * inv;
+            if (u < 0.0f || u > 1.0f) return false;
+            var q = Vector3.Cross(s, e1);
+            float v = Vector3.Dot(dir, q) * inv;
+            if (v < 0.0f || u + v > 1.0f) return false;
+            fraction = Vector3.Dot(e2, q) * inv;
+            return fraction >= 0.0f && fraction <= 1.0f;
+        }
+
+        /// <summary>
         /// Treads whose corners differ in height by less than this (level surfaces: stair steps, curbs, platforms) round
         /// the player over their edges; see <see cref="TryGetSteppedGround"/>.
         /// </summary>

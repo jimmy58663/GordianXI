@@ -35,6 +35,21 @@ namespace Gordian.Core.Graphics
         }
 
         public Vector3 Position => _position;
+
+        /// <summary>
+        /// Zone collision the orbital camera keeps in front of (null = the camera passes through walls). The camera
+        /// pulls in to the first wall between the character and its orbit position, as the legacy client's does,
+        /// ignoring triangles marked camera-transparent.
+        /// </summary>
+        public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+
+        /// <summary>Gap kept between the camera and a blocking wall, in yalms.</summary>
+        public const float CollisionMargin = 0.3f;
+
+        /// <summary>How fast a pulled-in camera eases back out once the wall is gone, in yalms per second.</summary>
+        public const float CollisionReleaseSpeed = 10.0f;
+
+        private float _collisionDistance = float.MaxValue;
         public Vector3 Target => _target;
 
         public Vector3 EyeOffset
@@ -189,6 +204,7 @@ namespace Gordian.Core.Graphics
                         camY,
                         _target.Z - (-sinY * cosP * _distance)
                     );
+                    _position = KeepInFrontOfWalls(_target, _position, deltaSeconds);
                     break;
 
                 case CameraMode.FirstPerson:
@@ -203,6 +219,37 @@ namespace Gordian.Core.Graphics
             }
 
             UpdateMatrices();
+        }
+
+        /// <summary>
+        /// Pulls an orbital camera position in along the line from the look-at point until no collision triangle lies
+        /// between them. Hits snap the camera in at once; a cleared line lets it ease back out at
+        /// <see cref="CollisionReleaseSpeed"/> so it does not jump when the wall leaves view.
+        /// </summary>
+        private Vector3 KeepInFrontOfWalls(Vector3 target, Vector3 desired, float deltaSeconds)
+        {
+            var offset = desired - target;
+            float full = offset.Length();
+            var collision = Collision;
+            if (collision == null || full < 1e-4f)
+            {
+                _collisionDistance = float.MaxValue;
+                return desired;
+            }
+
+            // Collision is in internal space; the camera works in display space (-x, -y, z).
+            static Vector3 ToInternal(Vector3 v) => new(-v.X, -v.Y, v.Z);
+            var direction = offset / full;
+            float allowed = full;
+            if (collision.TryRaycast(ToInternal(target), ToInternal(target + direction * (full + CollisionMargin)), skipCameraTransparent: true, out float fraction))
+            {
+                allowed = MathF.Max(0.0f, fraction * (full + CollisionMargin) - CollisionMargin);
+            }
+
+            if (allowed < _collisionDistance || deltaSeconds <= 0.0f) _collisionDistance = allowed;
+            else _collisionDistance = MathF.Min(allowed, _collisionDistance + CollisionReleaseSpeed * deltaSeconds);
+
+            return target + direction * MathF.Min(full, _collisionDistance);
         }
 
         /// <summary>

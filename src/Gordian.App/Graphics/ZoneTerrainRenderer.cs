@@ -50,6 +50,22 @@ namespace Gordian.App.Graphics
         private Pipeline _terrainBlendPipeline = null!;
         private Pipeline _cutoutPipeline = null!;
         private Pipeline _blendPipeline = null!;
+
+        // Back-face-culled variants of the terrain pipelines, for zone meshes without the double-sided flag.
+        private readonly Dictionary<Pipeline, Pipeline> _culledPipelines = new();
+
+        /// <summary>
+        /// Winding of a zone triangle's front face on screen. Retail zone meshes (Section 0x2E) wind their triangles so
+        /// the stored normal points opposite (b - a) x (c - a) (99.4% of culled triangles in Bibiki Bay and Southern
+        /// San d'Oria once mirrored placements are corrected).
+        /// </summary>
+        public static FrontFace ZoneFrontFace { get; set; } = FrontFace.Clockwise;
+
+        /// <summary>
+        /// Draw every zone mesh double-sided (the old behaviour) instead of culling back faces of meshes whose 0x2E
+        /// flags lack 0x2000 (double-sided), as the client does.
+        /// </summary>
+        public bool DisableZoneBackFaceCulling { get; set; }
         private Pipeline _waterPipeline = null!;
         private Pipeline _weatherSkyPipeline = null!;
         private Pipeline _weatherSkyAdditivePipeline = null!;
@@ -381,6 +397,7 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+            _culledPipelines[_pipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(pipelineDesc));
 
             // 6. Blended Terrain Surfaces & Decals Graphics Pipeline (multi-texture sand/grass/cliff transitions)
             // Authored with 0x8000 blend flag in FFXI; rendered using VertexShaderDecalGlsl with a linear
@@ -408,6 +425,7 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _terrainBlendPipeline = factory.CreateGraphicsPipeline(terrainBlendPipelineDesc);
+            _culledPipelines[_terrainBlendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(terrainBlendPipelineDesc));
 
             // 7. Cutout Foliage Graphics Pipeline (4.0 * vColor.a * tex.a < 0.375 discard; depth writing enabled)
             var cutoutPipelineDesc = new GraphicsPipelineDescription
@@ -429,6 +447,7 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _cutoutPipeline = factory.CreateGraphicsPipeline(cutoutPipelineDesc);
+            _culledPipelines[_cutoutPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(cutoutPipelineDesc));
 
             // 7. Alpha-Blended Graphics Pipeline (for translucent water foam, decals, fog, surf)
             var blendPipelineDesc = new GraphicsPipelineDescription
@@ -450,6 +469,7 @@ namespace Gordian.App.Graphics
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
             };
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
+            _culledPipelines[_blendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(blendPipelineDesc));
             
             // 8. Alpha-Blended Water Graphics Pipeline (translucent water surfaces with linear W-scaled depth bias)
             // Authored with VertexShaderWaterGlsl (z - 0.00025 * w) to cleanly win depth testing over shallow seabed
@@ -936,6 +956,7 @@ namespace Gordian.App.Graphics
                     // Solid opaque terrain, rocks, placed structures, dock posts
                     targetPipeline = _pipeline;
                 }
+                targetPipeline = ForSubmesh(targetPipeline, submesh.NoCull);
 
                 var sceneSet = SceneSetFor(submesh);
                 if (currentBoundPipeline != targetPipeline)
@@ -1027,7 +1048,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                var targetPipeline = submesh.IsWater ? _waterPipeline : _blendPipeline;
+                var targetPipeline = submesh.IsWater ? _waterPipeline : ForSubmesh(_blendPipeline, submesh.NoCull);
                 var targetSet0 = submesh.IsWater ? _waterResourceSet : SceneSetFor(submesh);
                 if (currentBoundBlendPipeline != targetPipeline)
                 {
@@ -1181,6 +1202,22 @@ namespace Gordian.App.Graphics
             CulledMeshes = culled;
             VisibleMeshes = visible;
         }
+
+        private static GraphicsPipelineDescription WithBackFaceCulling(GraphicsPipelineDescription description)
+        {
+            var raster = description.RasterizerState;
+            description.RasterizerState = new RasterizerStateDescription(FaceCullMode.Back, raster.FillMode, ZoneFrontFace,
+                raster.DepthClipEnabled, raster.ScissorTestEnabled);
+            return description;
+        }
+
+        /// <summary>
+        /// The pipeline a zone submesh draws with: back faces culled unless the mesh is double-sided (0x2E flag
+        /// 0x2000). The client culls single-sided meshes; drawing them double-sided showed a mountain's inner faces
+        /// inside Bibiki Bay's entrance cave, hiding the tunnel mesh behind them.
+        /// </summary>
+        private Pipeline ForSubmesh(Pipeline pipeline, bool noCull) =>
+            noCull || DisableZoneBackFaceCulling || !_culledPipelines.TryGetValue(pipeline, out var culled) ? pipeline : culled;
 
         private void BuildFallbackScene()
         {
@@ -1523,7 +1560,7 @@ namespace Gordian.App.Graphics
                 layer.FogEnabled ? 1.0f : 0.0f,
                 layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
-                0.0f);
+                layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
@@ -1873,7 +1910,7 @@ namespace Gordian.App.Graphics
                 moved.World = Matrix4x4.CreateTranslation(shift);
                 _commandList.UpdateBuffer(buffer, 0, ref moved);
 
-                _commandList.SetPipeline(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline);
+                _commandList.SetPipeline(ForSubmesh(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline, submesh.NoCull));
                 _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
                 _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures));
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
@@ -1948,6 +1985,8 @@ namespace Gordian.App.Graphics
             _terrainBlendPipeline?.Dispose();
             _cutoutPipeline?.Dispose();
             _blendPipeline?.Dispose();
+            foreach (var culled in _culledPipelines.Values) culled.Dispose();
+            _culledPipelines.Clear();
             _waterPipeline?.Dispose();
             _weatherSkyPipeline?.Dispose();
             _weatherSkyAdditivePipeline?.Dispose();

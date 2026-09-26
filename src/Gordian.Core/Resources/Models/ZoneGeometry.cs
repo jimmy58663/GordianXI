@@ -70,6 +70,12 @@ namespace Gordian.Core.Resources.Models
         /// True for a part of an elevator or other moving platform (BlockID starting <c>@</c>).
         /// </summary>
         public bool IsMovingPlatformPart => BlockId.Length > 0 && BlockId[0] == '@';
+
+        /// <summary>
+        /// True for a placement drawn by the Section 0x05 generator its BlockID names (any FourCC not starting with
+        /// <c>_</c> (doors) or <c>@</c> (elevators)); see xi-tools docs/zone/format.md, "Generator-bound objects".
+        /// </summary>
+        public bool IsGeneratorBound => BlockId.Length > 0 && BlockId[0] != '@' && BlockId[0] != '_';
     }
 
     /// <summary>

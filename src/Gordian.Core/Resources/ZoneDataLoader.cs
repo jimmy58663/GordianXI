@@ -805,6 +805,7 @@ namespace Gordian.Core.Resources
 
             // Phase 2: World Placement Instancing via Section 0x1C (ZoneDef)
             int placedCount = 0;
+            var generatorBoundGroups = new Dictionary<string, List<MeshGroup>>(StringComparer.Ordinal);
             if (zoneDefHeader.HasValue && !table1.IsEmpty)
             {
                 var zdHeader = zoneDefHeader.Value;
@@ -842,6 +843,14 @@ namespace Gordian.Core.Resources
                         else
                         {
                             zone.MeshGroups.Add(instantiated);
+                            if (placement.IsGeneratorBound)
+                            {
+                                if (!generatorBoundGroups.TryGetValue(placement.BlockId, out var bound))
+                                {
+                                    generatorBoundGroups[placement.BlockId] = bound = new List<MeshGroup>();
+                                }
+                                bound.Add(instantiated);
+                            }
                         }
                         placedCount++;
                     }
@@ -1091,6 +1100,23 @@ namespace Gordian.Core.Resources
                 }
                 AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
                 return effect;
+            }
+
+            // A placement whose BlockID names a Section 0x05 generator is drawn by that generator, not by the placement
+            // pass (xi-tools docs/zone/format.md, "Generator-bound objects"). Where the generator became an effect layer,
+            // drop the static copy: Bibiki Bay's cave mouth (`yama_3c_ent`, generator `ent1`) is an alpha-blended fog
+            // gradient, and a second, opaque copy z-fought with the tunnel mesh it overlays.
+            if (generatorBoundGroups.Count > 0)
+            {
+                var drawnByEffect = new HashSet<MeshGroup>(ReferenceEqualityComparer.Instance);
+                foreach (var layer in zone.EffectLayers)
+                {
+                    if (layer.GeneratorId != null && generatorBoundGroups.TryGetValue(layer.GeneratorId, out var bound))
+                    {
+                        foreach (var group in bound) drawnByEffect.Add(group);
+                    }
+                }
+                if (drawnByEffect.Count > 0) zone.MeshGroups.RemoveAll(drawnByEffect.Contains);
             }
 
             // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C)

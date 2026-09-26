@@ -298,7 +298,12 @@ void main()
     }
     fsin_Fog = fog;
 
-    gl_Position = Projection * View * worldPos;
+    vec4 clipPos = Projection * View * worldPos;
+    // SkyLayerParams.w = 1: a world-effect overlay that does not write depth (e.g. a cave-mouth fog gradient laid
+    // over the tunnel it re-tessellates) is pulled toward the eye like a decal, so it wins the depth test against the
+    // coincident terrain instead of z-fighting with it.
+    if (SkyLayerParams.w > 0.5) clipPos.z -= 0.00015 * clipPos.w;
+    gl_Position = clipPos;
 }
 ";
 

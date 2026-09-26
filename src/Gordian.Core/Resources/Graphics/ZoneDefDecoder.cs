@@ -318,6 +318,14 @@ namespace Gordian.Core.Resources.Graphics
             int[] indices = new int[template.Indices.Length];
             Array.Copy(template.Indices, indices, template.Indices.Length);
 
+            // A mirrored placement (negative scale determinant) reverses the triangles' winding; swap it back so the
+            // face the normals point out of stays the front face (the client flips its cull test for these,
+            // PositionedMeshBlock.ClockwiseCulling, per xi-tools docs/zone/lod-draw-distance.md).
+            if (IsMirrored(transform))
+            {
+                for (int t = 0; t + 2 < indices.Length; t += 3) (indices[t + 1], indices[t + 2]) = (indices[t + 2], indices[t + 1]);
+            }
+
             return new MeshGroup
             {
                 Name = $"{template.Name}_{placementName}",
@@ -455,6 +463,15 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             return null;
+        }
+
+        /// <summary>True when a transform's linear part has a negative determinant (a mirroring placement).</summary>
+        public static bool IsMirrored(Matrix4x4 m)
+        {
+            float det = m.M11 * (m.M22 * m.M33 - m.M23 * m.M32)
+                      - m.M12 * (m.M21 * m.M33 - m.M23 * m.M31)
+                      + m.M13 * (m.M21 * m.M32 - m.M22 * m.M31);
+            return det < 0.0f;
         }
 
         private static string ReadCString(ReadOnlySpan<byte> span)
