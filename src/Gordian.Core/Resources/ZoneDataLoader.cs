@@ -87,6 +87,10 @@ namespace Gordian.Core.Resources
             layer.RotationVelocity = gen.RotationVelocity;
             layer.BaseColor = gen.BaseColor;
             layer.BlendFunc = gen.BlendFunc;
+            // Render-state bit 0x1000, or a zone generator's alpha override, makes the texture alpha opaque
+            // (xi-model-viewer initializers.js: StandardSetup flag and BlendFuncInitializer.apply).
+            layer.IgnoreTextureAlpha = (gen.Setup?.IgnoreTextureAlpha ?? false) || gen.IgnoreTextureAlpha;
+            layer.AlphaOverride = gen.AlphaOverride;
             layer.AuthoredOrder = authoredOrder.TryGetValue(gen, out int order) ? order : int.MaxValue;
             layer.DayOfWeekColors = gen.DayOfWeekColors;
             layer.MoonPhaseColors = gen.MoonPhaseColors;

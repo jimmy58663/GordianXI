@@ -212,6 +212,22 @@ namespace Gordian.Core.Resources.Graphics
         public bool LightingEnabled { get; set; }
 
         /// <summary>
+        /// The texture's alpha channel is treated as opaque, so only the vertex alpha and the texture factor set the
+        /// layer's coverage: generator render-state bit 0x1000 (Section 2 Opcode 0x01), or an alpha override
+        /// (Opcode 0x1E) on a zone generator. Bibiki Bay's cave-mouth gradients (<c>ent1</c>-<c>ent4</c>) need it:
+        /// their rock atlas carries a blocky alpha mask for decal sub-meshes that would otherwise cut the light-to-dark
+        /// gradient into tiles. Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/initializers.js and ui/js/particleDrawer.js, after xim).
+        /// </summary>
+        public bool IgnoreTextureAlpha { get; set; }
+
+        /// <summary>
+        /// Fixed texture-factor alpha (0-255) from the generator's blend opcode (Section 2 Opcode 0x1E, bit 0x20),
+        /// replacing the authored colour's alpha; null when the generator has none.
+        /// </summary>
+        public byte? AlphaOverride { get; set; }
+
+        /// <summary>
         /// Generator depth-mask flag (Section 2 Opcode 0x01): the layer writes depth.
         /// </summary>
         public bool DepthWrite { get; set; }

@@ -1553,6 +1553,10 @@ namespace Gordian.App.Graphics
 
             var layerUniform = sceneUniform;
             layerUniform.World = world;
+            // SunDirection.w (unused by the lighting) carries the generator's ignore-texture-alpha flag: the fragment
+            // shader then samples the texture alpha as opaque (0x80 = 0.5), as the client does for e.g. Bibiki Bay's
+            // cave-mouth gradients, whose rock atlas alpha would otherwise cut the gradient into tiles.
+            layerUniform.SunDirection.W = layer.IgnoreTextureAlpha ? 1.0f : 0.0f;
             layerUniform.WeatherParams = new Vector4(uvOrFlareCenter.X, uvOrFlareCenter.Y, blendOutput, layerType);
             layerUniform.SkyTextureFactor = textureFactor;
             // Additive layers fog toward black so distant haze never glows (xim computeLightingParams).
@@ -1759,6 +1763,11 @@ namespace Gordian.App.Graphics
             if (layer.ClockAlphaCurve != null)
             {
                 factor.W *= layer.ClockAlphaCurve.Evaluate(Math.Clamp(dayFraction, 0.0f, 1.0f));
+            }
+            // A blend-opcode alpha override replaces the colour's alpha (xi-model-viewer runtime.js getColor).
+            if (layer.AlphaOverride is byte alphaOverride)
+            {
+                factor.W = alphaOverride / 255.0f;
             }
             return Vector4.Clamp(factor, Vector4.Zero, Vector4.One);
         }

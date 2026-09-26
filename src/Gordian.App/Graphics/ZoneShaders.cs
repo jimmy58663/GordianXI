@@ -738,6 +738,9 @@ layout(set = 1, binding = 1) uniform sampler uSampler;
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
+    // Generator ignore-texture-alpha flag (SunDirection.w): the texel counts as opaque. FFXI stores texture alpha at
+    // half scale (0x80 = opaque), so the neutral value is 0.5 (xi-model-viewer particleDrawer.js).
+    if (SunDirection.w > 0.5) tex.a = 0.5;
 
     vec4 stage0 = 2.0 * fsin_Color * tex;
     vec3 rgb = clamp(2.0 * stage0.rgb * SkyTextureFactor.rgb, 0.0, 1.0);

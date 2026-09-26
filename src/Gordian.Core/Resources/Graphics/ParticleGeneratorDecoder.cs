@@ -112,6 +112,16 @@ namespace Gordian.Core.Resources.Graphics
         public bool CameraAttachedBasePosition { get; set; }
         public bool LowPriorityDraw { get; set; }
 
+        /// <summary>
+        /// Render-state bit 0x1000: the texture's alpha channel is ignored (treated as opaque), so only the vertex
+        /// alpha and the generator's colour decide the particle's coverage. Bibiki Bay's cave-mouth light gradients
+        /// (<c>ent1</c>-<c>ent4</c>) rely on it: their rock atlas carries a blocky alpha mask meant for decal
+        /// sub-meshes, which would otherwise cut the gradient into tiles.
+        /// Flag referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/initializers.js, after xim StandardSetupInitializer).
+        /// </summary>
+        public bool IgnoreTextureAlpha { get; set; }
+
         public string LinkedDataId { get; set; } = string.Empty;
         public ParticleLinkedDataType LinkedDataType { get; set; } = ParticleLinkedDataType.Unknown;
         public Vector3 BasePosition { get; set; } = Vector3.Zero;
@@ -499,6 +509,7 @@ namespace Gordian.Core.Resources.Graphics
                         setup.FogEnabled = (renderStateFlags & 0x0200) == 0; // bit set disables fog
                         setup.CameraAttachedBasePosition = (renderStateFlags & 0x0400) != 0;
                         setup.LowPriorityDraw = (renderStateFlags & 0x0800) != 0;
+                        setup.IgnoreTextureAlpha = (renderStateFlags & 0x1000) != 0;
 
                         setup.LinkedDataId = ReadDatId(opPayload.Slice(12, 4));
 
