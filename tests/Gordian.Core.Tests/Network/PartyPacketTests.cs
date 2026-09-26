@@ -300,5 +300,80 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((1409u, 254u, 300u, (byte)14, (byte)9), (tarudrake.Hp, tarudrake.Mp, tarudrake.Tp, tarudrake.Hpp, tarudrake.Mpp));
             Assert.False(party.UpdateVitals(9999, 1, 1, 1, 1, 1)); // not a member
         }
+
+        private static byte[] GroupTable(params (uint Id, byte Flags)[] entries)
+        {
+            byte[] table = new byte[244];
+            table[0] = (byte)PartyKind.Alliance;
+            for (int i = 0; i < entries.Length; i++)
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(4 + i * 12, 4), entries[i].Id);
+                table[4 + i * 12 + 6] = entries[i].Flags;
+            }
+            return table;
+        }
+
+        [Fact]
+        public void AllianceTable_GroupsMembersByParty_FlagsLeaders_AndDropsLeavers()
+        {
+            var party = new PartyState();
+            var dispatcher = new PacketDispatcher();
+            new PartyPacketModule(party, (_, _) => Task.CompletedTask).Register(dispatcher);
+
+            // LSB orders the table by party (partyflag bits 0-1), then join time; bit 2 = party leader, bit 3 = alliance leader.
+            byte[] table = GroupTable((1001, 0x0C), (1002, 0x00), (2001, 0x05), (2002, 0x01), (3001, 0x06));
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0C8_GroupTbl.PacketId, (ushort)(table.Length + 4), 1), table);
+
+            var own = party.GetPartyMembers(0);
+            Assert.Equal(new uint[] { 1001, 1002 }, own.Select(m => m.ServerId));
+            Assert.True(own[0].IsLeader && own[0].IsAllianceLeader);
+            Assert.False(own[1].IsLeader || own[1].IsAllianceLeader);
+
+            var second = party.GetPartyMembers(1);
+            Assert.Equal(new uint[] { 2001, 2002 }, second.Select(m => m.ServerId));
+            Assert.Equal(new byte[] { 0, 1 }, second.Select(m => m.MemberNumber)); // slots count within each party
+            Assert.True(second[0].IsLeader && !second[0].IsAllianceLeader);
+            Assert.Equal(3001u, party.GetPartyMembers(2).Single().ServerId);
+
+            // The next table no longer lists 2002: they left the alliance.
+            table = GroupTable((1001, 0x0C), (1002, 0x00), (2001, 0x05), (3001, 0x06));
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0C8_GroupTbl.PacketId, (ushort)(table.Length + 4), 2), table);
+            Assert.DoesNotContain(party.Members, m => m.ServerId == 2002);
+            Assert.Equal(4, party.Members.Count);
+        }
+
+        [Fact]
+        public void GroupList_CarriesPartyNumberAndAllianceLeader()
+        {
+            byte[] payload = new byte[52];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 2001);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(16, 4), 0x0E); // PartyNo 2, party + alliance leader
+            payload[22] = 3;
+            var list = new S2C_0x0DD_GroupList(payload);
+            Assert.Equal(2, list.PartyNumber);
+            Assert.True(list.IsPartyLeader);
+            Assert.True(list.IsAllianceLeader);
+            Assert.Equal(3, list.MemberNumber);
+        }
+
+        [Fact]
+        public void GroupEffects_StoreEachMembersStatusIds()
+        {
+            var party = new PartyState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(new WorldState(), new LocalPlayerState { ServerId = 1001 }, (_, _) => Task.CompletedTask, null, party).Register(dispatcher);
+            party.UpsertMember(new PartyMember { ServerId = 1002, Name = "Cybin" });
+
+            // One member entry: buffs 40 (Protect), 0x2A + high bits 1 (0x12A), then empty slots (0xFF).
+            byte[] payload = new byte[S2C_0x076_GroupEffects.MemberEntrySize * 5];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 1002);
+            BinaryPrimitives.WriteUInt64LittleEndian(payload.AsSpan(8, 8), 1UL << 2);
+            payload.AsSpan(16, 32).Fill(0xFF);
+            payload[16] = 40;
+            payload[17] = 0x2A;
+            dispatcher.Dispatch(new PacketHeader(S2C_0x076_GroupEffects.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            Assert.Equal(new ushort[] { 40, 0x12A }, party.Members.Single().StatusEffectIds);
+        }
 }
 }

@@ -1,6 +1,9 @@
 // src/Gordian.App/Graphics/StockUiHud.cs
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
@@ -8,6 +11,7 @@ using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
+using Gordian.Core.World;
 using Veldrid;
 
 namespace Gordian.App.Graphics
@@ -57,21 +61,50 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Draws the HUD for a session over the framebuffer's current contents.
+        /// Draws the HUD for a session over the framebuffer's current contents. <paramref name="targetCursor"/> is the
+        /// screen point the target cursor points at (just above the target's head), when the target is on screen.
         /// </summary>
-        public void Render(StockUiRenderer renderer, CharacterSession? session, Framebuffer framebuffer, uint width, uint height)
+        public void Render(StockUiRenderer renderer, CharacterSession? session, Framebuffer framebuffer, uint width, uint height,
+            Vector2? targetCursor = null)
         {
             var library = _library;
             if (!Enabled || library == null || session == null) return;
             Layout = session.ActionService.UiLayout;
 
             renderer.Begin(library);
-            var party = DrawPartyWindow(renderer, library, session, width, height);
+            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
+            {
+                StockUiTargetWindow.DrawCursor(renderer, library, cursor, Layout.Scale, Stopwatch.GetTimestamp());
+            }
+            var groups = GroupParty(session);
+            var party = DrawPartyWindow(renderer, library, session, groups, width, height);
+            DrawAllianceWindows(renderer, library, groups, width, height);
             DrawLogWindow(renderer, library, party, width, height);
             DrawTargetWindow(renderer, library, session, party, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
             renderer.End(framebuffer, width, height);
         }
+
+        /// <summary>
+        /// The party list split for the windows: your own party (bottom "Party" window) and the alliance's other
+        /// parties in party-number order (the "raid1" window above, then "raid2").
+        /// </summary>
+        private readonly record struct PartyGroups(bool InGroup, IReadOnlyList<PartyMember> Own, IReadOnlyList<IReadOnlyList<PartyMember>> Others);
+
+        private static PartyGroups GroupParty(CharacterSession session)
+        {
+            var members = session.Party.Members;
+            if (members.Count <= 1) return new PartyGroups(false, Array.Empty<PartyMember>(), Array.Empty<IReadOnlyList<PartyMember>>());
+
+            uint localId = session.LocalPlayer.ServerId;
+            byte ownParty = members.FirstOrDefault(m => m.ServerId == localId)?.PartyNumber ?? 0;
+            var byParty = members.GroupBy(m => m.PartyNumber)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<PartyMember>)g.OrderBy(m => m.MemberNumber).ToList());
+            var own = byParty.TryGetValue(ownParty, out var list) ? list : Array.Empty<PartyMember>();
+            var others = byParty.Where(kv => kv.Key != ownParty).OrderBy(kv => kv.Key).Select(kv => kv.Value).ToList();
+            return new PartyGroups(true, own, others);
+        }
+
 
         /// <summary>
         /// The target window shows while something is targeted. By default it sits on top of the party window with a
@@ -97,6 +130,8 @@ namespace Gordian.App.Graphics
             foreach (var member in session.Party.Members) partyIds.Add(member.ServerId);
             var kind = StockUiTargetWindow.Classify(target, session.LocalPlayer.ServerId, partyIds);
             StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind);
+
+            if (session.ActionService.IsLockedOn) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
         }
 
         private void DrawStatusIcons(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
@@ -133,14 +168,14 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// The party window uses "ptw0" (titled Solo) outside a party and "ptw1".."ptw6" by member count in one.
+        /// The party window shows your own party: "ptw0" (titled Solo) outside a party and "ptw1".."ptw6" by member
+        /// count in one (or in an alliance).
         /// </summary>
-        private StockUiPlacement? DrawPartyWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        private StockUiPlacement? DrawPartyWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
+            PartyGroups groups, uint width, uint height)
         {
-            var members = session.Party.Members;
-            bool inParty = session.Party.IsInParty && members.Count > 1;
-            int count = inParty ? Math.Clamp(members.Count, 1, 6) : 1;
-            if (!library.TryGetMenu(inParty ? $"ptw{count}" : "ptw0", out var menu)) return null;
+            int count = groups.InGroup ? Math.Clamp(groups.Own.Count, 1, 6) : 1;
+            if (!library.TryGetMenu(groups.InGroup ? $"ptw{count}" : "ptw0", out var menu)) return null;
 
             var placement = Layout.Resolve(StockUiWindowIds.Party, menu.Frame, width, height);
             if (placement.Hidden) return placement;
@@ -148,38 +183,68 @@ namespace Gordian.App.Graphics
 
             var font = _font;
             if (font == null) return placement;
-            StockUiPartyWindow.Draw(renderer, font, menu, placement, GetPartyRows(session, inParty, count), Layout.ShowPartyTp);
+            var rows = GetPartyRows(session, groups, count);
+            StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
+            if (Layout.ShowPartyStatusIcons && _statusIcons is { } icons)
+            {
+                StockUiPartyWindow.DrawStatusIcons(renderer, icons, menu, placement, rows, Layout.PartyStatusIconSide);
+            }
             return placement;
         }
 
-        private static List<PartyRowVitals> GetPartyRows(CharacterSession session, bool inParty, int count)
+        /// <summary>
+        /// The alliance's other parties, in the "raid1" (upper) and "raid2" (lower) windows: authored above the target
+        /// window's slot, so they stay put whether or not something is targeted (as in retail captures).
+        /// </summary>
+        private void DrawAllianceWindows(StockUiRenderer renderer, UiResourceLibrary library, PartyGroups groups, uint width, uint height)
+        {
+            var font = _font;
+            for (int i = 0; i < groups.Others.Count && i < 2; i++)
+            {
+                if (!library.TryGetMenu($"raid{i + 1}", out var menu)) continue;
+                var placement = Layout.Resolve(i == 0 ? StockUiWindowIds.Alliance1 : StockUiWindowIds.Alliance2, menu.Frame, width, height);
+                if (placement.Hidden) continue;
+                renderer.DrawMenu(menu, placement, includeButtons: false);
+                if (font == null) continue;
+
+                var rows = new List<PartyRowVitals>(6);
+                foreach (var m in groups.Others[i].Take(6)) rows.Add(ToRow(m));
+                StockUiPartyWindow.DrawAllianceRows(renderer, font, menu, placement, rows);
+            }
+        }
+
+        private static List<PartyRowVitals> GetPartyRows(CharacterSession session, PartyGroups groups, int count)
         {
             var rows = new List<PartyRowVitals>(count);
             var local = session.LocalPlayer;
-            if (!inParty)
+            if (!groups.InGroup)
             {
                 rows.Add(new PartyRowVitals(session.CharacterName, local.CurrentHp, Percent(local.CurrentHp, local.MaxHp),
-                    local.CurrentMp, Percent(local.CurrentMp, local.MaxMp), local.CurrentTp, IsLeader: false));
+                    local.CurrentMp, Percent(local.CurrentMp, local.MaxMp), local.CurrentTp, IsLeader: false,
+                    StatusIds: local.GetStatusEffectIds()));
                 return rows;
             }
 
-            var members = session.Party.Members;
-            for (int i = 0; i < count && i < members.Count; i++)
+            for (int i = 0; i < count && i < groups.Own.Count; i++)
             {
-                var m = members[i];
+                var m = groups.Own[i];
                 if (m.ServerId != 0 && m.ServerId == local.ServerId)
                 {
-                    // Our own row reads the local player's live vitals (always current; the party copy only
-                    // updates when the server relays 0x0DF/0x0DD for us).
+                    // Our own row reads the local player's live vitals and status (always current; the party copy
+                    // only updates when the server relays 0x0DF/0x0DD for us, and 0x076 never lists us).
                     string ownName = m.Name.Length > 0 ? m.Name : session.CharacterName;
                     rows.Add(new PartyRowVitals(ownName, local.CurrentHp, Percent(local.CurrentHp, local.MaxHp),
-                        local.CurrentMp, Percent(local.CurrentMp, local.MaxMp), local.CurrentTp, m.IsLeader));
+                        local.CurrentMp, Percent(local.CurrentMp, local.MaxMp), local.CurrentTp, m.IsLeader, m.IsAllianceLeader,
+                        local.GetStatusEffectIds()));
                     continue;
                 }
-                rows.Add(new PartyRowVitals(m.Name, (int)m.Hp, m.Hpp, (int)m.Mp, m.Mpp, (int)m.Tp, m.IsLeader));
+                rows.Add(ToRow(m));
             }
             return rows;
         }
+
+        private static PartyRowVitals ToRow(PartyMember m) =>
+            new(m.Name, (int)m.Hp, m.Hpp, (int)m.Mp, m.Mpp, (int)m.Tp, m.IsLeader, m.IsAllianceLeader, m.StatusEffectIds);
 
         private static int Percent(int value, int max) => max > 0 ? Math.Clamp(value * 100 / max, 0, 100) : 100;
     }

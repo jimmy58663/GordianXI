@@ -70,6 +70,21 @@ namespace Gordian.App.Graphics
         public int VisibleEntities { get; private set; }
         public int CulledEntities { get; private set; }
 
+        /// <summary>The current target's server id (0 = none): it takes <see cref="TargetFlashAmount"/>.</summary>
+        public uint TargetServerId { get; set; }
+
+        /// <summary>Light added to the current target this frame (see <see cref="TargetFlash"/>).</summary>
+        public float TargetFlashAmount { get; set; }
+
+        /// <summary>
+        /// Display-space point just above the current target's head, found while drawing it this frame (null when the
+        /// target was not drawn), where the target cursor is placed.
+        /// </summary>
+        public Vector3? TargetAnchor { get; private set; }
+
+        /// <summary>Yalms between the target's highest joint and the target cursor's tip.</summary>
+        private const float TargetAnchorClearance = 0.6f;
+
         private sealed class GpuSubmesh : IDisposable
         {
             public string TextureName { get; init; } = string.Empty;
@@ -268,6 +283,7 @@ namespace Gordian.App.Graphics
             int draws = 0;
             int visible = 0;
             int culled = 0;
+            TargetAnchor = null;
 
             float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
             float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
@@ -365,6 +381,8 @@ namespace Gordian.App.Graphics
                     EyePosition = new Vector4(camera.Position, 1.0f),
                     WeatherParams = Vector4.Zero,
                 };
+                bool isTarget = TargetServerId != 0 && entity.ServerId == TargetServerId;
+                if (isTarget) uniform.SkyLayerParams = new Vector4(0.0f, 0.0f, TargetFlashAmount, 0.0f);
 
                 // Actors take the 0x2F model lights of the environment they stand in: a floor linked to a
                 // sub-environment (a cave or interior) uses that environment's, anywhere else the zone's weather.
@@ -406,8 +424,13 @@ namespace Gordian.App.Graphics
 
                     bool loop = category != AnimationCategory.Death && !entity.Animation.IsPlayingTransition;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null);
+                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null);
                     cl.SetGraphicsResourceSet(2, palette.Set);
+                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, top + TargetAnchorClearance, 0.0f);
+                }
+                else if (isTarget)
+                {
+                    TargetAnchor = pos + new Vector3(0.0f, maxBox.Y - pos.Y, 0.0f);
                 }
 
                 for (int m = 0; m < gpuModel.Submeshes.Count; m++)
@@ -437,7 +460,10 @@ namespace Gordian.App.Graphics
             return new JointPaletteEntry(buffer, set);
         }
 
-        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
+        /// <summary>
+        /// Uploads an entity's current pose and returns the height (yalms above its feet) of its highest joint.
+        /// </summary>
+        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
         {
             SkeletonPoseEvaluator.EvaluatedPose pose;
             if (animState.IsBlending && animState.PreviousClip != null)
@@ -469,11 +495,13 @@ namespace Gordian.App.Graphics
                 count = ZoneShaders.MaxPaletteJoints;
             }
 
+            float top = 0.0f;
             for (int i = 0; i < count; i++)
             {
                 var r = pose.Rotations[i];
                 _paletteScratch[i] = new Vector4(r.X, r.Y, r.Z, r.W);
                 var t = pose.Translations[i];
+                top = Math.Max(top, -t.Y); // model space is Y-down (EntityRotMatrix flips it)
                 _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = new Vector4(t.X, t.Y, t.Z, 0f);
                 var s = i < pose.Scales.Length ? pose.Scales[i] : Vector3.One;
                 _paletteScratch[(ZoneShaders.MaxPaletteJoints * 2) + i] = new Vector4(s.X, s.Y, s.Z, 1f);
@@ -486,6 +514,7 @@ namespace Gordian.App.Graphics
             }
 
             cl.UpdateBuffer(buffer, 0, _paletteScratch);
+            return top;
         }
 
         /// <summary>

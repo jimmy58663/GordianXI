@@ -214,6 +214,27 @@ void main()
             AddQuad(set, part.BlendMode, tl, tr, bl, br);
         }
 
+        /// <summary>
+        /// Draws every part of an image with its layout points mapped to screen pixels by <paramref name="transform"/>
+        /// (for sprites the client turns or places freely, such as the target cursor).
+        /// </summary>
+        public void DrawImage(UiImage image, Matrix3x2 transform, UiColor? tint = null)
+        {
+            if (_library == null) return;
+            foreach (var part in image.Parts)
+            {
+                if (!TryGetTextureSet(part.TextureName, out var set, out float texWidth, out float texHeight)) continue;
+                float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
+                float u1 = (part.SourceX + part.SourceWidth) / texWidth, v1 = (part.SourceY + part.SourceHeight) / texHeight;
+                Vector2 P(UiPoint p) => Vector2.Transform(new Vector2(p.X, p.Y), transform);
+                AddQuad(set, part.BlendMode,
+                    new UiVertex { Position = P(part.TopLeft), TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) },
+                    new UiVertex { Position = P(part.TopRight), TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) },
+                    new UiVertex { Position = P(part.BottomLeft), TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) },
+                    new UiVertex { Position = P(part.BottomRight), TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) });
+            }
+        }
+
         private void AddQuad(ResourceSet set, UiBlendMode blend, UiVertex tl, UiVertex tr, UiVertex bl, UiVertex br)
         {
             int first = _vertices.Count;

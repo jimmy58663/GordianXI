@@ -68,6 +68,12 @@ namespace Gordian.Core.Actions
         private readonly Func<ReadOnlyMemory<byte>, bool, Task> _sendChunkCallback;
 
         public WorldEntity? CurrentTarget { get; private set; }
+
+        /// <summary>
+        /// <see cref="System.Diagnostics.Stopwatch"/> timestamp of the last change to a new target (0 before any), which
+        /// starts the target's selection flash; changing target again restarts it on the new one.
+        /// </summary>
+        public long TargetSelectedTimestamp { get; private set; }
         public bool IsLockedOn { get; private set; }
         public CombatState? Combat => _combatModule?.State;
         public event Action<WorldEntity?>? TargetChanged;
@@ -148,6 +154,10 @@ namespace Gordian.Core.Actions
                 if (target == null)
                 {
                     SetLockOn(false);
+                }
+                else
+                {
+                    TargetSelectedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 }
                 TargetChanged?.Invoke(CurrentTarget);
             }
@@ -834,12 +844,12 @@ namespace Gordian.Core.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [scale <n> | tp <on|off> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
-            "Windows: log, chat, party, alliance, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner.";
+            "Usage: /uilayout [scale <n> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner.";
 
         private static readonly string[] UiWindowIds =
         {
-            StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance,
+            StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance1, StockUiWindowIds.Alliance2,
             StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu,
         };
 
@@ -867,6 +877,16 @@ namespace Gordian.Core.Actions
             {
                 layout.SetShowPartyTp(parts[1].Equals("on", StringComparison.OrdinalIgnoreCase));
                 return PlayerActionResult.Ok($"Party window TP {(layout.ShowPartyTp ? "shown" : "hidden (retail)")}.", Kind);
+            }
+            if (first == "buffs" && parts.Length == 2 && parts[1].ToLowerInvariant() is "on" or "off" or "left" or "right")
+            {
+                // "left"/"right" turn the icons on and pick the side of the party window they are drawn on.
+                string option = parts[1].ToLowerInvariant();
+                PartyStatusIconSide? side = option switch { "left" => PartyStatusIconSide.Left, "right" => PartyStatusIconSide.Right, _ => null };
+                layout.SetShowPartyStatusIcons(option != "off", side);
+                return PlayerActionResult.Ok(layout.ShowPartyStatusIcons
+                    ? $"Party member status icons shown on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()} of the party window."
+                    : "Party member status icons hidden (retail).", Kind);
             }
             if (first == "scale" && parts.Length == 2 && TryFloat(parts[1], out float globalScale))
             {
@@ -914,7 +934,8 @@ namespace Gordian.Core.Actions
 
         private static string DescribeUiLayout(StockUiLayout layout)
         {
-            var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}");
+            var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}" +
+                (layout.ShowPartyStatusIcons ? $", party status icons on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()}" : string.Empty));
             var overrides = layout.GetOverrides();
             if (overrides.Count == 0) return sb.Append("; every window at its retail placement.").ToString();
             foreach (var (id, o) in overrides)

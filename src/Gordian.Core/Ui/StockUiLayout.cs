@@ -40,6 +40,15 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>
+    /// Which side of the party window the opt-in party member status icons are drawn on.
+    /// </summary>
+    public enum PartyStatusIconSide
+    {
+        Left,
+        Right,
+    }
+
+    /// <summary>
     /// Logical ids of the persistent stock windows a player can place.
     /// </summary>
     public static class StockUiWindowIds
@@ -47,7 +56,12 @@ namespace Gordian.Core.Ui
         public const string Log = "log";
         public const string ChatInput = "chat";
         public const string Party = "party";
-        public const string Alliance = "alliance";
+
+        /// <summary>The upper alliance window ("raid1"): the first other party of an alliance.</summary>
+        public const string Alliance1 = "alliance1";
+
+        /// <summary>The lower alliance window ("raid2"): the second other party of an alliance.</summary>
+        public const string Alliance2 = "alliance2";
         public const string Target = "target";
         public const string StatusIcons = "status";
         public const string MainMenu = "menu";
@@ -81,6 +95,14 @@ namespace Gordian.Core.Ui
         /// Opt-in enhancement (not in the legacy client): show each party member's TP in the party window.
         /// </summary>
         public bool ShowPartyTp { get; set; }
+
+        /// <summary>
+        /// Opt-in enhancement (not in the legacy client): show each party member's status icons beside their row.
+        /// </summary>
+        public bool ShowPartyStatusIcons { get; set; }
+
+        /// <summary>The side of the party window the party member status icons are drawn on.</summary>
+        public PartyStatusIconSide PartyStatusIconSide { get; set; } = PartyStatusIconSide.Left;
 
         /// <summary>
         /// Overrides keyed by logical window id (<see cref="StockUiWindowIds"/>), case-insensitive. Ids are logical
@@ -207,6 +229,16 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
+        public void SetShowPartyStatusIcons(bool show, PartyStatusIconSide? side = null)
+        {
+            lock (_sync)
+            {
+                ShowPartyStatusIcons = show;
+                if (side is { } s) PartyStatusIconSide = s;
+            }
+            Changed?.Invoke();
+        }
+
         /// <summary>Restores one window's authored placement.</summary>
         public void Reset(string windowId)
         {
@@ -223,6 +255,8 @@ namespace Gordian.Core.Ui
                 Windows.Clear();
                 Scale = 1.0f;
                 ShowPartyTp = false;
+                ShowPartyStatusIcons = false;
+                PartyStatusIconSide = PartyStatusIconSide.Left;
             }
             Changed?.Invoke();
         }

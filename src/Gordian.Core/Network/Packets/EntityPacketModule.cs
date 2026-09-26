@@ -453,10 +453,9 @@ namespace Gordian.Core.Network.Packets
             _localPlayer.UpdateFromCharStatus(charStatus);
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
-                if (charStatus.Speed > 0)
-                {
-                    localEnt.Speed = (byte)Math.Min((ushort)255, charStatus.Speed);
-                }
+                // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
+                // Speed is its current speed, which the locomotion controller owns: writing the stat there made a
+                // standing player play a step on every status update.
                 if (charStatus.SpeedBase > 0)
                 {
                     localEnt.SpeedBase = charStatus.SpeedBase;
@@ -488,6 +487,14 @@ namespace Gordian.Core.Network.Packets
             var effects = new S2C_0x076_GroupEffects(payload);
             if (!effects.IsValid) return;
 
+            if (_party != null)
+            {
+                for (int i = 0; i < effects.MemberCount; i++)
+                {
+                    uint id = effects.GetMemberUniqueNo(i);
+                    if (id != 0) _party.UpdateStatusEffects(id, S2C_0x076_GroupEffects.DecodeStatusIds(effects.GetMemberBuffs(i), effects.GetMemberStatusBits(i)));
+                }
+            }
             PartyBuffsReceived?.Invoke(effects);
             GordianLog.Debug("ENTITY", $"Received party group effects for {effects.MemberCount} members.");
         }

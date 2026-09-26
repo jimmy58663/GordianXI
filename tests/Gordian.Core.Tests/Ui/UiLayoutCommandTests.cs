@@ -51,6 +51,21 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(service.ApplyUiLayoutCommand("tp on").Success);
             Assert.True(layout.ShowPartyTp);
 
+            // Opt-in party member status icons: on (left by default), a side, off.
+            Assert.True(service.ApplyUiLayoutCommand("buffs on").Success);
+            Assert.True(layout.ShowPartyStatusIcons);
+            Assert.Equal(PartyStatusIconSide.Left, layout.PartyStatusIconSide);
+            Assert.True(service.ApplyUiLayoutCommand("buffs right").Success);
+            Assert.Equal(PartyStatusIconSide.Right, layout.PartyStatusIconSide);
+            Assert.True(service.ApplyUiLayoutCommand("buffs off").Success);
+            Assert.False(layout.ShowPartyStatusIcons);
+            Assert.Equal(PartyStatusIconSide.Right, layout.PartyStatusIconSide);
+
+            // Party, target and both alliance windows move independently.
+            Assert.True(service.ApplyUiLayoutCommand("alliance2 move 300 40 topright").Success);
+            Assert.False(layout.HasPositionOverride(StockUiWindowIds.Alliance1));
+            Assert.True(layout.HasPositionOverride(StockUiWindowIds.Alliance2));
+
             Assert.True(service.ApplyUiLayoutCommand("party move 100, 50 topleft").Success);
             var party = layout.Windows[StockUiWindowIds.Party];
             Assert.Equal((100f, 50f, UiAnchor.TopLeft), (party.X!.Value, party.Y!.Value, party.Anchor!.Value));

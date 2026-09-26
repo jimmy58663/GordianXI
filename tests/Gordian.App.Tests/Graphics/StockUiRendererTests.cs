@@ -273,6 +273,116 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Renders an alliance at 1:1 (the retail layout space): your party of six with the alliance leader, the two
+        /// alliance windows, the locked-on target window, the target cursor and the opt-in party status icons; writes
+        /// alliance_lock.png when GORDIAN_UI_DUMP is set, for comparison with retail alliance captures.
+        /// </summary>
+        [Fact]
+        public void RendersAllianceWindowsLockOverlayAndTargetCursor()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            var icons = StatusIconLibrary.Load(rm);
+            if (library == null || font == null || icons == null) return;
+            Assert.True(library.TryGetMenu("ptw6", out var own));
+            Assert.True(library.TryGetMenu("raid1", out var raid1));
+            Assert.True(library.TryGetMenu("raid2", out var raid2));
+            Assert.True(library.TryGetMenu("targetwi", out var target));
+
+            const uint width = 512, height = 448;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiAllianceTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.45f, 0.5f, 0.3f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+
+                // A capture's alliance (retail 2026-09-26): Gigie leads the alliance from your party; Aikiko leads the upper party.
+                var ownRows = new[]
+                {
+                    new PartyRowVitals("Inga", 774, 60, 289, 40, 0, false, StatusIds: new ushort[] { 40, 42, 43 }),
+                    new PartyRowVitals("Gigie", 819, 70, 694, 90, 0, true, IsAllianceLeader: true, StatusIds: new ushort[] { 116 }),
+                    new PartyRowVitals("Cybin", 857, 72, 350, 50, 0, false),
+                    new PartyRowVitals("Ioto", 1053, 100, 783, 100, 0, false),
+                    new PartyRowVitals("Kedamonah", 996, 74, 339, 60, 0, false),
+                    new PartyRowVitals("Tarudrake", 9999, 100, 2794, 100, 0, false),
+                };
+                var party = layout.Resolve(StockUiWindowIds.Party, own.Frame, width, height);
+                renderer.DrawMenu(own, party, includeButtons: false);
+                StockUiPartyWindow.Draw(renderer, font, own, party, ownRows, showTp: false);
+                StockUiPartyWindow.DrawStatusIcons(renderer, icons, own, party, ownRows, PartyStatusIconSide.Left);
+
+                var upper = layout.Resolve(StockUiWindowIds.Alliance1, raid1.Frame, width, height);
+                renderer.DrawMenu(raid1, upper, includeButtons: false);
+                StockUiPartyWindow.DrawAllianceRows(renderer, font, raid1, upper, new[]
+                {
+                    new PartyRowVitals("Gunshin", 836, 100, 0, 0, 0, false),
+                    new PartyRowVitals("Aikiko", 1077, 100, 0, 0, 0, true),
+                    new PartyRowVitals("Ngt", 788, 100, 0, 0, 0, false),
+                    new PartyRowVitals("Siobahnn", 475, 60, 0, 0, 0, false),
+                    new PartyRowVitals("Ajani", 800, 90, 0, 0, 0, false),
+                });
+                var lower = layout.Resolve(StockUiWindowIds.Alliance2, raid2.Frame, width, height);
+                renderer.DrawMenu(raid2, lower, includeButtons: false);
+                StockUiPartyWindow.DrawAllianceRows(renderer, font, raid2, lower, new[] { new PartyRowVitals("Myargin", 0, 0, 0, 0, 0, true) });
+
+                var targetPlacement = layout.Resolve(StockUiWindowIds.Target, target.Frame, width, height) with { Y = party.Y - (target.Frame.Height + 2) };
+                renderer.DrawMenu(target, targetPlacement, includeButtons: false);
+                StockUiTargetWindow.Draw(renderer, font, target, targetPlacement, "Marine Dhalmel", 60, TargetNameKind.ClaimedByParty);
+                StockUiTargetWindow.DrawLockOverlay(renderer, library, targetPlacement);
+
+                var tip = new System.Numerics.Vector2(160, 200);
+                StockUiTargetWindow.DrawCursor(renderer, library, tip, 1.0f, timestamp: 0);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "alliance_lock.png"), pixels, (int)width, (int)height);
+                }
+
+                // The alliance windows stack above the target window's authored slot, 2 pixels apart.
+                Assert.Equal(upper.Bottom(raid1.Frame.Height) + 2, lower.Y, 3);
+                Assert.Equal(252, lower.Bottom(raid2.Frame.Height) + 2, 3);
+
+                // The cursor points down at its tip: the sprite lies above it, nothing below it.
+                var clear = Pixel(pixels, width, 100, 20);
+                Assert.NotEqual(clear, Pixel(pixels, width, (int)tip.X, (int)tip.Y - 8));
+                Assert.Equal(clear, Pixel(pixels, width, (int)tip.X, (int)tip.Y + 6));
+
+                // Status icons sit left of the party window, the first nearest to it.
+                Assert.NotEqual(clear, Pixel(pixels, width, (int)party.X - 10, (int)party.Y + 13));
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         private static byte[] ReadBack(Veldrid.GraphicsDevice gd, Veldrid.Texture source, uint width, uint height)
         {
             var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, source.Format, Veldrid.TextureUsage.Staging));

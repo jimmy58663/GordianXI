@@ -1,5 +1,6 @@
 // src/Gordian.Core/Network/Packets/PartyPacketModule.cs
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.World;
@@ -93,24 +94,28 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
+            // The table lists the whole party or alliance, grouped by party; slots count from 0 within each party.
+            var listed = new List<uint>(tbl.EntryCount);
+            Span<byte> nextSlot = stackalloc byte[4];
             for (int i = 0; i < tbl.EntryCount; i++)
             {
                 uint id = tbl.GetEntryUniqueNo(i);
                 if (id == 0) continue;
+                listed.Add(id);
 
-                ushort targetIndex = tbl.GetEntryActIndex(i);
-                bool isLeader = tbl.IsEntryLeader(i);
-                ushort zoneId = tbl.GetEntryZoneNo(i);
-
+                byte partyNumber = tbl.GetEntryPartyNumber(i);
                 _partyState.UpsertMember(new PartyMember
                 {
                     ServerId = id,
-                    TargetIndex = targetIndex,
-                    IsLeader = isLeader,
-                    ZoneId = zoneId,
-                    MemberNumber = (byte)i
+                    TargetIndex = tbl.GetEntryActIndex(i),
+                    IsLeader = tbl.IsEntryLeader(i),
+                    IsAllianceLeader = tbl.IsEntryAllianceLeader(i),
+                    ZoneId = tbl.GetEntryZoneNo(i),
+                    PartyNumber = partyNumber,
+                    MemberNumber = nextSlot[partyNumber]++
                 }, includeVitals: false);
             }
+            _partyState.RetainMembers(listed);
         }
 
         private void HandleGroupList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -135,6 +140,8 @@ namespace Gordian.Core.Network.Packets
                 SubJob = list.SubJob,
                 SubJobLevel = list.SubJobLevel,
                 IsLeader = list.IsPartyLeader,
+                IsAllianceLeader = list.IsAllianceLeader,
+                PartyNumber = list.PartyNumber,
                 MemberNumber = list.MemberNumber
             };
 
@@ -312,6 +319,8 @@ namespace Gordian.Core.Network.Packets
                 SubJob = list2.SubJob,
                 SubJobLevel = list2.SubJobLevel,
                 IsLeader = (list2.GAttr & 0x04) != 0,
+                IsAllianceLeader = (list2.GAttr & 0x08) != 0,
+                PartyNumber = (byte)(list2.GAttr & 0x03),
                 MemberNumber = list2.MemberNumber
             };
 

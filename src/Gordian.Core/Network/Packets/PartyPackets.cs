@@ -146,6 +146,12 @@ namespace Gordian.Core.Network.Packets
             return (GetEntryFlags(index) & 0x04) != 0; // bit 2: PartyLeaderFlg
         }
 
+        /// <summary>The alliance party the entry belongs to (bits 0-1: PartyNo, 0-2).</summary>
+        public byte GetEntryPartyNumber(int index) => (byte)(GetEntryFlags(index) & 0x03);
+
+        /// <summary>Bit 3: AllianceLeaderFlg.</summary>
+        public bool IsEntryAllianceLeader(int index) => (GetEntryFlags(index) & 0x08) != 0;
+
         public ushort GetEntryZoneNo(int index)
         {
             if (index < 0 || index >= EntryCount) return 0;
@@ -182,6 +188,12 @@ namespace Gordian.Core.Network.Packets
         public bool IsValid { get; }
 
         public bool IsPartyLeader => (GAttr & 0x04) != 0;
+
+        /// <summary>The alliance party the member belongs to (GAttr bits 0-1: PartyNo, 0-2).</summary>
+        public byte PartyNumber => (byte)(GAttr & 0x03);
+
+        /// <summary>GAttr bit 3: AllianceLeaderFlg.</summary>
+        public bool IsAllianceLeader => (GAttr & 0x08) != 0;
 
         private readonly ReadOnlySpan<byte> _payload;
 

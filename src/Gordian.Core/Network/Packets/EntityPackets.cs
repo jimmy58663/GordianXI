@@ -930,6 +930,22 @@ namespace Gordian.Core.Network.Packets
             if (index < 0 || index >= MemberCount) return ReadOnlySpan<byte>.Empty;
             return _payload.Slice((index * MemberEntrySize) + 16, 32);
         }
+
+        /// <summary>
+        /// Status effect ids in icon order: each buff byte is an id's low 8 bits and the 64-bit field carries its two
+        /// high bits (buff i at bits 2i..2i+1, as in S2C 0x037); 0xFF with no high bits is an empty slot.
+        /// </summary>
+        public static ushort[] DecodeStatusIds(ReadOnlySpan<byte> buffs, ulong statusBits)
+        {
+            int count = 0;
+            Span<ushort> ids = stackalloc ushort[32];
+            for (int i = 0; i < buffs.Length && i < 32; i++)
+            {
+                int id = buffs[i] | (int)((statusBits >> (2 * i)) & 0x03) << 8;
+                if (id != 0xFF) ids[count++] = (ushort)id;
+            }
+            return ids[..count].ToArray();
+        }
     }
 
     /// <summary>

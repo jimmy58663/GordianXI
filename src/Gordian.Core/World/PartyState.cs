@@ -36,7 +36,20 @@ namespace Gordian.Core.World
         public JobId SubJob { get; set; } = JobId.None;
         public byte SubJobLevel { get; set; }
         public bool IsLeader { get; set; }
+
+        /// <summary>The member's slot within its own party (0-5).</summary>
         public byte MemberNumber { get; set; }
+
+        /// <summary>Which party of an alliance the member is in (PartyNo, 0-2); 0 outside an alliance.</summary>
+        public byte PartyNumber { get; set; }
+
+        /// <summary>The alliance leader (always also the leader of their own party).</summary>
+        public bool IsAllianceLeader { get; set; }
+
+        /// <summary>
+        /// The member's status effect ids in icon order (S2C 0x076, sent for the other members of your own party only).
+        /// </summary>
+        public IReadOnlyList<ushort> StatusEffectIds { get; set; } = Array.Empty<ushort>();
 
         public PartyMember Clone()
         {
@@ -56,7 +69,10 @@ namespace Gordian.Core.World
                 SubJob = SubJob,
                 SubJobLevel = SubJobLevel,
                 IsLeader = IsLeader,
-                MemberNumber = MemberNumber
+                MemberNumber = MemberNumber,
+                PartyNumber = PartyNumber,
+                IsAllianceLeader = IsAllianceLeader,
+                StatusEffectIds = StatusEffectIds
             };
         }
     }
@@ -177,6 +193,8 @@ namespace Gordian.Core.World
                     if (member.SubJobLevel > 0) existing.SubJobLevel = member.SubJobLevel;
                     existing.IsLeader = member.IsLeader;
                     existing.MemberNumber = member.MemberNumber;
+                    existing.PartyNumber = member.PartyNumber;
+                    existing.IsAllianceLeader = member.IsAllianceLeader;
                     notifyMember = existing.Clone();
                 }
                 else
@@ -221,6 +239,54 @@ namespace Gordian.Core.World
             if (updated == null) return false;
             MemberUpdated?.Invoke(updated);
             return true;
+        }
+
+        /// <summary>
+        /// Replaces a party member's status effect ids (S2C 0x076). Returns false when the id is not a party member.
+        /// </summary>
+        public bool UpdateStatusEffects(uint serverId, IReadOnlyList<ushort> statusIds)
+        {
+            ArgumentNullException.ThrowIfNull(statusIds);
+            PartyMember? updated = null;
+            lock (_lock)
+            {
+                var existing = _members.FirstOrDefault(m => m.ServerId == serverId);
+                if (existing != null)
+                {
+                    existing.StatusEffectIds = statusIds;
+                    updated = existing.Clone();
+                }
+            }
+            if (updated == null) return false;
+            MemberUpdated?.Invoke(updated);
+            return true;
+        }
+
+        /// <summary>
+        /// Removes every member whose server id is not listed: the group table (S2C 0x0C8) always lists the whole
+        /// party or alliance, so anyone missing from it has left.
+        /// </summary>
+        public void RetainMembers(IReadOnlyCollection<uint> serverIds)
+        {
+            ArgumentNullException.ThrowIfNull(serverIds);
+            List<uint> removed;
+            lock (_lock)
+            {
+                removed = _members.Where(m => !serverIds.Contains(m.ServerId)).Select(m => m.ServerId).ToList();
+                _members.RemoveAll(m => !serverIds.Contains(m.ServerId));
+            }
+            foreach (uint id in removed) MemberLeft?.Invoke(id);
+        }
+
+        /// <summary>
+        /// The members of one party of the alliance (<see cref="PartyMember.PartyNumber"/>), in slot order.
+        /// </summary>
+        public IReadOnlyList<PartyMember> GetPartyMembers(byte partyNumber)
+        {
+            lock (_lock)
+            {
+                return _members.Where(m => m.PartyNumber == partyNumber).OrderBy(m => m.MemberNumber).Select(m => m.Clone()).ToList();
+            }
         }
 
         public void RemoveMember(uint serverId)

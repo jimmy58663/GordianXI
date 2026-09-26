@@ -25,7 +25,7 @@ namespace Gordian.App.Graphics
         public Vector4 EyePosition;
         public Vector4 WeatherParams; // X = UVOffset.X, Y = UVOffset.Y, Z = Time, W = IsCelestial (1.0 = bypass fog)
         public Vector4 SkyTextureFactor; // Weather-sky generator color (texture factor), read only by the weather-sky shaders
-        public Vector4 SkyLayerParams; // Weather-sky only: X = fog enabled, Y = fog toward black (additive layers)
+        public Vector4 SkyLayerParams; // Weather-sky: X = fog enabled, Y = fog toward black (additive layers); actors: Z = target flash
         public Vector4 MoonColor; // Moonlight color; the moon shines opposite SunDirection
     }
 
@@ -578,6 +578,8 @@ void main()
     // WeatherParams.z > 0 caps the summed light (actors: see ActorLighting.MaxLight); terrain leaves it 0 (cap 1).
     float lightCap = WeatherParams.z > 0.0 ? WeatherParams.z : 1.0;
     vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, lightCap);
+    // SkyLayerParams.z: the newly selected target's flash (actors only; see TargetFlash), added to the light.
+    lit += vec3(SkyLayerParams.z);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;

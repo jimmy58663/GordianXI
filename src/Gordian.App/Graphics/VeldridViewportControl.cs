@@ -629,6 +629,17 @@ namespace Gordian.App.Graphics
                                 }
                             }
 
+                            // The current target flashes for a moment after it is selected (see TargetFlash).
+                            if (_renderer.EntityRenderer is { } entityRenderer)
+                            {
+                                var actions = _activeSession?.ActionService;
+                                var target = actions?.CurrentTarget;
+                                entityRenderer.TargetServerId = target?.ServerId ?? 0;
+                                entityRenderer.TargetFlashAmount = target != null && actions!.TargetSelectedTimestamp != 0
+                                    ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)
+                                    : 0.0f;
+                            }
+
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
                                 Camera,
@@ -707,7 +718,22 @@ namespace Gordian.App.Graphics
             var gd = _deviceManager.Device;
             if (_stockUiRenderer == null || gd == null) return;
             StockUi.EnsureLoading(ResourceManager);
-            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, _deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
+            uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
+            Vector2? cursor = _renderer?.EntityRenderer?.TargetAnchor is { } anchor
+                ? ProjectToScreen(anchor, Camera.ViewMatrix * Camera.ProjectionMatrix, width, height, gd.IsClipSpaceYInverted)
+                : null;
+            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, width, height, cursor);
+        }
+
+        /// <summary>
+        /// Screen pixel of a display-space point (null behind the camera), matching the 3D pass's clip space.
+        /// </summary>
+        internal static Vector2? ProjectToScreen(Vector3 point, Matrix4x4 viewProjection, uint width, uint height, bool clipSpaceYInverted)
+        {
+            Vector4 clip = Vector4.Transform(new Vector4(point, 1.0f), viewProjection);
+            if (clip.W <= 0.0001f) return null;
+            float x = clip.X / clip.W, y = clip.Y / clip.W;
+            return new Vector2((x * 0.5f + 0.5f) * width, (clipSpaceYInverted ? y * 0.5f + 0.5f : 0.5f - y * 0.5f) * height);
         }
 
         /// <summary>

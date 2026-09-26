@@ -8,10 +8,12 @@ using Gordian.Core.Ui;
 namespace Gordian.App.Graphics
 {
     /// <summary>
-    /// One party window row's contents.
+    /// One party (or alliance) window row's contents.
     /// </summary>
     /// <param name="HpPercent">0-100.</param>
-    public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader);
+    /// <param name="StatusIds">Status effect ids in icon order, for the opt-in party status icons (null = none known).</param>
+    public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader,
+        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null);
 
     /// <summary>
     /// Draws the party window rows (name, HP/MP numbers and gauges, leader marker) inside a "ptw0".."ptw6" frame.
@@ -25,6 +27,13 @@ namespace Gordian.App.Graphics
     /// unstretched strip at row x + 48, 15 pixels below. Only the gauge middles are tinted (the knob and end caps
     /// keep their olive/grey texels).
     /// </para>
+    /// <para>
+    /// Alliance windows ("raid1"/"raid2", 16-pixel rows) carry the same name, HP number and HP gauge at the same
+    /// offsets from each row, and no MP (measured from 1:1 retail captures of an alliance, 2026-09-26). The leader
+    /// balls are the "colorbal" texture's yellow (party leader) and white (alliance leader) balls, which match the
+    /// captures' greenish yellow (DFF44D) and cream white (D5EEEC); the alliance leader shows both, white in the usual
+    /// place and yellow beside it.
+    /// </para>
     /// </summary>
     public static class StockUiPartyWindow
     {
@@ -33,13 +42,26 @@ namespace Gordian.App.Graphics
         private const string GaugeTexture = "gauge";
 
         // Gauge strip in the 64 x 64 "gauge" texture: rows 8-15; knob x 0-8, strip x 9-63 (left cap 9-12,
-        // tinted middle 13-58, right cap 59-63). The party-leader ball is at (33, 16) 15 x 15.
+        // tinted middle 13-58, right cap 59-63).
         private const float StripTop = 8, StripHeight = 8;
         private const float KnobX = 0, KnobWidth = 9;
         private const float LeftCapX = 9, LeftCapWidth = 4;
         private const float MiddleX = 13, MiddleWidth = 46;
         private const float RightCapX = 59, RightCapWidth = 5;
-        private const float LeaderX = 33, LeaderY = 16, LeaderSize = 15;
+
+        // Leader balls in the 64 x 64 "colorbal" texture: 16 x 16 cells (the ball fills 14 of them), white at (0, 16),
+        // yellow at (16, 16).
+        private const string BallTexture = "colorbal";
+        private const float BallCell = 16, WhiteBallX = 0, YellowBallX = 16, BallY = 16;
+
+        /// <summary>Screen size of a ball cell so the ball shows 8 pixels across (retail ~6; 8 by request).</summary>
+        private const float BallSize = 8 * BallCell / 14;
+
+        /// <summary>How far right of the alliance leader's white ball its yellow party-leader ball sits.</summary>
+        private const float SecondBallOffset = 7;
+
+        /// <summary>Opt-in party status icons: drawn this size, this far from the window's side, one row per member.</summary>
+        public const float StatusIconSize = 16, StatusIconGap = 2;
 
         /// <summary>HP gauge tint (half scale), from the capture's full-HP fill (255, 155, 155).</summary>
         public static readonly UiColor HpGaugeColor = new(0x9A, 0x4E, 0x4E, 0x80);
@@ -86,14 +108,7 @@ namespace Gordian.App.Graphics
                 DrawGauge(renderer, rx + 25 * s, ry + 7 * s, 64, withKnob: true, HpGaugeColor, row.HpPercent, s);
                 DrawGauge(renderer, rx + 48 * s, ry + 15 * s, MiddleWidth, withKnob: false, MpGaugeColor, row.MpPercent, s);
 
-                if (row.IsLeader)
-                {
-                    // 8 pixels visible (the 15-pixel texture ball has a transparent margin, ~13/15 of it is ball),
-                    // centred 1 pixel inside the frame's left edge, 12 pixels below the row's top.
-                    float size = 9.25f * s;
-                    renderer.DrawTextureRect(GaugeTexture, LeaderX, LeaderY, LeaderSize, LeaderSize,
-                        placement.X + 1 * s - size / 2, ry + 12 * s - size / 2, size, size, Neutral);
-                }
+                DrawLeaderBalls(renderer, row, placement.X, ry, s);
 
                 renderer.DrawText(font, FitName(font, row.Name), rx, ry, textScale);
                 DrawRightAligned(renderer, font, row.Hp.ToString(CultureInfo.InvariantCulture), rx + 87 * s, ry, textScale, HpNumberColor(row.HpPercent));
@@ -105,6 +120,75 @@ namespace Gordian.App.Graphics
                     renderer.DrawText(font, row.Tp.ToString(CultureInfo.InvariantCulture), rx + 1 * s, ry + 10 * s, textScale * 0.85f, TpColor);
                 }
             }
+        }
+
+        /// <summary>
+        /// Draws alliance window rows ("raid1"/"raid2"): name, HP number and HP gauge at the party rows' offsets, no MP.
+        /// </summary>
+        public static void DrawAllianceRows(StockUiRenderer renderer, UiFont font, UiMenuDefinition menu, StockUiPlacement placement,
+            IReadOnlyList<PartyRowVitals> rows)
+        {
+            float s = placement.Scale;
+            float textScale = s * TextScale;
+            for (int i = 0; i < rows.Count && i < menu.Buttons.Count; i++)
+            {
+                var row = rows[i];
+                var button = menu.Buttons[i];
+                float rx = placement.X + button.X * s;
+                float ry = placement.Y + button.Y * s;
+
+                DrawGauge(renderer, rx + 25 * s, ry + 7 * s, 64, withKnob: true, HpGaugeColor, row.HpPercent, s);
+                DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                renderer.DrawText(font, FitName(font, row.Name), rx, ry, textScale);
+                DrawRightAligned(renderer, font, row.Hp.ToString(CultureInfo.InvariantCulture), rx + 87 * s, ry, textScale, HpNumberColor(row.HpPercent));
+            }
+        }
+
+        /// <summary>
+        /// Opt-in enhancement (not in the legacy client): each row's status icons in a line beside the party window,
+        /// on the chosen side, the first icon nearest the window, centred on the row's name line.
+        /// </summary>
+        public static void DrawStatusIcons(StockUiRenderer renderer, StatusIconLibrary icons, UiMenuDefinition menu,
+            StockUiPlacement placement, IReadOnlyList<PartyRowVitals> rows, PartyStatusIconSide side)
+        {
+            float s = placement.Scale;
+            float size = StatusIconSize * s;
+            float step = size;
+            float start = side == PartyStatusIconSide.Right
+                ? placement.X + (menu.Frame.Width + StatusIconGap) * s
+                : placement.X - (StatusIconGap + StatusIconSize) * s;
+            if (side == PartyStatusIconSide.Left) step = -step;
+
+            for (int i = 0; i < rows.Count && i < menu.Buttons.Count; i++)
+            {
+                var ids = rows[i].StatusIds;
+                if (ids == null) continue;
+                float y = placement.Y + (menu.Buttons[i].Y - 1) * s;
+                float x = start;
+                foreach (ushort id in ids)
+                {
+                    if (!icons.TryGetIcon(id, out var icon)) continue;
+                    renderer.DrawTexture($"status:{id}", icon, x, y, size, size, Neutral);
+                    x += step;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The leader markers left of a row, centred 1 pixel inside the frame's left edge and 12 pixels below the row's
+        /// top: yellow for the party leader; the alliance leader gets white there and yellow beside it.
+        /// </summary>
+        private static void DrawLeaderBalls(StockUiRenderer renderer, PartyRowVitals row, float frameX, float rowY, float s)
+        {
+            if (!row.IsLeader && !row.IsAllianceLeader) return;
+            float size = BallSize * s;
+            float x = frameX + 1 * s - size / 2, y = rowY + 12 * s - size / 2;
+            if (row.IsAllianceLeader)
+            {
+                renderer.DrawTextureRect(BallTexture, WhiteBallX, BallY, BallCell, BallCell, x, y, size, size, Neutral);
+                x += SecondBallOffset * s;
+            }
+            renderer.DrawTextureRect(BallTexture, YellowBallX, BallY, BallCell, BallCell, x, y, size, size, Neutral);
         }
 
         /// <summary>

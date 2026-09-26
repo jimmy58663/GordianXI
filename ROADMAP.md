@@ -3,7 +3,7 @@
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
 - **Test Status:** 1,049 Passing Unit Tests (`dotnet test`: 834 Core, 213 App, 1 Addons, 1 Automation)
-- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-2 and most of chunk 3 are done; next are the rest of chunk 3 (targeting cursor, alliance windows) and chunk 4 (menu input). See the Tier 2 working notes below.
+- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-3 are done except the expiring-icon blink (waits on S2C 0x063); next is chunk 4 (menu input). See the Tier 2 working notes below.
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ---
@@ -213,10 +213,14 @@
       - [ ] **Chunk 3: Live HUD.**
         - [x] *Target window:* `targetwi` shown while something is targeted, stacked on the party window with a 2 px gap unless moved (its authored y fits only a six-member party); name in fontshp 7/8 coloured by claim (unclaimed monster pale yellow, claimed by you/party red, sampled from Windower; claimed by others purple, retail convention not yet captured; players/NPCs white); HP gauge as the party window's at (28, 28). Depleted gauge share is the captured light lavender (party window too).
         - [x] *Status icons:* `StatusIconLibrary` reads the status resource DAT (file id 87, ROM/119/57: 640 records of 0x1800 bytes in status-id order, icon at +0x280 like item icons); `LocalPlayerState.GetStatusEffectIds` decodes the 0x037 slots (low byte + 2 high bits, 0xFF empty); icons draw 24 x 24 on the `buff` menu grid (frame (142, 48), 26 px pitch, nine per row), matching the capture.
-        - [ ] *Targeting cursor / brackets* in the 3D view: none was visible in the first Windower captures (the target's in-world name is drawn larger instead); needs a close retail crop of a targeted monster to see what the client draws.
-        - [ ] *Alliance windows:* layouts exist in the menu DAT (see `prt*`/`ptw*` families); needs Windower captures of a party in an alliance.
+        - [x] *Target cursor:* the "anc_s" group (ROM/0/1 `anc` texture; the same diamond-and-arrowhead cursor as the menus, authored pointing right) turned to point down, drawn at UI scale with its tip just above the target's highest joint (projected from the entity pass, `EntityRenderer.TargetAnchor`); it shades through the six frames and back at ~67 ms a step (0.8 s cycle), measured from a retail capture.
+        - [x] *Target selection flash:* a newly selected target's model brightens in three triangular pulses of ~0.72 s (`TargetFlash`, light added before the texture modulate, peak +0.5, so the colour roughly doubles as in the capture); selecting another target restarts it there and cuts the old one short.
+        - [x] *Lock-on:* while locked on, the "targetlo" overlay (windowps image 212: red corner brackets, "Locked" between two arrow key-tops, side glow bars from "colorbal") draws over the target window.
+        - [x] *Alliance windows:* "raid1"/"raid2" (authored at 48 and 150, 100 tall, 16-pixel rows, directly above the target window's slot so they do not move with it); rows are name, HP number and HP gauge at the party rows' offsets, no MP (measured from 1:1 retail alliance captures). Your own party stays in the Party window; the other parties fill raid1 then raid2 by party number (0x0C8/0x0DD PartyNo, bits 0-1). Party, target and each alliance window are separately placeable (`party`, `target`, `alliance1`, `alliance2`). Leader balls now come from "colorbal" (the captures' greenish yellow; the alliance leader shows a cream-white ball with the yellow one beside it, AllianceLeaderFlg bit 3). The group table (0x0C8) now also drops members it no longer lists.
+        - [x] *Party member status icons* (opt-in, not in the legacy client): `/uilayout buffs <on|off|left|right>`, 16 x 16 icons in a line beside each party row, first nearest the window; other members from S2C 0x076 (now stored on `PartyMember.StatusEffectIds`), your own row from your live status.
+        - [x] *Idle step fix:* S2C 0x037 no longer copies the movement speed stat into the local entity's current Speed (a standing player took a step on every status update, ~3 s apart).
         - [ ] *Expiring status icons blink:* needs status durations (S2C 0x063 status-icon packet) wired into `LocalPlayerState`.
-        - [ ] *Party member status icons* (retail shows none in the party list by default; confirm before adding).
+        - Claimed-by-others target names are pink (240, 122, 180 from an alliance capture of Tiamat); confirm against a capture where the claim is known to be another group's.
       - [ ] **Chunk 4: Menu input.** Main menu and sub-menus, finger cursor (`yubi`) following the DAT nav links, keyboard/gamepad bindings, yes/no prompts.
         - Menu labels are pre-rendered sprites (`windowps` images referenced by each button's shape references); a button's second shape reference (kind 4) is its alternate/selected-state image; frames carry an animation reference (kind 6, `anc` groups).
         - Help/title text ids on frames and buttons (decoded as ints) still need their string table (xi-tools notes menu strings in ROM/97; to be researched).

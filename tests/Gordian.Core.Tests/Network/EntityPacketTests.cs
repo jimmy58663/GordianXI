@@ -1107,13 +1107,16 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void EntityPacketModule_CharStatus_UpdatesLocalPlayerAndEntitySpeed()
+        public void EntityPacketModule_CharStatus_UpdatesSpeedStat_NotTheStandingPlayersCurrentSpeed()
         {
+            // 0x037 carries the movement speed stat (read by the locomotion controller from LocalPlayerState). The
+            // entity's Speed is its current speed, which drives the walk/run animations: a status update must not make
+            // a standing player take a step.
             var world = new WorldState();
             var localPlayer = new LocalPlayerState { ServerId = 0x12345678 };
             var localEnt = new PlayerEntity(localPlayer.ServerId, 100)
             {
-                Speed = 50,
+                Speed = 0,
                 SpeedBase = 50,
                 IsSpawned = true
             };
@@ -1136,7 +1139,7 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Equal(80, localPlayer.Speed);
             Assert.Equal(50, localPlayer.SpeedBase);
-            Assert.Equal(80, localEnt.Speed);
+            Assert.Equal(0, localEnt.Speed);
             Assert.Equal(50, localEnt.SpeedBase);
         }
 
