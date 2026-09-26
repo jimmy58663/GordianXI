@@ -84,7 +84,21 @@ void main()
             public const uint SizeInBytes = 20;
         }
 
-        private readonly record struct Batch(ResourceSet Texture, UiBlendMode Blend, int FirstVertex, int VertexCount);
+        private readonly record struct Batch(ResourceSet Texture, UiBlendMode Blend, int FirstVertex, int VertexCount, UiClip? Clip);
+
+        /// <summary>Height of a menu window's title band in layout pixels; the body below it is drawn opaque (see <see cref="DrawMenu"/>).</summary>
+        public const float MenuBandHeight = 20;
+
+        private UiClip? _clip;
+
+        /// <summary>Clips every quad drawn until <see cref="ClearClip"/> to a screen rectangle (scrolling lists).</summary>
+        public void SetClip(float x, float y, float width, float height)
+        {
+            int x0 = (int)MathF.Floor(x), y0 = (int)MathF.Floor(y);
+            _clip = new UiClip(x0, y0, Math.Max(0, (int)MathF.Ceiling(x + width) - x0), Math.Max(0, (int)MathF.Ceiling(y + height) - y0));
+        }
+
+        public void ClearClip() => _clip = null;
 
         private readonly GraphicsDevice _gd;
         private readonly Pipeline[] _pipelines;
@@ -153,7 +167,7 @@ void main()
                     BlendState = blends[i],
                     DepthStencilState = DepthStencilStateDescription.Disabled,
                     RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
-                        depthClipEnabled: false, scissorTestEnabled: false),
+                        depthClipEnabled: false, scissorTestEnabled: true),
                     PrimitiveTopology = PrimitiveTopology.TriangleList,
                     ResourceLayouts = new[] { _uniformLayout, _textureLayout },
                     ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, _shaders),
@@ -254,14 +268,14 @@ void main()
             _vertices.Add(tl); _vertices.Add(tr); _vertices.Add(bl);
             _vertices.Add(tr); _vertices.Add(br); _vertices.Add(bl);
 
-            if (_batches.Count > 0 && ReferenceEquals(_batches[^1].Texture, set) && _batches[^1].Blend == blend)
+            if (_batches.Count > 0 && ReferenceEquals(_batches[^1].Texture, set) && _batches[^1].Blend == blend && _batches[^1].Clip == _clip)
             {
                 var last = _batches[^1];
                 _batches[^1] = last with { VertexCount = last.VertexCount + 6 };
             }
             else
             {
-                _batches.Add(new Batch(set, blend, first, 6));
+                _batches.Add(new Batch(set, blend, first, 6, _clip));
             }
         }
 
@@ -342,7 +356,8 @@ void main()
         /// Frames are the persistent windows; buttons draw their unselected state. <paramref name="frameWidth"/>
         /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch.
         /// </summary>
-        public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null)
+        public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null,
+            Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false)
         {
             if (_library == null || placement.Hidden) return;
             var stretch = frameWidth is { } w ? UiStretch.Horizontal(menu.Frame.Width, w) : default;
@@ -357,12 +372,18 @@ void main()
                 {
                     if (!IsBackground(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
+                    // Menu windows: retail's body below the title band is opaque (nothing shows through it, only
+                    // the band lets the scene through, per captures 2026-09-26), although the DAT authors the same
+                    // 0x40 -> 0x7F alpha gradient as the translucent HUD windows. The body is drawn again with full
+                    // alpha and the authored colour gradient, leaving the band as authored.
+                    if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch);
                     hasBackground = true;
                 }
                 if (hasBackground) DrawWindowBorder(placement.X, placement.Y, borderWidth, menu.Frame.Height, placement.Scale);
                 foreach (var part in image.Parts)
                 {
-                    if (!IsBackground(part)) DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
+                    if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
+                    DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
                 }
             }
             if (!includeButtons) return;
@@ -411,8 +432,10 @@ void main()
             _commandList.Begin();
             _commandList.SetFramebuffer(framebuffer);
             _commandList.SetFullViewports();
+            _commandList.SetFullScissorRects();
             _commandList.SetVertexBuffer(0, _vertexBuffer);
             UiBlendMode? current = null;
+            UiClip? currentClip = null;
             foreach (var batch in _batches)
             {
                 if (batch.Blend != current)
@@ -420,6 +443,20 @@ void main()
                     _commandList.SetPipeline(_pipelines[(int)batch.Blend]);
                     _commandList.SetGraphicsResourceSet(0, _uniformSet);
                     current = batch.Blend;
+                }
+                if (batch.Clip != currentClip)
+                {
+                    if (batch.Clip is { } clip)
+                    {
+                        int cx = Math.Clamp(clip.X, 0, (int)width), cy = Math.Clamp(clip.Y, 0, (int)height);
+                        int cw = Math.Clamp(clip.X + clip.Width, cx, (int)width) - cx, ch = Math.Clamp(clip.Y + clip.Height, cy, (int)height) - cy;
+                        _commandList.SetScissorRect(0, (uint)cx, (uint)cy, (uint)Math.Max(1, cw), (uint)Math.Max(1, ch));
+                    }
+                    else
+                    {
+                        _commandList.SetFullScissorRects();
+                    }
+                    currentClip = batch.Clip;
                 }
                 _commandList.SetGraphicsResourceSet(1, batch.Texture);
                 _commandList.Draw((uint)batch.VertexCount, 1, (uint)batch.FirstVertex, 0);
@@ -430,6 +467,40 @@ void main()
 
         private static bool IsBackground(UiSpritePart part) =>
             UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Draws the part of a window background below <see cref="MenuBandHeight"/> opaque, with the part's colour
+        /// gradient interpolated at the split so the band and the body meet seamlessly.
+        /// </summary>
+        private void DrawBodyPlate(UiSpritePart part, float x, float y, float scale, UiStretch stretch)
+        {
+            if (_library == null || !TryGetTextureSet(part.TextureName, out var set, out float texWidth, out float texHeight)) return;
+            float quadWidth = part.TopRight.X - part.TopLeft.X, quadHeight = part.BottomLeft.Y - part.TopLeft.Y;
+            if (quadHeight <= MenuBandHeight || quadWidth <= 0) return;
+            float srcWidth = part.SourceWidth, srcHeight = part.SourceHeight;
+            if (stretch.ExtraX != 0 && part.TopLeft.X < stretch.PivotX && part.TopRight.X >= stretch.PivotX)
+                srcWidth += stretch.ExtraX * srcWidth / quadWidth;
+            if (stretch.ExtraY != 0 && part.TopLeft.Y < stretch.PivotY && part.BottomLeft.Y >= stretch.PivotY)
+                srcHeight += stretch.ExtraY * srcHeight / quadHeight;
+            float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
+            float u1 = (part.SourceX + srcWidth) / texWidth, v1 = (part.SourceY + srcHeight) / texHeight;
+            ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
+
+            float t = MenuBandHeight / quadHeight;
+            var tl = Point(part.TopLeft, x, y, scale, stretch);
+            var tr = Point(part.TopRight, x, y, scale, stretch);
+            var bl = Point(part.BottomLeft, x, y, scale, stretch);
+            var br = Point(part.BottomRight, x, y, scale, stretch);
+            float vMid = v0 + (v1 - v0) * t;
+            AddQuad(set, part.BlendMode,
+                new UiVertex { Position = Vector2.Lerp(tl, bl, t), TexCoord = new Vector2(u0, vMid), Color = Pack(LerpOpaque(part.ColorTopLeft, part.ColorBottomLeft, t), null) },
+                new UiVertex { Position = Vector2.Lerp(tr, br, t), TexCoord = new Vector2(u1, vMid), Color = Pack(LerpOpaque(part.ColorTopRight, part.ColorBottomRight, t), null) },
+                new UiVertex { Position = bl, TexCoord = new Vector2(u0, v1), Color = Pack(LerpOpaque(part.ColorBottomLeft, part.ColorBottomLeft, 0), null) },
+                new UiVertex { Position = br, TexCoord = new Vector2(u1, v1), Color = Pack(LerpOpaque(part.ColorBottomRight, part.ColorBottomRight, 0), null) });
+        }
+
+        private static UiColor LerpOpaque(UiColor a, UiColor b, float t) =>
+            new((byte)(a.R + (b.R - a.R) * t), (byte)(a.G + (b.G - a.G) * t), (byte)(a.B + (b.B - a.B) * t), 0x80);
 
         private static Vector2 Point(UiPoint p, float x, float y, float scale, UiStretch stretch)
         {
@@ -532,4 +603,7 @@ void main()
             GordianLog.Debug("UI", "Stock UI renderer disposed.");
         }
     }
+
+    /// <summary>A screen-space scissor rectangle (pixels) for the stock UI renderer's batches.</summary>
+    public readonly record struct UiClip(int X, int Y, int Width, int Height);
 }

@@ -125,6 +125,120 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiMenuController Menus { get; }
 
+        private StockUiSettings _uiSettings = new();
+        private ConfigPacketModule? _configModule;
+
+        /// <summary>
+        /// The character's stock config-menu settings (<see cref="StockUiSettings"/>), shown and edited by the config
+        /// pages. Server-scoped settings (auto-target, character information, chat filters) are mirrored from the
+        /// server's 0x0B4 and sent back through <see cref="ConfigModule"/> when changed.
+        /// </summary>
+        public StockUiSettings UiSettings
+        {
+            get => _uiSettings;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                if (ReferenceEquals(_uiSettings, value)) return;
+                _uiSettings.Changed -= OnUiSettingChanged;
+                _uiSettings.ChatFiltersChanged -= OnChatFiltersChanged;
+                _uiSettings = value;
+                _uiSettings.Changed += OnUiSettingChanged;
+                _uiSettings.ChatFiltersChanged += OnChatFiltersChanged;
+                Menus.Settings = value;
+                SyncUiSettingsFromServer();
+            }
+        }
+
+        /// <summary>The configuration packet module (S2C 0x0B4, C2S 0x0DB / 0x0DC); null in sessions without one.</summary>
+        public ConfigPacketModule? ConfigModule
+        {
+            get => _configModule;
+            set
+            {
+                if (ReferenceEquals(_configModule, value)) return;
+                if (_configModule != null) _configModule.State.Changed -= SyncUiSettingsFromServer;
+                _configModule = value;
+                if (value != null)
+                {
+                    value.State.Changed += SyncUiSettingsFromServer;
+                    SyncUiSettingsFromServer();
+                }
+            }
+        }
+
+        private void SyncUiSettingsFromServer()
+        {
+            var state = _configModule?.State;
+            if (state is not { Received: true }) return;
+            _uiSettings.ApplyServer(
+                state.IsSet(PlayerConfigFlags.AutoTargetOff),
+                state.IsSet(PlayerConfigFlags.Anonymity),
+                state.SystemMessageFilterLevel,
+                state.MessageFilter1,
+                state.MessageFilter2);
+        }
+
+        private void OnUiSettingChanged(StockUiSettingKey key, int value)
+        {
+            switch (key)
+            {
+                case StockUiSettingKey.AutoTarget:
+                    _ = SendConfigFlagAsync(PlayerConfigFlags.AutoTargetOff, value == 0);
+                    break;
+                case StockUiSettingKey.CharacterInfoHidden:
+                    _ = SendConfigFlagAsync(PlayerConfigFlags.Anonymity, value != 0);
+                    break;
+                case StockUiSettingKey.SystemMessageFilterLevel:
+                    _ = SendSystemMessageFilterLevelAsync(value);
+                    break;
+            }
+        }
+
+        private void OnChatFiltersChanged(uint messageFilter1, uint messageFilter2) => _ = SendChatFiltersAsync(messageFilter1, messageFilter2);
+
+        private async Task SendConfigFlagAsync(PlayerConfigFlags flag, bool on)
+        {
+            var module = _configModule;
+            if (module == null) return;
+            try
+            {
+                await module.SetFlagAsync(flag, on).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"Config flag {flag} could not be sent: {ex.Message}");
+            }
+        }
+
+        private async Task SendSystemMessageFilterLevelAsync(int level)
+        {
+            var module = _configModule;
+            if (module == null) return;
+            try
+            {
+                await module.SetSystemMessageFilterLevelAsync(level).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"System message filter level could not be sent: {ex.Message}");
+            }
+        }
+
+        private async Task SendChatFiltersAsync(uint messageFilter1, uint messageFilter2)
+        {
+            var module = _configModule;
+            if (module == null) return;
+            try
+            {
+                await module.SetChatFiltersAsync(messageFilter1, messageFilter2).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"Chat filters could not be sent: {ex.Message}");
+            }
+        }
+
         public PlayerActionService(
             SessionProfile profile,
             WorldState world,
@@ -153,7 +267,12 @@ namespace Gordian.Core.Actions
                     shutdown ? ReqLogoutKind.Shutdown : ReqLogoutKind.Logout),
                 CurrentWindowSkin = () => UiLayout.WindowSkin,
                 WindowSkinSelected = skin => UiLayout.SetWindowSkin(skin),
+                CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
+                PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
             };
+            Menus.Settings = _uiSettings;
+            _uiSettings.Changed += OnUiSettingChanged;
+            _uiSettings.ChatFiltersChanged += OnChatFiltersChanged;
         }
 
         #region Targeting Subsystem

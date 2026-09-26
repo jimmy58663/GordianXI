@@ -110,21 +110,22 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(menus.Top.OverlapsAuthored(menus.OpenMenus[0])); // same corner: the HUD hides the parent
 
             menus.Move(InputAction.MenuDown);      // 4 = Windows
-            int selectedSkin = 0;
-            menus.CurrentWindowSkin = () => 3;
+            int selectedSkin = 3;
+            menus.CurrentWindowSkin = () => selectedSkin;
             menus.WindowSkinSelected = skin => selectedSkin = skin;
             menus.Activate();
             Assert.Equal(StockUiMenuEntries.WindowsMenu, menus.Top.Name); // Shared / Window 1 / Window 2
             Assert.True(menus.Top.OverlapsAuthored(menus.OpenMenus[1])); // replaces the config list in its corner
             menus.Activate();                      // 1 = Shared
             Assert.Equal(StockUiMenuEntries.WindowSettingsPage, menus.Top.Name);
-            Assert.Equal(StockUiMenuEntries.WindowSkinFirstButton + 2, menus.Top.MarkedButtonId); // skin 3's dot
+            Assert.True(menus.Top.IsMarked(StockUiMenuEntries.WindowSkinFirstButton + 2)); // skin 3's dot
             Assert.False(menus.Top.OverlapsAuthored(menus.OpenMenus[2])); // other side of the screen: both drawn
 
             menus.Move(InputAction.MenuDown);      // dot 8 = skin 2
             menus.Activate();
             Assert.Equal(2, selectedSkin);
-            Assert.Equal(StockUiMenuEntries.WindowSkinFirstButton + 1, menus.Top.MarkedButtonId);
+            Assert.True(menus.Top.IsMarked(StockUiMenuEntries.WindowSkinFirstButton + 1));
+            Assert.False(menus.Top.IsMarked(StockUiMenuEntries.WindowSkinFirstButton + 2));
 
             menus.CloseTop();
             Assert.Equal(StockUiMenuEntries.WindowsMenu, menus.Top.Name);
@@ -345,7 +346,13 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(2, leftmost.NavRight);
             Assert.Equal(1, middle.NavLeft);
 
-            foreach (string name in new[] { StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu, StockUiMenuEntries.WindowSettingsPage })
+            var driven = new List<string>
+            {
+                StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu,
+                StockUiConfigPages.ChatFiltersPage,
+            };
+            driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
+            foreach (string name in driven)
             {
                 Assert.True(library.TryGetMenu(name, out var menu), name);
                 foreach (var button in menu.Buttons)
@@ -353,6 +360,26 @@ namespace Gordian.Core.Tests.Ui
                     bool insideFrame = button.X >= 0 && button.X < menu.Frame.Width;
                     if (!insideFrame || !StockUiMenuController.IsSelectable(button)) continue;
                     Assert.True(StockUiMenuEntries.TryGet(name, button.ButtonId, out _), $"{name} button {button.ButtonId} has no entry");
+                }
+                // Every config row's buttons exist on the page, and slider buttons are the invisible 192-wide bars.
+                if (StockUiConfigPages.TryGet(name, out var page))
+                {
+                    foreach (var row in page.Rows)
+                    {
+                        switch (row)
+                        {
+                            case StockUiOptionRow option:
+                                foreach (var choice in option.Choices) Assert.NotNull(menu.FindButton(choice.ButtonId));
+                                break;
+                            case StockUiSliderRow slider:
+                                var bar = menu.FindButton(slider.ButtonId);
+                                Assert.NotNull(bar);
+                                Assert.Equal(192, bar!.Width);
+                                Assert.Equal(slider.ButtonId, bar.NavLeft);
+                                Assert.Equal(slider.ButtonId, bar.NavRight);
+                                break;
+                        }
+                    }
                 }
                 // The frame names its cursor group and it exists.
                 var cursor = menu.Frame.Shapes.FirstOrDefault(s => s.Kind == 6);

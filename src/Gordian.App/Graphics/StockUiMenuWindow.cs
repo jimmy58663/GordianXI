@@ -1,5 +1,6 @@
 // src/Gordian.App/Graphics/StockUiMenuWindow.cs
 using System;
+using System.Diagnostics;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
 
@@ -32,7 +33,10 @@ namespace Gordian.App.Graphics
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;
-            renderer.DrawMenu(definition, placement, includeButtons: false);
+            // Config pages with sliders: the frame art of some pages bakes in a sample fill (conf5w1's first bar
+            // shows about 20%); it is left out so the fill drawn for the value is the only one.
+            renderer.DrawMenu(definition, placement, includeButtons: false,
+                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true);
 
             foreach (var button in definition.Buttons)
             {
@@ -60,11 +64,56 @@ namespace Gordian.App.Graphics
                     break;
                 }
 
-                if (menu.MarkedButtonId == button.ButtonId)
+                if (menu.SliderFractions.TryGetValue(button.ButtonId, out float fraction) && fraction > 0)
+                {
+                    // The bar is authored in the frame (a translucent "gauge" strip 192 wide, knobs at both ends); the
+                    // value is the same strip's rows 1-6 drawn opaque and tinted light blue from the bar's left edge,
+                    // 12 tall inside the 16-tall bar (a retail capture, 2026-09-26; "framesus" #103 is the same
+                    // strip with the tint (64, 96, 127), the capture's fill reads a little more lavender).
+                    renderer.DrawTextureRect(SliderTexture, SliderFillSourceX, SliderFillSourceY, SliderFillSourceWidth, SliderFillSourceHeight,
+                        bx, by + SliderFillTop * s, button.Width * fraction * s, SliderFillHeight * s, SliderFillTint);
+                }
+
+                if (menu.IsMarked(button.ButtonId) && menu.Rows.Count == 0)
                 {
                     renderer.DrawTextureRect(BarTexture, BarSourceX, BarSourceY, 1, 1, bx, by + button.Height * s,
                         button.Width * s, BarThickness * s, BarColor);
                 }
+            }
+
+            if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
+            {
+                // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's
+                // state ball ("framesus" #88 ON / #89 OFF at the row's origin; #83 is a "Hold" state whose meaning
+                // is not decoded) and its text 34 px in, as retail captures show (2026-09-26). The list slides
+                // smoothly between entries (ScrollFrom -> FirstRow over ScrollDuration), clipped to the rows' area,
+                // and a scrollbar on the right edge shows the position.
+                library.TryGetGroup(StateGroup, out var states);
+                var secondRow = definition.FindButton(2);
+                float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+                float first = menu.FirstRow;
+                if (menu.ScrollFrom != menu.FirstRow)
+                {
+                    double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
+                    if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
+                }
+                float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
+                float areaH = menu.VisibleRows * pitch * s;
+                // The state balls' text starts a few pixels left of the row origin, so the clip starts at the window's edge.
+                renderer.SetClip(placement.X + ListClipInset * s, areaY, (frame.Width - ListClipInset) * s, areaH);
+                int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
+                int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+                for (int i = from; i <= to; i++)
+                {
+                    var row = menu.Rows[i];
+                    float ry = areaY + (i - first) * pitch * s;
+                    int stateImage = row.Marked ? StateOnImage : StateOffImage;
+                    if (states != null && stateImage < states.Images.Count) renderer.DrawImage(states.Images[stateImage], areaX, ry, s);
+                    renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
+                        i == selectedEntry ? SelectedGlyphTint : null);
+                }
+                renderer.ClearClip();
+                if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
             }
 
             if (menu.Message is { Length: > 0 } message && font != null)
@@ -101,6 +150,48 @@ namespace Gordian.App.Graphics
             string texture = UiResourceLibrary.TrimResourceName(part.TextureName);
             return texture.Contains("fon", StringComparison.OrdinalIgnoreCase) || texture.StartsWith("keytop", StringComparison.OrdinalIgnoreCase);
         }
+
+        /// <summary>Slider fill: rows 1-6 of the "gauge" strip, tinted light blue (retail: (194, 194, 255) at the middle).</summary>
+        private const string SliderTexture = "gauge";
+        private const float SliderFillSourceX = 0, SliderFillSourceY = 1, SliderFillSourceWidth = 64, SliderFillSourceHeight = 6;
+        private const float SliderFillTop = 1, SliderFillHeight = 12;
+        private static readonly UiColor SliderFillTint = new(0x68, 0x60, 0x84, 0x80);
+
+        /// <summary>
+        /// A frame part that is an authored sample of a slider fill (the orange block, gauge texels 48,16, that
+        /// "conf5w1"/"conf5w2" bake into their first bar).
+        /// </summary>
+        private static bool IsSliderFill(UiSpritePart part) =>
+            part.SourceX == 48 && part.SourceY == 16 && part.SourceWidth == 16
+            && UiResourceLibrary.TrimResourceName(part.TextureName).Equals(SliderTexture, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Retail's list scrollbar (captures, 2026-09-26): a 6 px track straddling the window's right edge from the
+        /// title band's bottom to the window's bottom, the translucent gauge strip; the thumb is pale pink-white
+        /// (255, 221, 228), as long as the visible share of the list and placed at the first entry's share.
+        /// </summary>
+        private const float ScrollbarWidth = 6, ScrollbarInset = 4;
+        private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
+        private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
+
+        private static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
+        {
+            float s = placement.Scale;
+            float x = placement.X + (frame.Width - ScrollbarInset) * s;
+            float y = placement.Y + StockUiRenderer.MenuBandHeight * s;
+            float trackHeight = (frame.Height - StockUiRenderer.MenuBandHeight) * s;
+            if (trackHeight <= 0 || total <= 0) return;
+            renderer.DrawTextureRect(SliderTexture, 30, 3, 1, 1, x, y, ScrollbarWidth * s, trackHeight, ScrollTrackTint);
+            float thumbHeight = trackHeight * Math.Min(visible, total) / total;
+            float thumbY = y + trackHeight * Math.Clamp(first, 0, total) / total;
+            renderer.DrawTextureRect(SliderTexture, 30, 12, 1, 1, x, thumbY, ScrollbarWidth * s, thumbHeight, ScrollThumbTint);
+        }
+
+        /// <summary>The Chat Filters state balls live in the frames group ("frames" resolves to "framesus").</summary>
+        private const string StateGroup = "frames";
+        private const int StateOnImage = 88, StateOffImage = 89;
+        private const float ListRowTextInset = 34;
+        private const float ListClipInset = 8;
 
         private const string DefaultCursorGroup = "anc_s";
 

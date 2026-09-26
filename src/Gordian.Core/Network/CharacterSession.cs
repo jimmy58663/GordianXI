@@ -111,6 +111,14 @@ namespace Gordian.Core.Network
         /// </summary>
         public Input.PlayerLocomotionController Locomotion { get; }
 
+        private void ApplyCameraSettings()
+        {
+            var settings = ActionService.UiSettings;
+            var profile = Locomotion.Profile;
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX)) profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY)) profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
+        }
+
         public CharacterSession(
             string characterName,
             uint characterId,
@@ -122,6 +130,7 @@ namespace Gordian.Core.Network
             AccountUsername = accountUsername ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
+            ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,
                 Input.InputProfile.CreateCompact(),
@@ -129,6 +138,13 @@ namespace Gordian.Core.Network
                 LocalPlayer,
                 ActionService
             );
+            // The config menu's Mouse/Camera page (third-person axes) drives the session's input profile; only
+            // choices the player has made are applied, so an untouched page leaves the profile's own settings alone.
+            ApplyCameraSettings();
+            ActionService.UiSettings.Changed += (key, _) =>
+            {
+                if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY) ApplyCameraSettings();
+            };
             Locomotion.LocomotionUpdated += (pos, dir, speed) =>
             {
                 NetworkManager.NotifyLocomotionChanged(pos, dir, speed);

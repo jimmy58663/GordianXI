@@ -315,6 +315,122 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the Gameplay config page (option markers and slider fills) and the Chat Filters list (client-drawn
+        /// rows) offscreen; writes gpu_config_*.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersConfigPagesWithSlidersAndFilterRows()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiConfigTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+
+                byte[] Render(StockUiMenuController menus, string name)
+                {
+                    cl.Begin();
+                    cl.SetFramebuffer(framebuffer);
+                    cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                    cl.End();
+                    gd.SubmitCommands(cl);
+                    using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                    renderer.Begin(library);
+                    var top = menus.Top!;
+                    var frame = top.Menu.Frame;
+                    var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, width, height);
+                    StockUiMenuWindow.Draw(renderer, library, font, top, placement, 0);
+                    renderer.End(framebuffer, width, height);
+                    var pixels = ReadBack(gd, color, width, height);
+                    string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                    if (!string.IsNullOrEmpty(dumpDir))
+                    {
+                        Directory.CreateDirectory(dumpDir);
+                        SavePng(Path.Combine(dumpDir, $"gpu_{name}.png"), pixels, (int)width, (int)height);
+                    }
+                    return pixels;
+                }
+
+                var menus = new StockUiMenuController { Library = library };
+                Assert.True(menus.Open(StockUiConfigPages.GameplayPage));
+                var page = menus.Top!.Menu;
+                var pixels = Render(menus, "config_gameplay");
+
+                // Sound Effects Volume (button 3, the 192-wide bar) defaults to 100: the fill reaches the bar's right end.
+                var bar = page.FindButton(3)!;
+                var fullFill = Pixel(pixels, width, 16 + bar.X + bar.Width - 4, 48 + bar.Y + 6);
+                Assert.True(fullFill.B > 200 && fullFill.B > fullFill.R + 30, $"slider fill {fullFill}");
+                var onMark = page.FindButton(1)!;
+                var red = Pixel(pixels, width, 16 + onMark.X + 8, 48 + onMark.Y + onMark.Height);
+                Assert.True(red.R > red.G + 40 && red.R > red.B + 40, $"ON marker {red}");
+
+                // Left on the bar moves the value down a step; past the value the bar shows the authored translucent strip.
+                menus.Settings.SetValue(StockUiSettingKey.SoundEffectsVolume, 50);
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown);           // ON -> the Sound Effects Volume bar
+                Assert.Equal(3, menus.Top!.SelectedButtonId);
+                menus.Move(Gordian.Core.Input.InputAction.MenuLeft);
+                Assert.Equal(45, menus.Settings.GetValue(StockUiSettingKey.SoundEffectsVolume));
+                pixels = Render(menus, "config_gameplay_half");
+                var pastValue = Pixel(pixels, width, 16 + bar.X + bar.Width - 4, 48 + bar.Y + 6);
+                Assert.False(pastValue.B > 200, $"no fill past the value {pastValue}");
+                var beforeValue = Pixel(pixels, width, 16 + bar.X + 20, 48 + bar.Y + 6);
+                Assert.True(beforeValue.B > 200 && beforeValue.B > beforeValue.R + 30, $"fill before the value {beforeValue}");
+
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.ChatFiltersPage));
+                menus.Activate();                                              // filter "Say": marked row
+                pixels = Render(menus, "config_chat_filters");
+                // The ON ball (blue) sits at the first row's origin; the second row shows OFF (grey).
+                var row1 = menus.Top!.Menu.FindButton(1)!;
+                bool blue = false;
+                for (int x = 2; x < 14 && !blue; x++)
+                {
+                    for (int y = 2; y < 14 && !blue; y++)
+                    {
+                        var p = Pixel(pixels, width, 16 + row1.X + x, 48 + row1.Y + y);
+                        blue = p.B > 150 && p.B > p.R + 60;
+                    }
+                }
+                Assert.True(blue, "ON ball");
+                // Row text is drawn 34 px in: some pixel of the second row ("Tell") is bright.
+                var row2 = menus.Top.Menu.FindButton(2)!;
+                bool bright = false;
+                for (int x = 34; x < 74 && !bright; x++)
+                {
+                    for (int y = 0; y < row2.Height && !bright; y++)
+                    {
+                        var p = Pixel(pixels, width, 16 + row2.X + x, 48 + row2.Y + y);
+                        bright = p.R > 180 && p.G > 180 && p.B > 180;
+                    }
+                }
+                Assert.True(bright, "row text");
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders a two-member party window at 1:1 with the values of a Windower capture (Tarudrake 9999 / 2794, leader, shown "Tarudra..";
         /// Cybin 1658 / 571) for side-by-side comparison; writes party_rows.png when GORDIAN_UI_DUMP is set.
         /// </summary>

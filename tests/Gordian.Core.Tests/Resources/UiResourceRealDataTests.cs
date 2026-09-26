@@ -114,7 +114,107 @@ namespace Gordian.Core.Tests.Resources
             }
             canvas.Save(Path.Combine(dumpDir, "hud_layout.png"));
 
+            // GORDIAN_UI_DUMP_MENUS: comma-separated menu names (a trailing '*' matches a prefix, e.g. "conf*"). Each menu is
+            // composited at the origin into menu_<name>.png, and menu_<name>.txt lists its buttons (position, navigation
+            // links, label sprites) so a page's options can be read before they are wired up.
+            string menuSpecs = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_MENUS") ?? string.Empty;
+            foreach (string spec in menuSpecs.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (var menu in ui.Menus.Values.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    bool matches = spec.EndsWith('*')
+                        ? menu.Name.StartsWith(spec[..^1], StringComparison.OrdinalIgnoreCase)
+                        : menu.Name.Equals(spec, StringComparison.OrdinalIgnoreCase);
+                    if (!matches) continue;
+                    var page = new SoftwareCanvas(Math.Max(16, menu.Frame.Width + 48), Math.Max(16, menu.Frame.Height + 16));
+                    page.DrawMenu(ui, menu, 40, 8);
+                    page.Save(Path.Combine(dumpDir, $"menu_{menu.Name}.png"));
+
+                    var text = new System.Text.StringBuilder();
+                    var frame = menu.Frame;
+                    text.AppendLine($"{menu.Category}/{menu.Name} type={menu.MenuType} frame=({frame.X},{frame.Y} {frame.Width}x{frame.Height}) anchor={frame.Anchor} cursor=({frame.CursorOffsetX},{frame.CursorOffsetY}) help={frame.HelpTextId} title={frame.TitleTextId}");
+                    foreach (var shape in frame.Shapes) text.AppendLine($"  frame shape kind={shape.Kind} {shape.GroupName}#{shape.ImageIndex}");
+                    foreach (var button in menu.Buttons.OrderBy(b => b.Y).ThenBy(b => b.X))
+                    {
+                        text.Append($"  button {button.ButtonId,3} at ({button.X,4},{button.Y,4}) {button.Width,3}x{button.Height,-3} nav U{button.NavUp} D{button.NavDown} L{button.NavLeft} R{button.NavRight} help={button.HelpTextId} title={button.TitleTextId}");
+                        foreach (var shape in button.Shapes) text.Append($" [k{shape.Kind} {shape.GroupName}#{shape.ImageIndex}]");
+                        text.AppendLine();
+                    }
+                    // The parts of every referenced image (once each): texture, destination corners and colours.
+                    var listed = new System.Collections.Generic.HashSet<string>();
+                    foreach (var shape in frame.Shapes.Concat(menu.Buttons.SelectMany(b => b.Shapes)))
+                    {
+                        if (shape.Kind != 0 || !listed.Add($"{shape.GroupName}#{shape.ImageIndex}") || !ui.TryGetImage(shape, out var image)) continue;
+                        text.AppendLine($"  image {shape.GroupName}#{shape.ImageIndex}: {image.Parts.Count} parts");
+                        foreach (var part in image.Parts)
+                        {
+                            text.AppendLine($"    {part.TextureName.Trim(),-16} dst=({part.TopLeft.X},{part.TopLeft.Y})-({part.BottomRight.X},{part.BottomRight.Y}) src=({part.SourceX},{part.SourceY} {part.SourceWidth}x{part.SourceHeight}) blend={part.BlendMode} flags={part.Flags} colours TL={part.ColorTopLeft} BL={part.ColorBottomLeft}");
+                        }
+                    }
+                    File.WriteAllText(Path.Combine(dumpDir, $"menu_{menu.Name}.txt"), text.ToString());
+                }
+            }
+
+            // GORDIAN_UI_DUMP_TEXTURES: comma-separated texture names written as texture_<name>.png (all with "*").
+            string textureSpecs = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_TEXTURES") ?? string.Empty;
+            foreach (string spec in textureSpecs.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (string textureName in ui.TextureNames.ToList())
+                {
+                    if (spec != "*" && !textureName.Equals(spec, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!ui.TryGetTexture(textureName, out var texture)) continue;
+                    var sheet = new SoftwareCanvas(texture.Width, texture.Height);
+                    sheet.Blit(texture, 0, 0);
+                    sheet.Save(Path.Combine(dumpDir, $"texture_{textureName}.png"));
+                    // The alpha channel as grey (raw decoded values, before the renderer's normalisation).
+                    var alpha = new SoftwareCanvas(texture.Width, texture.Height);
+                    var grey = new byte[texture.RgbaPixels.Length];
+                    for (int i = 0; i < grey.Length; i += 4) { grey[i] = grey[i + 1] = grey[i + 2] = texture.RgbaPixels[i + 3]; grey[i + 3] = 255; }
+                    alpha.Blit(new Gordian.Core.Resources.Graphics.DecodedTexture(texture.Name, texture.Width, texture.Height, grey), 0, 0);
+                    alpha.Save(Path.Combine(dumpDir, $"texture_{textureName}_alpha.png"));
+                    int top = texture.RgbaPixels[3], middle = texture.RgbaPixels[(texture.Height / 2 * texture.Width) * 4 + 3], bottom = texture.RgbaPixels[((texture.Height - 1) * texture.Width) * 4 + 3];
+                    _output.WriteLine($"texture {textureName} {texture.Width}x{texture.Height} alpha top={top} middle={middle} bottom={bottom}");
+                }
+            }
+
+            // groups.txt: every element group with its image count, to find sprites by name.
+            {
+                var text = new System.Text.StringBuilder();
+                foreach (var group in ui.Groups.Values.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    text.AppendLine($"{group.Category}/{group.Name}: {group.Images.Count} images, textures {string.Join(",", group.TextureNames.Select(t => t.Trim()))}");
+                }
+                File.WriteAllText(Path.Combine(dumpDir, "groups.txt"), text.ToString());
+            }
+
+            // GORDIAN_UI_DUMP_IMAGES: "group:i-j+k,..." lists the parts of those images in images.txt.
+            {
+                var text = new System.Text.StringBuilder();
+                foreach (string spec in (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_IMAGES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string groupName = spec.Split(':')[0];
+                    if (!ui.TryGetGroup(groupName, out var group) || !spec.Contains(':')) continue;
+                    foreach (string range in spec.Split(':')[1].Split('+'))
+                    {
+                        var ends = range.Split('-');
+                        int from = int.Parse(ends[0]), to = int.Parse(ends[^1]);
+                        for (int i = from; i <= to && i < group.Images.Count; i++)
+                        {
+                            var image = group.Images[i];
+                            text.AppendLine($"{group.Name}#{i}: {image.Parts.Count} parts");
+                            foreach (var part in image.Parts)
+                            {
+                                text.AppendLine($"    {part.TextureName.Trim(),-16} dst=({part.TopLeft.X},{part.TopLeft.Y})-({part.BottomRight.X},{part.BottomRight.Y}) src=({part.SourceX},{part.SourceY} {part.SourceWidth}x{part.SourceHeight}) blend={part.BlendMode} flags={part.Flags} TL={part.ColorTopLeft} TR={part.ColorTopRight} BL={part.ColorBottomLeft} BR={part.ColorBottomRight}");
+                            }
+                        }
+                    }
+                }
+                if (text.Length > 0) File.WriteAllText(Path.Combine(dumpDir, "images.txt"), text.ToString());
+            }
+
             // GORDIAN_UI_DUMP_GROUPS: comma-separated groups, each optionally restricted to images ("windowps:38-40+75").
+            // Every image is drawn with its index under it (in the stock font), across as many 512 x 512 sheets as needed.
+            var font = UiFont.FromLibrary(ui);
             foreach (string spec in (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_GROUPS") ?? "yubi,fontshp,framesus").Split(','))
             {
                 string groupName = spec.Split(':')[0];
@@ -130,18 +230,34 @@ namespace Gordian.Core.Tests.Resources
                     }
                 }
                 var sheet = new SoftwareCanvas(512, 512);
-                int x = 8, y = 8, rowHeight = 0;
-                for (int i = 0; i < group.Images.Count && y < 480; i++)
+                int x = 8, y = 8, rowHeight = 0, page = 0;
+                string suffix = only.Count > 0 ? "_subset" : string.Empty;
+                for (int i = 0; i < group.Images.Count; i++)
                 {
                     if (only.Count > 0 && !only.Contains(i)) continue;
                     var bounds = SoftwareCanvas.Bounds(group.Images[i]);
-                    int w = Math.Max(4, bounds.MaxX - bounds.MinX), h = Math.Max(4, bounds.MaxY - bounds.MinY);
+                    int w = Math.Max(24, bounds.MaxX - bounds.MinX), h = Math.Max(4, bounds.MaxY - bounds.MinY) + 12;
                     if (x + w > 504) { x = 8; y += rowHeight + 6; rowHeight = 0; }
+                    if (y + h > 504)
+                    {
+                        sheet.Save(Path.Combine(dumpDir, $"group_{group.Name}{suffix}_{page++}.png"));
+                        sheet = new SoftwareCanvas(512, 512);
+                        x = 8; y = 8; rowHeight = 0;
+                    }
                     sheet.DrawImage(ui, group.Images[i], x - bounds.MinX, y - bounds.MinY);
+                    if (font != null)
+                    {
+                        int pen = x;
+                        foreach (char c in i.ToString())
+                        {
+                            if (font.TryGetGlyph(c, out var glyph)) sheet.DrawImage(ui, glyph, pen, y + h - 12);
+                            pen += font.GetAdvance(c) * 3 / 4;
+                        }
+                    }
                     x += w + 6;
                     rowHeight = Math.Max(rowHeight, h);
                 }
-                sheet.Save(Path.Combine(dumpDir, $"group_{group.Name}{(only.Count > 0 ? "_subset" : string.Empty)}.png"));
+                sheet.Save(Path.Combine(dumpDir, $"group_{group.Name}{suffix}_{page}.png"));
             }
         }
 

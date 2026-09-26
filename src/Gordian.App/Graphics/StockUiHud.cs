@@ -34,6 +34,9 @@ namespace Gordian.App.Graphics
         /// <summary>The layout used for the last frame (the session's shared layout, see StockUiLayoutStore).</summary>
         public StockUiLayout Layout { get; private set; } = new();
 
+        /// <summary>The session's config-menu settings (log window lines, party icons...).</summary>
+        public StockUiSettings Settings { get; private set; } = new();
+
         /// <summary>Master switch for the whole stock HUD.</summary>
         public bool Enabled { get; set; } = true;
 
@@ -101,6 +104,7 @@ namespace Gordian.App.Graphics
             var library = _library;
             if (!Enabled || library == null || session == null) return;
             Layout = session.ActionService.UiLayout;
+            Settings = session.ActionService.UiSettings;
             EnsureWindowSkin(library, Layout.WindowSkin);
 
             var menus = session.ActionService.Menus;
@@ -232,7 +236,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         private void DrawLogWindow(StockUiRenderer renderer, UiResourceLibrary library, StockUiPlacement? party, uint width, uint height)
         {
-            if (!library.TryGetMenu("logwindo", out var menu)) return;
+            // The config menu's Window 1 "Maximum lines displayed" picks the "log1".."log8" frame (22 px for one line,
+            // 16 px per extra line, all bottom-anchored); the default window is "logwindo" (the same frame as "log8").
+            int lines = Settings.HasValue(StockUiSettingKey.Window1MaxLines) ? Settings.GetValue(StockUiSettingKey.Window1MaxLines) : 0;
+            if (lines <= 0 || !library.TryGetMenu($"log{lines}", out var menu))
+            {
+                if (!library.TryGetMenu("logwindo", out menu)) return;
+            }
             var placement = Layout.Resolve(StockUiWindowIds.Log, menu.Frame, width, height);
             if (placement.Hidden) return;
 

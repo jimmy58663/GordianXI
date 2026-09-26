@@ -23,8 +23,14 @@ namespace Gordian.Core.Ui
         /// <summary>Posts the Vana'diel and Earth time.</summary>
         CurrentTime,
 
-        /// <summary>Selects window skin 1-8 (the "Window Type" dots of the Windows config page).</summary>
-        SelectWindowSkin,
+        /// <summary>One choice of a config page's option row (<see cref="StockUiConfigPages"/>): confirm selects it.</summary>
+        ConfigOption,
+
+        /// <summary>A config page's slider (<see cref="StockUiConfigPages"/>): left/right move it.</summary>
+        ConfigSlider,
+
+        /// <summary>A row of the Chat Filters list: confirm toggles the filter.</summary>
+        ChatFilter,
     }
 
     /// <summary>
@@ -37,9 +43,10 @@ namespace Gordian.Core.Ui
     /// The client-side meaning of the stock menu buttons. The DAT menus (Section 0x30) only carry the buttons'
     /// pre-rendered label sprites and navigation links; which window an entry opens is client behaviour. Labels were
     /// read from the "windowps" sprites each button references (ROM/119/51, 2026-09-26): the main "Commands" menu is
-    /// "menuwind" (page 1) and "socialme" (page 2, reached with left/right), the config list is "configwi" and the
-    /// Windows entry opens the "conf5m" list (Shared / Window 1 / Window 2) whose Shared entry opens the
-    /// "Window Settings (Shared)" page "conf5win" (flow confirmed against a retail capture, 2026-09-26).
+    /// "menuwind" (page 1) and "socialme" (page 2, reached with left/right), the config list is "configwi" and its
+    /// entries open the pages described by <see cref="StockUiConfigPages"/>; the Windows entry opens the "conf5m"
+    /// list (Shared / Window 1 / Window 2), whose entries open the three "Window Settings" pages (flow confirmed
+    /// against a retail capture, 2026-09-26).
     /// </summary>
     public static class StockUiMenuEntries
     {
@@ -47,7 +54,7 @@ namespace Gordian.Core.Ui
         public const string MainMenuPage2 = "socialme";
         public const string ConfigMenu = "configwi";
         public const string WindowsMenu = "conf5m";
-        public const string WindowSettingsPage = "conf5win";
+        public const string WindowSettingsPage = StockUiConfigPages.WindowSettingsPage;
         public const string YesNoMenu = "yesno";
         public const string MessageYesNoMenu = "comyn";
 
@@ -89,47 +96,57 @@ namespace Gordian.Core.Ui
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).
-            [(ConfigMenu, 1)] = new("Gameplay", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 2)] = new("Chat Filters", Command: StockUiMenuCommand.NotAvailable),
+            // Font Colors ("conftxtc" -> "textcol1"/"textcol3"), Log ("conf11l" -> "conf11s"/"conf11m") and Effects
+            // ("fxfilter") are list pages whose row text comes from the menu string table, still unresearched;
+            // Gamepad is the key-assignment editor ("keypad"/"k1assign").
+            [(ConfigMenu, 1)] = new("Gameplay", Opens: StockUiConfigPages.GameplayPage),
+            [(ConfigMenu, 2)] = new("Chat Filters", Opens: StockUiConfigPages.ChatFiltersPage),
             [(ConfigMenu, 3)] = new("Font Colors", Command: StockUiMenuCommand.NotAvailable),
             [(ConfigMenu, 4)] = new("Windows", Opens: WindowsMenu),
             [(ConfigMenu, 10)] = new("Log", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 5)] = new("Misc.", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 6)] = new("Misc. 2", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 11)] = new("Misc. 3", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 12)] = new("Misc. 4", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 5)] = new("Misc.", Opens: StockUiConfigPages.MiscPage),
+            [(ConfigMenu, 6)] = new("Misc. 2", Opens: StockUiConfigPages.Misc2Page),
+            [(ConfigMenu, 11)] = new("Misc. 3", Opens: StockUiConfigPages.Misc3Page),
+            [(ConfigMenu, 12)] = new("Misc. 4", Opens: StockUiConfigPages.Misc4Page),
             [(ConfigMenu, 7)] = new("Effects", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 8)] = new("Mouse/Cam.", Command: StockUiMenuCommand.NotAvailable),
-            [(ConfigMenu, 9)] = new("Global", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 8)] = new("Mouse/Cam.", Opens: StockUiConfigPages.MouseCameraPage),
+            [(ConfigMenu, 9)] = new("Global", Opens: StockUiConfigPages.GlobalPage),
             [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.NotAvailable),
 
             // Windows: which window's settings to edit.
-            [(WindowsMenu, 1)] = new("Shared", Opens: WindowSettingsPage),
-            [(WindowsMenu, 2)] = new("Window 1", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowsMenu, 3)] = new("Window 2", Command: StockUiMenuCommand.NotAvailable),
-
-            // Window Settings (Shared): Log Window Multi-window (1-3), Timestamp (4-6), Window Type (7-14), Window Effect (15-16).
-            [(WindowSettingsPage, 1)] = new("Multi-window", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 2)] = new("Multi-window", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 3)] = new("Multi-window", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 4)] = new("Timestamp", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 5)] = new("Timestamp", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 6)] = new("Timestamp", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 7)] = new("Window Type 1", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 1),
-            [(WindowSettingsPage, 8)] = new("Window Type 2", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 2),
-            [(WindowSettingsPage, 9)] = new("Window Type 3", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 3),
-            [(WindowSettingsPage, 10)] = new("Window Type 4", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 4),
-            [(WindowSettingsPage, 11)] = new("Window Type 5", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 5),
-            [(WindowSettingsPage, 12)] = new("Window Type 6", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 6),
-            [(WindowSettingsPage, 13)] = new("Window Type 7", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 7),
-            [(WindowSettingsPage, 14)] = new("Window Type 8", Command: StockUiMenuCommand.SelectWindowSkin, Argument: 8),
-            [(WindowSettingsPage, 15)] = new("Window Effect", Command: StockUiMenuCommand.NotAvailable),
-            [(WindowSettingsPage, 16)] = new("Window Effect", Command: StockUiMenuCommand.NotAvailable),
+            [(WindowsMenu, 1)] = new("Shared", Opens: StockUiConfigPages.WindowSettingsPage),
+            [(WindowsMenu, 2)] = new("Window 1", Opens: StockUiConfigPages.Window1SettingsPage),
+            [(WindowsMenu, 3)] = new("Window 2", Opens: StockUiConfigPages.Window2SettingsPage),
         };
 
-        /// <summary>Looks up what a menu's button does; false for buttons without a client meaning (titles, arrows).</summary>
-        public static bool TryGet(string menuName, int buttonId, out StockUiMenuEntry entry) =>
-            Entries.TryGetValue((menuName, buttonId), out entry);
+        /// <summary>
+        /// Looks up what a menu's button does: the table above, then the config pages (an option choice, a slider,
+        /// a chat-filter row); false for buttons without a client meaning (titles, arrows).
+        /// </summary>
+        public static bool TryGet(string menuName, int buttonId, out StockUiMenuEntry entry)
+        {
+            if (Entries.TryGetValue((menuName, buttonId), out entry)) return true;
+            if (StockUiConfigPages.TryGet(menuName, out var page))
+            {
+                if (page.TryGetOption(buttonId, out var option, out var choice))
+                {
+                    entry = new StockUiMenuEntry($"{option.Label}: {choice.Name}", Command: StockUiMenuCommand.ConfigOption, Argument: choice.Value);
+                    return true;
+                }
+                if (page.TryGetSlider(buttonId, out var slider))
+                {
+                    entry = new StockUiMenuEntry(slider.Label, Command: StockUiMenuCommand.ConfigSlider);
+                    return true;
+                }
+            }
+            if (menuName.Equals(StockUiConfigPages.ChatFiltersPage, StringComparison.OrdinalIgnoreCase)
+                && buttonId >= 1 && buttonId <= StockUiConfigPages.ChatFilterRowsPerPage)
+            {
+                entry = new StockUiMenuEntry("Chat filter", Command: StockUiMenuCommand.ChatFilter, Argument: buttonId);
+                return true;
+            }
+            return false;
+        }
 
         private sealed class MenuKeyComparer : IEqualityComparer<(string Menu, int Button)>
         {

@@ -40,6 +40,8 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
+        private readonly PlayerConfigState _config;
+        private readonly ConfigPacketModule _configModule;
         private readonly Actions.PlayerActionService _actionService;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
@@ -69,6 +71,7 @@ namespace Gordian.Core.Network
             _progression = progression ?? new ProgressionState();
             _inventory = inventory ?? new InventoryState();
             _combat = combat ?? new CombatState();
+            _config = new PlayerConfigState();
 
             _lifecycleModule = new LifecyclePacketModule(_profile, _sendChunkCallback, LogPacket);
             _lifecycleModule.Register(_dispatcher);
@@ -100,6 +103,9 @@ namespace Gordian.Core.Network
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
 
+            _configModule = new ConfigPacketModule(_config, _sendChunkCallback, LogPacket);
+            _configModule.Register(_dispatcher);
+
             _actionService = new Actions.PlayerActionService(
                 _profile,
                 _world,
@@ -110,6 +116,7 @@ namespace Gordian.Core.Network
                 _entityModule,
                 _lifecycleModule,
                 _sendChunkCallback);
+            _actionService.ConfigModule = _configModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -194,6 +201,14 @@ namespace Gordian.Core.Network
         /// Gets the combat, spell casting, ability, and emote packet handling module.
         /// </summary>
         public CombatPacketModule CombatModule => _combatModule;
+
+        /// <summary>
+        /// Gets the character configuration module (S2C 0x0B4; C2S 0x0DB / 0x0DC for the config menu's server-side settings).
+        /// </summary>
+        public ConfigPacketModule ConfigModule => _configModule;
+
+        /// <summary>The server's copy of the character's configuration (flags, chat filters, party languages).</summary>
+        public PlayerConfigState ConfigState => _config;
 
         /// <summary>
         /// Gets or sets the performance and telemetry tracker for recording packet counts and dispatch latency.

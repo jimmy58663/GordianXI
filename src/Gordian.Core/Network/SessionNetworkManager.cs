@@ -191,6 +191,11 @@ namespace Gordian.Core.Network
         public CombatPacketModule CombatModule => _parser.CombatModule;
 
         /// <summary>
+        /// Gets the character configuration module (server-side config flags and chat filters).
+        /// </summary>
+        public ConfigPacketModule ConfigModule => _parser.ConfigModule;
+
+        /// <summary>
         /// Gets the unified player action coordinator service.
         /// </summary>
         public Actions.PlayerActionService ActionService => _parser.ActionService;
