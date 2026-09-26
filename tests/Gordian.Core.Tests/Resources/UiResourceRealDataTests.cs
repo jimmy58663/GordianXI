@@ -145,6 +145,35 @@ namespace Gordian.Core.Tests.Resources
             }
         }
 
+        [Fact]
+        public void StatusIcons_DecodeByStatusId()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var icons = StatusIconLibrary.Load(rm);
+            Assert.NotNull(icons);
+            Assert.Equal(640, icons!.Count);
+
+            int decoded = 0;
+            for (int id = 0; id < icons.Count; id++) if (icons.TryGetIcon(id, out _)) decoded++;
+            _output.WriteLine($"{decoded} of {icons.Count} status icons decode");
+            Assert.True(decoded > 600);
+            Assert.True(icons.TryGetIcon(40, out var protect));
+            Assert.Equal((32, 32), (protect.Width, protect.Height));
+
+            string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+            if (string.IsNullOrEmpty(dumpDir)) return;
+            // Icons 0-255 in a 16 x 16 grid of 32-pixel cells.
+            var sheet = new SoftwareCanvas(512, 512);
+            for (int id = 0; id < 256; id++)
+            {
+                if (icons.TryGetIcon(id, out var icon)) sheet.Blit(icon, (id % 16) * 32, (id / 16) * 32);
+            }
+            Directory.CreateDirectory(dumpDir);
+            sheet.Save(Path.Combine(dumpDir, "status_icons.png"));
+        }
+
         /// <summary>
         /// Minimal software rasterizer for axis-aligned UI parts (nearest sampling, half-scale colour modulation,
         /// alpha blending) used only to eyeball decoded data.
@@ -212,6 +241,21 @@ namespace Gordian.Core.Tests.Resources
                             _rgba[d + 1] = (byte)(g * a + _rgba[d + 1] * (1 - a));
                             _rgba[d + 2] = (byte)(b * a + _rgba[d + 2] * (1 - a));
                         }
+                    }
+                }
+            }
+
+            public void Blit(Gordian.Core.Resources.Graphics.DecodedTexture texture, int x0, int y0)
+            {
+                for (int y = 0; y < texture.Height; y++)
+                {
+                    for (int x = 0; x < texture.Width; x++)
+                    {
+                        int px = x0 + x, py = y0 + y;
+                        if (px >= _width || py >= _height) continue;
+                        int t = (y * texture.Width + x) * 4, d = (py * _width + px) * 4;
+                        float a = Math.Min(1f, texture.RgbaPixels[t + 3] / 128f);
+                        for (int c = 0; c < 3; c++) _rgba[d + c] = (byte)(texture.RgbaPixels[t + c] * a + _rgba[d + c] * (1 - a));
                     }
                 }
             }

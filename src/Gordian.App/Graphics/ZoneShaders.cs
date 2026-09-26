@@ -570,7 +570,9 @@ void main()
     // Moonlight shines opposite the sun (xim terrain lighting: ambient + sun + moon)
     vec3 df1 = fsin_Color.rgb * max(dot(N, -L), 0.0) * MoonColor.rgb;
     // Zone point lights shine on the placements that reference them (at most four).
-    vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
+    // WeatherParams.z > 0 caps the summed light (actors: see ActorLighting.MaxLight); terrain leaves it 0 (cap 1).
+    float lightCap = WeatherParams.z > 0.0 ? WeatherParams.z : 1.0;
+    vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, lightCap);
 
     // Authentic FFXI PS2 modulate2x color combination
     vec3 litColor = 2.0 * lit * tex.rgb;

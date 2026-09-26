@@ -466,6 +466,15 @@ namespace Gordian.Core.Network.Packets
         public bool IsDespawn => (UpdateFlags & EntityUpdateFlags.Despawn) != 0;
         public bool HasPosition => (UpdateFlags & EntityUpdateFlags.Position) != 0;
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
+        public bool HasGeneral => (UpdateFlags & EntityUpdateFlags.General) != 0;
+
+        /// <summary>
+        /// Packet byte 0x25 bit 0x08: set for living monsters, pets and trusts in the general (HP) section and never for
+        /// NPCs, which share the 0-1023 index range with monsters. Meaningful only when <see cref="HasGeneral"/>; it
+        /// clears when a monster dies. Referenced from LandSandBoat (https://github.com/LandSandBoat/server,
+        /// src/map/packets/entity_update.cpp).
+        /// </summary>
+        public bool HasLivingMobFlag => _payload.Length > 0x21 && (_payload[0x21] & 0x08) != 0;
 
         /// <summary>
         /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.

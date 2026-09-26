@@ -299,6 +299,14 @@ namespace Gordian.Core.Network.Packets
                 entity = existing;
             }
 
+            // Monsters and NPCs share indices below 1024: the general section's living-mob flag tells them apart. Once
+            // known as a monster an entity stays one (the flag clears on death and is absent from position-only updates).
+            if (type == EntityType.Npc)
+            {
+                if (npcPacket.HasGeneral && npcPacket.HasLivingMobFlag) type = EntityType.Monster;
+                else if (!isNew && entity.Type == EntityType.Monster) type = EntityType.Monster;
+            }
+
             entity.TargetIndex = npcPacket.ActorIndex;
             entity.Type = type;
             entity.IsSpawned = true;
@@ -420,7 +428,8 @@ namespace Gordian.Core.Network.Packets
 
             if (npcPacket.HasName)
             {
-                string name = npcPacket.GetName();
+                // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
+                string name = npcPacket.GetName().Replace('_', ' ');
                 if (!string.IsNullOrEmpty(name))
                 {
                     entity.Name = name;

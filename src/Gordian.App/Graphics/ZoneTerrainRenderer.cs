@@ -34,6 +34,7 @@ namespace Gordian.App.Graphics
         // Moving platform (elevator) parts, drawn at their platform's live height.
         private readonly List<GpuSubmesh> _platformSubmeshes = new();
         private readonly Dictionary<string, ZoneSceneUniform> _subEnvironmentUniforms = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ActorLighting> _subEnvironmentActorLights = new(StringComparer.OrdinalIgnoreCase);
         private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
 
         /// <summary>
@@ -564,6 +565,7 @@ namespace Gordian.App.Graphics
             ClearWeatherSkySubmeshes();
             LoadedZone = zone;
             CreateSubEnvironmentScenes(zone);
+            _entityRenderer?.ResetEnvironmentProbes();
             _lightSourceVisibility.Clear();
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
@@ -996,7 +998,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights, LoadedZone, _subEnvironmentActorLights);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;
@@ -1830,6 +1832,7 @@ namespace Gordian.App.Graphics
                 {
                     var lighting = new ZoneEnvironmentSettings();
                     lighting.ApplyKeyframe(keyframe);
+                    _subEnvironmentActorLights[id] = ActorLighting.From(lighting);
                     uniform.SunDirection = new Vector4(lighting.SunDirection, 0.0f);
                     uniform.SunColor = new Vector4(lighting.SunColor, 1.0f);
                     uniform.AmbientColor = new Vector4(lighting.AmbientColor, 1.0f);

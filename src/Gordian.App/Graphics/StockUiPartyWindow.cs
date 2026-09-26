@@ -51,9 +51,10 @@ namespace Gordian.App.Graphics
         public static readonly UiColor TpColor = new(0x60, 0x70, 0x80, 0x80);
 
         /// <summary>
-        /// Depleted gauge share: an estimate (no capture below full yet) that darkens the tinted middle.
+        /// Depleted gauge share: a light lavender (137, 144, 187 over the strip's near-white texels in a Windower
+        /// capture of a damaged target).
         /// </summary>
-        public static readonly UiColor EmptyGaugeColor = new(0x20, 0x20, 0x28, 0x80);
+        public static readonly UiColor EmptyGaugeColor = new(0x4E, 0x48, 0x5E, 0x80);
 
         private static readonly UiColor Neutral = new(0x80, 0x80, 0x80, 0x80);
 
@@ -116,9 +117,11 @@ namespace Gordian.App.Graphics
         /// Retail keeps the longest prefix of a too-wide name that fits the limit and appends ".." after it (the dots
         /// may run into the HP number): "Tarudrake" shows as "Tarudra.." beside 9999 HP.
         /// </summary>
-        public static string FitName(UiFont font, string name)
+        public static string FitName(UiFont font, string name) => FitName(font, name, NameLimit(font));
+
+        /// <summary>Fits a name into <paramref name="limit"/> layout pixels at <see cref="TextScale"/>.</summary>
+        public static string FitName(UiFont font, string name, float limit)
         {
-            float limit = NameLimit(font);
             if (font.MeasureWidth(name) * TextScale <= limit) return name;
             for (int length = name.Length - 1; length > 0; length--)
             {
@@ -137,7 +140,7 @@ namespace Gordian.App.Graphics
         /// Draws a gauge strip whose tinted middle spans <paramref name="middleWidth"/> layout pixels (46 = unstretched),
         /// filled to <paramref name="percent"/>.
         /// </summary>
-        private static void DrawGauge(StockUiRenderer renderer, float x, float y, float middleWidth, bool withKnob, UiColor color, int percent, float s)
+        internal static void DrawGauge(StockUiRenderer renderer, float x, float y, float middleWidth, bool withKnob, UiColor color, int percent, float s)
         {
             float pen = x;
             float h = StripHeight * s;

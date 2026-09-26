@@ -258,6 +258,27 @@ void main()
                 new UiVertex { Position = new Vector2(x + width, y + height), TexCoord = new Vector2(u1, v1), Color = cr });
         }
 
+        /// <summary>
+        /// Draws a whole texture that does not come from the UI library (status icons), cached under
+        /// <paramref name="cacheKey"/> (prefix it so it cannot collide with library texture names).
+        /// </summary>
+        public void DrawTexture(string cacheKey, DecodedTexture texture, float x, float y, float width, float height, UiColor color)
+        {
+            if (width <= 0 || height <= 0) return;
+            if (!_textures.TryGetValue(cacheKey, out var entry))
+            {
+                entry = Upload(texture);
+                _textures[cacheKey] = entry;
+            }
+            if (entry is not { } e) return;
+            uint c = Pack(color, null);
+            AddQuad(e.Set, UiBlendMode.Alpha,
+                new UiVertex { Position = new Vector2(x, y), TexCoord = new Vector2(0, 0), Color = c },
+                new UiVertex { Position = new Vector2(x + width, y), TexCoord = new Vector2(1, 0), Color = c },
+                new UiVertex { Position = new Vector2(x, y + height), TexCoord = new Vector2(0, 1), Color = c },
+                new UiVertex { Position = new Vector2(x + width, y + height), TexCoord = new Vector2(1, 1), Color = c });
+        }
+
         // Window border: the skin's "hfr1" strip (rows 0-2: dark, light, dark) along the frame's top and bottom edges,
         // added onto the background (the bottom line reads lavender, 205/206/246 over a 32/23/72 background) at about
         // 85% and fading out over 16 pixels at each end; measured from Windower captures of the party window. The DAT

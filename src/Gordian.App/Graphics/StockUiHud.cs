@@ -22,6 +22,7 @@ namespace Gordian.App.Graphics
     {
         private volatile UiResourceLibrary? _library;
         private volatile UiFont? _font;
+        private volatile StatusIconLibrary? _statusIcons;
         private int _loadStarted;
 
         /// <summary>The layout used for the last frame (the session's shared layout, see StockUiLayoutStore).</summary>
@@ -45,6 +46,7 @@ namespace Gordian.App.Graphics
                     var library = UiResourceLibrary.Load(resources);
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
+                    _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
                 catch (Exception ex)
@@ -66,7 +68,47 @@ namespace Gordian.App.Graphics
             renderer.Begin(library);
             var party = DrawPartyWindow(renderer, library, session, width, height);
             DrawLogWindow(renderer, library, party, width, height);
+            DrawTargetWindow(renderer, library, session, party, width, height);
+            DrawStatusIcons(renderer, library, session, width, height);
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// The target window shows while something is targeted. By default it sits on top of the party window with a
+        /// 2-pixel gap, as retail does (its authored y of 252 only fits a six-member party); a moved target window
+        /// keeps its own placement.
+        /// </summary>
+        private void DrawTargetWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
+            StockUiPlacement? party, uint width, uint height)
+        {
+            var target = session.ActionService.CurrentTarget;
+            var font = _font;
+            if (target == null || font == null || !library.TryGetMenu("targetwi", out var menu)) return;
+
+            var placement = Layout.Resolve(StockUiWindowIds.Target, menu.Frame, width, height);
+            if (placement.Hidden) return;
+            if (!Layout.HasPositionOverride(StockUiWindowIds.Target) && party is { Hidden: false } p)
+            {
+                placement = placement with { Y = Math.Max(0, p.Y - (menu.Frame.Height + 2) * placement.Scale) };
+            }
+            renderer.DrawMenu(menu, placement, includeButtons: false);
+
+            var partyIds = new List<uint>();
+            foreach (var member in session.Party.Members) partyIds.Add(member.ServerId);
+            var kind = StockUiTargetWindow.Classify(target, session.LocalPlayer.ServerId, partyIds);
+            StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind);
+        }
+
+        private void DrawStatusIcons(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var icons = _statusIcons;
+            if (icons == null || !library.TryGetMenu("buff", out var grid)) return;
+            var ids = session.LocalPlayer.GetStatusEffectIds();
+            if (ids.Count == 0) return;
+
+            var placement = Layout.Resolve(StockUiWindowIds.StatusIcons, grid.Frame, width, height);
+            if (placement.Hidden) return;
+            StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids);
         }
 
         /// <summary>

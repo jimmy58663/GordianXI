@@ -202,6 +202,77 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Renders the target window (claimed "Island Rarab" at 30%) above the Solo party window, and a row of status
+        /// icons, at 1:1 for comparison with a Windower capture; writes target_status.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersTargetWindowAndStatusIcons()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            var icons = StatusIconLibrary.Load(rm);
+            if (library == null || font == null || icons == null) return;
+            Assert.True(library.TryGetMenu("targetwi", out var target));
+            Assert.True(library.TryGetMenu("ptw0", out var solo));
+            Assert.True(library.TryGetMenu("buff", out var grid));
+
+            const uint width = 512, height = 448;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiTargetTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.55f, 0.5f, 0.5f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var party = layout.Resolve(StockUiWindowIds.Party, solo.Frame, width, height);
+                renderer.DrawMenu(solo, party, includeButtons: false);
+                StockUiPartyWindow.Draw(renderer, font, solo, party, new[] { new PartyRowVitals("Tarudrake", 9999, 100, 2794, 100, 0, false) }, showTp: false);
+                var targetPlacement = layout.Resolve(StockUiWindowIds.Target, target.Frame, width, height) with { Y = party.Y - (target.Frame.Height + 2) };
+                renderer.DrawMenu(target, targetPlacement, includeButtons: false);
+                StockUiTargetWindow.Draw(renderer, font, target, targetPlacement, "Island Rarab", 30, TargetNameKind.ClaimedByParty);
+                StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, layout.Resolve(StockUiWindowIds.StatusIcons, grid.Frame, width, height),
+                    new ushort[] { 42, 42, 40, 40, 43, 116, 41, 41, 42, 42, 44, 91 });
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "target_status.png"), pixels, (int)width, (int)height);
+                }
+
+                // The first status icon lands at (144, 50) (buff frame (142, 48) + slot (2, 2)); its centre differs from the clear colour.
+                var icon = Pixel(pixels, width, 144 + 12, 50 + 12);
+                Assert.NotEqual(Pixel(pixels, width, 100, 100), icon);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         private static byte[] ReadBack(Veldrid.GraphicsDevice gd, Veldrid.Texture source, uint width, uint height)
         {
             var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, source.Format, Veldrid.TextureUsage.Staging));

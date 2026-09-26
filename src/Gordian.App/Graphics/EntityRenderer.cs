@@ -56,6 +56,9 @@ namespace Gordian.App.Graphics
 
         private readonly ConcurrentDictionary<string, GpuEntityModel> _gpuModelCache = new();
         private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
+
+        // Per entity: where its floor was last probed and the sub-environment that floor links (null = outdoors).
+        private readonly Dictionary<uint, (Vector3 Probe, string? EnvironmentId)> _entityEnvironments = new();
         private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 3];
         private GpuEntityModel? _fallbackPlayerProxy;
         private GpuEntityModel? _fallbackNpcProxy;
@@ -226,6 +229,25 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Renders all active, spawned entities in the world into the active command list.
         /// </summary>
+        /// <summary>
+        /// The sub-environment linked to the floor under an entity (display-space feet position), or null outdoors.
+        /// The floor is re-probed only after the entity moves half a yalm.
+        /// </summary>
+        private string? GetEntityEnvironment(uint serverId, Vector3 feet, ZoneGeometry zone)
+        {
+            if (_entityEnvironments.TryGetValue(serverId, out var cached) && Vector3.DistanceSquared(cached.Probe, feet) < 0.25f)
+            {
+                return cached.EnvironmentId;
+            }
+            var floor = ZoneRaycaster.FindFloor(zone, feet + new Vector3(0.0f, 1.0f, 0.0f), 6.0f);
+            string? environmentId = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
+            _entityEnvironments[serverId] = (feet, environmentId);
+            return environmentId;
+        }
+
+        /// <summary>Forgets cached per-entity floor probes (call on zone change).</summary>
+        public void ResetEnvironmentProbes() => _entityEnvironments.Clear();
+
         public void RenderEntities(
             CommandList cl,
             ViewportCamera camera,
@@ -237,7 +259,9 @@ namespace Gordian.App.Graphics
             bool isLocalPlayerEngaged = false,
             Vector3? localPlayerDisplayPos = null,
             ZoneCollisionMesh? collision = null,
-            PlatformHeight[]? platforms = null)
+            PlatformHeight[]? platforms = null,
+            ZoneGeometry? zone = null,
+            IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null)
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -248,6 +272,7 @@ namespace Gordian.App.Graphics
             float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
             float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
             var frustum = camera.Frustum;
+            var outdoorLights = ActorLighting.From(environment);
 
             foreach (var entity in entities)
             {
@@ -257,6 +282,7 @@ namespace Gordian.App.Graphics
                     {
                         stalePalette.Dispose();
                     }
+                    _entityEnvironments.Remove(entity.ServerId);
                     continue;
                 }
 
@@ -334,15 +360,22 @@ namespace Gordian.App.Graphics
                     World = worldMatrix,
                     View = camera.ViewMatrix,
                     Projection = camera.ProjectionMatrix,
-                    SunDirection = new Vector4(environment.SunDirection, 0.0f),
-                    SunColor = new Vector4(environment.SunColor, 1.0f),
-                    AmbientColor = new Vector4(environment.AmbientColor, 1.0f),
                     FogColor = environment.FogColor,
                     FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                     EyePosition = new Vector4(camera.Position, 1.0f),
                     WeatherParams = Vector4.Zero,
-                    MoonColor = new Vector4(environment.MoonColor, 1.0f)
                 };
+
+                // Actors take the 0x2F model lights of the environment they stand in: a floor linked to a
+                // sub-environment (a cave or interior) uses that environment's, anywhere else the zone's weather.
+                var lights = outdoorLights;
+                if (zone != null && subEnvironments != null && subEnvironments.Count > 0
+                    && GetEntityEnvironment(entity.ServerId, pos, zone) is { } environmentId
+                    && subEnvironments.TryGetValue(environmentId, out var indoorLights))
+                {
+                    lights = indoorLights;
+                }
+                lights.ApplyTo(ref uniform);
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 

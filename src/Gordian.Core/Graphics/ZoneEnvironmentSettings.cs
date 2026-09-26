@@ -41,6 +41,11 @@ namespace Gordian.Core.Graphics
         public Vector3 ModelMoonColor { get; set; } = Vector3.Zero;
 
         /// <summary>
+        /// Model (actor) ambient light from the 0x2F model lighting block, converted like the terrain ambient.
+        /// </summary>
+        public Vector3 ModelAmbientColor { get; set; } = new(0.25f, 0.25f, 0.25f);
+
+        /// <summary>
         /// RGB intensity and color of the ambient light preventing completely black shadows.
         /// </summary>
         public Vector3 AmbientColor { get; set; } = new(0.18f, 0.19f, 0.23f);
@@ -139,6 +144,7 @@ namespace Gordian.Core.Graphics
             float modelDiffuseMult = keyframe.ModelDiffuseMult > 0f ? keyframe.ModelDiffuseMult : 1.0f;
             ModelSunColor = DiffuseToLight(keyframe.ModelSunColor, modelDiffuseMult);
             ModelMoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.ModelMoonColor, modelDiffuseMult);
+            ModelAmbientColor = AmbientToLight(keyframe.ModelAmbientColor);
             FogColor = keyframe.TerrainFogColor;
 
             // FFXI retail keyframes often author FogStart=0 because original PS2 hardware used an

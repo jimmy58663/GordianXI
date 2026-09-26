@@ -1,5 +1,6 @@
 // src/Gordian.Core/World/LocalPlayerState.cs
 using System;
+using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -118,8 +119,41 @@ namespace Gordian.Core.World
         #endregion
 
         #region Status Effects & Buffs
-        public byte[] BuffIcons { get; } = new byte[32];
+        /// <summary>
+        /// Low bytes of the 32 status-effect slots (S2C 0x037); 0xFF with no high bits is an empty slot. Starts empty.
+        /// </summary>
+        public byte[] BuffIcons { get; } = CreateEmptyBuffSlots();
+
+        /// <summary>
+        /// Two high bits per slot (slot i at bits 2*(i%4) of byte i/4), extending ids past 255.
+        /// </summary>
         public byte[] BuffStatusBits { get; } = new byte[8];
+
+        private static byte[] CreateEmptyBuffSlots()
+        {
+            var slots = new byte[32];
+            Array.Fill(slots, (byte)0xFF);
+            return slots;
+        }
+
+        /// <summary>
+        /// The active status-effect ids in slot order (the order the client lists its status icons).
+        /// Slot layout referenced from LandSandBoat (https://github.com/LandSandBoat/server, char_status packet).
+        /// </summary>
+        public List<ushort> GetStatusEffectIds()
+        {
+            var ids = new List<ushort>(8);
+            lock (_lock)
+            {
+                for (int i = 0; i < BuffIcons.Length; i++)
+                {
+                    int high = (BuffStatusBits[i / 4] >> (2 * (i % 4))) & 0x03;
+                    int id = BuffIcons[i] | (high << 8);
+                    if (id != 0xFF) ids.Add((ushort)id);
+                }
+            }
+            return ids;
+        }
         public ushort PetActorIndex { get; private set; }
         public byte MountId { get; private set; }
         public byte WardrobeMask { get; private set; }

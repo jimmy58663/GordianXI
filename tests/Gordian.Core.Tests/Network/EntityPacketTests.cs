@@ -681,6 +681,42 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void EntityPacketModule_HandleCharNpc_TellsMonstersFromNpcsAndSpacesNames()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] Packet(uint id, ushort index, EntityUpdateFlags flags, bool livingMob, string name = "")
+            {
+                byte[] payload = new byte[0x48];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), id);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), index);
+                payload[6] = (byte)flags;
+                payload[26] = 100;
+                if (livingMob) payload[0x21] = 0x08; // packet byte 0x25
+                System.Text.Encoding.ASCII.GetBytes(name).CopyTo(payload.AsSpan(0x30));
+                return payload;
+            }
+            void Send(byte[] payload) => dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            // Both below index 1024: the living-mob flag in the general section decides.
+            Send(Packet(0x01004010, 16, EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.Name, true, "Island_Rarab"));
+            Send(Packet(0x01004020, 32, EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.Name, false, "Mahol"));
+            Assert.True(world.TryGetByServerId(0x01004010, out var rarab));
+            Assert.True(world.TryGetByServerId(0x01004020, out var npc));
+            Assert.Equal(EntityType.Monster, rarab!.Type);
+            Assert.Equal("Island Rarab", rarab.Name);
+            Assert.Equal(EntityType.Npc, npc!.Type);
+
+            // A position-only update, then death (flag cleared), keep the monster a monster.
+            Send(Packet(0x01004010, 16, EntityUpdateFlags.Position, false));
+            Assert.Equal(EntityType.Monster, rarab.Type);
+            Send(Packet(0x01004010, 16, EntityUpdateFlags.General, false));
+            Assert.Equal(EntityType.Monster, rarab.Type);
+        }
+
+        [Fact]
         public void EntityPacketModule_HandleCharNpc_PopulatesEquippedLookOnEntity()
         {
             var world = new WorldState();
