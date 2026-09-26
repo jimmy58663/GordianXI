@@ -73,7 +73,9 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 ---
 
 ## 📋 Context Resumption & Tracking
-*   **Always check `ROADMAP.md`** at the solution root at the start of any new session or feature implementation to verify the current phase, completed tasks, and active priorities.
+*   **Always check `ROADMAP.md`** at the solution root at the start of any new session or feature implementation to verify the current phase and active priorities. Keep it short: it holds status only, not implementation detail or history.
+*   **Before working in a subsystem, read its doc** under `docs/` (index: `docs/README.md`). Docs hold formats, formulas, calibrations and verification commands. When a change alters how a subsystem works or adds a calibrated value, update its doc in the same change, including where the evidence came from (capture, zone, reference source).
+*   **Open tasks, known gaps and bugs are GitHub Issues** (`gh issue list`, `gh issue view <n>`), grouped by phase milestone and `area:*` labels. Record newly found gaps as issues rather than roadmap bullets, and reference them in commits (`Closes #N`).
 *   **Always run `dotnet test`** to confirm all test suites pass before starting new feature development.
 
 ---
