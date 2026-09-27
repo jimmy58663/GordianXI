@@ -2,12 +2,13 @@
 
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
-- **Test Status:** 1,082 Passing Unit Tests (`dotnet test`: 861 Core, 219 App, 1 Addons, 1 Automation)
-- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-4 and 4c are done except the expiring-icon blink ([#17](https://github.com/jimmy58663/GordianXI/issues/17), waits on S2C 0x063); next is chunk 4b ([#25](https://github.com/jimmy58663/GordianXI/issues/25), movable stock UI) or chunk 5 ([#26](https://github.com/jimmy58663/GordianXI/issues/26), chat/log window). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md) and the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones).
+- **Test Status:** every PR must pass `dotnet test` on Windows and Ubuntu CI (counts are in each PR's test report).
+- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-4 and 4c are done except the expiring-icon blink ([#17](https://github.com/jimmy58663/GordianXI/issues/17), waits on S2C 0x063). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up) (currently chunk 4b [#25](https://github.com/jimmy58663/GordianXI/issues/25), movable stock UI, and chunk 5 [#26](https://github.com/jimmy58663/GordianXI/issues/26), chat/log window). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md) and the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones).
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ## How This Repo Tracks Work
-- **This file:** phase status, MVP definition, active focus. Keep it short; do not grow it into a changelog.
+- **This file:** phase status, MVP definition, active focus. Keep it short; do not grow it into a changelog. Update it in the same PR that changes a phase's status or the active focus.
+- **What to work on next:** open issues labelled `next-up`, then the rest of the current milestone.
 - **[`docs/`](docs/README.md):** how each subsystem works: formats, formulas, calibrations against Windower captures, verification commands. Read the matching doc before working in an area, and record new findings there.
 - **[GitHub Issues](https://github.com/jimmy58663/GordianXI/issues):** open tasks, known gaps and bugs, grouped by milestone (one per open phase) and labelled by area. Reference them from commits (`Closes #N`).
 - **Git history:** what was done and when.
