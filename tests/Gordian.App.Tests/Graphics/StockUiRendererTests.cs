@@ -141,7 +141,7 @@ namespace Gordian.App.Tests.Graphics
         /// controller and <see cref="StockUiMenuWindow"/>; writes gpu_menu.png when GORDIAN_UI_DUMP is set.
         /// </summary>
         [Fact]
-        public void RendersOpenMainMenuWithCursor()
+        public async Task RendersOpenMainMenuWithCursor()
         {
             if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
             var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
@@ -220,7 +220,7 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.True(orange, "selected label is not tinted");
                 menus.CloseAll();
-                Assert.False(prompt.Result);
+                Assert.False(await prompt);
 
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
             }

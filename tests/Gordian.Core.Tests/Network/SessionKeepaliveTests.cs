@@ -12,6 +12,19 @@ namespace Gordian.Core.Tests.Network
 {
     public sealed class SessionKeepaliveTests
     {
+        /// <summary>
+        /// Polls until the network loop (250 ms tick) has produced the expected output. A fixed delay
+        /// was too short on slower CI runners; the assertions that follow report the real failure.
+        /// </summary>
+        private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (!condition() && clock.ElapsedMilliseconds < timeoutMs)
+            {
+                await Task.Delay(25);
+            }
+        }
+
         [Fact]
         public void PacketParser_ExtractsPlayerPositionFromLogin0x00A()
         {
@@ -201,8 +214,15 @@ namespace Gordian.Core.Tests.Network
                 };
                 mgr.World.UpsertEntity(localEnt);
 
-                // Wait for a network tick flush (~350ms)
-                await Task.Delay(350);
+                // Wait for a network tick flush carrying the running position
+                await WaitUntilAsync(() =>
+                {
+                    lock (inspected)
+                    {
+                        return inspected.Exists(p => p.PacketId == 0x015
+                            && BinaryPrimitives.ReadUInt16LittleEndian(p.RawBytes.AsSpan(18, 2)) >= SessionNetworkManager.InitialRunCount);
+                    }
+                });
 
                 lock (inspected)
                 {
@@ -226,7 +246,15 @@ namespace Gordian.Core.Tests.Network
 
                 // Stop character
                 localEnt.Speed = 0;
-                await Task.Delay(350);
+                await WaitUntilAsync(() =>
+                {
+                    lock (inspected)
+                    {
+                        var last = inspected.FindLast(p => p.PacketId == 0x015);
+                        return last != null
+                            && BinaryPrimitives.ReadUInt16LittleEndian(last.RawBytes.AsSpan(18, 2)) == SessionNetworkManager.StationaryRunCount;
+                    }
+                });
 
                 lock (inspected)
                 {
@@ -271,7 +299,13 @@ namespace Gordian.Core.Tests.Network
                 await mgr.QueueChunkAsync(gameOkChunk, isHighPriority: false);
 
                 // Wait for network tick flush
-                await Task.Delay(350);
+                await WaitUntilAsync(() =>
+                {
+                    lock (inspected)
+                    {
+                        return inspected.Exists(p => p.PacketId == 0x00C) && inspected.Exists(p => p.PacketId == 0x015);
+                    }
+                });
 
                 lock (inspected)
                 {

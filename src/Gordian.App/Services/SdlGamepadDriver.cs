@@ -3,9 +3,12 @@
 // Natively supports XInput (Xbox), DirectInput, PS5 DualSense, PS4 DualShock, Switch Pro, and generic HID.
 
 using System;
+using System.IO;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
+using Silk.NET.Core.Contexts;
 using Silk.NET.SDL;
 
 namespace Gordian.App.Services
@@ -59,7 +62,7 @@ namespace Gordian.App.Services
         {
             try
             {
-                _sdl = Sdl.GetApi();
+                _sdl = LoadSdlApi();
                 if (_sdl != null)
                 {
                     // Allow background joystick events so controller inputs work when window is unfocused
@@ -84,6 +87,49 @@ namespace Gordian.App.Services
                 GordianLog.Warn("INPUT", $"Failed to initialize Silk.NET.SDL Gamepad driver: {ex.Message}");
                 _isAvailable = false;
             }
+        }
+
+        /// <summary>
+        /// Loads SDL through Silk.NET's normal lookup, falling back to the copy NuGet placed under
+        /// <c>runtimes/&lt;rid&gt;/native</c> beside the app. Silk.NET resolves that copy through the entry
+        /// assembly's dependency manifest, which a foreign host (e.g. the Linux test host in CI) does not
+        /// describe, so the lookup failed there although the bundled library was present.
+        /// </summary>
+        private static Sdl LoadSdlApi()
+        {
+            try
+            {
+                return Sdl.GetApi();
+            }
+            catch (Exception) when (FindBundledSdlLibrary() is string bundledPath)
+            {
+                GordianLog.Info("INPUT", $"Loading bundled SDL from {bundledPath}.");
+                return new Sdl(new DefaultNativeContext(bundledPath));
+            }
+        }
+
+        private static string? FindBundledSdlLibrary()
+        {
+            string os = OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux";
+            string fileName = os switch
+            {
+                "win" => "SDL2.dll",
+                "osx" => "libSDL2-2.0.dylib",
+                _ => "libSDL2-2.0.so"
+            };
+            string arch = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+
+            // Packages name the folder by RID ("linux-x64", "win-arm64"), except macOS's universal "osx".
+            foreach (string rid in new[] { RuntimeInformation.RuntimeIdentifier, $"{os}-{arch}", os })
+            {
+                string candidate = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", fileName);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         public GamepadState Poll(int controllerIndex = 0)

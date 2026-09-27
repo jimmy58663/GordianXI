@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using Gordian.Core.Diagnostics;
 
@@ -227,7 +228,7 @@ namespace Gordian.Core.World
         /// <summary>
         /// Attempts to retrieve an entity by Server ID.
         /// </summary>
-        public bool TryGetByServerId(uint serverId, out WorldEntity? entity)
+        public bool TryGetByServerId(uint serverId, [NotNullWhen(true)] out WorldEntity? entity)
         {
             lock (_syncRoot)
             {
@@ -238,7 +239,7 @@ namespace Gordian.Core.World
         /// <summary>
         /// Attempts to retrieve an entity by zone Target Index (Actor Index).
         /// </summary>
-        public bool TryGetByTargetIndex(ushort targetIndex, out WorldEntity? entity)
+        public bool TryGetByTargetIndex(ushort targetIndex, [NotNullWhen(true)] out WorldEntity? entity)
         {
             lock (_syncRoot)
             {
