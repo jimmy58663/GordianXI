@@ -382,6 +382,32 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public async Task Chat_ChatModeCommandSetsTheDefaultMode()
+        {
+            var calls = new List<(string Line, ChatSendKind Kind)>();
+            var chat = new StockUiChat
+            {
+                CharacterName = () => "Gordian",
+                Execute = (line, kind) => { calls.Add((line, kind)); return Task.FromResult(PlayerActionResult.Ok("sent")); },
+            };
+
+            await chat.SubmitAsync("/chatmode party", ChatInputMode.Say);
+            Assert.Equal(ChatInputMode.Party, chat.Input.Mode);
+            await chat.SubmitAsync("/cm tell Cybin", ChatInputMode.Party);
+            Assert.Equal(ChatInputMode.Tell, chat.Input.Mode);
+            Assert.Equal("Cybin", chat.Input.TellTarget);
+            await chat.SubmitAsync("/cm", ChatInputMode.Tell);
+            Assert.Equal("Current chat mode: Tell (Cybin).", GetLines(chat.Log)[^1].Text);
+            Assert.Empty(calls); // handled by the chat itself
+
+            // Shout lasts one line.
+            await chat.SubmitAsync("/cm shout", chat.Input.Mode);
+            await chat.SubmitAsync("anyone?", chat.Input.Mode);
+            Assert.Equal(("anyone?", ChatSendKind.Shout), calls[0]);
+            Assert.Equal(ChatInputMode.Say, chat.Input.Mode);
+        }
+
+        [Fact]
         public void Router_ParsesUnityAndAssistChannels()
         {
             Assert.Equal(ChatSendKind.Unity, ChatCommandRouter.Parse("/u hi").SpeechKind);

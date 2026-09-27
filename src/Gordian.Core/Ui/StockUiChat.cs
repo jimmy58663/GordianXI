@@ -130,6 +130,7 @@ namespace Gordian.Core.Ui
         {
             if (string.IsNullOrWhiteSpace(line)) return;
             string raw = line.Trim();
+            if (TryChatModeCommand(raw)) return;
             bool command = raw.StartsWith('/') || raw.StartsWith('!');
             if (!command && mode == ChatInputMode.Tell)
             {
@@ -160,6 +161,8 @@ namespace Gordian.Core.Ui
             }
 
             string me = CharacterName();
+            // Shout as the default mode lasts one line (retail /chatmode: "[Shout] will be reset after using once").
+            if (!command && mode == ChatInputMode.Shout) Input.SetMode(ChatInputMode.Say);
             if (result.Success && parsed.Kind == ChatCommandResultKind.SendChat)
             {
                 Log.Add(ChannelOf(parsed.SpeechKind), FormatOutgoing(parsed.SpeechKind, me, parsed.Message));
@@ -186,6 +189,58 @@ namespace Gordian.Core.Ui
                 string text = row.TrimEnd('\r');
                 if (text.Length > 0) Log.Add(channel, text);
             }
+        }
+
+        /// <summary>
+        /// Retail's <c>/chatmode [mode]</c> (alias <c>/cm</c>): sets the default chat mode (<c>tell</c> takes a name;
+        /// shout lasts one line), or with no mode shows the current one. Returns false for any other line.
+        /// </summary>
+        public bool TryChatModeCommand(string raw)
+        {
+            if (!raw.StartsWith('/')) return false;
+            string[] words = raw[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return false;
+            string verb = words[0].ToLowerInvariant();
+            if (verb is not ("chatmode" or "cm")) return false;
+
+            if (words.Length == 1)
+            {
+                string current = Input.Mode == ChatInputMode.Tell && Input.TellTarget.Length > 0
+                    ? $"Tell ({Input.TellTarget})"
+                    : StockUiChatInput.Label(Input.Mode);
+                Log.Add(ChatLogChannel.Notice, $"Current chat mode: {current}.");
+                return true;
+            }
+
+            ChatInputMode? mode = words[1].ToLowerInvariant() switch
+            {
+                "say" or "s" => ChatInputMode.Say,
+                "shout" or "sh" => ChatInputMode.Shout,
+                "tell" or "t" => ChatInputMode.Tell,
+                "party" or "p" => ChatInputMode.Party,
+                "linkshell" or "linkshell1" or "l" or "l1" => ChatInputMode.Linkshell,
+                "linkshell2" or "l2" => ChatInputMode.Linkshell2,
+                "unity" or "u" => ChatInputMode.Unity,
+                "assistj" => ChatInputMode.AssistJ,
+                "assiste" => ChatInputMode.AssistE,
+                _ => null,
+            };
+            if (mode == null)
+            {
+                Log.Add(ChatLogChannel.Error, $"Unknown chat mode \"{words[1]}\".");
+                return true;
+            }
+            if (mode == ChatInputMode.Tell)
+            {
+                if (words.Length < 3)
+                {
+                    Log.Add(ChatLogChannel.Error, "Specify who to send tells to: /chatmode tell <name>.");
+                    return true;
+                }
+                Input.TellTarget = words[2];
+            }
+            Input.SetMode(mode.Value);
+            return true;
         }
 
         public static ChatSendKind SendKindOf(ChatInputMode mode) => mode switch

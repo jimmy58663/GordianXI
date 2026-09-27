@@ -30,8 +30,12 @@ namespace Gordian.App.Graphics
         /// <summary>The title's right end (from the frame's right edge), its top (from the frame top), and the border break around it.</summary>
         public const float TitleRightInset = 45, TitleTop = -3, TitleGap = 4;
 
-        /// <summary>The chat mode's tab (a 64 x 12 <c>fep</c> pill) sits on the input line's top edge, this far in.</summary>
-        public const float TabLeft = 2, TabHeight = 12;
+        /// <summary>
+        /// The chat mode's tab (a 64 x 12 <c>fep</c> pill): the DAT's <c>insay</c>/<c>inshout</c>/<c>intell</c>/
+        /// <c>inparty</c>/<c>inlink</c> menus place it at (16, 400), the input line being at (16, 410), so it sits
+        /// 10 px above the line's top, overlapping its edge.
+        /// </summary>
+        public const float TabLeft = 0, TabTop = -10, TabHeight = 12;
 
         // The caret is a 1-px bar from the pale texel of the "gauge" strip (the chat filter scrollbar's thumb colour).
         private const string CaretTexture = "gauge";
@@ -47,9 +51,9 @@ namespace Gordian.App.Graphics
         private const float MoreMarkerInset = 14;
 
         /// <summary>
-        /// Log text colours by channel (half scale, 0x80 = 1.0). From a retail capture (2026-09-27): say, system
-        /// messages and timestamps white; server messages (welcome text) violet, about (200, 100, 255); your own tell
-        /// pink, about (255, 150, 255). The rest are approximations of the default Font Colors page, not yet captured.
+        /// Log text colours by channel (half scale, 0x80 = 1.0). From retail captures (2026-09-27): say and system
+        /// messages white; server messages (welcome text) violet, about (200, 100, 255); your own tell pink, about
+        /// (255, 150, 255). The rest are approximations of the default Font Colors page, not yet captured.
         /// </summary>
         public static UiColor ChannelColor(ChatLogChannel channel) => channel switch
         {
@@ -67,6 +71,9 @@ namespace Gordian.App.Graphics
             ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
             _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
         };
+
+        /// <summary>Timestamp colour: pale yellow, about (255, 255, 228), in a retail capture (2026-09-27).</summary>
+        public static readonly UiColor TimestampColor = new(0x7F, 0x7F, 0x72, 0x7F);
 
         /// <summary>Rows that fit in a window of <paramref name="textBottom"/> layout pixels (from its top) of text area.</summary>
         public static int RowsThatFit(float textBottom, int maxRows)
@@ -104,9 +111,8 @@ namespace Gordian.App.Graphics
                 for (int r = wrapped.Count - 1; r >= 0 && visible.Count < rows; r--) visible.Add((wrapped[r], lines[i].Channel, r == 0));
             }
 
-            // A line's timestamp is white whatever the line's colour (retail).
+            // A line's timestamp has its own colour whatever the line's (retail).
             int stamp = StockUiChatLog.TimestampLength(timestampMode);
-            var white = ChannelColor(ChatLogChannel.Say);
             for (int k = 0; k < visible.Count; k++)
             {
                 int row = rows - 1 - k;
@@ -114,7 +120,7 @@ namespace Gordian.App.Graphics
                 var text = visible[k].Text.AsSpan();
                 if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
                 {
-                    x = logFont.Draw(renderer, text[..stamp], x, y, s, white);
+                    x = logFont.Draw(renderer, text[..stamp], x, y, s, TimestampColor);
                     text = text[stamp..];
                 }
                 logFont.Draw(renderer, text, x, y, s, ChannelColor(visible[k].Channel));
@@ -142,7 +148,7 @@ namespace Gordian.App.Graphics
             string text = input.Text;
             if (!text.StartsWith('/') && library.TryGetGroup("fep", out var fep) && (int)input.Mode < fep.Images.Count)
             {
-                renderer.DrawImage(fep.Images[(int)input.Mode], placement.X + TabLeft * s, placement.Y - TabHeight * s, s);
+                renderer.DrawImage(fep.Images[(int)input.Mode], placement.X + TabLeft * s, placement.Y + TabTop * s, s);
             }
 
             int caret = Math.Clamp(input.Caret, 0, text.Length);

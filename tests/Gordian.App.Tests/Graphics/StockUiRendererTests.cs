@@ -509,12 +509,14 @@ namespace Gordian.App.Tests.Graphics
             rm.InitializeFileTable();
             var library = UiResourceLibrary.Load(rm);
             var font = library != null ? UiFont.FromLibrary(library) : null;
-            var logFont = StockUiLogFont.Create();
+            var logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
             if (library == null || font == null || logFont == null || !library.TryGetMenu("log8", out var log)
                 || !library.TryGetMenu("inline", out var inline) || !library.TryGetMenu("fep", out var fep)) return;
 
-            // Eight 16-px cells: the capture's 94-character line spans 752 px.
-            Assert.Equal(8 * 94, logFont.MeasureWidth(new string('x', 94)), 0);
+            // Proportional spacing as the retail capture: "Tarudrake" from the T's cell to the pen after the e is 77 px
+            // (the spacing rule fits the capture to about a pixel per glyph), and a space is 7.
+            Assert.InRange(logFont.MeasureWidth("Tarudrake"), 76, 78);
+            Assert.Equal(7, logFont.GetAdvance(' '), 0);
 
             const uint width = 1100, height = 330;
             IntPtr hwnd = CreateWindowExW(0, "static", "StockUiChatTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -545,10 +547,13 @@ namespace Gordian.App.Tests.Graphics
                     new ChatLogLine(ChatLogChannel.ServerMessage, "Please visit https://github.com/LandSandBoat/server for the latest information on the project.", t.AddSeconds(12)),
                     new ChatLogLine(ChatLogChannel.ServerMessage, "Thank you, and we hope you enjoy sailing the sands!", t.AddSeconds(12)),
                 };
+                // Every keyboard character, lower then upper case, as a second retail capture shows them.
                 var window2Lines = new[]
                 {
                     new ChatLogLine(ChatLogChannel.Say, "Tarudrake : hello", t.AddSeconds(152)),
                     new ChatLogLine(ChatLogChannel.Tell, ">>Cybin : hello", t.AddSeconds(162)),
+                    new ChatLogLine(ChatLogChannel.Say, "Tarudrake : `1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./", t.AddSeconds(170)),
+                    new ChatLogLine(ChatLogChannel.Say, "Tarudrake : ~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?", t.AddSeconds(174)),
                 };
                 var input = new StockUiChatInput();
                 input.Open();
@@ -560,7 +565,7 @@ namespace Gordian.App.Tests.Graphics
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
                 renderer.Begin(library);
                 float frameHeight = log.Frame.Height + StockUiChatWindow.TitleBand;
-                const float width1 = 540, width2 = 440;
+                const float width1 = 420, width2 = 660;
                 var window1 = new StockUiPlacement(4, height - 4 - frameHeight, 1, false);
                 var window2 = new StockUiPlacement(4 + width1 + 2, window1.Y, 1, false);
                 int rows1 = StockUiChatWindow.RowsThatFit(frameHeight - inline.Frame.Height - 1, 8);

@@ -58,7 +58,7 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
-                    _logFont = StockUiLogFont.Create();
+                    _logFont = StockUiLogFont.FromLibrary(library);
                     _library = library;
                 }
                 catch (Exception ex)
@@ -83,6 +83,7 @@ namespace Gordian.App.Graphics
                     var library = UiResourceLibrary.Load(resources, skin);
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
+                    _logFont = StockUiLogFont.FromLibrary(library);
                     _library = library;
                 }
                 catch (Exception ex)
