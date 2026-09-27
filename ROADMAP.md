@@ -3,7 +3,7 @@
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
 - **Test Status:** 1,082 Passing Unit Tests (`dotnet test`: 861 Core, 219 App, 1 Addons, 1 Automation)
-- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-4 and 4c are done except the expiring-icon blink (waits on S2C 0x063); next is chunk 4b (movable stock UI) or chunk 5 (chat/log window). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md).
+- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-4 and 4c are done except the expiring-icon blink ([#17](https://github.com/jimmy58663/GordianXI/issues/17), waits on S2C 0x063); next is chunk 4b ([#25](https://github.com/jimmy58663/GordianXI/issues/25), movable stock UI) or chunk 5 ([#26](https://github.com/jimmy58663/GordianXI/issues/26), chat/log window). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md) and the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones).
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ## How This Repo Tracks Work
