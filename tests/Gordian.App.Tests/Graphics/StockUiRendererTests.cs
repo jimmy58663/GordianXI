@@ -497,6 +497,89 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders a four-line log window with coloured, wrapped and timestamped lines, the chat input line (Party mode,
+        /// text and caret) and the chat-mode list above it, at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersChatLogInputAndModeList()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null || !library.TryGetMenu("log4", out var log) || !library.TryGetMenu("inline", out var inline)
+                || !library.TryGetMenu("fep", out var fep)) return;
+
+            const uint width = 520, height = 260;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiChatTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.2f, 0.19f, 0.18f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var time = new DateTime(2026, 9, 26, 21, 4, 0);
+                var lines = new[]
+                {
+                    new ChatLogLine(ChatLogChannel.Say, "Cybin : Hello there!", time),
+                    new ChatLogLine(ChatLogChannel.Party, "(Tarudrake) Pulling the next one, get ready. This line is long enough to wrap onto a second row.", time),
+                    new ChatLogLine(ChatLogChannel.Tell, "Cybin>> psst", time),
+                    new ChatLogLine(ChatLogChannel.Linkshell, "<Gordian> ls hi", time),
+                };
+                var input = new StockUiChatInput();
+                input.SetMode(ChatInputMode.Party);
+                input.Open();
+                input.InsertText("/p ready!");
+                input.OpenModeList();
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                const float logWidth = 500;
+                var inputPlacement = new StockUiPlacement(8, height - 8 - inline.Frame.Height, 1, false);
+                var logPlacement = new StockUiPlacement(8, inputPlacement.Y - 2 - log.Frame.Height, 1, false);
+                renderer.DrawMenu(log, logPlacement, includeButtons: false, logWidth);
+                StockUiChatWindow.DrawLog(renderer, library, font, logPlacement, logWidth, 4, lines, timestampMode: 1, scrolledBack: true);
+                // A timestamp of 0 keeps the caret in its "on" half-second.
+                StockUiChatWindow.DrawInput(renderer, library, font, inline, inputPlacement, logWidth, input, 0);
+                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(8, 4, 1, false), input);
+                renderer.End(framebuffer, width, height);
+                Assert.True(renderer.LastQuadCount > 80, $"{renderer.LastQuadCount} quads");
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "chat_log.png"), pixels, (int)width, (int)height);
+                }
+
+                // The party line wraps: five rows for four lines, so the say line (the oldest) is cut off the top.
+                var first = StockUiChatLog.GetWrappedRows(lines[1], font, logWidth - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight, 1);
+                Assert.Equal(2, first.Count);
+                Assert.StartsWith("[21:04] (Tarudrake)", first[0]);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders the target window (claimed "Island Rarab" at 30%) above the Solo party window, and a row of status
         /// icons, at 1:1 for comparison with a Windower capture; writes target_status.png when GORDIAN_UI_DUMP is set.
         /// </summary>

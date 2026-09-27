@@ -149,6 +149,29 @@ namespace Gordian.Core.Network
             {
                 NetworkManager.NotifyLocomotionChanged(pos, dir, speed);
             };
+
+            Chat.CharacterName = () => CharacterName;
+            Chat.ClientChatFilters = () => (uint)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.ClientChatFilters);
+            Chat.PageSize = window => ActionService.UiSettings.GetValue(
+                window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
+            Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
+            Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
+            // The character stops while the input line has the keyboard (keys held when it opened are released).
+            Chat.Input.OpenChanged += open =>
+            {
+                if (open) InputState.Reset();
+            };
+        }
+
+        /// <summary>
+        /// The stock chat: log windows and the chat input line (Tier 2 chunk 5).
+        /// </summary>
+        public Ui.StockUiChat Chat { get; } = new();
+
+        private string? ResolveEntityName(uint id)
+        {
+            if (id == LocalPlayer.ServerId || id == CharacterId) return CharacterName;
+            return World.TryGetByServerId(id, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
         }
 
         public void Disconnect()

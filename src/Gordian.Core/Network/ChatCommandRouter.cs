@@ -108,6 +108,9 @@ namespace Gordian.Core.Network
                     "y" or "yell" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.Yell, Message = args },
                     "l" or "l1" or "linkshell" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.Linkshell1, Message = args },
                     "l2" or "linkshell2" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.Linkshell2, Message = args },
+                    "u" or "unity" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.Unity, Message = args },
+                    "assistj" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.AssistJ, Message = args },
+                    "assiste" => new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = ChatSendKind.AssistE, Message = args },
                     "echo" => new ChatCommandResult { Kind = ChatCommandResultKind.LocalEcho, Message = args },
 
                     // Party commands

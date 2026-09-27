@@ -103,17 +103,17 @@ namespace Gordian.Core.Tests.Input
 
             Assert.False(state.IsWalking);
 
-            // Trigger ToggleWalkRun (/)
-            state.SetKeyDown(GordianKey.OemSlash);
+            // Trigger ToggleWalkRun (keypad /; the main slash key opens the chat line)
+            state.SetKeyDown(GordianKey.NumPadDivide);
             state.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.True(state.IsWalking);
 
-            state.SetKeyUp(GordianKey.OemSlash);
+            state.SetKeyUp(GordianKey.NumPadDivide);
             state.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.True(state.IsWalking);
 
             // Toggle again
-            state.SetKeyDown(GordianKey.OemSlash);
+            state.SetKeyDown(GordianKey.NumPadDivide);
             state.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.False(state.IsWalking);
         }

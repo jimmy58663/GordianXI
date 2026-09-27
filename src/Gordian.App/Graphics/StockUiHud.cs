@@ -118,7 +118,7 @@ namespace Gordian.App.Graphics
             var groups = GroupParty(session);
             var party = DrawPartyWindow(renderer, library, session, groups, width, height);
             DrawAllianceWindows(renderer, library, groups, width, height);
-            DrawLogWindow(renderer, library, party, width, height);
+            DrawLogWindows(renderer, library, session, party, width, height);
             DrawTargetWindow(renderer, library, session, party, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
             DrawMenus(renderer, library, session, menus, width, height);
@@ -229,31 +229,106 @@ namespace Gordian.App.Graphics
             StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids);
         }
 
-        /// <summary>
-        /// The log window keeps its authored left edge and, by default, stretches right to meet the party window
-        /// (retail spans the bottom of the screen up to it; the authored 366 x 134 frame only fills the 512-wide
-        /// layout). A log window the player has moved keeps its authored width.
-        /// </summary>
-        private void DrawLogWindow(StockUiRenderer renderer, UiResourceLibrary library, StockUiPlacement? party, uint width, uint height)
-        {
-            // The config menu's Window 1 "Maximum lines displayed" picks the "log1".."log8" frame (22 px for one line,
-            // 16 px per extra line, all bottom-anchored); the default window is "logwindo" (the same frame as "log8").
-            int lines = Settings.HasValue(StockUiSettingKey.Window1MaxLines) ? Settings.GetValue(StockUiSettingKey.Window1MaxLines) : 0;
-            if (lines <= 0 || !library.TryGetMenu($"log{lines}", out var menu))
-            {
-                if (!library.TryGetMenu("logwindo", out menu)) return;
-            }
-            var placement = Layout.Resolve(StockUiWindowIds.Log, menu.Frame, width, height);
-            if (placement.Hidden) return;
+        private readonly List<ChatLogLine> _logLines = new();
 
-            float? frameWidth = null;
+        /// <summary>
+        /// The log window(s) and the chat input line. Window 1 keeps its authored left edge and, by default,
+        /// stretches right to meet the party window (retail spans the bottom of the screen up to it; the authored
+        /// 366 x 134 frame only fills the 512-wide layout); a log window the player has moved keeps its authored
+        /// width. The Window 1/2 settings pick each window's frame ("log1".."log8" by "Maximum lines displayed": 22 px
+        /// for one line, 16 px per extra line, all bottom-anchored) and its share of that width ("Window Width");
+        /// "Log Window Multi-window" adds Window 2 above Window 1 (Vertical) or beside it (Horizontal). While the
+        /// input line is open it takes the bottom of the log's place and the log windows move up above it.
+        /// </summary>
+        private void DrawLogWindows(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
+            StockUiPlacement? party, uint width, uint height)
+        {
+            var chat = session.Chat;
+            int multi = Settings.GetValue(StockUiSettingKey.LogMultiWindow);
+            chat.Log.MultiWindow = multi != 0;
+            if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int rows1)) return;
+            var placement = Layout.Resolve(StockUiWindowIds.Log, menu1.Frame, width, height);
+            if (placement.Hidden) return;
+            float s = placement.Scale;
+
+            float fullWidth = menu1.Frame.Width;
             if (!Layout.HasPositionOverride(StockUiWindowIds.Log))
             {
                 // Retail leaves a 2-pixel gap between the log and the party window (366 wide at 16 vs 384).
-                float rightEdge = party is { Hidden: false } p ? p.X - 2 * placement.Scale : width - 16 * placement.Scale;
-                frameWidth = Math.Max(menu.Frame.Width, (rightEdge - placement.X) / placement.Scale);
+                float rightEdge = party is { Hidden: false } p ? p.X - 2 * s : width - 16 * s;
+                fullWidth = Math.Max(menu1.Frame.Width, (rightEdge - placement.X) / s);
             }
+            float logBottom = placement.Y + menu1.Frame.Height * s;
+
+            // The input line sits at the bottom of the log's place; the log windows move up above it.
+            var input = chat.Input;
+            if (input.IsOpen && library.TryGetMenu("inline", out var inline))
+            {
+                float inputY = logBottom - inline.Frame.Height * s;
+                logBottom = inputY - 2 * s;
+                var inputPlacement = new StockUiPlacement(placement.X, inputY, s, false);
+                if (_font is { } inputFont)
+                {
+                    StockUiChatWindow.DrawInput(renderer, library, inputFont, inline, inputPlacement, fullWidth, input, Stopwatch.GetTimestamp());
+                }
+            }
+
+            bool horizontal = multi == 2;
+            float width1 = fullWidth, width2 = 0;
+            if (horizontal)
+            {
+                width1 = (fullWidth - 2) * 0.5f;
+                width2 = width1;
+            }
+            width1 = ApplyWidthSetting(width1, StockUiSettingKey.Window1Width);
+            var window1 = new StockUiPlacement(placement.X, logBottom - menu1.Frame.Height * s, s, false);
+            DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, rows1);
+
+            if (multi == 0 || !TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int rows2)) return;
+            if (!horizontal) width2 = fullWidth;
+            width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
+            var window2 = horizontal
+                ? new StockUiPlacement(placement.X + (fullWidth - width2) * s, logBottom - menu2.Frame.Height * s, s, false)
+                : new StockUiPlacement(placement.X, window1.Y - (menu2.Frame.Height + 2) * s, s, false);
+            DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, rows2);
+
+            if (input.IsModeListOpen && library.TryGetMenu("fep", out var fep))
+            {
+                // Above the input line's left end, over the log.
+                var list = new StockUiPlacement(placement.X, Math.Max(0, logBottom - fep.Frame.Height * s), s, false);
+                StockUiChatWindow.DrawModeList(renderer, library, fep, list, input);
+            }
+        }
+
+        private void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiChatLog log, int window,
+            UiMenuDefinition menu, StockUiPlacement placement, float frameWidth, int rows)
+        {
             renderer.DrawMenu(menu, placement, includeButtons: false, frameWidth);
+            var font = _font;
+            if (font == null) return;
+            // A window shows at most as many lines as rows (each line wraps to one row or more).
+            log.CopyVisible(window, rows, _logLines);
+            StockUiChatWindow.DrawLog(renderer, library, font, placement, frameWidth, rows, _logLines,
+                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0);
+        }
+
+        /// <summary>
+        /// The frame for a log window's "Maximum lines displayed" ("log1".."log8"; "logwindo" is the same frame as
+        /// "log8") and its row count.
+        /// </summary>
+        private bool TryGetLogFrame(UiResourceLibrary library, StockUiSettingKey maxLinesKey, out UiMenuDefinition menu, out int rows)
+        {
+            rows = Math.Clamp(Settings.GetValue(maxLinesKey), 1, 8);
+            if (library.TryGetMenu($"log{rows}", out menu)) return true;
+            rows = 8;
+            return library.TryGetMenu("logwindo", out menu);
+        }
+
+        /// <summary>A window's "Window Width" setting (percent of its full width; never narrower than 128 px).</summary>
+        private float ApplyWidthSetting(float fullWidth, StockUiSettingKey key)
+        {
+            int percent = Math.Clamp(Settings.GetValue(key), 0, 100);
+            return Math.Max(Math.Min(128, fullWidth), fullWidth * percent / 100f);
         }
 
         /// <summary>

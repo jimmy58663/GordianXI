@@ -155,7 +155,7 @@ namespace Gordian.Core.Ui
             Toggle(StockUiSettingKey.InventorySort, false);
             Add(StockUiSettingKey.InventoryType, 1, 1, 2);
 
-            Add(StockUiSettingKey.LogMultiWindow, 0, 0, 2); // OFF / Vertical / Horizontal; one log window until chunk 5
+            Add(StockUiSettingKey.LogMultiWindow, 0, 0, 2); // OFF / Vertical / Horizontal (Window 2 takes combat lines)
             Add(StockUiSettingKey.LogTimestamp, 0, 0, 2);
             Add(StockUiSettingKey.WindowType, 1, 1, 8, StockUiSettingScope.Layout);
             Toggle(StockUiSettingKey.WindowEffect, true);

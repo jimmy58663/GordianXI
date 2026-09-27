@@ -285,7 +285,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
             p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
+            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
 
             // Camera
             p.Bind(InputAction.CameraPitchUp, new InputChord(GordianKey.I));
@@ -347,7 +347,6 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.NumPad7, InputModifiers.Control));
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
 
             // Camera
             p.Bind(InputAction.CameraPitchUp, new InputChord(GordianKey.Up));

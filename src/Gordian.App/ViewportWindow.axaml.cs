@@ -4,6 +4,7 @@ using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Gordian.App.Graphics;
@@ -69,6 +70,7 @@ namespace Gordian.App
             // while this window is active and would otherwise miss every key/click.
             AddHandler(InputElement.KeyDownEvent, OnGameKeyDown, RoutingStrategies.Tunnel);
             AddHandler(InputElement.KeyUpEvent, OnGameKeyUp, RoutingStrategies.Tunnel);
+            AddHandler(InputElement.TextInputEvent, OnGameTextInput, RoutingStrategies.Tunnel);
 
             // Pointer press/release/move/wheel are observed on the Bubble phase, after
             // VeldridViewportControl's own handling has already run (on the platforms where it
@@ -259,6 +261,22 @@ namespace Gordian.App
             var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
             var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
 
+            // The stock chat input line owns the keyboard while it is open (the character does not move while you
+            // type); Enter or the chat key opens it from gameplay. Typed characters arrive through TextInput.
+            var chat = session.Chat;
+            if (chat.Input.IsOpen)
+            {
+                if (gKey == GordianKey.V && mods == InputModifiers.Control) _ = PasteIntoChatAsync(chat.Input);
+                else chat.Input.HandleKey(gKey, mods);
+                e.Handled = true;
+                return;
+            }
+            if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen))
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (gKey != GordianKey.None)
             {
                 session.InputState.SetModifiers(mods);
@@ -270,6 +288,23 @@ namespace Gordian.App
                     e.Handled = true;
                 }
             }
+        }
+
+        /// <summary>Typed text for the stock chat input line (shifted and layout-specific characters included).</summary>
+        private void OnGameTextInput(object? sender, TextInputEventArgs e)
+        {
+            var input = _viewModel?.ActiveTab?.Session?.Chat.Input;
+            if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
+            input.InsertText(e.Text);
+            e.Handled = true;
+        }
+
+        private async System.Threading.Tasks.Task PasteIntoChatAsync(Gordian.Core.Ui.StockUiChatInput input)
+        {
+            var clipboard = Clipboard;
+            if (clipboard == null) return;
+            string? text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrEmpty(text)) input.InsertText(text.Replace("\r", string.Empty).Replace('\n', ' '));
         }
 
         private void OnGameKeyUp(object? sender, KeyEventArgs e)
