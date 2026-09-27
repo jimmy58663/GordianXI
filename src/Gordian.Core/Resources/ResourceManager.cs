@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
@@ -487,7 +488,7 @@ namespace Gordian.Core.Resources
         /// <summary>
         /// Attempts to load and parse a zone's 3D terrain geometry and texture resources.
         /// </summary>
-        public bool TryLoadZone(int zoneId, out ZoneGeometry? zone, out Dictionary<string, DecodedTexture> textures)
+        public bool TryLoadZone(int zoneId, [NotNullWhen(true)] out ZoneGeometry? zone, out Dictionary<string, DecodedTexture> textures)
         {
             if (_zoneCache.TryGetValue(zoneId, out var cached))
             {
