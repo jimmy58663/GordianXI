@@ -4,11 +4,6 @@ on:
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches: [ main ]
-    # Docs-only PRs skip CI. Revisit if CI becomes a required status check:
-    # a skipped workflow leaves a required check pending.
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   workflow_dispatch:
 
 # A new push to a PR cancels that PR's in-flight run.
@@ -30,16 +25,40 @@ jobs:
       matrix:
         os: [ windows-latest, ubuntu-latest ]
 
+    # The workflow runs on every PR so both checks always report (they are required status checks on main); a
+    # docs-only PR (only docs/ and Markdown files changed) skips the build and tests and passes.
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qvE '^docs/|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change: skipping build and tests."
+          fi
 
       - name: Setup .NET SDK
+        if: steps.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
       - name: Cache NuGet packages
+        if: steps.changes.outputs.code == 'true'
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
@@ -47,17 +66,20 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore NuGet dependencies
+        if: steps.changes.outputs.code == 'true'
         run: dotnet restore
 
       - name: Compile solution (Release)
+        if: steps.changes.outputs.code == 'true'
         run: dotnet build --configuration Release --no-restore
 
       - name: Run automated tests
+        if: steps.changes.outputs.code == 'true'
         run: dotnet test --configuration Release --no-build --verbosity normal --results-directory "${{ github.workspace }}/TestResults" --logger "trx"
 
       - name: Publish Test Report
         uses: dorny/test-reporter@v3
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.changes.outputs.code == 'true' }}
         with:
           name: Test Results (${{ matrix.os }})
           path: '${{ github.workspace }}/TestResults/*.trx'
