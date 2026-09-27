@@ -89,7 +89,7 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(InputAction.OpenMenu, actX);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.Y), out var actY));
-            Assert.Equal(InputAction.ToggleAutorun, actY);
+            Assert.Equal(InputAction.CycleLogWindow, actY);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftShoulder), out var actLB));
             Assert.Equal(InputAction.MacroCtrl1, actLB);

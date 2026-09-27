@@ -166,9 +166,10 @@ namespace Gordian.Core.Tests.Input
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.F6), out var actParty5));
             Assert.Equal(InputAction.TargetParty5, actParty5);
 
-            // OemSlash is bound to both ToggleWalkRun and OpenChat in Compact; check the multi-bind
-            // list directly rather than TryGetAction (which only returns the first match).
-            Assert.Contains(new InputChord(GordianKey.OemSlash), profile.GetChords(InputAction.OpenChat));
+            // The slash key opens the chat line (it starts the line with the slash); walk/run moved to keypad /.
+            Assert.True(profile.TryGetAction(new InputChord(GordianKey.OemSlash), out var actChat));
+            Assert.Equal(InputAction.OpenChat, actChat);
+            Assert.Contains(new InputChord(GordianKey.NumPadDivide), profile.GetChords(InputAction.ToggleWalkRun));
 
             // Gamepad buttons are still bound as usual.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.A), out var actConfirm));

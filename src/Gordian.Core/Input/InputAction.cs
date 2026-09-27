@@ -49,6 +49,12 @@ namespace Gordian.Core.Input
         OpenMenu,
         OpenChat,
 
+        /// <summary>
+        /// Selects the next log window to scroll through (retail: numeric keypad +, gamepad Y), then none; the status
+        /// icons (to cancel a buff) are to follow in the cycle.
+        /// </summary>
+        CycleLogWindow,
+
         // Menu navigation (only resolved while a stock menu is open; the same keys drive the camera otherwise)
         MenuUp = 60,
         MenuDown,

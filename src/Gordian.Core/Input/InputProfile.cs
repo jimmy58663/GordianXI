@@ -175,6 +175,24 @@ namespace Gordian.Core.Input
             BindMenuNavigationDefaults(this);
         }
 
+        /// <summary>
+        /// Gives a profile saved before the log windows could be selected the retail keys for it (keypad +, gamepad Y),
+        /// taking them from the actions the old presets gave them (Target Nearest, Autorun).
+        /// </summary>
+        public void EnsureLogWindowBindings()
+        {
+            if (GetChords(InputAction.CycleLogWindow).Count > 0) return;
+            foreach (var (old, chord) in new[]
+            {
+                (InputAction.TargetNearest, new InputChord(GordianKey.NumPadAdd)),
+                (InputAction.ToggleAutorun, new InputChord(GamepadButton.Y)),
+            })
+            {
+                if (Bindings.TryGetValue(old, out var chords)) chords.Remove(chord);
+                Bind(InputAction.CycleLogWindow, chord);
+            }
+        }
+
         private static void BindMenuNavigationDefaults(InputProfile p)
         {
             p.Bind(InputAction.MenuUp, new InputChord(GordianKey.Up));
@@ -285,7 +303,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
             p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
+            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
 
             // Camera
             p.Bind(InputAction.CameraPitchUp, new InputChord(GordianKey.I));
@@ -319,6 +337,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.OemMinus));
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.M));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
+            p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.NumPadAdd));
             BindMenuNavigationDefaults(p);
 
             // Macro Palettes
@@ -347,7 +366,6 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.NumPad7, InputModifiers.Control));
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.OemSlash));
 
             // Camera
             p.Bind(InputAction.CameraPitchUp, new InputChord(GordianKey.Up));
@@ -365,7 +383,6 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.Cancel, new InputChord(GordianKey.NumPad0));
             p.Bind(InputAction.Cancel, new InputChord(GordianKey.Escape));
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
-            p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.NumPadAdd));
             p.Bind(InputAction.TargetPrevious, new InputChord(GordianKey.Tab, InputModifiers.Shift));
             p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.NumPadMultiply));
             p.Bind(InputAction.TargetSelf, new InputChord(GordianKey.F1));
@@ -378,6 +395,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.NumPadDecimal));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.Space));
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
+            p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.NumPadAdd));
             BindMenuNavigationDefaults(p);
 
             // Macro Palettes
@@ -433,7 +451,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.Confirm, new InputChord(GamepadButton.A));
             p.Bind(InputAction.Cancel, new InputChord(GamepadButton.B));
             p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.X));
-            p.Bind(InputAction.ToggleAutorun, new InputChord(GamepadButton.Y));
+            p.Bind(InputAction.CycleLogWindow, new InputChord(GamepadButton.Y));
 
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GamepadButton.LeftThumb));
             p.Bind(InputAction.ResetCamera, new InputChord(GamepadButton.RightThumb));
@@ -469,6 +487,7 @@ namespace Gordian.Core.Input
             var profile = JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
             profile.EnsureMenuNavigationBindings();
+            profile.EnsureLogWindowBindings();
             return profile;
         }
 

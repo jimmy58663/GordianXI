@@ -3,7 +3,7 @@
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
 - **Test Status:** every PR must pass `dotnet test` on Windows and Ubuntu CI (counts are in each PR's test report).
-- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-4 and 4c are done except the expiring-icon blink ([#17](https://github.com/jimmy58663/GordianXI/issues/17), waits on S2C 0x063). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up) (currently chunk 4b [#25](https://github.com/jimmy58663/GordianXI/issues/25), movable stock UI, and chunk 5 [#26](https://github.com/jimmy58663/GordianXI/issues/26), chat/log window). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md) and the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones).
+- **Active Focus:** Phase 5E Tier 2 (stock DAT 2D UI): chunks 1-5 and 4c are done (chunk 5, the chat/log window, tested in-game) except the expiring-icon blink ([#17](https://github.com/jimmy58663/GordianXI/issues/17), waits on S2C 0x063); chat follow-ups are [#48](https://github.com/jimmy58663/GordianXI/issues/48)-[#53](https://github.com/jimmy58663/GordianXI/issues/53). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up) (currently chunk 4b [#25](https://github.com/jimmy58663/GordianXI/issues/25), movable stock UI). See [docs/ui/stock-ui.md](docs/ui/stock-ui.md) and the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones).
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ## How This Repo Tracks Work
@@ -47,7 +47,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D.1 Transient combat & action animation | ⬜ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
-| 5E Tier 2: stock DAT 2D UI | ⏳ chunks 1-4, 4c done; 4b, 5, 6, name plates open | [ui/stock-ui.md](docs/ui/stock-ui.md) |
+| 5E Tier 2: stock DAT 2D UI | ⏳ chunks 1-4, 4c, 5 done; 4b, 6, name plates open | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ⬜ | [design/character-lobby.md](docs/design/character-lobby.md) |

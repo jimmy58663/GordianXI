@@ -258,8 +258,39 @@ namespace Gordian.Core.Input
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
             //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
             var menus = _actionService?.Menus;
-            _inputState.MenuContext = menus?.IsOpen ?? false;
+            var chat = Chat;
+            bool menuOpen = menus?.IsOpen ?? false;
+            // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
+            _inputState.MenuContext = menuOpen || (chat?.SelectedLogWindow ?? 0) != 0;
             _inputState.Update(_profile, elapsed);
+
+            // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
+            //     the gamepad's cancel button drops it as Escape does, and Tab / Shift+Tab still cycle targets. The
+            //     chat button opens it; keypad + (gamepad Y) cycles the log window selected for scrolling.
+            if (chat != null)
+            {
+                if (chat.Input.IsOpen)
+                {
+                    if (_inputState.WasActionTriggered(InputAction.Cancel)) chat.Input.Cancel();
+                    UpdateTargetCycling();
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
+                if (_inputState.WasActionTriggered(InputAction.OpenChat) && !menuOpen)
+                {
+                    chat.Input.Open();
+                    return;
+                }
+                if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !menuOpen) chat.CycleLogWindow();
+                if (chat.SelectedLogWindow != 0 && !menuOpen)
+                {
+                    UpdateLogScroll(chat, elapsed);
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
+            }
 
             // 2. Feed the stock menus: with one open, Confirm/Cancel and targeting belong to it (movement keys and
             //    the left stick still move the character, as in retail).
@@ -273,6 +304,43 @@ namespace Gordian.Core.Input
 
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
+        }
+
+        /// <summary>The session's stock chat (null outside a session).</summary>
+        public Ui.StockUiChat? Chat { get; set; }
+
+        // Held Up/Down on a selected log window repeat as menu cursors do: after 0.4 s, then every 60 ms.
+        private const double ScrollRepeatDelay = 0.4, ScrollRepeatInterval = 0.06;
+        private double _scrollHeld;
+        private int _scrollDirection;
+
+        /// <summary>Scrolls the selected log window with Up/Down (repeating while held); Cancel or Confirm releases it.</summary>
+        private void UpdateLogScroll(Ui.StockUiChat chat, TimeSpan elapsed)
+        {
+            if (_inputState.WasActionTriggered(InputAction.Cancel) || _inputState.WasActionTriggered(InputAction.Confirm))
+            {
+                chat.ReleaseLogWindow();
+                return;
+            }
+            int direction = _inputState.IsActionHeld(InputAction.MenuUp) ? 1 : _inputState.IsActionHeld(InputAction.MenuDown) ? -1 : 0;
+            if (direction == 0)
+            {
+                _scrollDirection = 0;
+                return;
+            }
+            if (direction != _scrollDirection)
+            {
+                _scrollDirection = direction;
+                _scrollHeld = 0;
+                chat.Log.Scroll(chat.SelectedLogWindow, direction);
+                return;
+            }
+            double before = _scrollHeld;
+            _scrollHeld += elapsed.TotalSeconds;
+            if (_scrollHeld < ScrollRepeatDelay) return;
+            int steps = (int)((_scrollHeld - ScrollRepeatDelay) / ScrollRepeatInterval) - (int)(Math.Max(0, before - ScrollRepeatDelay) / ScrollRepeatInterval);
+            if (before < ScrollRepeatDelay) steps++;
+            if (steps > 0) chat.Log.Scroll(chat.SelectedLogWindow, direction * steps);
         }
 
         /// <summary>True while a stock menu took this tick's input (movement keys and stick still work, as in retail).</summary>
@@ -984,6 +1052,34 @@ namespace Gordian.Core.Input
             return deg > 180.0f ? deg - 360.0f : deg;
         }
 
+        /// <summary>
+        /// Tab / Shift+Tab (and the triggers): the next / previous target by distance within 50 yalms, wrapping; the
+        /// nearest when nothing in range is targeted.
+        /// </summary>
+        private void UpdateTargetCycling()
+        {
+            if (_actionService == null) return;
+            int direction = _inputState.WasActionTriggered(InputAction.TargetNearest) ? 1
+                : _inputState.WasActionTriggered(InputAction.TargetPrevious) ? -1 : 0;
+            if (direction == 0 || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
+
+            var candidates = new List<WorldEntity>();
+            foreach (var candidate in _world.GetEntitiesInRadius(localEnt.Position, 50.0f))
+            {
+                if (candidate.ServerId != _localPlayer.ServerId && candidate.IsSpawned) candidates.Add(candidate);
+            }
+            if (candidates.Count == 0) return;
+            candidates.Sort((a, b) =>
+            {
+                int byDistance = Vector3.DistanceSquared(localEnt.Position, a.Position).CompareTo(Vector3.DistanceSquared(localEnt.Position, b.Position));
+                return byDistance != 0 ? byDistance : a.ServerId.CompareTo(b.ServerId);
+            });
+
+            int current = _actionService.CurrentTarget is { } target ? candidates.FindIndex(c => c.ServerId == target.ServerId) : -1;
+            int next = current < 0 ? (direction > 0 ? 0 : candidates.Count - 1) : (current + direction + candidates.Count) % candidates.Count;
+            _actionService.SetTarget(candidates[next]);
+        }
+
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
@@ -994,32 +1090,7 @@ namespace Gordian.Core.Input
                 _actionService.ToggleLockOn();
             }
 
-            // Target Nearest
-            if (_inputState.WasActionTriggered(InputAction.TargetNearest))
-            {
-                if (_localPlayer.ServerId != 0 && _world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
-                {
-                    var candidates = _world.GetEntitiesInRadius(localEnt.Position, 50.0f);
-                    WorldEntity? nearest = null;
-                    float nearestDistSq = float.MaxValue;
-
-                    foreach (var candidate in candidates)
-                    {
-                        if (candidate.ServerId == _localPlayer.ServerId || !candidate.IsSpawned) continue;
-                        float distSq = Vector3.DistanceSquared(localEnt.Position, candidate.Position);
-                        if (distSq < nearestDistSq)
-                        {
-                            nearestDistSq = distSq;
-                            nearest = candidate;
-                        }
-                    }
-
-                    if (nearest != null)
-                    {
-                        _actionService.SetTarget(nearest);
-                    }
-                }
-            }
+            UpdateTargetCycling();
 
             // Target Self
             if (_inputState.WasActionTriggered(InputAction.TargetSelf))

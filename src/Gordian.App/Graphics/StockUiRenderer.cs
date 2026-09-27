@@ -307,6 +307,29 @@ void main()
         }
 
         /// <summary>
+        /// Draws a rectangle (texture pixels) of a texture that does not come from the UI library (the log font's glyph
+        /// atlas), cached under <paramref name="cacheKey"/>.
+        /// </summary>
+        public void DrawTextureRegion(string cacheKey, DecodedTexture texture, float srcX, float srcY, float srcWidth, float srcHeight,
+            float x, float y, float width, float height, UiColor color)
+        {
+            if (width <= 0 || height <= 0) return;
+            if (!_textures.TryGetValue(cacheKey, out var entry))
+            {
+                entry = Upload(texture);
+                _textures[cacheKey] = entry;
+            }
+            if (entry is not { } e) return;
+            float u0 = srcX / texture.Width, v0 = srcY / texture.Height, u1 = (srcX + srcWidth) / texture.Width, v1 = (srcY + srcHeight) / texture.Height;
+            uint c = Pack(color, null);
+            AddQuad(e.Set, UiBlendMode.Alpha,
+                new UiVertex { Position = new Vector2(x, y), TexCoord = new Vector2(u0, v0), Color = c },
+                new UiVertex { Position = new Vector2(x + width, y), TexCoord = new Vector2(u1, v0), Color = c },
+                new UiVertex { Position = new Vector2(x, y + height), TexCoord = new Vector2(u0, v1), Color = c },
+                new UiVertex { Position = new Vector2(x + width, y + height), TexCoord = new Vector2(u1, v1), Color = c });
+        }
+
+        /// <summary>
         /// Draws a whole texture that does not come from the UI library (status icons), cached under
         /// <paramref name="cacheKey"/> (prefix it so it cannot collide with library texture names).
         /// </summary>
@@ -338,30 +361,61 @@ void main()
 
         /// <summary>
         /// Draws the client's window border lines along the top and bottom of a frame (layout width/height).
+        /// <paramref name="topGap"/> (layout pixels from the left edge) leaves a break in the top line, where retail
+        /// writes a log window's title over it.
         /// </summary>
-        public void DrawWindowBorder(float x, float y, float width, float height, float scale)
+        public void DrawWindowBorder(float x, float y, float width, float height, float scale, (float Start, float End)? topGap = null)
         {
             float fade = Math.Min(BorderFade, width / 2);
+            bool top = true;
             foreach (float edgeY in new[] { y, y + (height - BorderThickness) * scale })
             {
                 float h = BorderThickness * scale;
                 DrawTextureRect(BorderTexture, 0, 0, fade, BorderThickness, x, edgeY, fade * scale, h, BorderClear, BorderColor, UiBlendMode.Add);
-                DrawTextureRect(BorderTexture, fade, 0, width - 2 * fade, BorderThickness, x + fade * scale, edgeY, (width - 2 * fade) * scale, h, BorderColor, BorderColor, UiBlendMode.Add);
+                float from = fade, to = width - fade;
+                if (top && topGap is { } gap && gap.End > from && gap.Start < to)
+                {
+                    DrawBorderSpan(x, edgeY, from, Math.Max(from, gap.Start), h, scale);
+                    DrawBorderSpan(x, edgeY, Math.Min(to, gap.End), to, h, scale);
+                }
+                else
+                {
+                    DrawBorderSpan(x, edgeY, from, to, h, scale);
+                }
                 DrawTextureRect(BorderTexture, width - fade, 0, fade, BorderThickness, x + (width - fade) * scale, edgeY, fade * scale, h, BorderColor, BorderClear, UiBlendMode.Add);
+                top = false;
             }
+        }
+
+        private void DrawBorderSpan(float x, float edgeY, float from, float to, float h, float scale)
+        {
+            if (to <= from) return;
+            DrawTextureRect(BorderTexture, from, 0, to - from, BorderThickness, x + from * scale, edgeY, (to - from) * scale, h, BorderColor, BorderColor, UiBlendMode.Add);
         }
 
         /// <summary>
         /// Draws a menu window at a placement: the frame's plain images (reference kind 0), then each button's.
         /// Frames are the persistent windows; buttons draw their unselected state. <paramref name="frameWidth"/>
-        /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch.
+        /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch;
+        /// <paramref name="frameHeight"/> does the same vertically (its bottom half moves). With
+        /// <paramref name="opaqueBody"/> the background below <paramref name="opaqueTop"/> is drawn opaque (menus keep
+        /// their translucent title band; 0 makes the whole body opaque). <paramref name="topBorderGap"/> breaks the
+        /// top border line for a title.
         /// </summary>
         public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null,
-            Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false)
+            Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false, float? frameHeight = null,
+            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null)
         {
             if (_library == null || placement.Hidden) return;
             var stretch = frameWidth is { } w ? UiStretch.Horizontal(menu.Frame.Width, w) : default;
+            if (frameHeight is { } fh)
+            {
+                stretch = frameWidth is null
+                    ? new UiStretch(float.MaxValue, 0, menu.Frame.Height * 0.5f, fh - menu.Frame.Height)
+                    : stretch with { PivotY = menu.Frame.Height * 0.5f, ExtraY = fh - menu.Frame.Height };
+            }
             float borderWidth = frameWidth ?? menu.Frame.Width;
+            float borderHeight = frameHeight ?? menu.Frame.Height;
             foreach (var shape in menu.Frame.Shapes)
             {
                 if (shape.Kind != 0 || !_library.TryGetImage(shape, out var image)) continue;
@@ -376,10 +430,10 @@ void main()
                     // the band lets the scene through, per captures 2026-09-26), although the DAT authors the same
                     // 0x40 -> 0x7F alpha gradient as the translucent HUD windows. The body is drawn again with full
                     // alpha and the authored colour gradient, leaving the band as authored.
-                    if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch);
+                    if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch, opaqueTop);
                     hasBackground = true;
                 }
-                if (hasBackground) DrawWindowBorder(placement.X, placement.Y, borderWidth, menu.Frame.Height, placement.Scale);
+                if (hasBackground) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
                 foreach (var part in image.Parts)
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
@@ -469,14 +523,14 @@ void main()
             UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Draws the part of a window background below <see cref="MenuBandHeight"/> opaque, with the part's colour
-        /// gradient interpolated at the split so the band and the body meet seamlessly.
+        /// Draws the part of a window background below <paramref name="opaqueTop"/> (layout pixels) opaque, with the
+        /// part's colour gradient interpolated at the split so the band and the body meet seamlessly.
         /// </summary>
-        private void DrawBodyPlate(UiSpritePart part, float x, float y, float scale, UiStretch stretch)
+        private void DrawBodyPlate(UiSpritePart part, float x, float y, float scale, UiStretch stretch, float opaqueTop)
         {
             if (_library == null || !TryGetTextureSet(part.TextureName, out var set, out float texWidth, out float texHeight)) return;
             float quadWidth = part.TopRight.X - part.TopLeft.X, quadHeight = part.BottomLeft.Y - part.TopLeft.Y;
-            if (quadHeight <= MenuBandHeight || quadWidth <= 0) return;
+            if (quadHeight <= opaqueTop || quadWidth <= 0) return;
             float srcWidth = part.SourceWidth, srcHeight = part.SourceHeight;
             if (stretch.ExtraX != 0 && part.TopLeft.X < stretch.PivotX && part.TopRight.X >= stretch.PivotX)
                 srcWidth += stretch.ExtraX * srcWidth / quadWidth;
@@ -486,11 +540,11 @@ void main()
             float u1 = (part.SourceX + srcWidth) / texWidth, v1 = (part.SourceY + srcHeight) / texHeight;
             ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
 
-            float t = MenuBandHeight / quadHeight;
             var tl = Point(part.TopLeft, x, y, scale, stretch);
             var tr = Point(part.TopRight, x, y, scale, stretch);
             var bl = Point(part.BottomLeft, x, y, scale, stretch);
             var br = Point(part.BottomRight, x, y, scale, stretch);
+            float t = Math.Clamp(opaqueTop * scale / Math.Max(1, bl.Y - tl.Y), 0, 1);
             float vMid = v0 + (v1 - v0) * t;
             AddQuad(set, part.BlendMode,
                 new UiVertex { Position = Vector2.Lerp(tl, bl, t), TexCoord = new Vector2(u0, vMid), Color = Pack(LerpOpaque(part.ColorTopLeft, part.ColorBottomLeft, t), null) },
