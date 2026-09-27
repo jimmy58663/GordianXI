@@ -151,6 +151,28 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Draws status icons into the "buff" grid, one per slot in the order given.
         /// </summary>
+        /// <summary>
+        /// The screen rectangle the first <paramref name="count"/> status icon slots of the "buff" grid cover at a
+        /// placement (all of them when <paramref name="count"/> is 0 or more than the grid has); the grid's authored
+        /// frame is only a strip, the icons are its buttons. Falls back to the frame when the grid has no buttons.
+        /// </summary>
+        public static (float X, float Y, float Width, float Height) StatusGridExtent(UiMenuDefinition grid, StockUiPlacement placement, int count)
+        {
+            float s = placement.Scale;
+            int slots = count <= 0 || count > grid.Buttons.Count ? grid.Buttons.Count : count;
+            if (slots == 0) return (placement.X, placement.Y, grid.Frame.Width * s, grid.Frame.Height * s);
+            float left = float.MaxValue, top = float.MaxValue, right = float.MinValue, bottom = float.MinValue;
+            for (int i = 0; i < slots; i++)
+            {
+                var slot = grid.Buttons[i];
+                left = Math.Min(left, slot.X);
+                top = Math.Min(top, slot.Y);
+                right = Math.Max(right, slot.X + slot.Width);
+                bottom = Math.Max(bottom, slot.Y + slot.Height);
+            }
+            return (placement.X + left * s, placement.Y + top * s, (right - left) * s, (bottom - top) * s);
+        }
+
         public static void DrawStatusIcons(StockUiRenderer renderer, StatusIconLibrary icons, UiMenuDefinition grid,
             StockUiPlacement placement, IReadOnlyList<ushort> statusIds)
         {

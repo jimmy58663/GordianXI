@@ -28,6 +28,10 @@ namespace Gordian.App
         private Point? _lastPointerPosition;
         private bool _isRightDragging;
 
+        // The last pointer position over the rendering surface (framebuffer pixels), from the raw Win32 mouse
+        // messages; a raw button event carries no position of its own, but a move always precedes it.
+        private Point? _lastRawMouse;
+
         public ViewportWindow() : this("ViewportWindow")
         {
         }
@@ -349,6 +353,13 @@ namespace Gordian.App
             // the kind of cross-boundary transform NativeControlHost content cannot reliably
             // provide. Properties only reports button state, so no transform is needed.
             var btn = AvaloniaInputMapper.ToMouseButton(e.Properties);
+
+            // An unlocked stock UI takes a left press over one of its windows as the start of a drag, not game input.
+            if (e.Properties.IsLeftButtonPressed && TryGetViewportPoint(e, out var point)
+                && session.ActionService.UiDrag.OnMouseDown((float)point.X, (float)point.Y))
+            {
+                return;
+            }
             session.InputState.SetMouseButtonDown(btn);
 
             if (e.Properties.IsRightButtonPressed)
@@ -367,6 +378,11 @@ namespace Gordian.App
             // release time e.Properties would already show it as up. Also avoids GetCurrentPoint
             // (see OnGamePointerPressed).
             var btn = AvaloniaInputMapper.ToMouseButton(e.InitialPressMouseButton);
+            if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Left && TryGetViewportPoint(e, out var point)
+                && session.ActionService.UiDrag.OnMouseUp((float)point.X, (float)point.Y))
+            {
+                return; // the release ends a stock window drag whose press never reached the input bus
+            }
             session.InputState.SetMouseButtonUp(btn);
 
             if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Right)
@@ -379,7 +395,9 @@ namespace Gordian.App
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
             var session = _viewModel?.ActiveTab?.Session;
-            if (session == null || !_isRightDragging || !_lastPointerPosition.HasValue) return;
+            if (session == null) return;
+            if (TryGetViewportPoint(e, out var point)) session.ActionService.UiDrag.OnMouseMove((float)point.X, (float)point.Y);
+            if (!_isRightDragging || !_lastPointerPosition.HasValue) return;
 
             var currentPos = e.GetPosition(this);
             float dx = (float)(currentPos.X - _lastPointerPosition.Value.X);
@@ -397,11 +415,33 @@ namespace Gordian.App
             session.InputState.AddMouseWheel((float)e.Delta.Y);
         }
 
+        /// <summary>
+        /// The pointer's position in the rendering surface's pixels (the stock UI's screen space), for the Avalonia
+        /// pointer events that do fire (platforms where the viewport is composited rather than a native child).
+        /// </summary>
+        private bool TryGetViewportPoint(PointerEventArgs e, out Point point)
+        {
+            if (_viewportControl == null)
+            {
+                point = default;
+                return false;
+            }
+            var position = e.GetPosition(_viewportControl);
+            double scale = RenderScaling;
+            point = new Point(position.X * scale, position.Y * scale);
+            return true;
+        }
+
         private void OnRawMouseButtonDown(Avalonia.Input.MouseButton button)
         {
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
+            if (button == Avalonia.Input.MouseButton.Left && _lastRawMouse is { } point
+                && session.ActionService.UiDrag.OnMouseDown((float)point.X, (float)point.Y))
+            {
+                return; // an unlocked stock window takes the press as a drag
+            }
             session.InputState.SetMouseButtonDown(AvaloniaInputMapper.ToMouseButton(button));
 
             if (button == Avalonia.Input.MouseButton.Right)
@@ -416,6 +456,11 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
+            if (button == Avalonia.Input.MouseButton.Left)
+            {
+                var point = _lastRawMouse ?? default;
+                if (session.ActionService.UiDrag.OnMouseUp((float)point.X, (float)point.Y)) return;
+            }
             session.InputState.SetMouseButtonUp(AvaloniaInputMapper.ToMouseButton(button));
 
             if (button == Avalonia.Input.MouseButton.Right)
@@ -427,8 +472,11 @@ namespace Gordian.App
 
         private void OnRawMouseMoved(double x, double y)
         {
+            _lastRawMouse = new Point(x, y);
             var session = _viewModel?.ActiveTab?.Session;
-            if (session == null || !_isRightDragging) return;
+            if (session == null) return;
+            session.ActionService.UiDrag.OnMouseMove((float)x, (float)y);
+            if (!_isRightDragging) return;
 
             if (_lastPointerPosition.HasValue)
             {

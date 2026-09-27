@@ -120,6 +120,12 @@ namespace Gordian.Core.Actions
         public StockUiLayout UiLayout { get; set; } = new();
 
         /// <summary>
+        /// The opt-in unlocked stock UI: window regions the HUD registers each frame and the mouse drag that moves
+        /// them (<c>/uilayout unlock</c>); locked at every launch.
+        /// </summary>
+        public StockUiDragController UiDrag { get; } = new();
+
+        /// <summary>
         /// The stock menu system (main menu, sub-menus, yes/no prompts), fed by the locomotion controller's input
         /// tick and drawn by the HUD.
         /// </summary>
@@ -856,7 +862,7 @@ namespace Gordian.Core.Actions
                 sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
-            sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows (/uil)");
+            sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -978,8 +984,9 @@ namespace Gordian.Core.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
-            "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner.";
+            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
+            "While unlocked, drag the outlined windows with the mouse.";
 
         private static readonly string[] UiWindowIds =
         {
@@ -1006,6 +1013,15 @@ namespace Gordian.Core.Actions
             {
                 layout.ResetAll();
                 return PlayerActionResult.Ok("Stock UI restored to the retail layout.", Kind);
+            }
+            if (first is "unlock" or "lock" && parts.Length == 1)
+            {
+                // Opt-in (not in the legacy client): while unlocked the HUD outlines the persistent windows and the
+                // mouse drags them; the mode is not saved, so every launch starts locked.
+                UiDrag.Unlocked = first == "unlock";
+                return PlayerActionResult.Ok(UiDrag.Unlocked
+                    ? "Stock UI unlocked: drag the outlined windows with the mouse, then /uilayout lock."
+                    : "Stock UI locked.", Kind);
             }
             if (first == "skin" && parts.Length == 2 && int.TryParse(parts[1], out int skin))
             {
