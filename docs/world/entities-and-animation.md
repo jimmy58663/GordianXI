@@ -4,9 +4,9 @@
 
 ## Models and equipment (Phase 5C)
 
-- Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs
+- Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs (`CharacterSlot`: Face=0, Head=1, Body=2, Hands=3, Legs=4, Feet=5, Main=6, Sub=7, Ranged=8; playable `CharacterRace`: Hume M/F 1/2, Elvaan M/F 3/4, Taru M/F 5/6, Mithra 7, Galka 8).
 - Bind-pose entity rendering at live `WorldEntity` coordinates
-- NPC, Monster, and Trust model rendering from DAT resource caches
+- NPC, Monster, and Trust model rendering from DAT resource caches (monsters/NPC models resolve via `EntityModelOffset = 98239` to `98239 + modelId`).
 - NPC-only child races (look race 29 Mithra kitten, 30 girl, 31 boy; 115 server NPCs such as Southern San d'Oria's Authere and Blendare): skeletons `ROM/61/110`, `ROM/61/58`, `ROM/61/85` carry their own idle / walk / run clips, and each outfit slot resolves to `slotBase + modelId` (0-19 Hume, 20+ Elvaan variants).
 - [ ] **Actor status visuals:** effects attached to characters by status effects (e.g. the Refresh/Regen afterglow on the characters in the Bibiki Bay captures). Shares the actor-attached generator work below.
 - [ ] **Model-embedded effect routines:** some NPC models are drawn mostly by particle effects inside their own DAT, played by the model's Section 0x07 routines (e.g. the Home Point crystal, model 51 `ROM/3/25.DAT`: 13 generators, particle meshes and sprite sheets started by routines `bind` / `aper`; its skeleton mesh is only a small placeholder). Also covers actor-attached weather effects (e.g. `weat/clod/tobi` birds). Needs actor-attached generators on the zone particle runtime; shares machinery with spell and ability effects.

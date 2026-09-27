@@ -18,6 +18,18 @@
 - **FFXI DAT Binary Decoders (`Gordian.Core/Resources`):**
   - Clean-room decoders for ROM directory DAT files (string tables, item tables, spell/ability tables)
   - Zone collision meshes, terrain geometry, entity models, and animation tables
+- **Container & Chunk Architecture (`DatSectionHeader`):**
+  - Standard 16-byte chunk header (`DatSectionHeader`): 4-character identifier tag (`DatId`), 7-bit section type (`DatSectionType`), 19-bit size in 16-byte units (`SizeBytes = ((dword >> 7) & 0x7FFFF) * 16`), 6-bit flags.
+  - Common section types: `0x00 End`, `0x01 Directory`, `0x04 Table`, `0x05 ParticleGenerator`, `0x07 EffectRoutine`, `0x19 ParticleKeyFrameData`, `0x1C ZoneDef`, `0x1F ParticleMesh`, `0x20 Texture`, `0x21 SpriteSheetMesh`, `0x25 WeightedMesh`, `0x29 Skeleton`, `0x2A SkeletonMesh`, `0x2B SkeletonAnimation`, `0x2E ZoneMesh`, `0x2F Environment`, `0x30 UiMenu`, `0x31 UiElementGroup`, `0x36 ZoneInteractions`, `0x3D SoundEffectPointer`.
+- **File Table Resolution (`FileTableResolver`):**
+  - Maps numeric client File IDs to physical paths using `FTABLE` (ushort per file ID) and `VTABLE` (byte per file ID indicating ROM root: 0 = unmapped, 1 = `ROM`, >1 = `ROM{rom}`).
+  - Bit-packed fields: `subDir = ftVal >> 7`, `fileNum = ftVal & 0x7F`, resolving to canonical path `ROM{rom}/{subDir}/{fileNum}.DAT`.
+- **Item Tables (`ItemTableDecoder`, `ItemNameResolver`):**
+  - Circular bit-rotation decryption: circular left-shift by 3 bits `(b << 3) | (b >> 5)` across all record bytes.
+  - Auto-detected record strides: `0xC00` (3,072 bytes, legacy private server / pre-Sept 2026) vs `0x1400` (5,120 bytes, modern retail). Icon image offset at `+0x280`, record terminator byte `0xFF`.
+  - Item ID to DAT mapping: 0–4095 General 1 (`ROM/118/106.DAT`), 4096–8191 Consumables (`ROM/118/107.DAT`), 8192–8703 Automaton (`ROM/118/110.DAT`), 8704–10239 General 2 (`ROM/301/115.DAT`), 10240–16383 Armor 1 (`ROM/118/109.DAT`), 16384–23039 Weapons 1 (`ROM/118/108.DAT`), 23040–28671 Armor 2 (`ROM/286/73.DAT`), 28672–32767 Weapons 2 (`ROM/286/74.DAT`).
+- **String Tables (`DMsgStringTable`):**
+  - Container signature `d_msg` at byte 0. Decryption via XOR `0xFF` when the header byte at `+0x0A` is non-zero (otherwise plain). Fixed and variable stride indexing, CP932 / Shift-JIS text decoding, elemental glyph translation (Fire, Ice, Wind, Earth, Lightning, Water, Light, Dark).
 
 ## Virtual file system and asset overrides
 

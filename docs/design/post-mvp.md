@@ -65,7 +65,7 @@
   - [ ] Gambit profile validation, conflict detection, and role simulation for multi-box swarm coordination
   - [ ] Automated tuning of latency thresholds and animation lock buffers
 - [ ] **Addon Development & Runtime Tooling:**
-  - [ ] API schema inspection, event signature lookup, and template scaffolding for Lua and JS/TS addons
+  - [ ] API schema inspection, event signature lookup, and template scaffolding for Lua addons
   - [ ] Addon debugging, log/error diagnostics, and backward-compatibility linting against Windower/Ashita shims
 - [ ] **GearSwap & Native Equipment Automation Assistant:**
   - [ ] Direct integration with Phase 4 DAT item/equipment database (stat queries, equipment slots, job restrictions, set bonuses)

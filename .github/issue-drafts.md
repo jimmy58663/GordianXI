@@ -303,3 +303,9 @@ labels: area:audio, enhancement
 milestone: Phase 5H: Audio
 
 Master/category volumes (SFX/BGM/Ambient/UI), read from the config page volume sliders already stored in `StockUiSettings`.
+
+### Zone back-face culling in-game toggle and retail missing-faces audit
+labels: area:rendering, retail-verification
+milestone: MVP (Phase 5)
+
+Zone meshes without the 0x2E double-sided flag (0x2000) draw with back faces culled (front face = clockwise on screen with normals pointing out). `DisableZoneBackFaceCulling` restores the previous double-sided behavior, but is currently code-only. Add an in-game / config toggle and monitor for any retail objects/geometry that show missing faces with culling enabled. See [docs/rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md).
