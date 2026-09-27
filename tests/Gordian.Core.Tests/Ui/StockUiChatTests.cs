@@ -97,10 +97,10 @@ namespace Gordian.Core.Tests.Ui
         {
             var font = FixedFont(6);
             // 10 characters fit in 60 px.
-            Assert.Equal(new[] { "hello", "world" }, StockUiChatLog.Wrap(font, "hello world", 60));
-            Assert.Equal(new[] { "abcdefghij", "klm" }, StockUiChatLog.Wrap(font, "abcdefghijklm", 60));
-            Assert.Equal(new[] { "short" }, StockUiChatLog.Wrap(font, "short", 60));
-            Assert.Equal(new[] { "a b c d e", "f" }, StockUiChatLog.Wrap(font, "a b c d e f", 60));
+            Assert.Equal(new[] { "hello", "world" }, StockUiChatLog.Wrap(c => font.GetAdvance(c), "hello world", 60));
+            Assert.Equal(new[] { "abcdefghij", "klm" }, StockUiChatLog.Wrap(c => font.GetAdvance(c), "abcdefghijklm", 60));
+            Assert.Equal(new[] { "short" }, StockUiChatLog.Wrap(c => font.GetAdvance(c), "short", 60));
+            Assert.Equal(new[] { "a b c d e", "f" }, StockUiChatLog.Wrap(c => font.GetAdvance(c), "a b c d e f", 60));
         }
 
         [Fact]
@@ -194,11 +194,12 @@ namespace Gordian.Core.Tests.Ui
 
             // Up wraps to the last mode, which scrolls the eight-row list.
             input.HandleKey(GordianKey.Up, InputModifiers.None);
-            Assert.Equal(StockUiChatInput.Modes.Count - 1, input.ModeListIndex);
-            Assert.Equal(StockUiChatInput.Modes.Count - StockUiChatInput.ModeListRows, input.ModeListFirstRow);
+            Assert.Equal(input.ListEntries.Count - 1, input.ModeListIndex);
+            Assert.Equal(ChatInputMode.Window1, input.ListEntries[input.ModeListIndex]);
+            Assert.Equal(input.ListEntries.Count - StockUiChatInput.ModeListRows, input.ModeListFirstRow);
             for (int i = 0; i < 4; i++) input.HandleKey(GordianKey.Down, InputModifiers.None); // wraps to Say, then down to Party
             Assert.Equal(0, input.ModeListFirstRow);
-            Assert.Equal(ChatInputMode.Party, StockUiChatInput.Modes[input.ModeListIndex]);
+            Assert.Equal(ChatInputMode.Party, input.ListEntries[input.ModeListIndex]);
 
             // While the list is open typing does nothing; Enter picks and keeps the line open.
             input.InsertText("x");
@@ -212,6 +213,60 @@ namespace Gordian.Core.Tests.Ui
             input.InsertText("a");
             input.HandleKey(GordianKey.Tab, InputModifiers.None);
             Assert.False(input.IsModeListOpen);
+        }
+
+        [Fact]
+        public void Input_TypesKeySymbolsOnceWhateverThePlatformSends()
+        {
+            var input = new StockUiChatInput();
+            input.Open();
+            // Key symbol only (the handled key press suppressed the text input) ...
+            input.InsertKeySymbol("h");
+            input.InsertKeySymbol("i");
+            // ... or key symbol followed by the platform's text input for the same key.
+            input.InsertKeySymbol("!");
+            input.InsertText("!");
+            input.InsertKeySymbol("!");
+            Assert.Equal("hi!!", input.Text);
+        }
+
+        [Fact]
+        public void Input_SelectsALogWindowToScroll()
+        {
+            var input = new StockUiChatInput();
+            var scrolls = new List<(int Window, int Amount, bool Pages)>();
+            input.ScrollRequested += (w, a, p) => scrolls.Add((w, a, p));
+            input.Open();
+            Assert.DoesNotContain(ChatInputMode.Window2, input.ListEntries);
+            input.HasWindow2 = true;
+            input.HandleKey(GordianKey.Tab, InputModifiers.None);
+            input.HandleKey(GordianKey.Up, InputModifiers.None); // wraps to the last entry, Window 2
+            input.HandleKey(GordianKey.Enter, InputModifiers.None);
+            Assert.Equal(2, input.SelectedLogWindow);
+            Assert.Equal(ChatInputMode.Say, input.Mode);
+
+            input.HandleKey(GordianKey.Up, InputModifiers.None);
+            input.HandleKey(GordianKey.PageDown, InputModifiers.None);
+            input.InsertText("x"); // no typing while a window is selected
+            Assert.Equal(new[] { (2, 1, false), (2, -1, true) }, scrolls);
+            Assert.Equal(string.Empty, input.Text);
+
+            // Cancel (Escape, or B on a gamepad) backs out one step at a time.
+            input.Cancel();
+            Assert.Equal(0, input.SelectedLogWindow);
+            Assert.True(input.IsOpen);
+            input.Cancel();
+            Assert.False(input.IsOpen);
+        }
+
+        [Fact]
+        public void Chat_TheSlashKeyStartsTheLineWithASlash()
+        {
+            var chat = new StockUiChat();
+            Assert.True(chat.TryOpen(GordianKey.OemSlash, InputModifiers.None, InputProfile.CreateCompact(), menuOpen: false, keySymbol: "/"));
+            chat.Input.InsertText("/"); // the platform's text input, if it follows, is not typed twice
+            chat.Input.InsertKeySymbol("p");
+            Assert.Equal("/p", chat.Input.Text);
         }
 
         [Fact]

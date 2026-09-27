@@ -22,7 +22,7 @@ namespace Gordian.Core.Ui
         public StockUiChat()
         {
             Input.Submitted += (line, mode) => _ = SubmitAsync(line, mode);
-            Input.ScrollRequested += (window, pages) => Log.Scroll(window, pages * Math.Max(1, PageSize(window) - 1));
+            Input.ScrollRequested += (window, amount, pages) => Log.Scroll(window, pages ? amount * Math.Max(1, PageSize(window) - 1) : amount);
             Input.OpenChanged += open =>
             {
                 if (!open) Log.ScrollToNewest();
@@ -47,10 +47,10 @@ namespace Gordian.Core.Ui
         /// <summary>
         /// Opens the input line for a key pressed in gameplay, returning true when it did (the key is then the
         /// line's, not the character's): Enter outside a menu (retail), or a key the profile binds to
-        /// <see cref="InputAction.OpenChat"/> (the slash key, and Space in the Full layout). A slash is typed into
-        /// the new line by the platform's text input that follows; Space's is swallowed.
+        /// <see cref="InputAction.OpenChat"/> (the slash key, and Space in the Full layout). The character the chat
+        /// key types (<paramref name="keySymbol"/>, the slash) starts the new line; Space's is not typed.
         /// </summary>
-        public bool TryOpen(GordianKey key, InputModifiers modifiers, InputProfile? profile, bool menuOpen)
+        public bool TryOpen(GordianKey key, InputModifiers modifiers, InputProfile? profile, bool menuOpen, string? keySymbol = null)
         {
             if (Input.IsOpen) return false;
             bool open = !menuOpen && modifiers == InputModifiers.None && key is GordianKey.Enter or GordianKey.NumPadEnter;
@@ -63,8 +63,27 @@ namespace Gordian.Core.Ui
                 }
             }
             if (!open) return false;
-            Input.Open(key == GordianKey.Space ? " " : string.Empty);
+            if (key == GordianKey.Space)
+            {
+                Input.Open(" ");
+                return true;
+            }
+            Input.Open();
+            if (key is not (GordianKey.Enter or GordianKey.NumPadEnter) && StockUiChatInput.IsTypedSymbol(keySymbol))
+            {
+                Input.InsertKeySymbol(keySymbol!);
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Splits the log into two windows (config "Log Window Multi-window" not OFF), which also offers Window 2 in
+        /// the chat-mode list.
+        /// </summary>
+        public void SetMultiWindow(bool multiWindow)
+        {
+            Log.MultiWindow = multiWindow;
+            Input.HasWindow2 = multiWindow;
         }
 
         /// <summary>Subscribes the log to a session's message sources.</summary>
@@ -195,7 +214,7 @@ namespace Gordian.Core.Ui
             ChatMessageType.JpAssist => ChatLogChannel.AssistJ,
             ChatMessageType.NaAssist => ChatLogChannel.AssistE,
             ChatMessageType.Emotion => ChatLogChannel.Emote,
-            _ => ChatLogChannel.System,
+            _ => ChatLogChannel.ServerMessage,
         };
 
         public static ChatLogChannel ChannelOf(ChatSendKind kind) => kind switch

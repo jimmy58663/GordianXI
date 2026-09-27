@@ -261,6 +261,25 @@ namespace Gordian.Core.Input
             _inputState.MenuContext = menus?.IsOpen ?? false;
             _inputState.Update(_profile, elapsed);
 
+            // 1b. The stock chat line: while it is open the keyboard is its own (the window feeds it directly), and
+            //     the gamepad's cancel button backs out of it as Escape does; its chat button opens it.
+            var chat = ChatInput;
+            if (chat != null)
+            {
+                if (chat.IsOpen)
+                {
+                    if (_inputState.WasActionTriggered(InputAction.Cancel)) chat.Cancel();
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
+                if (_inputState.WasActionTriggered(InputAction.OpenChat) && !(menus?.IsOpen ?? false))
+                {
+                    chat.Open();
+                    return;
+                }
+            }
+
             // 2. Feed the stock menus: with one open, Confirm/Cancel and targeting belong to it (movement keys and
             //    the left stick still move the character, as in retail).
             _menuOpen = menus != null && menus.ProcessInput(_inputState, elapsed);
@@ -274,6 +293,9 @@ namespace Gordian.Core.Input
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
         }
+
+        /// <summary>The session's stock chat input line (null outside a session).</summary>
+        public Ui.StockUiChatInput? ChatInput { get; set; }
 
         /// <summary>True while a stock menu took this tick's input (movement keys and stick still work, as in retail).</summary>
         private bool _menuOpen;

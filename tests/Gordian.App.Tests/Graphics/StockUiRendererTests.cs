@@ -497,8 +497,9 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
-        /// Renders a four-line log window with coloured, wrapped and timestamped lines, the chat input line (Party mode,
-        /// text and caret) and the chat-mode list above it, at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.
+        /// Renders the split log as the retail capture of 2026-09-27 shows it (two eight-line windows side by side,
+        /// titled "Window 1:Say" and "Window 2", timestamps, the input line over Window 1's bottom with its mode tab)
+        /// and the chat-mode list, at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.
         /// </summary>
         [Fact]
         public void RendersChatLogInputAndModeList()
@@ -508,10 +509,14 @@ namespace Gordian.App.Tests.Graphics
             rm.InitializeFileTable();
             var library = UiResourceLibrary.Load(rm);
             var font = library != null ? UiFont.FromLibrary(library) : null;
-            if (library == null || font == null || !library.TryGetMenu("log4", out var log) || !library.TryGetMenu("inline", out var inline)
-                || !library.TryGetMenu("fep", out var fep)) return;
+            var logFont = StockUiLogFont.Create();
+            if (library == null || font == null || logFont == null || !library.TryGetMenu("log8", out var log)
+                || !library.TryGetMenu("inline", out var inline) || !library.TryGetMenu("fep", out var fep)) return;
 
-            const uint width = 520, height = 260;
+            // Eight 16-px cells: the capture's 94-character line spans 752 px.
+            Assert.Equal(8 * 94, logFont.MeasureWidth(new string('x', 94)), 0);
+
+            const uint width = 1100, height = 330;
             IntPtr hwnd = CreateWindowExW(0, "static", "StockUiChatTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devices = new VeldridDeviceManager();
             devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
@@ -530,32 +535,47 @@ namespace Gordian.App.Tests.Graphics
                 cl.End();
                 gd.SubmitCommands(cl);
 
-                var time = new DateTime(2026, 9, 26, 21, 4, 0);
-                var lines = new[]
+                var t = new DateTime(2026, 9, 27, 7, 37, 35);
+                var window1Lines = new[]
                 {
-                    new ChatLogLine(ChatLogChannel.Say, "Cybin : Hello there!", time),
-                    new ChatLogLine(ChatLogChannel.Party, "(Tarudrake) Pulling the next one, get ready. This line is long enough to wrap onto a second row.", time),
-                    new ChatLogLine(ChatLogChannel.Tell, "Cybin>> psst", time),
-                    new ChatLogLine(ChatLogChannel.Linkshell, "<Gordian> ls hi", time),
+                    new ChatLogLine(ChatLogChannel.System, "=== Area: Bibiki Bay ===", t),
+                    new ChatLogLine(ChatLogChannel.Notice, ">> /lockstyleset 1", t.AddSeconds(7)),
+                    new ChatLogLine(ChatLogChannel.System, "...A command error occurred.", t.AddSeconds(7)),
+                    new ChatLogLine(ChatLogChannel.ServerMessage, "<<< Welcome to Nameless! >>>", t.AddSeconds(12)),
+                    new ChatLogLine(ChatLogChannel.ServerMessage, "Please visit https://github.com/LandSandBoat/server for the latest information on the project.", t.AddSeconds(12)),
+                    new ChatLogLine(ChatLogChannel.ServerMessage, "Thank you, and we hope you enjoy sailing the sands!", t.AddSeconds(12)),
+                };
+                var window2Lines = new[]
+                {
+                    new ChatLogLine(ChatLogChannel.Say, "Tarudrake : hello", t.AddSeconds(152)),
+                    new ChatLogLine(ChatLogChannel.Tell, ">>Cybin : hello", t.AddSeconds(162)),
                 };
                 var input = new StockUiChatInput();
-                input.SetMode(ChatInputMode.Party);
                 input.Open();
-                input.InsertText("/p ready!");
-                input.OpenModeList();
+                var listInput = new StockUiChatInput { HasWindow2 = true };
+                listInput.SetMode(ChatInputMode.Party);
+                listInput.Open();
+                listInput.OpenModeList();
 
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
                 renderer.Begin(library);
-                const float logWidth = 500;
-                var inputPlacement = new StockUiPlacement(8, height - 8 - inline.Frame.Height, 1, false);
-                var logPlacement = new StockUiPlacement(8, inputPlacement.Y - 2 - log.Frame.Height, 1, false);
-                renderer.DrawMenu(log, logPlacement, includeButtons: false, logWidth);
-                StockUiChatWindow.DrawLog(renderer, library, font, logPlacement, logWidth, 4, lines, timestampMode: 1, scrolledBack: true);
+                float frameHeight = log.Frame.Height + StockUiChatWindow.TitleBand;
+                const float width1 = 540, width2 = 440;
+                var window1 = new StockUiPlacement(4, height - 4 - frameHeight, 1, false);
+                var window2 = new StockUiPlacement(4 + width1 + 2, window1.Y, 1, false);
+                int rows1 = StockUiChatWindow.RowsThatFit(frameHeight - inline.Frame.Height - 1, 8);
+                Assert.Equal(6, rows1); // as the capture: six rows above the input line
+                StockUiChatWindow.DrawLog(renderer, library, log, logFont, font, window1, width1, frameHeight, rows1, window1Lines,
+                    timestampMode: 2, scrolledBack: false, "Window 1:Say", selected: false);
+                StockUiChatWindow.DrawLog(renderer, library, log, logFont, font, window2, width2, frameHeight,
+                    StockUiChatWindow.RowsThatFit(frameHeight - StockUiChatWindow.BottomPadding, 8), window2Lines,
+                    timestampMode: 2, scrolledBack: true, "Window 2", selected: false);
                 // A timestamp of 0 keeps the caret in its "on" half-second.
-                StockUiChatWindow.DrawInput(renderer, library, font, inline, inputPlacement, logWidth, input, 0);
-                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(8, 4, 1, false), input);
+                StockUiChatWindow.DrawInput(renderer, library, logFont, inline,
+                    new StockUiPlacement(4, window1.Y + (frameHeight - inline.Frame.Height), 1, false), width1, input, 0);
+                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(4, 4, 1, false), listInput);
                 renderer.End(framebuffer, width, height);
-                Assert.True(renderer.LastQuadCount > 80, $"{renderer.LastQuadCount} quads");
+                Assert.True(renderer.LastQuadCount > 200, $"{renderer.LastQuadCount} quads");
 
                 var pixels = ReadBack(gd, color, width, height);
                 string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
@@ -565,10 +585,9 @@ namespace Gordian.App.Tests.Graphics
                     SavePng(Path.Combine(dumpDir, "chat_log.png"), pixels, (int)width, (int)height);
                 }
 
-                // The party line wraps: five rows for four lines, so the say line (the oldest) is cut off the top.
-                var first = StockUiChatLog.GetWrappedRows(lines[1], font, logWidth - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight, 1);
-                Assert.Equal(2, first.Count);
-                Assert.StartsWith("[21:04] (Tarudrake)", first[0]);
+                // The input line is opaque: its body is the window navy, not the clear colour mixed in.
+                var body = Pixel(pixels, width, 300, (int)(window1.Y + frameHeight - 6));
+                Assert.True(body.B > body.R + 20, $"input line body {body}");
 
                 framebuffer.Dispose(); color.Dispose(); cl.Dispose();
             }

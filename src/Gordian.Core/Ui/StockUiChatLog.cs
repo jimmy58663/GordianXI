@@ -1,7 +1,6 @@
 // src/Gordian.Core/Ui/StockUiChatLog.cs
 using System;
 using System.Collections.Generic;
-using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Core.Ui
 {
@@ -21,7 +20,12 @@ namespace Gordian.Core.Ui
         AssistJ,
         AssistE,
         Emote,
+        /// <summary>Standard system messages (message ids resolved by <c>StandardMessages</c>).</summary>
         System,
+
+        /// <summary>System text the server sends as chat (0x017 system types: welcome and server notices).</summary>
+        ServerMessage,
+
         Combat,
 
         /// <summary>Client messages: command results, menu notices.</summary>
@@ -193,11 +197,11 @@ namespace Gordian.Core.Ui
         private static int WindowIndex(int window) => window == 2 ? 1 : 0;
 
         /// <summary>
-        /// Wraps a line to <paramref name="maxWidth"/> layout pixels of <paramref name="font"/> at
-        /// <paramref name="scale"/>: breaks at the last space that fits (the break's spaces are dropped), or mid-word
+        /// Wraps a line to <paramref name="maxWidth"/> layout pixels, measuring each character with
+        /// <paramref name="advance"/> (the log font's pen advance): breaks at the last space that fits (the break's spaces are dropped), or mid-word
         /// for a word wider than the line.
         /// </summary>
-        public static List<string> Wrap(UiFont font, string text, float maxWidth, float scale = 1f)
+        public static List<string> Wrap(Func<char, float> advance, string text, float maxWidth)
         {
             var rows = new List<string>();
             if (string.IsNullOrEmpty(text))
@@ -214,10 +218,10 @@ namespace Gordian.Core.Ui
                 int i = start;
                 for (; i < text.Length; i++)
                 {
-                    float advance = font.GetAdvance(text[i]) * scale;
-                    if (width + advance > maxWidth && i > start) break;
+                    float step = advance(text[i]);
+                    if (width + step > maxWidth && i > start) break;
                     if (text[i] == ' ') lastSpace = i;
-                    width += advance;
+                    width += step;
                 }
                 if (i >= text.Length)
                 {
@@ -233,6 +237,9 @@ namespace Gordian.Core.Ui
             return rows;
         }
 
+        /// <summary>Characters of the timestamp prefix for a mode (retail draws it white whatever the line's colour).</summary>
+        public static int TimestampLength(int timestampMode) => timestampMode switch { 1 => 8, 2 => 11, _ => 0 };
+
         /// <summary>The line's text with the config menu's timestamp prefix (1 = "[HH:mm] ", 2 = "[HH:mm:ss] ").</summary>
         public static string WithTimestamp(ChatLogLine line, int timestampMode) => timestampMode switch
         {
@@ -245,10 +252,10 @@ namespace Gordian.Core.Ui
         /// The line's wrapped rows for a width and timestamp mode, cached on the line (call from one thread only:
         /// the renderer's).
         /// </summary>
-        public static IReadOnlyList<string> GetWrappedRows(ChatLogLine line, UiFont font, float maxWidth, int timestampMode)
+        public static IReadOnlyList<string> GetWrappedRows(ChatLogLine line, Func<char, float> advance, float maxWidth, int timestampMode)
         {
             if (line.WrappedRows != null && line.WrapKey == (maxWidth, timestampMode)) return line.WrappedRows;
-            var rows = Wrap(font, WithTimestamp(line, timestampMode), maxWidth);
+            var rows = Wrap(advance, WithTimestamp(line, timestampMode), maxWidth);
             line.WrappedRows = rows;
             line.WrapKey = (maxWidth, timestampMode);
             return rows;

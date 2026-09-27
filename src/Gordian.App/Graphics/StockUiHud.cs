@@ -27,6 +27,7 @@ namespace Gordian.App.Graphics
         private volatile UiResourceLibrary? _library;
         private volatile UiFont? _font;
         private volatile StatusIconLibrary? _statusIcons;
+        private volatile StockUiLogFont? _logFont;
         private int _loadStarted;
         private ResourceManager? _resources;
         private int _skinReloading;
@@ -57,6 +58,7 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
+                    _logFont = StockUiLogFont.Create();
                     _library = library;
                 }
                 catch (Exception ex)
@@ -235,18 +237,20 @@ namespace Gordian.App.Graphics
         /// The log window(s) and the chat input line. Window 1 keeps its authored left edge and, by default,
         /// stretches right to meet the party window (retail spans the bottom of the screen up to it; the authored
         /// 366 x 134 frame only fills the 512-wide layout); a log window the player has moved keeps its authored
-        /// width. The Window 1/2 settings pick each window's frame ("log1".."log8" by "Maximum lines displayed": 22 px
-        /// for one line, 16 px per extra line, all bottom-anchored) and its share of that width ("Window Width");
-        /// "Log Window Multi-window" adds Window 2 above Window 1 (Vertical) or beside it (Horizontal). While the
-        /// input line is open it takes the bottom of the log's place and the log windows move up above it.
+        /// width. The Window 1/2 settings pick each window's frame ("log1".."log8" by "Maximum lines displayed", plus
+        /// the title band) and its share of that width ("Window Width"); "Log Window Multi-window" adds Window 2 above
+        /// Window 1 (Vertical) or beside it (Horizontal). The input line takes the bottom of Window 1, whose rows that
+        /// no longer fit above it are not shown (retail capture, 2026-09-27). Each window is titled with the chat
+        /// mode ("Say"; "Window 1:Say" and "Window 2" when split).
         /// </summary>
         private void DrawLogWindows(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
             StockUiPlacement? party, uint width, uint height)
         {
             var chat = session.Chat;
             int multi = Settings.GetValue(StockUiSettingKey.LogMultiWindow);
-            chat.Log.MultiWindow = multi != 0;
-            if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int rows1)) return;
+            chat.SetMultiWindow(multi != 0);
+            var logFont = _logFont;
+            if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int maxRows1)) return;
             var placement = Layout.Resolve(StockUiWindowIds.Log, menu1.Frame, width, height);
             if (placement.Hidden) return;
             float s = placement.Scale;
@@ -260,19 +264,6 @@ namespace Gordian.App.Graphics
             }
             float logBottom = placement.Y + menu1.Frame.Height * s;
 
-            // The input line sits at the bottom of the log's place; the log windows move up above it.
-            var input = chat.Input;
-            if (input.IsOpen && library.TryGetMenu("inline", out var inline))
-            {
-                float inputY = logBottom - inline.Frame.Height * s;
-                logBottom = inputY - 2 * s;
-                var inputPlacement = new StockUiPlacement(placement.X, inputY, s, false);
-                if (_font is { } inputFont)
-                {
-                    StockUiChatWindow.DrawInput(renderer, library, inputFont, inline, inputPlacement, fullWidth, input, Stopwatch.GetTimestamp());
-                }
-            }
-
             bool horizontal = multi == 2;
             float width1 = fullWidth, width2 = 0;
             if (horizontal)
@@ -281,35 +272,57 @@ namespace Gordian.App.Graphics
                 width2 = width1;
             }
             width1 = ApplyWidthSetting(width1, StockUiSettingKey.Window1Width);
-            var window1 = new StockUiPlacement(placement.X, logBottom - menu1.Frame.Height * s, s, false);
-            DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, rows1);
 
-            if (multi == 0 || !TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int rows2)) return;
-            if (!horizontal) width2 = fullWidth;
-            width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
-            var window2 = horizontal
-                ? new StockUiPlacement(placement.X + (fullWidth - width2) * s, logBottom - menu2.Frame.Height * s, s, false)
-                : new StockUiPlacement(placement.X, window1.Y - (menu2.Frame.Height + 2) * s, s, false);
-            DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, rows2);
+            var input = chat.Input;
+            string modeLabel = StockUiChatInput.Label(input.Mode);
+            float height1 = menu1.Frame.Height + StockUiChatWindow.TitleBand;
+            var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
+            bool inputOpen = input.IsOpen && library.TryGetMenu("inline", out _);
+            library.TryGetMenu("inline", out var inline);
+            float textBottom1 = inputOpen ? height1 - inline.Frame.Height - 1 : height1 - StockUiChatWindow.BottomPadding;
+            DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, height1,
+                StockUiChatWindow.RowsThatFit(textBottom1, maxRows1), multi != 0 ? $"Window 1:{modeLabel}" : modeLabel,
+                input.SelectedLogWindow == 1, logFont);
+
+            if (multi != 0 && TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int maxRows2))
+            {
+                if (!horizontal) width2 = fullWidth;
+                width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
+                float height2 = menu2.Frame.Height + StockUiChatWindow.TitleBand;
+                var window2 = horizontal
+                    ? new StockUiPlacement(placement.X + (fullWidth - width2) * s, logBottom - height2 * s, s, false)
+                    : new StockUiPlacement(placement.X, window1.Y - (height2 + 2) * s, s, false);
+                DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, height2,
+                    StockUiChatWindow.RowsThatFit(height2 - StockUiChatWindow.BottomPadding, maxRows2), "Window 2",
+                    input.SelectedLogWindow == 2, logFont);
+            }
+
+            if (!inputOpen || logFont == null) return;
+            float inputY = logBottom - inline.Frame.Height * s;
+            StockUiChatWindow.DrawInput(renderer, library, logFont, inline, new StockUiPlacement(placement.X, inputY, s, false), width1,
+                input, Stopwatch.GetTimestamp());
 
             if (input.IsModeListOpen && library.TryGetMenu("fep", out var fep))
             {
-                // Above the input line's left end, over the log.
-                var list = new StockUiPlacement(placement.X, Math.Max(0, logBottom - fep.Frame.Height * s), s, false);
-                StockUiChatWindow.DrawModeList(renderer, library, fep, list, input);
+                // Above the input line's left end (and its tab), over the log.
+                float listY = inputY - (StockUiChatWindow.TabHeight + fep.Frame.Height) * s;
+                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(placement.X, Math.Max(0, listY), s, false), input);
             }
         }
 
         private void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiChatLog log, int window,
-            UiMenuDefinition menu, StockUiPlacement placement, float frameWidth, int rows)
+            UiMenuDefinition menu, StockUiPlacement placement, float frameWidth, float frameHeight, int rows, string title, bool selected,
+            StockUiLogFont? logFont)
         {
-            renderer.DrawMenu(menu, placement, includeButtons: false, frameWidth);
-            var font = _font;
-            if (font == null) return;
+            if (logFont == null)
+            {
+                renderer.DrawMenu(menu, placement, includeButtons: false, frameWidth, frameHeight: frameHeight);
+                return;
+            }
             // A window shows at most as many lines as rows (each line wraps to one row or more).
             log.CopyVisible(window, rows, _logLines);
-            StockUiChatWindow.DrawLog(renderer, library, font, placement, frameWidth, rows, _logLines,
-                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0);
+            StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
+                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected);
         }
 
         /// <summary>
