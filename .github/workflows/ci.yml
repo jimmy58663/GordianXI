@@ -4,7 +4,17 @@ on:
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches: [ main ]
+    # Docs-only PRs skip CI. Revisit if CI becomes a required status check:
+    # a skipped workflow leaves a required check pending.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
+
+# A new push to a PR cancels that PR's in-flight run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -28,6 +38,13 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore NuGet dependencies
         run: dotnet restore

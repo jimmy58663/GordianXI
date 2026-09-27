@@ -80,6 +80,16 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 
 ---
 
+## 🌿 Git Workflow (GitHub Flow)
+*   **Never commit directly to `main`.** Every change, including docs, goes through a pull request.
+*   **One short-lived branch per issue** (or a few closely related issues), named `<area>/<issue>-<slug>`, e.g. `ui/26-chat-window`, `network/1-register-0x073`. Use `chore/<slug>`, `docs/<slug>` or `ci/<slug>` for work without an issue.
+*   Commit freely on the branch; PRs are squash-merged, so work-in-progress commits never reach `main`.
+*   **Open the PR only after the maintainer has tested the change in-game** (code changes) or reviewed it (docs). The PR body says `Closes #N` for each issue, and the PR carries the issue's `enhancement`/`bug` label (plus `documentation`/`chore` as fitting) so Release Drafter can categorize it.
+*   CI (`.github/workflows/ci.yml`) builds and tests on Windows and Ubuntu for every PR; docs-only PRs skip it. Merge (squash) only when CI passes and the maintainer approves. Release Drafter updates the draft release on merge; nothing is published until the maintainer publishes a release.
+*   When several agents work at once, each uses its own branch (or git worktree) so they never share a working tree.
+
+---
+
 
 ## 🛡️ Workspace Access & Directory Permissions
 *   **Primary Development Workspace (`GordianXI`):**
