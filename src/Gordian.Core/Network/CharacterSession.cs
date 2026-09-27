@@ -156,7 +156,7 @@ namespace Gordian.Core.Network
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
-            Locomotion.ChatInput = Chat.Input;
+            Locomotion.Chat = Chat;
             // The character stops while the input line has the keyboard (keys held when it opened are released).
             Chat.Input.OpenChanged += open =>
             {

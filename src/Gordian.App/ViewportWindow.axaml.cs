@@ -269,6 +269,14 @@ namespace Gordian.App
             bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
             if (chat.Input.IsOpen)
             {
+                // Tab / Shift+Tab still cycle targets while typing.
+                if (gKey == GordianKey.Tab)
+                {
+                    session.InputState.SetModifiers(mods);
+                    session.InputState.SetKeyDown(gKey);
+                    e.Handled = true;
+                    return;
+                }
                 if (gKey == GordianKey.V && mods == InputModifiers.Control) _ = PasteIntoChatAsync(chat.Input);
                 else if (typed) chat.Input.InsertKeySymbol(e.KeySymbol!);
                 else chat.Input.HandleKey(gKey, mods);

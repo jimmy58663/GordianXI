@@ -184,38 +184,6 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Input_ModeListPicksTheChatMode()
-        {
-            var input = new StockUiChatInput();
-            input.Open();
-            input.HandleKey(GordianKey.Tab, InputModifiers.None);
-            Assert.True(input.IsModeListOpen);
-            Assert.Equal(0, input.ModeListIndex);
-
-            // Up wraps to the last mode, which scrolls the eight-row list.
-            input.HandleKey(GordianKey.Up, InputModifiers.None);
-            Assert.Equal(input.ListEntries.Count - 1, input.ModeListIndex);
-            Assert.Equal(ChatInputMode.Window1, input.ListEntries[input.ModeListIndex]);
-            Assert.Equal(input.ListEntries.Count - StockUiChatInput.ModeListRows, input.ModeListFirstRow);
-            for (int i = 0; i < 4; i++) input.HandleKey(GordianKey.Down, InputModifiers.None); // wraps to Say, then down to Party
-            Assert.Equal(0, input.ModeListFirstRow);
-            Assert.Equal(ChatInputMode.Party, input.ListEntries[input.ModeListIndex]);
-
-            // While the list is open typing does nothing; Enter picks and keeps the line open.
-            input.InsertText("x");
-            input.HandleKey(GordianKey.Enter, InputModifiers.None);
-            Assert.False(input.IsModeListOpen);
-            Assert.True(input.IsOpen);
-            Assert.Equal(ChatInputMode.Party, input.Mode);
-            Assert.Equal(string.Empty, input.Text);
-
-            // Tab with text typed does not open the list.
-            input.InsertText("a");
-            input.HandleKey(GordianKey.Tab, InputModifiers.None);
-            Assert.False(input.IsModeListOpen);
-        }
-
-        [Fact]
         public void Input_TypesKeySymbolsOnceWhateverThePlatformSends()
         {
             var input = new StockUiChatInput();
@@ -228,35 +196,6 @@ namespace Gordian.Core.Tests.Ui
             input.InsertText("!");
             input.InsertKeySymbol("!");
             Assert.Equal("hi!!", input.Text);
-        }
-
-        [Fact]
-        public void Input_SelectsALogWindowToScroll()
-        {
-            var input = new StockUiChatInput();
-            var scrolls = new List<(int Window, int Amount, bool Pages)>();
-            input.ScrollRequested += (w, a, p) => scrolls.Add((w, a, p));
-            input.Open();
-            Assert.DoesNotContain(ChatInputMode.Window2, input.ListEntries);
-            input.HasWindow2 = true;
-            input.HandleKey(GordianKey.Tab, InputModifiers.None);
-            input.HandleKey(GordianKey.Up, InputModifiers.None); // wraps to the last entry, Window 2
-            input.HandleKey(GordianKey.Enter, InputModifiers.None);
-            Assert.Equal(2, input.SelectedLogWindow);
-            Assert.Equal(ChatInputMode.Say, input.Mode);
-
-            input.HandleKey(GordianKey.Up, InputModifiers.None);
-            input.HandleKey(GordianKey.PageDown, InputModifiers.None);
-            input.InsertText("x"); // no typing while a window is selected
-            Assert.Equal(new[] { (2, 1, false), (2, -1, true) }, scrolls);
-            Assert.Equal(string.Empty, input.Text);
-
-            // Cancel (Escape, or B on a gamepad) backs out one step at a time.
-            input.Cancel();
-            Assert.Equal(0, input.SelectedLogWindow);
-            Assert.True(input.IsOpen);
-            input.Cancel();
-            Assert.False(input.IsOpen);
         }
 
         [Fact]
@@ -405,6 +344,53 @@ namespace Gordian.Core.Tests.Ui
             await chat.SubmitAsync("anyone?", chat.Input.Mode);
             Assert.Equal(("anyone?", ChatSendKind.Shout), calls[0]);
             Assert.Equal(ChatInputMode.Say, chat.Input.Mode);
+        }
+
+        [Fact]
+        public void Chat_KeypadPlusCyclesTheLogWindows()
+        {
+            var chat = new StockUiChat();
+            for (int i = 0; i < 20; i++) chat.Log.Add(ChatLogChannel.Say, i.ToString());
+
+            chat.CycleLogWindow();
+            Assert.Equal(1, chat.SelectedLogWindow);
+            chat.CycleLogWindow(); // one window: back to none
+            Assert.Equal(0, chat.SelectedLogWindow);
+
+            chat.SetMultiWindow(true);
+            chat.CycleLogWindow();
+            chat.CycleLogWindow();
+            Assert.Equal(2, chat.SelectedLogWindow);
+            chat.CycleLogWindow();
+            Assert.Equal(0, chat.SelectedLogWindow);
+
+            // Releasing a window returns it to the newest lines.
+            chat.CycleLogWindow();
+            chat.Log.Scroll(1, 5);
+            chat.ReleaseLogWindow();
+            Assert.Equal(0, chat.SelectedLogWindow);
+            Assert.Equal(0, chat.Log.ScrollOffset(1));
+
+            // Window 2 goes away with the split.
+            chat.CycleLogWindow();
+            chat.CycleLogWindow();
+            chat.SetMultiWindow(false);
+            Assert.Equal(0, chat.SelectedLogWindow);
+        }
+
+        [Fact]
+        public void SavedProfilesGetTheLogWindowKeys()
+        {
+            var old = InputProfile.CreateFullNumpad();
+            old.Bindings.Remove(InputAction.CycleLogWindow);
+            old.Bind(InputAction.TargetNearest, new InputChord(GordianKey.NumPadAdd));
+            old.Bind(InputAction.ToggleAutorun, new InputChord(GamepadButton.Y));
+
+            var loaded = InputProfile.FromJson(old.SaveToJson());
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadAdd), out var key));
+            Assert.Equal(InputAction.CycleLogWindow, key);
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.Y), out var pad));
+            Assert.Equal(InputAction.CycleLogWindow, pad);
         }
 
         [Fact]

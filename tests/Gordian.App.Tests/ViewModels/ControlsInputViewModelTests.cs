@@ -93,7 +93,7 @@ namespace Gordian.App.Tests.ViewModels
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Cancel && b.BoundChords.Contains("Pad:B"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.OpenMenu && b.BoundChords.Contains("Pad:X"));
-                Assert.Contains(vm.Bindings, b => b.Action == InputAction.ToggleAutorun && b.BoundChords.Contains("Pad:Y"));
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.CycleLogWindow && b.BoundChords.Contains("Pad:Y"));
             }
             finally
             {

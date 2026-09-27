@@ -283,7 +283,7 @@ namespace Gordian.App.Graphics
             float textBottom1 = inputOpen ? height1 - inline.Frame.Height - 1 : height1 - StockUiChatWindow.BottomPadding;
             DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, height1,
                 StockUiChatWindow.RowsThatFit(textBottom1, maxRows1), multi != 0 ? $"Window 1:{modeLabel}" : modeLabel,
-                input.SelectedLogWindow == 1, logFont);
+                chat.SelectedLogWindow == 1, logFont);
 
             if (multi != 0 && TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int maxRows2))
             {
@@ -295,20 +295,13 @@ namespace Gordian.App.Graphics
                     : new StockUiPlacement(placement.X, window1.Y - (height2 + 2) * s, s, false);
                 DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, height2,
                     StockUiChatWindow.RowsThatFit(height2 - StockUiChatWindow.BottomPadding, maxRows2), "Window 2",
-                    input.SelectedLogWindow == 2, logFont);
+                    chat.SelectedLogWindow == 2, logFont);
             }
 
             if (!inputOpen || logFont == null) return;
             float inputY = logBottom - inline.Frame.Height * s;
             StockUiChatWindow.DrawInput(renderer, library, logFont, inline, new StockUiPlacement(placement.X, inputY, s, false), width1,
                 input, Stopwatch.GetTimestamp());
-
-            if (input.IsModeListOpen && library.TryGetMenu("fep", out var fep))
-            {
-                // Above the input line's left end (and its tab), over the log.
-                float listY = inputY - (StockUiChatWindow.TabHeight + fep.Frame.Height) * s;
-                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(placement.X, Math.Max(0, listY), s, false), input);
-            }
         }
 
         private void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiChatLog log, int window,

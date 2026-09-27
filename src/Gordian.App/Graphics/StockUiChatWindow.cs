@@ -8,9 +8,9 @@ using Gordian.Core.Ui;
 namespace Gordian.App.Graphics
 {
     /// <summary>
-    /// Draws the stock chat (Tier 2 chunk 5): a log window (frame, title over the top border, text rows), the chat
-    /// input line (<c>inline</c>) with the chat mode's tab above it, and the chat-mode list (<c>fep</c>). Frames are
-    /// DAT menus; the text is composed by the client in the log font (<see cref="StockUiLogFont"/>).
+    /// Draws the stock chat (Tier 2 chunk 5): a log window (frame, title over the top border, text rows) and the chat
+    /// input line (<c>inline</c>) with the chat mode's tab above it. Frames are DAT menus; the text is composed by
+    /// the client in the log font (<see cref="StockUiLogFont"/>).
     /// <para>
     /// Layout measured from a retail capture at 1:1 (2026-09-27, 2560 x 1440, two log windows side by side): a log
     /// window is its DAT frame ("log1".."log8": 22 px + 16 per extra line) plus a 16-px band at the top, so eight
@@ -41,11 +41,6 @@ namespace Gordian.App.Graphics
         private const string CaretTexture = "gauge";
         private const float CaretSourceX = 30, CaretSourceY = 12, CaretHeight = 13;
         private static readonly UiColor Neutral = new(0x80, 0x80, 0x80, 0x80);
-
-        // The "fep" list: rows are its 68 x 16 buttons from (3, 4); the frame's kind-6 image (fep#2, a brown bar)
-        // is the highlight behind the selected row.
-        private const float ModeRowLeft = 3, ModeRowTop = 4;
-        private const int ModeCursorImage = 2;
 
         // The "kaipage" page-wait arrow (anc "btwait", 10 x 11) marks a window scrolled back from the newest line.
         private const float MoreMarkerInset = 14;
@@ -178,30 +173,6 @@ namespace Gordian.App.Graphics
             float width = font.MeasureWidth(text.AsSpan(0, caret));
             while (start < caret && width > available) width -= font.GetAdvance(text[start++]);
             return start;
-        }
-
-        /// <summary>
-        /// Draws the chat-mode list (<c>fep</c>): the frame and its row strips, the highlight bar behind the row
-        /// under the cursor, and each entry's label (the orange variant on the cursor's row).
-        /// </summary>
-        public static void DrawModeList(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition fepMenu,
-            StockUiPlacement placement, StockUiChatInput input)
-        {
-            if (!library.TryGetGroup("fep", out var fep)) return;
-            float s = placement.Scale;
-            renderer.DrawMenu(fepMenu, placement, includeButtons: true);
-
-            var entries = input.ListEntries;
-            int first = input.ModeListFirstRow;
-            for (int row = 0; row < StockUiChatInput.ModeListRows && first + row < entries.Count; row++)
-            {
-                int index = first + row;
-                bool selected = index == input.ModeListIndex;
-                float x = placement.X + ModeRowLeft * s, y = placement.Y + (ModeRowTop + row * RowPitch) * s;
-                if (selected && ModeCursorImage < fep.Images.Count) renderer.DrawImage(fep.Images[ModeCursorImage], x, y, s);
-                int image = selected ? StockUiChatInput.SelectedLabelImage(entries[index]) : (int)entries[index];
-                if (image < fep.Images.Count) renderer.DrawImage(fep.Images[image], x, y, s);
-            }
         }
     }
 }

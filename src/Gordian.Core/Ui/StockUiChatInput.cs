@@ -7,10 +7,9 @@ using Gordian.Core.Input;
 namespace Gordian.Core.Ui
 {
     /// <summary>
-    /// The entries of the stock chat-mode list (the <c>fep</c> menu). The chat modes are what a line typed without
-    /// a slash command is sent as; <see cref="Window1"/> and <see cref="Window2"/> select a log window to scroll
-    /// through instead. Values are the <c>fep</c> element group's label images (unselected; the orange selected
-    /// variants are listed in <see cref="StockUiChatInput.SelectedLabelImage"/>).
+    /// The default chat modes: what a line typed without a slash command is sent as. Values are the <c>fep</c>
+    /// element group's grey label images (the input line's mode tab); <see cref="Window1"/> and
+    /// <see cref="Window2"/> are only labels (the log windows' titles are laid out from them).
     /// </summary>
     public enum ChatInputMode : byte
     {
@@ -30,9 +29,8 @@ namespace Gordian.Core.Ui
     /// <summary>
     /// The stock chat input line (<c>inline</c>): opened from gameplay, it takes the keyboard until the line is sent
     /// (Enter) or dropped (Escape, or B on a gamepad), so typing never moves the character. Holds the text and caret,
-    /// the sent-line history (Up/Down), the chat mode, the chat-mode list (Tab on an empty line, the <c>fep</c> menu)
-    /// and the log window selected from that list for scrolling. Accessed from the UI thread (keys, text) and the
-    /// render thread (drawing), so state changes take a lock.
+    /// the sent-line history (Up/Down) and the default chat mode (set by <c>/chatmode</c>). Accessed from the UI
+    /// thread (keys, text) and the render thread (drawing), so state changes take a lock.
     /// </summary>
     public sealed class StockUiChatInput
     {
@@ -45,18 +43,6 @@ namespace Gordian.Core.Ui
         /// <summary>Sent lines kept for Up/Down recall.</summary>
         public const int HistoryCapacity = 100;
 
-        /// <summary>The chat modes, top to bottom in the list.</summary>
-        public static readonly IReadOnlyList<ChatInputMode> Modes = new[]
-        {
-            ChatInputMode.Say, ChatInputMode.Shout, ChatInputMode.Tell, ChatInputMode.Party, ChatInputMode.Linkshell,
-            ChatInputMode.Linkshell2, ChatInputMode.Unity, ChatInputMode.AssistJ, ChatInputMode.AssistE,
-        };
-
-        /// <summary>Rows the <c>fep</c> list shows at once (its eight 16-px buttons); longer lists scroll.</summary>
-        public const int ModeListRows = 8;
-
-        private static readonly ChatInputMode[] EntriesOneWindow = [.. Modes, ChatInputMode.Window1];
-        private static readonly ChatInputMode[] EntriesTwoWindows = [.. Modes, ChatInputMode.Window1, ChatInputMode.Window2];
 
         private readonly object _sync = new();
         private readonly StringBuilder _text = new();
@@ -68,26 +54,9 @@ namespace Gordian.Core.Ui
         /// <summary>True while the input line is open (it owns the keyboard).</summary>
         public bool IsOpen { get; private set; }
 
-        /// <summary>True while the chat-mode list is open over the input line.</summary>
-        public bool IsModeListOpen { get; private set; }
 
         public ChatInputMode Mode { get; private set; } = ChatInputMode.Say;
 
-        /// <summary>
-        /// The log window (1 or 2) picked from the list to scroll through, 0 for none: Up/Down then scroll it a line
-        /// and Page Up/Down a page, and Enter or Escape hand the keyboard back to the line.
-        /// </summary>
-        public int SelectedLogWindow { get; private set; }
-
-        /// <summary>True when the log is split, so the list offers Window 2 as well.</summary>
-        public bool HasWindow2 { get; set; }
-
-        /// <summary>The list's entries: the chat modes, then the log windows.</summary>
-        public IReadOnlyList<ChatInputMode> ListEntries => HasWindow2 ? EntriesTwoWindows : EntriesOneWindow;
-
-        /// <summary>Row of the chat-mode list under the cursor, and the first row shown.</summary>
-        public int ModeListIndex { get; private set; }
-        public int ModeListFirstRow { get; private set; }
 
         /// <summary>Last tell partner (who you told or who told you): Tell mode sends to them.</summary>
         public string TellTarget { get; set; } = string.Empty;
@@ -125,8 +94,6 @@ namespace Gordian.Core.Ui
             {
                 if (IsOpen) return;
                 IsOpen = true;
-                IsModeListOpen = false;
-                SelectedLogWindow = 0;
                 _text.Clear();
                 _caret = 0;
                 _historyIndex = _history.Count;
@@ -141,8 +108,6 @@ namespace Gordian.Core.Ui
             {
                 if (!IsOpen) return;
                 IsOpen = false;
-                IsModeListOpen = false;
-                SelectedLogWindow = 0;
                 _text.Clear();
                 _caret = 0;
                 _swallowText = string.Empty;
@@ -150,28 +115,9 @@ namespace Gordian.Core.Ui
             OpenChanged?.Invoke(false);
         }
 
-        /// <summary>
-        /// Backs out one step (Escape, or the gamepad's cancel button): closes the chat-mode list, releases a selected
-        /// log window, or closes the line.
-        /// </summary>
-        public void Cancel()
-        {
-            lock (_sync)
-            {
-                if (!IsOpen) return;
-                if (IsModeListOpen)
-                {
-                    IsModeListOpen = false;
-                    return;
-                }
-                if (SelectedLogWindow != 0)
-                {
-                    SelectedLogWindow = 0;
-                    return;
-                }
-            }
-            Close();
-        }
+
+        /// <summary>Drops the line (Escape, or the gamepad's cancel button).</summary>
+        public void Cancel() => Close();
 
         public void SetMode(ChatInputMode mode)
         {
@@ -187,7 +133,7 @@ namespace Gordian.Core.Ui
             if (string.IsNullOrEmpty(text)) return;
             lock (_sync)
             {
-                if (!IsOpen || IsModeListOpen || SelectedLogWindow != 0) return;
+                if (!IsOpen) return;
                 if (_swallowText.Length > 0)
                 {
                     bool swallow = text == _swallowText;
@@ -208,7 +154,7 @@ namespace Gordian.Core.Ui
             if (string.IsNullOrEmpty(symbol)) return;
             lock (_sync)
             {
-                if (!IsOpen || IsModeListOpen || SelectedLogWindow != 0) return;
+                if (!IsOpen) return;
                 InsertUnlocked(symbol);
                 _swallowText = symbol;
             }
@@ -244,105 +190,54 @@ namespace Gordian.Core.Ui
                 submittedMode = Mode;
                 bool ctrl = (modifiers & InputModifiers.Control) != 0;
 
-                if (IsModeListOpen)
+                switch (key)
                 {
-                    switch (key)
-                    {
-                        case GordianKey.Up or GordianKey.NumPad8:
-                            MoveModeCursor(-1);
-                            break;
-                        case GordianKey.Down or GordianKey.NumPad2:
-                            MoveModeCursor(1);
-                            break;
-                        case GordianKey.Enter or GordianKey.NumPadEnter:
-                            var entry = ListEntries[Math.Clamp(ModeListIndex, 0, ListEntries.Count - 1)];
-                            if (entry == ChatInputMode.Window1) SelectedLogWindow = 1;
-                            else if (entry == ChatInputMode.Window2) SelectedLogWindow = 2;
-                            else Mode = entry;
-                            IsModeListOpen = false;
-                            break;
-                        case GordianKey.Escape or GordianKey.Tab:
-                            IsModeListOpen = false;
-                            break;
-                    }
-                    return true;
-                }
-
-                if (SelectedLogWindow != 0)
-                {
-                    switch (key)
-                    {
-                        case GordianKey.Up or GordianKey.NumPad8:
-                            (scrollWindow, scrollAmount) = (SelectedLogWindow, 1);
-                            break;
-                        case GordianKey.Down or GordianKey.NumPad2:
-                            (scrollWindow, scrollAmount) = (SelectedLogWindow, -1);
-                            break;
-                        case GordianKey.PageUp:
-                            (scrollWindow, scrollAmount, scrollPages) = (SelectedLogWindow, 1, true);
-                            break;
-                        case GordianKey.PageDown:
-                            (scrollWindow, scrollAmount, scrollPages) = (SelectedLogWindow, -1, true);
-                            break;
-                        case GordianKey.Enter or GordianKey.NumPadEnter or GordianKey.Escape:
-                            SelectedLogWindow = 0;
-                            break;
-                    }
-                }
-                else
-                {
-                    switch (key)
-                    {
-                        case GordianKey.Enter or GordianKey.NumPadEnter:
-                            string line = _text.ToString().Trim();
-                            if (line.Length > 0)
+                    case GordianKey.Enter or GordianKey.NumPadEnter:
+                        string line = _text.ToString().Trim();
+                        if (line.Length > 0)
+                        {
+                            submitted = line;
+                            if (_history.Count == 0 || _history[^1] != line)
                             {
-                                submitted = line;
-                                if (_history.Count == 0 || _history[^1] != line)
-                                {
-                                    _history.Add(line);
-                                    if (_history.Count > HistoryCapacity) _history.RemoveAt(0);
-                                }
+                                _history.Add(line);
+                                if (_history.Count > HistoryCapacity) _history.RemoveAt(0);
                             }
-                            close = true;
-                            break;
-                        case GordianKey.Escape:
-                            cancel = true;
-                            break;
-                        case GordianKey.Backspace:
-                            if (_caret > 0) _text.Remove(--_caret, 1);
-                            break;
-                        case GordianKey.Delete:
-                            if (_caret < _text.Length) _text.Remove(_caret, 1);
-                            break;
-                        case GordianKey.Left:
-                            if (_caret > 0) _caret--;
-                            break;
-                        case GordianKey.Right:
-                            if (_caret < _text.Length) _caret++;
-                            break;
-                        case GordianKey.Home:
-                            _caret = 0;
-                            break;
-                        case GordianKey.End:
-                            _caret = _text.Length;
-                            break;
-                        case GordianKey.Up:
-                            RecallHistory(-1);
-                            break;
-                        case GordianKey.Down:
-                            RecallHistory(1);
-                            break;
-                        case GordianKey.PageUp:
-                            (scrollWindow, scrollAmount, scrollPages) = (ctrl ? 2 : 1, 1, true);
-                            break;
-                        case GordianKey.PageDown:
-                            (scrollWindow, scrollAmount, scrollPages) = (ctrl ? 2 : 1, -1, true);
-                            break;
-                        case GordianKey.Tab:
-                            if (_text.Length == 0) OpenModeListUnlocked();
-                            break;
-                    }
+                        }
+                        close = true;
+                        break;
+                    case GordianKey.Escape:
+                        cancel = true;
+                        break;
+                    case GordianKey.Backspace:
+                        if (_caret > 0) _text.Remove(--_caret, 1);
+                        break;
+                    case GordianKey.Delete:
+                        if (_caret < _text.Length) _text.Remove(_caret, 1);
+                        break;
+                    case GordianKey.Left:
+                        if (_caret > 0) _caret--;
+                        break;
+                    case GordianKey.Right:
+                        if (_caret < _text.Length) _caret++;
+                        break;
+                    case GordianKey.Home:
+                        _caret = 0;
+                        break;
+                    case GordianKey.End:
+                        _caret = _text.Length;
+                        break;
+                    case GordianKey.Up:
+                        RecallHistory(-1);
+                        break;
+                    case GordianKey.Down:
+                        RecallHistory(1);
+                        break;
+                    case GordianKey.PageUp:
+                        (scrollWindow, scrollAmount, scrollPages) = (ctrl ? 2 : 1, 1, true);
+                        break;
+                    case GordianKey.PageDown:
+                        (scrollWindow, scrollAmount, scrollPages) = (ctrl ? 2 : 1, -1, true);
+                        break;
                 }
             }
 
@@ -356,33 +251,6 @@ namespace Gordian.Core.Ui
             return true;
         }
 
-        /// <summary>Opens the chat-mode list with the cursor on the current mode.</summary>
-        public void OpenModeList()
-        {
-            lock (_sync)
-            {
-                if (IsOpen) OpenModeListUnlocked();
-            }
-        }
-
-        private void OpenModeListUnlocked()
-        {
-            IsModeListOpen = true;
-            SelectedLogWindow = 0;
-            var entries = ListEntries;
-            int index = 0;
-            for (int i = 0; i < entries.Count; i++) if (entries[i] == Mode) index = i;
-            ModeListIndex = index;
-            ModeListFirstRow = Math.Clamp(index - ModeListRows + 1, 0, Math.Max(0, entries.Count - ModeListRows));
-        }
-
-        private void MoveModeCursor(int delta)
-        {
-            int count = ListEntries.Count;
-            ModeListIndex = (ModeListIndex + delta + count) % count;
-            if (ModeListIndex < ModeListFirstRow) ModeListFirstRow = ModeListIndex;
-            else if (ModeListIndex >= ModeListFirstRow + ModeListRows) ModeListFirstRow = ModeListIndex - ModeListRows + 1;
-        }
 
         private void RecallHistory(int delta)
         {
@@ -393,22 +261,6 @@ namespace Gordian.Core.Ui
             _caret = _text.Length;
         }
 
-        /// <summary>The <c>fep</c> image of an entry's highlighted (orange) label.</summary>
-        public static int SelectedLabelImage(ChatInputMode mode) => mode switch
-        {
-            ChatInputMode.Say => 20,
-            ChatInputMode.Shout => 21,
-            ChatInputMode.Tell => 22,
-            ChatInputMode.Party => 23,
-            ChatInputMode.Linkshell => 24,
-            ChatInputMode.Linkshell2 => 25,
-            ChatInputMode.Unity => 26,
-            ChatInputMode.Window1 => 27,
-            ChatInputMode.Window2 => 28,
-            ChatInputMode.AssistJ => 31,
-            ChatInputMode.AssistE => 32,
-            _ => (int)mode,
-        };
 
         /// <summary>An entry's label text, as its <c>fep</c> sprite reads.</summary>
         public static string Label(ChatInputMode mode) => mode switch

@@ -499,10 +499,10 @@ namespace Gordian.App.Tests.Graphics
         /// <summary>
         /// Renders the split log as the retail capture of 2026-09-27 shows it (two eight-line windows side by side,
         /// titled "Window 1:Say" and "Window 2", timestamps, the input line over Window 1's bottom with its mode tab)
-        /// and the chat-mode list, at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.
+        /// at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.
         /// </summary>
         [Fact]
-        public void RendersChatLogInputAndModeList()
+        public void RendersChatLogAndInputLine()
         {
             if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
             var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
@@ -511,7 +511,7 @@ namespace Gordian.App.Tests.Graphics
             var font = library != null ? UiFont.FromLibrary(library) : null;
             var logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
             if (library == null || font == null || logFont == null || !library.TryGetMenu("log8", out var log)
-                || !library.TryGetMenu("inline", out var inline) || !library.TryGetMenu("fep", out var fep)) return;
+                || !library.TryGetMenu("inline", out var inline)) return;
 
             // Proportional spacing as the retail capture: "Tarudrake" from the T's cell to the pen after the e is 77 px
             // (the spacing rule fits the capture to about a pixel per glyph), and a space is 7.
@@ -557,10 +557,6 @@ namespace Gordian.App.Tests.Graphics
                 };
                 var input = new StockUiChatInput();
                 input.Open();
-                var listInput = new StockUiChatInput { HasWindow2 = true };
-                listInput.SetMode(ChatInputMode.Party);
-                listInput.Open();
-                listInput.OpenModeList();
 
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
                 renderer.Begin(library);
@@ -578,7 +574,6 @@ namespace Gordian.App.Tests.Graphics
                 // A timestamp of 0 keeps the caret in its "on" half-second.
                 StockUiChatWindow.DrawInput(renderer, library, logFont, inline,
                     new StockUiPlacement(4, window1.Y + (frameHeight - inline.Frame.Height), 1, false), width1, input, 0);
-                StockUiChatWindow.DrawModeList(renderer, library, fep, new StockUiPlacement(4, 4, 1, false), listInput);
                 renderer.End(framebuffer, width, height);
                 Assert.True(renderer.LastQuadCount > 200, $"{renderer.LastQuadCount} quads");
 

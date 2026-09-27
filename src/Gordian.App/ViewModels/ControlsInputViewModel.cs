@@ -607,6 +607,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.TargetParty3, "Targeting", "Target Party Member 3");
             AddBindingRow(InputAction.OpenMenu, "Interface", "Open Main Menu");
             AddBindingRow(InputAction.OpenChat, "Interface", "Focus Chat Prompt");
+            AddBindingRow(InputAction.CycleLogWindow, "Interface", "Select Log Window");
 
             // Macros
             AddBindingRow(InputAction.MacroCtrl1, "Hotbar", "Palette 1: Slot 1 (Ctrl+1)");

@@ -83,7 +83,33 @@ namespace Gordian.Core.Ui
         public void SetMultiWindow(bool multiWindow)
         {
             Log.MultiWindow = multiWindow;
-            Input.HasWindow2 = multiWindow;
+            if (!multiWindow && SelectedLogWindow == 2) SelectedLogWindow = 0;
+        }
+
+        /// <summary>
+        /// The log window (1 or 2) selected to scroll through, 0 for none. Retail cycles it with the numeric keypad +
+        /// (gamepad Y): Window 1, Window 2 when split, then none (the status icons follow in retail, to cancel a
+        /// buff, once they can be selected). A selected window is drawn opaque; Up/Down scroll it a line.
+        /// </summary>
+        public int SelectedLogWindow { get; set; }
+
+        /// <summary>Selects the next log window, or none after the last.</summary>
+        public void CycleLogWindow()
+        {
+            SelectedLogWindow = SelectedLogWindow switch
+            {
+                0 => 1,
+                1 when Log.MultiWindow => 2,
+                _ => 0,
+            };
+            if (SelectedLogWindow == 0) Log.ScrollToNewest();
+        }
+
+        /// <summary>Releases the selected log window and returns it to the newest lines.</summary>
+        public void ReleaseLogWindow()
+        {
+            SelectedLogWindow = 0;
+            Log.ScrollToNewest();
         }
 
         /// <summary>Subscribes the log to a session's message sources.</summary>
