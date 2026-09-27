@@ -12,7 +12,8 @@ namespace Gordian.App.Graphics
     /// the colour channels carry the glyph's own shading and dark edge.
     /// <para>
     /// Spacing is proportional (checked against a retail capture of every keyboard character, 2026-09-27): each
-    /// cell is drawn at the pen and the pen moves to two pixels past the glyph's rightmost ink; a space is 7 px.
+    /// cell is drawn at the pen and the pen moves to two pixels past the glyph's rightmost ink; a space is 7 px, and
+    /// every digit takes the widest digit's advance (retail spaces digits evenly, so timestamps line up).
     /// Retail draws the text with a dark outline, added here as a one-pixel dilation of the mask under the glyph.
     /// The ASCII cells are copied into a small atlas of their own (with room for the outline) that the stock UI
     /// renderer draws like any other texture.
@@ -131,6 +132,12 @@ namespace Gordian.App.Graphics
                 }
                 font._advances[i] = right < 0 ? SpaceAdvance : right + InkGap;
             }
+
+            // Digits share one advance (the widest), so numbers and timestamps line up: a retail capture spaces
+            // "1234567890" evenly, the 1 included.
+            float digit = 0;
+            for (char c = '0'; c <= '9'; c++) digit = Math.Max(digit, font._advances[c - FirstChar]);
+            for (char c = '0'; c <= '9'; c++) font._advances[c - FirstChar] = digit;
             return font;
         }
 

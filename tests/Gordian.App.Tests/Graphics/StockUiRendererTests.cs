@@ -517,6 +517,8 @@ namespace Gordian.App.Tests.Graphics
             // (the spacing rule fits the capture to about a pixel per glyph), and a space is 7.
             Assert.InRange(logFont.MeasureWidth("Tarudrake"), 76, 78);
             Assert.Equal(7, logFont.GetAdvance(' '), 0);
+            // Digits share one advance, so timestamps line up whatever their digits.
+            Assert.Equal(logFont.MeasureWidth("[13:43:34]"), logFont.MeasureWidth("[11:11:31]"));
 
             const uint width = 1100, height = 330;
             IntPtr hwnd = CreateWindowExW(0, "static", "StockUiChatTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);

@@ -263,8 +263,9 @@ namespace Gordian.App
             var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
 
             // The stock chat input line owns the keyboard while it is open (the character does not move while you
-            // type); Enter or the chat key opens it from gameplay. Characters are typed from the key's layout-aware
-            // symbol: Avalonia drops the WM_CHAR text input that follows a handled key press on Windows.
+            // type); Enter or the chat key opens it from gameplay. Characters arrive as text input (OnGameTextInput);
+            // Avalonia drops the WM_CHAR text input that follows a handled key press on Windows, so character keys
+            // are not handled here.
             var chat = session.Chat;
             bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
             if (chat.Input.IsOpen)
@@ -277,8 +278,11 @@ namespace Gordian.App
                     e.Handled = true;
                     return;
                 }
+                // A character key is left unhandled so the platform's text input for it follows (OnGameTextInput):
+                // that text carries Shift, Caps Lock and the keyboard layout, which the key symbol does not (it
+                // reports letters in upper case). Handling the key press would make Avalonia drop that text.
+                if (typed) return;
                 if (gKey == GordianKey.V && mods == InputModifiers.Control) _ = PasteIntoChatAsync(chat.Input);
-                else if (typed) chat.Input.InsertKeySymbol(e.KeySymbol!);
                 else chat.Input.HandleKey(gKey, mods);
                 e.Handled = true;
                 return;
