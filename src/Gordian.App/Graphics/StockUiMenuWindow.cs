@@ -36,7 +36,7 @@ namespace Gordian.App.Graphics
             // Config pages with sliders: the frame art of some pages bakes in a sample fill (conf5w1's first bar
             // shows about 20%); it is left out so the fill drawn for the value is the only one.
             renderer.DrawMenu(definition, placement, includeButtons: false,
-                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true);
+                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage);
 
             foreach (var button in definition.Buttons)
             {
@@ -44,24 +44,32 @@ namespace Gordian.App.Graphics
                 if (outsideFrame && menu.PageRing.Count <= 1) continue; // page arrows
 
                 // The selected entry is tinted orange by the client (retail): the glyphs a light orange, the capsule
-                // a deeper one; the darkening glyph shadows keep their colour. A button's alternate (kind 4) image (Synthesis, Party, Gamepad) is
-                // not the selected look; its meaning is still unknown, so it is not drawn.
+                // a deeper one; the darkening glyph shadows keep their colour. A button's alternate (kind 4) image is
+                // the greyed look where the controller says so (Invite you cannot send, chat modes without a
+                // linkshell or Unity); elsewhere (Synthesis, Party, Gamepad) its meaning is still unknown, so it is not drawn.
                 bool isSelected = button.ButtonId == menu.SelectedButtonId;
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
-                foreach (var shape in button.Shapes)
+                if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
                 {
-                    if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
                     if (!isSelected)
                     {
-                        renderer.DrawImage(image, bx, by, s);
-                        continue;
+                        renderer.DrawImage(label, bx, by, s);
                     }
-                    foreach (var part in image.Parts)
+                    else
                     {
-                        UiColor? tint = part.BlendMode != UiBlendMode.Alpha ? null : IsGlyph(part) ? SelectedGlyphTint : SelectedCapsuleTint;
-                        renderer.DrawPart(part, bx, by, s, tint);
+                        foreach (var part in label.Parts)
+                        {
+                            UiColor? tint = part.BlendMode != UiBlendMode.Alpha ? null : IsGlyph(part) ? SelectedGlyphTint : SelectedCapsuleTint;
+                            renderer.DrawPart(part, bx, by, s, tint);
+                        }
                     }
-                    break;
+                }
+
+                if (font != null && menu.SideTexts.TryGetValue(button.ButtonId, out var side) && side.Text.Length > 0)
+                {
+                    // Client text beside a label (the chat-mode list: the tell partner after Tell's red arrow, "No
+                    // Linkshell" / "No Unity" beside greyed modes), centred on the row.
+                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f, s);
                 }
 
                 if (menu.SliderFractions.TryGetValue(button.ButtonId, out float fraction) && fraction > 0)
@@ -176,6 +184,26 @@ namespace Gordian.App.Graphics
             }
             renderer.ClearClip();
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
+        }
+
+        /// <summary>
+        /// A button's label image: its kind-4 alternate when it is greyed and the DAT has one, else its kind-0 image.
+        /// </summary>
+        private static bool TryGetLabel(UiResourceLibrary library, UiMenuButton button, bool greyed, out UiImage image)
+        {
+            if (greyed)
+            {
+                foreach (var shape in button.Shapes)
+                {
+                    if (shape.Kind == 4 && library.TryGetImage(shape, out image)) return true;
+                }
+            }
+            foreach (var shape in button.Shapes)
+            {
+                if (shape.Kind == 0 && library.TryGetImage(shape, out image)) return true;
+            }
+            image = null!;
+            return false;
         }
 
         /// <summary>

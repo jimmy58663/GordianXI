@@ -1111,10 +1111,12 @@ namespace Gordian.Core.Input
                 _actionService.SetTargetByServerId(_localPlayer.ServerId);
             }
 
-            // Confirm on a targeted NPC or door talks to it (retail; players and monsters get the command menu, #50).
-            if (_inputState.WasActionTriggered(InputAction.Confirm) && _actionService.CanTalkToTarget)
+            // Confirm on a targeted NPC or door talks to it; on yourself, another player, a monster, a pet or a trust
+            // it opens the target command menu (retail).
+            if (_inputState.WasActionTriggered(InputAction.Confirm) && _actionService.CurrentTarget != null)
             {
-                _ = _actionService.TalkToTargetAsync();
+                if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
+                else _actionService.OpenTargetCommandMenu();
             }
 
             // Cancel / Clear Target (releases lock-on first if active, then clears target on subsequent cancel)

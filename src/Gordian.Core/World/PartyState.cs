@@ -131,6 +131,25 @@ namespace Gordian.Core.World
             }
         }
 
+        private readonly bool?[] _linkshellEquipped = new bool?[2];
+
+        /// <summary>
+        /// Records whether linkshell slot 1 or 2 holds a linkshell: S2C 0x0E0 (Group Comlink) on equip and unequip,
+        /// and a 0x0CC linkshell message naming one (sent on zone-in for each equipped linkshell).
+        /// </summary>
+        public void SetLinkshellEquipped(int slot, bool equipped)
+        {
+            if (slot is not (1 or 2)) return;
+            lock (_lock) _linkshellEquipped[slot - 1] = equipped;
+        }
+
+        /// <summary>Whether a linkshell is known to be equipped in slot 1 or 2 (false until the server has said so).</summary>
+        public bool HasLinkshell(int slot)
+        {
+            if (slot is not (1 or 2)) return false;
+            lock (_lock) return _linkshellEquipped[slot - 1] == true;
+        }
+
         public event Action<PartyInvite>? InviteReceived;
         public event Action? InviteCleared;
         public event Action<PartyMember>? MemberJoined;

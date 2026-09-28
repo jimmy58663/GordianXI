@@ -278,6 +278,7 @@ namespace Gordian.Core.Actions
                 WindowSkinSelected = skin => UiLayout.SetWindowSkin(skin),
                 CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
                 PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
+                TargetCommand = RunMenuTargetCommandAsync,
             };
             Menus.Settings = _uiSettings;
             _uiSettings.Changed += OnUiSettingChanged;
@@ -293,6 +294,8 @@ namespace Gordian.Core.Actions
         {
             if (CurrentTarget != target)
             {
+                // The command menu is about the target it was opened on; it closes with it.
+                if (Menus.CommandMenuTarget is { } open && open.TargetServerId != target?.ServerId) Menus.CloseCommandMenu();
                 CurrentTarget = target;
                 if (target == null)
                 {
@@ -452,6 +455,111 @@ namespace Gordian.Core.Actions
             {
                 GordianLog.Error("ACTION", $"Talk failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Talk failed: {ex.Message}", ChatCommandResultKind.Talk);
+            }
+        }
+
+        /// <summary>
+        /// Opens the target command menu for the current target (Confirm on yourself, another player, a monster, a
+        /// pet or a trust; NPCs and doors are talked to instead): the menu's entries depend on the target's kind,
+        /// whether you are engaged (with it) and whether you may invite. False when nothing is targeted, the
+        /// target's kind has no menu, or a menu is already open.
+        /// </summary>
+        public bool OpenTargetCommandMenu()
+        {
+            var target = CurrentTarget;
+            if (target == null) return false;
+            var kind = target.Type switch
+            {
+                EntityType.Player => target.ServerId == _localPlayer.ServerId ? StockUiTargetKind.Self : StockUiTargetKind.Player,
+                EntityType.Monster => StockUiTargetKind.Monster,
+                EntityType.Pet => StockUiTargetKind.Pet,
+                EntityType.Trust => StockUiTargetKind.Trust,
+                _ => StockUiTargetKind.None,
+            };
+            if (kind == StockUiTargetKind.None) return false;
+            var combat = Combat;
+            bool engaged = combat?.IsEngaged == true;
+            var party = _partyModule.State;
+            bool canInvite = !party.IsInParty || party.IsLeader;
+            if (canInvite)
+            {
+                foreach (var member in party.Members)
+                {
+                    if (member.ServerId == target.ServerId) canInvite = false;
+                }
+            }
+            var context = new StockUiTargetContext(kind, target.ServerId, target.Name, engaged,
+                EngagedWithTarget: engaged && combat!.TargetServerId == target.ServerId, CanInvite: canInvite);
+            return Menus.OpenCommandMenu(context);
+        }
+
+        /// <summary>
+        /// Names of the player characters within <paramref name="radius"/> yalms, nearest first (yourself included):
+        /// the chat-mode list's tell candidates.
+        /// </summary>
+        public IReadOnlyList<string> NearbyPlayerNames(float radius = 50f)
+        {
+            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var local) || local == null) return Array.Empty<string>();
+            var players = new List<(float Distance, string Name)>();
+            foreach (var entity in _world.GetEntitiesInRadius(local.Position, radius))
+            {
+                if (entity.Type != EntityType.Player || !entity.IsSpawned || string.IsNullOrEmpty(entity.Name)) continue;
+                players.Add((Vector3.DistanceSquared(local.Position, entity.Position), entity.Name));
+            }
+            players.Sort((a, b) =>
+            {
+                int byDistance = a.Distance.CompareTo(b.Distance);
+                return byDistance != 0 ? byDistance : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+            });
+            var names = new List<string>(players.Count);
+            foreach (var player in players) names.Add(player.Name);
+            return names;
+        }
+
+        /// <summary>Runs a command menu entry on the target it was opened for (the controller's delegate).</summary>
+        private async Task<PlayerActionResult> RunMenuTargetCommandAsync(StockUiMenuCommand command, StockUiTargetContext target)
+        {
+            if (!_world.TryGetByServerId(target.TargetServerId, out var entity) || entity == null)
+            {
+                return PlayerActionResult.Warn($"{target.TargetName} is no longer here.");
+            }
+            switch (command)
+            {
+                case StockUiMenuCommand.Attack:
+                    var attack = await AttackAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    // Retail re-opens the menu at once, now the engaged list (in-game check 2026-09-28).
+                    if (attack.Success) OpenTargetCommandMenu();
+                    return attack;
+                case StockUiMenuCommand.Disengage:
+                    return await DisengageAsync().ConfigureAwait(false);
+                case StockUiMenuCommand.Invite:
+                    await _partyModule.SendInviteAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
+                case StockUiMenuCommand.Check:
+                    return await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                default:
+                    return PlayerActionResult.Warn($"{command} is not available yet.");
+            }
+        }
+
+        /// <summary>
+        /// Examines a target (<c>/check</c>, the command menu's Check): sends 0x0DD, after which the server prints
+        /// the check message (a monster's difficulty; a player's equipment is answered with 0x0C9, not shown yet).
+        /// With no target given, the current target.
+        /// </summary>
+        public async Task<PlayerActionResult> CheckAsync(uint targetId = 0, ushort targetIndex = 0)
+        {
+            var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
+            if (resolvedId == 0) return PlayerActionResult.Warn("Nothing is targeted.", ChatCommandResultKind.Check);
+            try
+            {
+                await _combatModule.RequestCheckAsync(resolvedId, resolvedIdx).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Checking {resolvedName}.", ChatCommandResultKind.Check);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Check failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Check failed: {ex.Message}", ChatCommandResultKind.Check);
             }
         }
 
@@ -829,6 +937,8 @@ namespace Gordian.Core.Actions
                         return "Usage: /attack [target] - Engage targeted or specified entity in melee combat.";
                     case "attackoff" or "disengage" or "aoff":
                         return "Usage: /attackoff - Disengage from combat.";
+                    case "check":
+                        return "Usage: /check [target] - Examine the targeted or specified entity.";
                     case "magic" or "ma" or "cast":
                         return "Usage: /magic <spell_id> [target] - Cast magic spell on target.";
                     case "ws" or "weaponskill":
@@ -896,6 +1006,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
+            sb.AppendLine("  /check [target]           - Examine a target (the command menu's Check)");
             sb.AppendLine("  /magic <spell_id> [target]- Cast magic spell (/ma, /cast)");
             sb.AppendLine("  /ws <ws_id> [target]      - Execute weapon skill (/weaponskill)");
             sb.AppendLine("  /ja <ability_id> [target] - Use job ability (/jobability)");
@@ -1015,13 +1126,13 @@ namespace Gordian.Core.Actions
 
         private const string UiLayoutUsage =
             "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
-            "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
+            "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
         private static readonly string[] UiWindowIds =
         {
             StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance1, StockUiWindowIds.Alliance2,
-            StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu, StockUiWindowIds.Query,
+            StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu, StockUiWindowIds.Query, StockUiWindowIds.CommandMenu,
         };
 
         /// <summary>
@@ -1227,6 +1338,9 @@ namespace Gordian.Core.Actions
                 // Combat Actions
                 case ChatCommandResultKind.CombatAttack:
                     return await AttackAsync(cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Check:
+                    return await CheckAsync(cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
 
                 case ChatCommandResultKind.CombatAttackOff:
                     return await DisengageAsync().ConfigureAwait(false);

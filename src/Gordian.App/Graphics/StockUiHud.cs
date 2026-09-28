@@ -205,8 +205,17 @@ namespace Gordian.App.Graphics
             long timestamp = Stopwatch.GetTimestamp();
 
             var rootFrame = open[0].Menu.Frame;
-            string rootId = open[0].IsQuery ? StockUiWindowIds.Query : StockUiWindowIds.MainMenu;
-            var root = ResolveWindow(rootId, rootFrame, width, height, out _);
+            string rootId = open[0].IsQuery ? StockUiWindowIds.Query
+                : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
+                : StockUiWindowIds.MainMenu;
+            var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
+            if (open[0].IsCommandMenu && !rootMoved && _window1Top is { } logTop)
+            {
+                // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
+                // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window.
+                float h = rootFrame.Height * root.Scale;
+                root = root with { Y = Math.Clamp(logTop - h, 0, Math.Max(0, height - h)) };
+            }
             if (root.Hidden)
             {
                 menus.SetScreenPlacements(_menuPlacements);
@@ -243,6 +252,9 @@ namespace Gordian.App.Graphics
         }
 
         private readonly List<StockUiMenuPlacement> _menuPlacements = new();
+
+        /// <summary>Window 1's top edge (screen px) as drawn this frame, null while the log is hidden: the command menu sits on it.</summary>
+        private float? _window1Top;
 
         /// <summary>
         /// Over a clickable menu entry the system cursor is hidden and the hover pointer (arrow and ring) is drawn here,
@@ -348,6 +360,7 @@ namespace Gordian.App.Graphics
             int multi = Settings.GetValue(StockUiSettingKey.LogMultiWindow);
             chat.SetMultiWindow(multi != 0);
             var logFont = _logFont;
+            _window1Top = null;
             if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int maxRows1)) return;
             var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out _);
             if (placement.Hidden) return;
@@ -381,6 +394,7 @@ namespace Gordian.App.Graphics
             string modeLabel = StockUiChatInput.Label(input.Mode);
             float height1 = menu1.Frame.Height + StockUiChatWindow.TitleBand;
             var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
+            _window1Top = window1.Y;
             bool hasInline = library.TryGetMenu("inline", out var inline);
             bool inputOpen = input.IsOpen && hasInline;
 

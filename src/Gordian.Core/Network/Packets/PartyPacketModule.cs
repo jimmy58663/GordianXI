@@ -295,6 +295,8 @@ namespace Gordian.Core.Network.Packets
             if (!comlink.IsValid) return;
 
             GordianLog.Debug("PARTY", $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}");
+            // LinkshellNum is the slot (1 or 2); ItemIndex is the inventory index of the equipped linkshell, 0 when unequipped.
+            _partyState.SetLinkshellEquipped(comlink.LinkshellNum, comlink.ItemIndex != 0);
         }
 
         private void HandleGroupList2(PacketHeader header, ReadOnlySpan<byte> payload)

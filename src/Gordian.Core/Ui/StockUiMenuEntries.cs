@@ -31,6 +31,21 @@ namespace Gordian.Core.Ui
 
         /// <summary>A row of the Chat Filters list: confirm toggles the filter.</summary>
         ChatFilter,
+
+        /// <summary>A chat mode of the "chatctrl" list: sets the default chat mode (the Argument is a <see cref="ChatInputMode"/>).</summary>
+        ChatMode,
+
+        /// <summary>The command menu's Attack: engages the target.</summary>
+        Attack,
+
+        /// <summary>The command menu's Disengage.</summary>
+        Disengage,
+
+        /// <summary>The command menu's Invite: a party invite to the targeted player.</summary>
+        Invite,
+
+        /// <summary>The command menu's Check: examines the target (C2S 0x0DD).</summary>
+        Check,
     }
 
     /// <summary>
@@ -57,6 +72,18 @@ namespace Gordian.Core.Ui
         public const string WindowSettingsPage = StockUiConfigPages.WindowSettingsPage;
         public const string YesNoMenu = "yesno";
         public const string MessageYesNoMenu = "comyn";
+
+        /// <summary>
+        /// The chat-mode list the command menu's Chat entry opens (252 x 120 at (130, 192), beside the command menu):
+        /// Say, Tell (a red arrow, "frames" #26 on its own button 8, then the last tell partner's name in client
+        /// text), Party, Linkshell, Linkshell 2, Unity, Shout. Linkshell, Linkshell 2 and Unity carry kind-4 greyed
+        /// alternates, shown with "No Linkshell" / "No Unity" in client text when there is none.
+        /// </summary>
+        public const string ChatModeMenu = "chatctrl";
+
+        /// <summary>The "chatctrl" button that draws the red arrow after Tell; its X is where the client text starts.</summary>
+        public const int ChatModeArrowButton = 8;
+        public const int ChatModeTellButton = 2, ChatModeLinkshellButton = 4, ChatModeLinkshell2Button = 5, ChatModeUnityButton = 6;
 
         /// <summary>The main menu's pages, flipped with left/right (the DAT's page arrows, buttons 13 and 14).</summary>
         public static readonly IReadOnlyList<string> MainMenuPages = new[] { MainMenu, MainMenuPage2 };
@@ -117,6 +144,15 @@ namespace Gordian.Core.Ui
             [(WindowsMenu, 1)] = new("Shared", Opens: StockUiConfigPages.WindowSettingsPage),
             [(WindowsMenu, 2)] = new("Window 1", Opens: StockUiConfigPages.Window1SettingsPage),
             [(WindowsMenu, 3)] = new("Window 2", Opens: StockUiConfigPages.Window2SettingsPage),
+
+            // Chat modes (the command menu's Chat entry): each sets the default chat mode as /chatmode does.
+            [(ChatModeMenu, 1)] = new("Say", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Say),
+            [(ChatModeMenu, ChatModeTellButton)] = new("Tell", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Tell),
+            [(ChatModeMenu, 3)] = new("Party", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Party),
+            [(ChatModeMenu, ChatModeLinkshellButton)] = new("Linkshell", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Linkshell),
+            [(ChatModeMenu, ChatModeLinkshell2Button)] = new("Linkshell 2", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Linkshell2),
+            [(ChatModeMenu, ChatModeUnityButton)] = new("Unity", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Unity),
+            [(ChatModeMenu, 7)] = new("Shout", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Shout),
         };
 
         /// <summary>

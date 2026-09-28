@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using Gordian.Core.Actions;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Resources.Ui;
@@ -18,6 +19,9 @@ namespace Gordian.Core.Ui
 
     /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
     public readonly record struct StockUiQueryOption(int Number, string Text);
+
+    /// <summary>Client text drawn beside a button's label, starting at layout <paramref name="X"/> from the frame's left edge.</summary>
+    public readonly record struct StockUiSideText(string Text, float X);
 
     /// <summary>
     /// Where the HUD drew an open menu on the last frame (its frame's top-left in screen pixels and the UI scale),
@@ -35,6 +39,9 @@ namespace Gordian.Core.Ui
         private static readonly IReadOnlyDictionary<int, float> NoSliders = new Dictionary<int, float>();
         private HashSet<int>? _marked;
 
+        private static readonly IReadOnlyDictionary<int, StockUiSideText> NoTexts = new Dictionary<int, StockUiSideText>();
+        private HashSet<int>? _greyed;
+
         internal StockUiOpenMenu(UiMenuDefinition menu, StockUiOpenMenu? parent, IReadOnlyList<string> pageRing, string? message,
             int visibleRows = 0)
         {
@@ -51,6 +58,41 @@ namespace Gordian.Core.Ui
         public UiMenuDefinition Menu { get; }
         public string Name => Menu.Name;
         public StockUiOpenMenu? Parent { get; }
+
+        /// <summary>
+        /// A composed target command menu's rows (<see cref="StockUiCommandMenu"/>), indexed by ButtonId - 1; empty
+        /// for DAT menus, whose entries come from <see cref="StockUiMenuEntries"/>.
+        /// </summary>
+        public IReadOnlyList<StockUiCommandRow> CommandRows { get; init; } = Array.Empty<StockUiCommandRow>();
+
+        public bool IsCommandMenu => CommandRows.Count > 0;
+
+        /// <summary>The target a command menu was opened on (null for other menus).</summary>
+        public StockUiTargetContext? Target { get; init; }
+
+        /// <summary>
+        /// A frame image drawn in place of the frame's kind-0 shape references (a command menu's frame rebuilt for
+        /// its row count); null for DAT windows.
+        /// </summary>
+        public UiImage? FrameImage { get; init; }
+
+        /// <summary>
+        /// Whether a button is drawn with its kind-4 alternate, the greyed look (Invite when you cannot invite; the
+        /// chat modes without a linkshell or Unity). Confirm on it posts why instead of acting.
+        /// </summary>
+        public bool IsGreyed(int buttonId) => _greyed?.Contains(buttonId) == true;
+
+        internal void SetGreyed(HashSet<int>? greyed) => _greyed = greyed;
+
+        /// <summary>
+        /// Client text drawn to the right of a button's label, keyed by ButtonId (the tell partner's name after the
+        /// red arrow, "No Linkshell" / "No Unity" beside greyed chat modes).
+        /// </summary>
+        public IReadOnlyDictionary<int, StockUiSideText> SideTexts { get; internal set; } = NoTexts;
+
+        /// <summary>The chat-mode list's tell candidates and which one the Tell row shows.</summary>
+        public IReadOnlyList<string> TellCandidates { get; internal set; } = Array.Empty<string>();
+        public int TellIndex { get; internal set; }
 
         /// <summary>ButtonId of the button under the cursor (0 when the menu has no selectable button).</summary>
         public int SelectedButtonId { get; internal set; }
@@ -228,7 +270,94 @@ namespace Gordian.Core.Ui
         /// <summary>Applies the Misc. 3 page's "Party Icon Display" choice.</summary>
         public Action<bool>? PartyIconsSelected { get; set; }
 
+        /// <summary>Sets the default chat mode picked in the chat-mode list (as <c>/chatmode</c> does).</summary>
+        public Action<ChatInputMode>? ChatModeSelected { get; set; }
+
+        /// <summary>The last tell partner's name (shown after Tell's red arrow; empty when there is none).</summary>
+        public Func<string>? TellTarget { get; set; }
+
+        /// <summary>
+        /// The names the Tell row cycles through with left/right (retail offers the last tell partner and the
+        /// players around you, yourself included); the one shown is taken on Confirm.
+        /// </summary>
+        public Func<IReadOnlyList<string>>? TellCandidates { get; set; }
+
+        /// <summary>Makes a name the tell partner (Confirm on the Tell row).</summary>
+        public Action<string>? TellTargetSelected { get; set; }
+
+        /// <summary>Whether a linkshell (1 or 2) is equipped; without one its chat mode is greyed "No Linkshell".</summary>
+        public Func<int, bool>? HasLinkshell { get; set; }
+
+        /// <summary>Whether the character is in a Unity; without one its chat mode is greyed "No Unity".</summary>
+        public Func<bool>? HasUnity { get; set; }
+
+        /// <summary>
+        /// Runs a command menu action on the target the menu was opened for (Attack, Disengage, Invite, Check); a
+        /// warning or error result is posted to the log.
+        /// </summary>
+        public Func<StockUiMenuCommand, StockUiTargetContext, Task<PlayerActionResult>>? TargetCommand { get; set; }
+
         #region Opening and closing
+
+        /// <summary>
+        /// Opens the target command menu (<see cref="StockUiCommandMenu"/>) composed for a target, when no menu is
+        /// open; false when the target's kind has no menu or the UI resources are not loaded.
+        /// </summary>
+        public bool OpenCommandMenu(in StockUiTargetContext context)
+        {
+            var rows = StockUiCommandMenu.Compose(context);
+            if (rows.Count == 0) return false;
+            var library = _library;
+            if (library == null) return false;
+            lock (_sync)
+            {
+                if (_open.Length > 0) return false;
+                var definition = StockUiCommandMenu.Build(library, rows, out var frameImage);
+                if (definition == null)
+                {
+                    GordianLog.Warning("UI", $"Stock menu '{StockUiCommandMenu.Template}' is not available.");
+                    return false;
+                }
+                var menu = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
+                {
+                    CommandRows = rows,
+                    Target = context,
+                    FrameImage = frameImage,
+                };
+                var greyed = new HashSet<int>();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].Greyed) greyed.Add(i + 1);
+                }
+                menu.SetGreyed(greyed.Count > 0 ? greyed : null);
+                // The cursor is remembered by entry (the lists differ per target), as retail keeps it on the row.
+                int selected = 0;
+                for (int i = 0; i < rows.Count && selected == 0; i++)
+                {
+                    if (rows[i].Label.Text.Equals(_lastCommandLabel, StringComparison.Ordinal)) selected = i + 1;
+                }
+                menu.SelectedButtonId = selected != 0 ? selected : FirstSelectable(definition);
+                _open = new[] { menu };
+            }
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>The target the open command menu is for, if the root menu is one.</summary>
+        public StockUiTargetContext? CommandMenuTarget
+        {
+            get
+            {
+                var open = _open;
+                return open.Length > 0 ? open[0].Target : null;
+            }
+        }
+
+        /// <summary>Closes the command menu and everything opened from it (the target changed or went away).</summary>
+        public void CloseCommandMenu()
+        {
+            if (CommandMenuTarget != null) CloseAll();
+        }
 
         /// <summary>Opens the main menu on the page it was last on; false when the UI resources are not loaded.</summary>
         public bool OpenMainMenu()
@@ -439,9 +568,17 @@ namespace Gordian.Core.Ui
             return menu;
         }
 
+        private string? _lastCommandLabel;
+
         private void Remember(StockUiOpenMenu menu)
         {
             if (menu.IsPrompt || menu.IsQuery) return;
+            if (menu.IsCommandMenu)
+            {
+                int index = menu.SelectedButtonId - 1;
+                if (index >= 0 && index < menu.CommandRows.Count) _lastCommandLabel = menu.CommandRows[index].Label.Text;
+                return;
+            }
             _lastSelection[menu.Name] = menu.SelectedButtonId;
             if (menu.VisibleRows > 0) _lastPage[menu.Name] = menu.FirstRow;
             if (menu.PageRing.Count > 0) _mainMenuPage = menu.Name;
@@ -532,7 +669,37 @@ namespace Gordian.Core.Ui
                 menu.Rows = rows;
                 menu.SetMarks(null);
             }
+            else if (menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                // Chat modes: the tell partner's name after Tell's red arrow; Linkshell, Linkshell 2 and Unity greyed
+                // (their kind-4 alternates) with "No Linkshell" / "No Unity" beside them when there is none.
+                var greyed = new HashSet<int>();
+                var texts = new Dictionary<int, StockUiSideText>();
+                var arrow = menu.Menu.FindButton(StockUiMenuEntries.ChatModeArrowButton);
+                float textX = arrow?.X ?? ChatModeSideTextX;
+                float nameX = arrow != null ? arrow.X + arrow.Width + ChatModeNameGap : textX;
+                string tell = TellTarget?.Invoke() ?? string.Empty;
+                var candidates = TellCandidates?.Invoke() ?? Array.Empty<string>();
+                if (candidates.Count == 0 && tell.Length > 0) candidates = new[] { tell };
+                menu.TellCandidates = candidates;
+                if (menu.TellIndex >= candidates.Count) menu.TellIndex = 0;
+                if (candidates.Count > 0) texts[StockUiMenuEntries.ChatModeTellButton] = new StockUiSideText(candidates[menu.TellIndex], nameX);
+                if (HasLinkshell?.Invoke(1) != true) { greyed.Add(StockUiMenuEntries.ChatModeLinkshellButton); texts[StockUiMenuEntries.ChatModeLinkshellButton] = new StockUiSideText(NoLinkshellText, textX); }
+                if (HasLinkshell?.Invoke(2) != true) { greyed.Add(StockUiMenuEntries.ChatModeLinkshell2Button); texts[StockUiMenuEntries.ChatModeLinkshell2Button] = new StockUiSideText(NoLinkshellText, textX); }
+                if (HasUnity?.Invoke() != true) { greyed.Add(StockUiMenuEntries.ChatModeUnityButton); texts[StockUiMenuEntries.ChatModeUnityButton] = new StockUiSideText(NoUnityText, textX); }
+                menu.SetGreyed(greyed.Count > 0 ? greyed : null);
+                menu.SideTexts = texts;
+            }
         }
+
+        /// <summary>The chat-mode list's client text beside a greyed mode (retail wording per the issue's DAT notes).</summary>
+        public const string NoLinkshellText = "No Linkshell", NoUnityText = "No Unity";
+
+        /// <summary>Where the chat-mode list's client text starts when the DAT lacks the arrow button: its authored x.</summary>
+        private const float ChatModeSideTextX = 81;
+
+        /// <summary>Gap between Tell's red arrow and the tell partner's name.</summary>
+        private const float ChatModeNameGap = 2;
 
         private void RefreshAll()
         {
@@ -649,6 +816,20 @@ namespace Gordian.Core.Ui
                         top.SelectedButtonId = link;
                         changed = true;
                     }
+                    else if (horizontal && IsChatModeTell(top, button.ButtonId) && top.TellCandidates.Count > 1)
+                    {
+                        // The Tell row cycles through the tell candidates (retail: left/right on Tell).
+                        int count = top.TellCandidates.Count;
+                        top.TellIndex = (top.TellIndex + (direction == InputAction.MenuRight ? 1 : -1) + count) % count;
+                        Refresh(top);
+                        changed = true;
+                    }
+                    else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
+                        && !top.IsGreyed(button.ButtonId))
+                    {
+                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail).
+                        Push(arrowed.Opens, top, Array.Empty<string>(), null, null);
+                    }
                     else if (horizontal && top.PageRing.Count > 1)
                     {
                         changed = FlipPage(top, direction == InputAction.MenuRight ? 1 : -1);
@@ -673,6 +854,26 @@ namespace Gordian.Core.Ui
                 changed = true;
             }
             if (changed) Changed?.Invoke();
+        }
+
+        private static bool IsChatModeTell(StockUiOpenMenu menu, int buttonId) =>
+            buttonId == StockUiMenuEntries.ChatModeTellButton && menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>What a menu's button does: a composed command menu's row, else the entry table.</summary>
+        private static bool TryGetEntry(StockUiOpenMenu menu, int buttonId, out StockUiMenuEntry entry)
+        {
+            if (menu.IsCommandMenu)
+            {
+                int index = buttonId - 1;
+                if (index >= 0 && index < menu.CommandRows.Count)
+                {
+                    entry = menu.CommandRows[index].Entry;
+                    return true;
+                }
+                entry = default;
+                return false;
+            }
+            return StockUiMenuEntries.TryGet(menu.Name, buttonId, out entry);
         }
 
         /// <summary>On a list page, only rows showing an entry take the cursor (the rows past the end do not).</summary>
@@ -806,13 +1007,27 @@ namespace Gordian.Core.Ui
                 return;
             }
 
-            if (!StockUiMenuEntries.TryGet(top.Name, button.ButtonId, out var entry)) return;
+            if (!TryGetEntry(top, button.ButtonId, out var entry)) return;
+            if (top.IsGreyed(button.ButtonId))
+            {
+                NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
+                return;
+            }
             if (entry.Opens != null)
             {
                 lock (_sync) Push(entry.Opens, top, Array.Empty<string>(), null, null);
                 return;
             }
             Run(entry, top);
+        }
+
+        /// <summary>Why a greyed entry does nothing: the chat modes name what is missing, Invite that you do not lead.</summary>
+        private static string DescribeGreyed(StockUiOpenMenu menu, int buttonId, StockUiMenuEntry entry)
+        {
+            if (menu.SideTexts.TryGetValue(buttonId, out var side) && !string.IsNullOrEmpty(side.Text)) return $"{entry.Label}: {side.Text.ToLowerInvariant()}.";
+            return entry.Command == StockUiMenuCommand.Invite
+                ? "Invite: only the party leader can invite."
+                : $"{entry.Label} is not available.";
         }
 
         private void ToggleChatFilter(StockUiOpenMenu list, int rowButton)
@@ -858,6 +1073,56 @@ namespace Gordian.Core.Ui
                 case StockUiMenuCommand.ShutDown:
                     _ = ConfirmLogoutAsync(entry.Command == StockUiMenuCommand.ShutDown);
                     break;
+
+                case StockUiMenuCommand.ChatMode:
+                    var mode = (ChatInputMode)entry.Argument;
+                    if (mode == ChatInputMode.Tell)
+                    {
+                        // The Tell row's shown candidate becomes the tell partner.
+                        var candidates = from.TellCandidates;
+                        if (candidates.Count == 0)
+                        {
+                            NoticePosted?.Invoke("Tell: no one to send tells to. Use /tell <name> <message> first.");
+                            break;
+                        }
+                        TellTargetSelected?.Invoke(candidates[Math.Clamp(from.TellIndex, 0, candidates.Count - 1)]);
+                    }
+                    // The menus close first: the handler opens the input line, which takes the keyboard.
+                    CloseAll();
+                    ChatModeSelected?.Invoke(mode);
+                    break;
+
+                case StockUiMenuCommand.Attack:
+                case StockUiMenuCommand.Disengage:
+                case StockUiMenuCommand.Invite:
+                case StockUiMenuCommand.Check:
+                    var target = CommandMenuTarget;
+                    CloseAll();
+                    if (target is { } t) _ = RunTargetCommandAsync(entry, t);
+                    break;
+            }
+        }
+
+        private async Task RunTargetCommandAsync(StockUiMenuEntry entry, StockUiTargetContext target)
+        {
+            var run = TargetCommand;
+            if (run == null)
+            {
+                NoticePosted?.Invoke($"{entry.Label} is not available in this session.");
+                return;
+            }
+            try
+            {
+                var result = await run(entry.Command, target).ConfigureAwait(false);
+                if (result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error && !string.IsNullOrEmpty(result.Message))
+                {
+                    NoticePosted?.Invoke(result.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"{entry.Label} failed: {ex.Message}");
+                NoticePosted?.Invoke($"{entry.Label} failed: {ex.Message}");
             }
         }
 

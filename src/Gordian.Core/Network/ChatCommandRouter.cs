@@ -33,6 +33,8 @@ namespace Gordian.Core.Network
         ToggleLockOn,
         /// <summary>Talking to the targeted NPC (Confirm on it).</summary>
         Talk,
+        /// <summary>Examining a target (<c>/check</c>, the command menu's Check): C2S 0x0DD.</summary>
+        Check,
         SyntheticMoveTo,
         CollisionToggle,
         UiLayout,
@@ -127,6 +129,7 @@ namespace Gordian.Core.Network
                     // Combat & Action commands
                     "a" or "attack" => ParseCombatTargetCommand(ChatCommandResultKind.CombatAttack, args, world),
                     "aoff" or "attackoff" or "disengage" => new ChatCommandResult { Kind = ChatCommandResultKind.CombatAttackOff },
+                    "check" => ParseCombatTargetCommand(ChatCommandResultKind.Check, args, world),
                     "lockon" => new ChatCommandResult { Kind = ChatCommandResultKind.ToggleLockOn, Message = args },
                     "ma" or "magic" or "cast" => ParseCombatActionCommand(ChatCommandResultKind.CombatCast, args, world),
                     "ws" or "weaponskill" => ParseCombatActionCommand(ChatCommandResultKind.CombatWeaponskill, args, world),

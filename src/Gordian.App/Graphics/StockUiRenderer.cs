@@ -404,7 +404,7 @@ void main()
         /// </summary>
         public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null,
             Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false, float? frameHeight = null,
-            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null)
+            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null, UiImage? frameImage = null)
         {
             if (_library == null || placement.Hidden) return;
             var stretch = frameWidth is { } w ? UiStretch.Horizontal(menu.Frame.Width, w) : default;
@@ -416,10 +416,30 @@ void main()
             }
             float borderWidth = frameWidth ?? menu.Frame.Width;
             float borderHeight = frameHeight ?? menu.Frame.Height;
-            foreach (var shape in menu.Frame.Shapes)
+            // A client-built frame image (a composed command menu) stands in for the frame's kind-0 references.
+            if (frameImage != null)
             {
-                if (shape.Kind != 0 || !_library.TryGetImage(shape, out var image)) continue;
+                DrawFrameImage(frameImage);
+            }
+            else
+            {
+                foreach (var shape in menu.Frame.Shapes)
+                {
+                    if (shape.Kind == 0 && _library.TryGetImage(shape, out var image)) DrawFrameImage(image);
+                }
+            }
+            if (!includeButtons) return;
+            foreach (var button in menu.Buttons)
+            {
+                float bx = placement.X + button.X * placement.Scale, by = placement.Y + button.Y * placement.Scale;
+                foreach (var shape in button.Shapes)
+                {
+                    if (shape.Kind == 0 && _library.TryGetImage(shape, out var image)) DrawImage(image, bx, by, placement.Scale);
+                }
+            }
 
+            void DrawFrameImage(UiImage image)
+            {
                 // Background ("newtex") parts, then the client's border lines, then the rest (title and its band).
                 bool hasBackground = false;
                 foreach (var part in image.Parts)
@@ -438,15 +458,6 @@ void main()
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
-                }
-            }
-            if (!includeButtons) return;
-            foreach (var button in menu.Buttons)
-            {
-                float bx = placement.X + button.X * placement.Scale, by = placement.Y + button.Y * placement.Scale;
-                foreach (var shape in button.Shapes)
-                {
-                    if (shape.Kind == 0 && _library.TryGetImage(shape, out var image)) DrawImage(image, bx, by, placement.Scale);
                 }
             }
         }

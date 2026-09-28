@@ -335,6 +335,16 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(42, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(8, 2)));
             Assert.Equal((ushort)CliActionId.Attack, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10, 2)));
 
+            // 1b. Check request (0x0DD): UniqueNo, ActIndex as a u32, Kind 0 (/check), 16 bytes.
+            len = CombatPacketBuilder.BuildCheckRequest(buffer, 12, 0x12345678, 42);
+            Assert.Equal(16, len);
+            Assert.True(PacketHeader.TryParse(buffer.AsSpan(0, 4), out hdr));
+            Assert.Equal(0x0DD, hdr.PacketId);
+            Assert.Equal(12, hdr.SequenceId);
+            Assert.Equal(0x12345678u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4, 4)));
+            Assert.Equal(42u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(8, 4)));
+            Assert.Equal(0, buffer[12]);
+
             // 2. Cast magic request (0x01A)
             len = CombatPacketBuilder.BuildCastMagicRequest(buffer, 11, 0x12345678, 42, 1, new Vector3(10.5f, 20.5f, 30.5f));
             Assert.Equal(28, len);
@@ -420,6 +430,11 @@ namespace Gordian.Core.Tests.Network
             // 2. /aoff
             res = ChatCommandRouter.Parse("/aoff");
             Assert.Equal(ChatCommandResultKind.CombatAttackOff, res.Kind);
+
+            // 2b. /check Goblin (the command menu's Check)
+            res = ChatCommandRouter.Parse("/check Goblin", ChatSendKind.Say, world);
+            Assert.Equal(ChatCommandResultKind.Check, res.Kind);
+            Assert.Equal(0x20001234u, res.TargetServerId);
 
             // 3. /magic "Cure IV" Goblin
             res = ChatCommandRouter.Parse("/magic \"Cure IV\" Goblin", ChatSendKind.Say, world);

@@ -135,8 +135,11 @@ namespace Gordian.Core.Ui
             };
             combat.BattleMessageReceived += record =>
             {
-                string line = CombatLogFormatter.FormatBattleMessage(record, resolveEntityName);
-                if (!string.IsNullOrEmpty(line)) Log.Add(ChatLogChannel.Combat, line);
+                // A message may span lines (a monster check prints its level, then its defense and evasion).
+                foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName).Split('\n'))
+                {
+                    if (line.Length > 0) Log.Add(ChatLogChannel.Combat, line);
+                }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
         }
@@ -218,6 +221,23 @@ namespace Gordian.Core.Ui
                 string text = row.TrimEnd('\r');
                 if (text.Length > 0) Log.Add(channel, text);
             }
+        }
+
+        /// <summary>
+        /// A chat mode picked in the command menu's chat-mode list (retail, in-game check 2026-09-28): the default
+        /// mode changes and the input line opens at once in it (Tell to the partner just chosen). Shout is the
+        /// exception: the default mode is left alone and the line opens with <c>/sh </c> typed.
+        /// </summary>
+        public void OpenInputInMode(ChatInputMode mode)
+        {
+            if (mode == ChatInputMode.Shout)
+            {
+                Input.Open();
+                Input.InsertText("/sh ");
+                return;
+            }
+            Input.SetMode(mode);
+            Input.Open();
         }
 
         /// <summary>

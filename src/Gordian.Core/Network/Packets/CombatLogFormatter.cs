@@ -102,6 +102,36 @@ namespace Gordian.Core.Network.Packets
         /// <summary>
         /// Formats an inbound S2C 0x029 / 0x02D BattleMessage record into user-facing combat text.
         /// </summary>
+        /// <summary>
+        /// Retail's difficulty abbreviations by check value - 64 (LandSandBoat's EMobDifficulty: Too Weak, Incredibly
+        /// Easy Prey, Easy Prey, Decent Challenge, Even Match, Tough, Very Tough, Incredibly Tough).
+        /// </summary>
+        private static readonly string[] CheckDifficulty = { "TW", "IEP", "EP", "DC", "EM", "T", "VT", "IT" };
+
+        /// <summary>
+        /// A monster check (0x029 message 170-178): "The X seems to be level N (TW)." then, unless both are even,
+        /// its defense and evasion. LandSandBoat sends message 174 offset by -1/+1 for high/low defense and -3/+3
+        /// for high/low evasion, with the level as the parameter and 64 + difficulty as the value
+        /// (<c>packets/c2s/0x0dd_equip_inspect.cpp</c>); the first line is the retail client's rendering of message
+        /// 178 on a level-35 Too Weak monster (the maintainer's capture, 2026-09-28), the second lines are retail's
+        /// wording. Lines are joined with '\n'.
+        /// </summary>
+        private static string FormatCheck(string target, ushort messageId, int level, int value)
+        {
+            int k = messageId - 174;
+            int evasion = k >= 2 ? 1 : k <= -2 ? -1 : 0; // +1 low evasion, -1 high evasion
+            int defense = k - 3 * evasion;              // +1 low defense, -1 high defense
+            int difficulty = value - 64;
+            string rating = difficulty >= 0 && difficulty < CheckDifficulty.Length ? $" ({CheckDifficulty[difficulty]})" : string.Empty;
+            string first = $"The {target} seems to be level {level}{rating}.";
+            if (evasion == 0 && defense == 0) return first;
+            string eva = evasion > 0 ? "low" : "high", def = defense > 0 ? "low" : "high";
+            string second = evasion != 0 && defense != 0
+                ? (evasion == defense ? $"It seems to have {eva} evasion and defense." : $"It seems to have {eva} evasion but {def} defense.")
+                : evasion != 0 ? $"It seems to have {eva} evasion." : $"It seems to have {def} defense.";
+            return first + "\n" + second;
+        }
+
         public static string FormatBattleMessage(
             CombatMessageRecord record,
             Func<uint, string?> resolveEntityName,
@@ -167,6 +197,8 @@ namespace Gordian.Core.Network.Packets
                 161 => $"Additional effect: {record.Param} HP drained from {target}.",
                 162 => $"Additional effect: {record.Param} MP drained from {target}.",
                 163 => $"Additional effect: {record.Param} points of damage.",
+                >= 170 and <= 178 => FormatCheck(target, record.MessageId, (int)record.Param, (int)record.Value),
+                249 => $"The {target}'s strength is impossible to gauge!",
                 185 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}. {target} takes {record.Value} points of damage.",
                 186 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}. {target} gains effect.",
                 187 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}. {record.Value} HP drained from {target}.",

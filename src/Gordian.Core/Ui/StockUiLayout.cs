@@ -68,6 +68,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The event query window ("query": an NPC's choices).</summary>
         public const string Query = "query";
+
+        /// <summary>The target command menu (Confirm on a target; composed from "playermo", bottom-left).</summary>
+        public const string CommandMenu = "command";
     }
 
     /// <summary>
