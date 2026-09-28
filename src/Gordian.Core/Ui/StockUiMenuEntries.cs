@@ -46,6 +46,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>The command menu's Check: examines the target (C2S 0x0DD).</summary>
         Check,
+
+        /// <summary>The shop window's Buy: opens the shop's item list (<see cref="StockUiShop"/>).</summary>
+        ShopBuy,
+
+        /// <summary>The shop window's Sell: opens the inventory list for appraisal and sale.</summary>
+        ShopSell,
     }
 
     /// <summary>
@@ -144,6 +150,10 @@ namespace Gordian.Core.Ui
             [(WindowsMenu, 1)] = new("Shared", Opens: StockUiConfigPages.WindowSettingsPage),
             [(WindowsMenu, 2)] = new("Window 1", Opens: StockUiConfigPages.Window1SettingsPage),
             [(WindowsMenu, 3)] = new("Window 2", Opens: StockUiConfigPages.Window2SettingsPage),
+
+            // The NPC shop's Buy / Sell window ("shopmain", opened by S2C 0x03E; Tier 2 chunk 6c).
+            [(StockUiShop.MenuName, StockUiShop.BuyButton)] = new("Buy", Command: StockUiMenuCommand.ShopBuy),
+            [(StockUiShop.MenuName, StockUiShop.SellButton)] = new("Sell", Command: StockUiMenuCommand.ShopSell),
 
             // Chat modes (the command menu's Chat entry): each sets the default chat mode as /chatmode does.
             [(ChatModeMenu, 1)] = new("Say", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Say),

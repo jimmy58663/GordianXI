@@ -5,9 +5,12 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Input;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
+using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui
@@ -56,7 +59,48 @@ namespace Gordian.Core.Tests.Ui
             List("attackmo", 16, 176, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 7),
             List("mp_pmode", 16, 176, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 8, 7),
             List(StockUiMenuEntries.ChatModeMenu, 130, 192, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 7),
+            // The shop: Buy / Sell, the ten-row list (its end rows link to themselves) and the quantity control.
+            List(StockUiShop.MenuName, 16, 256, UiAnchor.BottomLeft, 1, 2),
+            ShopListFrame(),
+            QuantityFrame(),
         });
+
+        /// <summary>The "shop" frame as the DAT authors it: ten 132 x 16 rows at an 18 px pitch from y 5, ends linked to themselves.</summary>
+        private static UiMenuDefinition ShopListFrame()
+        {
+            var buttons = new List<UiMenuButton>();
+            for (int i = 0; i < StockUiShop.ListRows; i++)
+            {
+                int id = i + 1;
+                buttons.Add(new UiMenuButton
+                {
+                    ButtonId = (short)id, X = 0, Y = (short)(5 + 18 * i), Width = 132, Height = 16,
+                    NavUp = (sbyte)(i == 0 ? 1 : id - 1), NavDown = (sbyte)(i == StockUiShop.ListRows - 1 ? id : id + 1),
+                    NavLeft = (sbyte)id, NavRight = (sbyte)id,
+                });
+            }
+            return new UiMenuDefinition
+            {
+                Name = StockUiShop.ListMenu,
+                Frame = new UiMenuFrame { X = 16, Y = 48, Width = 256, Height = 190, Anchor = UiAnchor.TopLeft },
+                Buttons = buttons,
+            };
+        }
+
+        /// <summary>The "itemctrl" frame: the number field (the only navigable button) and its four arrows.</summary>
+        private static UiMenuDefinition QuantityFrame() => new()
+        {
+            Name = StockUiShop.QuantityMenu,
+            Frame = new UiMenuFrame { X = 16, Y = 240, Width = 112, Height = 56, Anchor = UiAnchor.TopLeft },
+            Buttons = new List<UiMenuButton>
+            {
+                new() { ButtonId = StockUiShop.QuantityField, X = 34, Y = 22, Width = 24, Height = 16, NavUp = 1, NavDown = 1, NavLeft = 1, NavRight = 1 },
+                new() { ButtonId = StockUiShop.QuantityAllButton, X = 19, Y = 22, Width = 10, Height = 12, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+                new() { ButtonId = StockUiShop.QuantityOneButton, X = 88, Y = 22, Width = 10, Height = 12, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+                new() { ButtonId = StockUiShop.QuantityDownButton, X = 40, Y = 40, Width = 12, Height = 10, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+                new() { ButtonId = StockUiShop.QuantityUpButton, X = 40, Y = 7, Width = 12, Height = 10, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+            },
+        };
 
         private static IEnumerable<string> Labels(StockUiOpenMenu menu) => menu.CommandRows.Select(r => r.Label.Text);
 
@@ -830,6 +874,318 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(menus.OnMouseDown(MouseButton.Left, 200 - 8 * 2, 100 + 10 * 2)); // left arrow
             Assert.Equal(StockUiMenuEntries.MainMenu, menus.Top!.Name);
             Assert.Single(menus.OpenMenus);
+        }
+
+        #endregion
+
+        #region Shop (Tier 2 chunk 6c)
+
+        /// <summary>A session's shop wiring: the inventory state feeding the controller, and the packets it sends recorded.</summary>
+        private sealed class ShopHarness
+        {
+            public readonly InventoryState Inventory = new();
+            public readonly StockUiMenuController Menus;
+            public readonly List<(uint Count, ushort ShopNo, ushort Index)> Buys = new();
+            public readonly List<(uint Count, ushort ItemId, byte Slot)> Appraisals = new();
+            public readonly List<string> Notices = new();
+            public int Confirms;
+
+            private static readonly Dictionary<ushort, ItemRecord> Items = new()
+            {
+                [4389] = new ItemRecord { ItemId = 4389, Name = "Distilled Water", StackSize = 12 },
+                [4431] = new ItemRecord { ItemId = 4431, Name = "Grilled Hare", StackSize = 12 },
+                [639] = new ItemRecord { ItemId = 639, Name = "Ronfaure Chestnut", StackSize = 12 },
+                [610] = new ItemRecord { ItemId = 610, Name = "Bay Leaves", StackSize = 12 },
+                [1000] = new ItemRecord { ItemId = 1000, Name = "Rusty Key", StackSize = 1, Flags = StockUiShop.NoSaleFlag },
+                [12345] = new ItemRecord { ItemId = 12345, Name = "Bronze Sword", StackSize = 1 },
+            };
+
+            public ShopHarness(uint gil = 5000)
+            {
+                Menus = Controller();
+                Menus.Inventory = Inventory;
+                Menus.ItemLookup = id => Items.TryGetValue(id, out var record) ? record : null;
+                Menus.ShopBuy = (count, shopNo, index) => { Buys.Add((count, shopNo, index)); return Task.CompletedTask; };
+                Menus.ShopAppraise = (count, itemId, slot) => { Appraisals.Add((count, itemId, slot)); return Task.CompletedTask; };
+                Menus.ShopSellConfirm = () => { Confirms++; return Task.CompletedTask; };
+                Menus.NoticePosted += Notices.Add;
+                Inventory.ShopChanged += Menus.OnShopChanged;
+                Inventory.ItemChanged += (_, _, _) => Menus.OnInventoryChanged();
+                Inventory.SetItem(ContainerId.Inventory, 0, StockUiShop.GilItemId, gil, ItemLockFlag.Normal);
+                Inventory.SetItem(ContainerId.Inventory, 5, 4389, 3, ItemLockFlag.Normal);
+                Inventory.SetItem(ContainerId.Inventory, 9, 639, 12, ItemLockFlag.Normal);
+                Inventory.SetItem(ContainerId.Inventory, 11, 1000, 1, ItemLockFlag.Normal);
+            }
+
+            /// <summary>The merchant's shop from the maintainer's capture: 0x03E list 4, then the four 0x03C entries.</summary>
+            public void OpenCapturedShop()
+            {
+                Inventory.OpenShop(4);
+                Inventory.AddShopItems(new[]
+                {
+                    new ShopItemEntry(34, 4389, 0, 0, 0),
+                    new ShopItemEntry(82, 4431, 1, 0, 0),
+                    new ShopItemEntry(128, 639, 2, 0, 0),
+                    new ShopItemEntry(64, 610, 3, 0, 0),
+                });
+            }
+        }
+
+        [Fact]
+        public void Shop_OpensOnShopOpen_AndBuySendsCountShopNoAndSlot()
+        {
+            var h = new ShopHarness();
+            h.Inventory.OpenShop(4);
+            Assert.True(h.Menus.IsShopOpen);
+            Assert.True(h.Menus.Top!.IsShopMenu);
+            Assert.Equal(StockUiShop.BuyButton, h.Menus.Top.SelectedButtonId);
+
+            // The list arrives after the window opened; Buy shows it in shop-slot order with names and prices.
+            h.Inventory.AddShopItems(new[] { new ShopItemEntry(128, 639, 2, 0, 0), new ShopItemEntry(34, 4389, 0, 0, 0) });
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            Assert.True(list.IsShopList);
+            Assert.Equal(StockUiShopSide.Buy, list.ShopSide);
+            Assert.Equal(new[] { "Distilled Water", "Ronfaure Chestnut" }, list.ShopRows.Select(r => r.Name));
+            Assert.Equal(5000u, list.Gil);
+
+            h.Inventory.AddShopItems(new[] { new ShopItemEntry(64, 610, 3, 0, 0) });
+            Assert.Equal(3, list.ShopRows.Count); // a later 0x03C refreshes the open list
+
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(639, list.SelectedShopRow!.Value.ItemId);
+            h.Menus.Activate();
+            var quantity = h.Menus.Top!;
+            Assert.True(quantity.IsQuantity);
+            Assert.Equal(1u, quantity.Quantity);
+            Assert.Equal(12u, quantity.QuantityMax); // a stack of 12; 5000 gil would buy 39
+            Assert.Equal(128u, quantity.UnitPrice);
+
+            h.Menus.Move(InputAction.MenuUp);
+            Assert.Equal(2u, quantity.Quantity);
+            h.Menus.Move(InputAction.MenuLeft); // All
+            Assert.Equal(12u, quantity.Quantity);
+            h.Menus.Move(InputAction.MenuUp);
+            Assert.Equal(12u, quantity.Quantity);
+            Assert.Equal(12u * 128, quantity.TotalPrice);
+            h.Menus.Move(InputAction.MenuRight); // 1
+            Assert.Equal(1u, quantity.Quantity);
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(1u, quantity.Quantity);
+
+            h.Menus.Activate();
+            Assert.Equal((1u, (ushort)0x0400, (ushort)2), Assert.Single(h.Buys)); // the capture's 01 00 00 00 00 04 02 00
+            Assert.Same(list, h.Menus.Top); // back on the list after buying
+            Assert.Empty(h.Notices);
+        }
+
+        [Fact]
+        public void Shop_BuyCapsTheCountByGil_AndRefusesWhatYouCannotAfford()
+        {
+            var h = new ShopHarness(gil: 300);
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(639, h.Menus.Top!.SelectedShopRow!.Value.ItemId);
+            h.Menus.Activate();
+            Assert.Equal(2u, h.Menus.Top!.QuantityMax); // 300 gil buys two at 128
+            h.Menus.CloseTop();
+
+            h.Inventory.SetItem(ContainerId.Inventory, 0, StockUiShop.GilItemId, 100, ItemLockFlag.Normal);
+            h.Menus.Activate();
+            Assert.True(h.Menus.Top!.IsShopList);
+            Assert.Equal("You do not have enough gil.", Assert.Single(h.Notices));
+            Assert.Empty(h.Buys);
+        }
+
+        [Fact]
+        public void Shop_SellAppraisesThenSellsTheChosenCount()
+        {
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Move(InputAction.MenuDown); // Sell
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            Assert.Equal(StockUiShopSide.Sell, list.ShopSide);
+            // The inventory in slot order, gil left out, the NoSale item greyed, counts kept.
+            Assert.Equal(new[] { (4389, 5, 3u, false), (639, 9, 12u, false), (1000, 11, 1u, true) },
+                list.ShopRows.Select(r => ((int)r.ItemId, (int)r.Slot, r.Count, r.Greyed)));
+
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate();
+            Assert.Equal((1u, (ushort)639, (byte)9), Assert.Single(h.Appraisals)); // the capture's 01 00 00 00 7f 02 09 00
+            Assert.Same(list, h.Menus.Top); // nothing opens until the server appraises
+
+            h.Inventory.SetAppraisal(9, 29);
+            var quantity = h.Menus.Top!;
+            Assert.True(quantity.IsQuantity);
+            Assert.Equal(29u, quantity.UnitPrice);
+            Assert.Equal(12u, quantity.QuantityMax);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal(12u, quantity.Quantity);
+            h.Menus.Activate();
+            Assert.Equal((12u, (ushort)639, (byte)9), h.Appraisals[^1]);
+            Assert.Equal(1, h.Confirms);
+            Assert.Same(list, h.Menus.Top);
+
+            // The sale's 0x020 / 0x01E refresh the list and the gil shown.
+            h.Inventory.SetItem(ContainerId.Inventory, 9, 0, 0, ItemLockFlag.Normal);
+            h.Inventory.SetItem(ContainerId.Inventory, 0, StockUiShop.GilItemId, 5348, ItemLockFlag.Normal);
+            Assert.Equal(new[] { 4389, 1000 }, list.ShopRows.Select(r => (int)r.ItemId));
+            Assert.Equal(5348u, list.Gil);
+
+            // The cursor stayed on the second row, now the greyed key: it posts why instead of asking the server.
+            Assert.Equal(2, list.SelectedButtonId);
+            Assert.True(list.SelectedShopRow!.Value.Greyed);
+            h.Menus.Activate();
+            Assert.Contains("cannot be sold", Assert.Single(h.Notices));
+            Assert.Equal(2, h.Appraisals.Count);
+        }
+
+        [Fact]
+        public void Shop_AStaleAppraisalIsIgnored_WhenTheListWasLeft()
+        {
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate();
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate();
+            Assert.Single(h.Appraisals);
+            h.Menus.CloseTop(); // back to Buy / Sell before the answer
+            h.Inventory.SetAppraisal(9, 29);
+            Assert.True(h.Menus.Top!.IsShopMenu);
+            Assert.Single(h.Menus.OpenMenus);
+        }
+
+        [Fact]
+        public void Shop_CancelOnTheRootEndsTheShop_AndTheServerClosingItClosesTheWindows()
+        {
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            Assert.Equal(2, h.Menus.OpenMenus.Count);
+            h.Menus.CloseTop();
+            Assert.True(h.Inventory.IsShopOpen);
+            h.Menus.CloseTop();
+            Assert.False(h.Inventory.IsShopOpen);
+            Assert.False(h.Menus.IsShopOpen);
+            Assert.False(h.Menus.IsOpen);
+
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            h.Inventory.CloseShop(); // a zone change
+            Assert.False(h.Menus.IsOpen);
+            Assert.False(h.Menus.IsShopOpen);
+        }
+
+        [Fact]
+        public void Shop_OpeningClosesOtherMenus_AndTheListScrollsAndWraps()
+        {
+            var h = new ShopHarness();
+            Assert.True(h.Menus.OpenMainMenu());
+            h.Inventory.OpenShop(4);
+            Assert.Single(h.Menus.OpenMenus);
+            Assert.True(h.Menus.Top!.IsShopMenu);
+
+            var items = new ShopItemEntry[15];
+            for (int i = 0; i < items.Length; i++) items[i] = new ShopItemEntry((uint)(10 + i), (ushort)(639 + i % 2), (byte)i, 0, 0);
+            h.Inventory.AddShopItems(items);
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            Assert.Equal(StockUiShop.ListRows, list.VisibleRows);
+            Assert.True(list.CanScroll);
+            h.Menus.Move(InputAction.MenuUp); // up from the first row wraps to the end
+            Assert.Equal(5, list.FirstRow);
+            Assert.Equal(10, list.SelectedButtonId);
+            Assert.Equal(14, list.SelectedShopRow!.Value.ShopIndex);
+            h.Menus.Move(InputAction.MenuDown); // down from the last row wraps to the start
+            Assert.Equal(0, list.FirstRow);
+            Assert.Equal(1, list.SelectedButtonId);
+            for (int i = 0; i < 10; i++) h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(1, list.FirstRow); // the tenth press scrolls by one entry
+            Assert.Equal(10, list.SelectedButtonId);
+        }
+
+        [Fact]
+        public void Shop_QuantityArrowsTakeTheMouse()
+        {
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate();
+            var quantity = h.Menus.Top!;
+            Assert.True(quantity.IsQuantity);
+            h.Menus.SetScreenPlacements(new[] { new StockUiMenuPlacement(quantity, 100, 200, 1) });
+
+            Assert.True(h.Menus.OnMouseDown(MouseButton.Left, 100 + 40 + 6, 200 + 7 + 5)); // +
+            Assert.Equal(2u, quantity.Quantity);
+            Assert.True(h.Menus.OnMouseDown(MouseButton.Left, 100 + 19 + 5, 200 + 22 + 6)); // All
+            Assert.Equal(12u, quantity.Quantity);
+            Assert.True(h.Menus.OnMouseDown(MouseButton.Left, 100 + 40 + 6, 200 + 40 + 5)); // -
+            Assert.Equal(11u, quantity.Quantity);
+            Assert.True(h.Menus.OnMouseWheel(100 + 50, 200 + 30, -3));
+            Assert.Equal(8u, quantity.Quantity);
+            Assert.True(h.Menus.OnMouseMove(100 + 88 + 5, 200 + 22 + 6)); // hovering an arrow leaves the field selected
+            Assert.Equal(StockUiShop.QuantityField, quantity.SelectedButtonId);
+            Assert.True(h.Menus.OnMouseDown(MouseButton.Left, 100 + 34 + 12, 200 + 22 + 8)); // the field confirms
+            Assert.Equal((8u, (ushort)0x0400, (ushort)2), Assert.Single(h.Buys));
+            Assert.True(h.Menus.Top!.IsShopList);
+        }
+
+        [Fact]
+        public void RetailMenus_ShopWindowsResolve()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            if (library == null) return;
+
+            // Buy / Sell: two label sprites on the 112 x 40 frame at the bottom left.
+            Assert.True(library.TryGetMenu(StockUiShop.MenuName, out var main));
+            Assert.Equal((16, 256, 112, 40), (main.Frame.X, main.Frame.Y, main.Frame.Width, main.Frame.Height));
+            foreach (int id in new[] { StockUiShop.BuyButton, StockUiShop.SellButton })
+            {
+                Assert.Contains(main.FindButton(id)!.Shapes, s => s.Kind == 0 && library.TryGetImage(s, out _));
+            }
+
+            // The list: ten rows with the "anc_shop" cursor (arrow plus highlight bar) and an icon slot per row.
+            Assert.True(library.TryGetMenu(StockUiShop.ListMenu, out var list));
+            Assert.Equal((16, 48, 256, 190), (list.Frame.X, list.Frame.Y, list.Frame.Width, list.Frame.Height));
+            Assert.Equal(StockUiShop.ListRows, list.Buttons.Count(StockUiMenuController.IsSelectable));
+            Assert.Equal(18, list.FindButton(2)!.Y - list.FindButton(1)!.Y);
+            Assert.Contains(list.Frame.Shapes, s => s.Kind == 6 && s.GroupName.Equals("anc_shop", StringComparison.OrdinalIgnoreCase)
+                && library.TryGetGroup(s.GroupId, out var g) && g.Images.Count == 6);
+            var frameShape = Assert.Single(list.Frame.Shapes, s => s.Kind == 0);
+            Assert.True(library.TryGetImage(frameShape, out var frameImage));
+            Assert.Equal(StockUiShop.ListRows, frameImage.Parts.Count(p => UiResourceLibrary.TrimResourceName(p.TextureName).Equals("itemslot", StringComparison.OrdinalIgnoreCase)));
+
+            // The quantity control: the number field and its four arrows; the gil and item info windows.
+            Assert.True(library.TryGetMenu(StockUiShop.QuantityMenu, out var quantity));
+            Assert.Equal((34, 22), (quantity.FindButton(StockUiShop.QuantityField)!.X, quantity.FindButton(StockUiShop.QuantityField)!.Y));
+            foreach (int id in new[] { StockUiShop.QuantityAllButton, StockUiShop.QuantityOneButton, StockUiShop.QuantityDownButton, StockUiShop.QuantityUpButton })
+            {
+                Assert.NotNull(quantity.FindButton(id));
+                Assert.False(StockUiMenuController.IsSelectable(quantity.FindButton(id)!));
+            }
+            Assert.True(library.TryGetMenu(StockUiShop.GilMenu, out var gil));
+            Assert.Equal((16, 240, 112, 56), (gil.Frame.X, gil.Frame.Y, gil.Frame.Width, gil.Frame.Height));
+            Assert.True(library.TryGetMenu(StockUiShop.InfoMenu, out var info));
+            Assert.Equal((16, 240, 366, 56), (info.Frame.X, info.Frame.Y, info.Frame.Width, info.Frame.Height));
+
+            // The flow runs on the retail frames.
+            var h = new ShopHarness();
+            h.Menus.Library = library;
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            Assert.True(h.Menus.Top!.IsShopList);
+            Assert.Equal(StockUiShop.ListRows, h.Menus.Top.VisibleRows);
+            h.Menus.Activate();
+            Assert.True(h.Menus.Top!.IsQuantity);
         }
 
         #endregion

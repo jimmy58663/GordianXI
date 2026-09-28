@@ -255,6 +255,152 @@ namespace Gordian.App.Tests.Graphics
         /// "No Linkshell" / "No Unity" text. Writes gpu_command_menu.png when GORDIAN_UI_DUMP is set.
         /// </summary>
         [Fact]
+        public void RendersShopBuyListWithQuantityPrompt()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiShopTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                // The maintainer's captured shop (Corua, Southern San d'Oria): list 4 with four items; 5,000 gil in hand.
+                var inventory = new Gordian.Core.World.InventoryState();
+                inventory.SetItem(Gordian.Core.Network.Packets.ContainerId.Inventory, 0, StockUiShop.GilItemId, 5000, Gordian.Core.Network.Packets.ItemLockFlag.Normal);
+                var menus = new StockUiMenuController
+                {
+                    Library = library,
+                    Inventory = inventory,
+                    ItemLookup = id => rm.TryGetItem(id, out var record) ? record : null,
+                };
+                inventory.ShopChanged += menus.OnShopChanged;
+                inventory.OpenShop(4);
+                inventory.AddShopItems(new[]
+                {
+                    new Gordian.Core.World.ShopItemEntry(34, 4389, 0, 0, 0),
+                    new Gordian.Core.World.ShopItemEntry(82, 4431, 1, 0, 0),
+                    new Gordian.Core.World.ShopItemEntry(128, 639, 2, 0, 0),
+                    new Gordian.Core.World.ShopItemEntry(64, 610, 3, 0, 0),
+                });
+                Assert.True(menus.Top!.IsShopMenu);
+                menus.Activate(); // Buy
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Ronfaure Chestnut
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                // Draws the open shop windows as the HUD would: the root at its layout slot, the rest at their authored places.
+                StockUiPlacement PlaceMenu(StockUiOpenMenu menu, bool root)
+                {
+                    var frame = menu.Menu.Frame;
+                    return root ? layout.Resolve(StockUiWindowIds.Shop, frame, width, height)
+                        : StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, width, height);
+                }
+                byte[] Render(string name)
+                {
+                    cl.Begin();
+                    cl.SetFramebuffer(framebuffer);
+                    cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                    cl.End();
+                    gd.SubmitCommands(cl);
+                    renderer.Begin(library);
+                    for (int i = 0; i < menus.OpenMenus.Count; i++)
+                    {
+                        // As the HUD: a window whose authored rectangle a later one covers is not drawn (the list's
+                        // gil window replaces the Buy / Sell window in its corner).
+                        var menu = menus.OpenMenus[i];
+                        bool covered = false;
+                        for (int j = i + 1; j < menus.OpenMenus.Count && !covered; j++) covered = menus.OpenMenus[j].OverlapsAuthored(menu);
+                        if (!covered) StockUiMenuWindow.Draw(renderer, library, font, menu, PlaceMenu(menu, i == 0), 0);
+                    }
+                    renderer.End(framebuffer, width, height);
+                    var shot = ReadBack(gd, color, width, height);
+                    if (!string.IsNullOrEmpty(dumpDir))
+                    {
+                        Directory.CreateDirectory(dumpDir);
+                        SavePng(Path.Combine(dumpDir, name), shot, (int)width, (int)height);
+                    }
+                    return shot;
+                }
+
+                // The list with the gil and item info windows under it.
+                Assert.Equal(2, menus.OpenMenus.Count);
+                var listOnly = Render("gpu_shop_list.png");
+                Assert.True(renderer.LastQuadCount > 60, $"{renderer.LastQuadCount} quads");
+                var list = menus.OpenMenus[1];
+                var listPlacement = PlaceMenu(list, false);
+                // The gil amount is drawn right-aligned in the "Current Gil" window under the list (light digits).
+                bool gilDigits = false;
+                int gilY = (int)listPlacement.Y + 192 + 30 + 6;
+                for (int x = (int)listPlacement.X + 60; x < (int)listPlacement.X + 104 && !gilDigits; x++)
+                {
+                    var p = Pixel(listOnly, width, x, gilY);
+                    gilDigits = p.R > 180 && p.G > 180 && p.B > 180;
+                }
+                Assert.True(gilDigits, "no gil amount under the list");
+
+                menus.Activate(); // the quantity prompt
+                menus.Move(Gordian.Core.Input.InputAction.MenuLeft); // All: 12
+                Assert.Equal(3, menus.OpenMenus.Count);
+                var pixels = Render("gpu_shop_buy.png");
+                Assert.True(renderer.LastQuadCount > 50, $"{renderer.LastQuadCount} quads");
+                var quantity = menus.OpenMenus[2];
+                var quantityPlacement = PlaceMenu(quantity, false);
+
+                // The first row's name is drawn after the icon slot (light glyph pixels), and its icon fills the slot.
+                bool name = false;
+                int rowY = (int)listPlacement.Y + 5 + 8;
+                for (int x = (int)listPlacement.X + 24; x < (int)listPlacement.X + 120 && !name; x++)
+                {
+                    var p = Pixel(pixels, width, x, rowY);
+                    name = p.R > 180 && p.G > 180 && p.B > 180;
+                }
+                Assert.True(name, "no item name on the first row");
+                var icon = Pixel(pixels, width, (int)listPlacement.X + 3 + 8, (int)listPlacement.Y + 5 + 8);
+                var plate = Pixel(pixels, width, (int)listPlacement.X + 200, (int)listPlacement.Y + 5 + 8);
+                Assert.True(Math.Abs(icon.R - plate.R) + Math.Abs(icon.G - plate.G) + Math.Abs(icon.B - plate.B) > 30, $"no icon in the slot: {icon} vs {plate}");
+
+                // The quantity prompt shows "12" in its field (light pixels inside the 24 x 16 field at (34,22)).
+                bool count = false;
+                for (int x = (int)quantityPlacement.X + 34; x < (int)quantityPlacement.X + 58 && !count; x++)
+                {
+                    var p = Pixel(pixels, width, x, (int)quantityPlacement.Y + 22 + 8);
+                    count = p.R > 150 && p.G > 100;
+                }
+                Assert.True(count, "no count in the quantity field");
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        [Fact]
         public void RendersTargetCommandMenuWithChatModes()
         {
             if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;

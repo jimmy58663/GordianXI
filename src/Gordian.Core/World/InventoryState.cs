@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -102,6 +103,34 @@ namespace Gordian.Core.World
             int idx = (int)container;
             if (idx < 0 || idx >= _containers.Length) throw new ArgumentOutOfRangeException(nameof(container));
             return _containers[idx];
+        }
+
+        /// <summary>The character's gil: inventory slot 0 holds item 65535 with the amount as its count (0 until the server sends it).</summary>
+        public uint Gil
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _containers[(int)ContainerId.Inventory]._items.TryGetValue(0, out var gil) && gil.ItemId == GilItemId ? gil.Count : 0;
+                }
+            }
+        }
+
+        /// <summary>The item id of gil (inventory slot 0).</summary>
+        public const ushort GilItemId = 65535;
+
+        /// <summary>A copy of a container's items taken under the state lock (safe to read off the packet thread).</summary>
+        public InventoryItem[] SnapshotItems(ContainerId container)
+        {
+            int idx = (int)container;
+            if (idx < 0 || idx >= _containers.Length) return Array.Empty<InventoryItem>();
+            lock (_lock)
+            {
+                var items = new InventoryItem[_containers[idx]._items.Count];
+                _containers[idx]._items.Values.CopyTo(items, 0);
+                return items;
+            }
         }
 
         public void SetContainerSizes(ContainerId container, byte maxSize, ushort usableSize)
@@ -447,6 +476,15 @@ namespace Gordian.Core.World
 
         public IReadOnlyList<ShopItemEntry> ShopItems => _shopItems;
 
+        /// <summary>How many appraisals (S2C 0x03D) have arrived; a change means <see cref="AppraisedSellPrice"/> is a new answer.</summary>
+        public int AppraisalCount { get; private set; }
+
+        /// <summary>A copy of the shop's items taken under the state lock.</summary>
+        public ShopItemEntry[] SnapshotShopItems()
+        {
+            lock (_lock) return _shopItems.ToArray();
+        }
+
         public void OpenShop(ushort shopListNum)
         {
             lock (_lock)
@@ -493,6 +531,7 @@ namespace Gordian.Core.World
             {
                 AppraisedSlot = slot;
                 AppraisedSellPrice = price;
+                AppraisalCount++;
             }
 
             ShopChanged?.Invoke();

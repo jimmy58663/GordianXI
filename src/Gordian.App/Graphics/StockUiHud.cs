@@ -128,6 +128,11 @@ namespace Gordian.App.Graphics
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
+            if (menus.ItemLookup == null && _resources is { } items)
+            {
+                // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
+                menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
+            }
 
             renderer.Begin(library);
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
@@ -207,6 +212,7 @@ namespace Gordian.App.Graphics
             var rootFrame = open[0].Menu.Frame;
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
+                : open[0].IsShopMenu ? StockUiWindowIds.Shop
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
             if (open[0].IsCommandMenu && !rootMoved && _window1Top is { } logTop)
