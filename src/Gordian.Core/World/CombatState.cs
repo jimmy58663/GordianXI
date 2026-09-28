@@ -6,6 +6,12 @@ using Gordian.Core.Network.Packets;
 namespace Gordian.Core.World
 {
     /// <summary>
+    /// An entity's crafting animation state (S2C 0x030): the synthesis effect, its parameter (the client's CraftParam),
+    /// the entity's server status, and the synthesis timer.
+    /// </summary>
+    public sealed record CraftEffectInfo(uint ServerId, ushort TargetIndex, SynthesisEffect Effect, byte Param, byte ServerStatus, ushort Timer);
+
+    /// <summary>
     /// Thread-safe active session combat state, targeting, casting timers, ability recasts,
     /// and combat log history for HUD and automation consumption.
     /// </summary>
@@ -48,6 +54,7 @@ namespace Gordian.Core.World
         public event Action? RecastsUpdated;
         public event Action? EngagementChanged;
         public event Action? CastingStateChanged;
+        public event Action<CraftEffectInfo>? CraftEffectChanged;
 
         #endregion
 
@@ -76,6 +83,21 @@ namespace Gordian.Core.World
             {
                 EngagementChanged?.Invoke();
             }
+        }
+
+        private readonly Dictionary<uint, CraftEffectInfo> _craftEffects = new();
+
+        /// <summary>Stores an entity's crafting animation state (S2C 0x030), keyed by its server id.</summary>
+        public void SetCraftEffect(CraftEffectInfo effect)
+        {
+            lock (_lock) _craftEffects[effect.ServerId] = effect;
+            CraftEffectChanged?.Invoke(effect);
+        }
+
+        /// <summary>The last crafting animation state the server sent for an entity, if any.</summary>
+        public bool TryGetCraftEffect(uint serverId, out CraftEffectInfo effect)
+        {
+            lock (_lock) return _craftEffects.TryGetValue(serverId, out effect!);
         }
 
         public void Disengage()

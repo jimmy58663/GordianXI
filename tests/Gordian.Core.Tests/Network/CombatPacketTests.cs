@@ -200,7 +200,7 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void S2C_0x030_Effect_DecodesStatusEffect()
+        public void S2C_0x030_Effect_DecodesCraftEffect()
         {
             byte[] payload = new byte[12];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x99887766);
