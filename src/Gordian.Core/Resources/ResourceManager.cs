@@ -352,6 +352,8 @@ namespace Gordian.Core.Resources
             DMsgCategory.Titles => Path.Combine("ROM", "180", "78.DAT"),
             DMsgCategory.Jobs => Path.Combine("ROM", "165", "86.DAT"),
             DMsgCategory.KeyItems => Path.Combine("ROM", "175", "35.DAT"),
+            DMsgCategory.ZoneNames => Path.Combine("ROM", "165", "84.DAT"),
+            DMsgCategory.ZoneNamesShort => Path.Combine("ROM", "165", "83.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),

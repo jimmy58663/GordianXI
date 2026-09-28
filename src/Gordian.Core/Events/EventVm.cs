@@ -19,7 +19,8 @@ namespace Gordian.Core.Events
     /// opcode holds the following 0x23 while its text is shown (a prompt message stays open for a time that grows with
     /// its length, or until the player confirms; retail auto-advances NPC talk this way), 0x24/0x25 open a query and store the
     /// choice in the zone's work value 0, 0x43 sends the update (0x05B mode 1) with work value 1 and waits for the
-    /// server, and 0x00 / 0x21 end the event, after which the client sends 0x05B mode 0 with work value 1
+    /// server, 0x47 sends the position update (0x05C mode 1, a same-zone warp) the same way, 0xD4 opens a query with the
+    /// zone map behind it (the map itself is not drawn yet), 0x9D reads the scripts' tables, and 0x00 / 0x21 end the event, after which the client sends 0x05B mode 0 with work value 1
     /// (0x40000000 when the player cancelled a query).
     /// </para>
     /// The retail VM runs up to 16 request stacks so several actors can act at once; this interpreter runs the
@@ -30,7 +31,11 @@ namespace Gordian.Core.Events
         /// <summary>The 0x05B end parameter of an event the player cancelled.</summary>
         public const uint CancelledEndParameter = 0x40000000;
 
-        private const int MaxStepsPerTick = 20_000;
+        /// <summary>
+        /// Runaway guard only: the home point script walks its zone tables in nested loops of tens of thousands of
+        /// opcodes within one tick (retail runs them without a limit).
+        /// </summary>
+        private const int MaxStepsPerTick = 2_000_000;
         private const float FramesPerSecond = 60f;
 
         private readonly byte[] _code;
@@ -86,6 +91,12 @@ namespace Gordian.Core.Events
 
         /// <summary>Current byte-code position, for diagnostics.</summary>
         public int ProgramCounter => _pc;
+
+        /// <summary>Called before every opcode with its position and code (tests and tracing); null when unused.</summary>
+        public Action<int, byte>? Trace { get; set; }
+
+        /// <summary>The event's local work values (diagnostics).</summary>
+        public IReadOnlyList<int> Locals => _local;
 
         /// <summary>The player confirmed the open message: the event goes on at its next tick.</summary>
         public void Confirm() => _messageOpenSeconds = 0;
@@ -143,13 +154,19 @@ namespace Gordian.Core.Events
         private byte Code8(int offset) => _pc + offset < _code.Length ? _code[_pc + offset] : (byte)0;
 
         /// <summary>Resolves a work reference read at <paramref name="offset"/> (XiEvents' <c>getworkofs</c>).</summary>
-        private int GetWork(int offset, int shift = 0)
+        private int GetWork(int offset, int shift = 0) => ResolveKey(Code16(offset) + shift, _references);
+
+        /// <summary>A 16-bit work reference read at an absolute position of a block's code (a table entry).</summary>
+        private static int KeyAt(byte[] code, int position) =>
+            position >= 0 && position + 1 < code.Length ? BinaryPrimitives.ReadUInt16LittleEndian(code.AsSpan(position, 2)) : 0;
+
+        /// <summary>The value a work reference key names, with the given immediate data for bit-15 keys.</summary>
+        private int ResolveKey(int key, int[] references)
         {
-            int key = Code16(offset) + shift;
             if ((key & 0x8000) != 0)
             {
                 int index = key & 0x7FFF;
-                return index < _references.Length ? _references[index] : 0;
+                return index < references.Length ? references[index] : 0;
             }
             if (key < 2048) return key < _local.Length ? _local[key] : 0;
             if (key < 4352) return key - 4096 < _zone.Zone.Length ? _zone.Zone[key - 4096] : 0;
@@ -172,9 +189,10 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>Writes a work reference read at <paramref name="offset"/> (XiEvents' <c>setworkofs</c>).</summary>
-        private void SetWork(int offset, int value, int shift = 0)
+        private void SetWork(int offset, int value, int shift = 0) => StoreKey(Code16(offset) + shift, value);
+
+        private void StoreKey(int key, int value)
         {
-            int key = Code16(offset) + shift;
             if ((key & 0x8000) != 0) return;
             if (key < 2048)
             {
@@ -238,6 +256,7 @@ namespace Gordian.Core.Events
         private void Step(float frames)
         {
             byte op = _code[_pc];
+            Trace?.Invoke(_pc, op);
             switch (op)
             {
                 case 0x00:
@@ -329,13 +348,37 @@ namespace Gordian.Core.Events
                     else _pc++;
                     return;
                 case 0x24:
-                    if (!_queryOpen)
-                    {
-                        _queryOpen = true;
-                        _host.OpenQuery(GetWork(1), GetWork(3), unchecked((uint)GetWork(5)));
-                    }
+                    OpenQuery(1);
                     _pc += 7;
                     return;
+                case 0xD4:
+                    // The map opcode: sub-cases 0 (map behind the list) and 2 open a query like 0x24 with the
+                    // operands one byte on; 1, 3, 4 and 5 hand marker data to the map window (no map here yet).
+                    switch (Code8(1))
+                    {
+                        case 0:
+                        case 2:
+                            OpenQuery(2);
+                            _pc += 8;
+                            return;
+                        case 1:
+                            _host.OnSkippedOpcode(op, _pc);
+                            _pc += 8;
+                            return;
+                        case 3:
+                            _host.OnSkippedOpcode(op, _pc);
+                            _pc += 6;
+                            return;
+                        case 4:
+                        case 5:
+                            _host.OnSkippedOpcode(op, _pc);
+                            _pc += 12;
+                            return;
+                        default:
+                            _host.OnSkippedOpcode(op, _pc);
+                            Finish();
+                            return;
+                    }
                 case 0x25:
                 case 0x7F:
                     ExecQueryWait(op == 0x25);
@@ -396,14 +439,53 @@ namespace Gordian.Core.Events
                     return;
                 }
                 case 0x43:
+                    if (Code8(1) == 1)
+                    {
+                        // Wait for the server's answer to the update (0x052 mode 1).
+                        if (!_host.ReceivePending) _pc += 2;
+                        _retFlag = true;
+                        return;
+                    }
                     if (Code8(1) != 0)
                     {
-                        if (Code8(1) == 1 && !_host.ReceivePending) _pc += 2;
-                        _retFlag = true;
+                        // Sub-cases 0x80/0x81 appear in the home point scripts; XiEvents' notes do not describe them.
+                        _host.OnSkippedOpcode(op, _pc);
+                        _pc += 2;
                         return;
                     }
                     _host.SendEventUpdate(unchecked((uint)_zone.EndParameter));
                     _pc += 2;
+                    return;
+                case 0x47:
+                    if (Code8(1) == 1)
+                    {
+                        if (!_host.ReceivePending) _pc += 2;
+                        _retFlag = true;
+                        return;
+                    }
+                    if (Code8(1) != 0)
+                    {
+                        _host.OnSkippedOpcode(op, _pc);
+                        _pc += 2;
+                        return;
+                    }
+                    // The operands are x, z, y (the scripts' position order, as 0x36) and the heading.
+                    _host.SendEventUpdateXzy(unchecked((uint)_zone.EndParameter), GetWork(2) * 0.001f, GetWork(6) * 0.001f, GetWork(4) * 0.001f,
+                        GetWork(8) * 6.283f * 0.00024414062f);
+                    _pc += 10;
+                    return;
+                case 0x36:
+                    _eventX = GetWork(1) * 0.001f;
+                    _eventZ = GetWork(3) * 0.001f;
+                    _eventY = GetWork(5) * 0.001f;
+                    _pc += 7;
+                    return;
+                case 0x37:
+                    _eventX = GetWork(1) * 0.001f;
+                    _eventZ = GetWork(3) * 0.001f;
+                    _eventY = GetWork(5) * 0.001f;
+                    _eventDir = GetWork(7) * 6.283f * 0.00024414062f;
+                    _pc += 9;
                     return;
                 case 0x44:
                     if (_host.EntityExists(unchecked((uint)GetWork(1)))) _pc += 5;
@@ -463,6 +545,9 @@ namespace Gordian.Core.Events
                     _pc += 12;
                     return;
                 }
+                case 0x9D:
+                    ExecTable();
+                    return;
                 case 0xBE:
                     SetWork(1, unchecked((int)EntityServerId));
                     _pc += 3;
@@ -479,6 +564,117 @@ namespace Gordian.Core.Events
                     _pc += length;
                     return;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Opcode 0x9D: the scripts' tables. A table is a run of 16-bit work references inside the byte code (mostly
+        /// immediate-data keys); the sub-cases read an entry into a work value (0x00, 0x0A with a bound), write a
+        /// work value through an entry (0x05, 0x0F), share a table through one of 64 zone-wide pointer slots (0x02,
+        /// 0x0C) and read through a slot (0x03, 0x0D), or jump through a table (0x07). The string cases (0x01, 0x04,
+        /// 0x06, 0x08, 0x09, 0x0B, 0x0E, 0x10) are stepped over. Semantics referenced from XiEvents (OpCodes/0x009D.md).
+        /// </summary>
+        private void ExecTable()
+        {
+            byte sub = Code8(1);
+            switch (sub)
+            {
+                case 0x00:
+                case 0x0A:
+                {
+                    int table = Code16(2);
+                    int index = GetWork(6);
+                    if (sub == 0x0A)
+                    {
+                        int bound = GetWork(8);
+                        if (bound != 0 && bound <= index) index = 0;
+                    }
+                    SetWork(4, ResolveKey(KeyAt(_code, table + 2 * index), _references));
+                    _pc += sub == 0x00 ? 8 : 10;
+                    return;
+                }
+                case 0x05:
+                case 0x0F:
+                {
+                    int table = Code16(2);
+                    int index = GetWork(6);
+                    if (sub == 0x0F)
+                    {
+                        int bound = GetWork(8);
+                        if (bound != 0 && bound <= index) index = 0;
+                    }
+                    StoreKey(KeyAt(_code, table + 2 * index), GetWork(4));
+                    _pc += sub == 0x05 ? 8 : 10;
+                    return;
+                }
+                case 0x02:
+                case 0x0C:
+                {
+                    int slot = GetWork(4);
+                    if (sub == 0x0C)
+                    {
+                        int bound = GetWork(6);
+                        if (bound != 0 && bound <= slot) slot = 0;
+                    }
+                    if (slot >= 0 && slot < _zone.Tables.Length) _zone.Tables[slot] = (_code, _references, Code16(2));
+                    _pc += sub == 0x02 ? 6 : 8;
+                    return;
+                }
+                case 0x03:
+                case 0x0D:
+                {
+                    int slot = GetWork(2);
+                    int index = GetWork(6);
+                    if (sub == 0x0D)
+                    {
+                        int bound = GetWork(8);
+                        if (bound != 0 && bound <= index) index = 0;
+                    }
+                    if (slot >= 0 && slot < _zone.Tables.Length && _zone.Tables[slot] is { } shared)
+                    {
+                        SetWork(4, ResolveKey(KeyAt(shared.Code, shared.Offset + 2 * index), shared.References));
+                    }
+                    _pc += sub == 0x03 ? 8 : 10;
+                    return;
+                }
+                case 0x07:
+                {
+                    int table = Code16(2);
+                    int index = GetWork(4);
+                    int target = KeyAt(_code, table + 2 * index);
+                    if (_jumpDepth >= _jumpStack.Length)
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _jumpStack[_jumpDepth++] = _pc + 6;
+                    _pc = target;
+                    return;
+                }
+                case 0x01:
+                case 0x04:
+                case 0x06:
+                    _host.OnSkippedOpcode(0x9D, _pc);
+                    _pc += 8;
+                    return;
+                case 0x08:
+                    _host.OnSkippedOpcode(0x9D, _pc);
+                    _pc += 23;
+                    return;
+                case 0x09:
+                    _host.OnSkippedOpcode(0x9D, _pc);
+                    _pc += 9;
+                    return;
+                case 0x0B:
+                case 0x0E:
+                case 0x10:
+                    _host.OnSkippedOpcode(0x9D, _pc);
+                    _pc += 10;
+                    return;
+                default:
+                    _host.OnSkippedOpcode(0x9D, _pc);
+                    Finish();
+                    return;
             }
         }
 
@@ -501,6 +697,14 @@ namespace Gordian.Core.Events
             };
             if (jump) _pc = Code16(6);
             else _pc += 8;
+        }
+
+        /// <summary>Opens the query whose message, default option and hidden mask operands start at <paramref name="offset"/>.</summary>
+        private void OpenQuery(int offset)
+        {
+            if (_queryOpen) return;
+            _queryOpen = true;
+            _host.OpenQuery(GetWork(offset), GetWork(offset + 2), unchecked((uint)GetWork(offset + 4)));
         }
 
         private void ExecQueryWait(bool endOnCancel)

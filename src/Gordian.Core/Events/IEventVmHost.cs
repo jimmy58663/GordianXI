@@ -42,6 +42,12 @@ namespace Gordian.Core.Events
         /// <summary>Sends the event update (0x05B mode 1) with the given parameter and marks a server reply pending.</summary>
         void SendEventUpdate(uint endParameter);
 
+        /// <summary>
+        /// Sends the event position update (0x05C mode 1: a warp within the zone, as a home point teleport) with the
+        /// given parameter and destination (game units; heading in radians), and marks a server reply pending.
+        /// </summary>
+        void SendEventUpdateXzy(uint endParameter, float x, float y, float z, float heading);
+
         /// <summary>Whether an event update is still waiting for the server's reply (0x052 mode 1 clears it).</summary>
         bool ReceivePending { get; }
 

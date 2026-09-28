@@ -32,6 +32,7 @@ public partial class App : Application
             {
                 Gordian.Core.Events.EventMessageFormatter.ItemKind => rm.TryGetItem((uint)id, out var item) ? item?.Name : null,
                 Gordian.Core.Events.EventMessageFormatter.KeyItemKind => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.KeyItems, id, out var keyItem) ? keyItem : null,
+                Gordian.Core.Events.EventMessageFormatter.ZoneKind => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNames, id, out var zone) ? zone : null,
                 _ => null,
             };
         };

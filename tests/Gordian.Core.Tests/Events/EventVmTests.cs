@@ -13,6 +13,7 @@ namespace Gordian.Core.Tests.Events
         public List<(int Message, EventSpeaker Speaker, uint Id)> Printed { get; } = new();
         public List<(int Message, int Default, uint Hidden)> Queries { get; } = new();
         public List<uint> Updates { get; } = new();
+        public List<(uint Parameter, float X, float Y, float Z)> PositionUpdates { get; } = new();
         public List<bool> Locks { get; } = new();
         public List<byte> Skipped { get; } = new();
         public HashSet<int> PromptMessages { get; } = new();
@@ -40,6 +41,11 @@ namespace Gordian.Core.Tests.Events
         public void SendEventUpdate(uint endParameter)
         {
             Updates.Add(endParameter);
+            ReceivePending = true;
+        }
+        public void SendEventUpdateXzy(uint endParameter, float x, float y, float z, float heading)
+        {
+            PositionUpdates.Add((endParameter, x, y, z));
             ReceivePending = true;
         }
         public void SetControlLock(bool locked) => Locks.Add(locked);
@@ -240,14 +246,14 @@ namespace Gordian.Core.Tests.Events
         [Fact]
         public void UnknownOpcodes_AreSteppedOverByLength_AndUnknownLengthsEndTheEvent()
         {
-            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 66 ... (15 bytes, skipped) ; 48 ref0 ; D4 00 (unknown length) ; 48 ref1
+            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 66 ... (15 bytes, skipped) ; 48 ref0 ; 7E 01 (unknown length) ; 48 ref1
             var code = new byte[]
             {
                 0x1E, 0xF0, 0xFF, 0xFF, 0x7F,
                 0x20, 0x01,
                 0x66, 0x07, 0x80, 0xF8, 0xFF, 0xFF, 0x7F, 0xF8, 0xFF, 0xFF, 0x7F, 0x74, 0x6C, 0x6B, 0x30,
                 0x48, 0x00, 0x80,
-                0xD4, 0x00, 0x11, 0x22,
+                0x7E, 0x01, 0x11, 0x22,
                 0x48, 0x01, 0x80,
             };
             var host = new RecordingHost();
@@ -256,7 +262,7 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(new[] { true }, host.Locks);
             Assert.Equal(9, Assert.Single(host.Printed).Message);
             Assert.Contains((byte)0x66, host.Skipped);
-            Assert.Contains((byte)0xD4, host.Skipped);
+            Assert.Contains((byte)0x7E, host.Skipped);
             Assert.True(vm.IsFinished);
         }
 
@@ -295,7 +301,7 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(2, EventOpcodeTable.GetLength(new byte[] { 0x1F, 0x01 }, 0));
             Assert.Equal(4, EventOpcodeTable.GetLength(new byte[] { 0x46, 0x02 }, 0));
             Assert.Equal(15, EventOpcodeTable.GetLength(new byte[] { 0x66 }, 0));
-            Assert.Equal(0, EventOpcodeTable.GetLength(new byte[] { 0xD4, 0x00 }, 0));
+            Assert.Equal(0, EventOpcodeTable.GetLength(new byte[] { 0x7E, 0x01 }, 0));
             Assert.Equal(0, EventOpcodeTable.GetLength(new byte[] { 0xE7 }, 0));
         }
     }

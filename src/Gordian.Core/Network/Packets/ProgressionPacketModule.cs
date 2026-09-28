@@ -310,6 +310,14 @@ namespace Gordian.Core.Network.Packets
             return _sendChunkCallback(packet, true);
         }
 
+        /// <summary>Sends 0x05C mode 1: a position update the script waits on (a same-zone warp), answered by 0x052 mode 1.</summary>
+        public Task SendEventUpdateXzyAsync(Vector3 position, uint uniqueNo, uint endPara, ushort eventNum, ushort eventPara, ushort actIndex, sbyte dir)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildEventEndXzy(position, uniqueNo, endPara, eventNum, eventPara, actIndex, 1, dir, NextSequence());
+            LogOutbound(0x05C, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
         public Task SendEventEndXzyAsync(Vector3 position, uint uniqueNo, uint endPara, ushort eventNum, ushort eventPara, ushort actIndex, byte mode, sbyte dir)
         {
             byte[] packet = ProgressionPacketBuilder.BuildEventEndXzy(position, uniqueNo, endPara, eventNum, eventPara, actIndex, mode, dir, NextSequence());

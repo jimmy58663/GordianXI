@@ -68,6 +68,17 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ZoneNames_ComeFromTheZoneNameTable()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNames, 230, out var name));
+            Assert.Equal("Southern San d'Oria", name);
+            Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNamesShort, 231, out var shortName));
+            Assert.Equal("N.San d'Oria", shortName);
+        }
+
+        [Fact]
         public void SouthernSandoria_EventScript_HoldsTheScriptedEvents()
         {
             var rm = Open();

@@ -31,6 +31,10 @@ namespace Gordian.Core.Resources.Models
         MissionsWotg,
         MissionsAdoulin,
         MissionsRov,
+        /// <summary>Zone names by zone id (ROM/165/84.DAT, 300 entries: 230 = "Southern San d'Oria"; found 2026-09-28).</summary>
+        ZoneNames,
+        /// <summary>Short zone names by zone id (ROM/165/83.DAT: 230 = "S.San d'Oria").</summary>
+        ZoneNamesShort,
         Custom
     }
 

@@ -263,7 +263,7 @@ namespace Gordian.Core.Events
             return "???";
         }
 
-        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, this);
+        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName);
 
         private static string? ResolveName(byte kind, int id) => NameResolver?.Invoke(kind, id);
 
@@ -375,6 +375,17 @@ namespace Gordian.Core.Events
             _ = _module.SendEventUpdateAsync(info.UniqueNo, endParameter, info.ActIndex, info.EventNum, info.EventPara);
         }
 
+        void IEventVmHost.SendEventUpdateXzy(uint endParameter, float x, float y, float z, float heading)
+        {
+            var info = _info;
+            if (info == null || _module == null) return;
+            _receivePending = true;
+            // The wire heading is a byte of 256 steps per turn.
+            sbyte dir = unchecked((sbyte)(byte)Math.Round(heading / (2 * Math.PI) * 256) );
+            GordianLog.Info("EVENT", $"Event {info.EventPara} position update 0x{endParameter:X} to ({x:F2}, {y:F2}, {z:F2}).");
+            _ = _module.SendEventUpdateXzyAsync(new System.Numerics.Vector3(x, y, z), info.UniqueNo, endParameter, info.EventNum, info.EventPara, info.ActIndex, dir);
+        }
+
         bool IEventVmHost.ReceivePending => _receivePending;
 
         void IEventVmHost.SetControlLock(bool locked)
@@ -412,16 +423,20 @@ namespace Gordian.Core.Events
 
         #endregion
 
-        /// <summary>Message numbers of an event: the zone work values after the selection and end parameter.</summary>
+        /// <summary>
+        /// Message numbers of an event (<see cref="EventWorkZone.GetMessageParameter"/>): the server parameter slots,
+        /// then the 1700 block. Checked on the home point script against the maintainer's recording and capture
+        /// (2026-09-28): the script clears the slots, writes the zone list it offers into them through its table of
+        /// work references, the region list's parameter 1 reads 0 there ("San d'Oria", as retail), and the zone name
+        /// of the home point list is parameter 33.
+        /// </summary>
         private sealed class WorkZoneContext : IEventMessageContext
         {
             private readonly EventWorkZone _zone;
-            private readonly EventDialogController _owner;
 
-            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName, EventDialogController owner)
+            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName)
             {
                 _zone = zone;
-                _owner = owner;
                 PlayerName = playerName;
                 NpcName = npcName;
             }
@@ -429,11 +444,7 @@ namespace Gordian.Core.Events
             public string PlayerName { get; }
             public string NpcName { get; }
 
-            public int GetNumber(int index)
-            {
-                int slot = EventWorkZone.ParameterBase + index;
-                return slot >= 0 && slot < _zone.Zone.Length ? _zone.Zone[slot] : 0;
-            }
+            public int GetNumber(int index) => _zone.GetMessageParameter(index);
 
             public string? GetEntityName(int index) => null;
 

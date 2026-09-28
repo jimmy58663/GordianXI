@@ -14,6 +14,12 @@ namespace Gordian.Core.Events
         public const int ParameterBase = 2;
 
         public int[] Zone { get; } = new int[96];
+
+        /// <summary>
+        /// The table pointer slots opcode 0x9D shares between events (the retail client's <c>Ptr_Work_Zone</c> /
+        /// <c>Ptr_Refs_Zone</c>): each names a table inside a block's byte code and that block's immediate data.
+        /// </summary>
+        public (byte[] Code, int[] References, int Offset)?[] Tables { get; } = new (byte[], int[], int)?[64];
         public int[] Memorize { get; } = new int[64];
         public int[] Zone1700 { get; } = new int[32];
 
@@ -31,6 +37,18 @@ namespace Gordian.Core.Events
             set => Zone[1] = value;
         }
 
+        /// <summary>
+        /// A message's number parameter n: the eight server parameter slots (zone work values 2-9), then the 1700
+        /// block from parameter 8 on (the home point script writes its zone list through a table of exactly those
+        /// slots and names parameter 33 for the zone, which it stores in 1700 slot 25; 2026-09-28).
+        /// </summary>
+        public int GetMessageParameter(int index)
+        {
+            if (index < 0) return 0;
+            if (index < 8) return Zone[ParameterBase + index];
+            return index - 8 < Zone1700.Length ? Zone1700[index - 8] : 0;
+        }
+
         /// <summary>Stores the server's event parameters (0x033/0x034 values) where the scripts read them.</summary>
         public void SetParameters(ReadOnlySpan<int> parameters)
         {
@@ -40,6 +58,7 @@ namespace Gordian.Core.Events
         public void Clear()
         {
             Array.Clear(Zone);
+            Array.Clear(Tables);
             Array.Clear(Memorize);
             Array.Clear(Zone1700);
         }
