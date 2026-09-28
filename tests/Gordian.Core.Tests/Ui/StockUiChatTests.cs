@@ -407,5 +407,25 @@ namespace Gordian.Core.Tests.Ui
             log.CopyVisible(1, 100, lines);
             return lines;
         }
+        [Fact]
+        public void OpenInputInMode_OpensTheLineInThatMode_ShoutOnlyTypesTheCommand()
+        {
+            var chat = new StockUiChat();
+            chat.Input.TellTarget = "Cybin";
+            chat.OpenInputInMode(ChatInputMode.Tell);
+            Assert.True(chat.Input.IsOpen);
+            Assert.Equal(ChatInputMode.Tell, chat.Input.Mode);
+            Assert.Equal(string.Empty, chat.Input.Text);
+            chat.Input.Cancel();
+
+            chat.OpenInputInMode(ChatInputMode.Say);
+            Assert.Equal(ChatInputMode.Say, chat.Input.Mode);
+            chat.Input.Cancel();
+
+            chat.OpenInputInMode(ChatInputMode.Shout);
+            Assert.True(chat.Input.IsOpen);
+            Assert.Equal(ChatInputMode.Say, chat.Input.Mode); // the default mode is left alone
+            Assert.Equal("/sh ", chat.Input.Text);
+        }
     }
 }

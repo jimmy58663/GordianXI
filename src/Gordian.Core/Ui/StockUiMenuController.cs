@@ -1087,8 +1087,9 @@ namespace Gordian.Core.Ui
                         }
                         TellTargetSelected?.Invoke(candidates[Math.Clamp(from.TellIndex, 0, candidates.Count - 1)]);
                     }
-                    ChatModeSelected?.Invoke(mode);
+                    // The menus close first: the handler opens the input line, which takes the keyboard.
                     CloseAll();
+                    ChatModeSelected?.Invoke(mode);
                     break;
 
                 case StockUiMenuCommand.Attack:

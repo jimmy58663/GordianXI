@@ -224,6 +224,23 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
+        /// A chat mode picked in the command menu's chat-mode list (retail, in-game check 2026-09-28): the default
+        /// mode changes and the input line opens at once in it (Tell to the partner just chosen). Shout is the
+        /// exception: the default mode is left alone and the line opens with <c>/sh </c> typed.
+        /// </summary>
+        public void OpenInputInMode(ChatInputMode mode)
+        {
+            if (mode == ChatInputMode.Shout)
+            {
+                Input.Open();
+                Input.InsertText("/sh ");
+                return;
+            }
+            Input.SetMode(mode);
+            Input.Open();
+        }
+
+        /// <summary>
         /// Retail's <c>/chatmode [mode]</c> (alias <c>/cm</c>): sets the default chat mode (<c>tell</c> takes a name;
         /// shout lasts one line), or with no mode shows the current one. Returns false for any other line.
         /// </summary>

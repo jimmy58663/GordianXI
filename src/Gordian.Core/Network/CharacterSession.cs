@@ -158,7 +158,7 @@ namespace Gordian.Core.Network
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
             // The command menu's chat-mode list (Tier 2 chunk 6b): picks the default chat mode, shows the last tell
             // partner, and greys the linkshell modes until the server has shown a linkshell in that slot.
-            ActionService.Menus.ChatModeSelected = mode => Chat.Input.SetMode(mode);
+            ActionService.Menus.ChatModeSelected = mode => Chat.OpenInputInMode(mode);
             ActionService.Menus.TellTarget = () => Chat.Input.TellTarget;
             ActionService.Menus.TellCandidates = () =>
             {
