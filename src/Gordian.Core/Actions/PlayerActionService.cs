@@ -125,7 +125,7 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiDragController UiDrag { get; } = new();
 
-        /// <summary>The mouse pointer over the viewport, drawn by the stock UI as the "yubi" hand.</summary>
+        /// <summary>The mouse pointer over the viewport (the stock UI draws its hover pointer there over menu entries).</summary>
         public StockUiPointer UiPointer { get; } = new();
 
         /// <summary>

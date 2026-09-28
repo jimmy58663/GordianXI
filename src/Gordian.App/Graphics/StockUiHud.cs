@@ -47,8 +47,8 @@ namespace Gordian.App.Graphics
         public StockUiDragController Drag { get; private set; } = new();
 
         /// <summary>
-        /// Whether the last frame drew the stock pointer (the "yubi" hand), in which case the viewport hides the system
-        /// cursor over itself. False until the UI resources load, so the system cursor shows until then.
+        /// Whether the last frame drew the hover pointer (the pointer over a clickable menu entry), in which case the
+        /// viewport hides the system cursor; otherwise the system cursor is the arrow.
         /// </summary>
         public bool PointerDrawn { get; private set; }
 
@@ -148,7 +148,7 @@ namespace Gordian.App.Graphics
             }
             Drag.EndFrame();
             if (unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
-            PointerDrawn = DrawPointer(renderer, library, session, Layout.Scale);
+            PointerDrawn = DrawPointer(renderer, session);
             renderer.End(framebuffer, width, height);
         }
 
@@ -242,9 +242,17 @@ namespace Gordian.App.Graphics
 
         private readonly List<StockUiMenuPlacement> _menuPlacements = new();
 
-        /// <summary>The mouse pointer ("yubi"), drawn over everything while the pointer is over the viewport.</summary>
-        private static bool DrawPointer(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, float scale) =>
-            session.ActionService.UiPointer.TryGetPosition(out float x, out float y) && StockUiMenuWindow.DrawPointer(renderer, library, x, y, scale);
+        /// <summary>
+        /// Over a clickable menu entry the system cursor is hidden and the hover pointer (arrow and ring) is drawn here,
+        /// over everything; elsewhere the system cursor is the arrow itself. Returns whether it was drawn.
+        /// </summary>
+        private static bool DrawPointer(StockUiRenderer renderer, CharacterSession session)
+        {
+            if (!session.ActionService.UiPointer.TryGetPosition(out float x, out float y)) return false;
+            if (!session.ActionService.Menus.IsOverEntry(x, y)) return false;
+            StockUiMenuWindow.DrawHoverPointer(renderer, x, y);
+            return true;
+        }
 
         /// <summary>
         /// The party list split for the windows: your own party (bottom "Party" window) and the alliance's other

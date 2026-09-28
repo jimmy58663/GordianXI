@@ -2,8 +2,8 @@
 namespace Gordian.Core.Ui
 {
     /// <summary>
-    /// Where the mouse pointer is over the viewport (screen pixels), for the stock UI's own pointer: retail hides the
-    /// system cursor over the game and draws the "yubi" hand sprite at the pointer. The viewport feeds it (UI thread)
+    /// Where the mouse pointer is over the viewport (screen pixels), for the stock UI's pointer: over a clickable menu
+    /// entry retail hides the system arrow and draws its hover pointer itself. The viewport feeds it (UI thread)
     /// and the HUD reads it (render thread).
     /// </summary>
     public sealed class StockUiPointer

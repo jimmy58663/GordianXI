@@ -402,6 +402,7 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
             if (TryGetViewportPoint(e, out var point)) StockUiMove(session, point);
+            UpdateViewportCursor();
             if (!_isRightDragging || !_lastPointerPosition.HasValue) return;
 
             var currentPos = e.GetPosition(this);
@@ -568,16 +569,37 @@ namespace Gordian.App
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
                 _viewModel.GpuName = viewportControl.GpuDeviceName;
 
-                // The stock UI draws its own pointer ("yubi"); on Windows the native surface hides the system cursor
-                // itself (WM_SETCURSOR), elsewhere the control's cursor is hidden while the hand is drawn.
-                if (!OperatingSystem.IsWindows())
-                {
-                    viewportControl.Cursor = viewportControl.StockUi.PointerDrawn ? HiddenCursor : null;
-                }
+                UpdateViewportCursor();
             }
         }
 
+        /// <summary>
+        /// The pointer over the viewport is the stock arrow, hidden while the HUD draws the hover pointer over a menu
+        /// entry. On Windows the native surface picks it itself (WM_SETCURSOR); elsewhere the control's cursor is set.
+        /// </summary>
+        private void UpdateViewportCursor()
+        {
+            if (OperatingSystem.IsWindows() || _viewportControl == null) return;
+            var cursor = _viewportControl.StockUi.PointerDrawn ? HiddenCursor : ArrowCursor.Value;
+            if (!ReferenceEquals(_viewportControl.Cursor, cursor)) _viewportControl.Cursor = cursor;
+        }
+
         private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
+
+        private static readonly Lazy<Cursor> ArrowCursor = new(() =>
+        {
+            var art = StockUiPointerArt.Arrow;
+            var bitmap = new Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(art.Width, art.Height), new Vector(96, 96),
+                Avalonia.Platform.PixelFormat.Rgba8888, Avalonia.Platform.AlphaFormat.Unpremul);
+            using (var buffer = bitmap.Lock())
+            {
+                for (int row = 0; row < art.Height; row++)
+                {
+                    System.Runtime.InteropServices.Marshal.Copy(art.RgbaPixels, row * art.Width * 4, buffer.Address + row * buffer.RowBytes, art.Width * 4);
+                }
+            }
+            return new Cursor(bitmap, new PixelPoint(StockUiPointerArt.HotspotX, StockUiPointerArt.HotspotY));
+        });
 
         protected override void OnClosed(EventArgs e)
         {

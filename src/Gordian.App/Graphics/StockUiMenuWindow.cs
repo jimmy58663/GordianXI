@@ -195,18 +195,20 @@ namespace Gordian.App.Graphics
 
         private const string DefaultCursorGroup = "anc_s";
 
-        private const string PointerGroup = "yubi";
+        private static readonly UiColor PointerColor = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>
-        /// The mouse pointer: retail draws the "yubi" hand in place of the system cursor, at the UI scale (it is not
-        /// the menu cursor, which is the frame's "anc_s" arrow). The group is a single 26 x 32 image authored around
-        /// its origin, the fingertip (the quad starts at (-3, -2)). False when the group is missing.
+        /// The pointer over a clickable entry (retail hides the system arrow there and draws a grey ring over the
+        /// arrow's tip): the arrow, then the ring, at one screen pixel per image pixel like the system cursor, the
+        /// arrow's tip at the pointer (<see cref="StockUiPointerArt"/>).
         /// </summary>
-        public static bool DrawPointer(StockUiRenderer renderer, UiResourceLibrary library, float x, float y, float scale)
+        public static void DrawHoverPointer(StockUiRenderer renderer, float x, float y)
         {
-            if (!library.TryGetGroup(PointerGroup, out var group) || group.Images.Count == 0) return false;
-            renderer.DrawImage(group.Images[0], x, y, scale);
-            return true;
+            const int size = StockUiPointerArt.Size;
+            float ax = MathF.Round(x) - StockUiPointerArt.HotspotX, ay = MathF.Round(y) - StockUiPointerArt.HotspotY;
+            renderer.DrawTextureRegion(StockUiPointerArt.Arrow.Name, StockUiPointerArt.Arrow, 0, 0, size, size, ax, ay, size, size, PointerColor);
+            float rx = MathF.Round(x + StockUiPointerArt.RingOffsetX - size / 2f), ry = MathF.Round(y + StockUiPointerArt.RingOffsetY - size / 2f);
+            renderer.DrawTextureRegion(StockUiPointerArt.Ring.Name, StockUiPointerArt.Ring, 0, 0, size, size, rx, ry, size, size, PointerColor);
         }
 
         public static void DrawMenuCursor(StockUiRenderer renderer, UiResourceLibrary library, UiMenuFrame frame, UiMenuButton button,

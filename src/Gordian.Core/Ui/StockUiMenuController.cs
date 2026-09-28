@@ -920,6 +920,15 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
+        /// Whether a screen point is over an entry the pointer can click (retail then shows its hover pointer).
+        /// </summary>
+        public bool IsOverEntry(float x, float y)
+        {
+            if (_open.Length == 0) return false;
+            lock (_sync) return TryHit(x, y, out _, out var button, out _) && button != null;
+        }
+
+        /// <summary>
         /// The topmost visible menu under a screen point and the entry there (null over the window's body). Page
         /// arrows sit outside their frame, so buttons are tested before the frame.
         /// </summary>

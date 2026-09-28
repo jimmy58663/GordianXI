@@ -76,7 +76,7 @@ namespace Gordian.App.Graphics
             public required WndProcDelegate Proc { get; init; }
             public required IntPtr OriginalWndProc { get; init; }
             public Action<RawMouseEvent>? Callback { get; set; }
-            public Func<bool>? HideCursor { get; set; }
+            public Func<IntPtr?>? CursorQuery { get; set; }
             public bool TrackingLeave { get; set; }
         }
 
@@ -113,7 +113,7 @@ namespace Gordian.App.Graphics
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool ReleaseCapture();
 
-        // The stock UI draws its own pointer (the "yubi" hand), so the system cursor is hidden over the surface.
+        // The surface's cursor is the stock arrow, or none while the stock UI draws its hover pointer.
         [DllImport("user32.dll")]
         private static extern IntPtr SetCursor(IntPtr hCursor);
 
@@ -210,15 +210,110 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Registers the query that decides whether the system cursor is hidden over this child window (true while
-        /// the stock UI draws its own pointer).
+        /// Registers the query that picks the system cursor over this child window's client area: a cursor handle,
+        /// <see cref="IntPtr.Zero"/> to hide it (the stock UI draws its own pointer), or null for the class default.
         /// </summary>
-        public static void SetHideCursorQuery(IntPtr hwnd, Func<bool>? hideCursor)
+        public static void SetCursorQuery(IntPtr hwnd, Func<IntPtr?>? cursorQuery)
         {
             if (hwnd != IntPtr.Zero && _subclasses.TryGetValue(hwnd, out var state))
             {
-                state.HideCursor = hideCursor;
+                state.CursorQuery = cursorQuery;
             }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ICONINFO
+        {
+            [MarshalAs(UnmanagedType.Bool)] public bool fIcon;
+            public int xHotspot;
+            public int yHotspot;
+            public IntPtr hbmMask;
+            public IntPtr hbmColor;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BITMAPV5HEADER
+        {
+            public uint bV5Size;
+            public int bV5Width;
+            public int bV5Height;
+            public ushort bV5Planes;
+            public ushort bV5BitCount;
+            public uint bV5Compression;
+            public uint bV5SizeImage;
+            public int bV5XPelsPerMeter;
+            public int bV5YPelsPerMeter;
+            public uint bV5ClrUsed;
+            public uint bV5ClrImportant;
+            public uint bV5RedMask;
+            public uint bV5GreenMask;
+            public uint bV5BlueMask;
+            public uint bV5AlphaMask;
+            public uint bV5CSType;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 36)] public byte[] bV5Endpoints;
+            public uint bV5GammaRed;
+            public uint bV5GammaGreen;
+            public uint bV5GammaBlue;
+            public uint bV5Intent;
+            public uint bV5ProfileData;
+            public uint bV5ProfileSize;
+            public uint bV5Reserved;
+        }
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPV5HEADER pbmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bitsPerPixel, IntPtr bits);
+
+        [DllImport("gdi32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DeleteObject(IntPtr obj);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr CreateIconIndirect(ref ICONINFO info);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyCursor(IntPtr cursor);
+
+        /// <summary>
+        /// Creates a colour cursor with per-pixel alpha from straight-alpha RGBA pixels (top row first); destroy it
+        /// with <see cref="DestroyCursor"/>. Returns <see cref="IntPtr.Zero"/> on failure.
+        /// </summary>
+        public static IntPtr CreateCursorFromRgba(byte[] rgba, int width, int height, int hotspotX, int hotspotY)
+        {
+            var header = new BITMAPV5HEADER
+            {
+                bV5Size = (uint)Marshal.SizeOf<BITMAPV5HEADER>(),
+                bV5Width = width,
+                bV5Height = -height, // top-down
+                bV5Planes = 1,
+                bV5BitCount = 32,
+                bV5Compression = 3, // BI_BITFIELDS
+                bV5RedMask = 0x00FF0000,
+                bV5GreenMask = 0x0000FF00,
+                bV5BlueMask = 0x000000FF,
+                bV5AlphaMask = 0xFF000000,
+                bV5Endpoints = new byte[36],
+            };
+            IntPtr color = CreateDIBSection(IntPtr.Zero, ref header, 0, out IntPtr bits, IntPtr.Zero, 0);
+            if (color == IntPtr.Zero) return IntPtr.Zero;
+            var bgra = new byte[width * height * 4];
+            for (int i = 0; i < bgra.Length; i += 4)
+            {
+                bgra[i] = rgba[i + 2];
+                bgra[i + 1] = rgba[i + 1];
+                bgra[i + 2] = rgba[i];
+                bgra[i + 3] = rgba[i + 3];
+            }
+            Marshal.Copy(bgra, 0, bits, bgra.Length);
+            IntPtr mask = CreateBitmap(width, height, 1, 1, IntPtr.Zero);
+            var info = new ICONINFO { fIcon = false, xHotspot = hotspotX, yHotspot = hotspotY, hbmMask = mask, hbmColor = color };
+            IntPtr cursor = CreateIconIndirect(ref info);
+            DeleteObject(color);
+            DeleteObject(mask);
+            return cursor;
         }
 
         private static void SubclassForRawMouseInput(IntPtr hwnd)
@@ -236,9 +331,9 @@ namespace Gordian.App.Graphics
                             // viewport. Claiming the client area makes the messages below arrive here.
                             return (IntPtr)HTCLIENT;
                         case WM_SETCURSOR:
-                            if ((lParam.ToInt64() & 0xFFFF) == HTCLIENT && state.HideCursor?.Invoke() == true)
+                            if ((lParam.ToInt64() & 0xFFFF) == HTCLIENT && state.CursorQuery?.Invoke() is { } cursor)
                             {
-                                SetCursor(IntPtr.Zero);
+                                SetCursor(cursor);
                                 return (IntPtr)1;
                             }
                             break;
