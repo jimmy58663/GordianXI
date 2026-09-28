@@ -301,11 +301,11 @@ namespace Gordian.Core.Events
         #region IEventVmHost
 
         /// <summary>
-        /// How long a prompt message stays open before the event goes on: retail auto-advances NPC talk after a
-        /// pause that grows with the text. Estimated from the maintainer's recording (2026-09-28): a 75-character
-        /// line released the character about a second after it showed (including the script's own half-second wait).
+        /// A prompt message stays open until the player confirms it: retail holds the character and shows a "waiting"
+        /// arrow by the line (the maintainer's second recording, 2026-09-28, without the Enternity addon that had
+        /// auto-confirmed the first one).
         /// </summary>
-        public const double MessageBaseSeconds = 0.3, MessageSecondsPerCharacter = 0.008;
+        public const double PromptOpenSeconds = double.PositiveInfinity;
 
         double IEventVmHost.PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
@@ -321,7 +321,7 @@ namespace Gordian.Core.Events
             int length = 0;
             foreach (string line in lines) length += line.Length;
             GordianLog.Debug("DIALOG", $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}): {(lines.Count > 0 ? lines[0] : string.Empty)}");
-            return decoded.HasPrompt ? MessageBaseSeconds + length * MessageSecondsPerCharacter : 0;
+            return decoded.HasPrompt ? PromptOpenSeconds : 0;
         }
 
         void IEventVmHost.OpenQuery(int messageId, int defaultIndex, uint hiddenMask)

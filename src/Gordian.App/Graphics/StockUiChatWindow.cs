@@ -45,6 +45,10 @@ namespace Gordian.App.Graphics
         // The "kaipage" page-wait arrow (anc "btwait", 10 x 11) marks a window scrolled back from the newest line.
         private const float MoreMarkerInset = 14;
 
+        // The same arrow after a dialog line that waits for Confirm: 2 px past the text, 3 px below the row's top
+        // (the retail recording shows it centred on the text's height).
+        private const float WaitArrowGap = 2, WaitArrowTop = 3;
+
         /// <summary>
         /// Log text colours by channel (half scale, 0x80 = 1.0). From retail captures (2026-09-27): say and system
         /// messages white; server messages (welcome text) violet, about (200, 100, 255); your own tell pink, about
@@ -86,7 +90,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition frame, StockUiLogFont logFont,
             UiFont? titleFallback, StockUiPlacement placement, float frameWidth, float frameHeight, int rows,
-            IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected)
+            IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false)
         {
             float s = placement.Scale;
             var titles = StockUiTitleText.For(library);
@@ -110,6 +114,7 @@ namespace Gordian.App.Graphics
 
             // A line's timestamp has its own colour whatever the line's (retail).
             int stamp = StockUiChatLog.TimestampLength(timestampMode);
+            float newestEnd = 0, newestY = 0;
             for (int k = 0; k < visible.Count; k++)
             {
                 int row = rows - 1 - k;
@@ -120,7 +125,24 @@ namespace Gordian.App.Graphics
                     x = logFont.Draw(renderer, text[..stamp], x, y, s, TimestampColor);
                     text = text[stamp..];
                 }
-                logFont.Draw(renderer, text, x, y, s, ChannelColor(visible[k].Channel));
+                float end = logFont.Draw(renderer, text, x, y, s, ChannelColor(visible[k].Channel));
+                if (k == 0)
+                {
+                    newestEnd = end;
+                    newestY = y;
+                }
+            }
+
+            // An event line waiting for Confirm carries the page-wait arrow right after its text (a retail recording,
+            // 2026-09-28): the "kaipage" group's six-frame gold arrow, stepped like the target cursor.
+            if (dialogWaiting && !scrolledBack && visible.Count > 0 && lines[^1].Channel == ChatLogChannel.Dialog
+                && library.TryGetGroup("kaipage", out var wait) && wait.Images.Count > 0)
+            {
+                int step = (int)(Stopwatch.GetTimestamp() / (Stopwatch.Frequency * StockUiTargetWindow.CursorStepSeconds));
+                int cycle = Math.Max(1, 2 * wait.Images.Count - 2);
+                int frameIndex = step % cycle;
+                if (frameIndex >= wait.Images.Count) frameIndex = cycle - frameIndex;
+                renderer.DrawImage(wait.Images[frameIndex], newestEnd + WaitArrowGap * s, newestY + WaitArrowTop * s, s);
             }
 
             if (scrolledBack && library.TryGetGroup("kaipage", out var marker) && marker.Images.Count > 0)

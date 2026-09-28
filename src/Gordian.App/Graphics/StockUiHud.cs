@@ -119,6 +119,7 @@ namespace Gordian.App.Graphics
                 PointerDrawn = false;
                 return;
             }
+            _dialogWaiting = session.Events.IsWaitingForConfirm;
             Layout = session.ActionService.UiLayout;
             Settings = session.ActionService.UiSettings;
             Drag = session.ActionService.UiDrag;
@@ -441,8 +442,11 @@ namespace Gordian.App.Graphics
             // A window shows at most as many lines as rows (each line wraps to one row or more).
             log.CopyVisible(window, rows, _logLines);
             StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
-                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected);
+                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting);
         }
+
+        /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
+        private bool _dialogWaiting;
 
         /// <summary>
         /// The frame for a log window's "Maximum lines displayed" ("log1".."log8"; "logwindo" is the same frame as
