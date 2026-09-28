@@ -12,6 +12,7 @@ using Gordian.App.Services;
 using Gordian.App.ViewModels;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
+using Gordian.Core.Network;
 using Gordian.Core.Ui;
 
 namespace Gordian.App
@@ -54,6 +55,8 @@ namespace Gordian.App
                 _viewportControl.RawMouseButtonDown += OnRawMouseButtonDown;
                 _viewportControl.RawMouseButtonUp += OnRawMouseButtonUp;
                 _viewportControl.RawMouseMoved += OnRawMouseMoved;
+                _viewportControl.RawMouseLeft += OnRawMouseLeft;
+                _viewportControl.PointerExited += OnViewportPointerExited;
             }
 
             var minimizeBtn = this.FindControl<Button>("MinimizeButton");
@@ -360,13 +363,9 @@ namespace Gordian.App
             // provide. Properties only reports button state, so no transform is needed.
             var btn = AvaloniaInputMapper.ToMouseButton(e.Properties);
 
-            // An unlocked stock UI takes a left press over one of its windows as the start of a drag, not game input.
-            if (e.Properties.IsLeftButtonPressed && TryGetViewportPoint(e, out var point))
-            {
-                var drag = session.ActionService.UiDrag;
-                if (drag.Unlocked) LogUnlockedPress("avalonia", drag, (float)point.X, (float)point.Y);
-                if (drag.OnMouseDown((float)point.X, (float)point.Y)) return;
-            }
+            // An unlocked stock UI takes a left press over one of its windows as the start of a drag, and an open
+            // menu takes presses over it; neither is game input.
+            if (TryGetViewportPoint(e, out var point) && TryStockUiPress("avalonia", session, btn, point)) return;
             session.InputState.SetMouseButtonDown(btn);
 
             if (e.Properties.IsRightButtonPressed)
@@ -385,10 +384,9 @@ namespace Gordian.App
             // release time e.Properties would already show it as up. Also avoids GetCurrentPoint
             // (see OnGamePointerPressed).
             var btn = AvaloniaInputMapper.ToMouseButton(e.InitialPressMouseButton);
-            if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Left && TryGetViewportPoint(e, out var point)
-                && session.ActionService.UiDrag.OnMouseUp((float)point.X, (float)point.Y))
+            if (TryGetViewportPoint(e, out var point) && TryStockUiRelease(session, btn, point))
             {
-                return; // the release ends a stock window drag whose press never reached the input bus
+                return; // the release ends a stock UI press (window drag, menu click) that never reached the input bus
             }
             session.InputState.SetMouseButtonUp(btn);
 
@@ -403,7 +401,7 @@ namespace Gordian.App
         {
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
-            if (TryGetViewportPoint(e, out var point)) session.ActionService.UiDrag.OnMouseMove((float)point.X, (float)point.Y);
+            if (TryGetViewportPoint(e, out var point)) StockUiMove(session, point);
             if (!_isRightDragging || !_lastPointerPosition.HasValue) return;
 
             var currentPos = e.GetPosition(this);
@@ -419,7 +417,54 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
+            // The wheel is routed by focus, not by position, so on Windows it arrives here with the viewport's
+            // pointer known only from the raw moves.
+            Point? point = _lastRawMouse;
+            if (point == null && TryGetViewportPoint(e, out var routed)) point = routed;
+            if (point is { } p && session.ActionService.Menus.OnMouseWheel((float)p.X, (float)p.Y, (float)e.Delta.Y)) return;
             session.InputState.AddMouseWheel((float)e.Delta.Y);
+        }
+
+        /// <summary>
+        /// Offers a mouse press to the stock UI: the unlocked UI's drag (left button), then an open menu under the
+        /// pointer. Returns true when the stock UI took it, so it is not game input.
+        /// </summary>
+        private bool TryStockUiPress(string path, CharacterSession session, Gordian.Core.Input.MouseButton button, Point point)
+        {
+            float x = (float)point.X, y = (float)point.Y;
+            if (button == Gordian.Core.Input.MouseButton.Left)
+            {
+                var drag = session.ActionService.UiDrag;
+                if (drag.Unlocked) LogUnlockedPress(path, drag, x, y);
+                if (drag.OnMouseDown(x, y)) return true;
+            }
+            return session.ActionService.Menus.OnMouseDown(button, x, y);
+        }
+
+        /// <summary>Offers a mouse release to the stock UI; true when its press was the stock UI's.</summary>
+        private static bool TryStockUiRelease(CharacterSession session, Gordian.Core.Input.MouseButton button, Point point)
+        {
+            float x = (float)point.X, y = (float)point.Y;
+            bool dragged = button == Gordian.Core.Input.MouseButton.Left && session.ActionService.UiDrag.OnMouseUp(x, y);
+            bool menu = session.ActionService.Menus.OnMouseUp(button, x, y);
+            return dragged || menu;
+        }
+
+        /// <summary>The pointer moved over the viewport: the stock pointer, the unlocked UI's drag and menu hover follow it.</summary>
+        private static void StockUiMove(CharacterSession session, Point point)
+        {
+            float x = (float)point.X, y = (float)point.Y;
+            session.ActionService.UiPointer.MoveTo(x, y);
+            session.ActionService.UiDrag.OnMouseMove(x, y);
+            session.ActionService.Menus.OnMouseMove(x, y);
+        }
+
+        private void OnViewportPointerExited(object? sender, PointerEventArgs e) => _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Leave();
+
+        private void OnRawMouseLeft()
+        {
+            _lastRawMouse = null;
+            _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Leave();
         }
 
         /// <summary>
@@ -459,13 +504,9 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
-            if (button == Avalonia.Input.MouseButton.Left && _lastRawMouse is { } point)
-            {
-                var drag = session.ActionService.UiDrag;
-                if (drag.Unlocked) LogUnlockedPress("raw", drag, (float)point.X, (float)point.Y);
-                if (drag.OnMouseDown((float)point.X, (float)point.Y)) return; // an unlocked stock window takes the press as a drag
-            }
-            session.InputState.SetMouseButtonDown(AvaloniaInputMapper.ToMouseButton(button));
+            var btn = AvaloniaInputMapper.ToMouseButton(button);
+            if (_lastRawMouse is { } point && TryStockUiPress("raw", session, btn, point)) return;
+            session.InputState.SetMouseButtonDown(btn);
 
             if (button == Avalonia.Input.MouseButton.Right)
             {
@@ -479,12 +520,9 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
-            if (button == Avalonia.Input.MouseButton.Left)
-            {
-                var point = _lastRawMouse ?? default;
-                if (session.ActionService.UiDrag.OnMouseUp((float)point.X, (float)point.Y)) return;
-            }
-            session.InputState.SetMouseButtonUp(AvaloniaInputMapper.ToMouseButton(button));
+            var btn = AvaloniaInputMapper.ToMouseButton(button);
+            if (TryStockUiRelease(session, btn, _lastRawMouse ?? default)) return;
+            session.InputState.SetMouseButtonUp(btn);
 
             if (button == Avalonia.Input.MouseButton.Right)
             {
@@ -498,7 +536,7 @@ namespace Gordian.App
             _lastRawMouse = new Point(x, y);
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
-            session.ActionService.UiDrag.OnMouseMove((float)x, (float)y);
+            StockUiMove(session, new Point(x, y));
             if (!_isRightDragging) return;
 
             if (_lastPointerPosition.HasValue)
@@ -529,8 +567,17 @@ namespace Gordian.App
                 _viewModel.FrameTimeMs = viewportControl.FrameTimeMs;
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
                 _viewModel.GpuName = viewportControl.GpuDeviceName;
+
+                // The stock UI draws its own pointer ("yubi"); on Windows the native surface hides the system cursor
+                // itself (WM_SETCURSOR), elsewhere the control's cursor is hidden while the hand is drawn.
+                if (!OperatingSystem.IsWindows())
+                {
+                    viewportControl.Cursor = viewportControl.StockUi.PointerDrawn ? HiddenCursor : null;
+                }
             }
         }
+
+        private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
 
         protected override void OnClosed(EventArgs e)
         {

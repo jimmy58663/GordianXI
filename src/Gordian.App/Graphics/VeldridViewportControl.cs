@@ -330,6 +330,7 @@ namespace Gordian.App.Graphics
 
                 _childHwnd = Win32ChildWindowHelper.CreateChildWindow(parent.Handle, pixelW, pixelH);
                 Win32ChildWindowHelper.SetRawMouseHandler(_childHwnd, OnRawMouseEvent);
+                Win32ChildWindowHelper.SetHideCursorQuery(_childHwnd, () => StockUi.PointerDrawn);
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
                 lock (_renderLock)
@@ -404,9 +405,17 @@ namespace Gordian.App.Graphics
         /// <summary>Raised on mouse move while over this control's rendering surface, in raw child-local pixels.</summary>
         public event Action<double, double>? RawMouseMoved;
 
+        /// <summary>Raised when the pointer leaves this control's rendering surface.</summary>
+        public event Action? RawMouseLeft;
+
         [SupportedOSPlatform("windows")]
         private void OnRawMouseEvent(Win32ChildWindowHelper.RawMouseEvent e)
         {
+            if (e.Left)
+            {
+                RawMouseLeft?.Invoke();
+                return;
+            }
             RawMouseMoved?.Invoke(e.X, e.Y);
 
             if (e.ButtonDown.HasValue)

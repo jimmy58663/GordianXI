@@ -187,6 +187,9 @@ namespace Gordian.App.Tests.Graphics
                 var promptFrame = promptMenu.Menu.Frame;
                 var promptPlacement = StockUiLayout.Place(promptFrame.Anchor, promptFrame.X, promptFrame.Y, promptFrame.Width, promptFrame.Height, 1, width, height);
                 StockUiMenuWindow.Draw(renderer, library, font, promptMenu, promptPlacement, 0);
+                // The mouse pointer ("yubi", a white hand) over the clear colour, left of the prompt.
+                const float pointerX = 40, pointerY = 40;
+                Assert.True(StockUiMenuWindow.DrawPointer(renderer, library, pointerX, pointerY, 1));
                 renderer.End(framebuffer, width, height);
                 Assert.True(renderer.LastQuadCount > 60, $"{renderer.LastQuadCount} quads");
 
@@ -219,6 +222,18 @@ namespace Gordian.App.Tests.Graphics
                     orange = p.R > 200 && p.R > p.B + 80;
                 }
                 Assert.True(orange, "selected label is not tinted");
+
+                // The hand is light grey-white just below and right of its fingertip (the pointer position).
+                bool hand = false;
+                for (int y = (int)pointerY; y < (int)pointerY + 30 && !hand; y++)
+                {
+                    for (int x = (int)pointerX - 3; x < (int)pointerX + 23 && !hand; x++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        hand = p.R > 180 && p.G > 180 && p.B > 180;
+                    }
+                }
+                Assert.True(hand, "no pointer hand at the mouse position");
                 menus.CloseAll();
                 Assert.False(await prompt);
 

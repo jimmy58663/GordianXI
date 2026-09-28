@@ -17,6 +17,12 @@ namespace Gordian.Core.Ui
     public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked);
 
     /// <summary>
+    /// Where the HUD drew an open menu on the last frame (its frame's top-left in screen pixels and the UI scale),
+    /// for hit-testing the mouse against its buttons. Menus the HUD hides (covered by a later window) are not listed.
+    /// </summary>
+    public readonly record struct StockUiMenuPlacement(StockUiOpenMenu Menu, float X, float Y, float Scale);
+
+    /// <summary>
     /// One stock menu window currently open: its DAT layout, the button under the cursor and its place in the stack.
     /// Instances are immutable to readers except the fields the controller updates (selection, markers, slider
     /// fills, list rows), which are replaced whole so the render thread can read them without a lock.
@@ -741,6 +747,247 @@ namespace Gordian.Core.Ui
             string[] days = { "Firesday", "Earthsday", "Watersday", "Windsday", "Iceday", "Lightningday", "Lightsday", "Darksday" };
             string weekday = days[day % 8];
             return $"Vana'diel time: {weekday}, {year}/{month}/{dayOfMonth} {hour:00}:{minute:00}. Earth time: {utcNow.ToLocalTime():HH:mm:ss}.";
+        }
+
+        #endregion
+
+        #region Mouse
+
+        private volatile StockUiMenuPlacement[] _placements = Array.Empty<StockUiMenuPlacement>();
+        private MouseButton _pressesTaken;
+        private StockUiOpenMenu? _sliderMenu;
+        private UiMenuButton? _sliderButton;
+        private StockUiMenuPlacement _sliderPlacement;
+
+        /// <summary>
+        /// Publishes where the HUD drew the visible menus this frame (render thread), root first; the mouse handlers
+        /// hit-test against the last published set.
+        /// </summary>
+        public void SetScreenPlacements(IReadOnlyList<StockUiMenuPlacement> placements)
+        {
+            var current = _placements;
+            if (current.Length == placements.Count)
+            {
+                bool same = true;
+                for (int i = 0; i < current.Length && same; i++) same = current[i] == placements[i];
+                if (same) return;
+            }
+            var copy = new StockUiMenuPlacement[placements.Count];
+            for (int i = 0; i < copy.Length; i++) copy[i] = placements[i];
+            _placements = copy;
+        }
+
+        /// <summary>
+        /// The pointer moved (screen pixels). Over a button of the menu taking input, the cursor follows the pointer
+        /// (the hovered entry is the selected one); while a slider is held, the value follows it. Returns true when
+        /// the pointer is over an open menu.
+        /// </summary>
+        public bool OnMouseMove(float x, float y)
+        {
+            (StockUiSettingKey Key, int Value)? edit = null;
+            bool changed = false, over;
+            lock (_sync)
+            {
+                if (_sliderMenu != null && _sliderButton != null && ReferenceEquals(Top, _sliderMenu))
+                {
+                    edit = SliderValueAt(_sliderMenu, _sliderPlacement, _sliderButton, x);
+                }
+                over = TryHit(x, y, out var menu, out var button, out _);
+                if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button)
+                    && menu!.SelectedButtonId != button.ButtonId)
+                {
+                    menu.SelectedButtonId = button.ButtonId;
+                    changed = true;
+                }
+            }
+            if (edit is { } e) changed |= ApplyEdit(e.Key, e.Value);
+            if (changed) Changed?.Invoke();
+            return over;
+        }
+
+        /// <summary>
+        /// A mouse button was pressed (screen pixels). Returns true when the press was the menus' (it landed on an
+        /// open menu window), in which case it is not game input. Left on an entry selects and activates it (a
+        /// parent menu still on screen first closes the windows opened from it; a slider takes the value under the
+        /// pointer and follows it until release; a page arrow turns the page); right over a menu cancels, as the
+        /// Cancel key does.
+        /// </summary>
+        public bool OnMouseDown(MouseButton mouseButton, float x, float y)
+        {
+            if (mouseButton is not (MouseButton.Left or MouseButton.Right)) return false;
+            StockUiOpenMenu[] closed = Array.Empty<StockUiOpenMenu>();
+            (StockUiSettingKey Key, int Value)? edit = null;
+            bool activate = false, changed = false;
+            lock (_sync)
+            {
+                if (!TryHit(x, y, out var menu, out var button, out var placement)) return false;
+                _pressesTaken |= mouseButton;
+                // A right press cancels (below, outside the lock); a left press on a window's body only stops there.
+                if (mouseButton == MouseButton.Left && button != null && menu != null)
+                {
+                    var top = Top!;
+                    // A prompt takes its own answer only; the windows behind it wait.
+                    if (top.IsPrompt && !ReferenceEquals(top, menu)) return true;
+                    if (!ReferenceEquals(top, menu))
+                    {
+                        // Clicking an entry of a parent window still on screen leaves the windows opened from it.
+                        int index = Array.IndexOf(_open, menu);
+                        closed = _open[(index + 1)..];
+                        foreach (var m in closed) Remember(m);
+                        _open = _open[..(index + 1)];
+                        changed = true;
+                    }
+
+                    if (IsPageArrow(menu, button))
+                    {
+                        changed |= FlipPage(menu, button.X < 0 ? -1 : 1);
+                    }
+                    else
+                    {
+                        changed |= menu.SelectedButtonId != button.ButtonId;
+                        menu.SelectedButtonId = button.ButtonId;
+                        if (menu.ConfigPage is { } page && page.TryGetSlider(button.ButtonId, out _))
+                        {
+                            _sliderMenu = menu;
+                            _sliderButton = button;
+                            _sliderPlacement = placement;
+                            edit = SliderValueAt(menu, placement, button, x);
+                        }
+                        else
+                        {
+                            activate = true;
+                        }
+                    }
+                }
+            }
+
+            if (mouseButton == MouseButton.Right)
+            {
+                CloseTop();
+                return true;
+            }
+            foreach (var m in closed) m.Prompt?.TrySetResult(false);
+            if (edit is { } e) changed |= ApplyEdit(e.Key, e.Value);
+            if (changed) Changed?.Invoke();
+            if (activate) Activate();
+            return true;
+        }
+
+        /// <summary>
+        /// A mouse button was released. Ends a slider drag; returns true when the matching press was the menus'
+        /// (so the release is not game input either).
+        /// </summary>
+        public bool OnMouseUp(MouseButton mouseButton, float x, float y)
+        {
+            lock (_sync)
+            {
+                if (mouseButton == MouseButton.Left)
+                {
+                    _sliderMenu = null;
+                    _sliderButton = null;
+                }
+                bool taken = (_pressesTaken & mouseButton) != 0;
+                _pressesTaken &= ~mouseButton;
+                return taken;
+            }
+        }
+
+        /// <summary>
+        /// The mouse wheel turned over the screen (<paramref name="delta"/> in notches, positive away from the
+        /// player). Over a scrolling list it scrolls by one entry a notch (no wrap); over any other menu it is only
+        /// swallowed (not the camera's zoom). Returns true when the pointer is over an open menu.
+        /// </summary>
+        public bool OnMouseWheel(float x, float y, float delta)
+        {
+            bool changed = false;
+            lock (_sync)
+            {
+                if (!TryHit(x, y, out var menu, out _, out _)) return false;
+                if (menu is { CanScroll: true } && delta != 0)
+                {
+                    int steps = Math.Max(1, (int)Math.Round(Math.Abs(delta)));
+                    int maxFirst = Math.Max(0, menu.Rows.Count - menu.VisibleRows);
+                    int first = Math.Clamp(menu.FirstRow + (delta > 0 ? -steps : steps), 0, maxFirst);
+                    if (first != menu.FirstRow)
+                    {
+                        BeginScroll(menu, first);
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// The topmost visible menu under a screen point and the entry there (null over the window's body). Page
+        /// arrows sit outside their frame, so buttons are tested before the frame.
+        /// </summary>
+        private bool TryHit(float x, float y, out StockUiOpenMenu? menu, out UiMenuButton? button, out StockUiMenuPlacement placement)
+        {
+            var placements = _placements;
+            var open = _open;
+            for (int i = placements.Length - 1; i >= 0; i--)
+            {
+                var p = placements[i];
+                if (Array.IndexOf(open, p.Menu) < 0 || p.Scale <= 0) continue;
+                float lx = (x - p.X) / p.Scale, ly = (y - p.Y) / p.Scale;
+                UiMenuButton? hit = null;
+                foreach (var b in p.Menu.Menu.Buttons)
+                {
+                    if (lx >= b.X && ly >= b.Y && lx < b.X + b.Width && ly < b.Y + b.Height && IsClickable(p.Menu, b))
+                    {
+                        hit = b;
+                        break;
+                    }
+                }
+                var frame = p.Menu.Menu.Frame;
+                if (hit != null || (lx >= 0 && ly >= 0 && lx < frame.Width && ly < frame.Height))
+                {
+                    menu = p.Menu;
+                    button = hit;
+                    placement = p;
+                    return true;
+                }
+            }
+            menu = null;
+            button = null;
+            placement = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Buttons the pointer can take: those the cursor can reach (list rows only while they show an entry) and a
+        /// paged menu's page arrows (drawn outside the frame only on paged menus).
+        /// </summary>
+        private static bool IsClickable(StockUiOpenMenu menu, UiMenuButton button) =>
+            IsPageArrow(menu, button) || (IsSelectable(button) && IsPopulated(menu, button.ButtonId) && !IsOutsideFrame(menu, button));
+
+        private static bool IsOutsideFrame(StockUiOpenMenu menu, UiMenuButton button) =>
+            button.X < 0 || button.X >= menu.Menu.Frame.Width;
+
+        private static bool IsPageArrow(StockUiOpenMenu menu, UiMenuButton button) =>
+            menu.PageRing.Count > 1 && IsOutsideFrame(menu, button);
+
+        /// <summary>A slider's value at a screen x: the share of the bar left of the pointer, snapped to the setting's step.</summary>
+        private (StockUiSettingKey Key, int Value)? SliderValueAt(StockUiOpenMenu menu, StockUiMenuPlacement placement, UiMenuButton button, float x)
+        {
+            if (menu.ConfigPage is not { } page || !page.TryGetSlider(button.ButtonId, out var slider) || button.Width <= 0) return null;
+            var d = slider.Definition;
+            int step = Math.Max(1, d.Step);
+            float fraction = Math.Clamp(((x - placement.X) / placement.Scale - button.X) / button.Width, 0f, 1f);
+            int value = d.Clamp(d.Min + (int)Math.Round(fraction * (d.Max - d.Min) / step) * step);
+            return value != GetSetting(slider.Key) ? (slider.Key, value) : null;
+        }
+
+        private bool ApplyEdit(StockUiSettingKey key, int value)
+        {
+            SetSetting(key, value);
+            lock (_sync)
+            {
+                if (Top is { } top) Refresh(top);
+            }
+            return true;
         }
 
         #endregion

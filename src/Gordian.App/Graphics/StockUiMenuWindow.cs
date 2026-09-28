@@ -195,6 +195,20 @@ namespace Gordian.App.Graphics
 
         private const string DefaultCursorGroup = "anc_s";
 
+        private const string PointerGroup = "yubi";
+
+        /// <summary>
+        /// The mouse pointer: retail draws the "yubi" hand in place of the system cursor, at the UI scale (it is not
+        /// the menu cursor, which is the frame's "anc_s" arrow). The group is a single 26 x 32 image authored around
+        /// its origin, the fingertip (the quad starts at (-3, -2)). False when the group is missing.
+        /// </summary>
+        public static bool DrawPointer(StockUiRenderer renderer, UiResourceLibrary library, float x, float y, float scale)
+        {
+            if (!library.TryGetGroup(PointerGroup, out var group) || group.Images.Count == 0) return false;
+            renderer.DrawImage(group.Images[0], x, y, scale);
+            return true;
+        }
+
         public static void DrawMenuCursor(StockUiRenderer renderer, UiResourceLibrary library, UiMenuFrame frame, UiMenuButton button,
             StockUiPlacement placement, long timestamp)
         {

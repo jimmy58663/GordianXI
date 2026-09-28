@@ -40,6 +40,9 @@ namespace Gordian.App.Graphics
         private const uint WM_MBUTTONDOWN = 0x0207;
         private const uint WM_MBUTTONUP = 0x0208;
         private const uint WM_NCHITTEST = 0x0084;
+        private const uint WM_SETCURSOR = 0x0020;
+        private const uint WM_MOUSELEAVE = 0x02A3;
+        private const uint TME_LEAVE = 0x00000002;
         private const int HTCLIENT = 1;
 
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -55,12 +58,16 @@ namespace Gordian.App.Graphics
             public RawMouseButton? ButtonDown { get; }
             public RawMouseButton? ButtonUp { get; }
 
-            public RawMouseEvent(double x, double y, RawMouseButton? buttonDown, RawMouseButton? buttonUp)
+            /// <summary>True when the pointer left the window (WM_MOUSELEAVE); the position means nothing then.</summary>
+            public bool Left { get; }
+
+            public RawMouseEvent(double x, double y, RawMouseButton? buttonDown, RawMouseButton? buttonUp, bool left = false)
             {
                 X = x;
                 Y = y;
                 ButtonDown = buttonDown;
                 ButtonUp = buttonUp;
+                Left = left;
             }
         }
 
@@ -69,6 +76,8 @@ namespace Gordian.App.Graphics
             public required WndProcDelegate Proc { get; init; }
             public required IntPtr OriginalWndProc { get; init; }
             public Action<RawMouseEvent>? Callback { get; set; }
+            public Func<bool>? HideCursor { get; set; }
+            public bool TrackingLeave { get; set; }
         }
 
         // Keeps each child window's replacement WndProc delegate (so the GC never collects it out
@@ -103,6 +112,24 @@ namespace Gordian.App.Graphics
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool ReleaseCapture();
+
+        // The stock UI draws its own pointer (the "yubi" hand), so the system cursor is hidden over the surface.
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCursor(IntPtr hCursor);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TRACKMOUSEEVENT
+        {
+            public uint cbSize;
+            public uint dwFlags;
+            public IntPtr hwndTrack;
+            public uint dwHoverTime;
+        }
+
+        // Asks for WM_MOUSELEAVE, so the stock pointer stops drawing once the pointer leaves the surface.
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -182,6 +209,18 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// Registers the query that decides whether the system cursor is hidden over this child window (true while
+        /// the stock UI draws its own pointer).
+        /// </summary>
+        public static void SetHideCursorQuery(IntPtr hwnd, Func<bool>? hideCursor)
+        {
+            if (hwnd != IntPtr.Zero && _subclasses.TryGetValue(hwnd, out var state))
+            {
+                state.HideCursor = hideCursor;
+            }
+        }
+
         private static void SubclassForRawMouseInput(IntPtr hwnd)
         {
             WndProcDelegate newProc = (h, msg, wParam, lParam) =>
@@ -196,7 +235,23 @@ namespace Gordian.App.Graphics
                             // them): neither this subclass nor Avalonia's pointer events ever saw a click over the
                             // viewport. Claiming the client area makes the messages below arrive here.
                             return (IntPtr)HTCLIENT;
+                        case WM_SETCURSOR:
+                            if ((lParam.ToInt64() & 0xFFFF) == HTCLIENT && state.HideCursor?.Invoke() == true)
+                            {
+                                SetCursor(IntPtr.Zero);
+                                return (IntPtr)1;
+                            }
+                            break;
+                        case WM_MOUSELEAVE:
+                            state.TrackingLeave = false;
+                            state.Callback?.Invoke(new RawMouseEvent(0, 0, null, null, left: true));
+                            break;
                         case WM_MOUSEMOVE:
+                            if (!state.TrackingLeave)
+                            {
+                                var track = new TRACKMOUSEEVENT { cbSize = (uint)Marshal.SizeOf<TRACKMOUSEEVENT>(), dwFlags = TME_LEAVE, hwndTrack = h };
+                                state.TrackingLeave = TrackMouseEvent(ref track);
+                            }
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), null, null));
                             break;
                         case WM_LBUTTONDOWN:
