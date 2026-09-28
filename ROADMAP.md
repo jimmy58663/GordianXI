@@ -32,7 +32,7 @@ Four-tier monorepo, clean-room rules, Avalonia MVVM shell, encrypted account pro
 
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 81 S2C decoders / 64 C2S builders, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
-- Open: packet audit gaps (14 uncalled C2S builders, decoded-but-discarded S2C data, dispatcher reachability test).
+- Open: packet audit gaps (14 uncalled C2S builders, decoded-but-discarded S2C data).
 
 ### ✅ Phase 4: World State, DAT Resource Pipeline & Modular VFS
 Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compatible VFS with hot reload. → [docs/world/world-state-and-resources.md](docs/world/world-state-and-resources.md)

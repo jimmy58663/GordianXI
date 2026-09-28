@@ -480,9 +480,7 @@ namespace Gordian.Core.Network.Packets
         public const int NetEndSubPacketSize = 8;
         public const int PosSubPacketSize = 32;
         public const int MapRectSubPacketSize = 24;
-        public const int EventEndSubPacketSize = 20;
         public const int ZoneTransitionSubPacketSize = 8;
-        public const int EventEndXzySubPacketSize = 32;
         public const int ReqLogoutSubPacketSize = 8;
 
         public static void BuildGameOk(Span<byte> destination, ushort sequenceId = 0, uint clientState = 0, uint debugClientFlg = 0)
@@ -616,45 +614,6 @@ namespace Gordian.Core.Network.Packets
             return packet;
         }
 
-        public static void BuildEventEnd(
-            Span<byte> destination,
-            uint uniqueNo,
-            uint endPara,
-            ushort actIndex,
-            ushort mode = 0,
-            ushort eventNum = 0,
-            ushort eventPara = 0,
-            ushort sequenceId = 0)
-        {
-            if (destination.Length < EventEndSubPacketSize)
-                throw new ArgumentException($"Destination must be at least {EventEndSubPacketSize} bytes.", nameof(destination));
-
-            destination.Slice(0, EventEndSubPacketSize).Clear();
-            ushort headerWord = (ushort)(0x05B | (5 << 9));
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
-            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(4, 4), uniqueNo);
-            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(8, 4), endPara);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(12, 2), actIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(14, 2), mode);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(16, 2), eventNum);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(18, 2), eventPara);
-        }
-
-        public static byte[] BuildEventEnd(
-            uint uniqueNo,
-            uint endPara,
-            ushort actIndex,
-            ushort mode = 0,
-            ushort eventNum = 0,
-            ushort eventPara = 0,
-            ushort sequenceId = 0)
-        {
-            byte[] packet = new byte[EventEndSubPacketSize];
-            BuildEventEnd(packet.AsSpan(), uniqueNo, endPara, actIndex, mode, eventNum, eventPara, sequenceId);
-            return packet;
-        }
-
         public static uint MakeFourCc(string tag)
         {
             if (string.IsNullOrEmpty(tag)) return 0;
@@ -721,57 +680,6 @@ namespace Gordian.Core.Network.Packets
         {
             byte[] packet = new byte[ZoneTransitionSubPacketSize];
             BuildZoneTransition(packet.AsSpan(), unknown00, unknown01, sequenceId);
-            return packet;
-        }
-
-        public static void BuildEventEndXzy(
-            Span<byte> destination,
-            float x,
-            float y,
-            float z,
-            uint uniqueNo,
-            uint endPara,
-            ushort actIndex,
-            byte mode = 0,
-            sbyte dir = 0,
-            ushort eventNum = 0,
-            ushort eventPara = 0,
-            ushort sequenceId = 0)
-        {
-            if (destination.Length < EventEndXzySubPacketSize)
-                throw new ArgumentException($"Destination must be at least {EventEndXzySubPacketSize} bytes.", nameof(destination));
-
-            destination.Slice(0, EventEndXzySubPacketSize).Clear();
-            ushort headerWord = (ushort)(0x05C | (8 << 9));
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(4, 4), x);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(8, 4), y);
-            BinaryPrimitives.WriteSingleLittleEndian(destination.Slice(12, 4), z);
-            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(16, 4), uniqueNo);
-            BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(20, 4), endPara);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(24, 2), eventNum);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(26, 2), eventPara);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(28, 2), actIndex);
-            destination[30] = mode;
-            destination[31] = (byte)dir;
-        }
-
-        public static byte[] BuildEventEndXzy(
-            float x,
-            float y,
-            float z,
-            uint uniqueNo,
-            uint endPara,
-            ushort actIndex,
-            byte mode = 0,
-            sbyte dir = 0,
-            ushort eventNum = 0,
-            ushort eventPara = 0,
-            ushort sequenceId = 0)
-        {
-            byte[] packet = new byte[EventEndXzySubPacketSize];
-            BuildEventEndXzy(packet.AsSpan(), x, y, z, uniqueNo, endPara, actIndex, mode, dir, eventNum, eventPara, sequenceId);
             return packet;
         }
 

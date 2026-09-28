@@ -9,6 +9,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
+using Gordian.Core.Network.Packets;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -97,10 +98,10 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void BuildGameOkSubPacket_HasCorrectHeaderAndSize()
+        public void BuildGameOk_HasCorrectHeaderAndSize()
         {
-            byte[] packet = HandshakePackets.BuildGameOkSubPacket(sequenceId: 42);
-            Assert.Equal(HandshakePackets.GameOkSubPacketSize, packet.Length);
+            byte[] packet = LifecycleOutboundPackets.BuildGameOk(sequenceId: 42);
+            Assert.Equal(LifecycleOutboundPackets.GameOkSubPacketSize, packet.Length);
             Assert.Equal(12, packet.Length);
 
             ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
@@ -114,10 +115,10 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void BuildNetEndSubPacket_HasCorrectHeaderAndSize()
+        public void BuildNetEnd_HasCorrectHeaderAndSize()
         {
-            byte[] packet = HandshakePackets.BuildNetEndSubPacket(sequenceId: 100);
-            Assert.Equal(HandshakePackets.NetEndSubPacketSize, packet.Length);
+            byte[] packet = LifecycleOutboundPackets.BuildNetEnd(sequenceId: 100);
+            Assert.Equal(LifecycleOutboundPackets.NetEndSubPacketSize, packet.Length);
             Assert.Equal(8, packet.Length);
 
             ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
