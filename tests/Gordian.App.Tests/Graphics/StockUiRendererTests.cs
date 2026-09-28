@@ -187,6 +187,9 @@ namespace Gordian.App.Tests.Graphics
                 var promptFrame = promptMenu.Menu.Frame;
                 var promptPlacement = StockUiLayout.Place(promptFrame.Anchor, promptFrame.X, promptFrame.Y, promptFrame.Width, promptFrame.Height, 1, width, height);
                 StockUiMenuWindow.Draw(renderer, library, font, promptMenu, promptPlacement, 0);
+                // The hover pointer (the arrow with the grey ring over its tip) over the clear colour, left of the prompt.
+                const float pointerX = 40, pointerY = 40;
+                StockUiMenuWindow.DrawHoverPointer(renderer, pointerX, pointerY);
                 renderer.End(framebuffer, width, height);
                 Assert.True(renderer.LastQuadCount > 60, $"{renderer.LastQuadCount} quads");
 
@@ -219,6 +222,20 @@ namespace Gordian.App.Tests.Graphics
                     orange = p.R > 200 && p.R > p.B + 80;
                 }
                 Assert.True(orange, "selected label is not tinted");
+
+                // The arrow's yellow body runs down from the pointer below the ring; the ring is light grey above it.
+                bool yellow = false;
+                for (int y = (int)pointerY + 10; y < (int)pointerY + 16 && !yellow; y++)
+                {
+                    for (int x = (int)pointerX; x < (int)pointerX + 8 && !yellow; x++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        yellow = p.R > 200 && p.G > 140 && p.B < 140;
+                    }
+                }
+                Assert.True(yellow, "no arrow below the pointer");
+                var ringTop = Pixel(pixels, width, (int)(pointerX + StockUiPointerArt.RingOffsetX), (int)(pointerY + StockUiPointerArt.RingOffsetY - StockUiPointerArt.RingOuterRadius + 0.5f));
+                Assert.True(ringTop.R > 150 && Math.Abs(ringTop.R - ringTop.B) < 24, $"no grey ring above the pointer: {ringTop}");
                 menus.CloseAll();
                 Assert.False(await prompt);
 

@@ -125,6 +125,9 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiDragController UiDrag { get; } = new();
 
+        /// <summary>The mouse pointer over the viewport (the stock UI draws its hover pointer there over menu entries).</summary>
+        public StockUiPointer UiPointer { get; } = new();
+
         /// <summary>
         /// The stock menu system (main menu, sub-menus, yes/no prompts), fed by the locomotion controller's input
         /// tick and drawn by the HUD.

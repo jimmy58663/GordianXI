@@ -47,6 +47,12 @@ namespace Gordian.App.Graphics
         public StockUiDragController Drag { get; private set; } = new();
 
         /// <summary>
+        /// Whether the last frame drew the hover pointer (the pointer over a clickable menu entry), in which case the
+        /// viewport hides the system cursor; otherwise the system cursor is the arrow.
+        /// </summary>
+        public bool PointerDrawn { get; private set; }
+
+        /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
         public void EnsureLoading(ResourceManager? resources)
@@ -108,7 +114,11 @@ namespace Gordian.App.Graphics
             Vector2? targetCursor = null)
         {
             var library = _library;
-            if (!Enabled || library == null || session == null) return;
+            if (!Enabled || library == null || session == null)
+            {
+                PointerDrawn = false;
+                return;
+            }
             Layout = session.ActionService.UiLayout;
             Settings = session.ActionService.UiSettings;
             Drag = session.ActionService.UiDrag;
@@ -138,6 +148,7 @@ namespace Gordian.App.Graphics
             }
             Drag.EndFrame();
             if (unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
+            PointerDrawn = DrawPointer(renderer, session);
             renderer.End(framebuffer, width, height);
         }
 
@@ -180,8 +191,10 @@ namespace Gordian.App.Graphics
             StockUiMenuController menus, uint width, uint height)
         {
             var open = menus.OpenMenus;
+            _menuPlacements.Clear();
             if (open.Count == 0)
             {
+                menus.SetScreenPlacements(_menuPlacements);
                 if (Drag.Unlocked && library.TryGetMenu("menuwind", out var closedMenu))
                 {
                     DrawPlaceholder(renderer, StockUiWindowIds.MainMenu, closedMenu, ResolveWindow(StockUiWindowIds.MainMenu, closedMenu.Frame, width, height, out _));
@@ -192,7 +205,11 @@ namespace Gordian.App.Graphics
 
             var rootFrame = open[0].Menu.Frame;
             var root = ResolveWindow(StockUiWindowIds.MainMenu, rootFrame, width, height, out _);
-            if (root.Hidden) return;
+            if (root.Hidden)
+            {
+                menus.SetScreenPlacements(_menuPlacements);
+                return;
+            }
             var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
             float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
 
@@ -218,7 +235,23 @@ namespace Gordian.App.Graphics
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp);
+                _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
+            menus.SetScreenPlacements(_menuPlacements);
+        }
+
+        private readonly List<StockUiMenuPlacement> _menuPlacements = new();
+
+        /// <summary>
+        /// Over a clickable menu entry the system cursor is hidden and the hover pointer (arrow and ring) is drawn here,
+        /// over everything; elsewhere the system cursor is the arrow itself. Returns whether it was drawn.
+        /// </summary>
+        private static bool DrawPointer(StockUiRenderer renderer, CharacterSession session)
+        {
+            if (!session.ActionService.UiPointer.TryGetPosition(out float x, out float y)) return false;
+            if (!session.ActionService.Menus.IsOverEntry(x, y)) return false;
+            StockUiMenuWindow.DrawHoverPointer(renderer, x, y);
+            return true;
         }
 
         /// <summary>

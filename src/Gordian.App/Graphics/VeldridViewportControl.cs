@@ -316,6 +316,7 @@ namespace Gordian.App.Graphics
         private ZoneTerrainRenderer? _renderer;
         private StockUiRenderer? _stockUiRenderer;
         private IntPtr _childHwnd = IntPtr.Zero;
+        private IntPtr _arrowCursor = IntPtr.Zero;
         private readonly object _renderLock = new();
         private CancellationTokenSource? _renderLoopCts;
         private Task? _renderTask;
@@ -330,6 +331,14 @@ namespace Gordian.App.Graphics
 
                 _childHwnd = Win32ChildWindowHelper.CreateChildWindow(parent.Handle, pixelW, pixelH);
                 Win32ChildWindowHelper.SetRawMouseHandler(_childHwnd, OnRawMouseEvent);
+                if (_arrowCursor == IntPtr.Zero)
+                {
+                    var arrow = StockUiPointerArt.Arrow;
+                    _arrowCursor = Win32ChildWindowHelper.CreateCursorFromRgba(arrow.RgbaPixels, arrow.Width, arrow.Height,
+                        StockUiPointerArt.HotspotX, StockUiPointerArt.HotspotY);
+                }
+                // The stock arrow over the viewport; hidden while the HUD draws the hover pointer over a menu entry.
+                Win32ChildWindowHelper.SetCursorQuery(_childHwnd, () => StockUi.PointerDrawn ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null);
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
                 lock (_renderLock)
@@ -386,6 +395,11 @@ namespace Gordian.App.Graphics
                     Win32ChildWindowHelper.DestroyChildWindow(_childHwnd);
                     _childHwnd = IntPtr.Zero;
                 }
+                if (OperatingSystem.IsWindows() && _arrowCursor != IntPtr.Zero)
+                {
+                    Win32ChildWindowHelper.DestroyCursor(_arrowCursor);
+                    _arrowCursor = IntPtr.Zero;
+                }
             }
 
             base.DestroyNativeControlCore(control);
@@ -404,9 +418,17 @@ namespace Gordian.App.Graphics
         /// <summary>Raised on mouse move while over this control's rendering surface, in raw child-local pixels.</summary>
         public event Action<double, double>? RawMouseMoved;
 
+        /// <summary>Raised when the pointer leaves this control's rendering surface.</summary>
+        public event Action? RawMouseLeft;
+
         [SupportedOSPlatform("windows")]
         private void OnRawMouseEvent(Win32ChildWindowHelper.RawMouseEvent e)
         {
+            if (e.Left)
+            {
+                RawMouseLeft?.Invoke();
+                return;
+            }
             RawMouseMoved?.Invoke(e.X, e.Y);
 
             if (e.ButtonDown.HasValue)

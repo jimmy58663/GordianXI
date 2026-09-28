@@ -403,5 +403,188 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top.Name);
             Assert.Equal(2, menus.Top.SelectedButtonId);
         }
+
+        #region Mouse
+
+        /// <summary>Publishes every open menu as drawn at the given screen origins (scale 2), root first.</summary>
+        private static void Place(StockUiMenuController menus, params (float X, float Y)[] origins)
+        {
+            var placements = new List<StockUiMenuPlacement>();
+            for (int i = 0; i < menus.OpenMenus.Count; i++) placements.Add(new StockUiMenuPlacement(menus.OpenMenus[i], origins[i].X, origins[i].Y, 2));
+            menus.SetScreenPlacements(placements);
+        }
+
+        /// <summary>The screen centre of a List() row (index from 0) for a menu drawn at (x, y) at scale 2.</summary>
+        private static (float X, float Y) Row(float x, float y, int index) => (x + (16 + 44) * 2, y + (6 + 16 * index + 8) * 2);
+
+        [Fact]
+        public void Mouse_HoverSelectsAndLeftClickActivates()
+        {
+            var menus = Controller();
+            menus.OpenMainMenu();
+            menus.Move(InputAction.MenuRight); // page 2: 1, 2, 7 (Config), 12
+            Place(menus, (200, 100));
+
+            var config = Row(200, 100, 2);
+            Assert.True(menus.OnMouseMove(config.X, config.Y));
+            Assert.Equal(7, menus.Top!.SelectedButtonId);
+            Assert.False(menus.OnMouseMove(10, 10)); // off the menu: the cursor stays
+            Assert.Equal(7, menus.Top.SelectedButtonId);
+
+            Assert.True(menus.OnMouseDown(MouseButton.Left, config.X, config.Y));
+            Assert.Equal(StockUiMenuEntries.ConfigMenu, menus.Top!.Name);
+            Assert.True(menus.OnMouseUp(MouseButton.Left, config.X, config.Y)); // the release is the menu's too
+        }
+
+        [Fact]
+        public void Mouse_ClickOutsideMenusIsGameInput_ClickOnBodyIsSwallowed()
+        {
+            var menus = Controller();
+            Assert.False(menus.OnMouseDown(MouseButton.Left, 250, 150)); // nothing open
+            menus.OpenMainMenu();
+            Place(menus, (200, 100));
+
+            Assert.False(menus.OnMouseDown(MouseButton.Left, 10, 10));
+            Assert.False(menus.OnMouseUp(MouseButton.Left, 10, 10));
+            // The frame's left margin, beside the rows: the menu's, but it selects nothing.
+            Assert.True(menus.OnMouseDown(MouseButton.Left, 204, 130));
+            Assert.Equal(StockUiMenuEntries.MainMenu, menus.Top!.Name);
+            Assert.Single(menus.OpenMenus);
+            Assert.True(menus.OnMouseUp(MouseButton.Left, 204, 130));
+        }
+
+        [Fact]
+        public void Mouse_RightClickOverMenuCancels()
+        {
+            var menus = Controller();
+            menus.OpenMainMenu();
+            menus.Move(InputAction.MenuRight);
+            menus.Move(InputAction.MenuDown);
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // Config
+            Place(menus, (200, 100), (200, 100));
+
+            Assert.False(menus.OnMouseDown(MouseButton.Right, 10, 10)); // camera look, not cancel
+            Assert.False(menus.OnMouseUp(MouseButton.Right, 10, 10));
+            var row = Row(200, 100, 0);
+            Assert.True(menus.OnMouseDown(MouseButton.Right, row.X, row.Y));
+            Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top!.Name);
+            Assert.True(menus.OnMouseUp(MouseButton.Right, row.X, row.Y));
+        }
+
+        [Fact]
+        public void Mouse_ClickOnParentWindowClosesTheWindowsAboveIt()
+        {
+            var menus = Controller();
+            menus.OpenMainMenu();
+            menus.Move(InputAction.MenuRight);
+            menus.Move(InputAction.MenuDown);
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // Config over page 2
+            Assert.Equal(2, menus.OpenMenus.Count);
+            Place(menus, (500, 100), (200, 100)); // (as if side by side)
+
+            var notices = new List<string>();
+            menus.NoticePosted += notices.Add;
+            var missions = Row(500, 100, 0);
+            Assert.True(menus.OnMouseDown(MouseButton.Left, missions.X, missions.Y));
+            Assert.Single(menus.OpenMenus);
+            Assert.Equal(1, menus.Top!.SelectedButtonId);
+            Assert.Single(notices); // Missions: not available yet
+        }
+
+        [Fact]
+        public async Task Mouse_PromptTakesOnlyItsOwnAnswer()
+        {
+            var menus = Controller();
+            menus.OpenMainMenu();
+            var answer = menus.PromptYesNoAsync("Log out?", defaultYes: false);
+            Place(menus, (500, 100), (200, 100));
+
+            var parentRow = Row(500, 100, 1);
+            Assert.True(menus.OnMouseDown(MouseButton.Left, parentRow.X, parentRow.Y)); // swallowed, ignored
+            Assert.Equal(2, menus.OpenMenus.Count);
+            Assert.False(answer.IsCompleted);
+
+            var yes = Row(200, 100, 0);
+            Assert.True(menus.OnMouseDown(MouseButton.Left, yes.X, yes.Y));
+            Assert.True(await answer);
+            Assert.Single(menus.OpenMenus);
+        }
+
+        [Fact]
+        public void Mouse_SliderTakesTheValueUnderThePointerAndFollowsTheDrag()
+        {
+            var library = UiResourceLibrary.FromDefinitions(new[]
+            {
+                List(StockUiConfigPages.Window1SettingsPage, 16, 48, UiAnchor.TopLeft, 1, 2, 3, 4, 5, 6),
+            });
+            var menus = new StockUiMenuController { Library = library };
+            Assert.True(menus.Open(StockUiConfigPages.Window1SettingsPage));
+            Place(menus, (0, 0));
+
+            // Button 3 ("Maximum lines displayed", 1-8) spans x 16..104 at scale 2 = 32..208 on screen.
+            float y = Row(0, 0, 2).Y;
+            Assert.True(menus.OnMouseDown(MouseButton.Left, 33, y));
+            Assert.Equal(1, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            menus.OnMouseMove(120, y); // halfway: 1 + 3.5 steps rounds to 5
+            Assert.Equal(5, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            menus.OnMouseMove(400, y); // past the end: clamped
+            Assert.Equal(8, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            menus.OnMouseUp(MouseButton.Left, 400, y);
+            menus.OnMouseMove(33, y); // released: the value stays
+            Assert.Equal(8, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(3, menus.Top!.SelectedButtonId);
+        }
+
+        [Fact]
+        public void Mouse_WheelScrollsAListWithoutWrapping()
+        {
+            var rows = Enumerable.Range(1, StockUiConfigPages.ChatFilterRowsPerPage).ToArray();
+            var library = UiResourceLibrary.FromDefinitions(new[] { List(StockUiConfigPages.ChatFiltersPage, 16, 48, UiAnchor.TopLeft, rows) });
+            var menus = new StockUiMenuController { Library = library };
+            menus.Open(StockUiConfigPages.ChatFiltersPage);
+            Place(menus, (0, 0));
+            var row = Row(0, 0, 0);
+
+            Assert.True(menus.OnMouseWheel(row.X, row.Y, 1)); // already at the top
+            Assert.Equal(0, menus.Top!.FirstRow);
+            Assert.True(menus.OnMouseWheel(row.X, row.Y, -2));
+            Assert.Equal(2, menus.Top.FirstRow);
+            Assert.False(menus.OnMouseWheel(1000, 1000, -1)); // off the menu: the camera's zoom
+            Assert.Equal(2, menus.Top.FirstRow);
+        }
+
+        [Fact]
+        public void Mouse_PageArrowsTurnThePage()
+        {
+            static UiMenuDefinition WithArrows(UiMenuDefinition menu) => new()
+            {
+                Name = menu.Name,
+                Frame = menu.Frame,
+                Buttons = menu.Buttons.Concat(new[]
+                {
+                    new UiMenuButton { ButtonId = 13, X = -16, Y = 6, Width = 16, Height = 16, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+                    new UiMenuButton { ButtonId = 14, X = 113, Y = 6, Width = 16, Height = 16, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 },
+                }).ToList(),
+            };
+            var library = UiResourceLibrary.FromDefinitions(new[]
+            {
+                WithArrows(List(StockUiMenuEntries.MainMenu, 384, 48, UiAnchor.TopRight, 1, 2, 3)),
+                WithArrows(List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 1, 2, 7, 12)),
+            });
+            var menus = new StockUiMenuController { Library = library };
+            menus.OpenMainMenu();
+            Place(menus, (200, 100));
+
+            Assert.True(menus.OnMouseDown(MouseButton.Left, 200 + 120 * 2, 100 + 10 * 2)); // right arrow
+            Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top!.Name);
+            Place(menus, (200, 100));
+            Assert.True(menus.OnMouseDown(MouseButton.Left, 200 - 8 * 2, 100 + 10 * 2)); // left arrow
+            Assert.Equal(StockUiMenuEntries.MainMenu, menus.Top!.Name);
+            Assert.Single(menus.OpenMenus);
+        }
+
+        #endregion
     }
 }
