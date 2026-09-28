@@ -73,6 +73,48 @@ namespace Gordian.App.Graphics
             _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
         };
 
+        /// <summary>
+        /// Advances a window's slide: the offset decays at one row per <see cref="RowSlideSeconds"/>, and the rows of
+        /// lines added since the last frame are added to it, so they start below the window's bottom edge. Returns
+        /// the offset in rows (0 when idle or without a state).
+        /// </summary>
+        private static float UpdateSlide(LogScrollState? scroll, IReadOnlyList<ChatLogLine> lines, StockUiLogFont logFont, float textWidth,
+            int timestampMode, int rows)
+        {
+            if (scroll == null) return 0;
+            long now = Stopwatch.GetTimestamp();
+            if (scroll.LastTimestamp != 0)
+            {
+                double elapsed = (now - scroll.LastTimestamp) / (double)Stopwatch.Frequency;
+                scroll.OffsetRows = Math.Max(0, scroll.OffsetRows - (float)(elapsed / RowSlideSeconds));
+            }
+            scroll.LastTimestamp = now;
+
+            var newest = lines.Count > 0 ? lines[^1] : null;
+            if (!ReferenceEquals(newest, scroll.Newest))
+            {
+                if (scroll.Newest != null && newest != null)
+                {
+                    int newRows = 0;
+                    bool found = false;
+                    for (int i = lines.Count - 1; i >= 0 && newRows < rows; i--)
+                    {
+                        if (ReferenceEquals(lines[i], scroll.Newest))
+                        {
+                            found = true;
+                            break;
+                        }
+                        newRows += StockUiChatLog.GetWrappedRows(lines[i], logFont.GetAdvance, textWidth, timestampMode).Count;
+                    }
+                    // The previous newest line may have left the copied window; the rows counted are still the new ones.
+                    _ = found;
+                    scroll.OffsetRows = Math.Min(rows, scroll.OffsetRows + newRows);
+                }
+                scroll.Newest = newest;
+            }
+            return scroll.OffsetRows;
+        }
+
         /// <summary>Timestamp colour: pale yellow, about (255, 255, 228), in a retail capture (2026-09-27).</summary>
         public static readonly UiColor TimestampColor = new(0x7F, 0x7F, 0x72, 0x7F);
 
@@ -84,13 +126,34 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// The slide of a log window's new rows (retail recording, 2026-09-28): a new row enters from the window's
+        /// bottom edge and every row above moves up one pitch over about a third of a second, a wrapped line's rows
+        /// one after another. Kept per window by the HUD; <see cref="OffsetRows"/> is how many rows the content
+        /// still sits below its resting place.
+        /// </summary>
+        public sealed class LogScrollState
+        {
+            public ChatLogLine? Newest;
+            public float OffsetRows;
+            public long LastTimestamp;
+        }
+
+        /// <summary>Seconds a new row takes to slide up one pitch (about ten 30 fps frames in the recording).</summary>
+        public const double RowSlideSeconds = 0.3;
+
+        /// <summary>Rows drawn beyond the window's count while sliding, so the rows leaving the top move out rather than vanish.</summary>
+        private const int SlideExtraRows = 2;
+
+        /// <summary>
         /// Draws a log window: the frame (<paramref name="frameWidth"/> x <paramref name="frameHeight"/>, opaque when
         /// <paramref name="selected"/> for scrolling), its title over the top border, and <paramref name="rows"/>
-        /// rows of text from the top, the newest line on the last row; the page-wait arrow when scrolled back.
+        /// rows of text from the top, the newest line on the last row; the page-wait arrow when scrolled back. With a
+        /// <paramref name="scroll"/> state, rows that arrived since the last frame slide in from the bottom.
         /// </summary>
         public static void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition frame, StockUiLogFont logFont,
             UiFont? titleFallback, StockUiPlacement placement, float frameWidth, float frameHeight, int rows,
-            IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false)
+            IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false,
+            LogScrollState? scroll = null)
         {
             float s = placement.Scale;
             var titles = StockUiTitleText.For(library);
@@ -104,20 +167,27 @@ namespace Gordian.App.Graphics
             float textWidth = frameWidth - TextLeft - TextRight;
             if (rows <= 0 || textWidth <= 0) return;
 
-            // Collect wrapped rows from the newest line back until the window is full.
-            var visible = new List<(string Text, ChatLogChannel Channel, bool FirstRow)>(rows);
-            for (int i = lines.Count - 1; i >= 0 && visible.Count < rows; i--)
+            // Collect wrapped rows from the newest line back until the window is full (and a little past it, for the
+            // rows leaving the top while the content slides).
+            int collect = rows + SlideExtraRows;
+            var visible = new List<(string Text, ChatLogChannel Channel, bool FirstRow)>(collect);
+            for (int i = lines.Count - 1; i >= 0 && visible.Count < collect; i--)
             {
                 var wrapped = StockUiChatLog.GetWrappedRows(lines[i], logFont.GetAdvance, textWidth, timestampMode);
-                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < rows; r--) visible.Add((wrapped[r], lines[i].Channel, r == 0));
+                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < collect; r--) visible.Add((wrapped[r], lines[i].Channel, r == 0));
             }
+
+            float slide = scrolledBack ? 0 : UpdateSlide(scroll, lines, logFont, textWidth, timestampMode, rows);
+            bool clipped = slide > 0;
+            if (clipped) renderer.SetClip(placement.X, placement.Y + RowTop * s, frameWidth * s, rows * RowPitch * s);
 
             // A line's timestamp has its own colour whatever the line's (retail).
             int stamp = StockUiChatLog.TimestampLength(timestampMode);
             float newestEnd = 0, newestY = 0;
             for (int k = 0; k < visible.Count; k++)
             {
-                int row = rows - 1 - k;
+                float row = rows - 1 - k + slide;
+                if (row >= rows || row <= -1) continue;
                 float x = placement.X + TextLeft * s, y = placement.Y + (RowTop + row * RowPitch) * s;
                 var text = visible[k].Text.AsSpan();
                 if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
@@ -132,6 +202,7 @@ namespace Gordian.App.Graphics
                     newestY = y;
                 }
             }
+            if (clipped) renderer.ClearClip();
 
             // An event line waiting for Confirm carries the page-wait arrow right after its text (a retail recording,
             // 2026-09-28): the "kaipage" group's six-frame gold arrow, stepped like the target cursor.

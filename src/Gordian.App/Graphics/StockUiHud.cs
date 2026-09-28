@@ -439,11 +439,16 @@ namespace Gordian.App.Graphics
                 renderer.DrawMenu(menu, placement, includeButtons: false, frameWidth, frameHeight: frameHeight);
                 return;
             }
-            // A window shows at most as many lines as rows (each line wraps to one row or more).
-            log.CopyVisible(window, rows, _logLines);
+            // A window shows at most as many lines as rows (each line wraps to one row or more); two more are copied
+            // for the rows that slide out of the top while new ones slide in.
+            log.CopyVisible(window, rows + 2, _logLines);
             StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
-                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting);
+                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting,
+                _logScroll[Math.Clamp(window - 1, 0, 1)]);
         }
+
+        /// <summary>Each log window's slide of newly arrived rows (see StockUiChatWindow.LogScrollState).</summary>
+        private readonly StockUiChatWindow.LogScrollState[] _logScroll = { new(), new() };
 
         /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
         private bool _dialogWaiting;
