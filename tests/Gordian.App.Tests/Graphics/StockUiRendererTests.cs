@@ -781,6 +781,89 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Renders the unlocked UI's editing overlay (chunk 4b) at 1:1: the party window with its outline and label,
+        /// and the empty status icon grid as a filled placeholder; writes unlocked_overlay.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersUnlockedOverlayOutlinesAndPlaceholders()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+            Assert.True(library.TryGetMenu("ptw0", out var solo));
+            Assert.True(library.TryGetMenu("buff", out var grid));
+
+            const uint width = 512, height = 448;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiOverlayTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.2f, 0.3f, 0.2f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var layout = new StockUiLayout { Unlocked = true };
+                var drag = new StockUiDragController();
+                drag.BeginFrame(layout, width, height);
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+
+                var party = layout.Resolve(StockUiWindowIds.Party, solo.Frame, width, height);
+                renderer.DrawMenu(solo, party, includeButtons: false);
+                drag.Register(StockUiWindowIds.Party, solo.Frame, party);
+                var button = StockUiDragOverlay.ResetButtonRect(font, width, layout.Scale);
+                drag.RegisterButton(StockUiDragController.ResetPositionsButton, button.X, button.Y, button.Width, button.Height, layout.Scale);
+                var statusPlacement = layout.Resolve(StockUiWindowIds.StatusIcons, grid.Frame, width, height);
+                var status = StockUiTargetWindow.StatusGridExtent(grid, statusPlacement, 0);
+                Assert.True(status.Height >= 24 && status.Width >= 9 * 24); // the icon slots, not the frame strip
+                drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, statusPlacement, status.X, status.Y, status.Width, status.Height, placeholder: true);
+                drag.EndFrame();
+
+                drag.OnMouseMove(party.X + 5, party.Y + 5); // hovering the party window
+                Assert.Equal(StockUiWindowIds.Party, drag.HoveredWindow);
+                StockUiDragOverlay.Draw(renderer, font, drag.Regions, drag.HoveredWindow, drag.DraggingWindow);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "unlocked_overlay.png"), pixels, (int)width, (int)height);
+                }
+
+                var clear = Pixel(pixels, width, 10, 200);
+                // The status grid has no art of its own: its placeholder fill and outline are what make it visible.
+                Assert.NotEqual(clear, Pixel(pixels, width, (int)status.X, (int)status.Y));
+                Assert.NotEqual(clear, Pixel(pixels, width, (int)(status.X + status.Width / 2), (int)(status.Y + status.Height / 2)));
+                // The party window's outline is brighter than its translucent background beside it.
+                var outline = Pixel(pixels, width, (int)party.X, (int)party.Y + 20);
+                var body = Pixel(pixels, width, (int)party.X + 6, (int)party.Y + 20);
+                Assert.True(outline.R + outline.G + outline.B > body.R + body.G + body.B);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         private static byte[] ReadBack(Veldrid.GraphicsDevice gd, Veldrid.Texture source, uint width, uint height)
         {
             var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, source.Format, Veldrid.TextureUsage.Staging));

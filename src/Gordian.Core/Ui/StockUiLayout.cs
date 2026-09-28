@@ -110,6 +110,12 @@ namespace Gordian.Core.Ui
         public int WindowSkin { get; set; } = 1;
 
         /// <summary>
+        /// Opt-in (not in the legacy client): the stock windows are outlined and can be dragged with the mouse
+        /// (<c>/uilayout unlock</c>). Saved with the layout, so a player who unlocked their UI keeps it unlocked.
+        /// </summary>
+        public bool Unlocked { get; set; }
+
+        /// <summary>
         /// Overrides keyed by logical window id (<see cref="StockUiWindowIds"/>), case-insensitive. Ids are logical
         /// rather than menu names because a window swaps layouts at runtime (the party window uses "ptw1".."ptw6" by
         /// member count, the log window "log1".."log8" by line count), all sharing one anchor.
@@ -251,6 +257,13 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
+        /// <summary>Unlocks or locks the drag mode (persisted).</summary>
+        public void SetUnlocked(bool unlocked)
+        {
+            lock (_sync) Unlocked = unlocked;
+            Changed?.Invoke();
+        }
+
         /// <summary>Restores one window's authored placement.</summary>
         public void Reset(string windowId)
         {
@@ -259,7 +272,27 @@ namespace Gordian.Core.Ui
             if (removed) Changed?.Invoke();
         }
 
-        /// <summary>Restores the authored layout for every window and the retail scale.</summary>
+        /// <summary>
+        /// Puts every window back at its retail position (the unlocked UI's "Default positions" button), keeping
+        /// per-window scales and hidden flags, the global scale, the skin and the other options.
+        /// </summary>
+        public void ResetPositions()
+        {
+            lock (_sync)
+            {
+                foreach (var id in new List<string>(Windows.Keys))
+                {
+                    var o = Windows[id];
+                    o.X = null;
+                    o.Y = null;
+                    o.Anchor = null;
+                    Prune(id);
+                }
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>Restores the authored layout for every window, the retail scale and the locked UI.</summary>
         public void ResetAll()
         {
             lock (_sync)
@@ -267,6 +300,7 @@ namespace Gordian.Core.Ui
                 Windows.Clear();
                 Scale = 1.0f;
                 WindowSkin = 1;
+                Unlocked = false;
                 ShowPartyTp = false;
                 ShowPartyStatusIcons = false;
                 PartyStatusIconSide = PartyStatusIconSide.Left;

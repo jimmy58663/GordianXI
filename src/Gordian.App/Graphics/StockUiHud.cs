@@ -43,6 +43,9 @@ namespace Gordian.App.Graphics
 
         public UiResourceLibrary? Library => _library;
 
+        /// <summary>The unlocked-UI drag state used for the last frame (the session's, see PlayerActionService.UiDrag).</summary>
+        public StockUiDragController Drag { get; private set; } = new();
+
         /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
@@ -108,7 +111,9 @@ namespace Gordian.App.Graphics
             if (!Enabled || library == null || session == null) return;
             Layout = session.ActionService.UiLayout;
             Settings = session.ActionService.UiSettings;
+            Drag = session.ActionService.UiDrag;
             EnsureWindowSkin(library, Layout.WindowSkin);
+            Drag.BeginFrame(Layout, width, height);
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
@@ -125,7 +130,44 @@ namespace Gordian.App.Graphics
             DrawTargetWindow(renderer, library, session, party, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
             DrawMenus(renderer, library, session, menus, width, height);
+            bool unlocked = Drag.Unlocked;
+            if (unlocked)
+            {
+                var button = StockUiDragOverlay.ResetButtonRect(_font, width, Layout.Scale);
+                Drag.RegisterButton(StockUiDragController.ResetPositionsButton, button.X, button.Y, button.Width, button.Height, Layout.Scale);
+            }
+            Drag.EndFrame();
+            if (unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// Resolves a persistent window's placement, substituting the transient position while the player drags it
+        /// (the layout is only written when the drag ends). <paramref name="moved"/> is true when the window has left
+        /// its retail place, by override or by the drag in progress, so the default stacking (target on party, log
+        /// stretched to the party window, input line on Window 1) no longer applies.
+        /// </summary>
+        private StockUiPlacement ResolveWindow(string windowId, UiMenuFrame frame, uint width, uint height, out bool moved)
+        {
+            var placement = Layout.Resolve(windowId, frame, width, height);
+            moved = Layout.HasPositionOverride(windowId);
+            if (Drag.TryGetDragPosition(windowId, out float x, out float y))
+            {
+                placement = placement with { X = x, Y = y };
+                moved = true;
+            }
+            return placement;
+        }
+
+        /// <summary>
+        /// While unlocked, a window with nothing to show (no target, no status effects, no alliance, closed menu or
+        /// input line) is drawn as an empty frame so it can still be placed.
+        /// </summary>
+        private void DrawPlaceholder(StockUiRenderer renderer, string windowId, UiMenuDefinition menu, StockUiPlacement placement)
+        {
+            if (!Drag.Unlocked || placement.Hidden) return;
+            renderer.DrawMenu(menu, placement, includeButtons: false);
+            Drag.Register(windowId, menu.Frame, placement, placeholder: true);
         }
 
         /// <summary>
@@ -138,11 +180,18 @@ namespace Gordian.App.Graphics
             StockUiMenuController menus, uint width, uint height)
         {
             var open = menus.OpenMenus;
-            if (open.Count == 0) return;
+            if (open.Count == 0)
+            {
+                if (Drag.Unlocked && library.TryGetMenu("menuwind", out var closedMenu))
+                {
+                    DrawPlaceholder(renderer, StockUiWindowIds.MainMenu, closedMenu, ResolveWindow(StockUiWindowIds.MainMenu, closedMenu.Frame, width, height, out _));
+                }
+                return;
+            }
             long timestamp = Stopwatch.GetTimestamp();
 
             var rootFrame = open[0].Menu.Frame;
-            var root = Layout.Resolve(StockUiWindowIds.MainMenu, rootFrame, width, height);
+            var root = ResolveWindow(StockUiWindowIds.MainMenu, rootFrame, width, height, out _);
             if (root.Hidden) return;
             var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
             float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
@@ -158,6 +207,7 @@ namespace Gordian.App.Graphics
                 if (i == 0)
                 {
                     placement = root;
+                    Drag.Register(StockUiWindowIds.MainMenu, rootFrame, root);
                 }
                 else
                 {
@@ -202,15 +252,21 @@ namespace Gordian.App.Graphics
         {
             var target = session.ActionService.CurrentTarget;
             var font = _font;
-            if (target == null || font == null || !library.TryGetMenu("targetwi", out var menu)) return;
+            if (!library.TryGetMenu("targetwi", out var menu)) return;
 
-            var placement = Layout.Resolve(StockUiWindowIds.Target, menu.Frame, width, height);
+            var placement = ResolveWindow(StockUiWindowIds.Target, menu.Frame, width, height, out bool moved);
             if (placement.Hidden) return;
-            if (!Layout.HasPositionOverride(StockUiWindowIds.Target) && party is { Hidden: false } p)
+            if (!moved && party is { Hidden: false } p)
             {
                 placement = placement with { Y = Math.Max(0, p.Y - (menu.Frame.Height + 2) * placement.Scale) };
             }
+            if (target == null || font == null)
+            {
+                DrawPlaceholder(renderer, StockUiWindowIds.Target, menu, placement);
+                return;
+            }
             renderer.DrawMenu(menu, placement, includeButtons: false);
+            Drag.Register(StockUiWindowIds.Target, menu.Frame, placement);
 
             var partyIds = new List<uint>();
             foreach (var member in session.Party.Members) partyIds.Add(member.ServerId);
@@ -225,11 +281,17 @@ namespace Gordian.App.Graphics
             var icons = _statusIcons;
             if (icons == null || !library.TryGetMenu("buff", out var grid)) return;
             var ids = session.LocalPlayer.GetStatusEffectIds();
-            if (ids.Count == 0) return;
-
-            var placement = Layout.Resolve(StockUiWindowIds.StatusIcons, grid.Frame, width, height);
+            var placement = ResolveWindow(StockUiWindowIds.StatusIcons, grid.Frame, width, height, out _);
             if (placement.Hidden) return;
+            // The grid's frame is only a strip; the draggable extent is the icon slots in use (all of them when empty).
+            var extent = StockUiTargetWindow.StatusGridExtent(grid, placement, ids.Count);
+            if (ids.Count == 0)
+            {
+                if (Drag.Unlocked) Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height, placeholder: true);
+                return;
+            }
             StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids);
+            Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height);
         }
 
         private readonly List<ChatLogLine> _logLines = new();
@@ -252,12 +314,12 @@ namespace Gordian.App.Graphics
             chat.SetMultiWindow(multi != 0);
             var logFont = _logFont;
             if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int maxRows1)) return;
-            var placement = Layout.Resolve(StockUiWindowIds.Log, menu1.Frame, width, height);
+            var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out bool logMoved);
             if (placement.Hidden) return;
             float s = placement.Scale;
 
             float fullWidth = menu1.Frame.Width;
-            if (!Layout.HasPositionOverride(StockUiWindowIds.Log))
+            if (!logMoved)
             {
                 // Retail leaves a 2-pixel gap between the log and the party window (366 wide at 16 vs 384).
                 float rightEdge = party is { Hidden: false } p ? p.X - 2 * s : width - 16 * s;
@@ -278,12 +340,24 @@ namespace Gordian.App.Graphics
             string modeLabel = StockUiChatInput.Label(input.Mode);
             float height1 = menu1.Frame.Height + StockUiChatWindow.TitleBand;
             var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
-            bool inputOpen = input.IsOpen && library.TryGetMenu("inline", out _);
-            library.TryGetMenu("inline", out var inline);
-            float textBottom1 = inputOpen ? height1 - inline.Frame.Height - 1 : height1 - StockUiChatWindow.BottomPadding;
+            bool hasInline = library.TryGetMenu("inline", out var inline);
+            bool inputOpen = input.IsOpen && hasInline;
+
+            // The input line sits over the bottom of Window 1 (retail) unless the player has placed it ("chat")
+            // elsewhere, in which case it keeps its authored width and Window 1 shows all its rows.
+            StockUiPlacement inputPlacement = default;
+            bool inputMoved = false;
+            if (hasInline)
+            {
+                var chatPlacement = ResolveWindow(StockUiWindowIds.ChatInput, inline.Frame, width, height, out inputMoved);
+                inputPlacement = inputMoved ? chatPlacement : new StockUiPlacement(placement.X, logBottom - inline.Frame.Height * s, s, chatPlacement.Hidden);
+            }
+            bool inputOnWindow1 = inputOpen && !inputMoved && !inputPlacement.Hidden;
+            float textBottom1 = inputOnWindow1 ? height1 - inline.Frame.Height - 1 : height1 - StockUiChatWindow.BottomPadding;
             DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, height1,
                 StockUiChatWindow.RowsThatFit(textBottom1, maxRows1), multi != 0 ? $"Window 1:{modeLabel}" : modeLabel,
                 chat.SelectedLogWindow == 1, logFont);
+            Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window1.X, window1.Y, width1 * s, height1 * s);
 
             if (multi != 0 && TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int maxRows2))
             {
@@ -296,12 +370,22 @@ namespace Gordian.App.Graphics
                 DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, height2,
                     StockUiChatWindow.RowsThatFit(height2 - StockUiChatWindow.BottomPadding, maxRows2), "Window 2",
                     chat.SelectedLogWindow == 2, logFont);
+                Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window2.X, window2.Y, width2 * s, height2 * s);
             }
 
-            if (!inputOpen || logFont == null) return;
-            float inputY = logBottom - inline.Frame.Height * s;
-            StockUiChatWindow.DrawInput(renderer, library, logFont, inline, new StockUiPlacement(placement.X, inputY, s, false), width1,
-                input, Stopwatch.GetTimestamp());
+            if (!hasInline || inputPlacement.Hidden) return;
+            float inputWidth = inputMoved ? inline.Frame.Width : width1;
+            if (!inputOpen || logFont == null)
+            {
+                if (Drag.Unlocked)
+                {
+                    renderer.DrawMenu(inline, inputPlacement, includeButtons: false, inputWidth);
+                    Drag.Register(StockUiWindowIds.ChatInput, inline.Frame, inputPlacement, hitWidth: inputWidth * s, placeholder: true);
+                }
+                return;
+            }
+            StockUiChatWindow.DrawInput(renderer, library, logFont, inline, inputPlacement, inputWidth, input, Stopwatch.GetTimestamp());
+            Drag.Register(StockUiWindowIds.ChatInput, inline.Frame, inputPlacement, hitWidth: inputWidth * s);
         }
 
         private void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiChatLog log, int window,
@@ -348,9 +432,10 @@ namespace Gordian.App.Graphics
             int count = groups.InGroup ? Math.Clamp(groups.Own.Count, 1, 6) : 1;
             if (!library.TryGetMenu(groups.InGroup ? $"ptw{count}" : "ptw0", out var menu)) return null;
 
-            var placement = Layout.Resolve(StockUiWindowIds.Party, menu.Frame, width, height);
+            var placement = ResolveWindow(StockUiWindowIds.Party, menu.Frame, width, height, out _);
             if (placement.Hidden) return placement;
             renderer.DrawMenu(menu, placement, includeButtons: false);
+            Drag.Register(StockUiWindowIds.Party, menu.Frame, placement);
 
             var font = _font;
             if (font == null) return placement;
@@ -370,12 +455,20 @@ namespace Gordian.App.Graphics
         private void DrawAllianceWindows(StockUiRenderer renderer, UiResourceLibrary library, PartyGroups groups, uint width, uint height)
         {
             var font = _font;
-            for (int i = 0; i < groups.Others.Count && i < 2; i++)
+            int windows = Drag.Unlocked ? 2 : Math.Min(groups.Others.Count, 2);
+            for (int i = 0; i < windows; i++)
             {
                 if (!library.TryGetMenu($"raid{i + 1}", out var menu)) continue;
-                var placement = Layout.Resolve(i == 0 ? StockUiWindowIds.Alliance1 : StockUiWindowIds.Alliance2, menu.Frame, width, height);
+                string id = i == 0 ? StockUiWindowIds.Alliance1 : StockUiWindowIds.Alliance2;
+                var placement = ResolveWindow(id, menu.Frame, width, height, out _);
                 if (placement.Hidden) continue;
+                if (i >= groups.Others.Count)
+                {
+                    DrawPlaceholder(renderer, id, menu, placement);
+                    continue;
+                }
                 renderer.DrawMenu(menu, placement, includeButtons: false);
+                Drag.Register(id, menu.Frame, placement);
                 if (font == null) continue;
 
                 var rows = new List<PartyRowVitals>(6);
