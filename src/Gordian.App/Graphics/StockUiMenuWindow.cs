@@ -217,9 +217,9 @@ namespace Gordian.App.Graphics
         private const float InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 8, InfoLinePitch = 14, InfoRightInset = 8;
 
         /// <summary>
-        /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), under the list. In-game (2026-09-28)
-        /// the gil window, or the quantity prompt in its place, keeps that corner (on Window 1's top edge) and the
-        /// item info window sits beside it, 2 px right of the gil window's 112 px.
+        /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), right under the list, and that is where
+        /// retail draws them (in-game check 2026-09-28): the gil window, or the quantity prompt in its place, at the
+        /// list's left and the item info window beside it, 2 px right of the gil window's 112 px.
         /// </summary>
         private const float InfoOffsetX = 114;
 
@@ -290,8 +290,8 @@ namespace Gordian.App.Graphics
                 if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.ShopRows.Count, menu.VisibleRows);
             }
 
-            // The gil window and the item info sit under the list, on Window 1's top edge with the Buy / Sell window
-            // (companionShift); an open quantity prompt stands in the gil window's place.
+            // The gil window and the item info sit right under the list (companionShift is the HUD's displacement of
+            // the list, if any); an open quantity prompt stands in the gil window's place.
             if (!menu.ShowsQuantity) DrawGilWindow(renderer, library, font, menu, placement, companionShift);
             if (menu.SelectedShopRow is { } selected) DrawInfoWindow(renderer, library, font, menu, placement, selected, companionShift);
         }

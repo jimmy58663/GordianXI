@@ -1012,21 +1012,19 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(new[] { (4389, 5, 3u, false), (639, 9, 12u, false), (1000, 11, 1u, true) },
                 list.ShopRows.Select(r => ((int)r.ItemId, (int)r.Slot, r.Count, r.Greyed)));
 
-            // The row under the cursor is appraised as it is landed on (retail shows the price in the row), once each.
-            Assert.Equal((1u, (ushort)4389, (byte)5), Assert.Single(h.Appraisals));
+            // Landing on a row asks nothing; Confirm appraises it (retail, in-game check 2026-09-28) and the answer
+            // prices every stack of that item until the shop closes.
             h.Menus.Move(InputAction.MenuDown);
-            Assert.Equal((1u, (ushort)639, (byte)9), h.Appraisals[^1]); // the capture's 01 00 00 00 7f 02 09 00
-            Assert.Equal(2, h.Appraisals.Count);
-            h.Inventory.SetAppraisal(9, 29);
-            Assert.Same(list, h.Menus.Top); // no prompt until Confirm
-            Assert.Equal(29u, list.ShopRows[1].Price);
-            Assert.Equal(0u, list.ShopRows[0].Price); // slot 5's answer has not come
-            h.Menus.Move(InputAction.MenuUp);
-            h.Menus.Move(InputAction.MenuDown);
-            Assert.Equal(2, h.Appraisals.Count); // not asked again
-
+            Assert.Empty(h.Appraisals);
             h.Menus.Activate();
+            Assert.Equal((1u, (ushort)639, (byte)9), Assert.Single(h.Appraisals)); // the capture's 01 00 00 00 7f 02 09 00
+            Assert.Same(list, h.Menus.Top); // the prompt waits for 0x03D
+            h.Menus.Activate();
+            Assert.Single(h.Appraisals); // a second Confirm while waiting asks nothing more
+            h.Inventory.SetAppraisal(9, 29);
             var quantity = h.Menus.Top!;
+            Assert.Equal(29u, list.ShopRows[1].Price);
+            Assert.Equal(0u, list.ShopRows[0].Price); // another item, not appraised
             Assert.True(quantity.IsQuantity);
             Assert.Equal(29u, quantity.UnitPrice);
             Assert.Equal(12u, quantity.QuantityMax);
@@ -1037,6 +1035,13 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal((12u, (ushort)639, (byte)9), h.Appraisals[^1]);
             Assert.Equal(1, h.Confirms);
             Assert.Same(list, h.Menus.Top);
+            Assert.False(list.ShowsQuantity);
+
+            // The price is kept: confirming the same item again opens the prompt at once.
+            h.Menus.Activate();
+            Assert.True(h.Menus.Top!.IsQuantity);
+            Assert.Equal(2, h.Appraisals.Count);
+            h.Menus.CloseTop();
 
             // The sale's 0x020 / 0x01E refresh the list and the gil shown.
             h.Inventory.SetItem(ContainerId.Inventory, 9, 0, 0, ItemLockFlag.Normal);
@@ -1054,21 +1059,40 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Shop_ConfirmBeforeTheAppraisal_OpensThePromptWhenItArrives()
+        public void Shop_AnAppraisalPricesEveryStackOfTheItem_UntilTheShopCloses()
         {
             var h = new ShopHarness();
+            h.Inventory.SetItem(ContainerId.Inventory, 12, 639, 5, ItemLockFlag.Normal); // a second stack of chestnuts
             h.OpenCapturedShop();
             h.Menus.Move(InputAction.MenuDown); // Sell
             h.Menus.Activate();
             var list = h.Menus.Top!;
-            h.Menus.Activate(); // slot 5, not yet appraised
-            Assert.Same(list, h.Menus.Top);
-            Assert.Single(h.Appraisals);
-            h.Inventory.SetAppraisal(5, 7);
+            Assert.Equal(new[] { 4389, 639, 1000, 639 }, list.ShopRows.Select(r => (int)r.ItemId));
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate(); // slot 9
+            Assert.Equal((1u, (ushort)639, (byte)9), Assert.Single(h.Appraisals));
+            h.Inventory.SetAppraisal(9, 29);
             Assert.True(h.Menus.Top!.IsQuantity);
-            Assert.Equal(7u, h.Menus.Top.UnitPrice);
-            Assert.Equal(3u, h.Menus.Top.QuantityTotal);
-            Assert.Equal(7u, list.ShopRows[0].Price);
+            Assert.Equal(29u, list.ShopRows[1].Price);
+            Assert.Equal(29u, list.ShopRows[3].Price); // the other stack too
+            Assert.Equal(0u, list.ShopRows[0].Price);
+            h.Menus.CloseTop();
+
+            // Another item's appraisal does not disturb it; only leaving the shop forgets it.
+            h.Menus.Move(InputAction.MenuUp);
+            h.Menus.Activate(); // slot 5
+            h.Inventory.SetAppraisal(5, 7);
+            Assert.Equal((7u, 29u, 29u), (list.ShopRows[0].Price, list.ShopRows[1].Price, list.ShopRows[3].Price));
+            h.Menus.CloseTop();
+            h.Menus.CloseTop(); // the list
+            h.Menus.CloseTop(); // Buy / Sell: the shop ends
+            Assert.False(h.Inventory.IsShopOpen);
+            h.Inventory.SetItem(ContainerId.Inventory, 12, 0, 0, ItemLockFlag.Normal);
+            h.OpenCapturedShop();
+            Assert.Equal(StockUiShop.SellButton, h.Menus.Top!.SelectedButtonId); // the cursor is remembered
+            h.Menus.Activate();
+            Assert.Equal(StockUiShopSide.Sell, h.Menus.Top!.ShopSide);
+            Assert.All(h.Menus.Top.ShopRows, r => Assert.Equal(0u, r.Price));
         }
 
         [Fact]
@@ -1080,7 +1104,7 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.Activate();
             h.Menus.Move(InputAction.MenuDown);
             h.Menus.Activate();
-            Assert.Equal(2, h.Appraisals.Count); // slot 5 on opening, slot 9 on landing; Confirm asks nothing more
+            Assert.Single(h.Appraisals);
             h.Menus.CloseTop(); // back to Buy / Sell before the answer
             h.Inventory.SetAppraisal(9, 29);
             Assert.True(h.Menus.Top!.IsShopMenu);

@@ -219,8 +219,8 @@ namespace Gordian.App.Graphics
             {
                 // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
                 // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window. The shop's
-                // Buy / Sell window sits there too, and its gil, item info and quantity windows follow it (the
-                // maintainer's in-game check 2026-09-28); the item list stays at the top of the screen.
+                // Buy / Sell window sits there too, while its item list and the gil, item info and quantity windows
+                // under the list keep their authored places at the top (the maintainer's in-game check 2026-09-28).
                 float h = rootFrame.Height * root.Scale;
                 root = root with { Y = Math.Clamp(logTop - h, 0, Math.Max(0, height - h)) };
             }
@@ -249,12 +249,13 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // A shop list keeps its authored place at the top; the other windows follow the root.
-                    float x = menu.IsShopList ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
-                    float y = menu.IsShopList ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    // The shop's list and quantity prompt keep their authored places; the other windows follow the root.
+                    bool shopWindow = menu.ShopSide != null;
+                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
-                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, companionShift: menu.IsShopList ? (dx, dy) : default);
+                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp);
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
             menus.SetScreenPlacements(_menuPlacements);
