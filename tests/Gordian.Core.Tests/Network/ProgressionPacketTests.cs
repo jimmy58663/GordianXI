@@ -468,5 +468,34 @@ namespace Gordian.Core.Tests.Network
             Assert.NotNull(sentChunk);
             Assert.False(state.IsInEvent);
         }
+
+        [Fact]
+        public void ProgressionPacketModule_DispatchesChocoboToteboard()
+        {
+            var state = new ProgressionState();
+            var module = new ProgressionPacketModule(state, new LocalPlayerState(), (_, _) => Task.CompletedTask);
+            var dispatcher = new PacketDispatcher();
+            module.Register(dispatcher);
+
+            bool updated = false;
+            state.ToteboardUpdated += () => updated = true;
+
+            byte[] payload = new byte[68];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 3);                  // SlotIndex
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), (2u << 18) | 7);      // Ident: grade 2, race 7
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(12, 2), 250);                // Pair 0
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(12 + (27 * 2), 2), 1234);    // Pair 27
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x073, 72, 1), payload));
+            Assert.True(updated);
+            Assert.Equal(3u, state.ToteboardSlotIndex);
+            Assert.Equal((2u << 18) | 7, state.ToteboardIdent);
+            Assert.Equal(250, state.GetToteboardOdds(0));
+            Assert.Equal(1234, state.GetToteboardOdds(27));
+            Assert.Equal(0, state.GetToteboardOdds(28));
+
+            module.Unregister(dispatcher);
+            Assert.False(dispatcher.Dispatch(new PacketHeader(0x073, 72, 2), payload));
+        }
     }
 }
