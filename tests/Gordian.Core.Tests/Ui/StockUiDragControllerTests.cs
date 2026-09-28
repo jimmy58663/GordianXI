@@ -14,14 +14,15 @@ namespace Gordian.Core.Tests.Ui
 
         private static (StockUiDragController Drag, StockUiLayout Layout, StockUiPlacement Party, StockUiPlacement Log) Frame(bool unlocked)
         {
-            var layout = new StockUiLayout();
-            var drag = new StockUiDragController { Unlocked = unlocked };
+            var layout = new StockUiLayout { Unlocked = unlocked };
+            var drag = new StockUiDragController();
             drag.BeginFrame(layout, ScreenWidth, ScreenHeight);
             var log = layout.Resolve(StockUiWindowIds.Log, Log, ScreenWidth, ScreenHeight);
             var party = layout.Resolve(StockUiWindowIds.Party, Party, ScreenWidth, ScreenHeight);
             // The log window is drawn with a 16-px title band above its frame and stretched to the party window.
             drag.Register(StockUiWindowIds.Log, Log, log, log.X, log.Y - 16, party.X - 2 - log.X, Log.Height + 16);
             drag.Register(StockUiWindowIds.Party, Party, party);
+            drag.RegisterButton(StockUiDragController.ResetPositionsButton, 900, 6, 120, 18, 1);
             drag.EndFrame();
             return (drag, layout, party, log);
         }
@@ -30,6 +31,7 @@ namespace Gordian.Core.Tests.Ui
         public void Locked_IgnoresTheMouse()
         {
             var (drag, layout, party, _) = Frame(unlocked: false);
+            Assert.False(drag.Unlocked);
             Assert.False(drag.OnMouseDown(party.X + 5, party.Y + 5));
             Assert.False(drag.OnMouseMove(100, 100));
             Assert.False(drag.OnMouseUp(100, 100));
@@ -95,8 +97,8 @@ namespace Gordian.Core.Tests.Ui
         [Fact]
         public void TopmostRegistration_WinsWhereWindowsOverlap()
         {
-            var layout = new StockUiLayout();
-            var drag = new StockUiDragController { Unlocked = true };
+            var layout = new StockUiLayout { Unlocked = true };
+            var drag = new StockUiDragController();
             drag.BeginFrame(layout, ScreenWidth, ScreenHeight);
             var below = new StockUiPlacement(100, 100, 1, false);
             var above = new StockUiPlacement(150, 150, 1, false);
@@ -117,10 +119,30 @@ namespace Gordian.Core.Tests.Ui
         {
             var (drag, layout, party, _) = Frame(unlocked: true);
             Assert.True(drag.OnMouseDown(party.X + 1, party.Y + 1));
-            drag.Unlocked = false;
+            layout.SetUnlocked(false);
             Assert.Null(drag.DraggingWindow);
             Assert.False(drag.OnMouseUp(0, 0));
             Assert.Empty(layout.Windows);
+        }
+
+        [Fact]
+        public void DefaultPositionsButton_ResetsEveryWindowPosition_KeepingOtherOverrides()
+        {
+            var (drag, layout, party, _) = Frame(unlocked: true);
+            layout.MoveTo(StockUiWindowIds.Party, Party, 10, 10, ScreenWidth, ScreenHeight);
+            layout.SetWindowScale(StockUiWindowIds.Log, 0.75f);
+            layout.SetHidden(StockUiWindowIds.Target, true);
+
+            Assert.Equal(StockUiDragController.ResetPositionsButton, drag.HitTest(950, 10));
+            Assert.True(drag.OnMouseDown(950, 10)); // a click, not a drag
+            Assert.Null(drag.DraggingWindow);
+
+            Assert.False(layout.Windows.ContainsKey(StockUiWindowIds.Party)); // back at retail, override dropped
+            Assert.Equal(0.75f, layout.Windows[StockUiWindowIds.Log].Scale);
+            Assert.True(layout.Windows[StockUiWindowIds.Target].Hidden);
+            Assert.True(layout.Unlocked); // still editing
+            var reset = layout.Resolve(StockUiWindowIds.Party, Party, ScreenWidth, ScreenHeight);
+            Assert.Equal((party.X, party.Y), (reset.X, reset.Y));
         }
     }
 }

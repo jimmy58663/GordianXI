@@ -130,8 +130,14 @@ namespace Gordian.App.Graphics
             DrawTargetWindow(renderer, library, session, party, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
             DrawMenus(renderer, library, session, menus, width, height);
+            bool unlocked = Drag.Unlocked;
+            if (unlocked)
+            {
+                var button = StockUiDragOverlay.ResetButtonRect(_font, width, Layout.Scale);
+                Drag.RegisterButton(StockUiDragController.ResetPositionsButton, button.X, button.Y, button.Width, button.Height, Layout.Scale);
+            }
             Drag.EndFrame();
-            if (Drag.Unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
+            if (unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
             renderer.End(framebuffer, width, height);
         }
 

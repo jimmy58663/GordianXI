@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Ui;
 
@@ -355,10 +356,11 @@ namespace Gordian.App
             var btn = AvaloniaInputMapper.ToMouseButton(e.Properties);
 
             // An unlocked stock UI takes a left press over one of its windows as the start of a drag, not game input.
-            if (e.Properties.IsLeftButtonPressed && TryGetViewportPoint(e, out var point)
-                && session.ActionService.UiDrag.OnMouseDown((float)point.X, (float)point.Y))
+            if (e.Properties.IsLeftButtonPressed && TryGetViewportPoint(e, out var point))
             {
-                return;
+                var drag = session.ActionService.UiDrag;
+                if (drag.Unlocked) LogUnlockedPress("avalonia", drag, (float)point.X, (float)point.Y);
+                if (drag.OnMouseDown((float)point.X, (float)point.Y)) return;
             }
             session.InputState.SetMouseButtonDown(btn);
 
@@ -419,6 +421,21 @@ namespace Gordian.App
         /// The pointer's position in the rendering surface's pixels (the stock UI's screen space), for the Avalonia
         /// pointer events that do fire (platforms where the viewport is composited rather than a native child).
         /// </summary>
+        /// <summary>
+        /// Logs an unlocked-UI press: which pointer path delivered it, where, what it hit and the surface size, so a
+        /// drag that does not start in-game can be traced (the viewport's mouse reaches us by different routes per
+        /// platform and host window).
+        /// </summary>
+        private void LogUnlockedPress(string path, StockUiDragController drag, float x, float y)
+        {
+            var regions = drag.Regions;
+            string hit = drag.HitTest(x, y) ?? "nothing";
+            double scale = RenderScaling;
+            var bounds = _viewportControl?.Bounds ?? default;
+            GordianLog.Info("UI", $"Stock UI unlocked press ({path}) at ({x:0}, {y:0}) hit {hit}; {regions.Count} regions; " +
+                $"viewport {bounds.Width:0} x {bounds.Height:0} at scale {scale:0.##}");
+        }
+
         private bool TryGetViewportPoint(PointerEventArgs e, out Point point)
         {
             if (_viewportControl == null)
@@ -437,10 +454,11 @@ namespace Gordian.App
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
-            if (button == Avalonia.Input.MouseButton.Left && _lastRawMouse is { } point
-                && session.ActionService.UiDrag.OnMouseDown((float)point.X, (float)point.Y))
+            if (button == Avalonia.Input.MouseButton.Left && _lastRawMouse is { } point)
             {
-                return; // an unlocked stock window takes the press as a drag
+                var drag = session.ActionService.UiDrag;
+                if (drag.Unlocked) LogUnlockedPress("raw", drag, (float)point.X, (float)point.Y);
+                if (drag.OnMouseDown((float)point.X, (float)point.Y)) return; // an unlocked stock window takes the press as a drag
             }
             session.InputState.SetMouseButtonDown(AvaloniaInputMapper.ToMouseButton(button));
 

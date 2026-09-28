@@ -41,16 +41,21 @@ namespace Gordian.Core.Tests.Ui
         public void Command_UnlocksAndLocksTheDragMode()
         {
             var service = CreateService();
-            Assert.False(service.UiDrag.Unlocked); // legacy parity: locked at every launch
+            Assert.False(service.UiDrag.Unlocked); // legacy parity: locked until the player opts in
 
             var result = service.ApplyUiLayoutCommand("unlock");
             Assert.True(result.Success);
             Assert.Contains("drag", result.Message);
+            Assert.True(service.UiLayout.Unlocked); // saved with the layout
             Assert.True(service.UiDrag.Unlocked);
 
             Assert.True(service.ApplyUiLayoutCommand("lock").Success);
             Assert.False(service.UiDrag.Unlocked);
             Assert.Contains("unlock", service.ApplyUiLayoutCommand("unlock extra").Message); // usage
+
+            service.UiLayout.SetPosition(StockUiWindowIds.Party, 10, 10);
+            Assert.True(service.ApplyUiLayoutCommand("reset positions").Success);
+            Assert.Empty(service.UiLayout.Windows);
         }
 
         [Fact]

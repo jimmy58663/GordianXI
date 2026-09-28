@@ -816,8 +816,8 @@ namespace Gordian.App.Tests.Graphics
                 cl.End();
                 gd.SubmitCommands(cl);
 
-                var layout = new StockUiLayout();
-                var drag = new StockUiDragController { Unlocked = true };
+                var layout = new StockUiLayout { Unlocked = true };
+                var drag = new StockUiDragController();
                 drag.BeginFrame(layout, width, height);
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
                 renderer.Begin(library);
@@ -825,6 +825,8 @@ namespace Gordian.App.Tests.Graphics
                 var party = layout.Resolve(StockUiWindowIds.Party, solo.Frame, width, height);
                 renderer.DrawMenu(solo, party, includeButtons: false);
                 drag.Register(StockUiWindowIds.Party, solo.Frame, party);
+                var button = StockUiDragOverlay.ResetButtonRect(font, width, layout.Scale);
+                drag.RegisterButton(StockUiDragController.ResetPositionsButton, button.X, button.Y, button.Width, button.Height, layout.Scale);
                 var statusPlacement = layout.Resolve(StockUiWindowIds.StatusIcons, grid.Frame, width, height);
                 var status = StockUiTargetWindow.StatusGridExtent(grid, statusPlacement, 0);
                 Assert.True(status.Height >= 24 && status.Width >= 9 * 24); // the icon slots, not the frame strip

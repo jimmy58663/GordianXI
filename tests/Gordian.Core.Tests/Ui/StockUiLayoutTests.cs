@@ -96,10 +96,12 @@ namespace Gordian.Core.Tests.Ui
                 var layout = new StockUiLayout { Scale = 1.5f };
                 layout.MoveTo(StockUiWindowIds.Party, Party, 100, 50, 1920, 1080);
                 layout.SetWindowScale(StockUiWindowIds.Log, 0.75f);
+                layout.SetUnlocked(true);
                 layout.SaveToFile(path);
 
                 var loaded = StockUiLayout.LoadOrDefault(path);
                 Assert.Equal(1.5f, loaded.Scale);
+                Assert.True(loaded.Unlocked); // the opt-in drag mode survives a restart
                 Assert.True(loaded.Windows.ContainsKey("PARTY"));
                 Assert.Equal(0.75f, loaded.Windows[StockUiWindowIds.Log].Scale);
                 var party = loaded.Resolve(StockUiWindowIds.Party, Party, 1920, 1080);

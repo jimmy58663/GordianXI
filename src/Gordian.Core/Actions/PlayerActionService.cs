@@ -984,7 +984,7 @@ namespace Gordian.Core.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
             "Windows: log, chat, party, alliance1, alliance2, target, status, menu. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
@@ -1014,13 +1014,19 @@ namespace Gordian.Core.Actions
                 layout.ResetAll();
                 return PlayerActionResult.Ok("Stock UI restored to the retail layout.", Kind);
             }
+            if (first == "reset" && parts.Length == 2 && parts[1].Equals("positions", StringComparison.OrdinalIgnoreCase))
+            {
+                layout.ResetPositions();
+                return PlayerActionResult.Ok("Every stock window is back at its retail position.", Kind);
+            }
             if (first is "unlock" or "lock" && parts.Length == 1)
             {
                 // Opt-in (not in the legacy client): while unlocked the HUD outlines the persistent windows and the
-                // mouse drags them; the mode is not saved, so every launch starts locked.
-                UiDrag.Unlocked = first == "unlock";
-                return PlayerActionResult.Ok(UiDrag.Unlocked
-                    ? "Stock UI unlocked: drag the outlined windows with the mouse, then /uilayout lock."
+                // mouse drags them. The state is saved with the layout.
+                UiDrag.Layout = layout;
+                layout.SetUnlocked(first == "unlock");
+                return PlayerActionResult.Ok(layout.Unlocked
+                    ? "Stock UI unlocked: drag the outlined windows with the mouse; Default positions resets them; /uilayout lock when done."
                     : "Stock UI locked.", Kind);
             }
             if (first == "skin" && parts.Length == 2 && int.TryParse(parts[1], out int skin))
