@@ -188,6 +188,16 @@ namespace Gordian.Core.Network
             ActionService.Menus.ShopAppraise = (count, itemId, slot) => InventoryModule.AppraiseShopItemAsync(count, itemId, slot);
             ActionService.Menus.ShopSellConfirm = () => InventoryModule.ConfirmShopSaleAsync();
             Inventory.ShopChanged += ActionService.Menus.OnShopChanged;
+            Inventory.ShopPurchased += (index, count) =>
+            {
+                // Retail prints the purchase itself on 0x03F ("You buy 12 Ronfaure chestnuts from the shop.").
+                foreach (var item in Inventory.SnapshotShopItems())
+                {
+                    if (item.ShopIndex != index) continue;
+                    Chat.Log.Add(Ui.ChatLogChannel.System, Ui.StockUiShop.BuyMessage(Ui.StockUiShop.Lookup(ActionService.Menus.ItemLookup, item.ItemId), count));
+                    return;
+                }
+            };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
             World.ZoneChanged += _ =>
             {

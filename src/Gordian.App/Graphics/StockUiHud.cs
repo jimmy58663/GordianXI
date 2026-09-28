@@ -132,6 +132,7 @@ namespace Gordian.App.Graphics
             {
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
+                Gordian.Core.Network.Packets.StandardMessages.ItemLookup ??= menus.ItemLookup;
             }
 
             renderer.Begin(library);

@@ -92,6 +92,29 @@ namespace Gordian.Core.Ui
         /// <summary>The name the item info window shows: the full log name ("Ronfaure chestnut", "Bunch of San d'Orian grapes"), else the short one.</summary>
         public static string LongName(ItemRecord record) => string.IsNullOrWhiteSpace(record.LogName) ? record.Name : record.LogName;
 
+        /// <summary>The plural log name ("Ronfaure chestnuts"), else the long name with an "s".</summary>
+        public static string PluralName(ItemRecord record) => string.IsNullOrWhiteSpace(record.LogPlural) ? LongName(record) + "s" : record.LogPlural;
+
+        /// <summary>
+        /// A count of an item as retail's shop lines print it: "a Ronfaure chestnut", "12 Ronfaure chestnuts" (the
+        /// maintainer's capture, 2026-09-28). The article is "an" before a vowel.
+        /// </summary>
+        public static string DescribeCount(ItemRecord record, uint count)
+        {
+            if (count != 1) return $"{FormatGil(count)} {PluralName(record)}";
+            string name = LongName(record);
+            bool vowel = name.Length > 0 && "aeiouAEIOU".IndexOf(name[0]) >= 0;
+            return (vowel ? "an " : "a ") + name;
+        }
+
+        /// <summary>
+        /// Retail's line after a purchase, printed by the client on 0x03F ("You buy 12 Ronfaure chestnuts from the
+        /// shop."; the server sends no message for it), and after a sale (0x009 message 232, "You sell a Ronfaure
+        /// chestnut to the shop."). From the maintainer's capture, 2026-09-28.
+        /// </summary>
+        public static string BuyMessage(ItemRecord record, uint count) => $"You buy {DescribeCount(record, count)} from the shop.";
+        public static string SellMessage(ItemRecord record, uint count) => $"You sell {DescribeCount(record, count)} to the shop.";
+
         /// <summary>The character's gil: the count of inventory slot 0 when it holds item 65535, else 0.</summary>
         public static uint Gil(InventoryState? inventory) => inventory?.Gil ?? 0;
 

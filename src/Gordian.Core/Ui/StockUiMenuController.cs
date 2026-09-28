@@ -951,6 +951,11 @@ namespace Gordian.Core.Ui
                         // (or from the last row with an item) scroll the list, wrapping at the ends.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
+                    else if (horizontal && top.IsShopList)
+                    {
+                        // Right (d-pad right) turns a page or, on the last page, goes to the bottom; left the reverse.
+                        changed = PageList(top, direction == InputAction.MenuRight);
+                    }
                     else if (link >= 0 && link != button.ButtonId && top.VisibleRows > 0)
                     {
                         // A link past the visible rows (the DAT links the last row down to 26 and the first up to
@@ -1059,6 +1064,38 @@ namespace Gordian.Core.Ui
                 if (top.FirstRow > 0) { BeginScroll(top, top.FirstRow - 1); top.SelectedButtonId = 1; }
                 else { BeginScroll(top, maxFirst); top.SelectedButtonId = lastRow; }
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Pages a list: forward shows the next page (the cursor keeps its row), or on the last page puts the cursor on
+        /// the last entry; backward the previous page, or on the first page the first entry.
+        /// </summary>
+        private static bool PageList(StockUiOpenMenu top, bool forward)
+        {
+            int total = top.Rows.Count, visible = top.VisibleRows;
+            if (visible <= 0 || total == 0) return false;
+            int maxFirst = Math.Max(0, total - visible);
+            if (forward)
+            {
+                if (top.FirstRow < maxFirst)
+                {
+                    BeginScroll(top, Math.Min(maxFirst, top.FirstRow + visible));
+                    top.SelectedButtonId = Math.Min(top.SelectedButtonId, total - top.FirstRow);
+                    return true;
+                }
+                int last = Math.Min(visible, total - top.FirstRow);
+                if (top.SelectedButtonId == last) return false;
+                top.SelectedButtonId = last;
+                return true;
+            }
+            if (top.FirstRow > 0)
+            {
+                BeginScroll(top, Math.Max(0, top.FirstRow - visible));
+                return true;
+            }
+            if (top.SelectedButtonId == 1) return false;
+            top.SelectedButtonId = 1;
             return true;
         }
 

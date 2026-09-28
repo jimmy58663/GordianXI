@@ -81,6 +81,11 @@ namespace Gordian.Core.World
         public event Action? CurrenciesChanged;
         public event Action? TradeChanged;
         public event Action? ShopChanged;
+
+        /// <summary>S2C 0x03F: a purchase went through (the shop slot bought and how many).</summary>
+        public event Action<ushort, uint>? ShopPurchased;
+
+        public void NotifyPurchase(ushort shopItemIndex, uint count) => ShopPurchased?.Invoke(shopItemIndex, count);
         public event Action? BazaarChanged;
 
         public InventoryState()

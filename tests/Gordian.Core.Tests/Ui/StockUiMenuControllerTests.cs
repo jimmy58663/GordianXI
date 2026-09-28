@@ -1175,6 +1175,58 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Shop_LeftAndRightPageTheList_ThenGoToTheEnds()
+        {
+            var h = new ShopHarness();
+            h.Inventory.OpenShop(4);
+            var items = new ShopItemEntry[25];
+            for (int i = 0; i < items.Length; i++) items[i] = new ShopItemEntry((uint)(10 + i), 639, (byte)i, 0, 0);
+            h.Inventory.AddShopItems(items);
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Move(InputAction.MenuDown); // row 3
+            h.Menus.Move(InputAction.MenuRight); // page 2: rows 11-20, the cursor keeps its row
+            Assert.Equal((10, 3), (list.FirstRow, list.SelectedButtonId));
+            h.Menus.Move(InputAction.MenuRight); // the last page: rows 16-25
+            Assert.Equal((15, 3), (list.FirstRow, list.SelectedButtonId));
+            h.Menus.Move(InputAction.MenuRight); // no page left: the bottom
+            Assert.Equal((15, 10), (list.FirstRow, list.SelectedButtonId));
+            Assert.Equal(24, list.SelectedShopRow!.Value.ShopIndex);
+            h.Menus.Move(InputAction.MenuLeft); // a page back
+            Assert.Equal((5, 10), (list.FirstRow, list.SelectedButtonId));
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal((0, 10), (list.FirstRow, list.SelectedButtonId));
+            h.Menus.Move(InputAction.MenuLeft); // no page left: the top
+            Assert.Equal((0, 1), (list.FirstRow, list.SelectedButtonId));
+
+            // A short list only moves the cursor between its ends.
+            h.Menus.CloseTop(); // back to Buy / Sell
+            h.Inventory.OpenShop(4);
+            h.Inventory.AddShopItems(items.AsSpan(0, 4).ToArray());
+            h.Menus.Activate(); // Buy
+            list = h.Menus.Top!;
+            Assert.True(list.IsShopList);
+            Assert.Equal(4, list.ShopRows.Count);
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.Equal((0, 4), (list.FirstRow, list.SelectedButtonId));
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal((0, 1), (list.FirstRow, list.SelectedButtonId));
+        }
+
+        [Fact]
+        public void Shop_MessagesUseTheLogNames()
+        {
+            var chestnut = new ItemRecord { ItemId = 639, Name = "Chestnut", LogName = "Ronfaure chestnut", LogPlural = "Ronfaure chestnuts" };
+            Assert.Equal("You buy 12 Ronfaure chestnuts from the shop.", StockUiShop.BuyMessage(chestnut, 12));
+            Assert.Equal("You buy a Ronfaure chestnut from the shop.", StockUiShop.BuyMessage(chestnut, 1));
+            Assert.Equal("You sell a Ronfaure chestnut to the shop.", StockUiShop.SellMessage(chestnut, 1));
+            var log = new ItemRecord { ItemId = 688, Name = "Elm Log", LogName = "elm log", LogPlural = "elm logs" };
+            Assert.Equal("You sell an elm log to the shop.", StockUiShop.SellMessage(log, 1));
+            Assert.Equal("You sell 1,000 elm logs to the shop.", StockUiShop.SellMessage(log, 1000));
+        }
+
+        [Fact]
         public void Shop_QuantityArrowsTakeTheMouse()
         {
             var h = new ShopHarness();

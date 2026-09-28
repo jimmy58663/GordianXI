@@ -56,6 +56,9 @@ namespace Gordian.Core.Network.Packets
         /// <summary>MsgStd::Sell and MsgStd::SellToShop: sent after a vendor sale with the item id and count.</summary>
         public const ushort ShopSellMessage = 232, ShopSellToShopMessage = 233;
 
+        /// <summary>Item records for the messages that name items (their log names and plurals); set once the item DATs are available.</summary>
+        public static System.Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? ItemLookup { get; set; }
+
         /// <summary>Reads the first two numbers of a "Para0 n Para1 m" parameter string.</summary>
         public static bool TryGetNumbers(string parameters, out uint first, out uint second)
         {
@@ -88,11 +91,9 @@ namespace Gordian.Core.Network.Packets
         {
             if (msg.MessageId is ShopSellMessage or ShopSellToShopMessage && TryGetNumbers(msg.Parameters, out uint itemId, out uint count))
             {
-                // "You sell <item>." (232; 233 adds "to the shop"): LandSandBoat sends the item id and count as
-                // "Para0 <id> Para1 <count>" after a completed vendor sale (0x085).
-                string name = Gordian.Core.Resources.ItemNameResolver.Resolve((ushort)itemId);
-                string what = count > 1 ? $"{count} {name}" : name;
-                return msg.MessageId == ShopSellToShopMessage ? $"You sell {what} to the shop." : $"You sell {what}.";
+                // LandSandBoat sends 232 with "Para0 <id> Para1 <count>" after a completed vendor sale (0x085); the
+                // retail client prints it as "You sell 12 Ronfaure chestnuts to the shop." (capture, 2026-09-28).
+                return Gordian.Core.Ui.StockUiShop.SellMessage(Gordian.Core.Ui.StockUiShop.Lookup(ItemLookup, (ushort)itemId), count);
             }
             if (TryGetMessage(msg.MessageId, out string knownText))
             {
