@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Actions;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
@@ -161,12 +162,90 @@ namespace Gordian.Core.Ui
             return index >= 0 && index < QueryOptions.Count ? QueryOptions[index].Number : 0;
         }
 
-        /// <summary>Whether this window's authored rectangle overlaps another's (both in 512 x 448 layout space).</summary>
+        /// <summary>Whether this is the shop's Buy / Sell window ("shopmain", the root of the shop windows).</summary>
+        public bool IsShopMenu => Menu.Name.Equals(StockUiShop.MenuName, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The shop side a list or quantity prompt belongs to; null for other menus.</summary>
+        public StockUiShopSide? ShopSide { get; init; }
+
+        /// <summary>Whether this is a shop item list (the "shop" frame with client-drawn rows).</summary>
+        public bool IsShopList => ShopSide != null && !IsQuantity;
+
+        /// <summary>A shop list's rows (icon, name, price or count), parallel to <see cref="Rows"/>.</summary>
+        public IReadOnlyList<StockUiShopRow> ShopRows { get; internal set; } = Array.Empty<StockUiShopRow>();
+
+        /// <summary>The shop row under the cursor, if any.</summary>
+        public StockUiShopRow? SelectedShopRow
+        {
+            get
+            {
+                int index = EntryIndex(SelectedButtonId);
+                return index >= 0 && index < ShopRows.Count ? ShopRows[index] : null;
+            }
+        }
+
+        /// <summary>The character's gil as of the last refresh (drawn in the "Current Gil" window).</summary>
+        public uint Gil { get; internal set; }
+
+        /// <summary>
+        /// Whether a quantity prompt is open over this shop list: the prompt takes the gil window's place and draws
+        /// the item info window itself, so the list leaves both out.
+        /// </summary>
+        public bool ShowsQuantity { get; internal set; }
+
+        /// <summary>Item records for the rows' icons and descriptions (the controller's lookup).</summary>
+        public Func<ushort, ItemRecord?>? ItemLookup { get; init; }
+
+        /// <summary>Whether this is the shop's quantity prompt ("itemctrl"): Confirm buys or sells <see cref="Quantity"/>.</summary>
+        public bool IsQuantity { get; init; }
+
+        /// <summary>The row a quantity prompt is for.</summary>
+        public StockUiShopRow QuantityRow { get; init; }
+
+        /// <summary>The count chosen in a quantity prompt (1 to <see cref="QuantityMax"/>).</summary>
+        public uint Quantity { get; internal set; }
+        public uint QuantityMax { get; init; }
+
+        /// <summary>
+        /// The total the prompt prints after the count ("1 /12", the maintainer's capture 2026-09-28): the stack size
+        /// when buying, the count held when selling.
+        /// </summary>
+        public uint QuantityTotal { get; init; }
+
+        /// <summary>The unit price a quantity prompt shows: the shop's price when buying, the appraisal when selling.</summary>
+        public uint UnitPrice { get; init; }
+
+        public uint TotalPrice => Quantity * UnitPrice;
+
+        /// <summary>
+        /// The layout rectangle this window occupies (512 x 448 layout space): its frame, extended for a shop list
+        /// by the gil and item info windows drawn under it (<see cref="StockUiShop.CompanionBottom"/>).
+        /// </summary>
+        public (int X, int Y, int Right, int Bottom) AuthoredBounds
+        {
+            get
+            {
+                var f = Menu.Frame;
+                int right = f.X + f.Width, bottom = f.Y + f.Height;
+                if (IsShopList)
+                {
+                    right = Math.Max(right, StockUiShop.CompanionRight);
+                    bottom = Math.Max(bottom, StockUiShop.CompanionBottom);
+                }
+                return (f.X, f.Y, right, bottom);
+            }
+        }
+
+        /// <summary>
+        /// Whether this window, opened after <paramref name="other"/>, covers it: this window's bounds (with any
+        /// companion windows) overlap the other's frame, both in 512 x 448 layout space. The HUD then leaves the
+        /// earlier window out, as retail replaces a parent whose corner a later window takes.
+        /// </summary>
         public bool OverlapsAuthored(StockUiOpenMenu other)
         {
-            var a = Menu.Frame;
+            var a = AuthoredBounds;
             var b = other.Menu.Frame;
-            return a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+            return a.X < b.X + b.Width && b.X < a.Right && a.Y < b.Y + b.Height && b.Y < a.Bottom;
         }
 
         /// <summary>The selected button, if any.</summary>
@@ -297,6 +376,21 @@ namespace Gordian.Core.Ui
         /// </summary>
         public Func<StockUiMenuCommand, StockUiTargetContext, Task<PlayerActionResult>>? TargetCommand { get; set; }
 
+        /// <summary>The session's inventory: the shop's items, the appraisal, the character's items and gil.</summary>
+        public InventoryState? Inventory { get; set; }
+
+        /// <summary>Item records (name, stack size, icon, description); without one names come from the item DATs alone.</summary>
+        public Func<ushort, ItemRecord?>? ItemLookup { get; set; }
+
+        /// <summary>Sends C2S 0x083 (count, ShopNo, shop slot).</summary>
+        public Func<uint, ushort, ushort, Task>? ShopBuy { get; set; }
+
+        /// <summary>Sends C2S 0x084 (count, item id, inventory slot): the appraisal request, and the count before a sale.</summary>
+        public Func<uint, ushort, byte, Task>? ShopAppraise { get; set; }
+
+        /// <summary>Sends C2S 0x085 (SellFlag 1): completes the appraised sale.</summary>
+        public Func<Task>? ShopSellConfirm { get; set; }
+
         #region Opening and closing
 
         /// <summary>
@@ -394,6 +488,9 @@ namespace Gordian.Core.Ui
             }
             closed.Prompt?.TrySetResult(false);
             closed.QueryCompleted?.Invoke(255);
+            if (closed.IsQuantity && closed.Parent is { } list) list.ShowsQuantity = false;
+            if (closed.IsShopList) lock (_sync) _confirmPending = null;
+            if (closed.IsShopMenu) EndShopSession();
             Changed?.Invoke();
         }
 
@@ -408,11 +505,14 @@ namespace Gordian.Core.Ui
                 foreach (var menu in closed) Remember(menu);
                 _open = Array.Empty<StockUiOpenMenu>();
             }
+            bool shop = false;
             foreach (var menu in closed)
             {
                 menu.Prompt?.TrySetResult(false);
                 menu.QueryCompleted?.Invoke(255);
+                shop |= menu.IsShopMenu;
             }
+            if (shop) EndShopSession();
             Changed?.Invoke();
         }
 
@@ -572,7 +672,7 @@ namespace Gordian.Core.Ui
 
         private void Remember(StockUiOpenMenu menu)
         {
-            if (menu.IsPrompt || menu.IsQuery) return;
+            if (menu.IsPrompt || menu.IsQuery || menu.ShopSide != null) return;
             if (menu.IsCommandMenu)
             {
                 int index = menu.SelectedButtonId - 1;
@@ -794,7 +894,18 @@ namespace Gordian.Core.Ui
                 if (top == null || button == null) return;
 
                 bool horizontal = direction is InputAction.MenuLeft or InputAction.MenuRight;
-                if (horizontal && top.ConfigPage is { } page && page.TryGetSlider(button.ButtonId, out var slider))
+                if (top.IsQuantity)
+                {
+                    // The quantity control: + / - step the count (up/down), "All" (left) and "1" (right) jump to the ends.
+                    changed = AdjustQuantity(top, direction switch
+                    {
+                        InputAction.MenuUp => StockUiShop.QuantityUpButton,
+                        InputAction.MenuDown => StockUiShop.QuantityDownButton,
+                        InputAction.MenuLeft => StockUiShop.QuantityAllButton,
+                        _ => StockUiShop.QuantityOneButton,
+                    });
+                }
+                else if (horizontal && top.ConfigPage is { } page && page.TryGetSlider(button.ButtonId, out var slider))
                 {
                     var d = slider.Definition;
                     int value = d.Clamp(GetSetting(slider.Key) + (direction == InputAction.MenuRight ? d.Step : -d.Step));
@@ -833,6 +944,17 @@ namespace Gordian.Core.Ui
                     else if (horizontal && top.PageRing.Count > 1)
                     {
                         changed = FlipPage(top, direction == InputAction.MenuRight ? 1 : -1);
+                    }
+                    else if (!horizontal && top.IsShopList)
+                    {
+                        // The shop list's end rows link to themselves: up from the first row and down from the last
+                        // (or from the last row with an item) scroll the list, wrapping at the ends.
+                        changed = ScrollList(top, direction == InputAction.MenuDown);
+                    }
+                    else if (horizontal && top.IsShopList)
+                    {
+                        // Right (d-pad right) turns a page or, on the last page, goes to the bottom; left the reverse.
+                        changed = PageList(top, direction == InputAction.MenuRight);
                     }
                     else if (link >= 0 && link != button.ButtonId && top.VisibleRows > 0)
                     {
@@ -945,6 +1067,38 @@ namespace Gordian.Core.Ui
             return true;
         }
 
+        /// <summary>
+        /// Pages a list: forward shows the next page (the cursor keeps its row), or on the last page puts the cursor on
+        /// the last entry; backward the previous page, or on the first page the first entry.
+        /// </summary>
+        private static bool PageList(StockUiOpenMenu top, bool forward)
+        {
+            int total = top.Rows.Count, visible = top.VisibleRows;
+            if (visible <= 0 || total == 0) return false;
+            int maxFirst = Math.Max(0, total - visible);
+            if (forward)
+            {
+                if (top.FirstRow < maxFirst)
+                {
+                    BeginScroll(top, Math.Min(maxFirst, top.FirstRow + visible));
+                    top.SelectedButtonId = Math.Min(top.SelectedButtonId, total - top.FirstRow);
+                    return true;
+                }
+                int last = Math.Min(visible, total - top.FirstRow);
+                if (top.SelectedButtonId == last) return false;
+                top.SelectedButtonId = last;
+                return true;
+            }
+            if (top.FirstRow > 0)
+            {
+                BeginScroll(top, Math.Max(0, top.FirstRow - visible));
+                return true;
+            }
+            if (top.SelectedButtonId == 1) return false;
+            top.SelectedButtonId = 1;
+            return true;
+        }
+
         /// <summary>Moves the first row, animating a one-entry step (a wrap to the other end jumps).</summary>
         private static void BeginScroll(StockUiOpenMenu top, int first)
         {
@@ -987,6 +1141,18 @@ namespace Gordian.Core.Ui
                 }
                 top.QueryCompleted!.Invoke(number);
                 Changed?.Invoke();
+                return;
+            }
+
+            if (top.IsQuantity)
+            {
+                RunQuantity(top);
+                return;
+            }
+
+            if (top.IsShopList)
+            {
+                ActivateShopRow(top);
                 return;
             }
 
@@ -1092,6 +1258,13 @@ namespace Gordian.Core.Ui
                     ChatModeSelected?.Invoke(mode);
                     break;
 
+                case StockUiMenuCommand.ShopBuy:
+                case StockUiMenuCommand.ShopSell:
+                    bool opened;
+                    lock (_sync) opened = OpenShopList(entry.Command == StockUiMenuCommand.ShopBuy ? StockUiShopSide.Buy : StockUiShopSide.Sell, from) != null;
+                    if (opened) Changed?.Invoke();
+                    break;
+
                 case StockUiMenuCommand.Attack:
                 case StockUiMenuCommand.Disengage:
                 case StockUiMenuCommand.Invite:
@@ -1160,6 +1333,341 @@ namespace Gordian.Core.Ui
 
         #endregion
 
+        #region Shop
+
+        private bool _shopOpen;
+
+        /// <summary>
+        /// Appraisals the server has answered, by item id: retail shows the price on every stack of that item and
+        /// keeps it until the shop closes (in-game check 2026-09-28).
+        /// </summary>
+        private readonly Dictionary<ushort, uint> _sellPrices = new();
+        private int _appraisalsSeen;
+
+        /// <summary>The Sell row confirmed and sent for appraisal: the prompt opens when 0x03D answers.</summary>
+        private (ushort ItemId, StockUiOpenMenu List)? _confirmPending;
+
+        /// <summary>Whether the shop windows are open (the server opened a shop and the Buy / Sell window is up).</summary>
+        public bool IsShopOpen => _shopOpen;
+
+        /// <summary>
+        /// The inventory's shop state changed (S2C 0x03E opened a shop, 0x03C listed items, 0x03D appraised, or the
+        /// shop closed): opens the Buy / Sell window, refreshes an open list, or opens the quantity prompt for a
+        /// pending appraisal. Called from the packet thread.
+        /// </summary>
+        public void OnShopChanged()
+        {
+            var inventory = Inventory;
+            if (inventory == null) return;
+            if (!inventory.IsShopOpen)
+            {
+                if (_shopOpen)
+                {
+                    _shopOpen = false;
+                    ClearAppraisals();
+                    CloseAll();
+                }
+                return;
+            }
+            if (!_shopOpen)
+            {
+                OpenShopWindow();
+                return;
+            }
+            bool changed = false;
+            lock (_sync)
+            {
+                if (inventory.AppraisalCount != _appraisalsSeen)
+                {
+                    // 0x03D: the unit price of the appraised slot; it is the price of that item on every row.
+                    _appraisalsSeen = inventory.AppraisalCount;
+                    byte slot = inventory.AppraisedSlot;
+                    foreach (var menu in _open)
+                    {
+                        if (menu.ShopSide != StockUiShopSide.Sell || menu.IsQuantity) continue;
+                        foreach (var row in menu.ShopRows)
+                        {
+                            if (row.Slot == slot) _sellPrices[row.ItemId] = inventory.AppraisedSellPrice;
+                        }
+                    }
+                }
+                foreach (var menu in _open)
+                {
+                    if (menu.IsShopList) { FillShopRows(menu); changed = true; }
+                }
+                if (_confirmPending is { } pending && _sellPrices.TryGetValue(pending.ItemId, out uint price))
+                {
+                    _confirmPending = null;
+                    if (ReferenceEquals(Top, pending.List) && pending.List.SelectedShopRow is { } row && row.ItemId == pending.ItemId)
+                    {
+                        changed |= OpenQuantity(pending.List, row, price, Math.Max(1, row.Count)) != null;
+                    }
+                }
+            }
+            if (changed) Changed?.Invoke();
+        }
+
+        private void ClearAppraisals()
+        {
+            _sellPrices.Clear();
+            _confirmPending = null;
+        }
+
+        /// <summary>The character's items or gil changed: refreshes an open Sell list and the gil shown.</summary>
+        public void OnInventoryChanged()
+        {
+            if (!_shopOpen) return;
+            lock (_sync)
+            {
+                foreach (var menu in _open)
+                {
+                    if (menu.IsShopList) FillShopRows(menu);
+                    else if (menu.IsQuantity) menu.Gil = Gil;
+                }
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>The character's gil (inventory slot 0).</summary>
+        public uint Gil => StockUiShop.Gil(Inventory);
+
+        /// <summary>Opens the Buy / Sell window as the root, closing whatever menus were open (prompts answer No).</summary>
+        private void OpenShopWindow()
+        {
+            StockUiOpenMenu[] closed;
+            StockUiOpenMenu? root;
+            lock (_sync)
+            {
+                closed = _open;
+                foreach (var menu in closed) Remember(menu);
+                _open = Array.Empty<StockUiOpenMenu>();
+                root = Push(StockUiShop.MenuName, null, Array.Empty<string>(), null, null);
+                _shopOpen = root != null;
+                ClearAppraisals();
+                _appraisalsSeen = Inventory?.AppraisalCount ?? 0;
+            }
+            foreach (var menu in closed)
+            {
+                menu.Prompt?.TrySetResult(false);
+                menu.QueryCompleted?.Invoke(255);
+            }
+            if (root == null) Inventory?.CloseShop();
+            else Changed?.Invoke();
+        }
+
+        /// <summary>The shop's root window closed (Cancel, or every menu closing): the shop session ends with it.</summary>
+        private void EndShopSession()
+        {
+            if (!_shopOpen) return;
+            _shopOpen = false;
+            ClearAppraisals();
+            Inventory?.CloseShop();
+        }
+
+        /// <summary>Opens a shop list on the "shop" frame (under the lock); null when the frame is not in the library.</summary>
+        private StockUiOpenMenu? OpenShopList(StockUiShopSide side, StockUiOpenMenu parent)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiShop.ListMenu, out var definition))
+            {
+                GordianLog.Warning("UI", $"Stock menu '{StockUiShop.ListMenu}' is not available.");
+                return null;
+            }
+            int visible = 0;
+            foreach (var button in definition.Buttons)
+            {
+                if (IsSelectable(button)) visible++;
+            }
+            var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, visible) { ShopSide = side, ItemLookup = ItemLookup };
+            FillShopRows(menu);
+            menu.SelectedButtonId = 1;
+            var open = new StockUiOpenMenu[_open.Length + 1];
+            Array.Copy(_open, open, _open.Length);
+            open[^1] = menu;
+            _open = open;
+            return menu;
+        }
+
+        /// <summary>Rebuilds a shop list's rows from the inventory (under the lock), keeping the cursor on a row that exists.</summary>
+        private void FillShopRows(StockUiOpenMenu menu)
+        {
+            var inventory = Inventory;
+            var shopRows = menu.ShopSide == StockUiShopSide.Buy
+                ? StockUiShop.BuyRows(inventory?.SnapshotShopItems() ?? Array.Empty<ShopItemEntry>(), ItemLookup)
+                : StockUiShop.SellRows(inventory, ItemLookup);
+            if (menu.ShopSide == StockUiShopSide.Sell)
+            {
+                for (int i = 0; i < shopRows.Count; i++)
+                {
+                    if (_sellPrices.TryGetValue(shopRows[i].ItemId, out uint price)) shopRows[i] = shopRows[i] with { Price = price };
+                }
+            }
+            var rows = new List<StockUiListRow>(shopRows.Count);
+            foreach (var row in shopRows) rows.Add(new StockUiListRow(rows.Count + 1, row.Name, false));
+            menu.ShopRows = shopRows;
+            menu.Rows = rows;
+            menu.Gil = Gil;
+            int maxFirst = Math.Max(0, rows.Count - menu.VisibleRows);
+            if (menu.FirstRow > maxFirst)
+            {
+                menu.FirstRow = maxFirst;
+                menu.ScrollFrom = maxFirst;
+            }
+            int lastRow = Math.Max(1, Math.Min(menu.VisibleRows, rows.Count - menu.FirstRow));
+            if (menu.SelectedButtonId < 1 || menu.SelectedButtonId > lastRow) menu.SelectedButtonId = lastRow;
+        }
+
+        /// <summary>
+        /// Confirm on a shop row: buying opens the quantity prompt (the count capped by the stack size and the gil in
+        /// hand); selling asks the server for the appraisal (0x084 with count 1) and opens the prompt when 0x03D answers.
+        /// </summary>
+        private void ActivateShopRow(StockUiOpenMenu list)
+        {
+            bool changed = false;
+            string? notice = null;
+            (uint Count, ushort ItemId, byte Slot)? appraise = null;
+            lock (_sync)
+            {
+                if (!ReferenceEquals(Top, list) || list.SelectedShopRow is not { } row) return;
+                if (list.ShopSide == StockUiShopSide.Buy)
+                {
+                    uint gil = Gil;
+                    if (gil < row.Price) notice = "You do not have enough gil.";
+                    else changed = OpenQuantity(list, row, row.Price, StockUiShop.MaxBuyCount(row, gil)) != null;
+                }
+                else if (row.Greyed)
+                {
+                    notice = $"{row.Name} cannot be sold.";
+                }
+                else if (ShopAppraise == null)
+                {
+                    notice = "Selling is not available in this session.";
+                }
+                else if (_sellPrices.TryGetValue(row.ItemId, out uint price))
+                {
+                    changed = OpenQuantity(list, row, price, Math.Max(1, row.Count)) != null;
+                }
+                else if (_confirmPending is not { } pending || pending.ItemId != row.ItemId || !ReferenceEquals(pending.List, list))
+                {
+                    // Retail appraises the item on Confirm (0x084 with count 1); the prompt opens when 0x03D answers.
+                    _confirmPending = (row.ItemId, list);
+                    appraise = (1, row.ItemId, row.Slot);
+                }
+            }
+            if (notice != null) NoticePosted?.Invoke(notice);
+            if (appraise is { } a && ShopAppraise is { } send) _ = SendAsync(() => send(a.Count, a.ItemId, a.Slot), "Appraisal");
+            if (changed) Changed?.Invoke();
+        }
+
+        /// <summary>Opens the quantity prompt ("itemctrl") over a list (under the lock); null when the frame is missing.</summary>
+        private StockUiOpenMenu? OpenQuantity(StockUiOpenMenu list, in StockUiShopRow row, uint unitPrice, uint max)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition))
+            {
+                GordianLog.Warning("UI", $"Stock menu '{StockUiShop.QuantityMenu}' is not available.");
+                return null;
+            }
+            var menu = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null)
+            {
+                IsQuantity = true,
+                ShopSide = list.ShopSide,
+                QuantityRow = row,
+                QuantityMax = Math.Max(1, max),
+                QuantityTotal = list.ShopSide == StockUiShopSide.Buy ? (uint)Math.Max(1, row.StackSize) : Math.Max(1, row.Count),
+                UnitPrice = unitPrice,
+                ItemLookup = ItemLookup,
+            };
+            menu.Quantity = 1;
+            menu.Gil = Gil;
+            menu.SelectedButtonId = StockUiShop.QuantityField;
+            list.ShowsQuantity = true;
+            var open = new StockUiOpenMenu[_open.Length + 1];
+            Array.Copy(_open, open, _open.Length);
+            open[^1] = menu;
+            _open = open;
+            return menu;
+        }
+
+        /// <summary>Applies one of the quantity control's buttons: + / - step by one, "All" and "1" jump to the ends.</summary>
+        private static bool AdjustQuantity(StockUiOpenMenu menu, int buttonId)
+        {
+            uint value = buttonId switch
+            {
+                StockUiShop.QuantityUpButton => menu.Quantity + 1,
+                StockUiShop.QuantityDownButton => menu.Quantity == 0 ? 0 : menu.Quantity - 1,
+                StockUiShop.QuantityAllButton => menu.QuantityMax,
+                StockUiShop.QuantityOneButton => 1,
+                _ => menu.Quantity,
+            };
+            value = Math.Clamp(value, 1, menu.QuantityMax);
+            if (value == menu.Quantity) return false;
+            menu.Quantity = value;
+            return true;
+        }
+
+        /// <summary>Confirm on the quantity prompt: sends the purchase (0x083) or the sale (0x084 with the count, then 0x085).</summary>
+        private void RunQuantity(StockUiOpenMenu prompt)
+        {
+            uint count = prompt.Quantity;
+            var row = prompt.QuantityRow;
+            lock (_sync)
+            {
+                if (ReferenceEquals(Top, prompt)) _open = _open[..^1];
+                if (prompt.Parent is { } list) list.ShowsQuantity = false;
+            }
+            Changed?.Invoke();
+            if (prompt.ShopSide == StockUiShopSide.Buy)
+            {
+                uint total = count * prompt.UnitPrice;
+                if (Gil < total)
+                {
+                    NoticePosted?.Invoke("You do not have enough gil.");
+                    return;
+                }
+                var buy = ShopBuy;
+                if (buy == null)
+                {
+                    NoticePosted?.Invoke("Buying is not available in this session.");
+                    return;
+                }
+                ushort shopNo = StockUiShop.ShopNo(Inventory?.ShopListNum ?? 0);
+                GordianLog.Info("SHOP", $"Buying {count} x {row.Name} (item {row.ItemId}, shop slot {row.ShopIndex}) for {total} gil.");
+                _ = SendAsync(() => buy(count, shopNo, (ushort)row.ShopIndex), "Purchase");
+            }
+            else
+            {
+                var appraise = ShopAppraise;
+                var confirm = ShopSellConfirm;
+                if (appraise == null || confirm == null)
+                {
+                    NoticePosted?.Invoke("Selling is not available in this session.");
+                    return;
+                }
+                GordianLog.Info("SHOP", $"Selling {count} x {row.Name} (item {row.ItemId}, slot {row.Slot}) at {prompt.UnitPrice} gil each.");
+                _ = SendAsync(async () =>
+                {
+                    await appraise(count, row.ItemId, row.Slot).ConfigureAwait(false);
+                    await confirm().ConfigureAwait(false);
+                }, "Sale");
+            }
+        }
+
+        private async Task SendAsync(Func<Task> send, string what)
+        {
+            try
+            {
+                await send().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("SHOP", $"{what} failed: {ex.Message}");
+                NoticePosted?.Invoke($"{what} failed: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region Mouse
 
         private volatile StockUiMenuPlacement[] _placements = Array.Empty<StockUiMenuPlacement>();
@@ -1203,7 +1711,7 @@ namespace Gordian.Core.Ui
                 }
                 over = TryHit(x, y, out var menu, out var button, out _);
                 if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button)
-                    && menu!.SelectedButtonId != button.ButtonId)
+                    && !menu!.IsQuantity && menu.SelectedButtonId != button.ButtonId)
                 {
                     menu.SelectedButtonId = button.ButtonId;
                     changed = true;
@@ -1250,6 +1758,10 @@ namespace Gordian.Core.Ui
                     if (IsPageArrow(menu, button))
                     {
                         changed |= FlipPage(menu, button.X < 0 ? -1 : 1);
+                    }
+                    else if (menu.IsQuantity && button.ButtonId != StockUiShop.QuantityField)
+                    {
+                        changed |= AdjustQuantity(menu, button.ButtonId);
                     }
                     else
                     {
@@ -1312,7 +1824,12 @@ namespace Gordian.Core.Ui
             lock (_sync)
             {
                 if (!TryHit(x, y, out var menu, out _, out _)) return false;
-                if (menu is { CanScroll: true } && delta != 0)
+                if (menu is { IsQuantity: true } && delta != 0)
+                {
+                    int steps = Math.Max(1, (int)Math.Round(Math.Abs(delta)));
+                    for (int i = 0; i < steps; i++) changed |= AdjustQuantity(menu, delta > 0 ? StockUiShop.QuantityUpButton : StockUiShop.QuantityDownButton);
+                }
+                else if (menu is { CanScroll: true } && delta != 0)
                 {
                     int steps = Math.Max(1, (int)Math.Round(Math.Abs(delta)));
                     int maxFirst = Math.Max(0, menu.Rows.Count - menu.VisibleRows);
@@ -1379,7 +1896,8 @@ namespace Gordian.Core.Ui
         /// paged menu's page arrows (drawn outside the frame only on paged menus).
         /// </summary>
         private static bool IsClickable(StockUiOpenMenu menu, UiMenuButton button) =>
-            IsPageArrow(menu, button) || (IsSelectable(button) && IsPopulated(menu, button.ButtonId) && !IsOutsideFrame(menu, button));
+            IsPageArrow(menu, button) || (menu.IsQuantity && !IsOutsideFrame(menu, button))
+            || (IsSelectable(button) && IsPopulated(menu, button.ButtonId) && !IsOutsideFrame(menu, button));
 
         private static bool IsOutsideFrame(StockUiOpenMenu menu, UiMenuButton button) =>
             button.X < 0 || button.X >= menu.Menu.Frame.Width;

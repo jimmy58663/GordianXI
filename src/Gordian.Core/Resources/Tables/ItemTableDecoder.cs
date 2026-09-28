@@ -332,6 +332,7 @@ namespace Gordian.Core.Resources.Tables
                     {
                         // EN layout: Name, Article, LogName, LogPlural, Description
                         item.Name = strings[0];
+                        item.Article = strings[1];
                         item.LogName = strings[2];
                         item.LogPlural = strings[3];
                         item.Description = strings[4];

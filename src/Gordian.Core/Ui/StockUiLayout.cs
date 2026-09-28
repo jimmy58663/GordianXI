@@ -71,6 +71,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The target command menu (Confirm on a target; composed from "playermo", bottom-left).</summary>
         public const string CommandMenu = "command";
+
+        /// <summary>The NPC shop's Buy / Sell window ("shopmain", bottom-left); its list and prompts follow it.</summary>
+        public const string Shop = "shop";
     }
 
     /// <summary>

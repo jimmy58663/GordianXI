@@ -181,6 +181,28 @@ namespace Gordian.Core.Network
             Locomotion.Chat = Chat;
             Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName);
             Locomotion.Events = Events;
+            // The NPC shop (Tier 2 chunk 6c): S2C 0x03E / 0x03C / 0x03D drive the shop windows through the inventory
+            // state; the windows send 0x083 (buy) and 0x084 + 0x085 (appraise, sell). A zone change ends the shop.
+            ActionService.Menus.Inventory = Inventory;
+            ActionService.Menus.ShopBuy = (count, shopNo, index) => InventoryModule.BuyShopItemAsync(count, shopNo, index, 0);
+            ActionService.Menus.ShopAppraise = (count, itemId, slot) => InventoryModule.AppraiseShopItemAsync(count, itemId, slot);
+            ActionService.Menus.ShopSellConfirm = () => InventoryModule.ConfirmShopSaleAsync();
+            Inventory.ShopChanged += ActionService.Menus.OnShopChanged;
+            Inventory.ShopPurchased += (index, count) =>
+            {
+                // Retail prints the purchase itself on 0x03F ("You buy 12 Ronfaure chestnuts from the shop.").
+                foreach (var item in Inventory.SnapshotShopItems())
+                {
+                    if (item.ShopIndex != index) continue;
+                    Chat.Log.Add(Ui.ChatLogChannel.System, Ui.StockUiShop.BuyMessage(Ui.StockUiShop.Lookup(ActionService.Menus.ItemLookup, item.ItemId), count));
+                    return;
+                }
+            };
+            Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            World.ZoneChanged += _ =>
+            {
+                if (Inventory.IsShopOpen) Inventory.CloseShop();
+            };
             // The character stops while the input line has the keyboard (keys held when it opened are released).
             Chat.Input.OpenChanged += open =>
             {

@@ -128,6 +128,12 @@ namespace Gordian.App.Graphics
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
+            if (menus.ItemLookup == null && _resources is { } items)
+            {
+                // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
+                menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
+                Gordian.Core.Network.Packets.StandardMessages.ItemLookup ??= menus.ItemLookup;
+            }
 
             renderer.Begin(library);
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
@@ -207,12 +213,15 @@ namespace Gordian.App.Graphics
             var rootFrame = open[0].Menu.Frame;
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
+                : open[0].IsShopMenu ? StockUiWindowIds.Shop
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
-            if (open[0].IsCommandMenu && !rootMoved && _window1Top is { } logTop)
+            if ((open[0].IsCommandMenu || open[0].IsShopMenu) && !rootMoved && _window1Top is { } logTop)
             {
                 // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
-                // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window.
+                // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window. The shop's
+                // Buy / Sell window sits there too, while its item list and the gil, item info and quantity windows
+                // under the list keep their authored places at the top (the maintainer's in-game check 2026-09-28).
                 float h = rootFrame.Height * root.Scale;
                 root = root with { Y = Math.Clamp(logTop - h, 0, Math.Max(0, height - h)) };
             }
@@ -241,8 +250,10 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    float x = Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
-                    float y = Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    // The shop's list and quantity prompt keep their authored places; the other windows follow the root.
+                    bool shopWindow = menu.ShopSide != null;
+                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp);

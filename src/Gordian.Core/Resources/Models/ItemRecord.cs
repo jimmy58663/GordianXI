@@ -47,6 +47,8 @@ namespace Gordian.Core.Resources.Models
 
         #region Strings & Description
         public string Name { get; set; } = string.Empty;
+        /// <summary>The English DAT's second string (between the name and the log name); kept as read, its meaning unconfirmed.</summary>
+        public string Article { get; set; } = string.Empty;
         public string LogName { get; set; } = string.Empty;
         public string LogPlural { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;

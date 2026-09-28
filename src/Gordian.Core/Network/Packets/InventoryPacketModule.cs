@@ -233,6 +233,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("SHOP", $"Purchased shop item {p.ShopItemIndex} x{p.Count}, Result={p.BuyState}");
+            _inventoryState.NotifyPurchase(p.ShopItemIndex, p.Count);
         }
 
         private void HandleAuc(PacketHeader header, ReadOnlySpan<byte> payload)

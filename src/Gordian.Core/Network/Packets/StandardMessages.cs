@@ -53,6 +53,29 @@ namespace Gordian.Core.Network.Packets
             [308] = "An error has occurred."
         };
 
+        /// <summary>MsgStd::Sell and MsgStd::SellToShop: sent after a vendor sale with the item id and count.</summary>
+        public const ushort ShopSellMessage = 232, ShopSellToShopMessage = 233;
+
+        /// <summary>Item records for the messages that name items (their log names and plurals); set once the item DATs are available.</summary>
+        public static System.Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? ItemLookup { get; set; }
+
+        /// <summary>Reads the first two numbers of a "Para0 n Para1 m" parameter string.</summary>
+        public static bool TryGetNumbers(string parameters, out uint first, out uint second)
+        {
+            first = second = 0;
+            if (string.IsNullOrEmpty(parameters)) return false;
+            var parts = parameters.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+            int found = 0;
+            for (int i = 0; i + 1 < parts.Length && found < 2; i++)
+            {
+                if (!parts[i].StartsWith("Para", System.StringComparison.Ordinal) || !uint.TryParse(parts[i + 1], out uint value)) continue;
+                if (found == 0) first = value; else second = value;
+                found++;
+                i++;
+            }
+            return found == 2;
+        }
+
         /// <summary>
         /// Attempts to get the localized/standard English string for a standard message ID.
         /// </summary>
@@ -66,6 +89,12 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public static string FormatMessage(SystemMessage msg)
         {
+            if (msg.MessageId is ShopSellMessage or ShopSellToShopMessage && TryGetNumbers(msg.Parameters, out uint itemId, out uint count))
+            {
+                // LandSandBoat sends 232 with "Para0 <id> Para1 <count>" after a completed vendor sale (0x085); the
+                // retail client prints it as "You sell 12 Ronfaure chestnuts to the shop." (capture, 2026-09-28).
+                return Gordian.Core.Ui.StockUiShop.SellMessage(Gordian.Core.Ui.StockUiShop.Lookup(ItemLookup, (ushort)itemId), count);
+            }
             if (TryGetMessage(msg.MessageId, out string knownText))
             {
                 return !string.IsNullOrEmpty(msg.Parameters) ? $"{knownText} ({msg.Parameters})" : knownText;
