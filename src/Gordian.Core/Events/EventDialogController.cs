@@ -146,7 +146,9 @@ namespace Gordian.Core.Events
             int zoneId = _world?.CurrentZoneId ?? 0;
             EnsureZoneData(zoneId);
             _info = info;
-            _zone.SetParameters(info.NumericParams.Length > 0 ? info.NumericParams : Array.ConvertAll(info.DataParams, v => unchecked((int)v)));
+            // 0x034 carries the numbers in NumericParams; 0x033 (string events) carries them in DataParams.
+            bool numeric = Array.Exists(info.NumericParams, v => v != 0) || !Array.Exists(info.DataParams, v => v != 0);
+            _zone.SetParameters(numeric ? info.NumericParams : Array.ConvertAll(info.DataParams, v => unchecked((int)v)));
             _zone.Selection = 0;
             _zone.EndParameter = 0;
 
@@ -181,29 +183,33 @@ namespace Gordian.Core.Events
             Changed?.Invoke();
         }
 
+        /// <summary>Loads the zone's scripts and dialog table once per zone (called from the game tick and the network thread).</summary>
         private void EnsureZoneData(int zoneId)
         {
-            if (_scriptZone == zoneId) return;
-            _scriptZone = zoneId;
-            _script = null;
-            _dialog = null;
-            var loader = DatLoader;
-            if (loader == null)
+            lock (_sync)
             {
-                GordianLog.Warning("EVENT", "No DAT loader is set; events cannot run.");
-                return;
-            }
-            try
-            {
-                var scriptBytes = loader(ZoneEventScript.GetFileId(zoneId));
-                if (scriptBytes != null) _script = ZoneEventScript.Parse(scriptBytes);
-                var dialogBytes = loader(ZoneDialogTable.GetFileId(zoneId));
-                if (dialogBytes != null) _dialog = ZoneDialogTable.Parse(dialogBytes);
-                GordianLog.Info("EVENT", $"Zone {zoneId}: {_script?.Blocks.Count ?? 0} event blocks, {_dialog?.Count ?? 0} dialog messages.");
-            }
-            catch (Exception ex)
-            {
-                GordianLog.Error("EVENT", $"Failed to load the event data of zone {zoneId}: {ex.Message}");
+                if (_scriptZone == zoneId) return;
+                _scriptZone = zoneId;
+                _script = null;
+                _dialog = null;
+                var loader = DatLoader;
+                if (loader == null)
+                {
+                    GordianLog.Warning("EVENT", "No DAT loader is set; events cannot run.");
+                    return;
+                }
+                try
+                {
+                    var scriptBytes = loader(ZoneEventScript.GetFileId(zoneId));
+                    if (scriptBytes != null) _script = ZoneEventScript.Parse(scriptBytes);
+                    var dialogBytes = loader(ZoneDialogTable.GetFileId(zoneId));
+                    if (dialogBytes != null) _dialog = ZoneDialogTable.Parse(dialogBytes);
+                    GordianLog.Info("EVENT", $"Zone {zoneId}: {_script?.Blocks.Count ?? 0} event blocks, {_dialog?.Count ?? 0} dialog messages.");
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("EVENT", $"Failed to load the event data of zone {zoneId}: {ex.Message}");
+                }
             }
         }
 
