@@ -21,7 +21,7 @@ namespace Gordian.App.Graphics
         private const float OutlineThickness = 2;
 
         public const string ResetButtonLabel = "Default positions";
-        public const string Hint = "Stock UI unlocked: drag windows.  /uilayout lock when done.";
+        public const string Hint = "Stock UI unlocked: drag windows.  Esc or /uilayout lock when done.";
         private const float ButtonPaddingX = 8, ButtonHeight = 18, ButtonTop = 6;
 
         // Half-scale colours (0x80 = 1.0): the resting outline is a translucent white, the hovered window pale yellow,

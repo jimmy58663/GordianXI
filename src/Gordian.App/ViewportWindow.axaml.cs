@@ -84,12 +84,9 @@ namespace Gordian.App
             // input handling. handledEventsToo is required because the control marks these Handled.
             //
             // On Windows the viewport renders into a real native Win32 child window (see
-            // Win32ChildWindowHelper), so the OS delivers that window's mouse messages directly to
-            // it, never through Avalonia's routed-event tree - VeldridViewportControl's own
-            // OnPointerMoved/OnPointerWheelChanged overrides simply never fire there. This window
-            // level InputState bus (consumed by PlayerLocomotionController) is what actually drives
-            // right-click camera look and wheel zoom in practice; the control's own handling is a
-            // fallback for platforms where NativeControlHost is Avalonia-composited instead.
+            // Win32ChildWindowHelper), which now claims its own mouse messages, so over the viewport
+            // only the Raw* handlers above fire; these routed handlers see the wheel (routed by focus)
+            // and, on platforms where NativeControlHost is Avalonia-composited, the pointer too.
             AddHandler(InputElement.PointerPressedEvent, OnGamePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
             AddHandler(InputElement.PointerReleasedEvent, OnGamePointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
             AddHandler(InputElement.PointerMovedEvent, OnGamePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -294,6 +291,14 @@ namespace Gordian.App
             }
             if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol))
             {
+                e.Handled = true;
+                return;
+            }
+
+            // Escape locks an unlocked stock UI (once no menu is open for it to cancel first).
+            if (e.Key == Key.Escape && !session.ActionService.Menus.IsOpen && session.ActionService.UiDrag.Unlocked)
+            {
+                session.ActionService.UiLayout.SetUnlocked(false);
                 e.Handled = true;
                 return;
             }

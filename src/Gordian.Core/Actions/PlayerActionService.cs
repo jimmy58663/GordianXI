@@ -1026,7 +1026,7 @@ namespace Gordian.Core.Actions
                 UiDrag.Layout = layout;
                 layout.SetUnlocked(first == "unlock");
                 return PlayerActionResult.Ok(layout.Unlocked
-                    ? "Stock UI unlocked: drag the outlined windows with the mouse; Default positions resets them; /uilayout lock when done."
+                    ? "Stock UI unlocked: drag the outlined windows with the mouse; Default positions resets them; Esc or /uilayout lock when done."
                     : "Stock UI locked.", Kind);
             }
             if (first == "skin" && parts.Length == 2 && int.TryParse(parts[1], out int skin))
