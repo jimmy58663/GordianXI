@@ -17,10 +17,11 @@ namespace Gordian.Core.Events
     public interface IEventVmHost
     {
         /// <summary>
-        /// Prints a zone dialog message. Returns true when the message ends with a prompt, so the VM waits for the
-        /// player's confirm (<see cref="EventVm.Confirm"/>) before it goes on.
+        /// Prints a zone dialog message. Returns how long (seconds) the message stays open, holding the following
+        /// 0x23 wait; 0 for a message that does not wait. The player's confirm (<see cref="EventVm.Confirm"/>)
+        /// closes it early.
         /// </summary>
-        bool PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex);
+        double PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex);
 
         /// <summary>
         /// Shows a query menu: the message's lines before its choice list as comments, its choices as options.

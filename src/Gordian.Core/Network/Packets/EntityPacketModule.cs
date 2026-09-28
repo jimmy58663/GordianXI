@@ -426,22 +426,27 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
-            if (npcPacket.HasName)
+            if (isNew || string.IsNullOrEmpty(entity.Name))
             {
-                // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
-                string name = npcPacket.GetName().Replace('_', ' ');
-                if (!string.IsNullOrEmpty(name))
+                // Retail names zone NPCs from the zone's entity list DAT ("Home Point #2" where LandSandBoat's database
+                // says "HomePoint#2"); the server's name is for dynamic entities the list does not carry.
+                string? listed = Resources.Tables.ZoneEntityNames.Resolve(_world.CurrentZoneId, npcPacket.UniqueNo);
+                if (!string.IsNullOrEmpty(listed))
                 {
-                    entity.Name = name;
+                    entity.Name = listed;
                     _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 }
             }
 
-            if (string.IsNullOrEmpty(entity.Name))
+            if (npcPacket.HasName && (string.IsNullOrEmpty(entity.Name) || !isNew))
             {
-                // Retail names zone NPCs from the zone's entity list DAT; the server sends names for dynamic ones only.
-                string? listed = Resources.Tables.ZoneEntityNames.Resolve(_world.CurrentZoneId, npcPacket.UniqueNo);
-                if (!string.IsNullOrEmpty(listed)) entity.Name = listed;
+                // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
+                string name = npcPacket.GetName().Replace('_', ' ');
+                if (!string.IsNullOrEmpty(name) && string.IsNullOrEmpty(entity.Name))
+                {
+                    entity.Name = name;
+                    _pendingEntityRequests.Remove(npcPacket.ActorIndex);
+                }
             }
 
             if (string.IsNullOrEmpty(entity.Name) && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)

@@ -22,10 +22,13 @@ namespace Gordian.Core.Tests.Events
         public int GameTime { get; set; } = 1234;
         public int Closed { get; private set; }
 
-        public bool PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
+        /// <summary>How long a prompt message stays open in these tests (long enough that only Confirm closes it).</summary>
+        public double PromptSeconds { get; set; } = 60;
+
+        public double PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
             Printed.Add((messageId, speaker, speakerServerId));
-            return PromptMessages.Contains(messageId);
+            return PromptMessages.Contains(messageId) ? PromptSeconds : 0;
         }
 
         public void OpenQuery(int messageId, int defaultIndex, uint hiddenMask) => Queries.Add((messageId, defaultIndex, hiddenMask));
@@ -82,6 +85,23 @@ namespace Gordian.Core.Tests.Events
             Assert.True(vm.IsFinished); // message 501 has no prompt: 23 passes, 21 ends
             Assert.False(vm.IsCancelled);
             Assert.Equal(0u, vm.EndParameter);
+        }
+
+        [Fact]
+        public void PromptMessage_ClosesOnItsOwnAfterItsTime()
+        {
+            var code = new byte[] { 0x1D, 0x00, 0x80, 0x23, 0x21 };
+            var host = new RecordingHost { PromptSeconds = 1.0 };
+            host.PromptMessages.Add(500);
+            var vm = Make(code, host, references: new uint[] { 500 });
+            vm.Tick(Frame);
+            Assert.True(vm.IsWaitingForConfirm);
+            vm.Tick(TimeSpan.FromSeconds(0.5));
+            Assert.True(vm.IsWaitingForConfirm);
+            Assert.False(vm.IsFinished);
+            vm.Tick(TimeSpan.FromSeconds(0.6));
+            Assert.False(vm.IsWaitingForConfirm);
+            Assert.True(vm.IsFinished);
         }
 
         [Fact]

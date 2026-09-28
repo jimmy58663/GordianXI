@@ -300,18 +300,28 @@ namespace Gordian.Core.Events
 
         #region IEventVmHost
 
-        bool IEventVmHost.PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
+        /// <summary>
+        /// How long a prompt message stays open before the event goes on: retail auto-advances NPC talk after a
+        /// pause that grows with the text. Estimated from the maintainer's recording (2026-09-28): a 75-character
+        /// line released the character about a second after it showed (including the script's own half-second wait).
+        /// </summary>
+        public const double MessageBaseSeconds = 0.3, MessageSecondsPerCharacter = 0.008;
+
+        double IEventVmHost.PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
             var decoded = _dialog?.GetMessage(messageId);
             if (decoded == null)
             {
                 GordianLog.Warning("DIALOG", $"Event message {messageId} is not in the dialog table.");
-                return false;
+                return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
             PrintLines(lines, speaker == EventSpeaker.Entity ? name : null, ChatLogChannel.Dialog);
-            return decoded.HasPrompt;
+            int length = 0;
+            foreach (string line in lines) length += line.Length;
+            GordianLog.Debug("DIALOG", $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}): {(lines.Count > 0 ? lines[0] : string.Empty)}");
+            return decoded.HasPrompt ? MessageBaseSeconds + length * MessageSecondsPerCharacter : 0;
         }
 
         void IEventVmHost.OpenQuery(int messageId, int defaultIndex, uint hiddenMask)

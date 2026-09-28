@@ -16,7 +16,8 @@ namespace Gordian.Core.Events
     /// "Event VM Structures.md" and "OpCodes/"): operands are 16-bit work references resolved by
     /// <c>getworkofs</c> (bit 15: the block's immediate data; 0-79: the event's locals; 4096+: the zone's shared
     /// work values; 0x7F00+: entity facts), jumps keep an 8-deep return stack, waits count 60 Hz frames, a message
-    /// opcode blocks the following 0x23 until the player confirms a prompt, 0x24/0x25 open a query and store the
+    /// opcode holds the following 0x23 while its text is shown (a prompt message stays open for a time that grows with
+    /// its length, or until the player confirms; retail auto-advances NPC talk this way), 0x24/0x25 open a query and store the
     /// choice in the zone's work value 0, 0x43 sends the update (0x05B mode 1) with work value 1 and waits for the
     /// server, and 0x00 / 0x21 end the event, after which the client sends 0x05B mode 0 with work value 1
     /// (0x40000000 when the player cancelled a query).
@@ -43,7 +44,7 @@ namespace Gordian.Core.Events
         private int _pc;
         private bool _retFlag;
         private float _waitTime = -1f;
-        private bool _messageOpen;
+        private double _messageOpenSeconds;
         private bool _queryOpen;
         private float _eventX, _eventY, _eventZ, _eventDir;
 
@@ -77,8 +78,8 @@ namespace Gordian.Core.Events
         /// <summary>Whether the player cancelled a query, which ends the event with <see cref="CancelledEndParameter"/>.</summary>
         public bool IsCancelled { get; private set; }
 
-        /// <summary>Whether a printed message waits for the player's confirm.</summary>
-        public bool IsWaitingForConfirm => _messageOpen;
+        /// <summary>Whether a printed message is still open (the player's confirm closes it early).</summary>
+        public bool IsWaitingForConfirm => _messageOpenSeconds > 0;
 
         /// <summary>The value the end packet reports.</summary>
         public uint EndParameter => IsCancelled ? CancelledEndParameter : unchecked((uint)_zone.EndParameter);
@@ -87,7 +88,7 @@ namespace Gordian.Core.Events
         public int ProgramCounter => _pc;
 
         /// <summary>The player confirmed the open message: the event goes on at its next tick.</summary>
-        public void Confirm() => _messageOpen = false;
+        public void Confirm() => _messageOpenSeconds = 0;
 
         /// <summary>Stops the event where it is (a server cancel, or a zone change).</summary>
         public void Abort(bool cancelled)
@@ -101,6 +102,7 @@ namespace Gordian.Core.Events
         {
             if (IsFinished) return;
             float frames = (float)(elapsed.TotalSeconds * FramesPerSecond);
+            if (_messageOpenSeconds > 0) _messageOpenSeconds = Math.Max(0, _messageOpenSeconds - elapsed.TotalSeconds);
             _retFlag = false;
             int steps = 0;
             while (!_retFlag && !IsFinished)
@@ -323,7 +325,7 @@ namespace Gordian.Core.Events
                     Finish();
                     return;
                 case 0x23:
-                    if (_messageOpen) _retFlag = true;
+                    if (_messageOpenSeconds > 0) _retFlag = true;
                     else _pc++;
                     return;
                 case 0x24:
@@ -537,7 +539,7 @@ namespace Gordian.Core.Events
 
         private void PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
-            _messageOpen = _host.PrintMessage(messageId, speaker, speakerServerId, speakerIndex);
+            _messageOpenSeconds = Math.Max(0, _host.PrintMessage(messageId, speaker, speakerServerId, speakerIndex));
         }
     }
 }
