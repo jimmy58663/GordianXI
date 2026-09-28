@@ -156,6 +156,15 @@ namespace Gordian.Core.Network
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
+            // The command menu's chat-mode list (Tier 2 chunk 6b): picks the default chat mode, shows the last tell
+            // partner, and greys the linkshell modes until the server has shown a linkshell in that slot.
+            ActionService.Menus.ChatModeSelected = mode => Chat.Input.SetMode(mode);
+            ActionService.Menus.TellTarget = () => Chat.Input.TellTarget;
+            ActionService.Menus.HasLinkshell = slot => Party.HasLinkshell(slot);
+            ChatModule.LinkshellMessageReceived += msg =>
+            {
+                if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == Packets.LinkshellSlot.LS1 ? 1 : 2, true);
+            };
             Locomotion.Chat = Chat;
             Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName);
             Locomotion.Events = Events;

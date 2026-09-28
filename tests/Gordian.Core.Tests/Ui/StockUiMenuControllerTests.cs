@@ -50,7 +50,15 @@ namespace Gordian.Core.Tests.Ui
             List(StockUiMenuEntries.WindowSettingsPage, 16, 48, UiAnchor.TopLeft, 7, 8, 9),
             List(StockUiMenuEntries.YesNoMenu, 16, 256, UiAnchor.BottomLeft, 1, 2),
             List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 1, 2),
+            // The command menu's templates (label sprites by button) and the chat-mode list.
+            List(StockUiCommandMenu.Template, 16, 128, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+            List("battlemo", 16, 192, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6),
+            List("attackmo", 16, 176, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 7),
+            List("mp_pmode", 16, 176, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 8, 7),
+            List(StockUiMenuEntries.ChatModeMenu, 130, 192, UiAnchor.BottomLeft, 1, 2, 3, 4, 5, 6, 7),
         });
+
+        private static IEnumerable<string> Labels(StockUiOpenMenu menu) => menu.CommandRows.Select(r => r.Label.Text);
 
         private static StockUiMenuController Controller() => new() { Library = SyntheticLibrary() };
 
@@ -136,6 +144,163 @@ namespace Gordian.Core.Tests.Ui
             menus.CloseTop();
             Assert.False(menus.IsOpen);
         }
+
+        #region Command menu
+
+        private static StockUiTargetContext Target(StockUiTargetKind kind, bool engaged = false, bool engagedWithTarget = false, bool canInvite = true) =>
+            new(kind, 0x1000ABCD, "Target", engaged, engagedWithTarget, canInvite);
+
+        [Fact]
+        public void CommandMenu_ComposesPerTargetKind_AtTheBottomLeft()
+        {
+            var menus = Controller();
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Self)));
+            var self = menus.Top!;
+            Assert.True(self.IsCommandMenu);
+            Assert.Equal(StockUiCommandMenu.Name, self.Name);
+            Assert.Equal(new[] { "Chat", "Magic", "Abilities", "Trust", "Items", "Trade", "Check" }, Labels(self));
+            // One 88 x 16 row per entry from (21, 5); the frame sized to them, its bottom at layout y 296 as every DAT variant's.
+            Assert.Equal(7, self.Menu.Buttons.Count);
+            Assert.Equal((21, 5 + 16 * 6), (self.Menu.Buttons[6].X, (int)self.Menu.Buttons[6].Y));
+            Assert.Equal(8 + 16 * 7, self.Menu.Frame.Height);
+            Assert.Equal(296 - (8 + 16 * 7), self.Menu.Frame.Y);
+            Assert.Equal(UiAnchor.BottomLeft, self.Menu.Frame.Anchor);
+            Assert.Equal(1, self.SelectedButtonId);
+            menus.Move(InputAction.MenuUp);
+            Assert.Equal(7, self.SelectedButtonId); // the rows link in a ring
+            Assert.Equal(menus.CommandMenuTarget, Target(StockUiTargetKind.Self));
+            menus.CloseAll();
+
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Self, engaged: true)));
+            Assert.Contains("Disengage", Labels(menus.Top!));
+            menus.CloseAll();
+
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Player, canInvite: false)));
+            var player = menus.Top!;
+            Assert.Equal("Check", Labels(player).First());
+            int invite = player.CommandRows.ToList().FindIndex(r => r.Label.Text == "Invite") + 1;
+            Assert.True(player.IsGreyed(invite));
+            menus.CloseAll();
+
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster)));
+            Assert.Equal("Attack", Labels(menus.Top!).First());
+            Assert.DoesNotContain("Disengage", Labels(menus.Top!));
+            menus.CloseAll();
+
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster, engaged: true, engagedWithTarget: true)));
+            Assert.Contains("Disengage", Labels(menus.Top!));
+            Assert.DoesNotContain("Attack", Labels(menus.Top!));
+            menus.CloseAll();
+
+            Assert.False(menus.OpenCommandMenu(Target(StockUiTargetKind.None)));
+            menus.OpenMainMenu();
+            Assert.False(menus.OpenCommandMenu(Target(StockUiTargetKind.Self))); // never over an open menu
+        }
+
+        [Fact]
+        public void CommandMenu_ChatOpensTheChatModes_AndPickingOneSetsTheMode()
+        {
+            var menus = Controller();
+            ChatInputMode? picked = null;
+            menus.ChatModeSelected = mode => picked = mode;
+            menus.TellTarget = () => "Ayame";
+            menus.HasLinkshell = slot => slot == 1;
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Self));
+            menus.Activate(); // Chat
+            var modes = menus.Top!;
+            Assert.Equal(StockUiMenuEntries.ChatModeMenu, modes.Name);
+            Assert.Equal("Ayame", modes.SideTexts[StockUiMenuEntries.ChatModeTellButton].Text);
+            Assert.False(modes.IsGreyed(StockUiMenuEntries.ChatModeLinkshellButton));
+            Assert.True(modes.IsGreyed(StockUiMenuEntries.ChatModeLinkshell2Button));
+            Assert.Equal(StockUiMenuController.NoLinkshellText, modes.SideTexts[StockUiMenuEntries.ChatModeLinkshell2Button].Text);
+            Assert.True(modes.IsGreyed(StockUiMenuEntries.ChatModeUnityButton));
+            Assert.Equal(StockUiMenuController.NoUnityText, modes.SideTexts[StockUiMenuEntries.ChatModeUnityButton].Text);
+
+            menus.Move(InputAction.MenuDown);
+            menus.Move(InputAction.MenuDown); // Party
+            menus.Activate();
+            Assert.Equal(ChatInputMode.Party, picked);
+            Assert.False(menus.IsOpen);
+        }
+
+        [Fact]
+        public void CommandMenu_GreyedEntriesAndTellWithoutAPartner_PostANoticeAndStayOpen()
+        {
+            var menus = Controller();
+            var notices = new List<string>();
+            menus.NoticePosted += notices.Add;
+            ChatInputMode? picked = null;
+            menus.ChatModeSelected = mode => picked = mode;
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Self));
+            menus.Activate(); // Chat
+            menus.Move(InputAction.MenuDown); // Tell, no partner
+            menus.Activate();
+            Assert.Single(notices);
+            Assert.StartsWith("Tell:", notices[0]);
+            Assert.True(menus.IsOpen);
+            Assert.Null(picked);
+
+            menus.Move(InputAction.MenuUp);
+            menus.Move(InputAction.MenuUp); // Shout, then Unity
+            menus.Move(InputAction.MenuUp);
+            Assert.Equal(StockUiMenuEntries.ChatModeUnityButton, menus.Top!.SelectedButtonId);
+            menus.Activate();
+            Assert.Equal(2, notices.Count);
+            Assert.Equal("Unity: no unity.", notices[1]);
+            Assert.True(menus.IsOpen);
+            Assert.Null(picked);
+        }
+
+        [Fact]
+        public void CommandMenu_TargetCommandsCloseTheMenu_AndPostWarnings()
+        {
+            var menus = Controller();
+            var notices = new List<string>();
+            menus.NoticePosted += notices.Add;
+            var ran = new List<(StockUiMenuCommand, StockUiTargetContext)>();
+            menus.TargetCommand = (command, target) =>
+            {
+                ran.Add((command, target));
+                return Task.FromResult(command == StockUiMenuCommand.Check
+                    ? Gordian.Core.Actions.PlayerActionResult.Ok("Checking Target.")
+                    : Gordian.Core.Actions.PlayerActionResult.Warn("Too far away."));
+            };
+
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Monster));
+            menus.Activate(); // Attack
+            Assert.False(menus.IsOpen);
+            Assert.Equal((StockUiMenuCommand.Attack, Target(StockUiTargetKind.Monster)), ran.Single());
+            Assert.Equal(new[] { "Too far away." }, notices);
+
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Monster));
+            menus.Move(InputAction.MenuUp); // Check (the last row)
+            menus.Activate();
+            Assert.Equal(StockUiMenuCommand.Check, ran[1].Item1);
+            Assert.Single(notices); // a success posts nothing
+
+            // The cursor is remembered by entry across the differing lists: Check is the player menu's first row.
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Player));
+            Assert.Equal(1, menus.Top!.SelectedButtonId);
+            Assert.Equal("Check", menus.Top.CommandRows[0].Label.Text);
+            menus.Activate();
+            Assert.False(menus.IsOpen);
+            Assert.Equal(StockUiMenuCommand.Check, ran[2].Item1);
+
+            // The menu is about its target: the service closes it, and what it opened, when the target changes.
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Self));
+            Assert.Equal(7, menus.Top!.SelectedButtonId); // Check again, the self menu's last row
+            menus.Move(InputAction.MenuDown); // wraps to Chat
+            Assert.Equal("Chat", menus.Top.CommandRows[menus.Top.SelectedButtonId - 1].Label.Text);
+            menus.Activate(); // the chat modes on top
+            Assert.Equal(2, menus.OpenMenus.Count);
+            menus.CloseCommandMenu();
+            Assert.False(menus.IsOpen);
+            menus.OpenMainMenu();
+            menus.CloseCommandMenu(); // only a command menu root closes
+            Assert.True(menus.IsOpen);
+        }
+
+        #endregion
 
         [Fact]
         public void EntriesWithoutAWindow_PostANotice()
@@ -349,7 +514,7 @@ namespace Gordian.Core.Tests.Ui
             var driven = new List<string>
             {
                 StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu,
-                StockUiConfigPages.ChatFiltersPage,
+                StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
             };
             driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
             foreach (string name in driven)
@@ -402,6 +567,57 @@ namespace Gordian.Core.Tests.Ui
             menus.Move(InputAction.MenuRight);
             Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top.Name);
             Assert.Equal(2, menus.Top.SelectedButtonId);
+        }
+
+        [Fact]
+        public void RetailMenus_CommandMenuRowsResolveTheirLabelSprites()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            if (library == null) return;
+
+            // The chat-mode list's red arrow sits on its own button 8 at x 81, where the client text starts.
+            Assert.True(library.TryGetMenu(StockUiMenuEntries.ChatModeMenu, out var chatModes));
+            var arrow = chatModes.FindButton(StockUiMenuEntries.ChatModeArrowButton);
+            Assert.NotNull(arrow);
+            Assert.Equal(81, arrow!.X);
+            Assert.False(StockUiMenuController.IsSelectable(arrow));
+            foreach (int greyable in new[] { StockUiMenuEntries.ChatModeLinkshellButton, StockUiMenuEntries.ChatModeLinkshell2Button, StockUiMenuEntries.ChatModeUnityButton })
+            {
+                Assert.Contains(chatModes.FindButton(greyable)!.Shapes, s => s.Kind == 4);
+            }
+
+            var contexts = new[]
+            {
+                new StockUiTargetContext(StockUiTargetKind.Self, 1, "Me"),
+                new StockUiTargetContext(StockUiTargetKind.Self, 1, "Me", Engaged: true),
+                new StockUiTargetContext(StockUiTargetKind.Player, 2, "Ayame"),
+                new StockUiTargetContext(StockUiTargetKind.Monster, 3, "Wild Rabbit"),
+                new StockUiTargetContext(StockUiTargetKind.Monster, 3, "Wild Rabbit", Engaged: true, EngagedWithTarget: true),
+                new StockUiTargetContext(StockUiTargetKind.Trust, 4, "Kupipi"),
+            };
+            foreach (var context in contexts)
+            {
+                var rows = StockUiCommandMenu.Compose(context);
+                var menu = StockUiCommandMenu.Build(library, rows, out var frameImage);
+                Assert.NotNull(menu);
+                Assert.NotNull(frameImage);
+                // The rebuilt frame: the background plus one capsule pair per row, the background as tall as the frame.
+                Assert.Equal(1 + 2 * rows.Count, frameImage!.Parts.Count);
+                Assert.Equal(menu!.Frame.Height, frameImage.Parts[0].BottomLeft.Y);
+                Assert.Equal(112, frameImage.Parts[0].BottomRight.X);
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    var button = menu.Buttons[i];
+                    Assert.Contains(button.Shapes, s => s.Kind == 0 && library.TryGetImage(s, out _));
+                    if (rows[i].Label == StockUiCommandMenu.Invite) Assert.Contains(button.Shapes, s => s.Kind == 4 && library.TryGetImage(s, out _));
+                }
+                // The frame keeps the template's cursor group.
+                Assert.Contains(menu.Frame.Shapes, s => s.Kind == 6 && library.TryGetGroup(s.GroupId, out var g) && g.Images.Count == 6);
+                Assert.DoesNotContain(menu.Frame.Shapes, s => s.Kind == 0);
+            }
         }
 
         #region Mouse

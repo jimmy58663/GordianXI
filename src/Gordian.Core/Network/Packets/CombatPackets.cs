@@ -753,6 +753,25 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
+        /// C2S 0x0DD (GP_CLI_COMMAND_EQUIP_INSPECT): examines a target, the command menu's Check and <c>/check</c>.
+        /// 16 bytes: UniqueNo (u32 at +4), ActIndex (u32 at +8), Kind (u8 at +12: 0 check, 1 checkname, 2 checkparam),
+        /// 3 bytes of padding. The server answers a monster check with a battle message (0x029, "seems tough...")
+        /// and a player check with 0x0C9 (equipment inspect), not decoded yet.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0dd_equip_inspect.h)
+        /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x00DD).
+        /// </summary>
+        public static int BuildCheckRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, byte kind = 0)
+        {
+            PacketHeader.Write(destination, 0x0DD, 4, sequenceId);
+            var payload = destination.Slice(4, 12);
+            payload.Clear();
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(4, 4), targetIndex);
+            payload[8] = kind;
+            return 16;
+        }
+
+        /// <summary>
         /// C2S 0x01A: Disengages from combat auto-attack.
         /// </summary>
         public static int BuildAttackOffRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)

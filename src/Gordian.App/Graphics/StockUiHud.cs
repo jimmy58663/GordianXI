@@ -205,7 +205,9 @@ namespace Gordian.App.Graphics
             long timestamp = Stopwatch.GetTimestamp();
 
             var rootFrame = open[0].Menu.Frame;
-            string rootId = open[0].IsQuery ? StockUiWindowIds.Query : StockUiWindowIds.MainMenu;
+            string rootId = open[0].IsQuery ? StockUiWindowIds.Query
+                : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
+                : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out _);
             if (root.Hidden)
             {

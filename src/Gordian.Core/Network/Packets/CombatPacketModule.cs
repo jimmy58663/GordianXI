@@ -198,6 +198,17 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
         }
 
+        /// <summary>Examines a target (0x0DD kind 0: the command menu's Check, <c>/check</c>); the server answers with its check message.</summary>
+        public async Task RequestCheckAsync(uint targetId, ushort targetIndex)
+        {
+            byte[] buffer = new byte[16];
+            ushort seq = ++_sequenceNumber;
+            int length = CombatPacketBuilder.BuildCheckRequest(buffer, seq, targetId, targetIndex);
+
+            LogOutbound(0x0DD, seq, buffer.AsSpan(4, length - 4));
+            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+        }
+
         public async Task RequestAttackOffAsync(uint targetId, ushort targetIndex)
         {
             byte[] buffer = new byte[28];

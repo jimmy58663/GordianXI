@@ -249,6 +249,104 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the target command menu composed for yourself (Chat, Magic, Abilities, Trust, Items, Trade, Check)
+        /// at the bottom left with the chat-mode list opened from its Chat entry beside it: the rebuilt seven-row
+        /// frame, the tell partner's name after Tell's red arrow, and the greyed Linkshell 2 / Unity rows with their
+        /// "No Linkshell" / "No Unity" text. Writes gpu_command_menu.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersTargetCommandMenuWithChatModes()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiCommandMenuTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var menus = new StockUiMenuController
+                {
+                    Library = library,
+                    TellTarget = () => "Ayame",
+                    HasLinkshell = slot => slot == 1,
+                };
+                Assert.True(menus.OpenCommandMenu(new StockUiTargetContext(StockUiTargetKind.Self, 1, "Me")));
+                menus.Activate(); // Chat -> the chat-mode list
+                Assert.Equal(2, menus.OpenMenus.Count);
+                menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Tell
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var command = menus.OpenMenus[0];
+                var placement = layout.Resolve(StockUiWindowIds.CommandMenu, command.Menu.Frame, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, command, placement, 0);
+                var modes = menus.OpenMenus[1];
+                var modesFrame = modes.Menu.Frame;
+                var modesPlacement = StockUiLayout.Place(modesFrame.Anchor, modesFrame.X, modesFrame.Y, modesFrame.Width, modesFrame.Height, 1, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, modes, modesPlacement, 0);
+                renderer.End(framebuffer, width, height);
+                Assert.True(renderer.LastQuadCount > 60, $"{renderer.LastQuadCount} quads");
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_command_menu.png"), pixels, (int)width, (int)height);
+                }
+
+                // The composed frame: seven rows, its bottom 2 px above the eight-line log window's top (layout y 296).
+                Assert.Equal(8 + 16 * 7, command.Menu.Frame.Height);
+                Assert.Equal(height - (448 - 296), placement.Y + command.Menu.Frame.Height);
+                // Its body is the window plate (navy: blue above red) at the last row, where the template's 168-tall
+                // frame would otherwise have ended long before; the green clear colour shows below the window.
+                var body = Pixel(pixels, width, (int)placement.X + 4, (int)placement.Y + 5 + 16 * 6 + 8);
+                Assert.True(body.B > body.R + 10 && body.B > body.G, $"no window plate on the last row: {body}");
+                var below = Pixel(pixels, width, (int)placement.X + 4, (int)(placement.Y + command.Menu.Frame.Height) + 1);
+                Assert.True(below.G > below.B + 10, $"window plate extends past the composed frame: {below}");
+
+                // The tell partner's name is drawn after the red arrow (light glyph pixels right of x 81 on Tell's row).
+                bool name = false;
+                int tellY = (int)modesPlacement.Y + 21 + 8;
+                for (int x = (int)modesPlacement.X + 101; x < (int)modesPlacement.X + 140 && !name; x++)
+                {
+                    var p = Pixel(pixels, width, x, tellY);
+                    name = p.R > 180 && p.G > 180 && p.B > 180;
+                }
+                Assert.True(name, "no tell partner name after the arrow");
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders the Windows config flow (Config -> Windows -> Shared) at 1:1: the "Shared" list replaces the config
         /// list in the top-right corner while the Window Settings page opens at the left, with skin 3's digit
         /// highlighted under the cursor and the red bar under the skin in effect (1). Writes gpu_settings.png when
