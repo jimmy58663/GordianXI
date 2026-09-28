@@ -33,6 +33,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>Client errors and warnings (unknown command, no tell recipient...).</summary>
         Error,
+
+        /// <summary>Event and NPC dialog lines (retail chat modes 150/151: the zone dialog table's text).</summary>
+        Dialog,
+
+        /// <summary>Zone messages about the player (0x036 / 0x02A with the no-name flag: "Home point set!", "Obtained: ...").</summary>
+        Message,
     }
 
     /// <summary>

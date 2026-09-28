@@ -157,6 +157,8 @@ namespace Gordian.Core.Network
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
             Locomotion.Chat = Chat;
+            Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName);
+            Locomotion.Events = Events;
             // The character stops while the input line has the keyboard (keys held when it opened are released).
             Chat.Input.OpenChanged += open =>
             {
@@ -168,6 +170,9 @@ namespace Gordian.Core.Network
         /// The stock chat: log windows and the chat input line (Tier 2 chunk 5).
         /// </summary>
         public Ui.StockUiChat Chat { get; } = new();
+
+        /// <summary>Event dialog: NPC talk, choice menus and zone messages (Tier 2 chunk 6).</summary>
+        public Events.EventDialogController Events { get; } = new();
 
         private string? ResolveEntityName(uint id)
         {

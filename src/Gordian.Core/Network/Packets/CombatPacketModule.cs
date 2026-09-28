@@ -187,6 +187,17 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
         }
 
+        /// <summary>Talks to an NPC or door (0x01A action 0): the server starts its event or prints its line.</summary>
+        public async Task RequestTalkAsync(uint targetId, ushort targetIndex)
+        {
+            byte[] buffer = new byte[28];
+            ushort seq = ++_sequenceNumber;
+            int length = CombatPacketBuilder.BuildTalkRequest(buffer, seq, targetId, targetIndex);
+
+            LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
+            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+        }
+
         public async Task RequestAttackOffAsync(uint targetId, ushort targetIndex)
         {
             byte[] buffer = new byte[28];

@@ -119,6 +119,7 @@ namespace Gordian.App.Graphics
                 PointerDrawn = false;
                 return;
             }
+            _dialogWaiting = session.Events.IsWaitingForConfirm;
             Layout = session.ActionService.UiLayout;
             Settings = session.ActionService.UiSettings;
             Drag = session.ActionService.UiDrag;
@@ -204,7 +205,8 @@ namespace Gordian.App.Graphics
             long timestamp = Stopwatch.GetTimestamp();
 
             var rootFrame = open[0].Menu.Frame;
-            var root = ResolveWindow(StockUiWindowIds.MainMenu, rootFrame, width, height, out _);
+            string rootId = open[0].IsQuery ? StockUiWindowIds.Query : StockUiWindowIds.MainMenu;
+            var root = ResolveWindow(rootId, rootFrame, width, height, out _);
             if (root.Hidden)
             {
                 menus.SetScreenPlacements(_menuPlacements);
@@ -224,7 +226,7 @@ namespace Gordian.App.Graphics
                 if (i == 0)
                 {
                     placement = root;
-                    Drag.Register(StockUiWindowIds.MainMenu, rootFrame, root);
+                    Drag.Register(rootId, rootFrame, root);
                 }
                 else
                 {
@@ -437,11 +439,19 @@ namespace Gordian.App.Graphics
                 renderer.DrawMenu(menu, placement, includeButtons: false, frameWidth, frameHeight: frameHeight);
                 return;
             }
-            // A window shows at most as many lines as rows (each line wraps to one row or more).
-            log.CopyVisible(window, rows, _logLines);
+            // A window shows at most as many lines as rows (each line wraps to one row or more); two more are copied
+            // for the rows that slide out of the top while new ones slide in.
+            log.CopyVisible(window, rows + 2, _logLines);
             StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
-                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected);
+                Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting,
+                _logScroll[Math.Clamp(window - 1, 0, 1)]);
         }
+
+        /// <summary>Each log window's slide of newly arrived rows (see StockUiChatWindow.LogScrollState).</summary>
+        private readonly StockUiChatWindow.LogScrollState[] _logScroll = { new(), new() };
+
+        /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
+        private bool _dialogWaiting;
 
         /// <summary>
         /// The frame for a log window's "Maximum lines displayed" ("log1".."log8"; "logwindo" is the same frame as

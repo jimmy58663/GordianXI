@@ -30,6 +30,7 @@
   - Item ID to DAT mapping: 0–4095 General 1 (`ROM/118/106.DAT`), 4096–8191 Consumables (`ROM/118/107.DAT`), 8192–8703 Automaton (`ROM/118/110.DAT`), 8704–10239 General 2 (`ROM/301/115.DAT`), 10240–16383 Armor 1 (`ROM/118/109.DAT`), 16384–23039 Weapons 1 (`ROM/118/108.DAT`), 23040–28671 Armor 2 (`ROM/286/73.DAT`), 28672–32767 Weapons 2 (`ROM/286/74.DAT`).
 - **String Tables (`DMsgStringTable`):**
   - Container signature `d_msg` at byte 0. Decryption via XOR `0xFF` when the header byte at `+0x0A` is non-zero (otherwise plain). Fixed and variable stride indexing, CP932 / Shift-JIS text decoding, elemental glyph translation (Fire, Ice, Wind, Earth, Lightning, Water, Light, Dark).
+- **Zone dialog tables and event scripts (`ZoneDialogTable`, `EventMessageDecoder`, `ZoneEventScript`, `Resources/Tables` and `Resources/Events`):** the per-zone text NPC events print (file id 6420 + zone, XOR 0x80 body, dword offset table, control-coded strings) and the per-zone compiled event byte code (file id 5820 + zone, one block per actor). Formats, codes and the VM that runs them are in [docs/ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6).
 
 ## Virtual file system and asset overrides
 

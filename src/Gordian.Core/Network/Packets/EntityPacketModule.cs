@@ -426,11 +426,23 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
-            if (npcPacket.HasName)
+            if (isNew || string.IsNullOrEmpty(entity.Name))
+            {
+                // Retail names zone NPCs from the zone's entity list DAT ("Home Point #2" where LandSandBoat's database
+                // says "HomePoint#2"); the server's name is for dynamic entities the list does not carry.
+                string? listed = Resources.Tables.ZoneEntityNames.Resolve(_world.CurrentZoneId, npcPacket.UniqueNo);
+                if (!string.IsNullOrEmpty(listed))
+                {
+                    entity.Name = listed;
+                    _pendingEntityRequests.Remove(npcPacket.ActorIndex);
+                }
+            }
+
+            if (npcPacket.HasName && (string.IsNullOrEmpty(entity.Name) || !isNew))
             {
                 // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
                 string name = npcPacket.GetName().Replace('_', ' ');
-                if (!string.IsNullOrEmpty(name))
+                if (!string.IsNullOrEmpty(name) && string.IsNullOrEmpty(entity.Name))
                 {
                     entity.Name = name;
                     _pendingEntityRequests.Remove(npcPacket.ActorIndex);
@@ -440,6 +452,13 @@ namespace Gordian.Core.Network.Packets
             if (string.IsNullOrEmpty(entity.Name) && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)
             {
                 TryRequestEntityInfo(npcPacket.ActorIndex);
+            }
+
+            if (isNew)
+            {
+                GordianLog.Debug("ENTITY", $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
+                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} " +
+                    $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
 
             _world.UpsertEntity(entity);

@@ -240,8 +240,11 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x036 (GP_SERV_COMMAND_TALKNUM): NPC dialogue message loaded from DAT string tables.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x036_talknum.h).
+    /// S2C 0x036 (GP_SERV_COMMAND_TALKNUM): a zone dialog message (the zone's dialog table, <c>ZoneDialogTable</c>)
+    /// printed as the entity's line. Bit 15 of MesNum means "no entity name in front"; <see cref="Type"/> picks the
+    /// log colour (0 = the standard message colour).
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x036_talknum.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0036).
     /// </summary>
     public readonly ref struct S2C_0x036_TalkNum
     {
@@ -250,6 +253,8 @@ namespace Gordian.Core.Network.Packets
         public uint UniqueNo { get; }
         public ushort ActIndex { get; }
         public ushort MessageId { get; }
+        /// <summary>Bit 15 of MesNum: print the text without the entity's name in front (and skip validating the entity).</summary>
+        public bool HideName { get; }
         public byte Type { get; }
         public bool IsValid { get; }
 
@@ -260,6 +265,7 @@ namespace Gordian.Core.Network.Packets
                 UniqueNo = 0;
                 ActIndex = 0;
                 MessageId = 0;
+                HideName = false;
                 Type = 0;
                 IsValid = false;
                 return;
@@ -267,9 +273,75 @@ namespace Gordian.Core.Network.Packets
 
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
             ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
-            MessageId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            ushort mesNum = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            MessageId = (ushort)(mesNum & 0x7FFF);
+            HideName = (mesNum & 0x8000) != 0;
             Type = payload[8];
             IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x02A (GP_SERV_COMMAND_TALKNUMWORK): a zone dialog message with up to four numbers (and, for events, a
+    /// name) substituted into it. Bit 15 of MesNum means "no entity name in front" (LandSandBoat sets it for messages
+    /// about the player). <see cref="Type"/> picks the log colour (0 = the standard message colour).
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x02a_talknumwork.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x002A).
+    /// </summary>
+    public readonly ref struct S2C_0x02A_TalkNumWork
+    {
+        public const ushort PacketId = 0x02A;
+
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+        public ushort MessageId { get; }
+        public bool HideName { get; }
+        public byte Type { get; }
+        public byte Flag { get; }
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x02A_TalkNumWork(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < 0x1A)
+            {
+                UniqueNo = 0;
+                ActIndex = 0;
+                MessageId = 0;
+                HideName = false;
+                Type = 0;
+                Flag = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(0x14, 2));
+            ushort mesNum = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(0x16, 2));
+            MessageId = (ushort)(mesNum & 0x7FFF);
+            HideName = (mesNum & 0x8000) != 0;
+            Type = payload[0x18];
+            Flag = payload[0x19];
+            IsValid = true;
+        }
+
+        /// <summary>Number parameter 0-3 (the text's 0x0A codes pick them by index).</summary>
+        public int GetNumber(int index)
+        {
+            if (!IsValid || index < 0 || index >= 4) return 0;
+            return BinaryPrimitives.ReadInt32LittleEndian(_payload.Slice(4 + index * 4, 4));
+        }
+
+        /// <summary>The name parameter (an entity name the server sends instead of an entity), or empty.</summary>
+        public string GetName()
+        {
+            if (!IsValid || _payload.Length < 0x1A + 32) return string.Empty;
+            var slice = _payload.Slice(0x1A, 32);
+            int nul = slice.IndexOf((byte)0);
+            if (nul >= 0) slice = slice.Slice(0, nul);
+            return Encoding.ASCII.GetString(slice);
         }
     }
 

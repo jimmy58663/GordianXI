@@ -738,6 +738,21 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
+        /// C2S 0x01A: Talks to (triggers) an NPC or door: the interaction Confirm on a targeted NPC sends. The
+        /// server answers with an event (0x032) or a message (0x036).
+        /// </summary>
+        public static int BuildTalkRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
+        {
+            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
+            var payload = destination.Slice(4, 24);
+            payload.Clear();
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Talk);
+            return 28;
+        }
+
+        /// <summary>
         /// C2S 0x01A: Disengages from combat auto-attack.
         /// </summary>
         public static int BuildAttackOffRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
