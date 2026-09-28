@@ -39,6 +39,8 @@ namespace Gordian.App.Graphics
         private const uint WM_RBUTTONUP = 0x0205;
         private const uint WM_MBUTTONDOWN = 0x0207;
         private const uint WM_MBUTTONUP = 0x0208;
+        private const uint WM_NCHITTEST = 0x0084;
+        private const int HTCLIENT = 1;
 
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -93,6 +95,15 @@ namespace Gordian.App.Graphics
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool DestroyWindow(IntPtr hWnd);
 
+        // Mouse capture while a button is held, so a drag (camera look, stock window move) keeps reporting moves
+        // after the pointer leaves the child window.
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetCapture(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool ReleaseCapture();
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool SetWindowPos(
@@ -117,11 +128,14 @@ namespace Gordian.App.Graphics
         /// <remarks>
         /// This window has no input handling of its own - it exists only to give the graphics API
         /// a real HWND to render into. Windows routes mouse button/move messages by hit-testing
-        /// (whichever window is physically under the cursor), so without this subclass those
-        /// messages would go directly to this child window and never reach Avalonia's routed-event
-        /// tree at all, silently bypassing every InputElement pointer handler on the control or its
-        /// ancestors. (Wheel messages are unaffected: Windows routes WM_MOUSEWHEEL by keyboard
-        /// focus, not hit-test, so it already reaches the Avalonia-managed top-level window.)
+        /// (whichever window is physically under the cursor). A "static" class window reports itself
+        /// transparent to that hit test, so the messages went to Avalonia's native-host holder window
+        /// beneath it, which swallows them: nothing over the viewport reached Avalonia's routed-event
+        /// tree or this subclass (in-game, 2026-09-27: no click or hover arrived by either route). The
+        /// subclass therefore claims the client area (WM_NCHITTEST = HTCLIENT), receives the mouse
+        /// messages itself and exposes them through <see cref="SetRawMouseHandler"/>, capturing the
+        /// mouse while a button is held. (Wheel messages are unaffected: Windows routes WM_MOUSEWHEEL
+        /// by keyboard focus, not hit-test, so it already reaches the Avalonia-managed top-level window.)
         /// </remarks>
         public static IntPtr CreateChildWindow(IntPtr parentHwnd, int width, int height)
         {
@@ -176,25 +190,37 @@ namespace Gordian.App.Graphics
                 {
                     switch (msg)
                     {
+                        case WM_NCHITTEST:
+                            // A "static" class window answers HTTRANSPARENT, so Windows would route every mouse
+                            // message past it to the window beneath (Avalonia's native-host holder, which swallows
+                            // them): neither this subclass nor Avalonia's pointer events ever saw a click over the
+                            // viewport. Claiming the client area makes the messages below arrive here.
+                            return (IntPtr)HTCLIENT;
                         case WM_MOUSEMOVE:
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), null, null));
                             break;
                         case WM_LBUTTONDOWN:
+                            SetCapture(h);
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), RawMouseButton.Left, null));
                             break;
                         case WM_LBUTTONUP:
+                            ReleaseCapture();
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), null, RawMouseButton.Left));
                             break;
                         case WM_RBUTTONDOWN:
+                            SetCapture(h);
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), RawMouseButton.Right, null));
                             break;
                         case WM_RBUTTONUP:
+                            ReleaseCapture();
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), null, RawMouseButton.Right));
                             break;
                         case WM_MBUTTONDOWN:
+                            SetCapture(h);
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), RawMouseButton.Middle, null));
                             break;
                         case WM_MBUTTONUP:
+                            ReleaseCapture();
                             state.Callback?.Invoke(new RawMouseEvent(GetXLParam(lParam), GetYLParam(lParam), null, RawMouseButton.Middle));
                             break;
                     }

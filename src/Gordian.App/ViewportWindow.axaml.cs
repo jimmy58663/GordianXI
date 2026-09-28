@@ -84,12 +84,9 @@ namespace Gordian.App
             // input handling. handledEventsToo is required because the control marks these Handled.
             //
             // On Windows the viewport renders into a real native Win32 child window (see
-            // Win32ChildWindowHelper), so the OS delivers that window's mouse messages directly to
-            // it, never through Avalonia's routed-event tree - VeldridViewportControl's own
-            // OnPointerMoved/OnPointerWheelChanged overrides simply never fire there. This window
-            // level InputState bus (consumed by PlayerLocomotionController) is what actually drives
-            // right-click camera look and wheel zoom in practice; the control's own handling is a
-            // fallback for platforms where NativeControlHost is Avalonia-composited instead.
+            // Win32ChildWindowHelper), which now claims its own mouse messages, so over the viewport
+            // only the Raw* handlers above fire; these routed handlers see the wheel (routed by focus)
+            // and, on platforms where NativeControlHost is Avalonia-composited, the pointer too.
             AddHandler(InputElement.PointerPressedEvent, OnGamePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
             AddHandler(InputElement.PointerReleasedEvent, OnGamePointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
             AddHandler(InputElement.PointerMovedEvent, OnGamePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
