@@ -115,6 +115,21 @@ namespace Gordian.Core.World
 
         #endregion
 
+        #region Chocobo Racing
+
+        /// <summary>Quinella pairs on a toteboard: 8 entrants choose 2.</summary>
+        public const int ToteboardPairCount = 28;
+
+        /// <summary>The last toteboard's slot index (usually mirrors the C2S 0x09B param).</summary>
+        public uint ToteboardSlotIndex { get; private set; }
+
+        /// <summary>The last toteboard's race ident: <c>(grade &lt;&lt; 18) | raceNumber</c>.</summary>
+        public uint ToteboardIdent { get; private set; }
+
+        private readonly ushort[] _toteboardOdds = new ushort[ToteboardPairCount];
+
+        #endregion
+
         #region Unity Concord
 
         public uint UnitySparks { get; private set; }
@@ -146,6 +161,7 @@ namespace Gordian.Core.World
         public event Action? MogHouseUpdated;
         public event Action? ConquestUpdated;
         public event Action? FishingUpdated;
+        public event Action? ToteboardUpdated;
         public event Action? UnityUpdated;
 
         #endregion
@@ -458,6 +474,29 @@ namespace Gordian.Core.World
             }
 
             FishingUpdated?.Invoke();
+        }
+
+        public void UpdateToteboard(in S2C_0x073_ChocoboToteboard toteboard)
+        {
+            lock (_lock)
+            {
+                ToteboardSlotIndex = toteboard.SlotIndex;
+                ToteboardIdent = toteboard.Ident;
+                for (int i = 0; i < ToteboardPairCount; i++)
+                    _toteboardOdds[i] = toteboard.GetOdds(i);
+            }
+
+            ToteboardUpdated?.Invoke();
+        }
+
+        /// <summary>The odds for quinella pair <paramref name="pairIndex"/> (0-27) from the last toteboard, or 0.</summary>
+        public ushort GetToteboardOdds(int pairIndex)
+        {
+            if (pairIndex < 0 || pairIndex >= ToteboardPairCount) return 0;
+            lock (_lock)
+            {
+                return _toteboardOdds[pairIndex];
+            }
         }
 
         public void UpdateUnity(in S2C_0x110_Unity unity)

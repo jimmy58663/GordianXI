@@ -57,6 +57,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x112_RoeLog.PacketId, HandleRoeLog);
             dispatcher.Register(S2C_0x05E_Conquest.PacketId, HandleConquest);
             dispatcher.Register(S2C_0x115_Fish.PacketId, HandleFish);
+            dispatcher.Register(S2C_0x073_ChocoboToteboard.PacketId, HandleChocoboToteboard);
             dispatcher.Register(S2C_0x110_Unity.PacketId, HandleUnity);
         }
 
@@ -81,6 +82,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x112_RoeLog.PacketId);
             dispatcher.Unregister(S2C_0x05E_Conquest.PacketId);
             dispatcher.Unregister(S2C_0x115_Fish.PacketId);
+            dispatcher.Unregister(S2C_0x073_ChocoboToteboard.PacketId);
             dispatcher.Unregister(S2C_0x110_Unity.PacketId);
         }
 
@@ -277,6 +279,15 @@ namespace Gordian.Core.Network.Packets
 
             _progressionState.UpdateFishing(in fish);
             GordianLog.Info("FISHING", $"Fishing battle began: Stamina={fish.Stamina}, Time={fish.Time}");
+        }
+
+        private void HandleChocoboToteboard(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var toteboard = new S2C_0x073_ChocoboToteboard(payload);
+            if (!toteboard.IsValid) return;
+
+            _progressionState.UpdateToteboard(in toteboard);
+            GordianLog.Debug("CHOCOBO", $"Updated chocobo race toteboard: Slot={toteboard.SlotIndex}, Ident=0x{toteboard.Ident:X}");
         }
 
         private void HandleUnity(PacketHeader header, ReadOnlySpan<byte> payload)
