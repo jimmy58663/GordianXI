@@ -18,7 +18,7 @@
   - [ ] Dynamic API gating tied to `FeatureRestrictions`: when a server restricts automation/combat, the sandbox physically unbinds restricted C# APIs at runtime, defeating name-spoofing trojans (e.g. embedding unauthorized code in whitelisted addon names) without relying on brittle file hashes
   - [ ] Dual trust tiers: cryptographically signed packages from official addon registry vs unsigned local development scripts
   - [ ] *(Future consideration)* Server-sent addon identity allowlist/blocklist: a separate, packet-level mechanism letting server operators permit or block specific addons by name/hash. Distinct from the API-capability sandbox above — this would govern *which addons* may run at all, not *what a running addon* is capable of doing
-- [ ] **Addon Ecosystem & Package Manager:**
+- [ ] **Addon Ecosystem & Package Manager** (registry repo, trust model and API reference generation: [distribution.md](distribution.md)):
   - [ ] Central community repository manifest (`gordianxi/addons-index`) tracking verified plugins, versions, and dependencies
   - [ ] In-client Addon Browser: Search, 1-click install, auto-update check, enable/disable toggles
   - [ ] Custom Source Support: Direct Git clone or package URL input for private server or custom addons
@@ -45,6 +45,8 @@
   - [ ] Multi-instance CPU/memory profiling and thread pool allocation tracking
 
 ## Phase 9: Automated updates and distribution
+
+Updater constraints, docs site and open questions: [distribution.md](distribution.md).
 
 - [ ] **Self-Updating Client Pipeline:**
   - [ ] Automated update checking via GitHub Releases API / Velopack
