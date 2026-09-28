@@ -206,6 +206,12 @@ namespace Gordian.Core.Ui
         public uint Quantity { get; internal set; }
         public uint QuantityMax { get; init; }
 
+        /// <summary>
+        /// The total the prompt prints after the count ("1 /12", the maintainer's capture 2026-09-28): the stack size
+        /// when buying, the count held when selling.
+        /// </summary>
+        public uint QuantityTotal { get; init; }
+
         /// <summary>The unit price a quantity prompt shows: the shop's price when buying, the appraisal when selling.</summary>
         public uint UnitPrice { get; init; }
 
@@ -483,6 +489,7 @@ namespace Gordian.Core.Ui
             closed.Prompt?.TrySetResult(false);
             closed.QueryCompleted?.Invoke(255);
             if (closed.IsQuantity && closed.Parent is { } list) list.ShowsQuantity = false;
+            if (closed.IsShopList) lock (_sync) _confirmPending = null;
             if (closed.IsShopMenu) EndShopSession();
             Changed?.Invoke();
         }
@@ -964,6 +971,7 @@ namespace Gordian.Core.Ui
                 changed = true;
             }
             if (changed) Changed?.Invoke();
+            if (changed) RequestAppraisalForTop();
         }
 
         private static bool IsChatModeTell(StockUiOpenMenu menu, int buttonId) =>
@@ -1218,7 +1226,11 @@ namespace Gordian.Core.Ui
                 case StockUiMenuCommand.ShopSell:
                     bool opened;
                     lock (_sync) opened = OpenShopList(entry.Command == StockUiMenuCommand.ShopBuy ? StockUiShopSide.Buy : StockUiShopSide.Sell, from) != null;
-                    if (opened) Changed?.Invoke();
+                    if (opened)
+                    {
+                        Changed?.Invoke();
+                        RequestAppraisalForTop();
+                    }
                     break;
 
                 case StockUiMenuCommand.Attack:
@@ -1292,7 +1304,14 @@ namespace Gordian.Core.Ui
         #region Shop
 
         private bool _shopOpen;
-        private (StockUiShopRow Row, StockUiOpenMenu List, int Appraisals)? _appraisalPending;
+
+        /// <summary>Appraisals the server has answered (unit price by inventory slot and item) and those already asked for.</summary>
+        private readonly Dictionary<(byte Slot, ushort ItemId), uint> _sellPrices = new();
+        private readonly HashSet<(byte Slot, ushort ItemId)> _appraisalsSent = new();
+        private int _appraisalsSeen;
+
+        /// <summary>A Sell row confirmed before its appraisal arrived: the prompt opens when it does.</summary>
+        private (byte Slot, ushort ItemId, StockUiOpenMenu List)? _confirmPending;
 
         /// <summary>Whether the shop windows are open (the server opened a shop and the Buy / Sell window is up).</summary>
         public bool IsShopOpen => _shopOpen;
@@ -1311,7 +1330,7 @@ namespace Gordian.Core.Ui
                 if (_shopOpen)
                 {
                     _shopOpen = false;
-                    _appraisalPending = null;
+                    ClearAppraisals();
                     CloseAll();
                 }
                 return;
@@ -1324,20 +1343,60 @@ namespace Gordian.Core.Ui
             bool changed = false;
             lock (_sync)
             {
+                if (inventory.AppraisalCount != _appraisalsSeen)
+                {
+                    // 0x03D: the unit price of the appraised slot; it lands on the Sell row in that slot.
+                    _appraisalsSeen = inventory.AppraisalCount;
+                    byte slot = inventory.AppraisedSlot;
+                    foreach (var menu in _open)
+                    {
+                        if (menu.ShopSide != StockUiShopSide.Sell || menu.IsQuantity) continue;
+                        foreach (var row in menu.ShopRows)
+                        {
+                            if (row.Slot == slot) _sellPrices[(slot, row.ItemId)] = inventory.AppraisedSellPrice;
+                        }
+                    }
+                }
                 foreach (var menu in _open)
                 {
                     if (menu.IsShopList) { FillShopRows(menu); changed = true; }
                 }
-                if (_appraisalPending is { } pending && inventory.AppraisalCount != pending.Appraisals)
+                if (_confirmPending is { } pending && _sellPrices.TryGetValue((pending.Slot, pending.ItemId), out uint price))
                 {
-                    _appraisalPending = null;
-                    if (ReferenceEquals(Top, pending.List) && inventory.AppraisedSlot == pending.Row.Slot)
+                    _confirmPending = null;
+                    if (ReferenceEquals(Top, pending.List) && pending.List.SelectedShopRow is { } row && row.Slot == pending.Slot && row.ItemId == pending.ItemId)
                     {
-                        changed |= OpenQuantity(pending.List, pending.Row, inventory.AppraisedSellPrice, Math.Max(1, pending.Row.Count)) != null;
+                        changed |= OpenQuantity(pending.List, row, price, Math.Max(1, row.Count)) != null;
                     }
                 }
             }
             if (changed) Changed?.Invoke();
+            RequestAppraisalForTop();
+        }
+
+        private void ClearAppraisals()
+        {
+            _sellPrices.Clear();
+            _appraisalsSent.Clear();
+            _confirmPending = null;
+        }
+
+        /// <summary>
+        /// Retail asks the server for a Sell row's price as the cursor lands on it (0x084 with count 1) and prints the
+        /// 0x03D answer in the row; this does the same for the selected row of an open Sell list, once per slot and item.
+        /// </summary>
+        private void RequestAppraisalForTop()
+        {
+            (uint Count, ushort ItemId, byte Slot)? request = null;
+            lock (_sync)
+            {
+                if (Top is not { ShopSide: StockUiShopSide.Sell, IsQuantity: false } list || list.SelectedShopRow is not { } row || row.Greyed) return;
+                var key = (row.Slot, row.ItemId);
+                if (_sellPrices.ContainsKey(key) || !_appraisalsSent.Add(key)) return;
+                request = (1, row.ItemId, row.Slot);
+            }
+            var appraise = ShopAppraise;
+            if (request is { } r && appraise != null) _ = SendAsync(() => appraise(r.Count, r.ItemId, r.Slot), "Appraisal");
         }
 
         /// <summary>The character's items or gil changed: refreshes an open Sell list and the gil shown.</summary>
@@ -1353,6 +1412,7 @@ namespace Gordian.Core.Ui
                 }
             }
             Changed?.Invoke();
+            RequestAppraisalForTop();
         }
 
         /// <summary>The character's gil (inventory slot 0).</summary>
@@ -1370,6 +1430,8 @@ namespace Gordian.Core.Ui
                 _open = Array.Empty<StockUiOpenMenu>();
                 root = Push(StockUiShop.MenuName, null, Array.Empty<string>(), null, null);
                 _shopOpen = root != null;
+                ClearAppraisals();
+                _appraisalsSeen = Inventory?.AppraisalCount ?? 0;
             }
             foreach (var menu in closed)
             {
@@ -1385,7 +1447,7 @@ namespace Gordian.Core.Ui
         {
             if (!_shopOpen) return;
             _shopOpen = false;
-            _appraisalPending = null;
+            ClearAppraisals();
             Inventory?.CloseShop();
         }
 
@@ -1420,6 +1482,13 @@ namespace Gordian.Core.Ui
             var shopRows = menu.ShopSide == StockUiShopSide.Buy
                 ? StockUiShop.BuyRows(inventory?.SnapshotShopItems() ?? Array.Empty<ShopItemEntry>(), ItemLookup)
                 : StockUiShop.SellRows(inventory, ItemLookup);
+            if (menu.ShopSide == StockUiShopSide.Sell)
+            {
+                for (int i = 0; i < shopRows.Count; i++)
+                {
+                    if (_sellPrices.TryGetValue((shopRows[i].Slot, shopRows[i].ItemId), out uint price)) shopRows[i] = shopRows[i] with { Price = price };
+                }
+            }
             var rows = new List<StockUiListRow>(shopRows.Count);
             foreach (var row in shopRows) rows.Add(new StockUiListRow(rows.Count + 1, row.Name, false));
             menu.ShopRows = shopRows;
@@ -1443,7 +1512,6 @@ namespace Gordian.Core.Ui
         {
             bool changed = false;
             string? notice = null;
-            (uint Count, ushort ItemId, byte Slot)? appraise = null;
             lock (_sync)
             {
                 if (!ReferenceEquals(Top, list) || list.SelectedShopRow is not { } row) return;
@@ -1461,15 +1529,18 @@ namespace Gordian.Core.Ui
                 {
                     notice = "Selling is not available in this session.";
                 }
+                else if (_sellPrices.TryGetValue((row.Slot, row.ItemId), out uint price))
+                {
+                    changed = OpenQuantity(list, row, price, Math.Max(1, row.Count)) != null;
+                }
                 else
                 {
-                    _appraisalPending = (row, list, Inventory?.AppraisalCount ?? 0);
-                    appraise = (1, row.ItemId, row.Slot);
+                    _confirmPending = (row.Slot, row.ItemId, list); // the prompt opens when 0x03D answers
                 }
             }
             if (notice != null) NoticePosted?.Invoke(notice);
-            if (appraise is { } a) _ = SendAsync(() => ShopAppraise!(a.Count, a.ItemId, a.Slot), "Appraisal");
             if (changed) Changed?.Invoke();
+            RequestAppraisalForTop();
         }
 
         /// <summary>Opens the quantity prompt ("itemctrl") over a list (under the lock); null when the frame is missing.</summary>
@@ -1487,6 +1558,7 @@ namespace Gordian.Core.Ui
                 ShopSide = list.ShopSide,
                 QuantityRow = row,
                 QuantityMax = Math.Max(1, max),
+                QuantityTotal = list.ShopSide == StockUiShopSide.Buy ? (uint)Math.Max(1, row.StackSize) : Math.Max(1, row.Count),
                 UnitPrice = unitPrice,
                 ItemLookup = ItemLookup,
             };
@@ -1631,6 +1703,7 @@ namespace Gordian.Core.Ui
             }
             if (edit is { } e) changed |= ApplyEdit(e.Key, e.Value);
             if (changed) Changed?.Invoke();
+            if (changed) RequestAppraisalForTop();
             return over;
         }
 
@@ -1702,6 +1775,7 @@ namespace Gordian.Core.Ui
             foreach (var m in closed) m.Prompt?.TrySetResult(false);
             if (edit is { } e) changed |= ApplyEdit(e.Key, e.Value);
             if (changed) Changed?.Invoke();
+            if (changed) RequestAppraisalForTop();
             if (activate) Activate();
             return true;
         }
@@ -1754,6 +1828,7 @@ namespace Gordian.Core.Ui
                 }
             }
             if (changed) Changed?.Invoke();
+            if (changed) RequestAppraisalForTop();
             return true;
         }
 

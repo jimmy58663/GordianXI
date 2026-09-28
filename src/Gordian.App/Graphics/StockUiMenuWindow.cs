@@ -32,7 +32,7 @@ namespace Gordian.App.Graphics
         /// list menus) at the selected button's origin plus the cursor offsets.
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
-            long timestamp)
+            long timestamp, (float X, float Y) companionShift = default)
         {
             var definition = menu.Menu;
             var frame = definition.Frame;
@@ -95,7 +95,7 @@ namespace Gordian.App.Graphics
 
             if (font != null && menu.IsShopList && definition.FindButton(1) is { } firstShopRow)
             {
-                DrawShopList(renderer, library, font, menu, placement, firstShopRow, timestamp);
+                DrawShopList(renderer, library, font, menu, placement, firstShopRow, timestamp, companionShift);
             }
             else if (font != null && menu.IsQuantity)
             {
@@ -210,13 +210,16 @@ namespace Gordian.App.Graphics
         /// <summary>Half-scale tint of a row that cannot be sold (the item's NoSale flag): a mid grey.</summary>
         private static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
 
-        /// <summary>The item info window: its 32 x 32 icon slot is authored at (8,12); the text starts after it.</summary>
+        /// <summary>
+        /// The item info window: its 32 x 32 icon slot is authored at (8,12); the long name and the description's lines
+        /// follow it (the maintainer's in-game capture, 2026-09-28: name, then two description lines).
+        /// </summary>
         private const float InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 8, InfoLinePitch = 14, InfoRightInset = 8;
 
         /// <summary>
-        /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), under the list; which retail shows where
-        /// is not captured yet. Here the gil window (or the quantity prompt in its place) keeps that spot and the item
-        /// info window sits beside it, 2 px right of the gil window's 112 px.
+        /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), under the list. In-game (2026-09-28)
+        /// the gil window, or the quantity prompt in its place, keeps that corner (on Window 1's top edge) and the
+        /// item info window sits beside it, 2 px right of the gil window's 112 px.
         /// </summary>
         private const float InfoOffsetX = 114;
 
@@ -250,7 +253,7 @@ namespace Gordian.App.Graphics
         /// relative to the list's; where retail puts them is not captured yet).
         /// </summary>
         private static void DrawShopList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu,
-            StockUiPlacement placement, UiMenuButton firstRow, long timestamp)
+            StockUiPlacement placement, UiMenuButton firstRow, long timestamp, (float X, float Y) companionShift)
         {
             float s = placement.Scale;
             var definition = menu.Menu;
@@ -279,61 +282,54 @@ namespace Gordian.App.Graphics
                     DrawItemIcon(renderer, menu, row.ItemId, placement.X + ShopIconX * s, ry, ShopIconSize * s);
                     UiColor? tint = i == selectedEntry ? SelectedGlyphTint : row.Greyed ? GreyedTextTint : null;
                     renderer.DrawText(font, row.Name, placement.X + ShopRowTextX * s, textY, s, tint);
-                    string right = menu.ShopSide == StockUiShopSide.Buy ? StockUiShop.FormatGil(row.Price)
-                        : row.Count > 1 ? row.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+                    // The price ("29 G"); a Sell row shows it once the server has appraised the row.
+                    string right = menu.ShopSide == StockUiShopSide.Buy || row.Price > 0 ? StockUiShop.FormatPrice(row.Price) : string.Empty;
                     if (right.Length > 0) renderer.DrawText(font, right, rightEdge - font.MeasureWidth(right) * s, textY, s, tint);
                 }
                 renderer.ClearClip();
                 if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.ShopRows.Count, menu.VisibleRows);
             }
 
-            if (menu.ShowsQuantity) return; // the prompt stands where the gil window goes and draws the item info itself
-            DrawGilWindow(renderer, library, font, menu, placement);
-            if (menu.SelectedShopRow is { } selected)
-            {
-                string line = menu.ShopSide == StockUiShopSide.Buy
-                    ? $"{StockUiShop.FormatGil(selected.Price)} gil"
-                    : selected.Greyed ? "This item cannot be sold." : $"Have: {selected.Count}";
-                DrawInfoWindow(renderer, library, font, menu, placement, selected, line, describe: true);
-            }
+            // The gil window and the item info sit under the list, on Window 1's top edge with the Buy / Sell window
+            // (companionShift); an open quantity prompt stands in the gil window's place.
+            if (!menu.ShowsQuantity) DrawGilWindow(renderer, library, font, menu, placement, companionShift);
+            if (menu.SelectedShopRow is { } selected) DrawInfoWindow(renderer, library, font, menu, placement, selected, companionShift);
         }
 
         /// <summary>The "Current Gil" window ("money", authored under the list) with the amount right-aligned under its label.</summary>
-        private static void DrawGilWindow(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        private static void DrawGilWindow(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement,
+            (float X, float Y) shift)
         {
             if (!library.TryGetMenu(StockUiShop.GilMenu, out var gil) || !library.TryGetMenu(StockUiShop.ListMenu, out var list)) return;
             float s = placement.Scale;
-            var at = new StockUiPlacement(placement.X + (gil.Frame.X - list.Frame.X) * s, placement.Y + (gil.Frame.Y - list.Frame.Y) * s, s, false);
+            var at = new StockUiPlacement(placement.X + (gil.Frame.X - list.Frame.X) * s + shift.X, placement.Y + (gil.Frame.Y - list.Frame.Y) * s + shift.Y, s, false);
             renderer.DrawMenu(gil, at, includeButtons: false, opaqueBody: true);
-            string amount = StockUiShop.FormatGil(menu.Gil);
+            string amount = StockUiShop.FormatPrice(menu.Gil);
             renderer.DrawText(font, amount, at.X + (gil.Frame.Width - GilRightInset) * s - font.MeasureWidth(amount) * s, at.Y + GilTextY * s, s);
         }
 
         /// <summary>
-        /// The item info window ("iteminfo", authored beside the gil window): the item's 32 x 32 icon, its name, then
-        /// <paramref name="line"/> and, when <paramref name="describe"/> is set, the DAT description wrapped to the
-        /// window (the lines that fit under the name).
+        /// The item info window ("iteminfo", beside the gil window): the item's 32 x 32 icon, its long name, then the
+        /// DAT description wrapped to the lines that fit (retail shows no price here and the window does not change
+        /// while a count is chosen; in-game check 2026-09-28).
         /// </summary>
         private static void DrawInfoWindow(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu,
-            StockUiPlacement placement, in StockUiShopRow row, string line, bool describe)
+            StockUiPlacement placement, in StockUiShopRow row, (float X, float Y) shift)
         {
             if (!library.TryGetMenu(StockUiShop.InfoMenu, out var info) || !library.TryGetMenu(StockUiShop.ListMenu, out var list)
                 || !library.TryGetMenu(StockUiShop.GilMenu, out var gil)) return;
             float s = placement.Scale;
-            // Beside the gil window under the list, or beside the quantity prompt that has taken the gil window's place.
-            float originX = menu.IsQuantity ? placement.X : placement.X + (gil.Frame.X - list.Frame.X) * s;
-            float originY = menu.IsQuantity ? placement.Y : placement.Y + (gil.Frame.Y - list.Frame.Y) * s;
+            float originX = placement.X + (gil.Frame.X - list.Frame.X) * s + shift.X;
+            float originY = placement.Y + (gil.Frame.Y - list.Frame.Y) * s + shift.Y;
             var at = new StockUiPlacement(originX + InfoOffsetX * s, originY, s, false);
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             DrawItemIcon(renderer, menu, row.ItemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
+            var record = menu.ItemLookup?.Invoke(row.ItemId);
             float x = at.X + InfoTextX * s, y = at.Y + InfoTextY * s;
-            renderer.DrawText(font, row.Name, x, y, s);
-            y += InfoLinePitch * s;
-            renderer.DrawText(font, line, x, y, s);
-            if (!describe) return;
+            renderer.DrawText(font, record != null ? StockUiShop.LongName(record) : row.Name, x, y, s);
             int width = (int)(info.Frame.Width - InfoTextX - InfoRightInset);
-            int maxLines = (int)((info.Frame.Height - InfoTextY - 2 * InfoLinePitch) / InfoLinePitch);
-            string? description = menu.ItemLookup?.Invoke(row.ItemId)?.Description;
+            int maxLines = (int)((info.Frame.Height - InfoTextY - InfoLinePitch) / InfoLinePitch);
+            string? description = record?.Description;
             if (string.IsNullOrWhiteSpace(description) || maxLines <= 0) return;
             foreach (string wrapped in Wrap(font, description, width, maxLines))
             {
@@ -369,30 +365,27 @@ namespace Gordian.App.Graphics
             return lines;
         }
 
-        /// <summary>The quantity control's number field ("itemctrl" button 1, 24 x 16 at (34,22)): the count right-aligned inside it.</summary>
-        private const float QuantityFieldRightInset = 3;
+        /// <summary>
+        /// The quantity control's number field ("itemctrl" button 1, 24 x 16 at (34,22)) prints "1 /12": the count
+        /// right-aligned inside the field, then "/" and the total running past its right edge towards the "1" arrow
+        /// (the maintainer's in-game capture, 2026-09-28).
+        /// </summary>
+        private const float QuantityCountRight = 15, QuantityTotalX = 19;
 
         /// <summary>
         /// The quantity prompt: the DAT frame carries the arrows ("All" / "1" either side, + above, - below) and the
-        /// number field; the chosen count is drawn in the field, and the item info window beside the prompt shows
-        /// the item with the unit price and the total.
+        /// number field; the chosen count and the total are drawn in the field. The item info window beside it is the
+        /// list's, unchanged.
         /// </summary>
         private static void DrawQuantity(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
         {
             float s = placement.Scale;
-            if (menu.Menu.FindButton(StockUiShop.QuantityField) is { } field)
-            {
-                string count = menu.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                float x = placement.X + (field.X + field.Width - QuantityFieldRightInset) * s - font.MeasureWidth(count) * s;
-                float y = placement.Y + field.Y * s + (field.Height * s - font.LineHeight * s) * 0.5f;
-                renderer.DrawText(font, count, x, y, s);
-            }
-            var row = menu.QuantityRow;
-            string unit = StockUiShop.FormatGil(menu.UnitPrice), total = StockUiShop.FormatGil(menu.TotalPrice);
-            string line = menu.ShopSide == StockUiShopSide.Buy
-                ? $"{unit} gil x {menu.Quantity} = {total} gil"
-                : $"Sells for {unit} gil x {menu.Quantity} = {total} gil";
-            DrawInfoWindow(renderer, library, font, menu, placement, row, line, describe: false);
+            if (menu.Menu.FindButton(StockUiShop.QuantityField) is not { } field) return;
+            string count = menu.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string total = "/" + menu.QuantityTotal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            float y = placement.Y + field.Y * s + (field.Height * s - font.LineHeight * s) * 0.5f;
+            renderer.DrawText(font, count, placement.X + (field.X + QuantityCountRight) * s - font.MeasureWidth(count) * s, y, s);
+            renderer.DrawText(font, total, placement.X + (field.X + QuantityTotalX) * s, y, s);
         }
 
         /// <summary>

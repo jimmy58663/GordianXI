@@ -83,8 +83,14 @@ namespace Gordian.Core.Ui
         /// <summary>The value 0x083 carries as ShopNo for a shop list number (the capture's 00 04 for list 4).</summary>
         public static ushort ShopNo(ushort shopListNum) => unchecked((ushort)(shopListNum << 8));
 
-        /// <summary>A gil amount with thousands separators, as the log prints them.</summary>
+        /// <summary>A gil amount with thousands separators.</summary>
         public static string FormatGil(uint gil) => gil.ToString("N0", CultureInfo.InvariantCulture);
+
+        /// <summary>A price or the gil in hand as the shop windows print it: "99,997,058 G" (the maintainer's capture, 2026-09-28).</summary>
+        public static string FormatPrice(uint gil) => FormatGil(gil) + " G";
+
+        /// <summary>The name the item info window shows: the full log name ("Ronfaure chestnut", "Bunch of San d'Orian grapes"), else the short one.</summary>
+        public static string LongName(ItemRecord record) => string.IsNullOrWhiteSpace(record.LogName) ? record.Name : record.LogName;
 
         /// <summary>The character's gil: the count of inventory slot 0 when it holds item 65535, else 0.</summary>
         public static uint Gil(InventoryState? inventory) => inventory?.Gil ?? 0;

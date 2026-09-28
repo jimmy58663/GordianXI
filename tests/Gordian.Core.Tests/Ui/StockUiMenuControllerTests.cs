@@ -1012,16 +1012,25 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(new[] { (4389, 5, 3u, false), (639, 9, 12u, false), (1000, 11, 1u, true) },
                 list.ShopRows.Select(r => ((int)r.ItemId, (int)r.Slot, r.Count, r.Greyed)));
 
+            // The row under the cursor is appraised as it is landed on (retail shows the price in the row), once each.
+            Assert.Equal((1u, (ushort)4389, (byte)5), Assert.Single(h.Appraisals));
             h.Menus.Move(InputAction.MenuDown);
-            h.Menus.Activate();
-            Assert.Equal((1u, (ushort)639, (byte)9), Assert.Single(h.Appraisals)); // the capture's 01 00 00 00 7f 02 09 00
-            Assert.Same(list, h.Menus.Top); // nothing opens until the server appraises
-
+            Assert.Equal((1u, (ushort)639, (byte)9), h.Appraisals[^1]); // the capture's 01 00 00 00 7f 02 09 00
+            Assert.Equal(2, h.Appraisals.Count);
             h.Inventory.SetAppraisal(9, 29);
+            Assert.Same(list, h.Menus.Top); // no prompt until Confirm
+            Assert.Equal(29u, list.ShopRows[1].Price);
+            Assert.Equal(0u, list.ShopRows[0].Price); // slot 5's answer has not come
+            h.Menus.Move(InputAction.MenuUp);
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(2, h.Appraisals.Count); // not asked again
+
+            h.Menus.Activate();
             var quantity = h.Menus.Top!;
             Assert.True(quantity.IsQuantity);
             Assert.Equal(29u, quantity.UnitPrice);
             Assert.Equal(12u, quantity.QuantityMax);
+            Assert.Equal(12u, quantity.QuantityTotal); // "1 /12": the count held
             h.Menus.Move(InputAction.MenuLeft);
             Assert.Equal(12u, quantity.Quantity);
             h.Menus.Activate();
@@ -1038,9 +1047,28 @@ namespace Gordian.Core.Tests.Ui
             // The cursor stayed on the second row, now the greyed key: it posts why instead of asking the server.
             Assert.Equal(2, list.SelectedButtonId);
             Assert.True(list.SelectedShopRow!.Value.Greyed);
+            int asked = h.Appraisals.Count;
             h.Menus.Activate();
             Assert.Contains("cannot be sold", Assert.Single(h.Notices));
-            Assert.Equal(2, h.Appraisals.Count);
+            Assert.Equal(asked, h.Appraisals.Count);
+        }
+
+        [Fact]
+        public void Shop_ConfirmBeforeTheAppraisal_OpensThePromptWhenItArrives()
+        {
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Move(InputAction.MenuDown); // Sell
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            h.Menus.Activate(); // slot 5, not yet appraised
+            Assert.Same(list, h.Menus.Top);
+            Assert.Single(h.Appraisals);
+            h.Inventory.SetAppraisal(5, 7);
+            Assert.True(h.Menus.Top!.IsQuantity);
+            Assert.Equal(7u, h.Menus.Top.UnitPrice);
+            Assert.Equal(3u, h.Menus.Top.QuantityTotal);
+            Assert.Equal(7u, list.ShopRows[0].Price);
         }
 
         [Fact]
@@ -1052,11 +1080,25 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.Activate();
             h.Menus.Move(InputAction.MenuDown);
             h.Menus.Activate();
-            Assert.Single(h.Appraisals);
+            Assert.Equal(2, h.Appraisals.Count); // slot 5 on opening, slot 9 on landing; Confirm asks nothing more
             h.Menus.CloseTop(); // back to Buy / Sell before the answer
             h.Inventory.SetAppraisal(9, 29);
             Assert.True(h.Menus.Top!.IsShopMenu);
             Assert.Single(h.Menus.OpenMenus);
+        }
+
+        [Fact]
+        public void Shop_BuyPromptShowsTheStackSizeAsTheTotal()
+        {
+            var h = new ShopHarness(gil: 300);
+            h.OpenCapturedShop();
+            h.Menus.Activate();
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Move(InputAction.MenuDown);
+            h.Menus.Activate();
+            Assert.Equal(2u, h.Menus.Top!.QuantityMax); // what 300 gil buys
+            Assert.Equal(12u, h.Menus.Top.QuantityTotal); // "1 /12": the stack
+            Assert.Empty(h.Appraisals); // Buy rows are never appraised
         }
 
         [Fact]

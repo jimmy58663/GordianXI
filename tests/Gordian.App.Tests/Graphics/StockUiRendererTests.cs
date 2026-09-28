@@ -382,7 +382,7 @@ namespace Gordian.App.Tests.Graphics
                 var plate = Pixel(pixels, width, (int)listPlacement.X + 200, (int)listPlacement.Y + 5 + 8);
                 Assert.True(Math.Abs(icon.R - plate.R) + Math.Abs(icon.G - plate.G) + Math.Abs(icon.B - plate.B) > 30, $"no icon in the slot: {icon} vs {plate}");
 
-                // The quantity prompt shows "12" in its field (light pixels inside the 24 x 16 field at (34,22)).
+                // The quantity prompt shows "12 /12" from its field (light pixels inside the 24 x 16 field at (34,22)).
                 bool count = false;
                 for (int x = (int)quantityPlacement.X + 34; x < (int)quantityPlacement.X + 58 && !count; x++)
                 {
