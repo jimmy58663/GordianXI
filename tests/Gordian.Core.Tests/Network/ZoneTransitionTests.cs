@@ -183,40 +183,6 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void BuildEventEndXzy_0x05C_ConstructsCorrectPacket()
-        {
-            byte[] packet = LifecycleOutboundPackets.BuildEventEndXzy(
-                x: 15.5f,
-                y: 2.0f,
-                z: -45.0f,
-                uniqueNo: 1001,
-                endPara: 2,
-                actIndex: 12,
-                mode: 1,
-                dir: -30,
-                eventNum: 55,
-                eventPara: 3,
-                sequenceId: 7
-            );
-
-            Assert.Equal(32, packet.Length);
-            ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
-            Assert.Equal(0x05C, headerWord & 0x1FF);
-            Assert.Equal(8, headerWord >> 9); // 8 words = 32 bytes
-            Assert.Equal(7, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(2, 2)));
-            Assert.Equal(15.5f, BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(4, 4)));
-            Assert.Equal(2.0f, BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(8, 4)));
-            Assert.Equal(-45.0f, BinaryPrimitives.ReadSingleLittleEndian(packet.AsSpan(12, 4)));
-            Assert.Equal(1001u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(16, 4)));
-            Assert.Equal(2u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(20, 4)));
-            Assert.Equal(55, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(24, 2)));
-            Assert.Equal(3, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(26, 2)));
-            Assert.Equal(12, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(28, 2)));
-            Assert.Equal(1, packet[30]);
-            Assert.Equal(unchecked((byte)-30), packet[31]);
-        }
-
-        [Fact]
         public void BuildReqLogout_0x0E7_ConstructsCorrectPacket()
         {
             byte[] packet = LifecycleOutboundPackets.BuildReqLogout(

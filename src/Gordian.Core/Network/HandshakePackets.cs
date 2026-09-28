@@ -14,8 +14,6 @@ namespace Gordian.Core.Network
     public static class HandshakePackets
     {
         public const int LoginSubPacketSize = 92;
-        public const int GameOkSubPacketSize = 12;
-        public const int NetEndSubPacketSize = 8;
         public const int PosSubPacketSize = 32;
         public const int FfxiHeaderSize = 28;
         public const int FfxiChecksumSize = 16;
@@ -152,40 +150,6 @@ namespace Gordian.Core.Network
             MD5.HashData(subPacketSpan, md5Span);
 
             return datagram;
-        }
-
-        /// <summary>
-        /// Builds the 12-byte GP_CLI_GAMEOK (0x00C) sub-packet.
-        /// </summary>
-        public static byte[] BuildGameOkSubPacket(ushort sequenceId = 0, uint clientState = 0, uint debugClientFlg = 0)
-        {
-            byte[] packet = new byte[GameOkSubPacketSize];
-            // Header: ID 0x00C, Size 3 (3 * 4 = 12 bytes)
-            ushort headerWord = (ushort)(0x00C | (3 << 9));
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
-
-            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), clientState);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), debugClientFlg);
-
-            return packet;
-        }
-
-        /// <summary>
-        /// Builds the 8-byte GP_CLI_NETEND (0x00D) sub-packet.
-        /// </summary>
-        public static byte[] BuildNetEndSubPacket(ushort sequenceId = 0, ushort state = 0)
-        {
-            byte[] packet = new byte[NetEndSubPacketSize];
-            // Header: ID 0x00D, Size 2 (2 * 4 = 8 bytes)
-            ushort headerWord = (ushort)(0x00D | (2 << 9));
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
-
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), state);
-            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(6, 2), 0); // padding
-
-            return packet;
         }
 
         /// <summary>

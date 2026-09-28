@@ -6,6 +6,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
+using Gordian.Core.Network.Packets;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -161,7 +162,7 @@ namespace Gordian.Core.Tests.Network
             {
                 mgr.CurrentState = SessionState.ActiveInWorld;
 
-                byte[] gameOkChunk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
+                byte[] gameOkChunk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);
                 await mgr.QueueChunkAsync(gameOkChunk, isHighPriority: true);
 
                 lock (inspected)
@@ -295,7 +296,7 @@ namespace Gordian.Core.Tests.Network
                 mgr.CurrentState = SessionState.ActiveInWorld;
 
                 // Queue another sub-packet (e.g., GP_CLI_GAMEOK 0x00C) without flushing
-                byte[] gameOkChunk = HandshakePackets.BuildGameOkSubPacket(sequenceId: 0);
+                byte[] gameOkChunk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);
                 await mgr.QueueChunkAsync(gameOkChunk, isHighPriority: false);
 
                 // Wait for network tick flush
