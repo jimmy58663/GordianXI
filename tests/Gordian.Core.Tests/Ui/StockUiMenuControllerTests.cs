@@ -175,21 +175,17 @@ namespace Gordian.Core.Tests.Ui
             Assert.Contains("Disengage", Labels(menus.Top!));
             menus.CloseAll();
 
+            // Another player shows the same list as yourself (retail, in-game check 2026-09-28).
             Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Player, canInvite: false)));
-            var player = menus.Top!;
-            Assert.Equal("Check", Labels(player).First());
-            int invite = player.CommandRows.ToList().FindIndex(r => r.Label.Text == "Invite") + 1;
-            Assert.True(player.IsGreyed(invite));
+            Assert.Equal(new[] { "Chat", "Magic", "Abilities", "Trust", "Items", "Trade", "Check" }, Labels(menus.Top!));
             menus.CloseAll();
 
             Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster)));
-            Assert.Equal("Attack", Labels(menus.Top!).First());
-            Assert.DoesNotContain("Disengage", Labels(menus.Top!));
+            Assert.Equal(new[] { "Attack", "Magic", "Abilities", "Trust", "Items", "Check" }, Labels(menus.Top!));
             menus.CloseAll();
 
             Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster, engaged: true, engagedWithTarget: true)));
-            Assert.Contains("Disengage", Labels(menus.Top!));
-            Assert.DoesNotContain("Attack", Labels(menus.Top!));
+            Assert.Equal(new[] { "Switch Target", "Magic", "Abilities", "Trust", "Items", "Disengage", "Check" }, Labels(menus.Top!));
             menus.CloseAll();
 
             Assert.False(menus.OpenCommandMenu(Target(StockUiTargetKind.None)));
@@ -221,6 +217,41 @@ namespace Gordian.Core.Tests.Ui
             menus.Activate();
             Assert.Equal(ChatInputMode.Party, picked);
             Assert.False(menus.IsOpen);
+        }
+
+        [Fact]
+        public void CommandMenu_RightOpensArrowedEntries_AndTheTellRowCyclesCandidates()
+        {
+            var menus = Controller();
+            ChatInputMode? picked = null;
+            string? partner = null;
+            menus.ChatModeSelected = mode => picked = mode;
+            menus.TellTargetSelected = name => partner = name;
+            menus.TellTarget = () => "Ayame";
+            menus.TellCandidates = () => new[] { "Ayame", "Cybin", "Zeid" };
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Self));
+
+            menus.Move(InputAction.MenuRight); // Chat ▶ opens its list, as Confirm does
+            Assert.Equal(StockUiMenuEntries.ChatModeMenu, menus.Top!.Name);
+            var modes = menus.Top;
+            menus.Move(InputAction.MenuDown); // Tell
+            Assert.Equal("Ayame", modes.SideTexts[StockUiMenuEntries.ChatModeTellButton].Text);
+            menus.Move(InputAction.MenuRight);
+            Assert.Equal("Cybin", modes.SideTexts[StockUiMenuEntries.ChatModeTellButton].Text);
+            menus.Move(InputAction.MenuLeft);
+            menus.Move(InputAction.MenuLeft); // wraps to the last
+            Assert.Equal("Zeid", modes.SideTexts[StockUiMenuEntries.ChatModeTellButton].Text);
+            Assert.Equal(StockUiMenuEntries.ChatModeTellButton, modes.SelectedButtonId); // the cursor stays on Tell
+
+            menus.Activate();
+            Assert.Equal("Zeid", partner);
+            Assert.Equal(ChatInputMode.Tell, picked);
+            Assert.False(menus.IsOpen);
+
+            // Right on an entry without a list does nothing; right on a plain row of the chat modes neither.
+            menus.OpenCommandMenu(Target(StockUiTargetKind.Monster));
+            menus.Move(InputAction.MenuRight);
+            Assert.Single(menus.OpenMenus);
         }
 
         [Fact]
@@ -278,10 +309,10 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiMenuCommand.Check, ran[1].Item1);
             Assert.Single(notices); // a success posts nothing
 
-            // The cursor is remembered by entry across the differing lists: Check is the player menu's first row.
+            // The cursor is remembered by entry across the differing lists: Check is the player menu's last row.
             menus.OpenCommandMenu(Target(StockUiTargetKind.Player));
-            Assert.Equal(1, menus.Top!.SelectedButtonId);
-            Assert.Equal("Check", menus.Top.CommandRows[0].Label.Text);
+            Assert.Equal(7, menus.Top!.SelectedButtonId);
+            Assert.Equal("Check", menus.Top.CommandRows[6].Label.Text);
             menus.Activate();
             Assert.False(menus.IsOpen);
             Assert.Equal(StockUiMenuCommand.Check, ran[2].Item1);

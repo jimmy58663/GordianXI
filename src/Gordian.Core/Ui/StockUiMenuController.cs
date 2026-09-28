@@ -90,6 +90,10 @@ namespace Gordian.Core.Ui
         /// </summary>
         public IReadOnlyDictionary<int, StockUiSideText> SideTexts { get; internal set; } = NoTexts;
 
+        /// <summary>The chat-mode list's tell candidates and which one the Tell row shows.</summary>
+        public IReadOnlyList<string> TellCandidates { get; internal set; } = Array.Empty<string>();
+        public int TellIndex { get; internal set; }
+
         /// <summary>ButtonId of the button under the cursor (0 when the menu has no selectable button).</summary>
         public int SelectedButtonId { get; internal set; }
 
@@ -271,6 +275,15 @@ namespace Gordian.Core.Ui
 
         /// <summary>The last tell partner's name (shown after Tell's red arrow; empty when there is none).</summary>
         public Func<string>? TellTarget { get; set; }
+
+        /// <summary>
+        /// The names the Tell row cycles through with left/right (retail offers the last tell partner and the
+        /// players around you, yourself included); the one shown is taken on Confirm.
+        /// </summary>
+        public Func<IReadOnlyList<string>>? TellCandidates { get; set; }
+
+        /// <summary>Makes a name the tell partner (Confirm on the Tell row).</summary>
+        public Action<string>? TellTargetSelected { get; set; }
 
         /// <summary>Whether a linkshell (1 or 2) is equipped; without one its chat mode is greyed "No Linkshell".</summary>
         public Func<int, bool>? HasLinkshell { get; set; }
@@ -666,7 +679,11 @@ namespace Gordian.Core.Ui
                 float textX = arrow?.X ?? ChatModeSideTextX;
                 float nameX = arrow != null ? arrow.X + arrow.Width + ChatModeNameGap : textX;
                 string tell = TellTarget?.Invoke() ?? string.Empty;
-                if (tell.Length > 0) texts[StockUiMenuEntries.ChatModeTellButton] = new StockUiSideText(tell, nameX);
+                var candidates = TellCandidates?.Invoke() ?? Array.Empty<string>();
+                if (candidates.Count == 0 && tell.Length > 0) candidates = new[] { tell };
+                menu.TellCandidates = candidates;
+                if (menu.TellIndex >= candidates.Count) menu.TellIndex = 0;
+                if (candidates.Count > 0) texts[StockUiMenuEntries.ChatModeTellButton] = new StockUiSideText(candidates[menu.TellIndex], nameX);
                 if (HasLinkshell?.Invoke(1) != true) { greyed.Add(StockUiMenuEntries.ChatModeLinkshellButton); texts[StockUiMenuEntries.ChatModeLinkshellButton] = new StockUiSideText(NoLinkshellText, textX); }
                 if (HasLinkshell?.Invoke(2) != true) { greyed.Add(StockUiMenuEntries.ChatModeLinkshell2Button); texts[StockUiMenuEntries.ChatModeLinkshell2Button] = new StockUiSideText(NoLinkshellText, textX); }
                 if (HasUnity?.Invoke() != true) { greyed.Add(StockUiMenuEntries.ChatModeUnityButton); texts[StockUiMenuEntries.ChatModeUnityButton] = new StockUiSideText(NoUnityText, textX); }
@@ -799,6 +816,20 @@ namespace Gordian.Core.Ui
                         top.SelectedButtonId = link;
                         changed = true;
                     }
+                    else if (horizontal && IsChatModeTell(top, button.ButtonId) && top.TellCandidates.Count > 1)
+                    {
+                        // The Tell row cycles through the tell candidates (retail: left/right on Tell).
+                        int count = top.TellCandidates.Count;
+                        top.TellIndex = (top.TellIndex + (direction == InputAction.MenuRight ? 1 : -1) + count) % count;
+                        Refresh(top);
+                        changed = true;
+                    }
+                    else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
+                        && !top.IsGreyed(button.ButtonId))
+                    {
+                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail).
+                        Push(arrowed.Opens, top, Array.Empty<string>(), null, null);
+                    }
                     else if (horizontal && top.PageRing.Count > 1)
                     {
                         changed = FlipPage(top, direction == InputAction.MenuRight ? 1 : -1);
@@ -823,6 +854,26 @@ namespace Gordian.Core.Ui
                 changed = true;
             }
             if (changed) Changed?.Invoke();
+        }
+
+        private static bool IsChatModeTell(StockUiOpenMenu menu, int buttonId) =>
+            buttonId == StockUiMenuEntries.ChatModeTellButton && menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>What a menu's button does: a composed command menu's row, else the entry table.</summary>
+        private static bool TryGetEntry(StockUiOpenMenu menu, int buttonId, out StockUiMenuEntry entry)
+        {
+            if (menu.IsCommandMenu)
+            {
+                int index = buttonId - 1;
+                if (index >= 0 && index < menu.CommandRows.Count)
+                {
+                    entry = menu.CommandRows[index].Entry;
+                    return true;
+                }
+                entry = default;
+                return false;
+            }
+            return StockUiMenuEntries.TryGet(menu.Name, buttonId, out entry);
         }
 
         /// <summary>On a list page, only rows showing an entry take the cursor (the rows past the end do not).</summary>
@@ -956,17 +1007,7 @@ namespace Gordian.Core.Ui
                 return;
             }
 
-            StockUiMenuEntry entry;
-            if (top.IsCommandMenu)
-            {
-                int index = button.ButtonId - 1;
-                if (index < 0 || index >= top.CommandRows.Count) return;
-                entry = top.CommandRows[index].Entry;
-            }
-            else if (!StockUiMenuEntries.TryGet(top.Name, button.ButtonId, out entry))
-            {
-                return;
-            }
+            if (!TryGetEntry(top, button.ButtonId, out var entry)) return;
             if (top.IsGreyed(button.ButtonId))
             {
                 NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
@@ -1035,10 +1076,16 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.ChatMode:
                     var mode = (ChatInputMode)entry.Argument;
-                    if (mode == ChatInputMode.Tell && string.IsNullOrEmpty(TellTarget?.Invoke()))
+                    if (mode == ChatInputMode.Tell)
                     {
-                        NoticePosted?.Invoke("Tell: no one to send tells to yet. Use /tell <name> <message> first.");
-                        break;
+                        // The Tell row's shown candidate becomes the tell partner.
+                        var candidates = from.TellCandidates;
+                        if (candidates.Count == 0)
+                        {
+                            NoticePosted?.Invoke("Tell: no one to send tells to. Use /tell <name> <message> first.");
+                            break;
+                        }
+                        TellTargetSelected?.Invoke(candidates[Math.Clamp(from.TellIndex, 0, candidates.Count - 1)]);
                     }
                     ChatModeSelected?.Invoke(mode);
                     CloseAll();

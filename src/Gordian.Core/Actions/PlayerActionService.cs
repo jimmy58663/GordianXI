@@ -493,6 +493,29 @@ namespace Gordian.Core.Actions
             return Menus.OpenCommandMenu(context);
         }
 
+        /// <summary>
+        /// Names of the player characters within <paramref name="radius"/> yalms, nearest first (yourself included):
+        /// the chat-mode list's tell candidates.
+        /// </summary>
+        public IReadOnlyList<string> NearbyPlayerNames(float radius = 50f)
+        {
+            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var local) || local == null) return Array.Empty<string>();
+            var players = new List<(float Distance, string Name)>();
+            foreach (var entity in _world.GetEntitiesInRadius(local.Position, radius))
+            {
+                if (entity.Type != EntityType.Player || !entity.IsSpawned || string.IsNullOrEmpty(entity.Name)) continue;
+                players.Add((Vector3.DistanceSquared(local.Position, entity.Position), entity.Name));
+            }
+            players.Sort((a, b) =>
+            {
+                int byDistance = a.Distance.CompareTo(b.Distance);
+                return byDistance != 0 ? byDistance : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+            });
+            var names = new List<string>(players.Count);
+            foreach (var player in players) names.Add(player.Name);
+            return names;
+        }
+
         /// <summary>Runs a command menu entry on the target it was opened for (the controller's delegate).</summary>
         private async Task<PlayerActionResult> RunMenuTargetCommandAsync(StockUiMenuCommand command, StockUiTargetContext target)
         {
@@ -503,7 +526,10 @@ namespace Gordian.Core.Actions
             switch (command)
             {
                 case StockUiMenuCommand.Attack:
-                    return await AttackAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    var attack = await AttackAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    // Retail re-opens the menu at once, now the engaged list (in-game check 2026-09-28).
+                    if (attack.Success) OpenTargetCommandMenu();
+                    return attack;
                 case StockUiMenuCommand.Disengage:
                     return await DisengageAsync().ConfigureAwait(false);
                 case StockUiMenuCommand.Invite:

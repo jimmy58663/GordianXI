@@ -86,8 +86,9 @@ namespace Gordian.Core.Ui
             switch (context.Kind)
             {
                 case StockUiTargetKind.Self:
-                    // Retail (maintainer's check): Chat, Magic, Abilities, Trust, Items, Trade, Check. Disengage's place
-                    // while engaged is a guess.
+                case StockUiTargetKind.Player:
+                    // Retail (the maintainer's in-game checks, 2026-09-28): yourself and another player both show
+                    // Chat, Magic, Abilities, Trust, Items, Trade, Check. Disengage's place while engaged is a guess.
                     rows.Add(new StockUiCommandRow(Chat, new StockUiMenuEntry(Chat.Text, Opens: ChatMenu)));
                     rows.Add(Unavailable(Magic));
                     rows.Add(Unavailable(Abilities));
@@ -98,32 +99,26 @@ namespace Gordian.Core.Ui
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
                     break;
 
-                case StockUiTargetKind.Player:
-                    rows.Add(Row(Check, StockUiMenuCommand.Check));
-                    rows.Add(Row(Invite, StockUiMenuCommand.Invite, greyed: !context.CanInvite));
-                    rows.Add(Unavailable(Trade));
-                    rows.Add(Unavailable(Magic));
-                    rows.Add(Unavailable(Abilities));
-                    rows.Add(Unavailable(Items));
-                    break;
-
                 case StockUiTargetKind.Monster:
                     if (context.EngagedWithTarget)
                     {
-                        // "attackmo": Switch Target, Abilities, Magic, Items, Disengage, Treasure, Check.
+                        // "attackmo" (Switch Target, Abilities, Magic, Items, Disengage, Treasure, Check) with the
+                        // unengaged list's order: Magic before Abilities, Trust after them (in-game check 2026-09-28).
                         rows.Add(Unavailable(SwitchTarget));
                         rows.Add(Unavailable(Magic));
                         rows.Add(Unavailable(Abilities));
+                        rows.Add(Unavailable(Trust));
                         rows.Add(Unavailable(Items));
                         rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
                     }
                     else
                     {
-                        // "battlemo": Attack, Abilities, Magic, Items, Treasure, Check.
+                        // Retail (in-game check 2026-09-28): Attack, Magic, Abilities, Trust, Items, Check.
                         rows.Add(Row(Attack, StockUiMenuCommand.Attack));
                         rows.Add(Unavailable(Magic));
                         rows.Add(Unavailable(Abilities));
+                        rows.Add(Unavailable(Trust));
                         rows.Add(Unavailable(Items));
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
                     }

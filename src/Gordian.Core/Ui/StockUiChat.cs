@@ -135,8 +135,11 @@ namespace Gordian.Core.Ui
             };
             combat.BattleMessageReceived += record =>
             {
-                string line = CombatLogFormatter.FormatBattleMessage(record, resolveEntityName);
-                if (!string.IsNullOrEmpty(line)) Log.Add(ChatLogChannel.Combat, line);
+                // A message may span lines (a monster check prints its level, then its defense and evasion).
+                foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName).Split('\n'))
+                {
+                    if (line.Length > 0) Log.Add(ChatLogChannel.Combat, line);
+                }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
         }

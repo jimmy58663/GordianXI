@@ -160,6 +160,19 @@ namespace Gordian.Core.Network
             // partner, and greys the linkshell modes until the server has shown a linkshell in that slot.
             ActionService.Menus.ChatModeSelected = mode => Chat.Input.SetMode(mode);
             ActionService.Menus.TellTarget = () => Chat.Input.TellTarget;
+            ActionService.Menus.TellCandidates = () =>
+            {
+                // The last tell partner first, then the players around you (yourself included), nearest first.
+                var names = new System.Collections.Generic.List<string>();
+                string last = Chat.Input.TellTarget;
+                if (last.Length > 0) names.Add(last);
+                foreach (string name in ActionService.NearbyPlayerNames())
+                {
+                    if (!names.Exists(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))) names.Add(name);
+                }
+                return names;
+            };
+            ActionService.Menus.TellTargetSelected = name => Chat.Input.TellTarget = name;
             ActionService.Menus.HasLinkshell = slot => Party.HasLinkshell(slot);
             ChatModule.LinkshellMessageReceived += msg =>
             {

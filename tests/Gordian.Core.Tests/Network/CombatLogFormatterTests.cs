@@ -16,6 +16,29 @@ namespace Gordian.Core.Tests.Network
         };
 
         [Fact]
+        public void FormatBattleMessage_MonsterCheck_PrintsLevelThenDefenseAndEvasion()
+        {
+            // LandSandBoat: 174 = even, -1/+1 high/low defense, -3/+3 high/low evasion; Param = level, Value = 64 + difficulty.
+            var msg = new CombatMessageRecord { CasterId = 1001, TargetId = 2001, MessageId = 178, Param = 35, Value = 64 };
+            Assert.Equal("The Wild Rabbit seems to be level 35 (TW).\nIt seems to have low evasion and defense.",
+                CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver));
+
+            msg = new CombatMessageRecord { CasterId = 1001, TargetId = 2001, MessageId = 174, Param = 40, Value = 68 };
+            Assert.Equal("The Wild Rabbit seems to be level 40 (EM).", CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver));
+
+            msg = new CombatMessageRecord { CasterId = 1001, TargetId = 2001, MessageId = 172, Param = 50, Value = 71 };
+            Assert.Equal("The Wild Rabbit seems to be level 50 (IT).\nIt seems to have high evasion but low defense.",
+                CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver));
+
+            msg = new CombatMessageRecord { CasterId = 1001, TargetId = 2001, MessageId = 173, Param = 50, Value = 69 };
+            Assert.Equal("The Wild Rabbit seems to be level 50 (T).\nIt seems to have high defense.",
+                CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver));
+
+            msg = new CombatMessageRecord { CasterId = 1001, TargetId = 2001, MessageId = 249 };
+            Assert.Equal("The Wild Rabbit's strength is impossible to gauge!", CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver));
+        }
+
+        [Fact]
         public void FormatBattleMessage_DefeatsTarget_FormatsCorrectly()
         {
             var msg = new CombatMessageRecord
