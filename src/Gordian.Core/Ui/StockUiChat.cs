@@ -49,11 +49,14 @@ namespace Gordian.Core.Ui
         /// line's, not the character's): Enter outside a menu (retail), or a key the profile binds to
         /// <see cref="InputAction.OpenChat"/> (the slash key, and Space in the Full layout). The character the chat
         /// key types (<paramref name="keySymbol"/>, the slash) starts the new line; Space's is not typed.
+        /// With <paramref name="confirmTaken"/> (a target is selected, or an event dialog runs) Enter is the Confirm
+        /// action instead, as in retail, where Enter talks to the targeted NPC and only opens the line otherwise.
         /// </summary>
-        public bool TryOpen(GordianKey key, InputModifiers modifiers, InputProfile? profile, bool menuOpen, string? keySymbol = null)
+        public bool TryOpen(GordianKey key, InputModifiers modifiers, InputProfile? profile, bool menuOpen, string? keySymbol = null,
+            bool confirmTaken = false)
         {
             if (Input.IsOpen) return false;
-            bool open = !menuOpen && modifiers == InputModifiers.None && key is GordianKey.Enter or GordianKey.NumPadEnter;
+            bool open = !menuOpen && !confirmTaken && modifiers == InputModifiers.None && key is GordianKey.Enter or GordianKey.NumPadEnter;
             if (!open && profile != null)
             {
                 var chord = new InputChord(key, modifiers);

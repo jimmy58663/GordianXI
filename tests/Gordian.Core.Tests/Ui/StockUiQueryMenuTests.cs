@@ -38,13 +38,16 @@ namespace Gordian.Core.Tests.Ui
             var menu = menus.OpenQuery(new[] { "What will you do?" }, Options("Travel.", "Set.", "Other.", "Never mind."), 0, n => answer = n);
             Assert.NotNull(menu);
             Assert.True(menu!.IsQuery);
-            Assert.Equal(4, menu.Menu.Buttons.Count);
-            Assert.Equal(4, menu.VisibleRows);
+            // Three rows show at a time (the DAT's), the fourth option scrolls in; with one comment line the window is
+            // the authored 366 x 88 (a retail recording of this menu, 2026-09-28).
+            Assert.Equal(3, menu.Menu.Buttons.Count);
+            Assert.Equal(3, menu.VisibleRows);
+            Assert.True(menu.CanScroll);
             Assert.Equal(new[] { "Travel.", "Set.", "Other.", "Never mind." }, menu.Rows.Select(r => r.Text));
-            // Rows start under the comment line (8 + 16) and keep the DAT's 20 px pitch; the frame grows to fit.
-            Assert.Equal(24, menu.Menu.Buttons[0].Y);
-            Assert.Equal(44, menu.Menu.Buttons[1].Y);
-            Assert.Equal(24 + 4 * 20 + 12, menu.Menu.Frame.Height);
+            Assert.Equal(28, menu.Menu.Buttons[0].Y);
+            Assert.Equal(48, menu.Menu.Buttons[1].Y);
+            Assert.Equal(88, menu.Menu.Frame.Height);
+            Assert.Equal(366, menu.Menu.Frame.Width);
             Assert.Equal(UiAnchor.BottomLeft, menu.Menu.Frame.Anchor);
             Assert.Equal(1, menu.SelectedButtonId);
             Assert.Equal(-1, answer);
@@ -95,7 +98,7 @@ namespace Gordian.Core.Tests.Ui
             menus.Move(InputAction.MenuDown); // past the last visible row: the list scrolls one entry
             Assert.Equal(1, menu.FirstRow);
             Assert.Equal(StockUiMenuController.QueryMaxRows, menu.SelectedButtonId);
-            Assert.Equal(9, menu.QueryOptionNumber(menu.SelectedButtonId));
+            Assert.Equal(StockUiMenuController.QueryMaxRows + 1, menu.QueryOptionNumber(menu.SelectedButtonId));
         }
 
         [Fact]

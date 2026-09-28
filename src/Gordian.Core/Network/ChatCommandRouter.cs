@@ -31,6 +31,8 @@ namespace Gordian.Core.Network
         InspectVitals,
         SetTarget,
         ToggleLockOn,
+        /// <summary>Talking to the targeted NPC (Confirm on it).</summary>
+        Talk,
         SyntheticMoveTo,
         CollisionToggle,
         UiLayout,

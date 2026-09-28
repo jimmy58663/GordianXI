@@ -428,6 +428,33 @@ namespace Gordian.Core.Actions
             }
         }
 
+        /// <summary>
+        /// Whether Confirm on the current target talks to it: NPCs and doors (retail talks to those; on players and
+        /// monsters it opens the command menu instead, which is not built yet).
+        /// </summary>
+        public bool CanTalkToTarget => CurrentTarget is { Type: EntityType.Npc or EntityType.Door };
+
+        /// <summary>
+        /// Talks to the current target (Confirm on a targeted NPC or door): sends the 0x01A interaction, after which
+        /// the server starts the NPC's event or prints its line.
+        /// </summary>
+        public async Task<PlayerActionResult> TalkToTargetAsync()
+        {
+            var target = CurrentTarget;
+            if (target == null) return PlayerActionResult.Warn("Nothing is targeted.", ChatCommandResultKind.Talk);
+            if (!CanTalkToTarget) return PlayerActionResult.Warn($"{target.Name} cannot be talked to.", ChatCommandResultKind.Talk);
+            try
+            {
+                await _combatModule.RequestTalkAsync(target.ServerId, target.TargetIndex).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Talking to {target.Name}.", ChatCommandResultKind.Talk);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Talk failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Talk failed: {ex.Message}", ChatCommandResultKind.Talk);
+            }
+        }
+
         public async Task<PlayerActionResult> DisengageAsync()
         {
             uint tid = CurrentTarget?.ServerId ?? 0;

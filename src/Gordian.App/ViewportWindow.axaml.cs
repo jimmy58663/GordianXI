@@ -292,7 +292,8 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
-            if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol))
+            bool confirmTaken = session.ActionService.CurrentTarget != null || session.Events.IsActive;
+            if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol, confirmTaken))
             {
                 e.Handled = true;
                 return;

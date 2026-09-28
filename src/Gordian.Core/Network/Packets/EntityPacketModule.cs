@@ -437,9 +437,23 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
+            if (string.IsNullOrEmpty(entity.Name))
+            {
+                // Retail names zone NPCs from the zone's entity list DAT; the server sends names for dynamic ones only.
+                string? listed = Resources.Tables.ZoneEntityNames.Resolve(_world.CurrentZoneId, npcPacket.UniqueNo);
+                if (!string.IsNullOrEmpty(listed)) entity.Name = listed;
+            }
+
             if (string.IsNullOrEmpty(entity.Name) && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)
             {
                 TryRequestEntityInfo(npcPacket.ActorIndex);
+            }
+
+            if (isNew)
+            {
+                GordianLog.Debug("ENTITY", $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
+                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} " +
+                    $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
 
             _world.UpsertEntity(entity);

@@ -25,8 +25,12 @@ namespace Gordian.Core.Events
     /// </summary>
     public sealed class EventDialogController : IEventVmHost
     {
-        /// <summary>Reads a DAT by file id (the app's resource manager); without it events end at once.</summary>
-        public static Func<int, byte[]?>? DatLoader { get; set; }
+        /// <summary>Reads a DAT by file id (the app's resource manager, <see cref="ZoneDatLoader"/>); without it events end at once.</summary>
+        public static Func<int, byte[]?>? DatLoader
+        {
+            get => ZoneDatLoader.Load;
+            set => ZoneDatLoader.Load = value;
+        }
 
         /// <summary>Names an item / key item / zone by id for the 0x01 codes of the text; null names show as &lt;#id&gt;.</summary>
         public static Func<byte, int, string?>? NameResolver { get; set; }

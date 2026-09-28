@@ -309,14 +309,19 @@ namespace Gordian.Core.Ui
         /// <summary>The DAT window an event query is built from (bottom-left, three invisible 20 px rows authored).</summary>
         public const string QueryMenu = "query";
 
-        /// <summary>Rows an event query shows at once before it scrolls (the DAT authors three; retail grows the window, count not captured).</summary>
-        public const int QueryMaxRows = 8;
+        /// <summary>
+        /// Rows an event query shows at once before it scrolls: the DAT's three. A retail recording (2026-09-28) shows the
+        /// home point menu's four options in the authored 366 x 88 window, three at a time with a scrollbar.
+        /// </summary>
+        public const int QueryMaxRows = 3;
 
-        private const int QueryRowPitch = 20, QueryRowTop = 8, QueryCommentPitch = 16, QueryBottomPad = 12, QueryRowX = 28, QueryRowRightPad = 16;
+        /// <summary>The first comment line sits at y 8 and the rows follow from y 28 at the DAT's 20 px pitch (recording 2026-09-28).</summary>
+        private const int QueryRowPitch = 20, QueryFirstRowY = 28, QueryCommentPitch = 16, QueryRowX = 28, QueryRowRightPad = 16;
 
         /// <summary>
         /// Opens an event query (opcode 0x24): a window built from the "query" DAT frame with one row per shown
-        /// option (up to <see cref="QueryMaxRows"/>, then scrolling) under the comment lines. Confirm answers with
+        /// option (up to <see cref="QueryMaxRows"/>, then scrolling) under the comment lines; with one comment and
+        /// three rows it is the authored 366 x 88 window. Confirm answers with
         /// the option's number, Cancel with 255, through <paramref name="completed"/>. Returns the open menu, or null
         /// when the UI is not loaded (the caller then treats the query as cancelled).
         /// </summary>
@@ -326,7 +331,7 @@ namespace Gordian.Core.Ui
             if (library == null || options.Count == 0 || !library.TryGetMenu(QueryMenu, out var template)) return null;
             int visible = Math.Min(options.Count, QueryMaxRows);
             var rowTemplate = template.FindButton(1) ?? new UiMenuButton { X = QueryRowX, Y = 28, Width = 132, Height = 16 };
-            int top = QueryRowTop + comments.Count * QueryCommentPitch;
+            int top = QueryFirstRowY + Math.Max(0, comments.Count - 1) * QueryCommentPitch;
             var buttons = new List<UiMenuButton>(visible);
             for (int i = 0; i < visible; i++)
             {
@@ -349,7 +354,7 @@ namespace Gordian.Core.Ui
                 X = template.Frame.X,
                 Y = template.Frame.Y,
                 Width = template.Frame.Width,
-                Height = (short)(top + visible * QueryRowPitch + QueryBottomPad),
+                Height = (short)(top + visible * QueryRowPitch),
                 Anchor = template.Frame.Anchor,
                 Shapes = template.Frame.Shapes,
                 CursorOffsetX = template.Frame.CursorOffsetX,

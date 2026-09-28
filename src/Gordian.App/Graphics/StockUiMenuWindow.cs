@@ -131,14 +131,18 @@ namespace Gordian.App.Graphics
             if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp);
         }
 
-        /// <summary>Where a query's comment lines start (layout px from the window's top-left) and their pitch.</summary>
-        private const float QueryCommentX = 12, QueryCommentY = 8, QueryCommentPitch = 16, QueryOptionTextInset = 4;
+        /// <summary>
+        /// Where a query's comment lines start (layout px from the window's top-left) and their pitch, and how far
+        /// into a row its text starts: a retail recording (2026-09-28, 1:1) has the question 14 px in at y 8 and the
+        /// options 37 px in (the cursor arrow sits in the 28 px before the row buttons).
+        /// </summary>
+        private const float QueryCommentX = 14, QueryCommentY = 8, QueryCommentPitch = 16, QueryOptionTextInset = 9;
 
         /// <summary>
         /// An event query (Tier 2 chunk 6): the question's lines at the top, then one option per row over the
         /// invisible row buttons (the "query" DAT window authors three 20 px rows; the controller sizes the window to
-        /// the options shown). The selected option is tinted like any selected label; long lists scroll as the
-        /// Chat Filters list does. The retail look of this window has not been captured yet.
+        /// the rows shown). The selected option is tinted like any selected label; long lists scroll three at a time as
+        /// the Chat Filters list does, with the same scrollbar (a retail recording, 2026-09-28).
         /// </summary>
         private static void DrawQuery(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement,
             UiMenuButton firstRow, long timestamp)
