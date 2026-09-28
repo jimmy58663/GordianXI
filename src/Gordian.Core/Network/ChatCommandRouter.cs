@@ -38,6 +38,10 @@ namespace Gordian.Core.Network
         SyntheticMoveTo,
         CollisionToggle,
         UiLayout,
+        /// <summary><c>/lockstyle [on|off]</c>: queries, enables or disables the style lock (C2S 0x053).</summary>
+        Lockstyle,
+        /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
+        LockstyleSet,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -158,6 +162,10 @@ namespace Gordian.Core.Network
 
                     // Stock UI layout
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },
+
+                    // Equipment appearance
+                    "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
+                    "lockstyleset" => new ChatCommandResult { Kind = ChatCommandResultKind.LockstyleSet, Message = args },
 
                     // Command Discovery & Help
                     "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)

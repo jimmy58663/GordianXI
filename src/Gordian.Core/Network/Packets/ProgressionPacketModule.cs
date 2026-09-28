@@ -407,6 +407,73 @@ namespace Gordian.Core.Network.Packets
             return _sendChunkCallback(packet, true);
         }
 
+        /// <summary>
+        /// Marks a held key item as read, as retail does the first time the key item is viewed: sets its seen bit
+        /// locally and sends C2S 0x064 with the whole table's seen flags (the server stores every set bit and
+        /// does not answer). Does nothing when the key item is not held or was already seen.
+        /// </summary>
+        /// <param name="actIndex">The local player's actor (target) index; the server rejects any other.</param>
+        public Task MarkKeyItemSeenAsync(ushort keyItemId, ushort actIndex)
+        {
+            Span<uint> flags = stackalloc uint[16];
+            if (!_progressionState.TryMarkKeyItemSeen(keyItemId, flags, out ushort tableIndex))
+            {
+                return Task.CompletedTask;
+            }
+
+            byte[] packet = ProgressionPacketBuilder.BuildScenarioItemRead(_localPlayerState.ServerId, actIndex, tableIndex, flags, NextSequence());
+            LogOutbound(0x064, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>
+        /// Sends C2S 0x0CB: a Mog House operation. <paramref name="param2"/> is 0 when opening, 1 when closing,
+        /// or the remodel style (615 San d'Oria, 616 Bastok, 617 Windurst, 618 Mog Patio).
+        /// </summary>
+        public Task SendMyRoomIsAsync(MyRoomIsKind kind, byte param1 = 0, ushort param2 = 0)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildMyRoomIs(kind, param1, param2, NextSequence());
+            LogOutbound(0x0CB, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>
+        /// Sends C2S 0x0FA: places a furnishing in the Mog House layout. The server answers with S2C 0x0FA.
+        /// </summary>
+        public Task SendMyRoomLayoutAsync(ushort itemNo, byte itemIndex, byte category, byte floor, byte x, byte y, byte z, byte rotation)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildMyRoomLayout(itemNo, itemIndex, category, floor, x, y, z, rotation, NextSequence());
+            LogOutbound(0x0FA, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>
+        /// Sends C2S 0x09B: a Chocobo Circuit request. <see cref="ChocoboRaceReqKind.Toteboard"/> is answered with
+        /// S2C 0x073 (stored in <see cref="ProgressionState"/>), <see cref="ChocoboRaceReqKind.ChocoboList"/> with 0x074.
+        /// </summary>
+        public Task SendChocoboRaceReqAsync(ChocoboRaceReqParam param, ChocoboRaceReqKind kind)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildChocoboRaceReq(param, kind, NextSequence());
+            LogOutbound(0x09B, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>Sends C2S 0x117: requests the Unity quest information (answered with S2C 0x110).</summary>
+        public Task SendUnityQuestAsync()
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildUnityQuest(NextSequence());
+            LogOutbound(0x117, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>Sends C2S 0x118: turns Unity chat on or off.</summary>
+        public Task SendUnityToggleAsync(bool active)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildUnityToggle(active, NextSequence());
+            LogOutbound(0x118, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
         private void LogOutbound(ushort packetId, ReadOnlySpan<byte> packet)
         {
             if (LogOutboundOnRoute && _logPacketCallback != null)

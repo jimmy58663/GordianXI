@@ -450,6 +450,88 @@ namespace Gordian.Core.Network.Packets
             }
         }
 
+        /// <summary>
+        /// Sends C2S 0x03B: equips an item onto a mannequin slot, or unequips one slot or the whole mannequin.
+        /// The equip container and slot are only read for <see cref="SubcontainerKind.Equip"/>.
+        /// </summary>
+        public async Task UseSubcontainerAsync(
+            SubcontainerKind kind,
+            ContainerId mannequinContainer,
+            byte mannequinSlot,
+            SubcontainerSlotIndex slotIndex,
+            ContainerId equipContainer = ContainerId.Inventory,
+            byte equipSlot = 0)
+        {
+            byte[] buf = ArrayPool<byte>.Shared.Rent(32);
+            try
+            {
+                int len = InventoryPacketBuilders.BuildSubcontainer(buf, ++_sequenceNumber, kind, mannequinContainer, mannequinSlot, slotIndex, equipContainer, equipSlot);
+                if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x03B, _sequenceNumber, buf.AsSpan(0, len));
+                await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+
+        /// <summary>
+        /// Sends C2S 0x04E command Bid: buys an item from the Auction House at <paramref name="price"/> gil,
+        /// as a single or a full stack. The server answers with S2C 0x04C.
+        /// </summary>
+        public async Task BidAuctionAsync(ushort itemId, uint price, bool stack)
+        {
+            byte[] buf = ArrayPool<byte>.Shared.Rent(60);
+            try
+            {
+                int len = InventoryPacketBuilders.BuildAuctionRequest(buf, ++_sequenceNumber, AuctionCommand.Bid, 0, itemId, price, stack ? 1u : 0u);
+                if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x04E, _sequenceNumber, buf.AsSpan(0, len));
+                await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+
+        /// <summary>
+        /// Sends C2S 0x052: asks the server to validate an item placed in an equipment set slot.
+        /// The server answers with S2C 0x116.
+        /// </summary>
+        public async Task CheckEquipsetAsync(EquipSlotId equipSlot, byte slot, ContainerId container, ushort itemId)
+        {
+            byte[] buf = ArrayPool<byte>.Shared.Rent(76);
+            try
+            {
+                int len = InventoryPacketBuilders.BuildEquipsetCheck(buf, ++_sequenceNumber, equipSlot, slot, container, itemId);
+                if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x052, _sequenceNumber, buf.AsSpan(0, len));
+                await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+
+        /// <summary>
+        /// Sends C2S 0x053: queries, enables or disables the style lock, or sets it to <paramref name="items"/>
+        /// (<see cref="LockstyleMode.Set"/>, what <c>/lockstyleset #</c> sends).
+        /// </summary>
+        public async Task SetLockstyleAsync(LockstyleMode mode, params (byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)[] items)
+        {
+            byte[] buf = ArrayPool<byte>.Shared.Rent(136);
+            try
+            {
+                int len = InventoryPacketBuilders.BuildLockstyle(buf, ++_sequenceNumber, mode, items);
+                if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x053, _sequenceNumber, buf.AsSpan(0, len));
+                await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+
         public async Task SortContainerAsync(ContainerId container)
         {
             byte[] buf = ArrayPool<byte>.Shared.Rent(8);

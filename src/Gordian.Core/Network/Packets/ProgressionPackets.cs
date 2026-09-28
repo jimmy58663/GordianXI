@@ -70,6 +70,19 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// Chocobo race request parameter for C2S 0x09B: which racing window the client opened or closed.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x09b_chocobo_race_req.h).
+    /// </summary>
+    public enum ChocoboRaceReqParam : uint
+    {
+        None = 0x00,
+        RacingWindowOpen = 0x0F,
+        RacingWindowClose = 0x10,
+        ChocoboListOpen = 0x11,
+        ChocoboListClose = 0x12
+    }
+
+    /// <summary>
     /// Mog house interaction kind for C2S 0x0CB.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0cb_myroom_is.h).
     /// </summary>
@@ -928,6 +941,7 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x064 (GP_CLI_COMMAND_SCENARIOITEM): Mark scenario item / key item as read.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x064_scenarioitem.h).
         /// </summary>
         public static byte[] BuildScenarioItemRead(
             uint uniqueNo,
@@ -975,6 +989,7 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x0CB (GP_CLI_COMMAND_MYROOM_IS): Mog House operations (open, remodel, patio).
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0cb_myroom_is.h).
         /// </summary>
         public static byte[] BuildMyRoomIs(MyRoomIsKind kind, byte param1, ushort param2, ushort sequenceId = 0)
         {
@@ -993,6 +1008,7 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x0FA (GP_CLI_COMMAND_MYROOM_LAYOUT): Rearrange furniture in Mog House.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0fa_myroom_layout.h).
         /// </summary>
         public static byte[] BuildMyRoomLayout(
             ushort itemNo,
@@ -1164,8 +1180,9 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x09B (GP_CLI_COMMAND_CHOCOBO_RACE_REQ): Chocobo race request.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x09b_chocobo_race_req.h).
         /// </summary>
-        public static byte[] BuildChocoboRaceReq(uint param, ChocoboRaceReqKind kind, ushort sequenceId = 0)
+        public static byte[] BuildChocoboRaceReq(ChocoboRaceReqParam param, ChocoboRaceReqKind kind, ushort sequenceId = 0)
         {
             // Size: 12 bytes (Header: 4, Payload: 8)
             var packet = new byte[12];
@@ -1173,7 +1190,7 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
 
-            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), param);
+            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), (uint)param);
             BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8, 4), (uint)kind);
 
             return packet;
@@ -1194,6 +1211,7 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x117 (GP_CLI_COMMAND_UNITY_QUEST): Request Unity quests.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x117_unity_quest.h).
         /// </summary>
         public static byte[] BuildUnityQuest(ushort sequenceId = 0)
         {
@@ -1207,6 +1225,7 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x118 (GP_CLI_COMMAND_UNITY_TOGGLE): Toggle Unity chat.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x118_unity_toggle.h).
         /// </summary>
         public static byte[] BuildUnityToggle(bool active, ushort sequenceId = 0)
         {
