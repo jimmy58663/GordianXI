@@ -16,6 +16,9 @@ namespace Gordian.Core.Ui
     /// </summary>
     public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked);
 
+    /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
+    public readonly record struct StockUiQueryOption(int Number, string Text);
+
     /// <summary>
     /// Where the HUD drew an open menu on the last frame (its frame's top-left in screen pixels and the UI scale),
     /// for hit-testing the mouse against its buttons. Menus the HUD hides (covered by a later window) are not listed.
@@ -32,7 +35,8 @@ namespace Gordian.Core.Ui
         private static readonly IReadOnlyDictionary<int, float> NoSliders = new Dictionary<int, float>();
         private HashSet<int>? _marked;
 
-        internal StockUiOpenMenu(UiMenuDefinition menu, StockUiOpenMenu? parent, IReadOnlyList<string> pageRing, string? message)
+        internal StockUiOpenMenu(UiMenuDefinition menu, StockUiOpenMenu? parent, IReadOnlyList<string> pageRing, string? message,
+            int visibleRows = 0)
         {
             Menu = menu;
             Parent = parent;
@@ -41,7 +45,7 @@ namespace Gordian.Core.Ui
             StockUiConfigPages.TryGet(menu.Name, out var page);
             ConfigPage = page;
             IsChatFilterList = menu.Name.Equals(StockUiConfigPages.ChatFiltersPage, StringComparison.OrdinalIgnoreCase);
-            VisibleRows = IsChatFilterList ? StockUiConfigPages.ChatFilterRowsPerPage : 0;
+            VisibleRows = IsChatFilterList ? StockUiConfigPages.ChatFilterRowsPerPage : visibleRows;
         }
 
         public UiMenuDefinition Menu { get; }
@@ -96,6 +100,24 @@ namespace Gordian.Core.Ui
         internal TaskCompletionSource<bool>? Prompt { get; init; }
 
         public bool IsPrompt => Prompt != null;
+
+        /// <summary>An event query's comment lines (the question), drawn above its options.</summary>
+        public IReadOnlyList<string> Comments { get; internal set; } = Array.Empty<string>();
+
+        /// <summary>An event query's options in row order (their numbers are the choice numbers reported to the script).</summary>
+        public IReadOnlyList<StockUiQueryOption> QueryOptions { get; internal set; } = Array.Empty<StockUiQueryOption>();
+
+        /// <summary>Receives an event query's answer: an option number, or 255 when cancelled.</summary>
+        internal Action<int>? QueryCompleted { get; init; }
+
+        public bool IsQuery => QueryCompleted != null;
+
+        /// <summary>The number of the option a row button shows, or 0 past the end.</summary>
+        public int QueryOptionNumber(int buttonId)
+        {
+            int index = EntryIndex(buttonId);
+            return index >= 0 && index < QueryOptions.Count ? QueryOptions[index].Number : 0;
+        }
 
         /// <summary>Whether this window's authored rectangle overlaps another's (both in 512 x 448 layout space).</summary>
         public bool OverlapsAuthored(StockUiOpenMenu other)
@@ -242,6 +264,7 @@ namespace Gordian.Core.Ui
                 _open = _open[..^1];
             }
             closed.Prompt?.TrySetResult(false);
+            closed.QueryCompleted?.Invoke(255);
             Changed?.Invoke();
         }
 
@@ -256,7 +279,11 @@ namespace Gordian.Core.Ui
                 foreach (var menu in closed) Remember(menu);
                 _open = Array.Empty<StockUiOpenMenu>();
             }
-            foreach (var menu in closed) menu.Prompt?.TrySetResult(false);
+            foreach (var menu in closed)
+            {
+                menu.Prompt?.TrySetResult(false);
+                menu.QueryCompleted?.Invoke(255);
+            }
             Changed?.Invoke();
         }
 
@@ -277,6 +304,105 @@ namespace Gordian.Core.Ui
             if (prompt == null) tcs.TrySetResult(false);
             else Changed?.Invoke();
             return tcs.Task;
+        }
+
+        /// <summary>The DAT window an event query is built from (bottom-left, three invisible 20 px rows authored).</summary>
+        public const string QueryMenu = "query";
+
+        /// <summary>Rows an event query shows at once before it scrolls (the DAT authors three; retail grows the window, count not captured).</summary>
+        public const int QueryMaxRows = 8;
+
+        private const int QueryRowPitch = 20, QueryRowTop = 8, QueryCommentPitch = 16, QueryBottomPad = 12, QueryRowX = 28, QueryRowRightPad = 16;
+
+        /// <summary>
+        /// Opens an event query (opcode 0x24): a window built from the "query" DAT frame with one row per shown
+        /// option (up to <see cref="QueryMaxRows"/>, then scrolling) under the comment lines. Confirm answers with
+        /// the option's number, Cancel with 255, through <paramref name="completed"/>. Returns the open menu, or null
+        /// when the UI is not loaded (the caller then treats the query as cancelled).
+        /// </summary>
+        public StockUiOpenMenu? OpenQuery(IReadOnlyList<string> comments, IReadOnlyList<StockUiQueryOption> options, int cursorIndex, Action<int> completed)
+        {
+            var library = _library;
+            if (library == null || options.Count == 0 || !library.TryGetMenu(QueryMenu, out var template)) return null;
+            int visible = Math.Min(options.Count, QueryMaxRows);
+            var rowTemplate = template.FindButton(1) ?? new UiMenuButton { X = QueryRowX, Y = 28, Width = 132, Height = 16 };
+            int top = QueryRowTop + comments.Count * QueryCommentPitch;
+            var buttons = new List<UiMenuButton>(visible);
+            for (int i = 0; i < visible; i++)
+            {
+                buttons.Add(new UiMenuButton
+                {
+                    ButtonId = (short)(i + 1),
+                    X = rowTemplate.X,
+                    Y = (short)(top + i * QueryRowPitch),
+                    Width = (short)(template.Frame.Width - rowTemplate.X - QueryRowRightPad),
+                    Height = rowTemplate.Height,
+                    NavUp = (sbyte)(i == 0 ? visible + 1 : i),
+                    NavDown = (sbyte)(i + 2),
+                    NavLeft = (sbyte)(i + 1),
+                    NavRight = (sbyte)(i + 1),
+                    Shapes = rowTemplate.Shapes,
+                });
+            }
+            var frame = new UiMenuFrame
+            {
+                X = template.Frame.X,
+                Y = template.Frame.Y,
+                Width = template.Frame.Width,
+                Height = (short)(top + visible * QueryRowPitch + QueryBottomPad),
+                Anchor = template.Frame.Anchor,
+                Shapes = template.Frame.Shapes,
+                CursorOffsetX = template.Frame.CursorOffsetX,
+                CursorOffsetY = template.Frame.CursorOffsetY,
+            };
+            var definition = new UiMenuDefinition
+            {
+                DatId = template.DatId,
+                Category = template.Category,
+                Name = template.Name,
+                MenuType = template.MenuType,
+                Frame = frame,
+                Buttons = buttons,
+            };
+            var rows = new List<StockUiListRow>(options.Count);
+            foreach (var option in options) rows.Add(new StockUiListRow(rows.Count + 1, option.Text, false));
+
+            var menu = new StockUiOpenMenu(definition, Top, Array.Empty<string>(), null, visible) { QueryCompleted = completed };
+            menu.Comments = comments;
+            menu.QueryOptions = options;
+            menu.Rows = rows;
+            int cursor = Math.Clamp(cursorIndex, 0, options.Count - 1);
+            menu.FirstRow = Math.Clamp(cursor - visible + 1, 0, Math.Max(0, options.Count - visible));
+            menu.ScrollFrom = menu.FirstRow;
+            menu.SelectedButtonId = cursor - menu.FirstRow + 1;
+            lock (_sync)
+            {
+                var open = new StockUiOpenMenu[_open.Length + 1];
+                Array.Copy(_open, open, _open.Length);
+                open[^1] = menu;
+                _open = open;
+            }
+            Changed?.Invoke();
+            return menu;
+        }
+
+        /// <summary>Closes an event query the script no longer waits on (the event ended); it answers nothing.</summary>
+        public void CloseQuery(StockUiOpenMenu query)
+        {
+            bool removed = false;
+            lock (_sync)
+            {
+                int index = Array.IndexOf(_open, query);
+                if (index >= 0)
+                {
+                    var open = new StockUiOpenMenu[_open.Length - 1];
+                    Array.Copy(_open, 0, open, 0, index);
+                    Array.Copy(_open, index + 1, open, index, _open.Length - index - 1);
+                    _open = open;
+                    removed = true;
+                }
+            }
+            if (removed) Changed?.Invoke();
         }
 
         private StockUiOpenMenu? Push(string menuName, StockUiOpenMenu? parent, IReadOnlyList<string> pageRing, string? message,
@@ -310,7 +436,7 @@ namespace Gordian.Core.Ui
 
         private void Remember(StockUiOpenMenu menu)
         {
-            if (menu.IsPrompt) return;
+            if (menu.IsPrompt || menu.IsQuery) return;
             _lastSelection[menu.Name] = menu.SelectedButtonId;
             if (menu.VisibleRows > 0) _lastPage[menu.Name] = menu.FirstRow;
             if (menu.PageRing.Count > 0) _mainMenuPage = menu.Name;
@@ -641,6 +767,19 @@ namespace Gordian.Core.Ui
                     if (ReferenceEquals(Top, top)) _open = _open[..^1];
                 }
                 top.Prompt!.TrySetResult(yes);
+                Changed?.Invoke();
+                return;
+            }
+
+            if (top.IsQuery)
+            {
+                int number = top.QueryOptionNumber(button.ButtonId);
+                if (number == 0) return;
+                lock (_sync)
+                {
+                    if (ReferenceEquals(Top, top)) _open = _open[..^1];
+                }
+                top.QueryCompleted!.Invoke(number);
                 Changed?.Invoke();
                 return;
             }

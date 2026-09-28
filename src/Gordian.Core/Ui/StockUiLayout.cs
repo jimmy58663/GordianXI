@@ -65,6 +65,9 @@ namespace Gordian.Core.Ui
         public const string Target = "target";
         public const string StatusIcons = "status";
         public const string MainMenu = "menu";
+
+        /// <summary>The event query window ("query": an NPC's choices).</summary>
+        public const string Query = "query";
     }
 
     /// <summary>

@@ -20,6 +20,20 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
+    /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A): the message id into the
+    /// zone's dialog table, the entity it is about, the numbers the text substitutes, and how to show it.
+    /// </summary>
+    public sealed record DialogMessageInfo(
+        ushort MessageId,
+        uint UniqueNo,
+        ushort ActIndex,
+        bool HideName,
+        byte Type,
+        int[] Numbers,
+        string Name
+    );
+
+    /// <summary>
     /// Thread-safe active state container for character story progression, key items,
     /// missions, merits, job points, Records of Eminence, mog house, conquest, and minigames.
     /// </summary>
@@ -115,6 +129,15 @@ namespace Gordian.Core.World
 
         public event Action<CutsceneEventInfo>? EventStarted;
         public event Action? EventEnded;
+
+        /// <summary>A zone dialog message to print (S2C 0x036 / 0x02A).</summary>
+        public event Action<DialogMessageInfo>? DialogMessageReceived;
+
+        /// <summary>The server answered a pending event update (S2C 0x052 mode 1): the event script may go on.</summary>
+        public event Action? EventUpdateAcknowledged;
+
+        /// <summary>The server cancelled the running event (S2C 0x052 mode 2).</summary>
+        public event Action? EventCancelledByServer;
         public event Action? KeyItemsUpdated;
         public event Action? MissionsUpdated;
         public event Action? MeritsUpdated;
@@ -150,6 +173,12 @@ namespace Gordian.Core.World
 
             EventStarted?.Invoke(info);
         }
+
+        public void PostDialogMessage(DialogMessageInfo message) => DialogMessageReceived?.Invoke(message);
+
+        public void AcknowledgeEventUpdate() => EventUpdateAcknowledged?.Invoke();
+
+        public void CancelEventByServer() => EventCancelledByServer?.Invoke();
 
         public void EndEvent()
         {

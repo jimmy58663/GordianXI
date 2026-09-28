@@ -81,7 +81,11 @@ namespace Gordian.App.Graphics
                 }
             }
 
-            if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
+            if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
+            {
+                DrawQuery(renderer, font, menu, placement, firstQueryRow, timestamp);
+            }
+            else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
                 // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's
                 // state ball ("framesus" #88 ON / #89 OFF at the row's origin; #83 is a "Hold" state whose meaning
@@ -125,6 +129,49 @@ namespace Gordian.App.Graphics
 
             var selected = menu.SelectedButton;
             if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp);
+        }
+
+        /// <summary>Where a query's comment lines start (layout px from the window's top-left) and their pitch.</summary>
+        private const float QueryCommentX = 12, QueryCommentY = 8, QueryCommentPitch = 16, QueryOptionTextInset = 4;
+
+        /// <summary>
+        /// An event query (Tier 2 chunk 6): the question's lines at the top, then one option per row over the
+        /// invisible row buttons (the "query" DAT window authors three 20 px rows; the controller sizes the window to
+        /// the options shown). The selected option is tinted like any selected label; long lists scroll as the
+        /// Chat Filters list does. The retail look of this window has not been captured yet.
+        /// </summary>
+        private static void DrawQuery(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement,
+            UiMenuButton firstRow, long timestamp)
+        {
+            float s = placement.Scale;
+            for (int i = 0; i < menu.Comments.Count; i++)
+            {
+                renderer.DrawText(font, menu.Comments[i], placement.X + QueryCommentX * s, placement.Y + (QueryCommentY + i * QueryCommentPitch) * s, s);
+            }
+            if (menu.Rows.Count == 0 || menu.VisibleRows == 0) return;
+
+            var definition = menu.Menu;
+            var secondRow = definition.FindButton(2);
+            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+            float first = menu.FirstRow;
+            if (menu.ScrollFrom != menu.FirstRow)
+            {
+                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
+                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
+            }
+            float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
+            float areaH = menu.VisibleRows * pitch * s;
+            renderer.SetClip(placement.X, areaY, definition.Frame.Width * s, areaH);
+            int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
+            int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+            for (int i = from; i <= to; i++)
+            {
+                float ry = areaY + (i - first) * pitch * s;
+                renderer.DrawText(font, menu.Rows[i].Text, areaX + QueryOptionTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
+                    i == selectedEntry ? SelectedGlyphTint : null);
+            }
+            renderer.ClearClip();
+            if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
         }
 
         /// <summary>

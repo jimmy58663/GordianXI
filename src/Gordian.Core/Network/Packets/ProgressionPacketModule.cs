@@ -44,6 +44,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x033_EventStr.PacketId, HandleEventStr);
             dispatcher.Register(S2C_0x034_EventNum.PacketId, HandleEventNum);
             dispatcher.Register(S2C_0x036_TalkNum.PacketId, HandleTalkNum);
+            dispatcher.Register(S2C_0x02A_TalkNumWork.PacketId, HandleTalkNumWork);
             dispatcher.Register(S2C_0x052_EventUcOff.PacketId, HandleEventUcOff);
             dispatcher.Register(S2C_0x055_ScenarioItem.PacketId, HandleScenarioItem);
             dispatcher.Register(S2C_0x056_Mission.PacketId, HandleMission);
@@ -67,6 +68,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x033_EventStr.PacketId);
             dispatcher.Unregister(S2C_0x034_EventNum.PacketId);
             dispatcher.Unregister(S2C_0x036_TalkNum.PacketId);
+            dispatcher.Unregister(S2C_0x02A_TalkNumWork.PacketId);
             dispatcher.Unregister(S2C_0x052_EventUcOff.PacketId);
             dispatcher.Unregister(S2C_0x055_ScenarioItem.PacketId);
             dispatcher.Unregister(S2C_0x056_Mission.PacketId);
@@ -127,22 +129,48 @@ namespace Gordian.Core.Network.Packets
             var talk = new S2C_0x036_TalkNum(payload);
             if (!talk.IsValid) return;
 
-            GordianLog.Debug("DIALOG", $"TalkNum message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}");
+            GordianLog.Debug("DIALOG", $"TalkNum message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type,
+                Array.Empty<int>(), string.Empty));
         }
 
+        private void HandleTalkNumWork(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var talk = new S2C_0x02A_TalkNumWork(payload);
+            if (!talk.IsValid) return;
+
+            var numbers = new int[4];
+            for (int i = 0; i < 4; i++) numbers[i] = talk.GetNumber(i);
+            string name = talk.GetName();
+            GordianLog.Debug("DIALOG", $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Numbers={string.Join(",", numbers)}, Name='{name}'");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type, numbers, name));
+        }
+
+        /// <summary>
+        /// The release modes (XiPackets 0x0052): 0 releases character control after a cutscene, 1 answers a pending
+        /// event update (the script goes on), 2 cancels the event (the event id is in the high bits), 3 cancels a
+        /// text input, 4 releases the fishing lock. Only mode 2 ends the event; modes 0 and 1 arrive after every
+        /// event end and update, so they must not.
+        /// </summary>
         private void HandleEventUcOff(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var ucoff = new S2C_0x052_EventUcOff(payload);
             if (!ucoff.IsValid) return;
 
-            GordianLog.Info("EVENT", $"Event user control release: Mode={ucoff.Mode}");
-            if (ucoff.Mode == EventUcOffMode.CancelEvent || ucoff.Mode == EventUcOffMode.Standard)
+            var mode = (EventUcOffMode)((uint)ucoff.Mode & 0xFF);
+            GordianLog.Info("EVENT", $"Event user control release: Mode={mode} (raw 0x{(uint)ucoff.Mode:X})");
+            switch (mode)
             {
-                _progressionState.EndEvent();
-            }
-            else if (ucoff.Mode == EventUcOffMode.Fishing)
-            {
-                _progressionState.ClearFishing();
+                case EventUcOffMode.EventRecvPending:
+                    _progressionState.AcknowledgeEventUpdate();
+                    break;
+                case EventUcOffMode.CancelEvent:
+                    _progressionState.CancelEventByServer();
+                    _progressionState.EndEvent();
+                    break;
+                case EventUcOffMode.Fishing:
+                    _progressionState.ClearFishing();
+                    break;
             }
         }
 
@@ -271,6 +299,14 @@ namespace Gordian.Core.Network.Packets
             byte[] packet = ProgressionPacketBuilder.BuildEventEnd(uniqueNo, endPara, actIndex, mode, eventNum, eventPara, NextSequence());
             LogOutbound(0x05B, packet);
             _progressionState.EndEvent();
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>Sends 0x05B mode 1: an event update the script waits on (answered by 0x052 mode 1).</summary>
+        public Task SendEventUpdateAsync(uint uniqueNo, uint endPara, ushort actIndex, ushort eventNum, ushort eventPara)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildEventEnd(uniqueNo, endPara, actIndex, 1, eventNum, eventPara, NextSequence());
+            LogOutbound(0x05B, packet);
             return _sendChunkCallback(packet, true);
         }
 

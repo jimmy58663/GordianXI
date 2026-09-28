@@ -204,7 +204,8 @@ namespace Gordian.App.Graphics
             long timestamp = Stopwatch.GetTimestamp();
 
             var rootFrame = open[0].Menu.Frame;
-            var root = ResolveWindow(StockUiWindowIds.MainMenu, rootFrame, width, height, out _);
+            string rootId = open[0].IsQuery ? StockUiWindowIds.Query : StockUiWindowIds.MainMenu;
+            var root = ResolveWindow(rootId, rootFrame, width, height, out _);
             if (root.Hidden)
             {
                 menus.SetScreenPlacements(_menuPlacements);
@@ -224,7 +225,7 @@ namespace Gordian.App.Graphics
                 if (i == 0)
                 {
                     placement = root;
-                    Drag.Register(StockUiWindowIds.MainMenu, rootFrame, root);
+                    Drag.Register(rootId, rootFrame, root);
                 }
                 else
                 {

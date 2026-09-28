@@ -292,9 +292,19 @@ namespace Gordian.Core.Input
                 }
             }
 
+            // 1c. A running event: its dialog advances on the game tick; a waiting line takes Confirm/Cancel. Its
+            //     query window is an open menu and takes the menu input below.
+            var events = Events;
+            bool inEvent = false;
+            if (events != null)
+            {
+                events.Tick(elapsed);
+                inEvent = !menuOpen && events.ProcessInput(_inputState);
+            }
+
             // 2. Feed the stock menus: with one open, Confirm/Cancel and targeting belong to it (movement keys and
             //    the left stick still move the character, as in retail).
-            _menuOpen = menus != null && menus.ProcessInput(_inputState, elapsed);
+            _menuOpen = (menus != null && menus.ProcessInput(_inputState, elapsed)) || inEvent;
 
             // 3. Update Camera from keyboard & mouse impulses
             UpdateCamera(elapsed);
@@ -308,6 +318,9 @@ namespace Gordian.Core.Input
 
         /// <summary>The session's stock chat (null outside a session).</summary>
         public Ui.StockUiChat? Chat { get; set; }
+
+        /// <summary>The session's event dialog (null outside a session); ticked here so the dialog runs with the input.</summary>
+        public Events.EventDialogController? Events { get; set; }
 
         // Held Up/Down on a selected log window repeat as menu cursors do: after 0.4 s, then every 60 ms.
         private const double ScrollRepeatDelay = 0.4, ScrollRepeatInterval = 0.06;

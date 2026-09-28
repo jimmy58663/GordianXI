@@ -994,7 +994,7 @@ namespace Gordian.Core.Actions
         private static readonly string[] UiWindowIds =
         {
             StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance1, StockUiWindowIds.Alliance2,
-            StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu,
+            StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu, StockUiWindowIds.Query,
         };
 
         /// <summary>
