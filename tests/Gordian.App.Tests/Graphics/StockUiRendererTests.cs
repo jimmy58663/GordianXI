@@ -234,7 +234,7 @@ namespace Gordian.App.Tests.Graphics
                     }
                 }
                 Assert.True(yellow, "no arrow below the pointer");
-                var ringTop = Pixel(pixels, width, (int)(pointerX + StockUiPointerArt.RingOffsetX), (int)(pointerY + StockUiPointerArt.RingOffsetY) - 6);
+                var ringTop = Pixel(pixels, width, (int)(pointerX + StockUiPointerArt.RingOffsetX), (int)(pointerY + StockUiPointerArt.RingOffsetY - StockUiPointerArt.RingOuterRadius + 0.5f));
                 Assert.True(ringTop.R > 150 && Math.Abs(ringTop.R - ringTop.B) < 24, $"no grey ring above the pointer: {ringTop}");
                 menus.CloseAll();
                 Assert.False(await prompt);

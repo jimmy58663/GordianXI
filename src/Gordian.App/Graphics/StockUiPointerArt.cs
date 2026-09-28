@@ -21,6 +21,9 @@ namespace Gordian.App.Graphics
         /// <summary>Where the ring's centre sits relative to the hotspot when drawn over an entry.</summary>
         public const float RingOffsetX = 2, RingOffsetY = 2;
 
+        /// <summary>The ring's outer radius (image pixels), inside its dark rim.</summary>
+        public const float RingOuterRadius = 5f;
+
         private static readonly Lazy<DecodedTexture> ArrowTexture = new(() => new DecodedTexture("gordian:pointer-arrow", Size, Size, BuildArrow()));
         private static readonly Lazy<DecodedTexture> RingTexture = new(() => new DecodedTexture("gordian:pointer-ring", Size, Size, BuildRing()));
 
@@ -87,8 +90,8 @@ namespace Gordian.App.Graphics
 
         private static byte[] BuildRing()
         {
-            // A grey ring (outer radius 7, inner 4) with a dark rim, its hollow faintly lit; centred in the image.
-            const float cx = Size / 2f, cy = Size / 2f, outer = 7f, inner = 4f;
+            // A thin grey ring (outer radius 5, inner 3.5) with a dark rim, its hollow faintly lit; centred in the image.
+            const float cx = Size / 2f, cy = Size / 2f, outer = RingOuterRadius, inner = 3.5f, rimWidth = 0.75f;
             var rgba = new byte[Size * Size * 4];
             for (int y = 0; y < Size; y++)
             {
@@ -102,8 +105,8 @@ namespace Gordian.App.Graphics
                             float px = x + (sx + 0.5f) / 4 - cx, py = y + (sy + 0.5f) / 4 - cy;
                             float d = MathF.Sqrt(px * px + py * py);
                             if (d <= outer && d >= inner) ring++;
-                            else if ((d > outer && d <= outer + 1) || (d < inner && d >= inner - 1)) rim++;
-                            else if (d < inner - 1) hollow++;
+                            else if ((d > outer && d <= outer + rimWidth) || (d < inner && d >= inner - rimWidth)) rim++;
+                            else if (d < inner - rimWidth) hollow++;
                         }
                     }
                     ring /= 16; rim /= 16; hollow /= 16;
