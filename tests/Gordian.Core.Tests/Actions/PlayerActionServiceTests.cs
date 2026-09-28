@@ -377,5 +377,66 @@ namespace Gordian.Core.Tests.Actions
             Assert.True(res.Success);
             Assert.Contains("X=55.50, Y=12.30, Z=88.00", res.Message);
         }
-    }
+    
+
+        [Theory]
+        [InlineData("/lockstyle", LockstyleMode.Query)]
+        [InlineData("/lockstyle on", LockstyleMode.Enable)]
+        [InlineData("/lockstyle OFF", LockstyleMode.Disable)]
+        [InlineData("/lockstyleset", LockstyleMode.Enable)]
+        public async Task ExecuteCommand_Lockstyle_Sends0x053WithRetailMode(string input, LockstyleMode mode)
+        {
+            _actionService.InventoryModule = new InventoryPacketModule(new InventoryState(), _localPlayer, (mem, _) =>
+            {
+                _sentChunks.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+
+            var result = await _actionService.ExecuteCommandAsync(input);
+
+            Assert.True(result.Success);
+            byte[] packet = Assert.Single(_sentChunks);
+            Assert.True(PacketHeader.TryParse(packet, out var header));
+            Assert.Equal(0x053, header.PacketId);
+            Assert.Equal(0, packet[4]); // no items
+            Assert.Equal((byte)mode, packet[5]);
+        }
+
+        [Theory]
+        [InlineData("/lockstyle maybe")]
+        [InlineData("/lockstyleset 3")]
+        public async Task ExecuteCommand_Lockstyle_UnsupportedArgumentsSendNothing(string input)
+        {
+            _actionService.InventoryModule = new InventoryPacketModule(new InventoryState(), _localPlayer, (mem, _) =>
+            {
+                _sentChunks.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+
+            var result = await _actionService.ExecuteCommandAsync(input);
+
+            Assert.Equal(PlayerActionResultKind.Warning, result.Kind);
+            Assert.Empty(_sentChunks);
+        }
+
+        [Fact]
+        public async Task MarkKeyItemSeen_UsesLocalPlayerIndex()
+        {
+            var progression = new ProgressionState();
+            var acquired = new uint[16];
+            acquired[0] = 1u << 5;
+            progression.UpdateKeyItems(0, acquired, new uint[16]);
+            _actionService.ProgressionModule = new ProgressionPacketModule(progression, _localPlayer, (mem, _) =>
+            {
+                _sentChunks.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+
+            Assert.True(await _actionService.MarkKeyItemSeenAsync(5));
+
+            byte[] packet = Assert.Single(_sentChunks);
+            Assert.Equal(0x064, PacketHeader.TryParse(packet, out var header) ? header.PacketId : 0);
+            Assert.Equal(10, BitConverter.ToUInt16(packet, 72)); // TestPlayer's target index
+        }
+}
 }

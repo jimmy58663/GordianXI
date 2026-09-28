@@ -117,6 +117,8 @@ namespace Gordian.Core.Network
                 _lifecycleModule,
                 _sendChunkCallback);
             _actionService.ConfigModule = _configModule;
+            _actionService.InventoryModule = _inventoryModule;
+            _actionService.ProgressionModule = _progressionModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {

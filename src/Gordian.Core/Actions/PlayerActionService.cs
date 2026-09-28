@@ -159,6 +159,12 @@ namespace Gordian.Core.Actions
             }
         }
 
+        /// <summary>The inventory packet module (equipment, style lock, Auction House); null in sessions without one.</summary>
+        public InventoryPacketModule? InventoryModule { get; set; }
+
+        /// <summary>The progression packet module (events, key items, Mog House, Unity); null in sessions without one.</summary>
+        public ProgressionPacketModule? ProgressionModule { get; set; }
+
         /// <summary>The configuration packet module (S2C 0x0B4, C2S 0x0DB / 0x0DC); null in sessions without one.</summary>
         public ConfigPacketModule? ConfigModule
         {
@@ -981,6 +987,10 @@ namespace Gordian.Core.Actions
                         return "Usage: /kick <player> - Remove player from party.";
                     case "uilayout" or "uil":
                         return UiLayoutUsage;
+                    case "lockstyle":
+                        return LockstyleUsage;
+                    case "lockstyleset":
+                        return "Usage: /lockstyleset - Lock your equipment's appearance (equipment set numbers are not supported yet).";
                     case "help" or "commands":
                         return "Usage: /help [command] - Show available client commands or detailed help.";
                     case "gmhelp" or "gmcommands":
@@ -1003,6 +1013,7 @@ namespace Gordian.Core.Actions
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
+            sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -1038,6 +1049,67 @@ namespace Gordian.Core.Actions
 
             return sb.ToString().TrimEnd();
         }
+
+        #region Style Lock & Key Items
+
+        private const string LockstyleUsage = "Usage: /lockstyle [on|off] - Lock your equipment's appearance; without an argument, show whether it is locked.";
+
+        /// <summary>
+        /// <c>/lockstyle</c>: C2S 0x053 mode Query without an argument, Enable for <c>on</c>, Disable for <c>off</c>,
+        /// the modes retail sends for each form (XiPackets world/client/0x0053). The server replies with the
+        /// on/off message or the new appearance.
+        /// </summary>
+        public async Task<PlayerActionResult> LockstyleAsync(string args)
+        {
+            LockstyleMode? mode = args.Trim().ToLowerInvariant() switch
+            {
+                "" => LockstyleMode.Query,
+                "on" => LockstyleMode.Enable,
+                "off" => LockstyleMode.Disable,
+                _ => null,
+            };
+            if (mode is null) return PlayerActionResult.Warn(LockstyleUsage, ChatCommandResultKind.Lockstyle);
+
+            var module = InventoryModule;
+            if (module == null) return PlayerActionResult.Fail("Style lock is unavailable: no inventory module.", ChatCommandResultKind.Lockstyle);
+
+            await module.SetLockstyleAsync(mode.Value).ConfigureAwait(false);
+            return PlayerActionResult.Ok(mode switch
+            {
+                LockstyleMode.Enable => "Style lock on requested.",
+                LockstyleMode.Disable => "Style lock off requested.",
+                _ => "Style lock status requested.",
+            }, ChatCommandResultKind.Lockstyle);
+        }
+
+        /// <summary>
+        /// <c>/lockstyleset</c>: without a set number retail sends C2S 0x053 mode Enable. A numbered set needs the
+        /// client-side equipment sets, which GordianXI does not store yet.
+        /// </summary>
+        public async Task<PlayerActionResult> LockstyleSetAsync(string args)
+        {
+            if (!string.IsNullOrWhiteSpace(args))
+            {
+                return PlayerActionResult.Warn("/lockstyleset <n> needs equipment sets, which are not supported yet. Use /lockstyle on to lock your current look.", ChatCommandResultKind.LockstyleSet);
+            }
+            return await LockstyleAsync("on").ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Marks a held key item as read (C2S 0x064), as retail does when an unseen key item is first viewed.
+        /// Returns false when the local player's actor index is unknown or the progression module is missing.
+        /// </summary>
+        public async Task<bool> MarkKeyItemSeenAsync(ushort keyItemId)
+        {
+            var module = ProgressionModule;
+            if (module == null) return false;
+            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var self) || self == null) return false;
+
+            await module.MarkKeyItemSeenAsync(keyItemId, self.TargetIndex).ConfigureAwait(false);
+            return true;
+        }
+
+        #endregion
 
         /// <summary>
         /// Returns a formatted list of Game Master (GM) commands.
@@ -1331,6 +1403,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.Lockstyle:
+                    return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.LockstyleSet:
+                    return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

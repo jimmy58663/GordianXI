@@ -825,7 +825,7 @@ namespace Gordian.Core.Tests.Network
 
             // 1. Auction Request (Bid)
             int len = InventoryPacketBuilders.BuildAuctionRequest(buf, 1, AuctionCommand.Bid, 0, 4096, 5000, 1);
-            Assert.Equal(52, len);
+            Assert.Equal(60, len);
             Assert.True(PacketHeader.TryParse(buf, out var h1));
             Assert.Equal(0x04E, h1.PacketId);
             Assert.Equal((byte)AuctionCommand.Bid, buf[4]);

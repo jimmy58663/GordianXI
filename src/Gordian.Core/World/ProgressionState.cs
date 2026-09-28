@@ -282,6 +282,42 @@ namespace Gordian.Core.World
             }
         }
 
+        /// <summary>
+        /// Marks a held key item as seen and copies its 512-item table's seen flags into
+        /// <paramref name="tableSeenFlags"/> (16 words), ready for C2S 0x064. Returns false when the key item
+        /// is not held or was already seen, in which case the client sends nothing.
+        /// </summary>
+        public bool TryMarkKeyItemSeen(ushort keyItemId, Span<uint> tableSeenFlags, out ushort tableIndex)
+        {
+            tableIndex = (ushort)(keyItemId / 512);
+            int bitIndex = keyItemId % 512;
+            int dwordIndex = bitIndex / 32;
+            uint mask = 1u << (bitIndex % 32);
+
+            lock (_lock)
+            {
+                if (!_acquiredKeyItems.TryGetValue(tableIndex, out var acq) || (acq[dwordIndex] & mask) == 0)
+                {
+                    return false;
+                }
+                if (!_seenKeyItems.TryGetValue(tableIndex, out var seen))
+                {
+                    seen = new uint[16];
+                    _seenKeyItems[tableIndex] = seen;
+                }
+                if ((seen[dwordIndex] & mask) != 0)
+                {
+                    return false;
+                }
+
+                seen[dwordIndex] |= mask;
+                seen.AsSpan(0, Math.Min(seen.Length, tableSeenFlags.Length)).CopyTo(tableSeenFlags);
+            }
+
+            KeyItemsUpdated?.Invoke();
+            return true;
+        }
+
         public void UpdateMissions(in S2C_0x056_Mission mission)
         {
             lock (_lock)

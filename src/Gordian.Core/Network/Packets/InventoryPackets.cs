@@ -1574,8 +1574,10 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// C2S 0x04E: Interacts with the Auction House.
-        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x04e_auc.h).
+        /// C2S 0x04E: Interacts with the Auction House. 60 bytes: command, work index, two result bytes, a 12-byte
+        /// parameter union and the 40-byte parcel the client leaves zeroed.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x04e_auc.h)
+        /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x004E), which gives the size as 0x3C.
         /// </summary>
         public static int BuildAuctionRequest(
             Span<byte> destination,
@@ -1586,8 +1588,8 @@ namespace Gordian.Core.Network.Packets
             uint price = 0,
             uint count = 0)
         {
-            PacketHeader.Write(destination, 0x04E, 13, sequenceId);
-            var payload = destination.Slice(4, 48);
+            PacketHeader.Write(destination, 0x04E, 15, sequenceId);
+            var payload = destination.Slice(4, 56);
             payload.Clear();
 
             payload[0] = (byte)command;
@@ -1599,7 +1601,7 @@ namespace Gordian.Core.Network.Packets
                 BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), itemId);
                 BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(12, 4), count);
             }
-            return 52;
+            return 60;
         }
 
         /// <summary>
