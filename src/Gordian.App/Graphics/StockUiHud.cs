@@ -127,7 +127,7 @@ namespace Gordian.App.Graphics
             var party = DrawPartyWindow(renderer, library, session, groups, width, height);
             DrawAllianceWindows(renderer, library, groups, width, height);
             DrawLogWindows(renderer, library, session, party, width, height);
-            DrawTargetWindow(renderer, library, session, party, width, height);
+            DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
             DrawStatusIcons(renderer, library, session, width, height);
             DrawMenus(renderer, library, session, menus, width, height);
             bool unlocked = Drag.Unlocked;
@@ -297,34 +297,40 @@ namespace Gordian.App.Graphics
         private readonly List<ChatLogLine> _logLines = new();
 
         /// <summary>
-        /// The log window(s) and the chat input line. Window 1 keeps its authored left edge and, by default,
-        /// stretches right to meet the party window (retail spans the bottom of the screen up to it; the authored
-        /// 366 x 134 frame only fills the 512-wide layout); a log window the player has moved keeps its authored
-        /// width. The Window 1/2 settings pick each window's frame ("log1".."log8" by "Maximum lines displayed", plus
+        /// The log window(s) and the chat input line. Window 1 keeps its authored left edge and stretches right to
+        /// meet the party window (retail spans the bottom of the screen up to it; the authored 366 x 134 frame only
+        /// fills the 512-wide layout). That width is the retail arrangement's and stays when either window is moved
+        /// (a moved party window counts at its retail place), so a dragged log keeps its size. The Window 1/2 settings pick each window's frame ("log1".."log8" by "Maximum lines displayed", plus
         /// the title band) and its share of that width ("Window Width"); "Log Window Multi-window" adds Window 2 above
         /// Window 1 (Vertical) or beside it (Horizontal). The input line takes the bottom of Window 1, whose rows that
         /// no longer fit above it are not shown (retail capture, 2026-09-27). Each window is titled with the chat
         /// mode ("Say"; "Window 1:Say" and "Window 2" when split).
         /// </summary>
         private void DrawLogWindows(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
-            StockUiPlacement? party, uint width, uint height)
+            PartyWindow? party, uint width, uint height)
         {
             var chat = session.Chat;
             int multi = Settings.GetValue(StockUiSettingKey.LogMultiWindow);
             chat.SetMultiWindow(multi != 0);
             var logFont = _logFont;
             if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int maxRows1)) return;
-            var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out bool logMoved);
+            var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out _);
             if (placement.Hidden) return;
             float s = placement.Scale;
 
-            float fullWidth = menu1.Frame.Width;
-            if (!logMoved)
+            // Retail leaves a 2-pixel gap between the log and the party window (366 wide at 16 vs 384), measured in
+            // the retail arrangement: the log at its authored left edge, the party window at its authored place.
+            var retailLog = StockUiLayout.Place(menu1.Frame.Anchor, menu1.Frame.X, menu1.Frame.Y, menu1.Frame.Width, menu1.Frame.Height, s, width, height);
+            float rightEdge = width - 16 * s;
+            if (party is { Placement.Hidden: false } p)
             {
-                // Retail leaves a 2-pixel gap between the log and the party window (366 wide at 16 vs 384).
-                float rightEdge = party is { Hidden: false } p ? p.X - 2 * s : width - 16 * s;
-                fullWidth = Math.Max(menu1.Frame.Width, (rightEdge - placement.X) / s);
+                var pf = p.Frame;
+                float partyLeft = p.Moved ? StockUiLayout.Place(pf.Anchor, pf.X, pf.Y, pf.Width, pf.Height, p.Placement.Scale, width, height).X : p.Placement.X;
+                rightEdge = partyLeft - 2 * s;
             }
+            float fullWidth = Math.Max(menu1.Frame.Width, (rightEdge - retailLog.X) / s);
+            // A moved log keeps that width, so keep it on screen.
+            placement = placement with { X = Math.Clamp(placement.X, 0, Math.Max(0, width - fullWidth * s)) };
             float logBottom = placement.Y + menu1.Frame.Height * s;
 
             bool horizontal = multi == 2;
@@ -374,7 +380,8 @@ namespace Gordian.App.Graphics
             }
 
             if (!hasInline || inputPlacement.Hidden) return;
-            float inputWidth = inputMoved ? inline.Frame.Width : width1;
+            float inputWidth = width1;
+            if (inputMoved) inputPlacement = inputPlacement with { X = Math.Clamp(inputPlacement.X, 0, Math.Max(0, width - inputWidth * s)) };
             if (!inputOpen || logFont == null)
             {
                 if (Drag.Unlocked)
@@ -426,26 +433,30 @@ namespace Gordian.App.Graphics
         /// The party window shows your own party: "ptw0" (titled Solo) outside a party and "ptw1".."ptw6" by member
         /// count in one (or in an alliance).
         /// </summary>
-        private StockUiPlacement? DrawPartyWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
+        /// <summary>The party window as drawn this frame: its placement, its frame and whether the player moved it.</summary>
+        private readonly record struct PartyWindow(StockUiPlacement Placement, UiMenuFrame Frame, bool Moved);
+
+        private PartyWindow? DrawPartyWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
             PartyGroups groups, uint width, uint height)
         {
             int count = groups.InGroup ? Math.Clamp(groups.Own.Count, 1, 6) : 1;
             if (!library.TryGetMenu(groups.InGroup ? $"ptw{count}" : "ptw0", out var menu)) return null;
 
-            var placement = ResolveWindow(StockUiWindowIds.Party, menu.Frame, width, height, out _);
-            if (placement.Hidden) return placement;
+            var placement = ResolveWindow(StockUiWindowIds.Party, menu.Frame, width, height, out bool moved);
+            var result = new PartyWindow(placement, menu.Frame, moved);
+            if (placement.Hidden) return result;
             renderer.DrawMenu(menu, placement, includeButtons: false);
             Drag.Register(StockUiWindowIds.Party, menu.Frame, placement);
 
             var font = _font;
-            if (font == null) return placement;
+            if (font == null) return result;
             var rows = GetPartyRows(session, groups, count);
             StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
             if (Layout.ShowPartyStatusIcons && _statusIcons is { } icons)
             {
                 StockUiPartyWindow.DrawStatusIcons(renderer, icons, menu, placement, rows, Layout.PartyStatusIconSide);
             }
-            return placement;
+            return result;
         }
 
         /// <summary>

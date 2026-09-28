@@ -295,6 +295,14 @@ namespace Gordian.App
                 return;
             }
 
+            // Escape locks an unlocked stock UI (once no menu is open for it to cancel first).
+            if (e.Key == Key.Escape && !session.ActionService.Menus.IsOpen && session.ActionService.UiDrag.Unlocked)
+            {
+                session.ActionService.UiLayout.SetUnlocked(false);
+                e.Handled = true;
+                return;
+            }
+
             if (gKey != GordianKey.None)
             {
                 session.InputState.SetModifiers(mods);
