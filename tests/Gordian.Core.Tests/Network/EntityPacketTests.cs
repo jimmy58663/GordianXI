@@ -754,6 +754,36 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void EntityPacketModule_HandleCharNpc_TrustFlagMakesATrust()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] Packet(uint id, ushort index, EntityUpdateFlags flags, byte flags3)
+            {
+                byte[] payload = new byte[0x48];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), id);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), index);
+                payload[6] = (byte)flags;
+                payload[36] = flags3; // packet byte 0x28: Flags3, bit 0 = TrustFlag (LSB writes 0x45 for Trusts)
+                return payload;
+            }
+            void Send(byte[] payload) => dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            Send(Packet(0x01A00700, 1792, EntityUpdateFlags.Position | EntityUpdateFlags.General, 0x45));
+            Send(Packet(0x01A00701, 1793, EntityUpdateFlags.Position | EntityUpdateFlags.General, 0x00));
+            Assert.True(world.TryGetByServerId(0x01A00700, out var trust));
+            Assert.Equal(EntityType.Trust, trust!.Type);
+            Assert.True(world.TryGetByServerId(0x01A00701, out var other));
+            Assert.Equal(EntityType.Monster, other!.Type);
+
+            // Once known as a Trust it stays one.
+            Send(Packet(0x01A00700, 1792, EntityUpdateFlags.Position, 0x00));
+            Assert.Equal(EntityType.Trust, trust.Type);
+        }
+
+        [Fact]
         public void EntityPacketModule_HandleCharNpc_PopulatesEquippedLookOnEntity()
         {
             var world = new WorldState();

@@ -131,6 +131,18 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// ActionBuf[0] of a C2S 0x01A <see cref="CliActionId.Blockaid"/> request (<c>/blockaid [off|on]</c>, bare toggles).
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A) and
+    /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.h).
+    /// </summary>
+    public enum BlockaidMode : uint
+    {
+        Disable = 0,
+        Enable = 1,
+        Toggle = 2
+    }
+
+    /// <summary>
     /// Standard FFXI emote identifiers transmitted in C2S 0x05D.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x05d_motion.h).
     /// </summary>
@@ -737,6 +749,41 @@ namespace Gordian.Core.Network.Packets
 
     #endregion
 
+    /// <summary>
+    /// S2C 0x02F (GP_SERV_COMMAND_DIG): an entity (a player riding a chocobo) plays the chocobo digging animation.
+    /// Payload: TarUniqueNo (u32 at +0), TarActIndex (u16 at +4), Flags (u8 at +6; the retail client checks
+    /// <c>Flags &amp; 0x0F == 1</c> together with the rider's mount state to pick the animation), 1 byte of padding.
+    /// LandSandBoat sends it once a dig's greens are spent, before the dig's result message.
+    /// Packet layout referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x002F)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x02F_Dig
+    {
+        public const ushort PacketId = 0x02F;
+
+        public uint TargetId { get; }
+        public ushort TargetIndex { get; }
+        public byte Flags { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x02F_Dig(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 7)
+            {
+                TargetId = 0;
+                TargetIndex = 0;
+                Flags = 0;
+                IsValid = false;
+                return;
+            }
+
+            TargetId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            TargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            Flags = payload[6];
+            IsValid = true;
+        }
+    }
+
     #region Outbound C2S Packet Builders
 
     /// <summary>
@@ -744,34 +791,42 @@ namespace Gordian.Core.Network.Packets
     /// </summary>
     public static class CombatPacketBuilder
     {
+        /// <summary>Size of a C2S 0x01A action packet: 4-byte header, then UniqueNo, ActIndex, ActionID and ActionBuf[4].</summary>
+        public const int ActionPacketSize = 28;
+
+        /// <summary>
+        /// C2S 0x01A (GP_CLI_COMMAND_ACTION): the action request every <see cref="CliActionId"/> kind shares.
+        /// 28 bytes: UniqueNo (u32 at +4), ActIndex (u16 at +8), ActionID (u16 at +10) and ActionBuf[4] (u32 x 4 at
+        /// +12). Most kinds leave ActionBuf zeroed; <paramref name="param"/> is ActionBuf[0]: the spell, skill or
+        /// ability id, the menu answer (home point, raise, tractor), the <see cref="BlockaidMode"/>, the mount id, or
+        /// for Talk on a Trust the release index.
+        /// Packet layout referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.h).
+        /// </summary>
+        public static int BuildAction(Span<byte> destination, ushort sequenceId, CliActionId action, uint targetId = 0, ushort targetIndex = 0, uint param = 0)
+        {
+            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
+            var payload = destination.Slice(4, ActionPacketSize - 4);
+            payload.Clear();
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)action);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), param);
+            return ActionPacketSize;
+        }
+
         /// <summary>
         /// C2S 0x01A: Initiates basic melee auto-attack on target.
         /// </summary>
         public static int BuildAttackRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Attack);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Attack, targetId, targetIndex);
 
         /// <summary>
         /// C2S 0x01A: Talks to (triggers) an NPC or door: the interaction Confirm on a targeted NPC sends. The
         /// server answers with an event (0x032) or a message (0x036).
         /// </summary>
         public static int BuildTalkRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Talk);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Talk, targetId, targetIndex);
 
         /// <summary>
         /// C2S 0x0DD (GP_CLI_COMMAND_EQUIP_INSPECT): examines a target, the command menu's Check and <c>/check</c>.
@@ -796,15 +851,7 @@ namespace Gordian.Core.Network.Packets
         /// C2S 0x01A: Disengages from combat auto-attack.
         /// </summary>
         public static int BuildAttackOffRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.AttackOff);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.AttackOff, targetId, targetIndex);
 
         /// <summary>
         /// C2S 0x01A: Requests casting of a magic spell.
@@ -815,102 +862,69 @@ namespace Gordian.Core.Network.Packets
         /// <param name="targetOffset">Ground-target offset from the target: X, Y = height, Z = north (internal axes).</param>
         public static int BuildCastMagicRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, ushort spellId, Vector3 targetOffset = default)
         {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.CastMagic);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), spellId);
+            int length = BuildAction(destination, sequenceId, CliActionId.CastMagic, targetId, targetIndex, spellId);
+            var payload = destination.Slice(4, length - 4);
             BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(12, 4), targetOffset.X);
             BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(16, 4), targetOffset.Y);
             BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(20, 4), targetOffset.Z);
-            return 28;
+            return length;
         }
 
         /// <summary>
         /// C2S 0x01A: Requests execution of a weapon skill.
         /// </summary>
         public static int BuildWeaponskillRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, ushort wsId)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Weaponskill);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), wsId);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Weaponskill, targetId, targetIndex, wsId);
 
         /// <summary>
         /// C2S 0x01A: Requests execution of a job ability.
         /// </summary>
         public static int BuildJobAbilityRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, ushort abilityId)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.JobAbility);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), abilityId);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.JobAbility, targetId, targetIndex, abilityId);
 
         /// <summary>
         /// C2S 0x01A: Requests execution of ranged attack (shoot).
         /// </summary>
         public static int BuildShootRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Shoot);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Shoot, targetId, targetIndex);
 
         /// <summary>
         /// C2S 0x01A: Requests targeting assist on a player.
         /// </summary>
         public static int BuildAssistRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), targetId);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Assist);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Assist, targetId, targetIndex);
 
         /// <summary>
         /// C2S 0x01A: Requests summoning/mounting a mount.
         /// </summary>
         public static int BuildMountRequest(Span<byte> destination, ushort sequenceId, uint mountId)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Mount);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), mountId);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Mount, param: mountId);
 
         /// <summary>
         /// C2S 0x01A: Requests dismounting from current mount or chocobo.
         /// </summary>
         public static int BuildDismountRequest(Span<byte> destination, ushort sequenceId)
-        {
-            PacketHeader.Write(destination, 0x01A, 7, sequenceId);
-            var payload = destination.Slice(4, 24);
-            payload.Clear();
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.Dismount);
-            return 28;
-        }
+            => BuildAction(destination, sequenceId, CliActionId.Dismount);
 
+        /// <summary>
+        /// C2S 0x063 (GP_CLI_COMMAND_DIG): tells the server the chocobo digging animation has finished and the client
+        /// is ready for the result. 16 bytes: UniqueNo (u32 at +4, the local player), para (u32 at +8, always 0),
+        /// ActIndex (u16 at +12, the local player), mode (u8 at +14, always 0x11, the ChocoboDig action id), 1 byte of
+        /// padding. LandSandBoat ignores it (it settles the dig when the 0x01A ChocoboDig arrives), but the client
+        /// sends it after a 0x02F dig on itself.
+        /// Packet layout referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x0063)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x063_dig.h).
+        /// </summary>
+        public static int BuildDigFinishedRequest(Span<byte> destination, ushort sequenceId, uint playerId, ushort playerIndex)
+        {
+            PacketHeader.Write(destination, 0x063, 4, sequenceId);
+            var payload = destination.Slice(4, 12);
+            payload.Clear();
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(0, 4), playerId);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), playerIndex);
+            payload[10] = (byte)CliActionId.ChocoboDig;
+            return 16;
+        }
         /// <summary>
         /// C2S 0x05D: Sends an emote / motion request.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x05d_motion.h).

@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Network/CombatPacketTests.cs
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.Core.Network;
@@ -376,6 +377,93 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x11112222u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4, 4)));
         }
 
+        [Theory]
+        [InlineData(CliActionId.ChangeTarget, 0u)]
+        [InlineData(CliActionId.Fish, 0u)]
+        [InlineData(CliActionId.Help, 0u)]
+        [InlineData(CliActionId.Sprint, 0u)]
+        [InlineData(CliActionId.ChocoboDig, 0u)]
+        [InlineData(CliActionId.Blockaid, (uint)BlockaidMode.Toggle)]
+        [InlineData(CliActionId.MonsterSkill, 7u)]
+        [InlineData(CliActionId.Talk, 1u)] // releasing a single Trust
+        public void BuildAction_WritesTheXiPacketsLayout(CliActionId action, uint param)
+        {
+            byte[] buffer = new byte[64];
+            buffer.AsSpan().Fill(0xCC);
+
+            int len = CombatPacketBuilder.BuildAction(buffer, 21, action, 0x12345678, 1792, param);
+
+            Assert.Equal(28, len);
+            Assert.True(PacketHeader.TryParse(buffer.AsSpan(0, 4), out var hdr));
+            Assert.Equal(0x01A, hdr.PacketId);
+            Assert.Equal(28, hdr.TotalSize);
+            Assert.Equal(21, hdr.SequenceId);
+            Assert.Equal(0x12345678u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4, 4)));
+            Assert.Equal(1792, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(8, 2)));
+            Assert.Equal((ushort)action, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10, 2)));
+            Assert.Equal(param, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12, 4)));
+            Assert.All(buffer.AsSpan(16, 12).ToArray(), b => Assert.Equal(0, b)); // ActionBuf[1..3] cleared
+        }
+
+        [Fact]
+        public void BuildDigFinishedRequest_WritesTheXiPacketsLayout()
+        {
+            byte[] buffer = new byte[16];
+            buffer.AsSpan().Fill(0xCC);
+
+            int len = CombatPacketBuilder.BuildDigFinishedRequest(buffer, 5, 0x01020304, 10);
+
+            Assert.Equal(16, len);
+            Assert.True(PacketHeader.TryParse(buffer.AsSpan(0, 4), out var hdr));
+            Assert.Equal(0x063, hdr.PacketId);
+            Assert.Equal(16, hdr.TotalSize);
+            Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4, 4)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(8, 4))); // para
+            Assert.Equal(10, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(12, 2)));
+            Assert.Equal(0x11, buffer[14]); // mode: the ChocoboDig action id
+            Assert.Equal(0, buffer[15]);
+        }
+
+        [Fact]
+        public void S2C_0x02F_Dig_AnswersWith0x063OnlyForTheLocalPlayer()
+        {
+            var playerState = new LocalPlayerState { ServerId = 0x01020304 };
+            var sent = new List<byte[]>();
+            var module = new CombatPacketModule(new CombatState(), playerState, (chunk, urgent) =>
+            {
+                sent.Add(chunk.ToArray());
+                return Task.CompletedTask;
+            });
+            var dispatcher = new PacketDispatcher();
+            module.Register(dispatcher);
+
+            byte[] Dig(uint id, ushort index)
+            {
+                byte[] payload = new byte[8];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), id);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), index);
+                payload[6] = 1;
+                return payload;
+            }
+
+            var other = Dig(0x01020999, 44);
+            var decoded = new S2C_0x02F_Dig(other);
+            Assert.True(decoded.IsValid);
+            Assert.Equal(0x01020999u, decoded.TargetId);
+            Assert.Equal(44, decoded.TargetIndex);
+            Assert.Equal(1, decoded.Flags);
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x02F_Dig.PacketId, 12, 1), other);
+            Assert.Empty(sent);
+
+            dispatcher.Dispatch(new PacketHeader(S2C_0x02F_Dig.PacketId, 12, 2), Dig(0x01020304, 10));
+            var answer = Assert.Single(sent);
+            Assert.True(PacketHeader.TryParse(answer.AsSpan(0, 4), out var hdr));
+            Assert.Equal(0x063, hdr.PacketId);
+            Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(answer.AsSpan(4, 4)));
+            Assert.Equal(10, BinaryPrimitives.ReadUInt16LittleEndian(answer.AsSpan(12, 2)));
+        }
+
         [Fact]
         public async Task CombatPacketModule_OutboundDispatch_SendsAndUpdatesCombatState()
         {
@@ -461,6 +549,26 @@ namespace Gordian.Core.Tests.Network
             // 7. /jump
             res = ChatCommandRouter.Parse("/jump");
             Assert.Equal(ChatCommandResultKind.CombatJump, res.Kind);
+
+            // 7b. /fish, /sprint, /dig, /callforhelp, /blockaid, /monsterskill, /refa
+            Assert.Equal(ChatCommandResultKind.Fish, ChatCommandRouter.Parse("/fish").Kind);
+            Assert.Equal(ChatCommandResultKind.Sprint, ChatCommandRouter.Parse("/sprint").Kind);
+            Assert.Equal(ChatCommandResultKind.ChocoboDig, ChatCommandRouter.Parse("/dig").Kind);
+            Assert.Equal(ChatCommandResultKind.CallForHelp, ChatCommandRouter.Parse("/callforhelp").Kind);
+            res = ChatCommandRouter.Parse("/blockaid");
+            Assert.Equal(ChatCommandResultKind.Blockaid, res.Kind);
+            Assert.Equal((ushort)BlockaidMode.Toggle, res.ActionParam);
+            Assert.Equal((ushort)BlockaidMode.Enable, ChatCommandRouter.Parse("/blockaid on").ActionParam);
+            Assert.Equal((ushort)BlockaidMode.Disable, ChatCommandRouter.Parse("/blockaid off").ActionParam);
+            Assert.Equal(ChatCommandResultKind.LocalNotice, ChatCommandRouter.Parse("/blockaid maybe").Kind);
+            res = ChatCommandRouter.Parse("/monsterskill 12 Goblin", ChatSendKind.Say, world);
+            Assert.Equal(ChatCommandResultKind.MonsterSkill, res.Kind);
+            Assert.Equal(12, res.ActionParam);
+            Assert.Equal(0x20001234u, res.TargetServerId);
+            Assert.Equal(ChatCommandResultKind.LocalNotice, ChatCommandRouter.Parse("/ms").Kind);
+            res = ChatCommandRouter.Parse("/refa all");
+            Assert.Equal(ChatCommandResultKind.ReleaseTrust, res.Kind);
+            Assert.Equal("all", res.Message);
 
             // 8. /bow Goblin
             res = ChatCommandRouter.Parse("/bow Goblin", ChatSendKind.Say, world);

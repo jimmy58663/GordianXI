@@ -306,6 +306,11 @@ namespace Gordian.Core.Network.Packets
                 if (npcPacket.IsMonster) type = EntityType.Monster;
                 else if (!isNew && entity.Type == EntityType.Monster) type = EntityType.Monster;
             }
+            // Trusts spawn in the 1792+ range, which would otherwise read as a monster.
+            else if (type == EntityType.Monster && (npcPacket.IsTrust || (!isNew && entity.Type == EntityType.Trust)))
+            {
+                type = EntityType.Trust;
+            }
 
             entity.TargetIndex = npcPacket.ActorIndex;
             entity.Type = type;

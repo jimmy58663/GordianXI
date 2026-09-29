@@ -486,13 +486,25 @@ namespace Gordian.Core.Actions
 
             try
             {
-                await _combatModule.RequestAttackAsync(resolvedId, resolvedIdx).ConfigureAwait(false);
+                // Retail: attacking another monster while engaged switches the engaged target (0x01A ChangeTarget)
+                // rather than engaging anew.
+                bool switchTarget = Combat is { IsEngaged: true } combat && combat.TargetServerId != resolvedId;
+                if (switchTarget)
+                {
+                    await _combatModule.RequestActionAsync(CliActionId.ChangeTarget, resolvedId, resolvedIdx).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _combatModule.RequestAttackAsync(resolvedId, resolvedIdx).ConfigureAwait(false);
+                }
                 if (resolvedId != 0 && _world.TryGetByServerId(resolvedId, out var tgtEnt) && tgtEnt != null)
                 {
                     SetTarget(tgtEnt);
                 }
                 SetLockOn(true);
-                return PlayerActionResult.Ok($"Engaged in combat with {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack);
+                return switchTarget
+                    ? PlayerActionResult.Ok($"Switched target to {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack)
+                    : PlayerActionResult.Ok($"Engaged in combat with {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack);
             }
             catch (Exception ex)
             {
@@ -751,6 +763,163 @@ namespace Gordian.Core.Actions
             {
                 GordianLog.Error("ACTION", $"Assist failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Assist failed: {ex.Message}", ChatCommandResultKind.CombatAssist);
+            }
+        }
+
+        /// <summary>
+        /// Sends a C2S 0x01A action that targets the player itself (fish, sprint, chocobo dig, blockaid): the
+        /// local player's id and index, with ActionBuf[0] = <paramref name="param"/>.
+        /// </summary>
+        private async Task<PlayerActionResult> SelfActionAsync(CliActionId action, uint param, string done, ChatCommandResultKind kind)
+        {
+            uint selfId = _localPlayer.ServerId;
+            ushort selfIndex = _world.TryGetByServerId(selfId, out var self) && self != null ? self.TargetIndex : (ushort)0;
+            try
+            {
+                await _combatModule.RequestActionAsync(action, selfId, selfIndex, param).ConfigureAwait(false);
+                return PlayerActionResult.Ok(done, kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"{action} failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"{action} failed: {ex.Message}", kind);
+            }
+        }
+
+        /// <summary><c>/fish</c>: casts a line (0x01A Fish); the server starts the fishing mini-game (0x115).</summary>
+        public Task<PlayerActionResult> FishAsync()
+            => SelfActionAsync(CliActionId.Fish, 0, "Cast a line.", ChatCommandResultKind.Fish);
+
+        /// <summary><c>/sprint</c> (0x01A Sprint). LandSandBoat accepts it but does nothing yet.</summary>
+        public Task<PlayerActionResult> SprintAsync()
+            => SelfActionAsync(CliActionId.Sprint, 0, "Sprint.", ChatCommandResultKind.Sprint);
+
+        /// <summary>
+        /// <c>/dig</c>: digs with the chocobo being ridden (0x01A ChocoboDig), spending a Gysahl Greens. The server
+        /// answers with 0x02F, which <see cref="CombatPacketModule"/> acknowledges with C2S 0x063.
+        /// </summary>
+        public Task<PlayerActionResult> ChocoboDigAsync()
+            => SelfActionAsync(CliActionId.ChocoboDig, 0, "Digging.", ChatCommandResultKind.ChocoboDig);
+
+        /// <summary><c>/blockaid [on|off]</c> (0x01A Blockaid): refuses or accepts aid from outside the party; bare toggles.</summary>
+        public Task<PlayerActionResult> BlockaidAsync(BlockaidMode mode)
+            => SelfActionAsync(CliActionId.Blockaid, (uint)mode, $"Blockaid: {mode}.", ChatCommandResultKind.Blockaid);
+
+        /// <summary>
+        /// <c>/callforhelp</c>: calls for help against the engaged monster (0x01A Help), after which outsiders can
+        /// join the fight but it yields no experience. The server answers with a battle message either way.
+        /// </summary>
+        public async Task<PlayerActionResult> CallForHelpAsync()
+        {
+            uint targetId = 0;
+            ushort targetIndex = 0;
+            if (Combat is { IsEngaged: true } combat)
+            {
+                targetId = combat.TargetServerId;
+                targetIndex = combat.TargetIndex;
+            }
+            else if (CurrentTarget != null)
+            {
+                targetId = CurrentTarget.ServerId;
+                targetIndex = CurrentTarget.TargetIndex;
+            }
+
+            try
+            {
+                await _combatModule.RequestActionAsync(CliActionId.Help, targetId, targetIndex).ConfigureAwait(false);
+                return PlayerActionResult.Ok("Called for help.", ChatCommandResultKind.CallForHelp);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Call for help failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Call for help failed: {ex.Message}", ChatCommandResultKind.CallForHelp);
+            }
+        }
+
+        /// <summary>
+        /// <c>/monsterskill &lt;id&gt; [target]</c> (Monstrosity, 0x01A MonsterSkill): ActionBuf[0] is the skill id as
+        /// the retail client sends it (the ability id less 1536).
+        /// </summary>
+        public async Task<PlayerActionResult> MonsterSkillAsync(ushort skillId, uint targetId = 0, ushort targetIndex = 0)
+        {
+            var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
+            if (resolvedId == 0)
+            {
+                resolvedId = _localPlayer.ServerId;
+                resolvedIdx = _world.TryGetByServerId(resolvedId, out var self) && self != null ? self.TargetIndex : (ushort)0;
+                resolvedName = "self";
+            }
+
+            try
+            {
+                await _combatModule.RequestActionAsync(CliActionId.MonsterSkill, resolvedId, resolvedIdx, skillId).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Used monster skill #{skillId} on {resolvedName}.", ChatCommandResultKind.MonsterSkill);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"MonsterSkill failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"MonsterSkill failed: {ex.Message}", ChatCommandResultKind.MonsterSkill);
+            }
+        }
+
+        /// <summary>The Trusts in the player's party that are spawned here, in party order.</summary>
+        private List<WorldEntity> GetOwnTrusts()
+        {
+            var trusts = new List<WorldEntity>();
+            foreach (var member in _partyModule.State.Members)
+            {
+                if (_world.TryGetByServerId(member.ServerId, out var ent) && ent is { Type: EntityType.Trust })
+                {
+                    trusts.Add(ent);
+                }
+            }
+            return trusts;
+        }
+
+        /// <summary>
+        /// <c>/refa &lt;name|all&gt;</c> (<c>/returnfaith</c>): releases one of the player's Trusts, or all of them, with a
+        /// C2S 0x01A Talk on each. ActionBuf[0] is 1 for a single Trust; for <c>all</c> it counts up from 0, one Talk per
+        /// Trust. Without an argument the current target is released if it is one of the player's Trusts.
+        /// Packet usage referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.cpp),
+        /// which releases any of the player's Trusts it is sent a Talk for and ignores ActionBuf.
+        /// </summary>
+        public async Task<PlayerActionResult> ReleaseTrustAsync(string args)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.ReleaseTrust;
+            var trusts = GetOwnTrusts();
+            if (trusts.Count == 0) return PlayerActionResult.Warn("You have no Trusts to release.", kind);
+
+            string arg = (args ?? string.Empty).Trim();
+            try
+            {
+                if (arg.Equals("all", StringComparison.OrdinalIgnoreCase))
+                {
+                    for (int i = 0; i < trusts.Count; i++)
+                    {
+                        await _combatModule.RequestActionAsync(CliActionId.Talk, trusts[i].ServerId, trusts[i].TargetIndex, (uint)i).ConfigureAwait(false);
+                    }
+                    return PlayerActionResult.Ok($"Released {trusts.Count} Trust(s).", kind);
+                }
+
+                WorldEntity? trust = arg.Length == 0 || arg is "<t>" or "t"
+                    ? trusts.Find(t => t.ServerId == CurrentTarget?.ServerId)
+                    : trusts.Find(t => t.Name.Equals(arg, StringComparison.OrdinalIgnoreCase))
+                      ?? trusts.Find(t => t.Name.StartsWith(arg, StringComparison.OrdinalIgnoreCase));
+                if (trust == null)
+                {
+                    return arg.Length == 0
+                        ? PlayerActionResult.Warn("Usage: /refa <name|all>", kind)
+                        : PlayerActionResult.Warn($"No Trust named '{arg}' in your party.", kind);
+                }
+
+                await _combatModule.RequestActionAsync(CliActionId.Talk, trust.ServerId, trust.TargetIndex, 1).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Released {trust.Name}.", kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Release Trust failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Release Trust failed: {ex.Message}", kind);
             }
         }
 
@@ -1023,6 +1192,20 @@ namespace Gordian.Core.Actions
                         return "Usage: /cancel <buff_id> - Cancel active player status effect.";
                     case "jump":
                         return "Usage: /jump - Perform jump action.";
+                    case "fish":
+                        return "Usage: /fish - Cast a fishing line (a rod and bait must be equipped).";
+                    case "sprint":
+                        return "Usage: /sprint - Sprint.";
+                    case "dig":
+                        return "Usage: /dig - Dig with your chocobo (uses one Gysahl Greens).";
+                    case "blockaid":
+                        return "Usage: /blockaid [on|off] - Refuse or accept aid from outside your party; toggles without an argument.";
+                    case "callforhelp" or "cfh":
+                        return "Usage: /callforhelp - Call for help against the monster you are fighting.";
+                    case "monsterskill" or "ms":
+                        return "Usage: /monsterskill <skill_id> [target] - Use a Monstrosity monster skill.";
+                    case "refa" or "returnfaith":
+                        return "Usage: /refa <name|all> - Release one or all of your Trusts (the current target without an argument).";
                     case "say" or "s":
                         return "Usage: /say <message> - Send message to local Say channel.";
                     case "party" or "p":
@@ -1091,6 +1274,11 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /assist [target]          - Assist target (/as)");
             sb.AppendLine("  /cancel <buff_id>         - Cancel active buff");
             sb.AppendLine("  /jump                     - Perform jump action");
+            sb.AppendLine("  /callforhelp              - Call for help against your monster (/cfh)");
+            sb.AppendLine("  /blockaid [on|off]        - Refuse aid from outside your party");
+            sb.AppendLine("  /refa <name|all>          - Release Trusts (/returnfaith)");
+            sb.AppendLine("  /monsterskill <id> [target] - Monstrosity monster skill (/ms)");
+            sb.AppendLine("  /fish, /dig, /sprint      - Fish, dig with your chocobo, sprint");
             sb.AppendLine("[Emotes]");
             sb.AppendLine("  /emote <name>             - Perform emote (/em)");
             sb.AppendLine("  /cheer, /wave, /bow, /sit - Standard emote shortcuts");
@@ -1595,6 +1783,27 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.CombatJump:
                     return await JumpAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.Fish:
+                    return await FishAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.Sprint:
+                    return await SprintAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.ChocoboDig:
+                    return await ChocoboDigAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.Blockaid:
+                    return await BlockaidAsync((BlockaidMode)cmd.ActionParam).ConfigureAwait(false);
+
+                case ChatCommandResultKind.CallForHelp:
+                    return await CallForHelpAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.MonsterSkill:
+                    return await MonsterSkillAsync(cmd.ActionParam, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ReleaseTrust:
+                    return await ReleaseTrustAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.Emote:
                     return await EmoteAsync(cmd.Emote, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);

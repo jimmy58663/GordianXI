@@ -37,7 +37,7 @@
   - **Party & Alliance Networking:** S2C `0x0DC` (Group solicit/invite), `0x0C8` (Group table), `0x0DD` (Group list/member info), `0x0DE` (Invite reset); C2S `0x06E` (Invite req), `0x06F` (Leave), `0x070` (Disband), `0x071` (Kick), `0x074` (Invite response accept/decline)
   - **Client-Side Command Router:** Full slash command routing (`/join`, `/decline`, `/pcmd`, `/invite`, `/leave`, `/disband`, `/tell`, `/say`, `/party`, `/shout`, `/yell`, `/linkshell`, `/echo`) and server `!` command pass-through
   - **Standard FFXI System Message Resolution:** `StandardMessages` (`MsgStd`) mapping standard message IDs to clean, authentic in-game text
-  - **Combat & Action Pipeline:** S2C `0x028` (Combat action), `0x029`/`0x02D` (Battle msg), `0x030` (Effects), `0x0AA` (Magic), `0x0AC` (Commands), `0x119` (Recasts); C2S `0x01A` (Action req: attack, cast, ability), `0x0DD` (Check / equip inspect: `/check` and the command menu's Check; the mob reply is a `0x029` battle message, the PC reply `0x0C9` is not decoded), `0x05D` (Emotes), `0x0F1` (Buff cancel), `0x11D` (Jump)
+  - **Combat & Action Pipeline:** S2C `0x028` (Combat action), `0x029`/`0x02D` (Battle msg), `0x030` (Effects), `0x0AA` (Magic), `0x0AC` (Commands), `0x119` (Recasts); C2S `0x01A` (Action req: every kind, see [below](#c2s-0x01a-action-kinds)), `0x063` (dig finished), S2C `0x02F` (dig), `0x0DD` (Check / equip inspect: `/check` and the command menu's Check; the mob reply is a `0x029` battle message, the PC reply `0x0C9` is not decoded), `0x05D` (Emotes), `0x0F1` (Buff cancel), `0x11D` (Jump)
   - **Inventory & Economy:** S2C `0x01C`-`0x020` (Inventory items & attrs), `0x021`-`0x025` (Trade), `0x026` (Subcontainers), `0x03C`-`0x03F` (Shops), `0x04C` (AH), `0x050` (Equipment), `0x082`-`0x086` (Guilds), `0x105`-`0x10A` (Bazaar), `0x113`/`0x118` (Currencies), `0x116`/`0x117` (Equip sets); C2S `0x028` (Item dump), `0x029` (Move), `0x032`-`0x034` (Trade), `0x036` (Transfer), `0x037` (Use), `0x03A` (Stack), `0x03B` (Subcontainer), `0x04E` (AH), `0x050`-`0x053` (Equip/Lockstyle), `0x083`-`0x085` (Shops), `0x104`-`0x10B` (Bazaar)
   - **Progression, Quests & Menus:** Mog House (S2C `0x02E`, `0x096`, `0x0FA`; C2S `0x0CB`, `0x0FA`, `0x100`), Party/Alliance (S2C `0x0C8`, `0x0DC`-`0x0E0`, `0x0E2`, `0x11D`; C2S `0x11C`), Merits/Job Points (S2C `0x08C`/`0x08D`; C2S `0x0BE`-`0x0C0`), RoE (S2C `0x111`/`0x112`; C2S `0x10C`-`0x10E`), Fishing (S2C `0x115`; C2S `0x110`), Chocobo Racing (S2C `0x073`; C2S `0x09B`), Unity (S2C `0x110`; C2S `0x116`-`0x118`), Conquest (S2C `0x05E`; C2S `0x05A`), Key items (S2C `0x055`; C2S `0x064`), Missions (S2C `0x056`), and Cutscene Events (S2C `0x032`-`0x034`, `0x036`, `0x052`; C2S `0x05B`/`0x05C`). What is still missing is listed in the coverage audit below
 - **Network Diagnostics & Datagram Telemetry:**
@@ -89,7 +89,7 @@ Wrong today (bugs):
 
 Missing packets, grouped by feature:
 - [#103](https://github.com/jimmy58663/GordianXI/issues/103): death flow. Home point, Raise and Tractor menus, and S2C `0x0F9`.
-- [#104](https://github.com/jimmy58663/GordianXI/issues/104): the remaining `0x01A` action kinds.
+- ~~[#104](https://github.com/jimmy58663/GordianXI/issues/104)~~: every `0x01A` action kind can be sent, and S2C `0x02F` / C2S `0x063` (dig) are done, see below. Death menus (Home Point, Raise, Tractor) are [#103](https://github.com/jimmy58663/GordianXI/issues/103).
 - ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
 - ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is [#143](https://github.com/jimmy58663/GordianXI/issues/143).
 - [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
@@ -135,6 +135,19 @@ To repeat the opcode diff, list `XiPackets/world/{client,server}`, then compare 
 | `0x03`, `0x04`, `0x0A` | not decoded | Monstrosity (post-MVP); 0x0A is unused by the client |
 
 The status icon timestamp is meant to overflow a u32; `GetStatusIconRemainingSeconds` subtracts modulo 2^32, taking `now` as Vana'diel seconds. That the unit is Vana'diel seconds x 60 comes from reading LandSandBoat's `0x063_miscdata_status_icons.cpp`; it is not yet checked against a live capture, so verify it in game before relying on the blink threshold in [#17](https://github.com/jimmy58663/GordianXI/issues/17). The Unity layouts (`0x07`) come from LSB only (XiPackets marks them as not reversed). Verify with `dotnet test tests/Gordian.Core.Tests --filter ProgressionPacketTests`.
+
+### C2S 0x01A action kinds
+
+`CombatPacketBuilder.BuildAction(kind, targetId, targetIndex, param)` writes every 0x01A: UniqueNo, ActIndex, ActionID, then `param` as ActionBuf[0] and the other three words zeroed (CastMagic adds its ground-target offset). The per-kind builders call it; `CombatPacketModule.RequestActionAsync` sends any kind. Layout from XiPackets `world/client/0x001A`; server behaviour from LandSandBoat `c2s/0x01a_action.cpp`.
+
+- **ChangeTarget (0x0F):** `/attack` (or the command menu's Attack) on a different target while engaged sends ChangeTarget instead of Attack and moves the engagement.
+- **Fish (0x0E), Sprint (0x16), ChocoboDig (0x11), Blockaid (0x18):** `/fish`, `/sprint`, `/dig`, `/blockaid [on|off]` (bare = toggle; ActionBuf[0] 0 off, 1 on, 2 toggle) target the player. LandSandBoat does nothing for Sprint.
+- **Help (0x05):** `/callforhelp` (`/cfh`) against the engaged monster (else the current target). Retail's command is `/help`, which this client uses for command discovery.
+- **MonsterSkill (0x19):** `/monsterskill <id> [target]` (`/ms`); the id is sent as given (retail sends the ability id less 1536).
+- **Trust release (Talk, 0x00):** `/refa <name|all>` (`/returnfaith`; no argument = the current target). The player's Trusts are the party members whose entity is a Trust; one Talk is sent per Trust with ActionBuf[0] = 1 for a single release, or 0, 1, 2... for `all`. LandSandBoat ignores the value. Trusts are told apart by `Flags3.TrustFlag` in 0x00E (LSB writes `0x45` into packet byte 0x28 for every Trust), which makes the entity `EntityType.Trust` and keeps it so.
+- **Dig:** after a ChocoboDig LandSandBoat spends the greens and sends S2C **0x02F** (`TarUniqueNo`, `TarActIndex`, `Flags`) for the digger. For the local player the client answers with C2S **0x063** (UniqueNo, `para` 0, ActIndex, `mode` 0x11); retail sends it when the dig animation ends, and since the animation is not played yet it goes at once. LSB ignores 0x063. Layouts from XiPackets `world/server/0x002F` and `world/client/0x0063`.
+
+Not checked against a retail capture. Verify with `dotnet test tests/Gordian.Core.Tests --filter "FullyQualifiedName~BuildAction|FullyQualifiedName~Dig|FullyQualifiedName~Refa|FullyQualifiedName~ChangeTarget|FullyQualifiedName~SelfActions|FullyQualifiedName~TrustFlag"`.
 
 ### Treasure pool (S2C 0x0D2 / 0x0D3, C2S 0x041 / 0x042)
 

@@ -24,6 +24,20 @@ namespace Gordian.Core.Network
         CombatAssist,
         CombatBuffCancel,
         CombatJump,
+        /// <summary><c>/fish</c>: casts a line (C2S 0x01A Fish).</summary>
+        Fish,
+        /// <summary><c>/sprint</c> (C2S 0x01A Sprint).</summary>
+        Sprint,
+        /// <summary><c>/dig</c>: chocobo digging (C2S 0x01A ChocoboDig).</summary>
+        ChocoboDig,
+        /// <summary><c>/blockaid [on|off]</c> (C2S 0x01A Blockaid); <see cref="ChatCommandResult.ActionParam"/> is the <see cref="BlockaidMode"/>.</summary>
+        Blockaid,
+        /// <summary><c>/callforhelp</c> (C2S 0x01A Help).</summary>
+        CallForHelp,
+        /// <summary><c>/monsterskill &lt;id&gt; [target]</c> (Monstrosity, C2S 0x01A MonsterSkill).</summary>
+        MonsterSkill,
+        /// <summary><c>/refa &lt;name|all&gt;</c>: releases Trusts (C2S 0x01A Talk on each).</summary>
+        ReleaseTrust,
         Emote,
         InspectPos,
         InspectTargetInfo,
@@ -148,6 +162,13 @@ namespace Gordian.Core.Network
                     "as" or "assist" => ParseCombatTargetCommand(ChatCommandResultKind.CombatAssist, args, world),
                     "cancel" => ParseBuffCancel(args),
                     "jump" => new ChatCommandResult { Kind = ChatCommandResultKind.CombatJump },
+                    "fish" => new ChatCommandResult { Kind = ChatCommandResultKind.Fish },
+                    "sprint" => new ChatCommandResult { Kind = ChatCommandResultKind.Sprint },
+                    "dig" => new ChatCommandResult { Kind = ChatCommandResultKind.ChocoboDig },
+                    "blockaid" => ParseBlockaid(args),
+                    "callforhelp" or "cfh" => new ChatCommandResult { Kind = ChatCommandResultKind.CallForHelp },
+                    "monsterskill" or "ms" => ParseMonsterSkill(args, world),
+                    "refa" or "returnfaith" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
                     "emote" or "em" => ParseEmote(args, world),
 
                     // Standard Emotes
@@ -415,6 +436,41 @@ namespace Gordian.Core.Network
                 TargetServerId = targetId,
                 TargetIndex = targetIndex,
                 TargetName = targetName
+            };
+        }
+
+        private static ChatCommandResult ParseBlockaid(string args)
+        {
+            BlockaidMode? mode = args.Trim().ToLowerInvariant() switch
+            {
+                "" or "toggle" => BlockaidMode.Toggle,
+                "on" => BlockaidMode.Enable,
+                "off" => BlockaidMode.Disable,
+                _ => null
+            };
+            return mode is { } m
+                ? new ChatCommandResult { Kind = ChatCommandResultKind.Blockaid, ActionParam = (ushort)m }
+                : new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /blockaid [on|off]" };
+        }
+
+        private static ChatCommandResult ParseMonsterSkill(string args, WorldState? world)
+        {
+            string trimmed = args.Trim();
+            int space = trimmed.IndexOf(' ');
+            string idPart = space >= 0 ? trimmed.Substring(0, space) : trimmed;
+            if (!ushort.TryParse(idPart, out ushort skillId))
+            {
+                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /monsterskill <skill_id> [target]" };
+            }
+
+            var target = ParseCombatTargetCommand(ChatCommandResultKind.MonsterSkill, space >= 0 ? trimmed.Substring(space + 1) : string.Empty, world);
+            return new ChatCommandResult
+            {
+                Kind = ChatCommandResultKind.MonsterSkill,
+                ActionParam = skillId,
+                TargetServerId = target.TargetServerId,
+                TargetIndex = target.TargetIndex,
+                TargetName = target.TargetName
             };
         }
 

@@ -45,6 +45,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x028_CombatAction.PacketId, HandleCombatAction);
             dispatcher.Register(S2C_0x029_BattleMessage.PacketId, HandleBattleMessage);
             dispatcher.Register(S2C_0x02D_BattleMessage2.PacketId, HandleBattleMessage2);
+            dispatcher.Register(S2C_0x02F_Dig.PacketId, HandleDig);
             dispatcher.Register(S2C_0x030_Effect.PacketId, HandleEffect);
             dispatcher.Register(S2C_0x0AA_MagicData.PacketId, HandleMagicData);
             dispatcher.Register(S2C_0x0AC_CommandData.PacketId, HandleCommandData);
@@ -58,6 +59,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x028_CombatAction.PacketId);
             dispatcher.Unregister(S2C_0x029_BattleMessage.PacketId);
             dispatcher.Unregister(S2C_0x02D_BattleMessage2.PacketId);
+            dispatcher.Unregister(S2C_0x02F_Dig.PacketId);
             dispatcher.Unregister(S2C_0x030_Effect.PacketId);
             dispatcher.Unregister(S2C_0x0AA_MagicData.PacketId);
             dispatcher.Unregister(S2C_0x0AC_CommandData.PacketId);
@@ -134,6 +136,40 @@ namespace Gordian.Core.Network.Packets
             };
 
             _combatState.RecordBattleMessage(record);
+        }
+
+        /// <summary>
+        /// S2C 0x02F: an entity digs with its chocobo. For the local player the client answers with C2S 0x063 once
+        /// the dig animation is over; the animation is not played yet, so the answer goes straight away.
+        /// </summary>
+        private void HandleDig(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var dig = new S2C_0x02F_Dig(payload);
+            if (!dig.IsValid) return;
+
+            GordianLog.Debug("COMBAT", $"Dig 0x02F: Target={dig.TargetId:X8}, Index={dig.TargetIndex}, Flags=0x{dig.Flags:X2}");
+            if (_localPlayerState.ServerId == 0 || dig.TargetId != _localPlayerState.ServerId) return;
+
+            uint playerId = dig.TargetId;
+            ushort playerIndex = dig.TargetIndex;
+            _ = SendDigFinishedAsync(playerId, playerIndex);
+        }
+
+        private async Task SendDigFinishedAsync(uint playerId, ushort playerIndex)
+        {
+            try
+            {
+                byte[] buffer = new byte[16];
+                ushort seq = ++_sequenceNumber;
+                int length = CombatPacketBuilder.BuildDigFinishedRequest(buffer, seq, playerId, playerIndex);
+
+                LogOutbound(0x063, seq, buffer.AsSpan(4, length - 4));
+                await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("COMBAT", $"Dig finished (0x063) send failed: {ex.Message}", ex);
+            }
         }
 
         private void HandleEffect(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -288,6 +324,22 @@ namespace Gordian.Core.Network.Packets
             ushort seq = ++_sequenceNumber;
             int length = CombatPacketBuilder.BuildDismountRequest(buffer, seq);
 
+            LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
+            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends a C2S 0x01A action of any kind with ActionBuf[0] = <paramref name="param"/> (see
+        /// <see cref="CombatPacketBuilder.BuildAction"/>). <see cref="CliActionId.ChangeTarget"/> also moves the
+        /// engagement to the new target.
+        /// </summary>
+        public async Task RequestActionAsync(CliActionId action, uint targetId = 0, ushort targetIndex = 0, uint param = 0)
+        {
+            byte[] buffer = new byte[CombatPacketBuilder.ActionPacketSize];
+            ushort seq = ++_sequenceNumber;
+            int length = CombatPacketBuilder.BuildAction(buffer, seq, action, targetId, targetIndex, param);
+
+            if (action == CliActionId.ChangeTarget) _combatState.Engage(targetId, targetIndex);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
             await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
         }
