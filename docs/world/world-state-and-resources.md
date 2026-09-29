@@ -12,6 +12,22 @@
 - **Game State Caches:**
   - Multi-container inventory cache (Inventory, Wardrobes 1-8, Satchel, Sack, Case, Safe, Storage)
   - Active player vitals (HP/MP/TP), base attributes, equipment loadout, buff/debuff timers
+  - Server answers the UI will read later ([#5](https://github.com/jimmy58663/GordianXI/issues/5)); each raises its state's change event:
+
+    | Packet | Cache |
+    |---|---|
+    | `0x030` crafting animation | `CombatState.TryGetCraftEffect(serverId)`, per entity |
+    | `0x04C` Auction House | `InventoryState.LastAuctionResponse`; `SnapshotAuctionSlots()` keeps the latest answer per sale slot (work index ≥ 0) |
+    | `0x082` / `0x084` guild buy / sell | `InventoryState.LastGuildTransaction` (`ItemId` 0 = failed, `Trade` gives the reason) |
+    | `0x085` guild sell list | `InventoryState.SnapshotGuildSellList()`; packet 0 (`Stat & 0x3F`) starts a new list |
+    | `0x106` bazaar purchase | `InventoryState.LastBazaarPurchase` |
+    | `0x108` bazaar visitors | `InventoryState.SnapshotBazaarVisitors()`: Enter adds, anything else removes |
+    | `0x109` / `0x10A` bazaar sales | `InventoryState.LastBazaarSlotSold`; `SnapshotBazaarSales()` keeps the last 50 |
+    | `0x116` / `0x117` equipment sets | `InventoryState.SnapshotEquipsetValidation()` (17 entries); `LastEquipsetResult.FailedItems` are changed pieces not now worn |
+    | `0x0E0` linkshell comlink | `PartyState.GetLinkshellItem(slot)`: the item's container and index |
+    | `0x11D` party join requests | `PartyState.SnapshotJoinRequests()`: Status 0 adds, 1 removes |
+    | `0x036` / `0x02A` zone dialog | `ProgressionState.LastDialogMessage` |
+    | `0x0FA` Mog House operation | `ProgressionState.LastMyRoomOperation` |
 
 ## DAT decoders
 

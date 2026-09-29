@@ -392,15 +392,20 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal("Kupopo", list2.GetName());
 
             // 0x11D PartyReq
-            byte[] reqPayload = new byte[8];
+            byte[] reqPayload = new byte[28];
             BinaryPrimitives.WriteUInt32LittleEndian(reqPayload.AsSpan(0, 4), 555);
             BinaryPrimitives.WriteUInt16LittleEndian(reqPayload.AsSpan(4, 2), 7);
-            reqPayload[6] = 1; // Result
+            reqPayload[7] = 1; // Status: stopped asking
+            System.Text.Encoding.ASCII.GetBytes("Seeker").CopyTo(reqPayload.AsSpan(8));
+            BinaryPrimitives.WriteUInt16LittleEndian(reqPayload.AsSpan(24, 2), 3); // Race
 
             var partyReq = new S2C_0x11D_PartyReq(reqPayload);
             Assert.True(partyReq.IsValid);
             Assert.Equal(555u, partyReq.UniqueNo);
-            Assert.Equal(1, partyReq.Result);
+            Assert.Equal(7, partyReq.ActIndex);
+            Assert.Equal(1, partyReq.Status);
+            Assert.Equal("Seeker", partyReq.Name);
+            Assert.Equal(3, partyReq.Race);
         }
 
         [Fact]

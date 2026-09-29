@@ -1,6 +1,7 @@
 // src/Gordian.Core/Network/Packets/InventoryPacketModule.cs
 using System;
 using System.Buffers;
+using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.World;
@@ -242,6 +243,8 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("AUCTION", $"Auction response: Command={p.Command}, Result={p.Result}, Item={p.ItemId}, Price={p.Price}");
+            _inventoryState.SetAuctionResponse(new AuctionResponse(p.Command, p.AucWorkIndex, p.Result, p.ResultStatus,
+                p.ParcelStat, p.ParcelItemIndex, p.ItemId, p.Count, p.Price, p.SellerName));
         }
 
         private void HandleEquipList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -258,6 +261,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("GUILD", $"Guild buy confirmation: Item={p.ItemId}, Count={p.Count}");
+            _inventoryState.SetGuildTransaction(new GuildTransaction(true, p.ItemId, p.Count, p.Trade));
         }
 
         private void HandleGuildBuyList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -280,6 +284,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("GUILD", $"Guild sell confirmation: Item={p.ItemId}, Count={p.Count}");
+            _inventoryState.SetGuildTransaction(new GuildTransaction(false, p.ItemId, p.Count, p.Trade));
         }
 
         private void HandleGuildSellList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -288,6 +293,15 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("GUILD", $"Guild accepted sales list populated with {p.Count} entries.");
+            int count = Math.Min((int)p.Count, 30);
+            var items = new GuildItemEntry[count];
+            for (int i = 0; i < count; i++)
+            {
+                var item = p.GetItem(i);
+                items[i] = new GuildItemEntry(item.ItemId, item.Stock, item.Max, item.Price);
+            }
+            // Stat: the packet's place in the list in the low six bits (0x40 marks the first of several, 0x80 the last).
+            _inventoryState.AddGuildSellItems(p.Stat & 0x3F, items);
         }
 
         private void HandleGuildOpen(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -319,6 +333,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("BAZAAR", $"Bazaar purchase: State={p.State}, Seller={p.TargetName}");
+            _inventoryState.SetBazaarPurchaseResult(new BazaarPurchaseResult(p.State, p.TargetName));
         }
 
         private void HandleBazaarClose(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -336,6 +351,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("BAZAAR", $"Visitor {p.BuyerName} {p.State} local bazaar.");
+            _inventoryState.SetBazaarVisitor(new BazaarVisitor(p.UniqueNo, p.ActIndex, p.BuyerName), p.State == BazaarShoppingState.Enter);
         }
 
         private void HandleBazaarSell(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -344,6 +360,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("BAZAAR", $"{p.BuyerName} bought item in slot {p.Slot} x{p.Count} from personal bazaar.");
+            _inventoryState.RecordBazaarSlotSold(new BazaarSlotSold(p.UniqueNo, p.ActIndex, p.BuyerName, p.Slot, p.Count));
         }
 
         private void HandleBazaarSale(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -352,6 +369,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("BAZAAR", $"Sold Item {p.ItemId} x{p.Count} to {p.BuyerName}.");
+            _inventoryState.RecordBazaarSale(new BazaarSale(p.ItemId, p.Count, p.BuyerName));
         }
 
         private void HandleCurrencies1(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -367,7 +385,15 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x116_EquipsetValid(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("EQUIPSET", "Equipset validity check passed.");
+            Span<EquipsetSlotEntry> entries = stackalloc EquipsetSlotEntry[17];
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var item = p.GetItem(i);
+                entries[i] = new EquipsetSlotEntry(item.HasItem, item.RemoveItem, item.Container, item.ItemIndex, item.ItemId);
+            }
+
+            GordianLog.Info("EQUIPSET", $"Equipset validation: changed piece item {entries[0].ItemId}.");
+            _inventoryState.SetEquipsetValidation(entries);
         }
 
         private void HandleEquipsetRes(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -375,7 +401,24 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x117_EquipsetRes(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("EQUIPSET", $"Equipset applied with {p.Count} items.");
+            int changedCount = Math.Min((int)p.Count, S2C_0x117_EquipsetRes.SlotCount);
+            var changed = new EquipsetItemEntry[changedCount];
+            for (int i = 0; i < changedCount; i++)
+            {
+                var item = p.GetItemChanged(i);
+                changed[i] = new EquipsetItemEntry(item.ItemIndex, item.EquipSlot, item.Container);
+            }
+
+            var equipped = new EquipsetItemEntry[S2C_0x117_EquipsetRes.SlotCount];
+            for (int i = 0; i < equipped.Length; i++)
+            {
+                var item = p.GetItemEquipped(i);
+                equipped[i] = new EquipsetItemEntry(item.ItemIndex, item.EquipSlot, item.Container);
+            }
+
+            var result = new EquipsetResult(changed, equipped);
+            GordianLog.Info("EQUIPSET", $"Equipset applied with {p.Count} items, {result.FailedItems.Count()} failed.");
+            _inventoryState.SetEquipsetResult(result);
         }
 
         private void HandleCurrencies2(PacketHeader header, ReadOnlySpan<byte> payload)

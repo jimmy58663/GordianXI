@@ -532,32 +532,48 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x11D (GP_SERV_COMMAND_PARTYREQ): Party seeker search response or join notification.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x11d_partyreq.h).
+    /// S2C 0x11D (GP_SERV_COMMAND_PARTYREQ): another player asking to join the local player's party through the
+    /// newer party request system (Status 0), or withdrawing that request (Status 1).
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x11d_partyreq.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x011D).
     /// </summary>
     public readonly ref struct S2C_0x11D_PartyReq
     {
         public const ushort PacketId = 0x11D;
 
         public uint UniqueNo { get; }
+        /// <summary>The requester's target index; only set when they are in the same zone.</summary>
         public ushort ActIndex { get; }
-        public byte Result { get; }
+        /// <summary>Legacy message flags (bit 0 once selected a gendered French/German message); no longer used.</summary>
+        public byte Flags { get; }
+        /// <summary>0 = the player is asking to join; 1 = the player stopped asking.</summary>
+        public byte Status { get; }
+        public string Name { get; }
+        public ushort Race { get; }
         public bool IsValid { get; }
 
         public S2C_0x11D_PartyReq(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 7)
+            if (payload.Length < 26)
             {
                 UniqueNo = 0;
                 ActIndex = 0;
-                Result = 0;
+                Flags = 0;
+                Status = 0;
+                Name = string.Empty;
+                Race = 0;
                 IsValid = false;
                 return;
             }
 
             UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
             ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
-            Result = payload[6];
+            Flags = payload[6];
+            Status = payload[7];
+            var nameSlice = payload.Slice(8, 16);
+            int nullIdx = nameSlice.IndexOf((byte)0);
+            Name = Encoding.ASCII.GetString(nullIdx >= 0 ? nameSlice.Slice(0, nullIdx) : nameSlice);
+            Race = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(24, 2));
             IsValid = true;
         }
     }

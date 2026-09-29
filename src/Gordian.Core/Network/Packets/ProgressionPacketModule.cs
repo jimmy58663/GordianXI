@@ -225,6 +225,7 @@ namespace Gordian.Core.Network.Packets
             if (!op.IsValid) return;
 
             GordianLog.Debug("MOGHOUSE", $"MyRoom Operation: Item={op.MyroomItemNo}, Result={op.Result}");
+            _progressionState.SetMyRoomOperation(new MyRoomOperationInfo(op.MyroomItemNo, op.Result, op.MyroomItemIndex, (ContainerId)op.MyroomCategory));
         }
 
         private void HandleMerit(PacketHeader header, ReadOnlySpan<byte> payload)

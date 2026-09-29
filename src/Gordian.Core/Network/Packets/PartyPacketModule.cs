@@ -294,9 +294,9 @@ namespace Gordian.Core.Network.Packets
             var comlink = new S2C_0x0E0_GroupComlink(payload);
             if (!comlink.IsValid) return;
 
-            GordianLog.Debug("PARTY", $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}");
-            // LinkshellNum is the slot (1 or 2); ItemIndex is the inventory index of the equipped linkshell, 0 when unequipped.
-            _partyState.SetLinkshellEquipped(comlink.LinkshellNum, comlink.ItemIndex != 0);
+            GordianLog.Debug("PARTY", $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}, Category={comlink.Category}");
+            // LinkshellNum is the slot (1 or 2); ItemIndex/Category locate the equipped linkshell item, ItemIndex 0 when unequipped.
+            _partyState.SetLinkshellItem(comlink.LinkshellNum, comlink.ItemIndex, (ContainerId)comlink.Category);
         }
 
         private void HandleGroupList2(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -335,7 +335,8 @@ namespace Gordian.Core.Network.Packets
             var req = new S2C_0x11D_PartyReq(payload);
             if (!req.IsValid) return;
 
-            GordianLog.Info("PARTY", $"PartyReq notification received: ServerId=0x{req.UniqueNo:X8}, Result={req.Result}");
+            GordianLog.Info("PARTY", $"Party join request from '{req.Name}' (ServerId=0x{req.UniqueNo:X8}, Status={req.Status})");
+            _partyState.SetJoinRequest(new PartyJoinRequest(req.UniqueNo, req.ActIndex, req.Name, req.Race, DateTime.UtcNow), req.Status == 0);
         }
     }
 }

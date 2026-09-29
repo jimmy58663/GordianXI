@@ -142,6 +142,7 @@ namespace Gordian.Core.Network.Packets
             if (!effect.IsValid) return;
 
             GordianLog.Debug("EFFECT", $"Effect 0x030: Target={effect.UniqueNo:X8}, EffectNum={effect.EffectNum}, Type={effect.Type}");
+            _combatState.SetCraftEffect(new CraftEffectInfo(effect.UniqueNo, effect.ActIndex, effect.EffectNum, effect.Type, effect.Status, effect.Timer));
         }
 
         private void HandleMagicData(PacketHeader header, ReadOnlySpan<byte> payload)

@@ -67,7 +67,65 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
-    /// Thread-safe multi-container inventory, currency, equipment, trade, shop, and bazaar state cache.
+    /// An Auction House answer (S2C 0x04C): the command it answers, the sale slot (work index, -1 when none), the
+    /// result codes, and the parcel (the item, quantity, price and seller) it carries.
+    /// </summary>
+    public sealed record AuctionResponse(
+        AuctionCommand Command,
+        sbyte WorkIndex,
+        sbyte Result,
+        sbyte ResultStatus,
+        byte ParcelStat,
+        byte ItemIndex,
+        ushort ItemId,
+        uint Count,
+        uint Price,
+        string SellerName
+    );
+
+    /// <summary>
+    /// A guild shop purchase (S2C 0x082) or sale (S2C 0x084) result. <see cref="ItemId"/> is 0 when the
+    /// transaction failed outright, and <see cref="Trade"/> then says why.
+    /// </summary>
+    public sealed record GuildTransaction(bool IsPurchase, ushort ItemId, byte Count, sbyte Trade)
+    {
+        public bool Succeeded => ItemId != 0;
+    }
+
+    /// <summary>An item a guild shop will buy from the player (S2C 0x085): its stock, stock limit and price.</summary>
+    public sealed record GuildItemEntry(ushort ItemId, byte Stock, byte Max, int Price);
+
+    /// <summary>The result of buying from another player's bazaar (S2C 0x106).</summary>
+    public sealed record BazaarPurchaseResult(BazaarBuyState State, string SellerName);
+
+    /// <summary>A player browsing the local player's bazaar (S2C 0x108).</summary>
+    public sealed record BazaarVisitor(uint ServerId, ushort TargetIndex, string Name);
+
+    /// <summary>A buyer took items from one of the local player's bazaar slots (S2C 0x109).</summary>
+    public sealed record BazaarSlotSold(uint BuyerId, ushort BuyerIndex, string BuyerName, byte Slot, uint Count);
+
+    /// <summary>An item sold from the local player's bazaar (S2C 0x10A).</summary>
+    public sealed record BazaarSale(ushort ItemId, uint Count, string BuyerName);
+
+    /// <summary>One equipment set slot as the server validated it (S2C 0x116); all zero when the server removed it.</summary>
+    public readonly record struct EquipsetSlotEntry(bool HasItem, bool RemoveItem, ContainerId Container, byte ItemIndex, ushort ItemId);
+
+    /// <summary>One gear piece in an equipment set change result (S2C 0x117).</summary>
+    public readonly record struct EquipsetItemEntry(byte ItemIndex, EquipSlotId EquipSlot, ContainerId Container);
+
+    /// <summary>
+    /// The result of equipping an equipment set (S2C 0x117): the pieces the set changed and what is worn in each
+    /// equipment slot afterwards. A changed piece that is not what its slot now wears failed to equip.
+    /// </summary>
+    public sealed record EquipsetResult(IReadOnlyList<EquipsetItemEntry> Changed, IReadOnlyList<EquipsetItemEntry> Equipped)
+    {
+        /// <summary>The changed pieces that did not end up in their slot.</summary>
+        public IEnumerable<EquipsetItemEntry> FailedItems => Changed.Where(c => !Equipped.Contains(c));
+    }
+
+    /// <summary>
+    /// Thread-safe multi-container inventory, currency, equipment, trade, shop, bazaar, guild shop, Auction House,
+    /// and equipment set state cache.
     /// </summary>
     public sealed class InventoryState
     {
@@ -87,6 +145,8 @@ namespace Gordian.Core.World
 
         public void NotifyPurchase(ushort shopItemIndex, uint count) => ShopPurchased?.Invoke(shopItemIndex, count);
         public event Action? BazaarChanged;
+        public event Action? AuctionChanged;
+        public event Action? EquipsetChanged;
 
         public InventoryState()
         {
@@ -625,6 +685,162 @@ namespace Gordian.Core.World
             }
 
             BazaarChanged?.Invoke();
+        }
+
+        /// <summary>The result of the last purchase from another player's bazaar (S2C 0x106), or null.</summary>
+        public BazaarPurchaseResult? LastBazaarPurchase { get; private set; }
+
+        /// <summary>The last buyer to take items from the local player's bazaar (S2C 0x109), or null.</summary>
+        public BazaarSlotSold? LastBazaarSlotSold { get; private set; }
+
+        private readonly Dictionary<uint, BazaarVisitor> _bazaarVisitors = new Dictionary<uint, BazaarVisitor>();
+        private readonly List<BazaarSale> _bazaarSales = new List<BazaarSale>();
+
+        /// <summary>How many sales <see cref="SnapshotBazaarSales"/> keeps (oldest dropped first).</summary>
+        public const int MaxBazaarSales = 50;
+
+        public void SetBazaarPurchaseResult(BazaarPurchaseResult result)
+        {
+            lock (_lock) LastBazaarPurchase = result;
+            BazaarChanged?.Invoke();
+        }
+
+        /// <summary>S2C 0x108: a player entered (<paramref name="entered"/>) or left the local player's bazaar.</summary>
+        public void SetBazaarVisitor(BazaarVisitor visitor, bool entered)
+        {
+            lock (_lock)
+            {
+                if (entered) _bazaarVisitors[visitor.ServerId] = visitor;
+                else _bazaarVisitors.Remove(visitor.ServerId);
+            }
+
+            BazaarChanged?.Invoke();
+        }
+
+        /// <summary>The players browsing the local player's bazaar, copied under the state lock.</summary>
+        public BazaarVisitor[] SnapshotBazaarVisitors()
+        {
+            lock (_lock) return _bazaarVisitors.Values.ToArray();
+        }
+
+        public void RecordBazaarSlotSold(BazaarSlotSold sold)
+        {
+            lock (_lock) LastBazaarSlotSold = sold;
+            BazaarChanged?.Invoke();
+        }
+
+        public void RecordBazaarSale(BazaarSale sale)
+        {
+            lock (_lock)
+            {
+                if (_bazaarSales.Count == MaxBazaarSales) _bazaarSales.RemoveAt(0);
+                _bazaarSales.Add(sale);
+            }
+
+            BazaarChanged?.Invoke();
+        }
+
+        /// <summary>The local player's bazaar sales this session, oldest first, copied under the state lock.</summary>
+        public BazaarSale[] SnapshotBazaarSales()
+        {
+            lock (_lock) return _bazaarSales.ToArray();
+        }
+
+        #endregion
+
+        #region Guild Shop
+
+        /// <summary>The last guild shop purchase or sale result (S2C 0x082 / 0x084), or null.</summary>
+        public GuildTransaction? LastGuildTransaction { get; private set; }
+
+        private readonly List<GuildItemEntry> _guildSellList = new List<GuildItemEntry>();
+
+        public void SetGuildTransaction(GuildTransaction transaction)
+        {
+            lock (_lock) LastGuildTransaction = transaction;
+            ShopChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Adds one S2C 0x085 packet of the items the guild buys. <paramref name="packetIndex"/> is the packet's
+        /// place in the list (the low six bits of Stat); packet 0 starts a new list.
+        /// </summary>
+        public void AddGuildSellItems(int packetIndex, ReadOnlySpan<GuildItemEntry> items)
+        {
+            lock (_lock)
+            {
+                if (packetIndex == 0) _guildSellList.Clear();
+                for (int i = 0; i < items.Length; i++) _guildSellList.Add(items[i]);
+            }
+
+            ShopChanged?.Invoke();
+        }
+
+        /// <summary>The items the open guild shop buys from the player, copied under the state lock.</summary>
+        public GuildItemEntry[] SnapshotGuildSellList()
+        {
+            lock (_lock) return _guildSellList.ToArray();
+        }
+
+        #endregion
+
+        #region Auction House
+
+        /// <summary>The last Auction House answer (S2C 0x04C), or null.</summary>
+        public AuctionResponse? LastAuctionResponse { get; private set; }
+
+        private readonly Dictionary<sbyte, AuctionResponse> _auctionSlots = new Dictionary<sbyte, AuctionResponse>();
+
+        /// <summary>
+        /// Records an Auction House answer. An answer that names a sale slot (work index 0 or more) also replaces
+        /// that slot's entry, which is how the Sales Status list is built.
+        /// </summary>
+        public void SetAuctionResponse(AuctionResponse response)
+        {
+            lock (_lock)
+            {
+                LastAuctionResponse = response;
+                if (response.WorkIndex >= 0) _auctionSlots[response.WorkIndex] = response;
+            }
+
+            AuctionChanged?.Invoke();
+        }
+
+        /// <summary>The latest answer for each Auction House sale slot, by work index, copied under the state lock.</summary>
+        public IReadOnlyDictionary<sbyte, AuctionResponse> SnapshotAuctionSlots()
+        {
+            lock (_lock) return new Dictionary<sbyte, AuctionResponse>(_auctionSlots);
+        }
+
+        #endregion
+
+        #region Equipment Sets
+
+        private EquipsetSlotEntry[]? _equipsetValidation;
+
+        /// <summary>The last result of equipping an equipment set (S2C 0x117), or null.</summary>
+        public EquipsetResult? LastEquipsetResult { get; private set; }
+
+        /// <summary>
+        /// Stores the server's validation of the equipment set being edited (S2C 0x116): entry 0 is the piece
+        /// just changed and entries 1-16 follow the equipment slot order.
+        /// </summary>
+        public void SetEquipsetValidation(ReadOnlySpan<EquipsetSlotEntry> entries)
+        {
+            lock (_lock) _equipsetValidation = entries.ToArray();
+            EquipsetChanged?.Invoke();
+        }
+
+        /// <summary>The last equipment set validation (S2C 0x116), copied under the state lock; empty until one arrives.</summary>
+        public EquipsetSlotEntry[] SnapshotEquipsetValidation()
+        {
+            lock (_lock) return _equipsetValidation?.ToArray() ?? Array.Empty<EquipsetSlotEntry>();
+        }
+
+        public void SetEquipsetResult(EquipsetResult result)
+        {
+            lock (_lock) LastEquipsetResult = result;
+            EquipsetChanged?.Invoke();
         }
 
         #endregion
