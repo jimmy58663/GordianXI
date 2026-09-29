@@ -44,6 +44,10 @@ namespace Gordian.Core.Network
         Lockstyle,
         /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
         LockstyleSet,
+        /// <summary><c>/lot [slot]</c>: lots on a treasure pool item (C2S 0x041); without a slot, on every item not yet entered.</summary>
+        TreasureLot,
+        /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
+        TreasurePass,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -162,6 +166,10 @@ namespace Gordian.Core.Network
                     "moveto" or "goto" => ParseMoveToCommand(args),
                     "collision" or "col" or "noclip" => new ChatCommandResult { Kind = ChatCommandResultKind.CollisionToggle, Message = args },
                     "anchor" => new ChatCommandResult { Kind = ChatCommandResultKind.AnchorToggle, Message = args },
+
+                    // Treasure pool
+                    "lot" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasureLot, Message = args },
+                    "pass" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasurePass, Message = args },
 
                     // Stock UI layout
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },

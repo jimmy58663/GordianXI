@@ -87,6 +87,16 @@ namespace Gordian.Core.Network
         public InventoryPacketModule InventoryModule => NetworkManager.InventoryModule;
 
         /// <summary>
+        /// Gets the treasure pool: the 10 slots and the lots on them.
+        /// </summary>
+        public TreasurePoolState Treasure => NetworkManager.Treasure;
+
+        /// <summary>
+        /// Gets the treasure pool packet handling module (lot and pass).
+        /// </summary>
+        public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
+
+        /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
         /// </summary>
         public CombatState Combat => NetworkManager.Combat;
@@ -210,9 +220,21 @@ namespace Gordian.Core.Network
                 }
             };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            // Treasure pool events print to the message log as the retail client does; a zone change empties the pool
+            // (the server sends it again for a party that is still in it).
+            var treasureLog = new Ui.StockUiTreasure(id => ActionService.Menus.ItemLookup?.Invoke(id), ResolveEntityName, () => LocalPlayer.ServerId);
+            Treasure.Found += found =>
+            {
+                foreach (string line in treasureLog.FormatFound(found)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Treasure.Solved += solution =>
+            {
+                foreach (string line in treasureLog.FormatSolution(solution)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
+                Treasure.Clear();
             };
             // The character stops while the input line has the keyboard (keys held when it opened are released).
             Chat.Input.OpenChanged += open =>

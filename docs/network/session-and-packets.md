@@ -56,7 +56,6 @@ This audit compared every opcode in XiPackets `world/client/` and `world/server/
 **Coverage.** XiPackets documents 169 S2C and 154 C2S world packets. We decode 86 S2C opcodes (84 in XiPackets, plus LSB's `0x015` and our own `0x0EE`) and build 77 C2S opcodes. Every opcode we build is in XiPackets.
 
 LandSandBoat sends almost every missing S2C packet. These arrive in an ordinary session and are dropped today:
-- `0x0D2` treasure pool
 - `0x067` char sync
 - `0x051` own model
 - `0x0CA`, `0x0AE`, `0x0AD`, `0x08E`, `0x04F`, `0x041`, `0x058`, `0x038`, `0x053`
@@ -92,7 +91,7 @@ Missing packets, grouped by feature:
 - [#103](https://github.com/jimmy58663/GordianXI/issues/103): death flow. Home point, Raise and Tractor menus, and S2C `0x0F9`.
 - [#104](https://github.com/jimmy58663/GordianXI/issues/104): the remaining `0x01A` action kinds.
 - ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
-- [#106](https://github.com/jimmy58663/GordianXI/issues/106): treasure pool.
+- ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is still open.
 - [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
 - [#108](https://github.com/jimmy58663/GordianXI/issues/108): `0x051`/`0x04F`.
 - [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`.
@@ -136,3 +135,16 @@ To repeat the opcode diff, list `XiPackets/world/{client,server}`, then compare 
 | `0x03`, `0x04`, `0x0A` | not decoded | Monstrosity (post-MVP); 0x0A is unused by the client |
 
 The status icon timestamp is meant to overflow a u32; `GetStatusIconRemainingSeconds` subtracts modulo 2^32, taking `now` as Vana'diel seconds. That the unit is Vana'diel seconds x 60 comes from reading LandSandBoat's `0x063_miscdata_status_icons.cpp`; it is not yet checked against a live capture, so verify it in game before relying on the blink threshold in [#17](https://github.com/jimmy58663/GordianXI/issues/17). The Unity layouts (`0x07`) come from LSB only (XiPackets marks them as not reversed). Verify with `dotnet test tests/Gordian.Core.Tests --filter ProgressionPacketTests`.
+
+### Treasure pool (S2C 0x0D2 / 0x0D3, C2S 0x041 / 0x042)
+
+`TreasurePacketModule` (`TreasurePackets.cs`, `TreasurePacketModule.cs`) fills `TreasurePoolState` (`session.Treasure`, 10 slots). Layouts from XiPackets `world/server/0x00D2`, `0x00D3` and `world/client/0x0041`, `0x0042`; the values LandSandBoat sends from `s2c/0x0d2_trophy_list.cpp` and `0x0d3_trophy_solution.*`.
+
+- **0x0D2** puts an item in `Slot` (a re-send after a zone change carries the local entry, lot and current leader). A packet with only `Gold` fills no slot. `TreasureFound` is raised for the log either way.
+- **0x0D3** with `JudgeFlg` 0 updates the leader (`LootUniqueNo`, name, lot) and, when `EntryUniqueNo` is the local player, the local entry (`EntryFlg` 1 = lot, 0 = pass; `EntryPoint` = the roll). `JudgeFlg` 1 = won, 2 = winner cannot take it, 3 and up = silent clear; every judgement empties the slot. LandSandBoat sends 1 = Win, 2 = WinError, 3 = Lost.
+- **C2S 0x041** carries the slot and the first empty bag slot (from 1) the client assumes; LandSandBoat ignores the second. **0x042** is the slot only (the 6 byte struct goes out as 8).
+- **Commands:** `/lot [slot]` and `/pass [slot]` (slot 0-9; without one, every slot you have not entered). The result arrives as 0x0D3; the local state is not touched on send.
+- **Message log** (`StockUiTreasure`, System channel): "You find a fire crystal on the Goblin." ("in the" for a container, no "the" for a named dropper, gil first), "X's lot for the fire crystal: N points.", "You obtain a fire crystal." / "X obtains ...", and the requirement failure plus "... lost." Passes and silent clears print nothing. The wording is from the XiPackets notes, not a capture. The local winner is `LootUniqueNo` 0 or the local id; LandSandBoat sends the real id, so this is untested against retail's own use of the field.
+- A zone change empties the pool.
+
+Not done: the stock Treasure Pool window (main menu), and the pool's 5 minute expiry countdown (`StartTime` is kept on the slot). Verify with `dotnet test tests/Gordian.Core.Tests --filter TreasurePacketTests`.
