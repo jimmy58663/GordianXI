@@ -91,7 +91,7 @@ Missing packets, grouped by feature:
 - [#103](https://github.com/jimmy58663/GordianXI/issues/103): death flow. Home point, Raise and Tractor menus, and S2C `0x0F9`.
 - [#104](https://github.com/jimmy58663/GordianXI/issues/104): the remaining `0x01A` action kinds.
 - ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
-- ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is still open.
+- ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is [#143](https://github.com/jimmy58663/GordianXI/issues/143).
 - [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
 - [#108](https://github.com/jimmy58663/GordianXI/issues/108): `0x051`/`0x04F`.
 - [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`.
@@ -147,4 +147,4 @@ The status icon timestamp is meant to overflow a u32; `GetStatusIconRemainingSec
 - **Message log** (`StockUiTreasure`, System channel): "You find a fire crystal on the Goblin." ("in the" for a container, no "the" for a named dropper, gil first), "X's lot for the fire crystal: N points.", "You obtain a fire crystal." / "X obtains ...", and the requirement failure plus "... lost." Passes and silent clears print nothing. The wording is from the XiPackets notes, not a capture. The local winner is `LootUniqueNo` 0 or the local id; LandSandBoat sends the real id, so this is untested against retail's own use of the field.
 - A zone change empties the pool.
 
-Not done: the stock Treasure Pool window (main menu), and the pool's 5 minute expiry countdown (`StartTime` is kept on the slot). Verify with `dotnet test tests/Gordian.Core.Tests --filter TreasurePacketTests`.
+Not done: the stock Treasure Pool window ([#143](https://github.com/jimmy58663/GordianXI/issues/143)), and the pool's 5 minute expiry countdown (`StartTime` is kept on the slot). Verify with `dotnet test tests/Gordian.Core.Tests --filter TreasurePacketTests`.
