@@ -133,7 +133,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.Same(child.Emitter, parent.Emitter.Children["kid1"]);
         }
 
-        private static byte[] Concat(params byte[][] sections)
+        internal static byte[] Concat(params byte[][] sections)
         {
             var all = new List<byte>();
             foreach (var section in sections) all.AddRange(section);
@@ -176,7 +176,7 @@ namespace Gordian.Core.Tests.Resources
             return payload;
         }
 
-        private static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll, ushort maxLifeSpan = 0, bool autoRun = false, string? onceChildId = null)
+        internal static byte[] BuildSyntheticWaterGeneratorPayload(string datId, string linkedId, Vector3 basePos, Vector2 uvScroll, ushort maxLifeSpan = 0, bool autoRun = false, string? onceChildId = null, ParticleAttachType attach = ParticleAttachType.None)
         {
             // Generator payload:
             // Header (128 bytes): +0x48 = DatId (4 chars), +0x70 = Section 1 stream offset, +0x78 = Section 3 stream offset
@@ -204,6 +204,7 @@ namespace Gordian.Core.Tests.Resources
             BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(op1Offset + 28, 4), basePos.Z);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(op1Offset + 34, 2), maxLifeSpan);
             if (autoRun) payload[0x69] = 0x10; // generator flags: auto-run
+            payload[0] = (byte)attach; // attach flags: attach type in the low 4 bits
             payload[op1Offset + 33] = (byte)ParticleLinkedDataType.StaticMesh;
 
             if (onceChildId != null)
@@ -227,7 +228,7 @@ namespace Gordian.Core.Tests.Resources
             return payload;
         }
 
-        private static byte[] BuildChunk(DatSectionType type, byte[] payload, string datId = "test")
+        internal static byte[] BuildChunk(DatSectionType type, byte[] payload, string datId = "test")
         {
             int total = (16 + payload.Length + 15) & ~15;
             byte[] chunk = new byte[total];

@@ -32,6 +32,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<uint, Gordian.Core.Graphics.ActorEffectSet?> _actorEffectCache = new();
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
         private SharedEffectResources? _sharedEffects;
@@ -668,10 +669,25 @@ namespace Gordian.Core.Resources
             return false;
         }
 
+        /// <summary>
+        /// The particle effects an NPC or monster model's DAT carries for its actor (e.g. the Home Point crystal, model 51),
+        /// or null when the model has none. Cached per model id, including models without effects.
+        /// </summary>
+        public Gordian.Core.Graphics.ActorEffectSet? GetActorEffects(uint modelId)
+        {
+            if (modelId == 0) return null;
+            return _actorEffectCache.GetOrAdd(modelId, id =>
+            {
+                var bytes = LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(id));
+                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects());
+            });
+        }
+
         public void ClearCache()
         {
             _zoneCache.Clear();
             _entityModelCache.Clear();
+            _actorEffectCache.Clear();
             _itemCache.Clear();
             _dmsgCache.Clear();
             _fileTable.Clear();

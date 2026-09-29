@@ -1,5 +1,8 @@
 // tests/Gordian.Core.Tests/Resources/HomePointModelProbeTests.cs
 using System.IO;
+using System.Linq;
+using System.Numerics;
+using Gordian.Core.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Tables;
@@ -11,9 +14,8 @@ namespace Gordian.Core.Tests.Resources
     /// <summary>
     /// The home point crystal's NPC model (look 0, model id 51 from LandSandBoat, file id 1351 = ROM/3/25.DAT) is
     /// drawn by its effect: the DAT holds particle generators, two effect routines ("bind", "aper"), particle meshes
-    /// and textures around a skeleton with a 224-byte placeholder mesh and an idle clip (2026-09-28). Playing that
-    /// routine as the entity's body is the model-embedded effect routine work of issue #9; until then the crystal is
-    /// invisible in GordianXI.
+    /// and textures around a skeleton with a 224-byte placeholder mesh and an idle clip (2026-09-28). The actor effect
+    /// runtime (issue #9) draws the crystal from the DAT's auto-running generators.
     /// </summary>
     public class HomePointModelProbeTests
     {
@@ -44,6 +46,36 @@ namespace Gordian.Core.Tests.Resources
             _output.WriteLine($"model: {(model == null ? "null" : $"{model.AnimatedMeshGroups.Count} mesh groups, {model.Textures.Count} textures, {model.Animations.Count} animations, skeleton={(model.Skeleton == null ? "none" : "yes")}")}");
             Assert.True(anyRoutine);
             Assert.True(meshBytes < 1024, $"placeholder mesh only: {meshBytes} bytes");
+        }
+
+        [Fact]
+        public void HomePointCrystal_ActorEffects_RunTheIdleGeneratorsAndHoldTheBindRoutine()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var effects = rm.GetActorEffects(51);
+            Assert.NotNull(effects);
+
+            // Eight drawing idle generators (snd0 is the ambient sound) and the four bind generators.
+            var idle = effects!.Layers.Where(l => l.Emitter!.Definition.AutoRun && !l.Emitter.ChildOnly).Select(l => l.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "bnd0", "nak0", "nak1", "sil0", "sil1", "tam0", "wa00", "wa01" }, idle);
+            Assert.True(effects.Routines.TryGetValue("bind", out var bind));
+            Assert.Equal(new[] { "pou0", "pou1", "sil2", "tub0" }, bind!.Spawns.Select(s => s.Template.Definition.DatId).OrderBy(n => n).ToArray());
+            Assert.Contains(effects.Textures.Keys, k => k.EndsWith("kori", System.StringComparison.OrdinalIgnoreCase));
+
+            var instance = new ActorEffectInstance(effects);
+            var frame = new ZoneParticleFrame(new Vector3(0f, -2f, 5f), 0.5f, Vector3.One);
+            instance.Update(30f, frame);
+            var crystal = instance.Emitters.Single(e => e.Layer.Name == "bnd0").Emitter;
+            Assert.Single(crystal.Particles);
+            var bindFlash = instance.Emitters.Single(e => e.Layer.Name == "pou1").Emitter;
+            Assert.Empty(bindFlash.Particles);
+
+            Assert.True(instance.Play("bind"));
+            instance.Update(5f, frame);
+            Assert.NotEmpty(bindFlash.Particles);
+            Assert.False(instance.Play("none"));
         }
     }
 }

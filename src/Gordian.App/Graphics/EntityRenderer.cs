@@ -19,6 +19,14 @@ using Veldrid.SPIRV;
 namespace Gordian.App.Graphics
 {
     /// <summary>
+    /// Where an entity was placed this frame, for effects attached to it.
+    /// </summary>
+    /// <param name="ModelToWorld">Raw model space (Y down) to display space: the entity's model transform.</param>
+    /// <param name="Skeleton">The model's skeleton (null until a skinned model was drawn).</param>
+    /// <param name="Pose">The skeleton's last drawn pose, in model space.</param>
+    public readonly record struct ActorAnchor(Matrix4x4 ModelToWorld, Skeleton? Skeleton, SkeletonPoseEvaluator.EvaluatedPose Pose);
+
+    /// <summary>
     /// Hardware-accelerated 3D entity renderer for GordianXI.
     /// Renders players, NPCs, monsters, and trusts at live WorldEntity coordinates with GPU
     /// joint-palette skeletal skinning, authentic FFXI orientation, lighting, and distance fog.
@@ -81,6 +89,14 @@ namespace Gordian.App.Graphics
         /// target was not drawn), where the target cursor is placed.
         /// </summary>
         public Vector3? TargetAnchor { get; private set; }
+
+        /// <summary>
+        /// Where each spawned entity was placed this frame: its model-to-display transform and, for a skinned model drawn
+        /// this frame or earlier, its last pose. Actor effects attach to it (joint references and the actor's facing).
+        /// </summary>
+        public IReadOnlyDictionary<uint, ActorAnchor> ActorAnchors => _actorAnchors;
+
+        private readonly Dictionary<uint, ActorAnchor> _actorAnchors = new();
 
         /// <summary>Yalms between the target's highest joint and the target cursor's tip.</summary>
         private const float TargetAnchorClearance = 0.6f;
@@ -261,7 +277,11 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>Forgets cached per-entity floor probes (call on zone change).</summary>
-        public void ResetEnvironmentProbes() => _entityEnvironments.Clear();
+        public void ResetEnvironmentProbes()
+        {
+            _entityEnvironments.Clear();
+            _actorAnchors.Clear();
+        }
 
         public void RenderEntities(
             CommandList cl,
@@ -299,6 +319,7 @@ namespace Gordian.App.Graphics
                         stalePalette.Dispose();
                     }
                     _entityEnvironments.Remove(entity.ServerId);
+                    _actorAnchors.Remove(entity.ServerId);
                     continue;
                 }
 
@@ -321,6 +342,18 @@ namespace Gordian.App.Graphics
                     : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);
                 Vector3 maxBox = pos + new Vector3(1.0f, 2.2f, 1.0f);
+
+                // Heading angle is the wire convention: 0=East(+X), 64=South(-Z), 128=West(-X), 192=North(+Z).
+                // In display space (pos = (-x, -y, z)), entity model at rest faces (+1, 0, 0),
+                // so rotating by (-headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
+                float headingRad = (entity.RenderHeadingRadians != 0f || entity.Direction != 0)
+                    ? entity.RenderHeadingRadians
+                    : entity.HeadingRadians;
+                var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
+
+                // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
+                _actorAnchors.TryGetValue(entity.ServerId, out var previousAnchor);
+                _actorAnchors[entity.ServerId] = previousAnchor with { ModelToWorld = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos) };
 
                 if (!frustum.IntersectsBox(minBox, maxBox))
                 {
@@ -355,14 +388,6 @@ namespace Gordian.App.Graphics
                 if (gpuModel == null || gpuModel.Submeshes.Count == 0) continue;
 
                 visible++;
-
-                // Heading angle is the wire convention: 0=East(+X), 64=South(-Z), 128=West(-X), 192=North(+Z).
-                // In display space (pos = (-x, -y, z)), entity model at rest faces (+1, 0, 0),
-                // so rotating by (-headingRad - MathF.PI) aligns the model's front facing vector with the travel vector.
-                float headingRad = (entity.RenderHeadingRadians != 0f || entity.Direction != 0)
-                    ? entity.RenderHeadingRadians
-                    : entity.HeadingRadians;
-                var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
 
                 bool isFallback = ReferenceEquals(gpuModel, _fallbackPlayerProxy) ||
                                   ReferenceEquals(gpuModel, _fallbackNpcProxy) ||
@@ -424,7 +449,8 @@ namespace Gordian.App.Graphics
 
                     bool loop = category != AnimationCategory.Death && !entity.Animation.IsPlayingTransition;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null);
+                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null, out var pose);
+                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                     if (isTarget) TargetAnchor = pos + new Vector3(0.0f, top + TargetAnchorClearance, 0.0f);
                 }
@@ -463,9 +489,8 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Uploads an entity's current pose and returns the height (yalms above its feet) of its highest joint.
         /// </summary>
-        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides)
+        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
         {
-            SkeletonPoseEvaluator.EvaluatedPose pose;
             if (animState.IsBlending && animState.PreviousClip != null)
             {
                 pose = SkeletonPoseEvaluator.EvaluateBlendedPose(

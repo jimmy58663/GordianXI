@@ -44,7 +44,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | Console, action service & input | ✅ | [input/console-and-input.md](docs/input/console-and-input.md) |
 | 5A Graphics context & multi-box viewports | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5B Camera & zone terrain | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
-| 5C Entity models & equipment | ✅ (open: actor status visuals, model-embedded effect routines) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
+| 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; open: routine playback from the network, actor status visuals, actor-attached weather) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D.1 Transient combat & action animation | ⬜ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
