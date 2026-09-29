@@ -37,7 +37,10 @@ namespace Gordian.Core.Config
         WallCollisionOverride = 1UL << 6,
 
         /// <summary>Blocks turning off collision with NPCs and monsters.</summary>
-        EntityCollisionOverride = 1UL << 7
+        EntityCollisionOverride = 1UL << 7,
+
+        /// <summary>Blocks ignoring knockback (the Anchor option): the server's knockback always moves the character.</summary>
+        KnockbackOverride = 1UL << 8
     }
 
     /// <summary>

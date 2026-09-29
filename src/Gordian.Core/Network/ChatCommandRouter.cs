@@ -37,6 +37,8 @@ namespace Gordian.Core.Network
         Check,
         SyntheticMoveTo,
         CollisionToggle,
+        /// <summary><c>/anchor [on|off]</c>: ignore knockback, unless the server forbids it.</summary>
+        AnchorToggle,
         UiLayout,
         /// <summary><c>/lockstyle [on|off]</c>: queries, enables or disables the style lock (C2S 0x053).</summary>
         Lockstyle,
@@ -159,6 +161,7 @@ namespace Gordian.Core.Network
                     // Synthetic Locomotion (Policy-Gated)
                     "moveto" or "goto" => ParseMoveToCommand(args),
                     "collision" or "col" or "noclip" => new ChatCommandResult { Kind = ChatCommandResultKind.CollisionToggle, Message = args },
+                    "anchor" => new ChatCommandResult { Kind = ChatCommandResultKind.AnchorToggle, Message = args },
 
                     // Stock UI layout
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },

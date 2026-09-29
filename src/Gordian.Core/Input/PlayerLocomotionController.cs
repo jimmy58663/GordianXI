@@ -130,6 +130,63 @@ namespace Gordian.Core.Input
         /// </summary>
         public bool IsFalling => _airborne;
 
+        private readonly object _knockbackLock = new();
+        private (Vector2 Direction, int Level)? _pendingKnockback;
+        private Vector2 _knockbackDirection;
+        private float _knockbackPush;
+        private float _knockbackDamper;
+        private float _knockbackTicksLeft;
+
+        /// <summary>Whether a knockback slide is moving the player.</summary>
+        public bool IsKnockedBack => _knockbackTicksLeft > 0f;
+
+        /// <summary>
+        /// Knocks the player back (thread-safe; the slide starts on the next tick): pushed along the ground-plane (X, Z)
+        /// direction by the level's slide (<see cref="KnockbackSettings.ProfileOf"/>), stopped by walls and ledges like
+        /// walking. The new position goes to the server in the usual 0x015 reports; LandSandBoat trusts it.
+        /// </summary>
+        public void ApplyKnockback(Vector2 direction, int level)
+        {
+            if (level <= 0 || direction.LengthSquared() < 1e-6f) return;
+            lock (_knockbackLock) _pendingKnockback = (Vector2.Normalize(direction), level);
+        }
+
+        /// <summary>
+        /// Advances the knockback slide by one update: the push each 60 Hz tick shrinks by the damper, summed over the ticks
+        /// this update spans.
+        /// </summary>
+        private void StepKnockback(WorldEntity localEnt, float dt)
+        {
+            lock (_knockbackLock)
+            {
+                if (_pendingKnockback is { } pending)
+                {
+                    var slide = KnockbackSettings.ProfileOf(pending.Level);
+                    _knockbackDirection = pending.Direction;
+                    _knockbackPush = slide.PushPerTick;
+                    _knockbackDamper = slide.Damper;
+                    _knockbackTicksLeft = slide.Ticks;
+                    _pendingKnockback = null;
+                }
+            }
+            if (_knockbackTicksLeft <= 0f) return;
+
+            float ticks = MathF.Min(dt * 60.0f, _knockbackTicksLeft);
+            float keep = 1.0f - _knockbackDamper;
+            float keepPow = MathF.Pow(keep, ticks);
+            float distance = _knockbackDamper > 0f ? _knockbackPush * (1.0f - keepPow) / _knockbackDamper : _knockbackPush * ticks;
+            _knockbackPush *= keepPow;
+            _knockbackTicksLeft -= ticks;
+
+            MoveHorizontally(localEnt, _knockbackDirection.X * distance, _knockbackDirection.Y * distance);
+        }
+
+        private void CancelKnockback()
+        {
+            lock (_knockbackLock) _pendingKnockback = null;
+            _knockbackTicksLeft = 0f;
+        }
+
         /// <summary>
         /// Radius, in yalms, of the player's body against walls. Measured from a Windower capture of a character pressed
         /// into a Southern San d'Oria wall corner: 0.529 and 0.535 yalms from the two walls.
@@ -590,6 +647,7 @@ namespace Gordian.Core.Input
                     _fallSpeed = 0.0f;
                 }
                 localEnt.Direction = correctedDirection;
+                CancelKnockback(); // a server placement ends any slide
             }
 
             // Locked by the server (an event) or charmed (the server drives the character): no input movement.
@@ -608,6 +666,9 @@ namespace Gordian.Core.Input
 
             // A fall, once started by stepping off a height, continues whether or not the player keeps moving.
             if (_airborne) FallStep(localEnt, dt);
+
+            // A knockback slides the player on top of whatever it does itself.
+            StepKnockback(localEnt, dt);
 
             // Check gamepad analog left stick
             var pad = _inputState.CurrentGamepad;

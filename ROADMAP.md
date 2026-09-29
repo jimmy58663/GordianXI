@@ -46,7 +46,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5B Camera & zone terrain | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; open: routine playback from the network, actor status visuals, actor-attached weather #121) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
-| 5D.1 Transient combat & action animation | ⏳ swings, casts, flinch / guard reactions, stance recovery and the engagement end (#10-#13, #67) built, awaiting the in-game test; knockback #14 open | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
+| 5D.1 Transient combat & action animation | ⏳ swings, casts, flinch / guard reactions, stance recovery and the engagement end (#10-#13, #67) built, knockback #14 built on a follow-up branch, all awaiting the in-game test | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
 | 5E Tier 2: stock DAT 2D UI | ⏳ chunks 1-6, 4b, 4c done, 6b (command menu) awaiting the in-game test, 6c (shop) through two in-game rounds; name plates open | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |

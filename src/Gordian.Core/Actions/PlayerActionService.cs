@@ -115,6 +115,11 @@ namespace Gordian.Core.Actions
         public CollisionSettings Collision { get; } = new();
 
         /// <summary>
+        /// The session's knockback option (<c>/anchor</c>), read when a knockback lands on the player.
+        /// </summary>
+        public KnockbackSettings Knockback { get; } = new();
+
+        /// <summary>
         /// The character's stock UI layout, edited by <c>/uilayout</c> and read by the HUD.
         /// </summary>
         public StockUiLayout UiLayout { get; set; } = new();
@@ -1070,6 +1075,7 @@ namespace Gordian.Core.Actions
                 sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
+            sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("[Combat & Abilities]");
@@ -1252,6 +1258,26 @@ namespace Gordian.Core.Actions
             return (Collision.Requested | locked) != Collision.Requested && parts.Length > 0
                 ? PlayerActionResult.Warn(summary, Kind)
                 : PlayerActionResult.Ok(summary, Kind);
+        }
+
+        /// <summary>
+        /// Handles <c>/anchor [on|off]</c>: no argument toggles, and the reply says whether knockback is ignored. The server's
+        /// <see cref="FeatureRestrictions.KnockbackOverride"/> bit keeps knockback on whatever the player asks.
+        /// </summary>
+        public PlayerActionResult ApplyAnchorCommand(string args)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.AnchorToggle;
+            string word = args.Trim().ToLowerInvariant();
+            if (word is "on" or "enable") Knockback.AnchorRequested = true;
+            else if (word is "off" or "disable") Knockback.AnchorRequested = false;
+            else if (word.Length == 0) Knockback.AnchorRequested = !Knockback.AnchorRequested;
+            else return PlayerActionResult.Warn("Usage: /anchor [on|off]", Kind);
+
+            if (Knockback.AnchorRequested && KnockbackSettings.IsAnchorLocked(_profile))
+            {
+                return PlayerActionResult.Warn("Anchor: off (the server keeps knockback on).", Kind);
+            }
+            return PlayerActionResult.Ok(Knockback.AnchorRequested ? "Anchor: on (knockback ignored)." : "Anchor: off.", Kind);
         }
 
         private const string UiLayoutUsage =
@@ -1458,6 +1484,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.CollisionToggle:
                     return ApplyCollisionCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.AnchorToggle:
+                    return ApplyAnchorCommand(cmd.Message ?? string.Empty);
 
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);

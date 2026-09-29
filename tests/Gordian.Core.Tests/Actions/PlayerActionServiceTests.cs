@@ -516,5 +516,26 @@ namespace Gordian.Core.Tests.Actions
             _world.RemoveEntity(0x02020202);
             Assert.Null(_actionService.CurrentTarget);
         }
+    
+
+        [Fact]
+        public void AnchorCommand_TogglesAndReportsServerLock()
+        {
+            Assert.False(_actionService.Knockback.AnchorRequested);
+
+            var on = _actionService.ApplyAnchorCommand("on");
+            Assert.True(_actionService.Knockback.IsAnchored(_profile));
+            Assert.Contains("on", on.Message);
+
+            _actionService.ApplyAnchorCommand("");
+            Assert.False(_actionService.Knockback.AnchorRequested);
+
+            _profile.FeatureRestrictions = FeatureRestrictions.KnockbackOverride;
+            var locked = _actionService.ApplyAnchorCommand("on");
+            Assert.False(_actionService.Knockback.IsAnchored(_profile));
+            Assert.Contains("server", locked.Message);
+
+            Assert.Contains("Usage", _actionService.ApplyAnchorCommand("sideways").Message);
+        }
     }
 }
