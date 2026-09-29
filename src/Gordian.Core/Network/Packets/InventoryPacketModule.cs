@@ -541,12 +541,19 @@ namespace Gordian.Core.Network.Packets
         /// Sends C2S 0x052: asks the server to validate an item placed in an equipment set slot.
         /// The server answers with S2C 0x116.
         /// </summary>
-        public async Task CheckEquipsetAsync(EquipSlotId equipSlot, byte slot, ContainerId container, ushort itemId)
+        public Task CheckEquipsetAsync(EquipSlotId equipSlot, byte slot, ContainerId container, ushort itemId)
+            => CheckEquipsetAsync(equipSlot, new EquipsetRequestItem(true, false, container, slot, itemId), null);
+
+        /// <summary>
+        /// Sends C2S 0x052 with the changed slot (<paramref name="change"/>, which can be a "Remove piece" entry)
+        /// and the rest of the set in <paramref name="equipment"/>, indexed by equipment slot.
+        /// </summary>
+        public async Task CheckEquipsetAsync(EquipSlotId equipSlot, EquipsetRequestItem change, EquipsetRequestItem[]? equipment)
         {
             byte[] buf = ArrayPool<byte>.Shared.Rent(76);
             try
             {
-                int len = InventoryPacketBuilders.BuildEquipsetCheck(buf, ++_sequenceNumber, equipSlot, slot, container, itemId);
+                int len = InventoryPacketBuilders.BuildEquipsetCheck(buf, ++_sequenceNumber, equipSlot, change, equipment);
                 if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x052, _sequenceNumber, buf.AsSpan(0, len));
                 await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
             }
@@ -560,12 +567,18 @@ namespace Gordian.Core.Network.Packets
         /// Sends C2S 0x053: queries, enables or disables the style lock, or sets it to <paramref name="items"/>
         /// (<see cref="LockstyleMode.Set"/>, what <c>/lockstyleset #</c> sends).
         /// </summary>
-        public async Task SetLockstyleAsync(LockstyleMode mode, params (byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)[] items)
+        public Task SetLockstyleAsync(LockstyleMode mode, params (byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)[] items)
+            => SetLockstyleAsync(mode, echo: false, items);
+
+        /// <summary>
+        /// Sends C2S 0x053 like the overload above; <paramref name="echo"/> sets the <c>/lockstyleset</c> echo flag.
+        /// </summary>
+        public async Task SetLockstyleAsync(LockstyleMode mode, bool echo, (byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)[] items)
         {
             byte[] buf = ArrayPool<byte>.Shared.Rent(136);
             try
             {
-                int len = InventoryPacketBuilders.BuildLockstyle(buf, ++_sequenceNumber, mode, items);
+                int len = InventoryPacketBuilders.BuildLockstyle(buf, ++_sequenceNumber, mode, items, echo);
                 if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x053, _sequenceNumber, buf.AsSpan(0, len));
                 await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
             }

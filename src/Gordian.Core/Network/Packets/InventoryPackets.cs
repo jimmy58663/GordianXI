@@ -178,6 +178,17 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// One entry of C2S 0x052 (the changed slot, or an already-set slot of the equipment set).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), world/client 0x0052.
+    /// </summary>
+    /// <param name="HasItem">The slot has an item equipped into it.</param>
+    /// <param name="Remove">The slot is marked "Remove piece" (retail shows a red X).</param>
+    /// <param name="Container">The container that holds the item.</param>
+    /// <param name="ItemIndex">The item's index within <paramref name="Container"/>.</param>
+    /// <param name="ItemNo">The item id.</param>
+    public readonly record struct EquipsetRequestItem(bool HasItem, bool Remove, ContainerId Container, byte ItemIndex, ushort ItemNo);
+
+    /// <summary>
     /// Subcontainer (mannequin) interaction mode for C2S 0x03B.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x03b_subcontainer.h).
     /// </summary>
@@ -1692,26 +1703,50 @@ namespace Gordian.Core.Network.Packets
         /// <summary>
         /// C2S 0x052: Validates changes to an equipment set.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x052_equipset_check.h).
+        /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), world/client 0x0052:
+        /// <c>ItemChange</c> holds the changed slot and <c>Equipment[16]</c> the rest of the set, with the entry
+        /// for the replaced slot left all zero.
         /// </summary>
-        public static int BuildEquipsetCheck(Span<byte> destination, ushort sequenceId, EquipSlotId equipSlot, byte slot, ContainerId container, ushort itemId)
+        /// <param name="change">The item change being applied to <paramref name="equipSlot"/>.</param>
+        /// <param name="equipment">The other items already in the set, indexed by equipment slot (at most 16;
+        /// missing entries stay zero).</param>
+        public static int BuildEquipsetCheck(Span<byte> destination, ushort sequenceId, EquipSlotId equipSlot, EquipsetRequestItem change, ReadOnlySpan<EquipsetRequestItem> equipment = default)
         {
             PacketHeader.Write(destination, 0x052, 19, sequenceId);
             var payload = destination.Slice(4, 72);
             payload.Clear();
 
             payload[0] = (byte)equipSlot;
-            byte flags = (byte)(((byte)container & 0x3F) << 2 | 0x01);
-            payload[4] = flags;
-            payload[5] = slot;
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), itemId);
+            WriteEquipsetRequestItem(payload.Slice(4, 4), change);
+            int count = Math.Min(equipment.Length, 16);
+            for (int i = 0; i < count; i++)
+            {
+                WriteEquipsetRequestItem(payload.Slice(8 + (i * 4), 4), equipment[i]);
+            }
             return 76;
+        }
+
+        /// <summary>
+        /// C2S 0x052 for a plain item placement: <paramref name="slot"/> in <paramref name="container"/> is put into
+        /// <paramref name="equipSlot"/> and no other set items are sent.
+        /// </summary>
+        public static int BuildEquipsetCheck(Span<byte> destination, ushort sequenceId, EquipSlotId equipSlot, byte slot, ContainerId container, ushort itemId)
+            => BuildEquipsetCheck(destination, sequenceId, equipSlot, new EquipsetRequestItem(true, false, container, slot, itemId));
+
+        private static void WriteEquipsetRequestItem(Span<byte> destination, EquipsetRequestItem item)
+        {
+            destination[0] = (byte)(((byte)item.Container & 0x3F) << 2 | (item.Remove ? 0x02 : 0) | (item.HasItem ? 0x01 : 0));
+            destination[1] = item.ItemIndex;
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), item.ItemNo);
         }
 
         /// <summary>
         /// C2S 0x053: Configures lockstyle appearance.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x053_lockstyle.h).
+        /// Flags referenced from XiPackets (https://github.com/atom0s/XiPackets), world/client 0x0053.
         /// </summary>
-        public static int BuildLockstyle(Span<byte> destination, ushort sequenceId, LockstyleMode mode, ReadOnlySpan<(byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)> items)
+        /// <param name="echo">Sets Flags bit 0, the <c>/lockstyleset</c> "echo" sub-command.</param>
+        public static int BuildLockstyle(Span<byte> destination, ushort sequenceId, LockstyleMode mode, ReadOnlySpan<(byte Slot, EquipSlotId EquipSlot, ContainerId Container, ushort ItemId)> items, bool echo = false)
         {
             PacketHeader.Write(destination, 0x053, 34, sequenceId);
             var payload = destination.Slice(4, 132);
@@ -1720,6 +1755,7 @@ namespace Gordian.Core.Network.Packets
             int count = Math.Min(items.Length, 16);
             payload[0] = (byte)count;
             payload[1] = (byte)mode;
+            payload[2] = (byte)(echo ? 0x01 : 0x00);
 
             for (int i = 0; i < count; i++)
             {
