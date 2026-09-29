@@ -30,11 +30,15 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// A single-frame pose blended over whatever the clips produce, per joint in local space (rotation only): the
         /// transient hit flinch toward the model's damage pose (<c>dfm</c> / <c>dbm</c>) or the guard / parry pose flash.
+        /// With a <paramref name="Reference"/> pose the overlay is additive: each joint turns by the pose's offset from the
+        /// reference (<c>dfm</c> against the neutral <c>dfi</c>), scaled by the weight, on top of the playing clip. Without one
+        /// the joint blends toward the pose itself.
         /// </summary>
         /// <param name="Clip">The pose clip; sampled at time 0.</param>
-        /// <param name="Weight">0 = no effect, 1 = the joint takes the pose's rotation.</param>
+        /// <param name="Weight">0 = no effect, 1 = the full pose (or the full offset).</param>
         /// <param name="JointMask">Joints the overlay may move (true), or null for every joint the clip has a track for.</param>
-        public readonly record struct PoseOverlay(AnimationClip Clip, float Weight, bool[]? JointMask = null);
+        /// <param name="Reference">The neutral pose the offset is measured from, or null for an absolute blend.</param>
+        public readonly record struct PoseOverlay(AnimationClip Clip, float Weight, bool[]? JointMask = null, AnimationClip? Reference = null);
 
         /// <summary>
         /// Computes bind-pose world rotation and translation for each joint in the skeleton hierarchy.
@@ -432,8 +436,8 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
-        /// Blends a joint's local rotation delta toward the overlay pose's (quaternion NLERP along the shortest arc).
-        /// Returns whether the overlay touched the joint.
+        /// Applies the overlay to a joint's local rotation delta: turns it by the weighted offset of the pose from its reference,
+        /// or blends it toward the pose (quaternion NLERP along the shortest arc). Returns whether the overlay touched the joint.
         /// </summary>
         private static bool ApplyOverlay(PoseOverlay? overlay, int joint, ref Quaternion deltaRot)
         {
@@ -442,6 +446,16 @@ namespace Gordian.Core.Resources.Graphics
             if (!o.Clip.TrySample(joint, 0f, false, out var poseRot, out _, out _)) return false;
 
             float w = Math.Min(o.Weight, 1f);
+            if (o.Reference != null)
+            {
+                if (!o.Reference.TrySample(joint, 0f, false, out var referenceRot, out _, out _)) return false;
+                var offset = Quaternion.Normalize(poseRot * Quaternion.Conjugate(referenceRot));
+                if (offset.W < 0f) offset = -offset;
+                var scaled = Quaternion.Normalize(Quaternion.Lerp(Quaternion.Identity, offset, w));
+                deltaRot = Quaternion.Normalize(scaled * deltaRot);
+                return true;
+            }
+
             if (Quaternion.Dot(deltaRot, poseRot) < 0f) poseRot = -poseRot;
             deltaRot = Quaternion.Normalize(Quaternion.Lerp(deltaRot, poseRot, w));
             return true;

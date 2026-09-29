@@ -438,5 +438,83 @@ namespace Gordian.Core.Tests.Actions
             Assert.Equal(0x064, PacketHeader.TryParse(packet, out var header) ? header.PacketId : 0);
             Assert.Equal(10, BitConverter.ToUInt16(packet, 72)); // TestPlayer's target index
         }
-}
+
+        private void EngageHare()
+        {
+            _actionService.SetTargetByServerId(0x02020202);
+            _combatState.Engage(0x02020202, 25);
+        }
+
+        private void SendServerStatus(byte status)
+        {
+            var payload = new byte[0x60];
+            payload[44] = status;
+            _localPlayer.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+        }
+
+        [Fact]
+        public void EngagedTargetDies_EndsEngagementAndDropsTarget()
+        {
+            EngageHare();
+            Assert.True(_world.TryGetByServerId(0x02020202, out var hare));
+
+            hare!.Hpp = 0;
+            hare.AnimationState = 3;
+            _world.UpsertEntity(hare);
+
+            Assert.False(_combatState.IsEngaged);
+            Assert.Null(_actionService.CurrentTarget);
+            Assert.Empty(_sentChunks); // the server already ended it: no disengage request
+        }
+
+        [Fact]
+        public void EngagedTargetDespawns_EndsEngagementAndDropsTarget()
+        {
+            EngageHare();
+
+            _world.RemoveEntity(0x02020202);
+
+            Assert.False(_combatState.IsEngaged);
+            Assert.Null(_actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void ServerEndsBattleStatus_EndsEngagementAndDropsTarget()
+        {
+            EngageHare();
+            SendServerStatus(1);
+            Assert.True(_combatState.IsEngaged);
+
+            SendServerStatus(0);
+
+            Assert.False(_combatState.IsEngaged);
+            Assert.Null(_actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void StatusWithoutPriorBattle_DoesNotEndAFreshEngagement()
+        {
+            // Engaging sets the local state before the server's 0x037 says so; a stale idle status must not undo it.
+            EngageHare();
+
+            SendServerStatus(0);
+
+            Assert.True(_combatState.IsEngaged);
+            Assert.NotNull(_actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void SelectedTargetDiesWhileNotEngaged_KeepsTarget_ButDespawnDropsIt()
+        {
+            _actionService.SetTargetByServerId(0x02020202);
+            Assert.True(_world.TryGetByServerId(0x02020202, out var hare));
+
+            hare!.Hpp = 0;
+            _world.UpsertEntity(hare);
+            Assert.NotNull(_actionService.CurrentTarget);
+
+            _world.RemoveEntity(0x02020202);
+            Assert.Null(_actionService.CurrentTarget);
+        }
+    }
 }

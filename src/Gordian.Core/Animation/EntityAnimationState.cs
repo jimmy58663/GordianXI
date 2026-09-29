@@ -110,7 +110,7 @@ namespace Gordian.Core.Animation
             {
                 if (_overlayClip == null || _overlayDuration <= 0f) return null;
                 float w = _overlayPeak * OverlayEnvelope(_overlayElapsed / _overlayDuration);
-                return w > 0.001f ? new SkeletonPoseEvaluator.PoseOverlay(_overlayClip, w, _overlayMask) : null;
+                return w > 0.001f ? new SkeletonPoseEvaluator.PoseOverlay(_overlayClip, w, _overlayMask, _overlayReference) : null;
             }
         }
 
@@ -137,6 +137,7 @@ namespace Gordian.Core.Animation
         private WeaponMotion _weaponMotion;
 
         private AnimationClip? _overlayClip;
+        private AnimationClip? _overlayReference;
         private bool[]? _overlayMask;
         private float _overlayPeak;
         private float _overlayElapsed;
@@ -673,10 +674,29 @@ namespace Gordian.Core.Animation
         {
             if (!model.Animations.TryGetValue(clipName, out var clip) || ticks <= 0) return;
             _overlayClip = clip;
+            _overlayReference = ReferencePose(model, clipName);
             _overlayMask = OverlayMask(model, clip);
             _overlayPeak = Math.Clamp(peak, 0f, 1f);
             _overlayElapsed = 0f;
             _overlayDuration = ticks / RoutineTicksPerSecond;
+        }
+
+        /// <summary>
+        /// The neutral pose a reaction pose is authored against: the damage poses <c>dfm</c> / <c>dbm</c> and the guard pose
+        /// <c>gdm</c> each have an <c>i</c> twin (<c>dfi</c>, <c>dbi</c>, <c>gdi</c>; <c>dfi6</c> etc. on the PC motion
+        /// packs) that differs from them only on the joints the reaction bends, so the reaction is that difference added
+        /// on top of whatever the actor is doing. A pose without one (a monster's guard clip) is blended absolutely, as the
+        /// routine that plays it as a clip would.
+        /// </summary>
+        private static AnimationClip? ReferencePose(EntityModel model, string poseName)
+        {
+            if (poseName.Length != 3 || poseName[2] != 'm') return null;
+            string stem = poseName[..2];
+            foreach (var name in (ReadOnlySpan<string>)[stem + "i", stem + "i6", stem + "i0", "dfi", "dfi6", "dfi0"])
+            {
+                if (model.Animations.TryGetValue(name, out var reference)) return reference;
+            }
+            return null;
         }
 
         /// <summary>

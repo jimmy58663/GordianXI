@@ -156,6 +156,12 @@ namespace Gordian.Core.World
         }
         public ushort PetActorIndex { get; private set; }
         public byte MountId { get; private set; }
+
+        /// <summary>
+        /// The character's server status from S2C 0x037 (LandSandBoat <c>xi.animation</c>: 0 none, 1 engaged in battle,
+        /// 2 despawning, 3 dead, 33 resting...).
+        /// </summary>
+        public byte ServerStatus { get; private set; }
         public byte WardrobeMask { get; private set; }
         public ushort CostumeId { get; private set; }
         /// <summary>Seconds left before a dead character is force-homepointed (S2C 0x037 <c>dead_counter1</c>).</summary>
@@ -185,6 +191,9 @@ namespace Gordian.Core.World
         public event Action? MagicLearnedUpdated;
         public event Action? CommandsUpdated;
         public event Action? AbilityRecastsUpdated;
+
+        /// <summary>Raised with the previous and new <see cref="ServerStatus"/> when S2C 0x037 changes it.</summary>
+        public event Action<byte, byte>? ServerStatusChanged;
         #endregion
 
         public void UpdateFromJobInfo(in S2C_0x01B_JobInfo jobInfo)
@@ -257,8 +266,11 @@ namespace Gordian.Core.World
         public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
         {
             bool speedChanged = false;
+            byte previousStatus;
             lock (_lock)
             {
+                previousStatus = ServerStatus;
+                ServerStatus = status.ServerStatus;
                 Hpp = status.Hpp;
                 PetActorIndex = status.PetActorIndex;
                 MountId = status.MountId;
@@ -299,6 +311,12 @@ namespace Gordian.Core.World
             {
                 SpeedUpdated?.Invoke();
             }
+
+            if (previousStatus != status.ServerStatus)
+            {
+                ServerStatusChanged?.Invoke(previousStatus, status.ServerStatus);
+            }
+
             BuffsUpdated?.Invoke();
             VitalsUpdated?.Invoke();
         }

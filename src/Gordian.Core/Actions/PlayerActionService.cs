@@ -289,7 +289,65 @@ namespace Gordian.Core.Actions
             Menus.Settings = _uiSettings;
             _uiSettings.Changed += OnUiSettingChanged;
             _uiSettings.ChatFiltersChanged += OnChatFiltersChanged;
+
+            _localPlayer.ServerStatusChanged += OnLocalServerStatusChanged;
+            _world.EntityUpdated += OnEntityUpdated;
+            _world.EntityDespawned += OnEntityDespawned;
         }
+
+        #region Engagement End
+
+        // LandSandBoat xi.animation status values (data/enums/animation.yaml).
+        private const byte StatusEngaged = 1;
+        private const byte StatusDespawning = 2;
+        private const byte StatusDead = 3;
+
+        /// <summary>
+        /// The server ended the character's battle status (S2C 0x037 leaving "engaged", e.g. after the target died): the
+        /// weapon goes away (the renderer plays the sheathe) and the engaged target is dropped, as the legacy client does.
+        /// </summary>
+        private void OnLocalServerStatusChanged(byte previous, byte current)
+        {
+            if (previous == StatusEngaged && current != StatusEngaged) EndEngagement();
+        }
+
+        /// <summary>The engaged target died: end the engagement and drop it as the target.</summary>
+        private void OnEntityUpdated(WorldEntity entity)
+        {
+            if (entity.Type == EntityType.Player && entity.ServerId == _localPlayer.ServerId) return;
+            if (entity.Hpp == 0 || entity.AnimationState is StatusDead or StatusDespawning)
+            {
+                if (Combat is { IsEngaged: true } combat && combat.TargetServerId == entity.ServerId) EndEngagement();
+            }
+        }
+
+        /// <summary>The engaged or selected target despawned: end the engagement and drop the target.</summary>
+        private void OnEntityDespawned(WorldEntity entity)
+        {
+            if (Combat is { IsEngaged: true } combat && combat.TargetServerId == entity.ServerId)
+            {
+                EndEngagement();
+            }
+            else if (CurrentTarget != null && CurrentTarget.ServerId == entity.ServerId)
+            {
+                ClearTarget();
+            }
+        }
+
+        /// <summary>
+        /// Ends the engagement locally (the server has already ended it, so no disengage request is sent) and clears the
+        /// target if it is the one the character was fighting.
+        /// </summary>
+        private void EndEngagement()
+        {
+            var combat = Combat;
+            if (combat == null) return;
+            uint engagedTarget = combat.TargetServerId;
+            combat.Disengage();
+            if (CurrentTarget != null && (engagedTarget == 0 || CurrentTarget.ServerId == engagedTarget)) ClearTarget();
+        }
+
+        #endregion
 
         #region Targeting Subsystem
 
