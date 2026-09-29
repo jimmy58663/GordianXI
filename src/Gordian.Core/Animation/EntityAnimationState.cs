@@ -685,14 +685,16 @@ namespace Gordian.Core.Animation
         /// The neutral pose a reaction pose is authored against: the damage poses <c>dfm</c> / <c>dbm</c> and the guard pose
         /// <c>gdm</c> each have an <c>i</c> twin (<c>dfi</c>, <c>dbi</c>, <c>gdi</c>; <c>dfi6</c> etc. on the PC motion
         /// packs) that differs from them only on the joints the reaction bends, so the reaction is that difference added
-        /// on top of whatever the actor is doing. A pose without one (a monster's guard clip) is blended absolutely, as the
-        /// routine that plays it as a clip would.
+        /// on top of whatever the actor is doing. A pose without one (a monster's guard clip, the PC parry pose <c>pym</c>,
+        /// whose <c>pyi6</c> lives in the battle waist pack that is not loaded) is blended absolutely, as the routine that
+        /// plays it as a clip would. Checked by CPU-skinning Hume and monster 1600 poses (2026-09-29).
         /// </summary>
         private static AnimationClip? ReferencePose(EntityModel model, string poseName)
         {
             if (poseName.Length != 3 || poseName[2] != 'm') return null;
             string stem = poseName[..2];
-            foreach (var name in (ReadOnlySpan<string>)[stem + "i", stem + "i6", stem + "i0", "dfi", "dfi6", "dfi0"])
+            // Only the pose's own twin: another pose's neutral (dfi6 under the parry pose pym) folds the body over.
+            foreach (var name in (ReadOnlySpan<string>)[stem + "i", stem + "i6", stem + "i0"])
             {
                 if (model.Animations.TryGetValue(name, out var reference)) return reference;
             }
