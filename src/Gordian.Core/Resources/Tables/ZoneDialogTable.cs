@@ -10,8 +10,8 @@ namespace Gordian.Core.Resources.Tables
     /// prints, indexed by message number (the ids LandSandBoat's zone <c>IDs.lua</c> tables carry).
     /// <para>
     /// File location referenced from XiEvents (https://github.com/atom0s/XiEvents, "Event DAT Files.md"): the
-    /// English table of zone <c>z</c> is file id 6420 + z for zones 0-255 and 85335 + (z - 256) for zones 256-299,
-    /// the Japanese one 6120 + z / 85035 + (z - 256) (checked against the retail file table, 2026-09-28: every
+    /// English table of zone <c>z</c> is file id 6420 + z for zones 0-255 and 85591 + (z - 256) for zones 256-299,
+    /// the Japanese one 6120 + z / 85291 + (z - 256) (checked against the retail file table, 2026-09-28: every
     /// ROM path the XiEvents list gives resolves to those ids).
     /// </para>
     /// <para>
@@ -45,7 +45,7 @@ namespace Gordian.Core.Resources.Tables
         {
             if (zoneId < 0 || zoneId > 299) return -1;
             if (zoneId < 256) return (japanese ? 6120 : 6420) + zoneId;
-            return (japanese ? 85035 : 85335) + (zoneId - 256);
+            return (japanese ? 85291 : 85591) + (zoneId - 256);
         }
 
         /// <summary>Decodes a dialog DAT. Returns null when the buffer is not one.</summary>

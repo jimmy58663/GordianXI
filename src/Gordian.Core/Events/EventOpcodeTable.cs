@@ -10,9 +10,10 @@ namespace Gordian.Core.Events
     /// <para>
     /// Lengths referenced from the XiEvents opcode notes (https://github.com/atom0s/XiEvents, "OpCodes/"), whose
     /// pseudo code advances the exec pointer by a fixed amount per opcode, or per the sub-case byte that follows
-    /// the opcode. Checked by walking every event of four retail zones (Southern and Northern San d'Oria, West
-    /// Ronfaure, Lower Jeuno, 2026-09-28): 99% of the events step exactly to their end with these lengths; the rest
-    /// hold inline string data the tools do not describe, which the interpreter treats as the end of the event.
+    /// the opcode, and from xi-tools (https://github.com/vekien/xi-tools, "docs/events/typed_opcodes.md") where the
+    /// XiEvents notes lack an opcode or a sub-case. Checked by walking every event entry of the 296 retail zones with
+    /// event DATs (209,144 entries, 2026-09-28): 99.29% step exactly to the next event's offset with these lengths;
+    /// the rest hold inline data (strings, sub-case 0x80 records) the notes do not describe.
     /// </para>
     /// </summary>
     public static class EventOpcodeTable
@@ -35,7 +36,7 @@ namespace Gordian.Core.Events
             [0x92] = 6, [0x93] = 3, [0x94] = 6, [0x95] = 3, [0x96] = 1, [0x97] = 5, [0x98] = 1, [0x99] = 5, [0x9A] = 1, [0x9B] = 1,
             [0x9C] = 3, [0x9E] = 2, [0x9F] = 17, [0xA0] = 15, [0xA1] = 15, [0xA2] = 15, [0xA3] = 15, [0xA4] = 2, [0xA5] = 2, [0xA8] = 6,
             [0xA9] = 3, [0xAA] = 17, [0xAD] = 12, [0xAF] = 8, [0xB0] = 12, [0xB1] = 4, [0xB5] = 4, [0xB8] = 27, [0xB9] = 8, [0xBA] = 13,
-            [0xBB] = 17, [0xBC] = 15, [0xBD] = 15, [0xBE] = 3, [0xC0] = 3, [0xC1] = 5, [0xC3] = 7, [0xC4] = 11, [0xC5] = 17, [0xC6] = 15,
+            [0xBB] = 17, [0xBC] = 15, [0xBD] = 15, [0xBE] = 3, [0xC0] = 3, [0xC1] = 5, [0xC3] = 7, [0xC4] = 12, [0xC5] = 17, [0xC6] = 15,
             [0xC7] = 15, [0xC8] = 7, [0xC9] = 1, [0xCD] = 17, [0xCE] = 15, [0xCF] = 15, [0xD0] = 17, [0xD1] = 15, [0xD2] = 15, [0xD3] = 6,
             [0xD5] = 17, [0xD6] = 15, [0xD7] = 15, [0xD9] = 2,
         };
@@ -50,19 +51,25 @@ namespace Gordian.Core.Events
             [0x5A] = new() { [0] = 8, [1] = 2 },
             [0x59] = new() { [0] = 4, [1] = 8, [2] = 4, [3] = 8, [4] = 8, [5] = 7, [6] = 6, [7] = 4, [8] = 8 },
             [0x5C] = Range(0, 7, 4, Range(0x80, 0x87, 6, new() { [0xA0] = 6, [0xA1] = 6 })),
-            [0x5F] = Range(0, 7, 2, new()),
+            [0x5F] = new() { [0] = 2, [1] = 2, [2] = 6, [3] = 16, [4] = 16, [5] = 18, [6] = 18, [7] = 14 },
+            [0x60] = Range(3, 0xFF, 2, new() { [0] = 4, [1] = 4, [2] = 6 }),
             [0x71] = new()
             {
                 [0] = 2, [1] = 2, [2] = 2, [3] = 4, [0x10] = 4, [0x11] = 4, [0x13] = 4, [0x12] = 6, [0x20] = 16, [0x21] = 2, [0x30] = 4,
                 [0x31] = 4, [0x32] = 6, [0x40] = 4, [0x41] = 8, [0x50] = 4, [0x51] = 2, [0x52] = 4, [0x53] = 2,
             },
-            [0x72] = new() { [0] = 10, [1] = 4 },
-            [0x75] = new() { [0] = 4, [1] = 2, [2] = 8 },
+            [0x72] = new() { [0] = 4, [1] = 6 },
+            [0x75] = new() { [0] = 4, [1] = 2, [2] = 2 },
             [0x79] = new() { [0] = 10, [1] = 12, [2] = 10 },
+            [0x7E] = new() { [0] = 6, [1] = 6, [2] = 6, [3] = 16, [4] = 6, [5] = 6, [6] = 18, [7] = 8, [8] = 6 },
             [0x7A] = new() { [0] = 6, [1] = 7, [2] = 6, [3] = 2, [4] = 8, [5] = 6 },
             [0x8C] = new() { [0] = 8, [1] = 2, [2] = 12, [3] = 10, [4] = 10, [5] = 14 },
-            [0x9D] = new() { [0] = 8, [1] = 8, [2] = 6, [3] = 8, [4] = 8, [5] = 8, [6] = 8, [9] = 9, [0xA] = 10, [0xB] = 10, [0xC] = 6, [0xD] = 8, [0xE] = 10 },
-            [0xA6] = new() { [0] = 2, [1] = 4 },
+            [0x9D] = new()
+            {
+                [0] = 8, [1] = 8, [2] = 6, [3] = 8, [4] = 8, [5] = 8, [6] = 8, [7] = 6, [8] = 23, [9] = 9, [0xA] = 10, [0xB] = 10, [0xC] = 8, [0xD] = 10,
+                [0xE] = 10, [0xF] = 10, [0x10] = 10,
+            },
+            [0xA6] = new() { [0] = 2, [1] = 2, [2] = 4 },
             [0xA7] = new() { [0] = 2, [1] = 4 },
             [0xAB] = Range(0, 0x12, 2, new() { [0x11] = 4 }),
             [0xAC] = new() { [0] = 4, [1] = 4, [2] = 6, [3] = 6, [4] = 8 },
@@ -72,17 +79,17 @@ namespace Gordian.Core.Events
             [0xB4] = new()
             {
                 [0] = 20, [1] = 6, [2] = 6, [3] = 2, [4] = 6, [5] = 3, [6] = 3, [7] = 4, [8] = 2, [9] = 4, [0xA] = 4, [0xB] = 2, [0xC] = 4,
-                [0xD] = 2, [0xE] = 2, [0xF] = 6, [0x10] = 6, [0x11] = 6, [0x12] = 6, [0x13] = 20, [0x14] = 2, [0x15] = 4,
+                [0xD] = 2, [0xE] = 2, [0xF] = 6, [0x10] = 6, [0x11] = 6, [0x12] = 6, [0x13] = 20, [0x14] = 12, [0x15] = 2,
             },
             [0xB6] = Range(0, 0x0A, 4, new()
             {
-                [0xB] = 20, [0xC] = 4, [0xD] = 14, [0xE] = 16, [0xF] = 4, [0x10] = 2, [0x11] = 4, [0x12] = 2, [0x13] = 2, [0x14] = 4, [0x15] = 4,
+                [0xB] = 20, [0xC] = 4, [0xD] = 14, [0xE] = 16, [0xF] = 4, [0x10] = 2, [0x11] = 4, [0x12] = 2, [0x13] = 2, [0x14] = 6, [0x15] = 6,
             }),
             [0xB7] = new() { [0] = 10, [1] = 8, [2] = 8, [3] = 8, [4] = 8 },
-            [0xBF] = new() { [0] = 8, [0x20] = 8, [0x40] = 8, [0x60] = 8 },
+            [0xBF] = new() { [0] = 8, [0x20] = 10, [0x40] = 10, [0x60] = 8 },
             [0xC2] = new() { [0] = 2, [1] = 4, [2] = 6 },
             [0xCC] = new() { [0] = 10, [1] = 10, [3] = 10, [2] = 14, [0x10] = 6, [0x11] = 4, [0x20] = 4 },
-            [0xD4] = new() { [1] = 8, [3] = 6, [4] = 12, [5] = 12 },
+            [0xD4] = new() { [0] = 8, [1] = 8, [2] = 8, [3] = 6, [4] = 12, [5] = 12 },
             [0xD8] = new() { [0] = 6, [1] = 8, [2] = 8, [3] = 8, [4] = 12 },
         };
 

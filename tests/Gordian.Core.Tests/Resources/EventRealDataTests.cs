@@ -67,6 +67,29 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(empty < table.Count / 10);
         }
 
+        /// <summary>Zones 256-299 (Western Adoulin is 256) resolve to their own event, dialog and entity DATs (#71).</summary>
+        [Fact]
+        public void WesternAdoulin_ZoneFiles_Parse()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            const int westernAdoulin = 256;
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(westernAdoulin))!);
+            Assert.NotNull(script);
+            Assert.True(script!.Blocks.Count > 100);
+            Assert.True(script.TryGetBlock(EventBlock.PlayerActor, out _));
+
+            var dialog = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(westernAdoulin))!);
+            Assert.NotNull(dialog);
+            Assert.True(dialog!.Count > 1000);
+            Assert.NotNull(ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(westernAdoulin, japanese: true))!));
+
+            var entities = ZoneEntityList.Parse(rm.LoadDatBytesByFileId(ZoneEntityList.GetFileId(westernAdoulin))!);
+            Assert.NotNull(entities);
+            Assert.True(entities!.Count > 100);
+            _output.WriteLine($"{script.Blocks.Count} blocks, {dialog.Count} messages, {entities.Count} entities");
+        }
+
         [Fact]
         public void ZoneNames_ComeFromTheZoneNameTable()
         {
