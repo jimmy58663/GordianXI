@@ -533,6 +533,9 @@ namespace Gordian.App.Graphics
                         : _activeSession.CharacterId;
                     isLocalPlayerEngaged = _activeSession.Combat.IsEngaged;
 
+                    // Shows the hits of actions whose actor is not animated this frame (off screen, no model).
+                    _activeSession.ActionPlayback.Update();
+
                     if (localPlayerServerId != 0 && _activeSession.World.TryGetByServerId(localPlayerServerId, out var localEnt) && localEnt != null)
                     {
                         playerPos = localEnt.Position;
