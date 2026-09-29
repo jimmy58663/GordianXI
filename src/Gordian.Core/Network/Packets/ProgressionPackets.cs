@@ -1303,15 +1303,17 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// Builds C2S 0x116 (GP_CLI_COMMAND_UNITY_MENU): Open Unity Concord menu.
+        /// Builds C2S 0x116 (GP_CLI_COMMAND_UNITY_MENU): Requests one block of the Unity Concord menu data.
+        /// Packet layout referenced from XiPackets (world/client). <c>Kind</c> is a block index, not open/close:
+        /// retail sends block 0 and then block 1, and the server answers each with 32 S2C 0x063 packets.
         /// </summary>
-        public static byte[] BuildUnityMenu(bool open, ushort sequenceId = 0)
+        public static byte[] BuildUnityMenu(uint blockIndex, ushort sequenceId = 0)
         {
             var packet = new byte[8];
             ushort headerWord = (ushort)(0x116 | (2 << 9));
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
             BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), open ? 1u : 0u);
+            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), blockIndex);
             return packet;
         }
 

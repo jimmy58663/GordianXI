@@ -401,11 +401,18 @@ namespace Gordian.Core.Network.Packets
             return _sendChunkCallback(packet, true);
         }
 
-        public Task SendUnityMenuAsync(bool open)
+        /// <summary>
+        /// Requests the Unity Concord menu data as retail does: block 0, then block 1 (C2S 0x116); each is
+        /// answered with 32 S2C 0x063 packets.
+        /// </summary>
+        public async Task SendUnityMenuAsync()
         {
-            byte[] packet = ProgressionPacketBuilder.BuildUnityMenu(open, NextSequence());
-            LogOutbound(0x116, packet);
-            return _sendChunkCallback(packet, true);
+            for (uint blockIndex = 0; blockIndex < 2; blockIndex++)
+            {
+                byte[] packet = ProgressionPacketBuilder.BuildUnityMenu(blockIndex, NextSequence());
+                LogOutbound(0x116, packet);
+                await _sendChunkCallback(packet, true).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

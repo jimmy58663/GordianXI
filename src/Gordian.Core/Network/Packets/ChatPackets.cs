@@ -589,6 +589,9 @@ namespace Gordian.Core.Network.Packets
         /// <summary>
         /// Builds C2S 0x02B (GP_CLI_COMMAND_TRANSLATE): Request auto-translation term lookup.
         /// Protocol specification referenced from LandSandBoat (src/map/packets/c2s/0x02b_translate.h).
+        /// Length differs between sources: XiPackets (world/client) gives a fixed 0x48 bytes (<c>Name[64]</c>), while
+        /// LSB treats the packet as variable-length (minimum 12 bytes). This builder sends the variable-length form,
+        /// which LSB accepts.
         /// </summary>
         public static int BuildTranslateRequest(
             Span<byte> destination,

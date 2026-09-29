@@ -29,7 +29,7 @@ namespace Gordian.Core.Network
             string characterName,
             string accountName,
             ReadOnlySpan<byte> ticket = default,
-            uint clientVersion = 1,
+            uint clientVersion = 0,
             ushort sequenceId = 0)
         {
             byte[] packet = new byte[LoginSubPacketSize];
@@ -46,7 +46,7 @@ namespace Gordian.Core.Network
             string characterName,
             string accountName,
             ReadOnlySpan<byte> ticket = default,
-            uint clientVersion = 1,
+            uint clientVersion = 0,
             ushort sequenceId = 0)
         {
             if (destination.Length < LoginSubPacketSize)
@@ -97,14 +97,14 @@ namespace Gordian.Core.Network
             // Offset 80..84: Ver (4 bytes)
             BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(80, 4), clientVersion);
 
-            // Offset 84..88: sPlatform (4 bytes: PC = 1)
-            destination[84] = 0x01;
-            destination[85] = 0x00;
-            destination[86] = 0x00;
+            // Offset 84..88: sPlatform (4 bytes: "WIN" + null, as retail sends; layout per XiPackets world/client)
+            destination[84] = (byte)'W';
+            destination[85] = (byte)'I';
+            destination[86] = (byte)'N';
             destination[87] = 0x00;
 
-            // Offset 88..90: uCliLang (2 bytes: English = 0)
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(88, 2), 0);
+            // Offset 88..90: uCliLang (2 bytes: 0 = Japanese, 1 = English)
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(88, 2), 1);
 
             // Offset 90..92: dammyArea (2 bytes: 0)
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(90, 2), 0);
@@ -128,7 +128,7 @@ namespace Gordian.Core.Network
             string characterName,
             string accountName,
             ReadOnlySpan<byte> ticket = default,
-            uint clientVersion = 1,
+            uint clientVersion = 0,
             ushort clientPacketSeq = 1)
         {
             byte[] datagram = new byte[LoginDatagramTotalSize];

@@ -808,8 +808,12 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// C2S 0x01A: Requests casting of a magic spell.
+        /// Packet layout referenced from XiPackets (world/client) and LandSandBoat (c2s/0x01a_action.cpp): the
+        /// position fields are laid out X, height, north (the same convention as 0x015), and LSB treats them as an
+        /// offset from the target clamped to +/-19 (used by ground-targeted spells), not a world position.
         /// </summary>
-        public static int BuildCastMagicRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, ushort spellId, Vector3 targetPos = default)
+        /// <param name="targetOffset">Ground-target offset from the target: X, Y = height, Z = north (internal axes).</param>
+        public static int BuildCastMagicRequest(Span<byte> destination, ushort sequenceId, uint targetId, ushort targetIndex, ushort spellId, Vector3 targetOffset = default)
         {
             PacketHeader.Write(destination, 0x01A, 7, sequenceId);
             var payload = destination.Slice(4, 24);
@@ -818,9 +822,9 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(4, 2), targetIndex);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(6, 2), (ushort)CliActionId.CastMagic);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(8, 4), spellId);
-            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(12, 4), targetPos.X);
-            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(16, 4), targetPos.Z);
-            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(20, 4), targetPos.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(12, 4), targetOffset.X);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(16, 4), targetOffset.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.Slice(20, 4), targetOffset.Z);
             return 28;
         }
 
