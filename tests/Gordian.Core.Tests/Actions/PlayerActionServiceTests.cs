@@ -516,7 +516,6 @@ namespace Gordian.Core.Tests.Actions
             _world.RemoveEntity(0x02020202);
             Assert.Null(_actionService.CurrentTarget);
         }
-    
 
         [Fact]
         public void AnchorCommand_TogglesAndReportsServerLock()
