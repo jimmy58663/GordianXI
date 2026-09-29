@@ -169,6 +169,7 @@ namespace Gordian.Core.Actions
 
         /// <summary>The progression packet module (events, key items, Mog House, Unity); null in sessions without one.</summary>
         public ProgressionPacketModule? ProgressionModule { get; set; }
+        public TreasurePacketModule? TreasureModule { get; set; }
 
         /// <summary>The configuration packet module (S2C 0x0B4, C2S 0x0DB / 0x0DC); null in sessions without one.</summary>
         public ConfigPacketModule? ConfigModule
@@ -1078,6 +1079,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
+            sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -1158,6 +1160,62 @@ namespace Gordian.Core.Actions
             }
             return await LockstyleAsync("on").ConfigureAwait(false);
         }
+
+        #region Treasure pool
+
+        /// <summary>
+        /// <c>/lot [slot]</c> and <c>/pass [slot]</c>: lots or passes on treasure pool item <paramref name="args"/>
+        /// (slot 0 to 9 as the pool window numbers them, the first item being 0), or on every item you have not yet
+        /// entered when no slot is given. The server answers each with S2C 0x0D3, which prints the lot result.
+        /// </summary>
+        public async Task<PlayerActionResult> TreasureAsync(string args, bool lot)
+        {
+            var kind = lot ? ChatCommandResultKind.TreasureLot : ChatCommandResultKind.TreasurePass;
+            string verb = lot ? "lot" : "pass";
+            var module = TreasureModule;
+            if (module == null) return PlayerActionResult.Fail("The treasure pool is unavailable.", kind);
+
+            var pool = module.Pool;
+            var slots = new List<byte>();
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                foreach (var slot in pool.Snapshot())
+                {
+                    if (slot.Entry == TreasureEntryKind.None) slots.Add(slot.Slot);
+                }
+                if (slots.Count == 0) return PlayerActionResult.Warn("There is nothing in the treasure pool to " + verb + " on.", kind);
+            }
+            else
+            {
+                if (!byte.TryParse(args.Trim(), out byte index) || index >= TreasurePoolState.SlotCount)
+                {
+                    return PlayerActionResult.Warn($"Usage: /{verb} [slot 0-{TreasurePoolState.SlotCount - 1}]", kind);
+                }
+                var slot = pool.GetSlot(index);
+                if (slot == null) return PlayerActionResult.Warn($"Treasure pool slot {index} is empty.", kind);
+                if (slot.Entry != TreasureEntryKind.None)
+                {
+                    return PlayerActionResult.Warn($"You have already {(slot.Entry == TreasureEntryKind.Lot ? "cast lots" : "passed")} on slot {index}.", kind);
+                }
+                slots.Add(index);
+            }
+
+            try
+            {
+                foreach (byte s in slots)
+                {
+                    await (lot ? module.SendLotAsync(s) : module.SendPassAsync(s)).ConfigureAwait(false);
+                }
+                return PlayerActionResult.Info($"{(lot ? "Lot" : "Pass")} sent for {slots.Count} treasure pool item{(slots.Count == 1 ? "" : "s")}.", kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Treasure {verb} failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Treasure {verb} failed: {ex.Message}", kind);
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Marks a held key item as read (C2S 0x064), as retail does when an unseen key item is first viewed.
@@ -1490,6 +1548,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.TreasureLot:
+                    return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);
+
+                case ChatCommandResultKind.TreasurePass:
+                    return await TreasureAsync(cmd.Message ?? string.Empty, lot: false).ConfigureAwait(false);
 
                 case ChatCommandResultKind.Lockstyle:
                     return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

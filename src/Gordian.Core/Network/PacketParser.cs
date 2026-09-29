@@ -38,6 +38,8 @@ namespace Gordian.Core.Network
         private readonly ProgressionPacketModule _progressionModule;
         private readonly InventoryState _inventory;
         private readonly InventoryPacketModule _inventoryModule;
+        private readonly TreasurePoolState _treasure = new();
+        private readonly TreasurePacketModule _treasureModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
         private readonly Animation.ActionPlaybackQueue _actionPlayback;
@@ -106,6 +108,9 @@ namespace Gordian.Core.Network
             _inventoryModule = new InventoryPacketModule(_inventory, _localPlayer, _sendChunkCallback, LogPacket);
             _inventoryModule.Register(_dispatcher);
 
+            _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
+            _treasureModule.Register(_dispatcher);
+
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
             _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world);
@@ -126,6 +131,7 @@ namespace Gordian.Core.Network
             _actionService.ConfigModule = _configModule;
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
+            _actionService.TreasureModule = _treasureModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -200,6 +206,16 @@ namespace Gordian.Core.Network
         /// Gets the inventory, trade, shop, and bazaar packet handling module.
         /// </summary>
         public InventoryPacketModule InventoryModule => _inventoryModule;
+
+        /// <summary>
+        /// Gets the treasure pool: the 10 slots and the lots on them.
+        /// </summary>
+        public TreasurePoolState Treasure => _treasure;
+
+        /// <summary>
+        /// Gets the treasure pool packet handling module (lot and pass).
+        /// </summary>
+        public TreasurePacketModule TreasureModule => _treasureModule;
 
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.

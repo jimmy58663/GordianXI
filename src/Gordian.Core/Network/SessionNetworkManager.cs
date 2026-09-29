@@ -181,6 +181,16 @@ namespace Gordian.Core.Network
         public InventoryPacketModule InventoryModule => _parser.InventoryModule;
 
         /// <summary>
+        /// Gets the treasure pool: the 10 slots and the lots on them.
+        /// </summary>
+        public TreasurePoolState Treasure => _parser.Treasure;
+
+        /// <summary>
+        /// Gets the treasure pool packet handling module (lot and pass).
+        /// </summary>
+        public TreasurePacketModule TreasureModule => _parser.TreasureModule;
+
+        /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
         /// </summary>
         public CombatState Combat => _parser.Combat;
