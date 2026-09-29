@@ -209,6 +209,28 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void S2C_0x0CC_LinkshellMessage_DecodesRetailCapture()
+        {
+            // Retail /lsmes response captured with Windower (2026-09-28 23:05:04, UTC-7). The client printed
+            // "[1]< GordianXI: Tarudrake > Hello (2026, Sep. 28 23:04:46)". Payload = packet minus the 4-byte header.
+            byte[] packet = Convert.FromHexString(
+                "CC58C200700600004865" + "6C6C6F" + new string('0', 2 * (0x88 - 13)) +
+                "FE54BB6A546172756472616B650000000000000002000000" +
+                "84F4842413B28FF00000000000000000");
+            Assert.Equal(0xB0, packet.Length);
+
+            var ls = new S2C_0x0CC_LinkshellMessage(packet.AsSpan(4));
+
+            Assert.True(ls.IsValid);
+            Assert.Equal(LinkshellSlot.LS1, ls.Slot);
+            Assert.Equal("Hello", ls.GetMessage());
+            Assert.Equal("Tarudrake", ls.GetModifier());
+            Assert.Equal(2, ls.OpType);
+            Assert.Equal(new DateTimeOffset(2026, 9, 29, 6, 4, 46, TimeSpan.Zero), ls.UpdateDateTime);
+            Assert.Equal("GordianXI", ls.GetLinkshellName());
+        }
+
+        [Fact]
         public void LinkshellNameCodec_ReadsMsbFirstSixBitCharacters()
         {
             // "Kupo": K = 37, u = 21, p = 16, o = 15, then the all-ones terminator:
