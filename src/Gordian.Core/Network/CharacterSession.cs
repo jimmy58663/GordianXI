@@ -148,6 +148,14 @@ namespace Gordian.Core.Network
             {
                 if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY) ApplyCameraSettings();
             };
+            // A knockback in an action result slides the player (the server trusts the position it then reports), unless
+            // Anchor is on and the server allows it.
+            ActionPlayback.HitLanded += (target, reaction) =>
+            {
+                if (reaction.KnockbackLevel == 0 || target.ServerId != LocalPlayer.ServerId) return;
+                if (ActionService.Knockback.IsAnchored(ActionService.Profile)) return;
+                Locomotion.ApplyKnockback(new System.Numerics.Vector2(reaction.PushDirectionX, reaction.PushDirectionZ), reaction.KnockbackLevel);
+            };
             Locomotion.LocomotionUpdated += (pos, dir, speed) =>
             {
                 NetworkManager.NotifyLocomotionChanged(pos, dir, speed);
