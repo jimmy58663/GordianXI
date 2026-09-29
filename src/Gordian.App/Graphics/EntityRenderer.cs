@@ -86,8 +86,8 @@ namespace Gordian.App.Graphics
         public float TargetFlashAmount { get; set; }
 
         /// <summary>
-        /// Display-space point just above the current target's head, found while drawing it this frame (null when the
-        /// target was not drawn), where the target cursor is placed.
+        /// Display-space point over the current target where retail centres its name, found while drawing it this frame
+        /// (null when the target was not drawn); the target cursor's tip is placed there.
         /// </summary>
         public Vector3? TargetAnchor { get; private set; }
 
@@ -99,18 +99,26 @@ namespace Gordian.App.Graphics
 
         private readonly Dictionary<uint, ActorAnchor> _actorAnchors = new();
 
-        /// <summary>Yalms between the target's highest joint and the target cursor's tip.</summary>
+        /// <summary>
+        /// The skeleton reference that marks the overhead point: a straight offset up from the root joint, authored per
+        /// skeleton (Goblin 1.8, Island Rarab 1.7, Raven 2.8, Marine Dhalmel 6.05; Hume 2.0, Tarutaru 1.3, Galka 2.6
+        /// yalms). Retail centres the name there and draws the target cursor above the name (Windower screenshots of
+        /// Raven, Marine Dhalmel and Island Rarab, 2026-09-29): on the Dhalmel it is the top of the head, on the small
+        /// Rarab well above the body.
+        /// </summary>
+        private const int OverheadReference = 2;
+
+        /// <summary>Fallback for a skeleton without the overhead reference: yalms above its highest idle joint.</summary>
         private const float TargetAnchorClearance = 0.6f;
 
         /// <summary>
-        /// Height (yalms above the feet) of each model's highest joint over its idle loop, where the target cursor sits.
-        /// One fixed height per model, so the cursor stays still while the target animates (following the live pose,
-        /// a bird's wing beat bounced it). The bind pose will not do: flyers hover in their animations, and a Colibri's
-        /// bind pose tops out at 0.71 yalms against 2.11-2.29 while idling.
+        /// Height (yalms above the feet) of each model's overhead point, where the target cursor sits: one fixed height per
+        /// model, so the cursor stays still while the target animates (following the live pose, a bird's wing beat
+        /// bounced it).
         /// </summary>
         private readonly ConditionalWeakTable<EntityModel, StrongBox<float>> _cursorHeightByModel = new();
 
-        /// <summary>Poses sampled across the idle loop for <see cref="CursorHeight"/>.</summary>
+        /// <summary>Poses sampled across the idle loop for the fallback in <see cref="CursorHeight"/>.</summary>
         private const int CursorHeightSamples = 32;
 
         private sealed class GpuSubmesh : IDisposable
@@ -465,7 +473,7 @@ namespace Gordian.App.Graphics
                     UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
-                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, CursorHeight(entityModel) + TargetAnchorClearance, 0.0f);
+                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, CursorHeight(entityModel), 0.0f);
                 }
                 else if (isTarget)
                 {
@@ -500,14 +508,32 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// The height (yalms above the feet) of a model's highest joint over its idle loop (the bind pose when it has no
-        /// idle clip), cached per model.
+        /// The height (yalms above the feet) of a model's overhead point (<see cref="OverheadReference"/>), cached per
+        /// model. A skeleton without it falls back to its highest joint over the idle loop plus a clearance (the bind
+        /// pose will not do there: flyers hover in their animations, and a Colibri's bind pose tops out at 0.71 yalms
+        /// against 2.11-2.29 while idling).
         /// </summary>
         private float CursorHeight(EntityModel model)
         {
             if (_cursorHeightByModel.TryGetValue(model, out var cached)) return cached.Value;
 
             var skeleton = model.Skeleton!;
+            if (skeleton.References.Count > OverheadReference)
+            {
+                var reference = skeleton.References[OverheadReference];
+                var bind = SkeletonPoseEvaluator.ComputeBindPose(skeleton);
+                if (reference.Index < bind.Translations.Length)
+                {
+                    var point = bind.Translations[reference.Index] + Vector3.Transform(reference.Offset, bind.Rotations[reference.Index]);
+                    float height = -point.Y; // model space is Y-down (EntityRotMatrix flips it)
+                    if (height > 0.0f)
+                    {
+                        _cursorHeightByModel.AddOrUpdate(model, new StrongBox<float>(height));
+                        return height;
+                    }
+                }
+            }
+
             var idle = NpcStanceResolver.ResolveTargetClip(model, AnimationCategory.Idle);
             float top = 0.0f;
             int samples = idle != null ? CursorHeightSamples : 1;
@@ -516,8 +542,9 @@ namespace Gordian.App.Graphics
                 var pose = idle != null
                     ? SkeletonPoseEvaluator.EvaluatePose(skeleton, idle, i * idle.DurationSeconds / samples, loop: true)
                     : SkeletonPoseEvaluator.ComputeBindPose(skeleton);
-                foreach (var t in pose.Translations) top = Math.Max(top, -t.Y); // model space is Y-down (EntityRotMatrix flips it)
+                foreach (var t in pose.Translations) top = Math.Max(top, -t.Y);
             }
+            top += TargetAnchorClearance;
             _cursorHeightByModel.AddOrUpdate(model, new StrongBox<float>(top));
             return top;
         }
