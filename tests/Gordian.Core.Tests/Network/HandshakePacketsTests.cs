@@ -439,5 +439,53 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x0100, capturedGrap![0]);
             Assert.Equal("Cybin", capturedName);
         }
+
+        [Fact]
+        public void S2C_0x00A_LoginAck_ZoneInEvent_StartsThePlayersEventInTheNewZone()
+        {
+            var parser = new PacketParser(new SessionProfile(), (chunk, enc) => Task.CompletedTask);
+
+            // The RoV 1-1 zone-in cutscene as LandSandBoat sends it into Northern San d'Oria (zone 231).
+            byte[] payload = new byte[144];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x0001234); // UniqueNo (the player)
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x0400); // ActIndex
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(44, 2), 231); // ZoneNo
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(60, 2), 231); // EventNo
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(94, 2), 231); // EventNum
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(96, 2), 30035); // EventPara
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(98, 2), 0x0008); // EventMode
+
+            var ack = new Gordian.Core.Network.Packets.S2C_0x00A_LoginAck(payload);
+            Assert.True(ack.HasZoneInEvent);
+            Assert.Equal(231, ack.EventNo);
+            Assert.Equal(231, ack.EventNum);
+            Assert.Equal(30035, ack.EventPara);
+            Assert.Equal(0x0008, ack.EventMode);
+
+            ushort zoneAtStart = 0;
+            parser.Progression.EventStarted += _ => zoneAtStart = parser.World.CurrentZoneId;
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)payload.Length), payload);
+
+            var evt = parser.Progression.ActiveEvent;
+            Assert.NotNull(evt);
+            Assert.Equal(0x0001234u, evt!.UniqueNo);
+            Assert.Equal(0x0400, evt.ActIndex);
+            Assert.Equal(231, evt.EventNum);
+            Assert.Equal(30035, evt.EventPara);
+            Assert.Equal(0x0008, evt.Mode);
+            Assert.Equal(231, zoneAtStart);
+        }
+
+        [Fact]
+        public void S2C_0x00A_LoginAck_WithoutEvent_StartsNoEvent()
+        {
+            var parser = new PacketParser(new SessionProfile(), (chunk, enc) => Task.CompletedTask);
+            byte[] payload = new byte[144];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(44, 2), 231);
+
+            Assert.False(new Gordian.Core.Network.Packets.S2C_0x00A_LoginAck(payload).HasZoneInEvent);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)payload.Length), payload);
+            Assert.Null(parser.Progression.ActiveEvent);
+        }
     }
 }

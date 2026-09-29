@@ -50,7 +50,11 @@ namespace Gordian.Core.Events
         private ZoneDialogTable? _dialog;
         private CutsceneEventInfo? _pendingStart;
         private CutsceneEventInfo? _info;
-        private EventVm? _vm;
+        /// <summary>
+        /// The running event's VMs: one per actor block that runs it, sharing the work zone (<see cref="StartEvent"/>).
+        /// Empty when no event runs. Replaced as a whole, never mutated, so other threads can read it.
+        /// </summary>
+        private EventVm[] _vms = Array.Empty<EventVm>();
         private volatile bool _receivePending;
         private volatile bool _cancelRequested;
         private volatile bool _zoneChanged;
@@ -59,10 +63,19 @@ namespace Gordian.Core.Events
         private int _queryStart;
 
         /// <summary>Whether an event is running (the character is held and Confirm belongs to the dialog).</summary>
-        public bool IsActive => _vm != null;
+        public bool IsActive => _vms.Length > 0;
 
         /// <summary>Whether the running event shows a line the player must confirm.</summary>
-        public bool IsWaitingForConfirm => _vm?.IsWaitingForConfirm == true;
+        public bool IsWaitingForConfirm => AnyWaiting(_vms);
+
+        private static bool AnyWaiting(EventVm[] vms)
+        {
+            foreach (var vm in vms)
+            {
+                if (!vm.IsFinished && vm.IsWaitingForConfirm) return true;
+            }
+            return false;
+        }
 
         /// <summary>Raised when the dialog state changed (an event started or ended, a line waits).</summary>
         public event Action? Changed;
@@ -109,19 +122,24 @@ namespace Gordian.Core.Events
             if (_cancelRequested)
             {
                 _cancelRequested = false;
-                if (_vm != null)
+                if (_vms.Length > 0)
                 {
-                    GordianLog.Info("EVENT", $"Event {_vm.EventId} cancelled by the server.");
+                    GordianLog.Info("EVENT", $"Event {_vms[0].EventId} cancelled by the server.");
                     DropEvent();
                 }
             }
             if (start != null) StartEvent(start);
-            var vm = _vm;
-            if (vm == null) return;
-            bool wasWaiting = vm.IsWaitingForConfirm;
-            vm.Tick(elapsed);
-            if (vm.IsFinished) FinishEvent(vm);
-            else if (wasWaiting != vm.IsWaitingForConfirm) Changed?.Invoke();
+            var vms = _vms;
+            if (vms.Length == 0) return;
+            bool wasWaiting = AnyWaiting(vms);
+            bool finished = true;
+            foreach (var vm in vms)
+            {
+                if (!vm.IsFinished) vm.Tick(elapsed);
+                finished &= vm.IsFinished;
+            }
+            if (finished) FinishEvent(vms);
+            else if (wasWaiting != AnyWaiting(vms)) Changed?.Invoke();
         }
 
         /// <summary>
@@ -130,11 +148,14 @@ namespace Gordian.Core.Events
         /// </summary>
         public bool ProcessInput(InputState input)
         {
-            var vm = _vm;
-            if (vm == null) return false;
-            if (vm.IsWaitingForConfirm && (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)))
+            var vms = _vms;
+            if (vms.Length == 0) return false;
+            if (AnyWaiting(vms) && (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)))
             {
-                vm.Confirm();
+                foreach (var vm in vms)
+                {
+                    if (!vm.IsFinished && vm.IsWaitingForConfirm) vm.Confirm();
+                }
                 Changed?.Invoke();
             }
             return true;
@@ -142,9 +163,9 @@ namespace Gordian.Core.Events
 
         private void StartEvent(CutsceneEventInfo info)
         {
-            if (_vm != null)
+            if (_vms.Length > 0)
             {
-                GordianLog.Warning("EVENT", $"Event {info.EventPara} started while event {_vm.EventId} runs; the running one is dropped.");
+                GordianLog.Warning("EVENT", $"Event {info.EventPara} started while event {_vms[0].EventId} runs; the running one is dropped.");
                 DropEvent();
             }
             int zoneId = _world?.CurrentZoneId ?? 0;
@@ -156,35 +177,57 @@ namespace Gordian.Core.Events
             _zone.Selection = 0;
             _zone.EndParameter = 0;
 
-            EventBlock? block = null;
-            if (_script != null)
-            {
-                if (!_script.TryGetBlock(info.UniqueNo, out block) || block.IndexOf(info.EventPara) < 0 && block.IndexOf(EventBlock.AnyEventId) < 0)
-                {
-                    block = _script.FindEvent(info.EventPara);
-                    if (block == null && _script.TryGetBlock(EventBlock.PlayerActor, out var player)) block = player;
-                    if (block == null && _script.TryGetBlock(EventBlock.ZoneActor, out var zone)) block = zone;
-                }
-            }
-            if (block == null)
+            var vms = CreateVms(info);
+            if (vms.Count == 0)
             {
                 GordianLog.Warning("EVENT", $"No script for event {info.EventPara} of actor 0x{info.UniqueNo:X8} in zone {zoneId}; ending it.");
                 SendEnd(info, 0);
                 return;
             }
-
-            var vm = new EventVm(block, info.EventPara, _zone, this, info.UniqueNo, info.ActIndex);
-            if (vm.IsFinished)
-            {
-                GordianLog.Warning("EVENT", $"Block 0x{block.ActorId:X8} has no event {info.EventPara}; ending it.");
-                SendEnd(info, 0);
-                return;
-            }
-            GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} (block 0x{block.ActorId:X8}).");
-            _vm = vm;
+            var blocks = new List<string>(vms.Count);
+            foreach (var v in vms) blocks.Add($"0x{v.EntityServerId:X8}");
+            GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} (block {string.Join(", ", blocks)}).");
+            _vms = vms.ToArray();
             _receivePending = false;
             if (_player != null) _player.IsMovementLocked = true;
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The VMs an event runs on. An NPC's event runs on that NPC's block. An event the actor's block does not carry
+        /// (a zone-in or other player event: the player has no block of its own id) runs, as in retail, on every block
+        /// that carries its id at once, each as its own entity and all on the shared work zone, and ends when all have
+        /// ended (XiEvents "Event VM Functions.md", InitEvent2: every involved entity gets its own event object). One
+        /// of them directs the scene (for Northern San d'Oria's zone-in event 878, Anilla's block holds the prompt and
+        /// the dialog; the other seven blocks only toggle render flags). Without such a block the event falls back to
+        /// the player's, then the zone's, catch-all event.
+        /// </summary>
+        private List<EventVm> CreateVms(CutsceneEventInfo info)
+        {
+            var vms = new List<EventVm>();
+            var script = _script;
+            if (script == null) return vms;
+            if (script.TryGetBlock(info.UniqueNo, out var own) && (own.IndexOf(info.EventPara) >= 0 || own.IndexOf(EventBlock.AnyEventId) >= 0))
+            {
+                AddVm(vms, own, info.EventPara, info.UniqueNo, info.ActIndex);
+                return vms;
+            }
+            foreach (var block in script.Blocks)
+            {
+                if (block.IndexOf(info.EventPara) < 0) continue;
+                bool isPlayer = block.ActorId is EventBlock.PlayerActor or EventBlock.ZoneActor;
+                AddVm(vms, block, info.EventPara, isPlayer ? info.UniqueNo : block.ActorId,
+                      isPlayer ? info.ActIndex : (ushort)(block.ActorId & 0x3FF));
+            }
+            if (vms.Count == 0 && script.TryGetBlock(EventBlock.PlayerActor, out var player)) AddVm(vms, player, info.EventPara, info.UniqueNo, info.ActIndex);
+            if (vms.Count == 0 && script.TryGetBlock(EventBlock.ZoneActor, out var zone)) AddVm(vms, zone, info.EventPara, info.UniqueNo, info.ActIndex);
+            return vms;
+        }
+
+        private void AddVm(List<EventVm> vms, EventBlock block, ushort eventId, uint serverId, ushort index)
+        {
+            var vm = new EventVm(block, eventId, _zone, this, serverId, index);
+            if (!vm.IsFinished) vms.Add(vm);
         }
 
         /// <summary>Loads the zone's scripts and dialog table once per zone (called from the game tick and the network thread).</summary>
@@ -224,20 +267,26 @@ namespace Gordian.Core.Events
             return _dialog;
         }
 
-        private void FinishEvent(EventVm vm)
+        private void FinishEvent(EventVm[] vms)
         {
             var info = _info;
-            _vm = null;
+            _vms = Array.Empty<EventVm>();
             _info = null;
             CloseQueryMenu();
             if (_player != null) _player.IsMovementLocked = false;
-            if (info != null) SendEnd(info, vm.EndParameter);
+            // The end value is the shared work zone's, unless a query was cancelled in any of the VMs.
+            uint endParameter = vms[0].EndParameter;
+            foreach (var vm in vms)
+            {
+                if (vm.IsCancelled) endParameter = vm.EndParameter;
+            }
+            if (info != null) SendEnd(info, endParameter);
             Changed?.Invoke();
         }
 
         private void DropEvent()
         {
-            _vm = null;
+            _vms = Array.Empty<EventVm>();
             _info = null;
             CloseQueryMenu();
             if (_player != null) _player.IsMovementLocked = false;
