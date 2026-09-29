@@ -89,9 +89,13 @@ Missing packets, grouped by feature:
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
 - [#115](https://github.com/jimmy58663/GordianXI/issues/115): login-time data (mounts, Trust points, BLU/PUP).
 - [#116](https://github.com/jimmy58663/GordianXI/issues/116): undecoded fields in handled packets (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others).
+- [#119](https://github.com/jimmy58663/GordianXI/issues/119): search (cache) server client.
 - [#117](https://github.com/jimmy58663/GordianXI/issues/117): the post-MVP backlog, including the packets LSB doesn't implement.
 
-Lobby packets (XiPackets `lobby/`) are tracked in [#35](https://github.com/jimmy58663/GordianXI/issues/35). The `patch/` and `cache/` folders are POL update traffic, which this client doesn't need.
+The other XiPackets folders:
+- **`lobby/`** (TCP 54001): `LsbLoginClient` implements 0x26 login → 0x05/0x04, 0x20 character info, and 0x07 select → 0x0B. Get-character 0x1F, the world list 0x24/0x23, create 0x22/0x21, delete 0x14 and rename 0x28 are still missing ([#35](https://github.com/jimmy58663/GordianXI/issues/35)). Our 0x07 (64 bytes) and 0x26 (128) are shorter than retail (0x58 and 0x98). LSB's `view_session.cpp` doesn't check lengths, so they work on LSB.
+- **`cache/`** is the search server (LSB `src/search/`, TCP 54002). It serves AH item lists and price history, `/sea`, and party/linkshell member lists, and we have no client for it ([#119](https://github.com/jimmy58663/GordianXI/issues/119)). XiPackets has no per-packet pages for it yet.
+- **`patch/`** is the POL version-check and file-update protocol (8 packets). LSB has no patch server and xiloader bypasses it, so the client doesn't need it.
 
 To repeat the opcode diff, list `XiPackets/world/{client,server}`, then compare against `grep -rhoE "struct S2C_0x[0-9A-Fa-f]+" src/Gordian.Core` and the opcodes passed to `PacketHeader.Write(...)` or `(0xNNN | (size << 9))` under `src/Gordian.Core/Network`.
 
