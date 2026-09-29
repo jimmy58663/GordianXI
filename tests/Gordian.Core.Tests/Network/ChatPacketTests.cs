@@ -188,7 +188,7 @@ namespace Gordian.Core.Tests.Network
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(132, 4), 1700000000); // UpdateTime
             Encoding.ASCII.GetBytes("GuildMaster").CopyTo(payload.AsSpan(136));
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(152, 2), 1); // OpType (Post)
-            Encoding.ASCII.GetBytes("Dragonslayer").CopyTo(payload.AsSpan(156));
+            Assert.True(LinkshellNameCodec.TryEncode("Dragonslayer", payload.AsSpan(156, 16)));
 
             var ls = new S2C_0x0CC_LinkshellMessage(payload);
 
@@ -206,6 +206,47 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal("GuildMaster", ls.GetModifier());
             Assert.Equal(1, ls.OpType);
             Assert.Equal("Dragonslayer", ls.GetLinkshellName());
+        }
+
+        [Fact]
+        public void S2C_0x0CC_LinkshellMessage_DecodesRetailCapture()
+        {
+            // Retail /lsmes response captured with Windower (2026-09-28 23:05:04, UTC-7). The client printed
+            // "[1]< GordianXI: Tarudrake > Hello (2026, Sep. 28 23:04:46)". Payload = packet minus the 4-byte header.
+            byte[] packet = Convert.FromHexString(
+                "CC58C200700600004865" + "6C6C6F" + new string('0', 2 * (0x88 - 13)) +
+                "FE54BB6A546172756472616B650000000000000002000000" +
+                "84F4842413B28FF00000000000000000");
+            Assert.Equal(0xB0, packet.Length);
+
+            var ls = new S2C_0x0CC_LinkshellMessage(packet.AsSpan(4));
+
+            Assert.True(ls.IsValid);
+            Assert.Equal(LinkshellSlot.LS1, ls.Slot);
+            Assert.Equal("Hello", ls.GetMessage());
+            Assert.Equal("Tarudrake", ls.GetModifier());
+            Assert.Equal(2, ls.OpType);
+            Assert.Equal(new DateTimeOffset(2026, 9, 29, 6, 4, 46, TimeSpan.Zero), ls.UpdateDateTime);
+            Assert.Equal("GordianXI", ls.GetLinkshellName());
+        }
+
+        [Fact]
+        public void LinkshellNameCodec_ReadsMsbFirstSixBitCharacters()
+        {
+            // "Kupo": K = 37, u = 21, p = 16, o = 15, then the all-ones terminator:
+            // 100101 010101 010000 001111 111111 00
+            byte[] encoded = { 0x95, 0x54, 0x0F, 0xFC };
+            Assert.Equal("Kupo", LinkshellNameCodec.Decode(encoded));
+
+            Span<byte> packed = stackalloc byte[4];
+            Assert.True(LinkshellNameCodec.TryEncode("Kupo", packed));
+            Assert.Equal(encoded, packed.ToArray());
+
+            // 20 characters fill 120 of the 128 bits; digits and both cases survive.
+            byte[] full = new byte[16];
+            Assert.True(LinkshellNameCodec.TryEncode("Abcdefghij0123456789", full));
+            Assert.Equal("Abcdefghij0123456789", LinkshellNameCodec.Decode(full));
+            Assert.False(LinkshellNameCodec.TryEncode("Abcdefghij0123456789X", full));
         }
 
         [Fact]
@@ -469,7 +510,7 @@ namespace Gordian.Core.Tests.Network
             Encoding.ASCII.GetBytes("Welcome!").CopyTo(lsPayload.AsSpan(4));
             BinaryPrimitives.WriteUInt32LittleEndian(lsPayload.AsSpan(132, 4), 1600000000);
             Encoding.ASCII.GetBytes("Admin").CopyTo(lsPayload.AsSpan(136));
-            Encoding.ASCII.GetBytes("LSGroup").CopyTo(lsPayload.AsSpan(156));
+            Assert.True(LinkshellNameCodec.TryEncode("LSGroup", lsPayload.AsSpan(156, 16)));
 
             dispatcher.Dispatch(new PacketHeader(0x0CC, lsPayload.Length + 4, 4), lsPayload);
 

@@ -205,8 +205,8 @@ namespace Gordian.Core.Tests.Network
             byte[] payload = new byte[12];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x99887766);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 42);
-            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(6, 2), (short)SynthesisEffect.SynthesisSuccess);
-            payload[8] = 5;
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(6, 2), (short)SynthesisEffect.Fire);
+            payload[8] = (byte)SynthesisResult.HighQuality1;
             payload[9] = 1;
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(10, 2), 30);
 
@@ -215,8 +215,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(effect.IsValid);
             Assert.Equal(0x99887766u, effect.UniqueNo);
             Assert.Equal(42, effect.ActIndex);
-            Assert.Equal(SynthesisEffect.SynthesisSuccess, effect.EffectNum);
-            Assert.Equal(5, effect.Type);
+            Assert.Equal(SynthesisEffect.Fire, effect.EffectNum);
+            Assert.Equal(SynthesisResult.HighQuality1, effect.Result);
             Assert.Equal(1, effect.Status);
             Assert.Equal(30, effect.Timer);
         }

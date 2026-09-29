@@ -149,7 +149,7 @@ namespace Gordian.Core.Tests.World
             state.BuffsUpdated += () => buffsFired = true;
 
             // Simulate CliStatus
-            byte[] cliPayload = new byte[0x64];
+            byte[] cliPayload = new byte[0x6C];
             BinaryPrimitives.WriteInt32LittleEndian(cliPayload.AsSpan(0, 4), 1200); // HP
             BinaryPrimitives.WriteInt32LittleEndian(cliPayload.AsSpan(4, 4), 400);  // MP
             cliPayload[8] = (byte)JobId.Paladin;

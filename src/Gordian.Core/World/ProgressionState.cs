@@ -78,7 +78,6 @@ namespace Gordian.Core.World
 
         #region Merits & Job Points
 
-        public ushort TotalMeritPoints { get; private set; }
         private readonly Dictionary<ushort, (byte Next, byte Count)> _merits = new Dictionary<ushort, (byte, byte)>();
         private readonly Dictionary<(int JobNo, int Index), (int Next, int Level)> _jobPoints = new Dictionary<(int, int), (int, int)>();
 
@@ -87,7 +86,7 @@ namespace Gordian.Core.World
         #region Records of Eminence (RoE)
 
         private readonly Dictionary<ushort, uint> _activeRoeObjectives = new Dictionary<ushort, uint>();
-        private readonly byte[] _completedRoeBits = new byte[1024]; // 8192 records capacity
+        private readonly byte[] _completedRoeBits = new byte[S2C_0x112_RoeLog.ChunkSize * S2C_0x112_RoeLog.ChunkCount]; // 4096 records
 
         #endregion
 
@@ -365,11 +364,14 @@ namespace Gordian.Core.World
         {
             lock (_lock)
             {
-                TotalMeritPoints = merit.MeritCount;
-                for (int i = 0; i < 61; i++)
+                for (int i = 0; i < merit.EntryCount; i++)
                 {
                     var entry = merit.GetMeritEntry(i);
-                    if (entry.Index != 0 || entry.Count > 0)
+                    if (S2C_0x08C_Merit.IsRemoval(entry.Index))
+                    {
+                        _merits.Remove((ushort)(entry.Index - 1));
+                    }
+                    else
                     {
                         _merits[entry.Index] = (entry.Next, entry.Count);
                     }
@@ -434,7 +436,7 @@ namespace Gordian.Core.World
         {
             lock (_lock)
             {
-                int offset = logChunk.Offset;
+                int offset = logChunk.ByteOffset;
                 var data = logChunk.GetData();
                 if (offset + data.Length <= _completedRoeBits.Length)
                 {

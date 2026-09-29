@@ -395,7 +395,7 @@ namespace Gordian.Core.Network.Packets
                 entity.ClaimServerId = npcPacket.ClaimId;
             }
 
-            if (npcPacket.TryGetTransport(out string transportId, out uint legStart, out byte travel))
+            if (npcPacket.TryGetTransport(out string transportId, out uint legStart, out uint travel))
             {
                 double arrival = VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
                 if (!isNew && legStart != entity.TransportStartSeconds)
@@ -438,7 +438,7 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
-            if (npcPacket.HasName && (string.IsNullOrEmpty(entity.Name) || !isNew))
+            if ((npcPacket.HasName || npcPacket.HasName2) && (string.IsNullOrEmpty(entity.Name) || !isNew))
             {
                 // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
                 string name = npcPacket.GetName().Replace('_', ' ');
@@ -522,6 +522,11 @@ namespace Gordian.Core.Network.Packets
         {
             var vis = new S2C_0x077_EntityVis(payload);
             if (!vis.IsValid) return;
+            if (!vis.IsUniqueNoList)
+            {
+                GordianLog.Debug("ENTITY", $"Ignored visibility update with unhandled Flags {vis.Flags}.");
+                return;
+            }
 
             EntityVisibilityReceived?.Invoke(vis);
             GordianLog.Debug("ENTITY", $"Received visibility range update for {vis.Count} entities (Flags: {vis.Flags}).");

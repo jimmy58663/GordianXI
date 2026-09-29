@@ -451,11 +451,16 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x0E2 (GP_SERV_COMMAND_GROUP_LIST2): Secondary party member list structure.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0e2_group_list2.h).
+    /// The fixed fields end at payload 36, where <c>Name[16]</c> starts; the packet is sized to the name's length rather
+    /// than the full 16 bytes, so the name is read from whatever follows.
+    /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00E2)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0e2_group_list2.h).
     /// </summary>
     public readonly ref struct S2C_0x0E2_GroupList2
     {
         public const ushort PacketId = 0x0E2;
+        private const int NameOffset = 36;
+        private const int NameLength = 16;
 
         public uint UniqueNo { get; }
         public uint Hp { get; }
@@ -480,7 +485,7 @@ namespace Gordian.Core.Network.Packets
         public S2C_0x0E2_GroupList2(ReadOnlySpan<byte> payload)
         {
             _payload = payload;
-            if (payload.Length < 44)
+            if (payload.Length < NameOffset)
             {
                 UniqueNo = 0;
                 Hp = 0;
@@ -523,8 +528,8 @@ namespace Gordian.Core.Network.Packets
 
         public string GetName()
         {
-            if (!IsValid || _payload.Length < 52) return string.Empty;
-            var nameSlice = _payload.Slice(36, Math.Min(16, _payload.Length - 36));
+            if (!IsValid) return string.Empty;
+            var nameSlice = _payload.Slice(NameOffset, Math.Min(NameLength, _payload.Length - NameOffset));
             int nullIdx = nameSlice.IndexOf((byte)0);
             if (nullIdx >= 0) nameSlice = nameSlice.Slice(0, nullIdx);
             return Encoding.ASCII.GetString(nameSlice);

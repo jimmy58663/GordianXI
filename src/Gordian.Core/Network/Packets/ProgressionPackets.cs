@@ -528,7 +528,12 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x0FA (GP_SERV_COMMAND_MYROOM_OPERATION): Mog house furniture / plant interaction response.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0fa_myroom_operation.h).
+    /// The two references disagree on the layout. XiPackets (retail): u32 item no (0), u32 result (4), item index (8),
+    /// category (9). LSB's unpacked struct: u16 item no (0), u8 result (2), item index (6), category (7). In the XiPackets
+    /// layout payload 6-7 are the high half of the result and always 0, while LSB puts the item's slot and container
+    /// there, so the layout is chosen from them; when both are 0 the two layouts read the same values anyway.
+    /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00FA)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0fa_myroom_operation.h).
     /// </summary>
     public readonly ref struct S2C_0x0FA_MyRoomOperation
     {
@@ -542,7 +547,7 @@ namespace Gordian.Core.Network.Packets
 
         public S2C_0x0FA_MyRoomOperation(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 7)
+            if (payload.Length < 10)
             {
                 MyroomItemNo = 0;
                 Result = MyRoomOperationResult.Ok;
@@ -553,22 +558,42 @@ namespace Gordian.Core.Network.Packets
             }
 
             MyroomItemNo = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(0, 2));
-            Result = (MyRoomOperationResult)payload[2];
-            MyroomItemIndex = payload[5];
-            MyroomCategory = payload[6];
+            bool lsbLayout = payload[6] != 0 || payload[7] != 0;
+            if (lsbLayout)
+            {
+                Result = (MyRoomOperationResult)payload[2];
+                MyroomItemIndex = payload[6];
+                MyroomCategory = payload[7];
+            }
+            else
+            {
+                Result = (MyRoomOperationResult)payload[4];
+                MyroomItemIndex = payload[8];
+                MyroomCategory = payload[9];
+            }
             IsValid = true;
         }
     }
 
     /// <summary>
-    /// S2C 0x08C (GP_SERV_COMMAND_MERIT): Merit points and merit allocation entries.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x08c_merit.h).
+    /// S2C 0x08C (GP_SERV_COMMAND_MERIT): Merit allocation entries (up to 61 per packet).
+    /// <c>merit_count</c> is the number of entries in this packet, not a point total: a full menu refresh sends
+    /// several packets, and a raise or lower sends one entry. An entry whose index has its low bit set means that
+    /// merit (index - 1) was lowered back to 0 and should be removed.
+    /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x008C)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x08c_merit.h).
     /// </summary>
     public readonly ref struct S2C_0x08C_Merit
     {
         public const ushort PacketId = 0x08C;
+        public const int MaxEntries = 61;
+        private const int EntrySize = 4;
 
+        /// <summary>The <c>merit_count</c> field as sent: the number of entries in this packet.</summary>
         public ushort MeritCount { get; }
+
+        /// <summary><see cref="MeritCount"/>, clamped to 61 and to the entries the payload actually holds.</summary>
+        public int EntryCount { get; }
         public bool IsValid { get; }
 
         private readonly ReadOnlySpan<byte> _payload;
@@ -579,25 +604,29 @@ namespace Gordian.Core.Network.Packets
             if (payload.Length < 4)
             {
                 MeritCount = 0;
+                EntryCount = 0;
                 IsValid = false;
                 return;
             }
 
             MeritCount = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(0, 2));
+            EntryCount = Math.Min(Math.Min((int)MeritCount, MaxEntries), (payload.Length - 4) / EntrySize);
             IsValid = true;
         }
 
         public (ushort Index, byte Next, byte Count) GetMeritEntry(int index)
         {
-            if (!IsValid || index < 0) return (0, 0, 0);
-            int offset = 4 + (index * 4);
-            if (_payload.Length < offset + 4) return (0, 0, 0);
+            if (!IsValid || index < 0 || index >= EntryCount) return (0, 0, 0);
+            int offset = 4 + (index * EntrySize);
 
             ushort idx = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(offset, 2));
             byte next = _payload[offset + 2];
             byte count = _payload[offset + 3];
             return (idx, next, count);
         }
+
+        /// <summary>True when an entry's index has its low bit set: merit (index - 1) was lowered to 0.</summary>
+        public static bool IsRemoval(ushort index) => (index & 1) != 0;
     }
 
     /// <summary>
@@ -665,13 +694,22 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x112 (GP_SERV_COMMAND_ROE_LOG): Records of Eminence completed records log chunk.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x112_roe_log.h).
+    /// The server sends up to four chunks; <see cref="Offset"/> is the chunk index (0-3), which the client
+    /// multiplies by 128 to get the byte offset into the 512-byte completed-records bit table.
+    /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0112)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x112_roe_log.h).
     /// </summary>
     public readonly ref struct S2C_0x112_RoeLog
     {
         public const ushort PacketId = 0x112;
+        public const int ChunkSize = 128;
+        public const int ChunkCount = 4;
 
+        /// <summary>The chunk index (0-3) as sent, not a byte offset; see <see cref="ByteOffset"/>.</summary>
         public ushort Offset { get; }
+
+        /// <summary>Where this chunk's data goes in the completed-records bit table: <c>Offset * 128</c>.</summary>
+        public int ByteOffset => Offset * ChunkSize;
         public bool IsValid { get; }
 
         private readonly ReadOnlySpan<byte> _payload;
@@ -692,7 +730,7 @@ namespace Gordian.Core.Network.Packets
 
         public ReadOnlySpan<byte> GetData()
         {
-            return IsValid ? _payload.Slice(0, 128) : ReadOnlySpan<byte>.Empty;
+            return IsValid ? _payload.Slice(0, ChunkSize) : ReadOnlySpan<byte>.Empty;
         }
     }
 
