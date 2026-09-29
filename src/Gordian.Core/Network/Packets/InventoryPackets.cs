@@ -738,6 +738,10 @@ namespace Gordian.Core.Network.Packets
         public sbyte AucWorkIndex { get; }
         public sbyte Result { get; }
         public sbyte ResultStatus { get; }
+        /// <summary>The parcel's (sale slot's) status byte.</summary>
+        public byte ParcelStat { get; }
+        /// <summary>The inventory index of the item the parcel refers to.</summary>
+        public byte ParcelItemIndex { get; }
         public ushort ItemId { get; }
         public uint Price { get; }
         public uint Count { get; }
@@ -752,6 +756,8 @@ namespace Gordian.Core.Network.Packets
                 AucWorkIndex = 0;
                 Result = 0;
                 ResultStatus = 0;
+                ParcelStat = 0;
+                ParcelItemIndex = 0;
                 ItemId = 0;
                 Price = 0;
                 Count = 0;
@@ -768,6 +774,8 @@ namespace Gordian.Core.Network.Packets
             if (payload.Length >= 48)
             {
                 var parcel = payload.Slice(16);
+                ParcelStat = parcel[0];
+                ParcelItemIndex = parcel[2];
                 var nameBytes = parcel.Slice(4, 16);
                 int nullIdx = nameBytes.IndexOf((byte)0);
                 SellerName = nullIdx >= 0 ? Encoding.ASCII.GetString(nameBytes.Slice(0, nullIdx)) : Encoding.ASCII.GetString(nameBytes);
@@ -777,6 +785,8 @@ namespace Gordian.Core.Network.Packets
             }
             else
             {
+                ParcelStat = 0;
+                ParcelItemIndex = 0;
                 SellerName = string.Empty;
                 ItemId = 0;
                 Count = 0;
@@ -1318,18 +1328,26 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x117: Equipment set change result.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x117_equipset_res.h).
+    /// S2C 0x117: Equipment set change result. <see cref="GetItemChanged"/> lists the pieces the set tried to equip
+    /// and <see cref="GetItemEquipped"/> the pieces now worn; a slot where the two differ failed to equip.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x117_equipset_res.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0117).
     /// </summary>
     public readonly ref struct S2C_0x117_EquipsetRes
     {
         public const ushort PacketId = 0x117;
+        public const int SlotCount = 16;
+        private const int ChangedOffset = 4;
+        private const int EquippedOffset = ChangedOffset + SlotCount * 4;
 
         public byte Count { get; }
         public bool IsValid { get; }
 
+        private readonly ReadOnlySpan<byte> _payload;
+
         public S2C_0x117_EquipsetRes(ReadOnlySpan<byte> payload)
         {
+            _payload = payload;
             if (payload.Length < 4)
             {
                 Count = 0;
@@ -1339,6 +1357,21 @@ namespace Gordian.Core.Network.Packets
 
             Count = payload[0];
             IsValid = true;
+        }
+
+        /// <summary>Entry <paramref name="index"/> (0 to <see cref="Count"/> - 1) of the items the set changed.</summary>
+        public (byte ItemIndex, EquipSlotId EquipSlot, ContainerId Container) GetItemChanged(int index) =>
+            index < Count ? ReadEntry(ChangedOffset, index) : default;
+
+        /// <summary>What is worn in equipment slot entry <paramref name="index"/> (0-15) after the change.</summary>
+        public (byte ItemIndex, EquipSlotId EquipSlot, ContainerId Container) GetItemEquipped(int index) =>
+            ReadEntry(EquippedOffset, index);
+
+        private (byte, EquipSlotId, ContainerId) ReadEntry(int offset, int index)
+        {
+            int at = offset + index * 4;
+            if (!IsValid || index < 0 || index >= SlotCount || _payload.Length < at + 4) return default;
+            return (_payload[at], (EquipSlotId)_payload[at + 1], (ContainerId)_payload[at + 2]);
         }
     }
 

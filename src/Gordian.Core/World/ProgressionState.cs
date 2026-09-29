@@ -34,6 +34,12 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
+    /// A Mog House furniture or plant operation result (S2C 0x0FA): the furnishing's item id, what happened, and
+    /// where the item is held.
+    /// </summary>
+    public sealed record MyRoomOperationInfo(ushort ItemId, MyRoomOperationResult Result, byte ItemIndex, ContainerId Container);
+
+    /// <summary>
     /// Thread-safe active state container for character story progression, key items,
     /// missions, merits, job points, Records of Eminence, mog house, conquest, and minigames.
     /// </summary>
@@ -90,6 +96,9 @@ namespace Gordian.Core.World
         public bool IsInMogHouse { get; internal set; }
         public bool MogMenuPending { get; internal set; }
         public byte LastMyRoomResult { get; private set; }
+
+        /// <summary>The last furniture or plant operation result in the Mog House (S2C 0x0FA), or null.</summary>
+        public MyRoomOperationInfo? LastMyRoomOperation { get; private set; }
 
         #endregion
 
@@ -190,7 +199,14 @@ namespace Gordian.Core.World
             EventStarted?.Invoke(info);
         }
 
-        public void PostDialogMessage(DialogMessageInfo message) => DialogMessageReceived?.Invoke(message);
+        /// <summary>The last zone dialog message the server sent (S2C 0x036 / 0x02A), or null.</summary>
+        public DialogMessageInfo? LastDialogMessage { get; private set; }
+
+        public void PostDialogMessage(DialogMessageInfo message)
+        {
+            lock (_lock) LastDialogMessage = message;
+            DialogMessageReceived?.Invoke(message);
+        }
 
         public void AcknowledgeEventUpdate() => EventUpdateAcknowledged?.Invoke();
 
@@ -547,6 +563,12 @@ namespace Gordian.Core.World
             }
 
             UnityUpdated?.Invoke();
+        }
+
+        public void SetMyRoomOperation(MyRoomOperationInfo operation)
+        {
+            lock (_lock) LastMyRoomOperation = operation;
+            MogHouseUpdated?.Invoke();
         }
 
         public void SetMyRoomResult(byte result)

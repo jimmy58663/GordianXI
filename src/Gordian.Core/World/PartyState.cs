@@ -17,6 +17,12 @@ namespace Gordian.Core.World
         DateTime Timestamp
     );
 
+    /// <summary>A player asking to join the local player's party through the party request system (S2C 0x11D).</summary>
+    public sealed record PartyJoinRequest(uint ServerId, ushort TargetIndex, string Name, ushort Race, DateTime Timestamp);
+
+    /// <summary>Where an equipped linkshell item is held (S2C 0x0E0): its container and index in it.</summary>
+    public sealed record LinkshellItemLocation(byte ItemIndex, ContainerId Container);
+
     /// <summary>
     /// Represents an active Party Member in the player's current party or alliance.
     /// </summary>
@@ -132,6 +138,7 @@ namespace Gordian.Core.World
         }
 
         private readonly bool?[] _linkshellEquipped = new bool?[2];
+        private readonly LinkshellItemLocation?[] _linkshellItems = new LinkshellItemLocation?[2];
 
         /// <summary>
         /// Records whether linkshell slot 1 or 2 holds a linkshell: S2C 0x0E0 (Group Comlink) on equip and unequip,
@@ -141,6 +148,53 @@ namespace Gordian.Core.World
         {
             if (slot is not (1 or 2)) return;
             lock (_lock) _linkshellEquipped[slot - 1] = equipped;
+        }
+
+        /// <summary>
+        /// S2C 0x0E0 (Group Comlink): where the linkshell item in slot 1 or 2 is held. An item index of 0 means the
+        /// slot was unequipped, which clears the location.
+        /// </summary>
+        public void SetLinkshellItem(int slot, byte itemIndex, ContainerId container)
+        {
+            if (slot is not (1 or 2)) return;
+            lock (_lock)
+            {
+                _linkshellEquipped[slot - 1] = itemIndex != 0;
+                _linkshellItems[slot - 1] = itemIndex != 0 ? new LinkshellItemLocation(itemIndex, container) : null;
+            }
+        }
+
+        /// <summary>The container and index of the linkshell item in slot 1 or 2, or null when unknown or unequipped.</summary>
+        public LinkshellItemLocation? GetLinkshellItem(int slot)
+        {
+            if (slot is not (1 or 2)) return null;
+            lock (_lock) return _linkshellItems[slot - 1];
+        }
+
+        private readonly Dictionary<uint, PartyJoinRequest> _joinRequests = new Dictionary<uint, PartyJoinRequest>();
+
+        /// <summary>Raised when a player asks to join the party or withdraws the request (S2C 0x11D).</summary>
+        public event Action? JoinRequestsChanged;
+
+        /// <summary>
+        /// S2C 0x11D (Party Request): a player asked to join the local player's party (<paramref name="requesting"/>
+        /// true) or stopped asking.
+        /// </summary>
+        public void SetJoinRequest(PartyJoinRequest request, bool requesting)
+        {
+            lock (_lock)
+            {
+                if (requesting) _joinRequests[request.ServerId] = request;
+                else _joinRequests.Remove(request.ServerId);
+            }
+
+            JoinRequestsChanged?.Invoke();
+        }
+
+        /// <summary>The players currently asking to join the party, oldest first, copied under the state lock.</summary>
+        public PartyJoinRequest[] SnapshotJoinRequests()
+        {
+            lock (_lock) return _joinRequests.Values.OrderBy(r => r.Timestamp).ToArray();
         }
 
         /// <summary>Whether a linkshell is known to be equipped in slot 1 or 2 (false until the server has said so).</summary>
