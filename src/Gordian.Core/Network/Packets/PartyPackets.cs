@@ -402,6 +402,8 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Builds C2S 0x11C (GP_CLI_COMMAND_PARTY_REQUEST): Request to join player's party (/partyrequestcmd).
+        /// Size referenced from XiPackets (world/client), which gives 12 bytes, and LandSandBoat (c2s/0x11c), whose
+        /// struct adds <c>padding01</c> for 16; the 16-byte form is kept since LSB is the target server.
         /// </summary>
         public static byte[] BuildPartyRequest(uint targetServerId, ushort targetIndex, byte kind = 0, ushort sequenceId = 0)
         {

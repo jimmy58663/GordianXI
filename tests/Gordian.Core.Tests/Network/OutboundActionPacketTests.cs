@@ -83,6 +83,32 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public async Task CheckEquipset_SendsRemoveFlagAndEquipmentArray()
+        {
+            var equipment = new EquipsetRequestItem[16];
+            equipment[2] = new EquipsetRequestItem(true, false, ContainerId.Inventory, 7, 12345);
+
+            await _inventory.CheckEquipsetAsync(EquipSlotId.Head, new EquipsetRequestItem(false, true, ContainerId.Inventory, 0, 0), equipment);
+
+            byte[] p = SingleSent(0x052, 76);
+            Assert.Equal((byte)EquipSlotId.Head, p[4]);
+            Assert.Equal(0x02, p[8]); // RemoveItemFlg only
+            Assert.Equal(((byte)ContainerId.Inventory << 2) | 0x01, p[12 + (2 * 4)]);
+            Assert.Equal(7, p[12 + (2 * 4) + 1]);
+            Assert.Equal(12345, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(12 + (2 * 4) + 2)));
+            Assert.All(p.AsSpan(12, 8).ToArray(), b => Assert.Equal(0, b));
+        }
+
+        [Fact]
+        public async Task SetLockstyle_EchoSetsFlagsBitZero()
+        {
+            await _inventory.SetLockstyleAsync(LockstyleMode.Set, echo: true, new (byte, EquipSlotId, ContainerId, ushort)[] { (3, EquipSlotId.Head, ContainerId.Inventory, 12000) });
+
+            byte[] p = SingleSent(0x053, 136);
+            Assert.Equal(0x01, p[6]);
+        }
+
+        [Fact]
         public async Task SetLockstyle_Sends0x053WithModeAndItems()
         {
             await _inventory.SetLockstyleAsync(LockstyleMode.Set, (3, EquipSlotId.Head, ContainerId.Inventory, 12000));
@@ -148,6 +174,22 @@ namespace Gordian.Core.Tests.Network
             byte[] p = SingleSent(0x09B, 12);
             Assert.Equal(0x0Fu, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(4)));
             Assert.Equal((uint)ChocoboRaceReqKind.Toteboard, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8)));
+        }
+
+        [Fact]
+        public async Task UnityMenu_SendsBlockZeroThenBlockOne()
+        {
+            await _progressionModule.SendUnityMenuAsync();
+
+            Assert.Equal(2, _sent.Count);
+            for (uint block = 0; block < 2; block++)
+            {
+                byte[] p = _sent[(int)block];
+                Assert.True(PacketHeader.TryParse(p, out var header));
+                Assert.Equal(0x116, header.PacketId);
+                Assert.Equal(8, p.Length);
+                Assert.Equal(block, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(4)));
+            }
         }
 
         [Fact]

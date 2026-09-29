@@ -51,8 +51,10 @@ namespace Gordian.Core.Tests.Network
             uint ver = BinaryPrimitives.ReadUInt32LittleEndian(subPacket.AsSpan(80, 4));
             Assert.Equal(2026u, ver);
 
-            // 6. Platform: PC = 1
-            Assert.Equal(0x01, subPacket[84]);
+            // 6. Platform "WIN" and language English (1)
+            Assert.Equal("WIN", Encoding.ASCII.GetString(subPacket.AsSpan(84, 3)));
+            Assert.Equal(0, subPacket[87]);
+            Assert.Equal(1, BinaryPrimitives.ReadUInt16LittleEndian(subPacket.AsSpan(88, 2)));
 
             // 7. Checksum validation matching LandSandBoat map_networking.cpp:
             // checksum = sum of bytes from offset 8 (unknown01) to 91

@@ -591,7 +591,7 @@ namespace Gordian.Core.Network
                         CharacterName,
                         AccountName,
                         Ticket,
-                        clientVersion: 1,
+                        clientVersion: 0,
                         clientPacketSeq: _clientPacketIdSequence
                     );
 
@@ -1147,7 +1147,7 @@ namespace Gordian.Core.Network
                     CharacterName,
                     AccountName,
                     Ticket,
-                    clientVersion: 1,
+                    clientVersion: 0,
                     clientPacketSeq: _clientPacketIdSequence
                 );
 

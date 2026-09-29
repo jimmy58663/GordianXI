@@ -351,8 +351,8 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((ushort)CliActionId.CastMagic, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10, 2)));
             Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12, 4))); // SpellId
             Assert.Equal(10.5f, BinaryPrimitives.ReadSingleLittleEndian(buffer.AsSpan(16, 4))); // PosX
-            Assert.Equal(30.5f, BinaryPrimitives.ReadSingleLittleEndian(buffer.AsSpan(20, 4))); // PosZ
-            Assert.Equal(20.5f, BinaryPrimitives.ReadSingleLittleEndian(buffer.AsSpan(24, 4))); // PosY
+            Assert.Equal(20.5f, BinaryPrimitives.ReadSingleLittleEndian(buffer.AsSpan(20, 4))); // height (internal Y)
+            Assert.Equal(30.5f, BinaryPrimitives.ReadSingleLittleEndian(buffer.AsSpan(24, 4))); // north (internal Z)
 
             // 3. Emote request (0x05D)
             len = CombatPacketBuilder.BuildEmoteRequest(buffer, 12, 0x12345678, 42, EmoteId.Bow);

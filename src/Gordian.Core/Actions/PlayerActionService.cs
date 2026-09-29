@@ -587,7 +587,7 @@ namespace Gordian.Core.Actions
             }
         }
 
-        public async Task<PlayerActionResult> CastMagicAsync(ushort spellId, uint targetId = 0, ushort targetIndex = 0, Vector3 targetPos = default)
+        public async Task<PlayerActionResult> CastMagicAsync(ushort spellId, uint targetId = 0, ushort targetIndex = 0, Vector3 targetOffset = default)
         {
             var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
             if (resolvedId == 0)
@@ -599,7 +599,7 @@ namespace Gordian.Core.Actions
 
             try
             {
-                await _combatModule.RequestCastMagicAsync(resolvedId, resolvedIdx, spellId, targetPos).ConfigureAwait(false);
+                await _combatModule.RequestCastMagicAsync(resolvedId, resolvedIdx, spellId, targetOffset).ConfigureAwait(false);
                 return PlayerActionResult.Ok($"Casting spell #{spellId} on {resolvedName}.", ChatCommandResultKind.CombatCast);
             }
             catch (Exception ex)

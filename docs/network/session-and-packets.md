@@ -86,7 +86,7 @@ Fixed since the audit:
 - [#101](https://github.com/jimmy58663/GordianXI/issues/101): `0x05B`/`0x065` modes 3 (`PlaceAndDeletePop`) and 6 (`PlaceAndDeleteMaterialize`) place another entity and then remove it from `WorldState` (the pop effect is not played yet). For the local player they only place it. Mode 7 (`OpenIndoor`) places the entity; the indoor area it opens for the local player is not modelled. LSB defines these modes but never sends them, so only unit tests cover them.
 
 Wrong today (bugs):
-- [#102](https://github.com/jimmy58663/GordianXI/issues/102): C2S corrections. `0x116` block index, `0x01A` ground-target axes, `0x00A` login fields.
+- [#102](https://github.com/jimmy58663/GordianXI/issues/102): C2S corrections. `0x116` block index, `0x01A` ground-target axes, `0x00A` login fields, `0x052` (`RemoveItemFlg`, `Equipment[16]`) and `0x053` (echo flag) are fixed, and `0x11C` and `0x02B` carry comments citing both sources.
 - The Auction House can't sell: `0x04E` AskCommit/LotIn are missing, and `AuctionCommand.Open` isn't a client command. Noted on [#90](https://github.com/jimmy58663/GordianXI/issues/90).
 
 Missing packets, grouped by feature:

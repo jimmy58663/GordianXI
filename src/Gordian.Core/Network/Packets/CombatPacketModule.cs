@@ -221,11 +221,11 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
         }
 
-        public async Task RequestCastMagicAsync(uint targetId, ushort targetIndex, ushort spellId, Vector3 targetPos = default)
+        public async Task RequestCastMagicAsync(uint targetId, ushort targetIndex, ushort spellId, Vector3 targetOffset = default)
         {
             byte[] buffer = new byte[28];
             ushort seq = ++_sequenceNumber;
-            int length = CombatPacketBuilder.BuildCastMagicRequest(buffer, seq, targetId, targetIndex, spellId, targetPos);
+            int length = CombatPacketBuilder.BuildCastMagicRequest(buffer, seq, targetId, targetIndex, spellId, targetOffset);
 
             _combatState.StartCasting(spellId);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
