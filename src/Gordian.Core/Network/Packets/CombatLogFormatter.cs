@@ -163,6 +163,7 @@ namespace Gordian.Core.Network.Packets
                 18 => "Unable to cast spells at this time.",
                 19 => $"{caster} calls for help!",
                 20 => $"The {target} falls to the ground.",
+                22 => "You cannot call for help at this time.",
                 24 => $"{target} recovers {record.Param} HP.",
                 28 => $"{caster} uses item.",
                 29 => $"{caster} is paralyzed.",

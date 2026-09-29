@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Gordian.Core.Animation;
@@ -100,6 +101,17 @@ namespace Gordian.App.Graphics
 
         /// <summary>Yalms between the target's highest joint and the target cursor's tip.</summary>
         private const float TargetAnchorClearance = 0.6f;
+
+        /// <summary>
+        /// Height (yalms above the feet) of each model's highest joint over its idle loop, where the target cursor sits.
+        /// One fixed height per model, so the cursor stays still while the target animates (following the live pose,
+        /// a bird's wing beat bounced it). The bind pose will not do: flyers hover in their animations, and a Colibri's
+        /// bind pose tops out at 0.71 yalms against 2.11-2.29 while idling.
+        /// </summary>
+        private readonly ConditionalWeakTable<EntityModel, StrongBox<float>> _cursorHeightByModel = new();
+
+        /// <summary>Poses sampled across the idle loop for <see cref="CursorHeight"/>.</summary>
+        private const int CursorHeightSamples = 32;
 
         private sealed class GpuSubmesh : IDisposable
         {
@@ -450,10 +462,10 @@ namespace Gordian.App.Graphics
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
-                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, top + TargetAnchorClearance, 0.0f);
+                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, CursorHeight(entityModel) + TargetAnchorClearance, 0.0f);
                 }
                 else if (isTarget)
                 {
@@ -488,9 +500,30 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Uploads an entity's current pose and returns the height (yalms above its feet) of its highest joint.
+        /// The height (yalms above the feet) of a model's highest joint over its idle loop (the bind pose when it has no
+        /// idle clip), cached per model.
         /// </summary>
-        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        private float CursorHeight(EntityModel model)
+        {
+            if (_cursorHeightByModel.TryGetValue(model, out var cached)) return cached.Value;
+
+            var skeleton = model.Skeleton!;
+            var idle = NpcStanceResolver.ResolveTargetClip(model, AnimationCategory.Idle);
+            float top = 0.0f;
+            int samples = idle != null ? CursorHeightSamples : 1;
+            for (int i = 0; i < samples; i++)
+            {
+                var pose = idle != null
+                    ? SkeletonPoseEvaluator.EvaluatePose(skeleton, idle, i * idle.DurationSeconds / samples, loop: true)
+                    : SkeletonPoseEvaluator.ComputeBindPose(skeleton);
+                foreach (var t in pose.Translations) top = Math.Max(top, -t.Y); // model space is Y-down (EntityRotMatrix flips it)
+            }
+            _cursorHeightByModel.AddOrUpdate(model, new StrongBox<float>(top));
+            return top;
+        }
+
+        /// <summary>Uploads an entity's current pose.</summary>
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
         {
             bool loop = animState.LoopsCurrentClip;
             var overlay = animState.Overlay;
@@ -524,13 +557,11 @@ namespace Gordian.App.Graphics
                 count = ZoneShaders.MaxPaletteJoints;
             }
 
-            float top = 0.0f;
             for (int i = 0; i < count; i++)
             {
                 var r = pose.Rotations[i];
                 _paletteScratch[i] = new Vector4(r.X, r.Y, r.Z, r.W);
                 var t = pose.Translations[i];
-                top = Math.Max(top, -t.Y); // model space is Y-down (EntityRotMatrix flips it)
                 _paletteScratch[ZoneShaders.MaxPaletteJoints + i] = new Vector4(t.X, t.Y, t.Z, 0f);
                 var s = i < pose.Scales.Length ? pose.Scales[i] : Vector3.One;
                 _paletteScratch[(ZoneShaders.MaxPaletteJoints * 2) + i] = new Vector4(s.X, s.Y, s.Z, 1f);
@@ -543,7 +574,6 @@ namespace Gordian.App.Graphics
             }
 
             cl.UpdateBuffer(buffer, 0, _paletteScratch);
-            return top;
         }
 
         /// <summary>
