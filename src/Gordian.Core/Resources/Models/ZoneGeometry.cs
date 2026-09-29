@@ -116,6 +116,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public List<Gordian.Core.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();
 
+        /// <summary>
+        /// For an actor's effect DAT (<c>actorEffects</c> parse), its Section 0x07 routines by name, each with the effect
+        /// layers it starts; the client plays them on the actor (e.g. the Home Point's <c>bind</c>).
+        /// </summary>
+        public List<Gordian.Core.Graphics.WeatherRoutineVariant> ActorRoutines { get; } = new();
+
         public int TotalVertices
         {
             get

@@ -86,7 +86,20 @@ namespace Gordian.App.Graphics
         private readonly List<GpuSubmesh> _zoneSubmeshes = new();
         private readonly List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
         private readonly List<GpuWeatherSkySubmesh> _effectSubmeshes = new();
-        private readonly List<(GpuWeatherSkySubmesh Mesh, float Distance)> _effectDrawList = new();
+        private readonly List<EffectDraw> _effectDrawList = new();
+
+        // Actor effects (model-embedded generators, e.g. the Home Point crystal): GPU meshes per model effect set, kept
+        // across zones, and one running instance per spawned actor, dropped on zone change or despawn.
+        private readonly Dictionary<ActorEffectSet, Dictionary<WeatherSkyLayer, List<GpuWeatherSkySubmesh>>> _actorEffectMeshes = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<uint, ActorEffectInstance> _actorEffects = new();
+        private readonly HashSet<uint> _liveEffectActors = new();
+        private readonly List<uint> _staleEffectActors = new();
+
+        /// <summary>
+        /// One entry of the zone effect pass: a generator mesh with its emitter (null for a static layer) and, for an actor
+        /// effect, the transform from the zone-effect display frame to the world (the actor's placement and joint).
+        /// </summary>
+        private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor);
         private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private bool _emittersWarm;
         private ResourceLayout _lightLayout = null!;
@@ -249,6 +262,11 @@ namespace Gordian.App.Graphics
             public string TextureName { get; init; } = string.Empty;
             public WeatherSkyLayer Layer { get; init; } = null!;
             public int CardIndex { get; init; } = -1;
+
+            /// <summary>
+            /// Textures of an actor effect's model DAT; null for zone layers, which sample the zone's textures.
+            /// </summary>
+            public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
 
             /// <summary>
             /// Largest vertex distance from the mesh origin, for culling scaled particle draws.
@@ -583,6 +601,14 @@ namespace Gordian.App.Graphics
         {
             ClearZoneSubmeshes();
             ClearWeatherSkySubmeshes();
+            foreach (var meshes in _actorEffectMeshes.Values)
+            {
+                foreach (var list in meshes.Values)
+                {
+                    foreach (var mesh in list) mesh.Dispose();
+                }
+            }
+            _actorEffectMeshes.Clear();
             LoadedZone = zone;
             CreateSubEnvironmentScenes(zone);
             _entityRenderer?.ResetEnvironmentProbes();
@@ -724,7 +750,7 @@ namespace Gordian.App.Graphics
         /// Uploads a Section 0x05 generator layer's meshes (sky layer or world effect), one GPU submesh with its own
         /// uniform buffer per mesh group. Returns the number of vertices streamed.
         /// </summary>
-        private int UploadGeneratorLayer(WeatherSkyLayer layer, List<GpuWeatherSkySubmesh> target)
+        private int UploadGeneratorLayer(WeatherSkyLayer layer, List<GpuWeatherSkySubmesh> target, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
         {
             var factory = _gd.ResourceFactory;
             int vertCount = 0;
@@ -771,6 +797,7 @@ namespace Gordian.App.Graphics
                     TextureName = group.TextureName,
                     Layer = layer,
                     CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
+                    Textures = textures,
                     BoundingRadius = MathF.Sqrt(radiusSquared),
                     VertexBuffer = vb,
                     IndexBuffer = ib,
@@ -1024,6 +1051,7 @@ namespace Gordian.App.Graphics
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;
             }
+            UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
 
             // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
@@ -1089,7 +1117,7 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && _effectSubmeshes.Count > 0)
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1106,8 +1134,9 @@ namespace Gordian.App.Graphics
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
                         : Vector3.Distance(camera.Position, effectMesh.BasePosition);
-                    _effectDrawList.Add((effectMesh, sortDistance));
+                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, _emitters.GetValueOrDefault(effectMesh.Layer), null));
                 }
+                AddActorEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
@@ -1115,11 +1144,11 @@ namespace Gordian.App.Graphics
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor) in _effectDrawList)
                 {
-                    if (_emitters.TryGetValue(effectMesh.Layer, out var emitter))
+                    if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, sceneUniform, ref currentEffectPipeline);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, sceneUniform, ref currentEffectPipeline, anchor);
                         visible++;
                     }
                     else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, sceneUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
@@ -1443,12 +1472,18 @@ namespace Gordian.App.Graphics
         /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
         /// Returns the number of draw calls issued.
         /// </summary>
-        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline)
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null)
         {
             var layer = skyMesh.Layer;
             int drawn = 0;
             var billboard = emitter.Template.Definition.Setup?.BillBoardType ?? ParticleBillBoardType.None;
             var frustum = camera.Frustum;
+            // An actor effect's particles live in the actor's frame: the eye is taken into it for Camera billboards, and
+            // the frame is applied after each particle's own transform (after only its position for XYZ / XZ billboards,
+            // which face the camera in world space).
+            Vector3 eye = camera.Position;
+            if (anchor is { } toWorld && Matrix4x4.Invert(toWorld, out var fromWorld)) eye = Vector3.Transform(camera.Position, fromWorld);
+            bool worldFacing = billboard is ParticleBillBoardType.XYZ or ParticleBillBoardType.XZ;
             foreach (var particle in emitter.Particles)
             {
                 if (particle.IsExpired || particle.IsOcclusionProbe) continue;
@@ -1480,7 +1515,7 @@ namespace Gordian.App.Graphics
                 {
                     ParticleBillBoardType.Movement when particle.SubOffsets == null => particle.LastMovement,
                     ParticleBillBoardType.MovementHorizontal when particle.SubOffsets == null => particle.LastMovement with { Y = 0.0f },
-                    ParticleBillBoardType.Camera => ToDisplay(camera.Position) - particle.WorldPosition,
+                    ParticleBillBoardType.Camera => ToDisplay(eye) - particle.WorldPosition,
                     _ => null
                 };
                 if (direction is { } towards) local *= ToDisplayRotation(ZoneParticleEmitter.CreateDirectionOrientation(towards));
@@ -1494,8 +1529,14 @@ namespace Gordian.App.Graphics
                 {
                     // Sub-particle offsets are raw DAT-space world translations.
                     Vector3 center = subOffsets == null ? position : position + ToDisplay(subOffsets[i]);
+                    Matrix4x4 world = oriented * Matrix4x4.CreateTranslation(center);
+                    if (anchor is { } actorFrame)
+                    {
+                        center = Vector3.Transform(center, actorFrame);
+                        world = worldFacing ? oriented * Matrix4x4.CreateTranslation(center) : world * actorFrame;
+                    }
                     if (!frustum.IntersectsSphere(center, radius)) continue;
-                    if (SubmitGeneratorDraw(skyMesh, oriented * Matrix4x4.CreateTranslation(center), particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
+                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
                     {
                         drawn++;
                     }
@@ -1568,7 +1609,7 @@ namespace Gordian.App.Graphics
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
-                : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, _activeDecodedTextures);
+                : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, skyMesh.Textures ?? _activeDecodedTextures);
 
             if (layer.IsLensFlare)
             {
@@ -1586,6 +1627,93 @@ namespace Gordian.App.Graphics
         }
 
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
+
+        /// <summary>
+        /// The zone-effect display frame (-x, -y, z of raw DAT space), in which particle draws are built.
+        /// </summary>
+        private static readonly Matrix4x4 DisplayFlip = Matrix4x4.CreateScale(-1.0f, -1.0f, 1.0f);
+
+        /// <summary>
+        /// Runs the effects every spawned NPC or monster carries in its model DAT (e.g. the Home Point crystal): an
+        /// instance per actor, simulated in the actor's model space with the camera taken into it. Actors that despawned
+        /// or left the entity list drop their instance.
+        /// </summary>
+        private void UpdateActorEffects(ViewportCamera camera, ZoneEnvironmentSettings environment, IEnumerable<WorldEntity>? entities, ResourceManager? resourceManager, float deltaSeconds)
+        {
+            _liveEffectActors.Clear();
+            if (EnableZoneEffects && entities != null && resourceManager != null && _entityRenderer != null)
+            {
+                float frames = Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f;
+                float dayFraction = environment.TimeOfDayHours / 24.0f;
+                Vector3 daylight = StrongestLight(environment);
+                int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
+                int moonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                foreach (var entity in entities)
+                {
+                    uint modelId = entity.Appearance.ModelId;
+                    if (!entity.IsSpawned || modelId == 0 || !_entityRenderer.ActorAnchors.TryGetValue(entity.ServerId, out var anchor)) continue;
+                    var effects = resourceManager.GetActorEffects(modelId);
+                    if (effects == null) continue;
+
+                    if (!_actorEffects.TryGetValue(entity.ServerId, out var instance) || !ReferenceEquals(instance.Effects, effects))
+                    {
+                        instance = new ActorEffectInstance(effects, unchecked((int)entity.ServerId));
+                        _actorEffects[entity.ServerId] = instance;
+                        UploadActorEffectMeshes(effects);
+                    }
+                    _liveEffectActors.Add(entity.ServerId);
+
+                    if (!Matrix4x4.Invert(anchor.ModelToWorld, out var worldToModel)) continue;
+                    var frame = new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToModel), dayFraction, daylight,
+                        Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToModel)), dayOfWeek, moonPhase);
+                    instance.Update(frames, frame);
+                }
+            }
+
+            _staleEffectActors.Clear();
+            foreach (uint serverId in _actorEffects.Keys)
+            {
+                if (!_liveEffectActors.Contains(serverId)) _staleEffectActors.Add(serverId);
+            }
+            foreach (uint serverId in _staleEffectActors) _actorEffects.Remove(serverId);
+        }
+
+        private void UploadActorEffectMeshes(ActorEffectSet effects)
+        {
+            if (_actorEffectMeshes.ContainsKey(effects)) return;
+            var byLayer = new Dictionary<WeatherSkyLayer, List<GpuWeatherSkySubmesh>>(ReferenceEqualityComparer.Instance);
+            foreach (var layer in effects.Layers)
+            {
+                var meshes = new List<GpuWeatherSkySubmesh>();
+                UploadGeneratorLayer(layer, meshes, effects.Textures);
+                byLayer[layer] = meshes;
+            }
+            _actorEffectMeshes[effects] = byLayer;
+        }
+
+        /// <summary>
+        /// Queues every live actor-effect particle layer for the effect pass, each with its actor's frame: the zone-effect
+        /// display frame taken back to model space, moved to the generator's joint reference, then placed by the actor.
+        /// </summary>
+        private void AddActorEffectDraws(ViewportCamera camera)
+        {
+            if (_entityRenderer == null) return;
+            foreach (var (serverId, instance) in _actorEffects)
+            {
+                if (!_entityRenderer.ActorAnchors.TryGetValue(serverId, out var anchor) ||
+                    !_actorEffectMeshes.TryGetValue(instance.Effects, out var byLayer)) continue;
+                float distance = Vector3.Distance(camera.Position, anchor.ModelToWorld.Translation);
+                var pose = anchor.Pose;
+                foreach (var (layer, emitter) in instance.Emitters)
+                {
+                    if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                    Vector3 joint = ActorEffectInstance.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
+                        ActorEffectInstance.GetJointReference(emitter.Template.Definition));
+                    Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
+                    foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
+                }
+            }
+        }
 
         /// <summary>
         /// Advances every zone emitter on the 60 Hz effect clock; the first frame after a zone load pre-warms them so the
@@ -1967,6 +2095,7 @@ namespace Gordian.App.Graphics
             _emitters.Clear();
             _emittersByTemplate.Clear();
             _weatherRoutines = null;
+            _actorEffects.Clear();
         }
 
         public void Dispose()

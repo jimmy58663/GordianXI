@@ -5,12 +5,13 @@ using System.Collections.Generic;
 namespace Gordian.Core.Graphics
 {
     /// <summary>
-    /// One generator start in a weather routine: the generator, when in the routine it starts, and how long it emits.
+    /// One generator start in a routine: the generator, when in the routine it starts, and how long it emits.
     /// </summary>
     public readonly record struct WeatherRoutineSpawn(ZoneEmitterTemplate Template, int StartFrame, int Duration);
 
     /// <summary>
-    /// One routine (Section 0x07) of a weather routine group, e.g. a single lightning-strike variant.
+    /// One routine (Section 0x07) with the emitters it starts: a weather routine group's variant (e.g. a single
+    /// lightning strike), or a routine the client plays on an actor (<see cref="ActorEffectSet"/>).
     /// </summary>
     public sealed record WeatherRoutineVariant(string DatId, int TotalFrames, IReadOnlyList<WeatherRoutineSpawn> Spawns);
 

@@ -255,7 +255,8 @@ namespace Gordian.Core.Resources
             ReadOnlySpan<byte> table1 = default,
             ReadOnlySpan<byte> table2 = default,
             Dictionary<string, DecodedTexture>? outTextures = null,
-            SharedEffectResources? sharedEffects = null)
+            SharedEffectResources? sharedEffects = null,
+            bool actorEffects = false)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -875,6 +876,8 @@ namespace Gordian.Core.Resources
             // Auto-running emitters in a weather directory (rain, snow, splashes, lightning bolts) run while their weather
             // is active, including camera-following and camera-anchored ones; the client starts the rest (lightning
             // strike routines, actor effects) itself.
+            // With actorEffects (a model DAT, see ActorEffectLoader) every actor-attached generator becomes an emitter that
+            // each actor runs for itself: auto-running ones idle, the rest wait for a routine played on the actor.
             // Generator semantics referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
             // ui/js/particle/runtime.js, ui/js/particle/system.js registerZoneEffects and ops/initializers.js, after xim).
             var layerDirectories = new Dictionary<WeatherSkyLayer, string?>(ReferenceEqualityComparer.Instance);
@@ -884,10 +887,12 @@ namespace Gordian.Core.Resources
                 if (setup == null) continue;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) continue;
-                if (gen.AttachType != ParticleAttachType.None || skyGenerators.Contains(gen)) continue;
+                if (skyGenerators.Contains(gen)) continue;
+                if (actorEffects ? gen.AttachType is ParticleAttachType.Sun or ParticleAttachType.Moon : gen.AttachType != ParticleAttachType.None) continue;
                 bool isWeather = !string.IsNullOrEmpty(genWeather);
-                // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle).
-                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite;
+                // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle);
+                // an actor's generators always do, so each actor runs its own instance.
+                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || actorEffects;
                 // Camera-following generators are weather emitters; the persistent ones are the sky layers above.
                 if (setup.FollowCamera && (!isWeather || setup.MaxLifeSpan == 0)) continue;
 
@@ -895,7 +900,8 @@ namespace Gordian.Core.Resources
                 // routine (its schedule), or a short weather routine the client plays at random (lightning strikes).
                 List<EffectRoutineSpawn>? schedule = null;
                 int scheduleLoop = 0;
-                if (isEmitter && !gen.AutoRun)
+                // An actor's non-auto-running generators wait for the client to play one of its routines on the actor.
+                if (isEmitter && !gen.AutoRun && !actorEffects)
                 {
                     bool sporadic = false;
                     foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
@@ -977,11 +983,29 @@ namespace Gordian.Core.Resources
                 layerDirectories[light] = parentDir;
             }
 
+            // An actor's routines (e.g. the Home Point's `bind`) are played by name on the actor; each start resolves to the
+            // emitter layer of the same generator in the routine's directory.
+            if (actorEffects)
+            {
+                foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
+                {
+                    var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
+                    foreach (var spawn in routine.Spawns)
+                    {
+                        var layer = zone.EffectLayers.FirstOrDefault(l =>
+                            l.Emitter != null && string.Equals(l.Name, spawn.GeneratorId, StringComparison.OrdinalIgnoreCase) &&
+                            layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routineDir, StringComparison.OrdinalIgnoreCase));
+                        if (layer != null) spawns.Add(new Gordian.Core.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
+                    }
+                    zone.ActorRoutines.Add(new Gordian.Core.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
+                }
+            }
+
             // Short weather routines (lightning strikes) become groups the renderer plays one random routine at a time.
             var sporadicGroups = new Dictionary<(string Weather, string? Dir), Gordian.Core.Graphics.WeatherRoutineGroup>();
             foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
             {
-                if (routineWeather == null || !IsSporadicWeatherRoutine(routineWeather, routine)) continue;
+                if (actorEffects || routineWeather == null || !IsSporadicWeatherRoutine(routineWeather, routine)) continue;
                 var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
                 foreach (var spawn in routine.Spawns)
                 {

@@ -25,4 +25,4 @@
 
 ## Closed questions
 
-- Closed: point lights on entities (not needed). Repeat-expiration (`0x05`) generators do not accumulate: all 6,085 in the zone DATs are continuous singletons. Actor-attached weather effects (e.g. `weat/clod/tobi` birds) moved to Phase 5C model-embedded effect routines.
+- Closed: point lights on entities (not needed). Repeat-expiration (`0x05`) generators do not accumulate: all 6,085 in the zone DATs are continuous singletons. Actor-attached weather effects (e.g. `weat/clod/tobi` birds) moved to Phase 5C model-embedded effect routines. Model DATs' own generators run on their actors through the same emitters (see [entities-and-animation.md](../world/entities-and-animation.md), #9).
