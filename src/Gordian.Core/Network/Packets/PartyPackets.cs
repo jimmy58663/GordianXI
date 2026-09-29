@@ -6,13 +6,13 @@ using System.Text;
 namespace Gordian.Core.Network.Packets
 {
     /// <summary>
-    /// Party or Alliance structural category indicator.
+    /// Party or Alliance structural category indicator. Alliance is 5, not 1: the server rejects any other value.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/enums/party_kind.h).
     /// </summary>
     public enum PartyKind : byte
     {
         Party = 0,
-        Alliance = 1
+        Alliance = 5
     }
 
     /// <summary>

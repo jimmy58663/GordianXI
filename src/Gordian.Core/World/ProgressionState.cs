@@ -108,7 +108,13 @@ namespace Gordian.Core.World
         public byte ConquestAlliance { get; private set; }
         public uint ConquestPoints { get; private set; }
         public uint ImperialStanding { get; private set; }
-        private readonly (byte Owner, byte Ranking)[] _regions = new (byte, byte)[27];
+        public byte ConquestNextTally { get; private set; }
+        public byte AstralCandescence { get; private set; }
+        public byte AlZahbiOrders { get; private set; }
+        public BesiegedStronghold MamookStronghold { get; private set; }
+        public BesiegedStronghold HalvungStronghold { get; private set; }
+        public BesiegedStronghold ArrapagoStronghold { get; private set; }
+        private readonly ConquestRegion[] _regions = new ConquestRegion[S2C_0x05E_Conquest.RegionCount];
 
         #endregion
 
@@ -478,17 +484,23 @@ namespace Gordian.Core.World
                 ConquestAlliance = conquest.Alliance;
                 ConquestPoints = conquest.ConquestPoints;
                 ImperialStanding = conquest.ImperialStanding;
+                ConquestNextTally = conquest.NextTally;
+                AstralCandescence = conquest.AstralCandescence;
+                AlZahbiOrders = conquest.AlZahbiOrders;
+                MamookStronghold = conquest.Mamook;
+                HalvungStronghold = conquest.Halvung;
+                ArrapagoStronghold = conquest.Arrapago;
 
-                for (int i = 0; i < 27; i++)
+                for (int i = 0; i < _regions.Length; i++)
                 {
-                    _regions[i] = conquest.GetRegionInfo(i);
+                    _regions[i] = conquest.GetRegion(i);
                 }
             }
 
             ConquestUpdated?.Invoke();
         }
 
-        public (byte Owner, byte Ranking) GetRegionConquest(int regionIndex)
+        public ConquestRegion GetRegionConquest(int regionIndex)
         {
             lock (_lock)
             {
@@ -496,7 +508,7 @@ namespace Gordian.Core.World
                 {
                     return _regions[regionIndex];
                 }
-                return (0, 0);
+                return default;
             }
         }
 

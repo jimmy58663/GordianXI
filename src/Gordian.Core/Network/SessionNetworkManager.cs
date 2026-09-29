@@ -369,7 +369,9 @@ namespace Gordian.Core.Network
         /// naming the local player (or no one, before the local id is known) corrects the local player. LandSandBoat
         /// trusts the client's reported position otherwise, so these are the server's only corrections.
         /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B and
-        /// LandSandBoat (https://github.com/LandSandBoat/server) packets/s2c/0x05b_wpos.cpp.
+        /// LandSandBoat (https://github.com/LandSandBoat/server) packets/s2c/0x05b_wpos.cpp. Modes 3 and 6 delete another
+        /// entity after placing it; for the local player they only place it, since deleting our own entity would leave the
+        /// session without a player (LandSandBoat never sends them). Mode 7's indoor area is not modelled, so it only places.
         /// </summary>
         private void OnWorldPositionReceived(WorldPositionUpdate update)
         {
@@ -382,6 +384,8 @@ namespace Gordian.Core.Network
                 if (!_parser.World.TryGetByServerId(update.UniqueNo, out var entity) || entity == null) return;
                 if (update.MovesEntity) entity.Warp(position, update.Direction, WorldEntity.ClockSeconds);
                 else if (update.Mode == PosMode.Rotate) entity.Direction = update.Direction;
+                // TODO: play the pop effect (PopEffect = mode) once entities have an effect hook.
+                if (update.DeletesEntity) _parser.World.RemoveEntity(update.UniqueNo);
                 return;
             }
 

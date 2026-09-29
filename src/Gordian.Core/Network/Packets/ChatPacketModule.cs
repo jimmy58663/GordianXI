@@ -261,14 +261,24 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
 
-        public async Task SetLinkshellMessageAsync(
-            LinkshellSlot slot,
-            string message,
-            LinkshellWriteLevel writeLevel = LinkshellWriteLevel.Linkshell)
+        public async Task SetLinkshellMessageAsync(LinkshellSlot slot, string message)
         {
             ArgumentNullException.ThrowIfNull(message);
             ushort seq = ++_sequenceNumber;
-            byte[] packet = ChatOutboundPackets.BuildSetLsMsg(slot, message, writeLevel, seq);
+            byte[] packet = ChatOutboundPackets.BuildSetLsMsg(slot, message, seq);
+
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x0E2, seq, packet);
+            }
+
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+        }
+
+        public async Task SetLinkshellWriteLevelAsync(LinkshellSlot slot, LinkshellWriteLevel writeLevel)
+        {
+            ushort seq = ++_sequenceNumber;
+            byte[] packet = ChatOutboundPackets.BuildSetLsWriteLevel(slot, writeLevel, seq);
 
             if (LogOutboundOnRoute)
             {
