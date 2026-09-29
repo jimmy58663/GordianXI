@@ -12,7 +12,7 @@ namespace Gordian.Core.Resources.Tables
     /// LandSandBoat NPC arrives in S2C 0x00E without one.
     /// <para>
     /// File location referenced from XiEvents (https://github.com/atom0s/XiEvents, "Event DAT Files.md", "Zone
-    /// Entities"): file id 6720 + zone for zones 0-255, 86235 + (zone - 256) for 256-299 (checked against the retail
+    /// Entities"): file id 6720 + zone for zones 0-255, 86491 + (zone - 256) for 256-299 (checked against the retail
     /// file table, 2026-09-28). Layout: 32-byte records, a 28-byte NUL-padded name then the entity's server id
     /// (uint32, little-endian), in the clear.
     /// </para>
@@ -32,7 +32,7 @@ namespace Gordian.Core.Resources.Tables
         public static int GetFileId(int zoneId)
         {
             if (zoneId < 0 || zoneId > 299) return -1;
-            return zoneId < 256 ? 6720 + zoneId : 86235 + (zoneId - 256);
+            return zoneId < 256 ? 6720 + zoneId : 86491 + (zoneId - 256);
         }
 
         /// <summary>Decodes an entity list DAT. Returns null when the buffer is not one (not a whole number of records, or no names).</summary>

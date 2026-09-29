@@ -19,6 +19,7 @@ namespace Gordian.Core.Tests.Events
     {
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
         private const int SouthernSandoria = 230;
+        private const int NorthernSandoria = 231;
         private static readonly TimeSpan Frame = TimeSpan.FromSeconds(1.0 / 60);
         private readonly ITestOutputHelper _output;
 
@@ -73,6 +74,67 @@ namespace Gordian.Core.Tests.Events
             Assert.NotEmpty(lines);
             Assert.Contains(lines, l => l.Contains("street", StringComparison.OrdinalIgnoreCase));
             Assert.All(host.Printed, p => Assert.Equal(EventSpeaker.Entity, p.Speaker));
+        }
+
+        /// <summary>
+        /// Northern San d'Oria actor 0x010E7017, event 4865, is one call into code past the next event's offset; the
+        /// VM must follow it rather than end the event at that offset (#72).
+        /// </summary>
+        [Fact]
+        public void NorthernSandoria_Event4865_FollowsItsCallPastTheNextOffset()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(NorthernSandoria))!)!;
+            var dialog = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(NorthernSandoria))!)!;
+            Assert.True(script.TryGetBlock(0x010E7017, out var block));
+            var host = new RecordingHost();
+            var vm = new EventVm(block, 4865, new EventWorkZone(), host, block.ActorId, (ushort)(block.ActorId & 0x3FF));
+            Drive(vm, host, _ => 1);
+            foreach (var p in host.Printed) _output.WriteLine($"msg {p.Message}: {dialog.GetPlainText(p.Message)}");
+            Assert.True(vm.IsFinished);
+            Assert.Equal(new[] { 17734, 17735, 17736, 17737 }, host.Printed.Select(p => p.Message));
+        }
+
+        /// <summary>
+        /// Runs every requested NPC event of Northern San d'Oria: every event that ends must end on an end opcode (0x00,
+        /// 0x21, a return with an empty stack, 0x26, a cancelled query), not on an unknown opcode or by running off
+        /// the code (#72, #73). Some events are still waiting when the tick budget runs out (menus the driver keeps
+        /// re-answering, long waits); those are counted but not failed.
+        /// </summary>
+        [Fact]
+        public void NorthernSandoria_NpcEvents_EndOnTheirEndOpcodes()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(NorthernSandoria))!)!;
+            int events = 0, clean = 0, running = 0, wrong = 0;
+            foreach (var block in script.Blocks)
+            {
+                if (block.ActorId == EventBlock.ZoneActor || block.ActorId == EventBlock.PlayerActor) continue;
+                foreach (ushort eventId in block.EventIds.Distinct())
+                {
+                    if (eventId == 0xFFFF || eventId == EventBlock.AnyEventId) continue;
+                    var host = new RecordingHost();
+                    var vm = new EventVm(block, eventId, new EventWorkZone(), host, block.ActorId, (ushort)(block.ActorId & 0x3FF));
+                    byte last = 0;
+                    vm.Trace = (_, op) => last = op;
+                    Drive(vm, host, _ => 1);
+                    events++;
+                    if (!vm.IsFinished) running++;
+                    else if (last is 0x00 or 0x21 or 0x1B or 0x26 or 0x25) clean++;
+                    else
+                    {
+                        wrong++;
+                        _output.WriteLine($"actor {block.ActorId:X8} event {eventId}: ended on op {last:X2} at pc {vm.ProgramCounter}");
+                    }
+                }
+            }
+            _output.WriteLine($"{events} NPC events: {clean} end cleanly, {running} still running, {wrong} end wrongly");
+            Assert.Equal(0, wrong);
+            Assert.True(clean >= events * 0.95);
         }
 
         [Fact]

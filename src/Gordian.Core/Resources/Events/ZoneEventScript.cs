@@ -56,7 +56,9 @@ namespace Gordian.Core.Resources.Events
 
         /// <summary>
         /// Finds an event's byte range: the requested id, else the block's <see cref="AnyEventId"/> fallback (the
-        /// retail client's second lookup). Returns false when the block has neither.
+        /// retail client's second lookup). Returns false when the block has neither. <paramref name="end"/> is the next
+        /// event's offset, for tools that walk the code; execution is not bounded by it, since an event can jump or
+        /// call into code past it (the block's code is shared).
         /// </summary>
         public bool TryGetEvent(ushort eventId, out int start, out int end)
         {
@@ -83,7 +85,7 @@ namespace Gordian.Core.Resources.Events
     /// <para>
     /// File location and layout referenced from XiEvents (https://github.com/atom0s/XiEvents, "Event DAT Files.md"
     /// and "Event DAT Structures.md"): the file of zone <c>z</c> is file id 5820 + z for zones 0-255 and
-    /// 84735 + (z - 256) for zones 256-299 (checked against the retail file table, 2026-09-28). The file starts with
+    /// 84991 + (z - 256) for zones 256-299 (checked against the retail file table, 2026-09-28). The file starts with
     /// a block count and a dword size per block; each block is: actor number, event count, that many ushort event
     /// offsets, that many ushort event ids, an immediate-data count and dwords, the byte code size and the byte code
     /// (padded to 4 bytes). Checked against the retail Southern San d'Oria file (ROM/21/39.DAT, 502 blocks).
@@ -105,7 +107,7 @@ namespace Gordian.Core.Resources.Events
         public static int GetFileId(int zoneId)
         {
             if (zoneId < 0 || zoneId > 299) return -1;
-            return zoneId < 256 ? 5820 + zoneId : 84735 + (zoneId - 256);
+            return zoneId < 256 ? 5820 + zoneId : 84991 + (zoneId - 256);
         }
 
         /// <summary>The block of an actor (an entity server id, or the zone/player actor numbers).</summary>

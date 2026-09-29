@@ -246,14 +246,14 @@ namespace Gordian.Core.Tests.Events
         [Fact]
         public void UnknownOpcodes_AreSteppedOverByLength_AndUnknownLengthsEndTheEvent()
         {
-            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 66 ... (15 bytes, skipped) ; 48 ref0 ; 7E 01 (unknown length) ; 48 ref1
+            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 66 ... (15 bytes, skipped) ; 48 ref0 ; E7 (unknown length) ; 48 ref1
             var code = new byte[]
             {
                 0x1E, 0xF0, 0xFF, 0xFF, 0x7F,
                 0x20, 0x01,
                 0x66, 0x07, 0x80, 0xF8, 0xFF, 0xFF, 0x7F, 0xF8, 0xFF, 0xFF, 0x7F, 0x74, 0x6C, 0x6B, 0x30,
                 0x48, 0x00, 0x80,
-                0x7E, 0x01, 0x11, 0x22,
+                0xE7, 0x01, 0x11, 0x22,
                 0x48, 0x01, 0x80,
             };
             var host = new RecordingHost();
@@ -262,7 +262,7 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(new[] { true }, host.Locks);
             Assert.Equal(9, Assert.Single(host.Printed).Message);
             Assert.Contains((byte)0x66, host.Skipped);
-            Assert.Contains((byte)0x7E, host.Skipped);
+            Assert.Contains((byte)0xE7, host.Skipped);
             Assert.True(vm.IsFinished);
         }
 
@@ -301,8 +301,82 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(2, EventOpcodeTable.GetLength(new byte[] { 0x1F, 0x01 }, 0));
             Assert.Equal(4, EventOpcodeTable.GetLength(new byte[] { 0x46, 0x02 }, 0));
             Assert.Equal(15, EventOpcodeTable.GetLength(new byte[] { 0x66 }, 0));
-            Assert.Equal(0, EventOpcodeTable.GetLength(new byte[] { 0x7E, 0x01 }, 0));
             Assert.Equal(0, EventOpcodeTable.GetLength(new byte[] { 0xE7 }, 0));
+        }
+
+        /// <summary>Lengths corrected by the retail corpus walk (#73): total bytes, opcode included.</summary>
+        [Theory]
+        [InlineData(new byte[] { 0x5F, 0x00 }, 2)]
+        [InlineData(new byte[] { 0x5F, 0x02 }, 6)]
+        [InlineData(new byte[] { 0x5F, 0x03 }, 16)]
+        [InlineData(new byte[] { 0x5F, 0x05 }, 18)]
+        [InlineData(new byte[] { 0x5F, 0x07 }, 14)]
+        [InlineData(new byte[] { 0x7E, 0x01 }, 6)]
+        [InlineData(new byte[] { 0x7E, 0x03 }, 16)]
+        [InlineData(new byte[] { 0x7E, 0x06 }, 18)]
+        [InlineData(new byte[] { 0x7E, 0x07 }, 8)]
+        [InlineData(new byte[] { 0x7E, 0x09 }, 0)]
+        [InlineData(new byte[] { 0xB4, 0x14 }, 12)]
+        [InlineData(new byte[] { 0xB4, 0x15 }, 2)]
+        [InlineData(new byte[] { 0xB6, 0x14 }, 6)]
+        [InlineData(new byte[] { 0xC4 }, 12)]
+        [InlineData(new byte[] { 0x75, 0x02 }, 2)]
+        [InlineData(new byte[] { 0x60, 0x01 }, 4)]
+        [InlineData(new byte[] { 0x60, 0x02 }, 6)]
+        [InlineData(new byte[] { 0x60, 0x09 }, 2)]
+        [InlineData(new byte[] { 0xBF, 0x20 }, 10)]
+        [InlineData(new byte[] { 0x72, 0x00 }, 4)]
+        [InlineData(new byte[] { 0x72, 0x01 }, 6)]
+        [InlineData(new byte[] { 0xA6, 0x01 }, 2)]
+        [InlineData(new byte[] { 0xA6, 0x02 }, 4)]
+        [InlineData(new byte[] { 0x9D, 0x07 }, 6)]
+        [InlineData(new byte[] { 0x9D, 0x0C }, 8)]
+        [InlineData(new byte[] { 0x9D, 0x0D }, 10)]
+        [InlineData(new byte[] { 0xD4, 0x00 }, 8)]
+        public void OpcodeTable_CorpusCorrectedLengths(byte[] code, int length) =>
+            Assert.Equal(length, EventOpcodeTable.GetLength(code, 0));
+
+        [Fact]
+        public void Event_RunsCodePastTheNextEventsOffset()
+        {
+            // Modelled on Northern San d'Oria actor 0x010E7017, event 4865: the event is a call into code past the
+            // next event's offset, then an end. Event 100: 1A -> 8 ; 21 | event 101 at 4: 48 ref1 ; 00 | [8] 48 ref0 ; 1B
+            var code = new byte[] { 0x1A, 0x08, 0x00, 0x21, 0x48, 0x01, 0x80, 0x00, 0x48, 0x00, 0x80, 0x1B };
+            var block = new EventBlock(0x010E6001, offsets: new ushort[] { 0, 4 }, eventIds: new ushort[] { 100, 101 }, new uint[] { 17734, 99 }, code);
+            var host = new RecordingHost();
+            var vm = new EventVm(block, 100, new EventWorkZone(), host, 0x010E6001, 1);
+            vm.Tick(Frame);
+            Assert.Equal(17734, Assert.Single(host.Printed).Message);
+            Assert.True(vm.IsFinished);
+            Assert.Equal(3, vm.ProgramCounter); // ended on its own 0x21
+        }
+
+        [Fact]
+        public void FrameDelay_Opcode57_AddsTheTicksFrames()
+        {
+            // 57 local0 += frame delay ; 03 zone[1] = local0 ; 00
+            var code = new byte[] { 0x57, 0x00, 0x00, 0x03, 0x01, 0x10, 0x00, 0x00, 0x00 };
+            var zone = new EventWorkZone();
+            var vm = Make(code, new RecordingHost(), zone);
+            vm.Tick(TimeSpan.FromSeconds(2.0 / 60));
+            Assert.Equal(2, zone.EndParameter);
+        }
+
+        [Fact]
+        public void Sleep_Opcode6F_CountsTheTicksFramesEvenAfterOtherOpcodes()
+        {
+            // 48 ref0 ; 6F (16-frame sleep) ; 48 ref1 ; 00
+            var code = new byte[] { 0x48, 0x00, 0x80, 0x6F, 0x48, 0x01, 0x80, 0x00 };
+            var host = new RecordingHost();
+            var vm = Make(code, host, references: new uint[] { 1, 2 });
+            var tenFrames = TimeSpan.FromSeconds(10.0 / 60);
+            vm.Tick(tenFrames); // prints, then the sleep takes this tick's 10 frames: 6 left
+            Assert.Single(host.Printed);
+            vm.Tick(tenFrames); // runs out and yields
+            Assert.Single(host.Printed);
+            vm.Tick(Frame);
+            Assert.Equal(2, host.Printed.Count);
+            Assert.True(vm.IsFinished);
         }
     }
 }

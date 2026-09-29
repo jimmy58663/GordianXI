@@ -69,8 +69,8 @@ namespace Gordian.Core.Tests.Resources
         [InlineData(230, false, 6650)]
         [InlineData(0, false, 6420)]
         [InlineData(230, true, 6350)]
-        [InlineData(256, false, 85335)]
-        [InlineData(299, false, 85378)]
+        [InlineData(256, false, 85591)]
+        [InlineData(299, false, 85634)]
         [InlineData(300, false, -1)]
         public void GetFileId_FollowsTheRetailFileTable(int zone, bool japanese, int expected)
         {

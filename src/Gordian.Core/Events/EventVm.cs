@@ -39,7 +39,6 @@ namespace Gordian.Core.Events
         private const float FramesPerSecond = 60f;
 
         private readonly byte[] _code;
-        private readonly int _end;
         private readonly int[] _references;
         private readonly int[] _local = new int[80];
         private readonly int[] _jumpStack = new int[8];
@@ -49,6 +48,7 @@ namespace Gordian.Core.Events
         private int _pc;
         private bool _retFlag;
         private float _waitTime = -1f;
+        private float _frameDelay;
         private double _messageOpenSeconds;
         private bool _queryOpen;
         private float _eventX, _eventY, _eventZ, _eventDir;
@@ -64,9 +64,11 @@ namespace Gordian.Core.Events
             EntityServerId = entityServerId;
             EntityIndex = entityIndex;
             EventId = eventId;
-            if (!block.TryGetEvent(eventId, out _pc, out _end))
+            // Only the start is used: an event's code may jump or call past the next event's offset (actor blocks
+            // share code), so execution is bounded by the block's code and the end opcodes, not by that offset.
+            if (!block.TryGetEvent(eventId, out _pc, out _))
             {
-                _pc = _end = 0;
+                _pc = 0;
                 IsFinished = true;
             }
         }
@@ -112,7 +114,8 @@ namespace Gordian.Core.Events
         public void Tick(TimeSpan elapsed)
         {
             if (IsFinished) return;
-            float frames = (float)(elapsed.TotalSeconds * FramesPerSecond);
+            // Retail's frame delay: the 60 Hz frames since the last tick, the same for every opcode of the tick.
+            _frameDelay = (float)(elapsed.TotalSeconds * FramesPerSecond);
             if (_messageOpenSeconds > 0) _messageOpenSeconds = Math.Max(0, _messageOpenSeconds - elapsed.TotalSeconds);
             _retFlag = false;
             int steps = 0;
@@ -124,13 +127,12 @@ namespace Gordian.Core.Events
                     Finish();
                     return;
                 }
-                if (_pc < 0 || _pc >= _end)
+                if (_pc < 0 || _pc >= _code.Length)
                 {
                     Finish();
                     return;
                 }
-                Step(frames);
-                frames = 0f; // a wait consumes the tick's time once
+                Step();
             }
         }
 
@@ -253,7 +255,7 @@ namespace Gordian.Core.Events
             return mask;
         }
 
-        private void Step(float frames)
+        private void Step()
         {
             byte op = _code[_pc];
             Trace?.Invoke(_pc, op);
@@ -328,7 +330,7 @@ namespace Gordian.Core.Events
                     return;
                 case 0x1C:
                     if (_waitTime < 0f) _waitTime = GetWork(1);
-                    _waitTime -= frames;
+                    _waitTime -= _frameDelay;
                     _retFlag = true;
                     if (_waitTime < 0f) _pc += 3;
                     return;
@@ -514,7 +516,7 @@ namespace Gordian.Core.Events
                     return;
                 }
                 case 0x57:
-                    SetWork(1, GetWork(1) + 1);
+                    SetWork(1, GetWork(1) + (int)MathF.Round(_frameDelay));
                     _pc += 3;
                     return;
                 case 0x58:
@@ -522,8 +524,8 @@ namespace Gordian.Core.Events
                     _retFlag = true;
                     return;
                 case 0x6F:
-                    if (_waitTime < 0f) _waitTime = 16f;
-                    _waitTime -= frames;
+                    if (_waitTime < 0f) _waitTime = 16f; // a wait already running (0x1C) keeps its time
+                    _waitTime -= _frameDelay;
                     _retFlag = true;
                     if (_waitTime < 0f) _pc++;
                     return;
