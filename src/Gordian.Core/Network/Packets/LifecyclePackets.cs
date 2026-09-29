@@ -61,6 +61,12 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// An event the character zones in inside (S2C 0x00A): the player is the event's actor.
+    /// </summary>
+    public readonly record struct ZoneInEvent(uint UniqueNo, ushort ActIndex, ushort EventNum, ushort EventPara,
+                                              ushort Mode, ushort EventNo);
+
+    /// <summary>
     /// Logout and Shutdown request mode in C2S 0x0E7 (GP_CLI_COMMAND_REQLOGOUT).
     /// </summary>
     public enum ReqLogoutMode : ushort
@@ -145,6 +151,29 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public uint GameTime { get; }
 
+        /// <summary>
+        /// The zone whose event data (dialog text table) the zone-in event reads: wire offset 60. The server sets it
+        /// with <see cref="EventNum"/> when the character zones in inside an event; it is usually the zone itself.
+        /// Field referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000A) and
+        /// LandSandBoat (https://github.com/LandSandBoat/server, src/map/packets/s2c/0x00a_login.cpp).
+        /// </summary>
+        public ushort EventNo { get; }
+
+        /// <summary>The zone whose event script holds the zone-in event (wire offset 94); 0 when there is none.</summary>
+        public ushort EventNum { get; }
+
+        /// <summary>The zone-in event id (wire offset 96), e.g. a mission cutscene started by the zone's onZoneIn.</summary>
+        public ushort EventPara { get; }
+
+        /// <summary>The zone-in event's flags (wire offset 98), as the Mode of S2C 0x032.</summary>
+        public ushort EventMode { get; }
+
+        /// <summary>
+        /// Whether the character zones in inside an event the client must run and finish with C2S 0x05B: LandSandBoat
+        /// fills the event fields only then (and sets the position header's server status to Event), otherwise they are 0.
+        /// </summary>
+        public bool HasZoneInEvent => EventNum != 0;
+
         public bool IsValid { get; }
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
@@ -161,6 +190,10 @@ namespace Gordian.Core.Network.Packets
                 ZoneId = 0;
                 WeatherNumber = 0;
                 GameTime = 0;
+                EventNo = 0;
+                EventNum = 0;
+                EventPara = 0;
+                EventMode = 0;
                 IsValid = false;
                 return;
             }
@@ -180,6 +213,20 @@ namespace Gordian.Core.Network.Packets
             GameTime = payload.Length >= 60
                 ? BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(56, 4))
                 : 0;
+            if (payload.Length >= 100)
+            {
+                EventNo = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(60, 2));
+                EventNum = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(94, 2));
+                EventPara = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(96, 2));
+                EventMode = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(98, 2));
+            }
+            else
+            {
+                EventNo = 0;
+                EventNum = 0;
+                EventPara = 0;
+                EventMode = 0;
+            }
             WeatherNumber = payload.Length >= 102
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(100, 2))
                 : (ushort)0;
@@ -739,6 +786,13 @@ namespace Gordian.Core.Network.Packets
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
         /// <summary>
+        /// The character zoned in inside an event (S2C 0x00A event fields), raised after <see cref="ZoneReceived"/>:
+        /// the client runs it like a 0x032 event of the player and finishes it with C2S 0x05B, or the server keeps the
+        /// character in the event (NPCs and logout are refused).
+        /// </summary>
+        public event Action<ZoneInEvent>? ZoneInEventReceived;
+
+        /// <summary>
         /// Optional delegate to retrieve the player's current position, heading, and locomotion state when answering server 0x015 PosPing.
         /// Returns (X, Y [Elevation], Z [North/South], Dir, TargetIndex, MoveFrame, IsWalking).
         /// </summary>
@@ -793,6 +847,11 @@ namespace Gordian.Core.Network.Packets
                 }
                 // Weather 0 is Clear/Fine ("fine") in FFXI; invoke unconditionally so initial zone weather is applied
                 WeatherReceived?.Invoke(ack.WeatherNumber);
+                if (ack.HasZoneInEvent)
+                {
+                    GordianLog.Info("EVENT", $"Zone-in event: EventNum={ack.EventNum}, EventPara={ack.EventPara}, Mode=0x{ack.EventMode:X}, EventNo={ack.EventNo}");
+                    ZoneInEventReceived?.Invoke(new ZoneInEvent(ack.UniqueNo, ack.ActorIndex, ack.EventNum, ack.EventPara, ack.EventMode, ack.EventNo));
+                }
             }
 
             byte[] gameOk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);

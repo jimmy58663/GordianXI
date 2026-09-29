@@ -84,6 +84,11 @@ namespace Gordian.Core.Network
             {
                 _world.UpdateWeather(weatherNumber);
             };
+            // A zone-in event runs like a 0x032 event of the player (the zone was set just before, so it reads the new zone's scripts).
+            _lifecycleModule.ZoneInEventReceived += evt =>
+            {
+                _progression.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode);
+            };
 
             _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket, _party);
             _entityModule.Register(_dispatcher);
