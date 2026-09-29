@@ -618,5 +618,159 @@ namespace Gordian.Core.Tests.Network
             module.Unregister(dispatcher);
             Assert.False(dispatcher.Dispatch(new PacketHeader(0x073, 72, 2), payload));
         }
+
+        private static byte[] MiscPayload(ushort type, int dataLength)
+        {
+            byte[] payload = new byte[4 + dataLength];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0, 2), type);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2, 2), (ushort)dataLength);
+            return payload;
+        }
+
+        private static (ProgressionState Progression, LocalPlayerState Player, PacketDispatcher Dispatcher) MiscSetup()
+        {
+            var progression = new ProgressionState();
+            var player = new LocalPlayerState();
+            var dispatcher = new PacketDispatcher();
+            new ProgressionPacketModule(progression, player, (_, _) => Task.CompletedTask).Register(dispatcher);
+            return (progression, player, dispatcher);
+        }
+
+        private static byte[] StatusIconsPayload()
+        {
+            byte[] p = MiscPayload(S2C_0x063_MiscData.TypeStatusIcons, 192);
+            for (int i = 0; i < 32; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4 + i * 2, 2), 0xFF);
+                BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 64 + i * 4, 4), 0x7FFFFFFF);
+            }
+            return p;
+        }
+
+        [Fact]
+        public void S2C_0x063_MiscData_RejectsShortPayloads()
+        {
+            Assert.False(new S2C_0x063_MiscData(new byte[2]).IsValid);
+            Assert.False(new S2C_0x063_MiscData(MiscPayload(S2C_0x063_MiscData.TypeStatusIcons, 100)).IsValid);
+            Assert.True(new S2C_0x063_MiscData(MiscPayload(S2C_0x063_MiscData.TypeUnknown0A, 0)).IsValid);
+        }
+
+        [Fact]
+        public void S2C_0x063_Merits_UpdatesProgressionState()
+        {
+            var (progression, _, dispatcher) = MiscSetup();
+            byte[] p = MiscPayload(S2C_0x063_MiscData.TypeMerits, 8);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4, 2), 4321); // limit points
+            ushort word = (ushort)(53 | (12 << 7) | (1 << 13) | (1 << 15)); // merits, BLU bonus, flags
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(6, 2), word);
+            p[8] = 30; // max merits
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 12, 1), p));
+
+            Assert.Equal(4321, progression.LimitPoints);
+            Assert.Equal(53, progression.MeritPoints);
+            Assert.Equal(12, progression.BluSpellPointBonus);
+            Assert.Equal(30, progression.MaxMeritPoints);
+            Assert.True(progression.CanUseMeritMode);
+            Assert.False(progression.XpCappedOrMeritMode);
+            Assert.True(progression.MeritModeEnabled);
+        }
+
+        [Fact]
+        public void S2C_0x063_JobPoints_UpdatesPerJobTotals()
+        {
+            var (progression, _, dispatcher) = MiscSetup();
+            byte[] p = MiscPayload(S2C_0x063_MiscData.TypeJobPoints, 148);
+            p[4] = 1; // unlocked
+            int job = 7;
+            int at = 4 + 4 + job * 6;
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(at, 2), 1234);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(at + 2, 2), 12);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(at + 4, 2), 345);
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 152, 1), p));
+
+            Assert.True(progression.JobPointsUnlocked);
+            Assert.Equal(((ushort)1234, (ushort)12, (ushort)345), progression.GetJobPointTotals(job));
+            Assert.Equal(default, progression.GetJobPointTotals(8));
+        }
+
+        [Fact]
+        public void S2C_0x063_TeleportMasks_ExposeUnlockBits()
+        {
+            var (progression, _, dispatcher) = MiscSetup();
+            byte[] p = MiscPayload(S2C_0x063_MiscData.TypeHomepoints, 64);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 4, 4), 1u << 5); // home point word 1: bit 37
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 16, 4), 1u); // survival guide word 0: bit 0
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 48, 4), 1u << 31); // telepoint: bit 31
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 68, 1), p));
+
+            Assert.True(progression.HasHomePoint(37));
+            Assert.False(progression.HasHomePoint(36));
+            Assert.True(progression.HasSurvivalGuide(0));
+            Assert.False(progression.HasWaypoint(0));
+            Assert.True(progression.HasTelepoint(31));
+            Assert.False(progression.HasTelepoint(32));
+        }
+
+        [Fact]
+        public void S2C_0x063_Unity_FillsTheRightWeek()
+        {
+            var (progression, _, dispatcher) = MiscSetup();
+
+            byte[] points = MiscPayload(S2C_0x063_MiscData.TypeUnity, 140);
+            points[4] = 1; // current week
+            points[5] = 2; // points
+            BinaryPrimitives.WriteUInt16LittleEndian(points.AsSpan(4 + 8, 2), 0x0208);
+            BinaryPrimitives.WriteUInt32LittleEndian(points.AsSpan(4 + 10 + 3 * 4, 4), 777);
+            BinaryPrimitives.WriteUInt32LittleEndian(points.AsSpan(4 + 10 + 10 * 4, 4), 99);
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 144, 1), points));
+
+            byte[] personal = MiscPayload(S2C_0x063_MiscData.TypeUnity, 140);
+            personal[4] = 0; // previous week
+            personal[5] = 0x14;
+            BinaryPrimitives.WriteUInt16LittleEndian(personal.AsSpan(4 + 8, 2), 2500);
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 144, 2), personal));
+
+            Assert.Equal(777u, progression.UnityWeeks[1].Points[3]);
+            Assert.Equal(99u, progression.UnityWeeks[1].Points[10]);
+            Assert.Equal(0u, progression.UnityWeeks[0].Points[3]);
+            Assert.Equal((ushort)2500, progression.UnityWeeks[0].PersonalRankingPoints);
+        }
+
+        [Fact]
+        public void S2C_0x063_StatusIcons_StoreIdsAndTimers()
+        {
+            var (_, player, dispatcher) = MiscSetup();
+            byte[] p = StatusIconsPayload();
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4, 2), 40);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 64, 4), unchecked((uint)((1000L + 30) * 60))); // 30 s left at t=1000
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4 + 2, 2), 33); // untimed
+
+            int updates = 0;
+            player.BuffsUpdated += () => updates++;
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, 196, 1), p));
+
+            Assert.Equal(1, updates);
+            Assert.Equal((ushort)40, player.StatusIconIds[0]);
+            Assert.Equal((ushort)33, player.StatusIconIds[1]);
+            Assert.Equal(30.0, player.GetStatusIconRemainingSeconds(0, 1000));
+            Assert.Null(player.GetStatusIconRemainingSeconds(1, 1000)); // no timer
+            Assert.Null(player.GetStatusIconRemainingSeconds(2, 1000)); // empty slot
+        }
+
+        [Fact]
+        public void S2C_0x063_StatusIconRemaining_SurvivesTimestampOverflow()
+        {
+            var (_, player, dispatcher) = MiscSetup();
+            byte[] p = StatusIconsPayload();
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4, 2), 40);
+            long now = 80_000_000; // now * 60 exceeds 2^32
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 64, 4), unchecked((uint)((now + 12) * 60)));
+            dispatcher.Dispatch(new PacketHeader(0x063, 196, 1), p);
+
+            Assert.Equal(12.0, player.GetStatusIconRemainingSeconds(0, now));
+        }
     }
 }

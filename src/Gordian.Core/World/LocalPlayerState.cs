@@ -129,6 +129,65 @@ namespace Gordian.Core.World
         /// </summary>
         public byte[] BuffStatusBits { get; } = new byte[8];
 
+        /// <summary>
+        /// Status icon ids from S2C 0x063 type 0x09, in slot order; 0xFF is an empty slot. Starts empty.
+        /// </summary>
+        public ushort[] StatusIconIds { get; } = CreateEmptyIconSlots();
+
+        /// <summary>
+        /// End timestamps of <see cref="StatusIconIds"/> (S2C 0x063 type 0x09): the server's Vana'diel time in 1/60 s
+        /// ticks, overflowing a u32 on purpose; 0x7FFFFFFF means no timer.
+        /// </summary>
+        public uint[] StatusIconTimestamps { get; } = CreateNoTimerSlots();
+
+        private static ushort[] CreateEmptyIconSlots()
+        {
+            var slots = new ushort[S2C_0x063_MiscData.StatusIconCount];
+            Array.Fill(slots, S2C_0x063_MiscData.EmptyIcon);
+            return slots;
+        }
+
+        private static uint[] CreateNoTimerSlots()
+        {
+            var slots = new uint[S2C_0x063_MiscData.StatusIconCount];
+            Array.Fill(slots, S2C_0x063_MiscData.NoTimer);
+            return slots;
+        }
+
+        /// <summary>Applies S2C 0x063 type 0x09: 32 status icon ids with their end timestamps.</summary>
+        public void UpdateStatusIcons(in S2C_0x063_MiscData misc)
+        {
+            lock (_lock)
+            {
+                for (int i = 0; i < S2C_0x063_MiscData.StatusIconCount; i++)
+                {
+                    StatusIconIds[i] = misc.GetStatusIcon(i);
+                    StatusIconTimestamps[i] = misc.GetStatusTimestamp(i);
+                }
+            }
+
+            BuffsUpdated?.Invoke();
+        }
+
+        /// <summary>
+        /// Seconds of Vana'diel time left on a status icon slot, or null when the slot is empty or has no timer.
+        /// Handles the timestamp overflowing a u32 (the difference is taken modulo 2^32).
+        /// </summary>
+        /// <param name="slot">Slot 0-31.</param>
+        /// <param name="nowVanadielSeconds">Current Vana'diel time in seconds, see <see cref="VanaTime.GetVanadielSeconds"/>.</param>
+        public double? GetStatusIconRemainingSeconds(int slot, long nowVanadielSeconds)
+        {
+            if ((uint)slot >= S2C_0x063_MiscData.StatusIconCount) return null;
+            lock (_lock)
+            {
+                if (StatusIconIds[slot] == S2C_0x063_MiscData.EmptyIcon) return null;
+                uint end = StatusIconTimestamps[slot];
+                if (end == S2C_0x063_MiscData.NoTimer) return null;
+                uint remainingTicks = unchecked(end - (uint)(nowVanadielSeconds * 60));
+                return (int)remainingTicks / 60.0;
+            }
+        }
+
         private static byte[] CreateEmptyBuffSlots()
         {
             var slots = new byte[32];

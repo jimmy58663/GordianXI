@@ -56,7 +56,6 @@ This audit compared every opcode in XiPackets `world/client/` and `world/server/
 **Coverage.** XiPackets documents 169 S2C and 154 C2S world packets. We decode 86 S2C opcodes (84 in XiPackets, plus LSB's `0x015` and our own `0x0EE`) and build 77 C2S opcodes. Every opcode we build is in XiPackets.
 
 LandSandBoat sends almost every missing S2C packet. These arrive in an ordinary session and are dropped today:
-- `0x063` misc data: about 900 per session
 - `0x0D2` treasure pool
 - `0x067` char sync
 - `0x051` own model
@@ -92,7 +91,7 @@ Wrong today (bugs):
 Missing packets, grouped by feature:
 - [#103](https://github.com/jimmy58663/GordianXI/issues/103): death flow. Home point, Raise and Tractor menus, and S2C `0x0F9`.
 - [#104](https://github.com/jimmy58663/GordianXI/issues/104): the remaining `0x01A` action kinds.
-- [#105](https://github.com/jimmy58663/GordianXI/issues/105): S2C `0x063`.
+- ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
 - [#106](https://github.com/jimmy58663/GordianXI/issues/106): treasure pool.
 - [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
 - [#108](https://github.com/jimmy58663/GordianXI/issues/108): `0x051`/`0x04F`.
@@ -122,3 +121,18 @@ To repeat the opcode diff, list `XiPackets/world/{client,server}`, then compare 
 - [x] Delete the 4 duplicate/legacy C2S builders ([#3](https://github.com/jimmy58663/GordianXI/issues/3)): `HandshakePackets.BuildGameOkSubPacket`/`BuildNetEndSubPacket` (0x00C/0x00D live in `LifecycleOutboundPackets.BuildGameOk`/`BuildNetEnd`) and `LifecycleOutboundPackets.BuildEventEnd`/`BuildEventEndXzy` (0x05B/0x05C live in `ProgressionPacketBuilder`, which `ProgressionPacketModule` sends)
 - [x] Persist the decoded-but-discarded S2C data into `World/*State` caches ([#5](https://github.com/jimmy58663/GordianXI/issues/5)); the caches are listed in [world-state-and-resources.md](../world/world-state-and-resources.md#entity-store-and-state-caches). Three decoders were corrected against LandSandBoat and XiPackets on the way: `0x11D` is another player asking to join the party (`Flags`, `Status` 0 = asking / 1 = withdrawn, `sName`, `Race`), not a result byte at offset 6; `0x117` now reads its two 16-entry arrays (`ItemsChanged`, `ItemsEquipped`), not just `Count`; `0x04C` also reads the parcel's `Stat` and `ItemIndex`. `0x030 Effect` is the entity's crafting animation (XiPackets `world/server/0x0030`: `CraftAnimationEffect`, `CraftParam`, `StatusServer`, `CraftTimer`), not status effects; buff durations come from `0x063` and are tracked in [#17](https://github.com/jimmy58663/GordianXI/issues/17). Verify with `dotnet test tests/Gordian.Core.Tests --filter DecodedStateCacheTests`
 - [x] Regression test that every decoder is reachable ([#2](https://github.com/jimmy58663/GordianXI/issues/2)): `PacketDecoderRegistrationTests` reflects over every `S2C_0x*` type in `Gordian.Core.Network.Packets`, checks its `PacketId` const matches the type name, and asserts the dispatcher built by `PacketParser` has a handler for it. Verify with `dotnet test tests/Gordian.Core.Tests --filter PacketDecoderRegistrationTests`; un-registering `0x073` makes it fail naming `S2C_0x073_ChocoboToteboard`
+
+### S2C 0x063 misc data
+
+`S2C_0x063_MiscData` (`ProgressionPackets.cs`) switches on the u16 `type` at packet +0x04 and is registered by `ProgressionPacketModule`. The payload starts at `type`; the per-type data starts at payload +4 (packet +0x08). Layouts from XiPackets `world/server/0x0063` and LandSandBoat `s2c/0x063_miscdata_*.h`.
+
+| type | state | notes |
+|---|---|---|
+| `0x02` merits | `ProgressionState.LimitPoints`, `MeritPoints`, `MaxMeritPoints`, merit-mode flags | LSB layout: u16 limit points, u16 bitfield (7 merit points, 6 BLU bonus, 3 flags), u8 max merits |
+| `0x05` job points | `ProgressionState.GetJobPointTotals(job)`, `JobPointsUnlocked` | flags byte, then 24 x (capacity, points, spent) u16 |
+| `0x06` teleports | `ProgressionState.HasHomePoint` / `HasSurvivalGuide` / `HasWaypoint` / `HasTelepoint` / `HasAtmos` / `HasEschanPortal` | 16 mask words; home point, survival guide and waypoint are 4 words each |
+| `0x07` Unity | `ProgressionState.UnityWeeks[0 previous, 1 current]` | one packet per kind: base (0x00, timestamp), members (0x01), points (0x02), personal ranking (0x14); the u32 arrays follow a u16 readiness flag at data +8 |
+| `0x09` status icons | `LocalPlayerState.StatusIconIds` / `StatusIconTimestamps`, `GetStatusIconRemainingSeconds` | 32 u16 icons (0xFF empty) then 32 u32 end timestamps; 0x7FFFFFFF = no timer |
+| `0x03`, `0x04`, `0x0A` | not decoded | Monstrosity (post-MVP); 0x0A is unused by the client |
+
+The status icon timestamp is meant to overflow a u32; `GetStatusIconRemainingSeconds` subtracts modulo 2^32, taking `now` as Vana'diel seconds. That the unit is Vana'diel seconds x 60 comes from reading LandSandBoat's `0x063_miscdata_status_icons.cpp`; it is not yet checked against a live capture, so verify it in game before relying on the blink threshold in [#17](https://github.com/jimmy58663/GordianXI/issues/17). The Unity layouts (`0x07`) come from LSB only (XiPackets marks them as not reversed). Verify with `dotnet test tests/Gordian.Core.Tests --filter ProgressionPacketTests`.
