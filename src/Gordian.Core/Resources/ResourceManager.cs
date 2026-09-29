@@ -238,7 +238,8 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Queries a string by category and 0-based index.
+        /// Queries a string by category and 0-based row index. Not for key items, whose rows are not ids: use
+        /// <see cref="TryGetKeyItemName"/>.
         /// </summary>
         public bool TryGetString(DMsgCategory category, int index, out string text)
         {
@@ -250,6 +251,24 @@ namespace Gordian.Core.Resources
             }
 
             text = string.Empty;
+            return false;
+        }
+
+        /// <summary>
+        /// Retrieves a key item's name by key item id (the id in S2C 0x055 and in dialog key-item tags). The table is
+        /// indexed by each record's own id, not its row (#89).
+        /// </summary>
+        public bool TryGetKeyItemName(uint keyItemId, out string name)
+        {
+            var table = GetDMsgTable(DMsgCategory.KeyItems);
+            if (table != null && table.TryGetById(keyItemId, out var record) &&
+                record.NamedFields.TryGetValue("name", out var found) && !string.IsNullOrEmpty(found))
+            {
+                name = found;
+                return true;
+            }
+
+            name = string.Empty;
             return false;
         }
 
@@ -381,7 +400,9 @@ namespace Gordian.Core.Resources
 
             DMsgCategory.SpellHelp or DMsgCategory.AbilityHelp => new[] { "name", "help" },
             DMsgCategory.StatusNames => new[] { "name", "adjective" },
-            DMsgCategory.KeyItems => new[] { "id", "category", "unk2", "unk3", "name", "plural", "description" },
+            // EN key items: sub 0 the key item id, sub 1 a number 1-4 of unknown meaning (not the category, which is
+            // the row's place between separator rows), subs 2-3 empty text, then name, plural and description.
+            DMsgCategory.KeyItems => new[] { "id", "unk1", "unk2", "unk3", "name", "plural", "description" },
             _ => new[] { "name" }
         };
 

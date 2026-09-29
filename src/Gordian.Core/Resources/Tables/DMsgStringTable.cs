@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Gordian.Core.Resources.Models;
 
@@ -32,9 +33,34 @@ namespace Gordian.Core.Resources.Tables
         }
 
         private readonly List<DMsgRecord> _records = new();
+        private Dictionary<uint, DMsgRecord>? _byId;
 
         public IReadOnlyList<DMsgRecord> Records => _records;
         public int Count => _records.Count;
+
+        /// <summary>
+        /// Finds the record whose numeric sub-entry 0 is <paramref name="id"/>. Sparse tables such as the key items
+        /// (ROM/175/35) store their records in display (category) order, so the row index is not the id; each record
+        /// carries its own id in sub-entry 0 (xi-tools docs/keyitems/categories.md). The first row with an id wins.
+        /// </summary>
+        public bool TryGetById(uint id, [NotNullWhen(true)] out DMsgRecord? record)
+        {
+            var byId = _byId;
+            if (byId == null)
+            {
+                byId = new Dictionary<uint, DMsgRecord>(_records.Count);
+                for (int i = 0; i < _records.Count; i++)
+                {
+                    if (_records[i].TryGetNumber(0, out uint recordId))
+                    {
+                        byId.TryAdd(recordId, _records[i]);
+                    }
+                }
+                _byId = byId;
+            }
+
+            return byId.TryGetValue(id, out record);
+        }
 
         /// <summary>
         /// Checks whether the specified buffer starts with the d_msg container signature.
@@ -148,6 +174,7 @@ namespace Gordian.Core.Resources.Tables
             }
 
             var subStrings = new List<string>((int)subCount);
+            var numbers = new uint?[subCount];
             var named = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < (int)subCount; i++)
@@ -155,16 +182,21 @@ namespace Gordian.Core.Resources.Tables
                 int entryOff = 4 + (i * 8);
                 if (entryOff + 8 > block.Length) break;
 
+                // Each sub-entry is (offset, kind): kind 0 is text (a u32 1, 0x18 bytes of metadata, then the string),
+                // kind 1 is a number (the u32 at the offset). Checked on the retail key-item, quest, mission, title,
+                // status, spell, ability, job and zone-name tables (2026-09-28): every kind-1 entry is 4 bytes long,
+                // and key item 1 / quest 1 hold the number 1, which the older "value 1 means text" reading lost.
                 uint strOffset = BinaryPrimitives.ReadUInt32LittleEndian(block.Slice(entryOff, 4));
+                uint kind = BinaryPrimitives.ReadUInt32LittleEndian(block.Slice(entryOff + 4, 4));
                 if (strOffset < 4 || strOffset + 4 > (uint)block.Length)
                 {
                     subStrings.Add(string.Empty);
                     continue;
                 }
 
-                uint marker = BinaryPrimitives.ReadUInt32LittleEndian(block.Slice((int)strOffset, 4));
+                uint value = BinaryPrimitives.ReadUInt32LittleEndian(block.Slice((int)strOffset, 4));
 
-                if (marker == 1)
+                if (kind == 0)
                 {
                     int textStart = (int)strOffset + 4 + DmsgMetaSize;
                     if (textStart < block.Length)
@@ -179,8 +211,8 @@ namespace Gordian.Core.Resources.Tables
                 }
                 else
                 {
-                    // Numeric sub-entry
-                    subStrings.Add(marker.ToString());
+                    numbers[i] = value;
+                    subStrings.Add(value.ToString());
                 }
 
                 if (fieldNames != null && i < fieldNames.Count)
@@ -189,7 +221,7 @@ namespace Gordian.Core.Resources.Tables
                 }
             }
 
-            return new DMsgRecord(index, absoluteOffset, subStrings, named);
+            return new DMsgRecord(index, absoluteOffset, subStrings, named, numbers);
         }
 
         /// <summary>
