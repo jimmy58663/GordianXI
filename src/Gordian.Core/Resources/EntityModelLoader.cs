@@ -27,7 +27,8 @@ namespace Gordian.Core.Resources
             Skeleton? Skeleton,
             List<SkeletonMeshGroup> Meshes,
             Dictionary<string, DecodedTexture> Textures,
-            List<AnimationClip> Animations
+            List<AnimationClip> Animations,
+            List<RawMotionRoutine> Routines
         );
 
         /// <summary>
@@ -39,6 +40,7 @@ namespace Gordian.Core.Resources
             var meshes = new List<SkeletonMeshGroup>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
             var animations = new List<AnimationClip>();
+            var routines = new List<RawMotionRoutine>();
             Skeleton? skeleton = null;
 
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -74,6 +76,13 @@ namespace Gordian.Core.Resources
                         }
                         break;
 
+                    case DatSectionType.EffectRoutine:
+                        if (MotionRoutineDecoder.Decode(payload, h.DatId) is { } routine)
+                        {
+                            routines.Add(routine);
+                        }
+                        break;
+
                     case DatSectionType.Texture:
                         var tex = TextureDecoder.DecodeTexture(payload);
                         if (tex != null)
@@ -95,7 +104,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            return new RawDatContainer(skeleton, meshes, textures, animations);
+            return new RawDatContainer(skeleton, meshes, textures, animations, routines);
         }
 
         /// <summary>
@@ -129,6 +138,8 @@ namespace Gordian.Core.Resources
                 }
             }
 
+            AddRoutines(model, primary.Routines);
+
             var allMeshes = new List<SkeletonMeshGroup>(primary.Meshes);
 
             if (extraDats != null)
@@ -151,6 +162,7 @@ namespace Gordian.Core.Resources
                         model.Animations[clip.Name] = clip;
                     }
 
+                    AddRoutines(model, extra.Routines);
                     allMeshes.AddRange(extra.Meshes);
                 }
             }
@@ -168,7 +180,21 @@ namespace Gordian.Core.Resources
             }
 
             model.UpdateBounds();
+            model.RebuildMotionRoutines();
             return model;
+        }
+
+        /// <summary>
+        /// Adds a DAT's motion routines to the model, replacing any same-named routine from an earlier source (a PC's
+        /// weapon battle pack overrides its race base).
+        /// </summary>
+        private static void AddRoutines(EntityModel model, List<RawMotionRoutine>? routines)
+        {
+            if (routines == null) return;
+            foreach (var routine in routines)
+            {
+                if (routine.Name.Length > 0) model.RawMotionRoutines[routine.Name] = routine;
+            }
         }
 
         /// <summary>
@@ -310,13 +336,18 @@ namespace Gordian.Core.Resources
                 List<AnimationClip>? battleAnims = null;
                 if (battleDat != null && battleDat.Length > 0)
                 {
-                    battleAnims = ParseDatContainer(battleDat, "BattlePack").Animations;
+                    var battle = ParseDatContainer(battleDat, "BattlePack");
+                    battleAnims = battle.Animations;
+                    // The weapon's swings, draw and sheathe (ati0-ati2, atf0, out0, in 0...) live in its battle pack.
+                    AddRoutines(model, battle.Routines);
                 }
 
                 if (overlaySources.Count > 0 || (battleAnims != null && battleAnims.Count > 0))
                 {
                     MergeLocomotionCategories(model, overlaySources, battleAnims);
                 }
+
+                model.RebuildMotionRoutines();
             }
 
             return model;

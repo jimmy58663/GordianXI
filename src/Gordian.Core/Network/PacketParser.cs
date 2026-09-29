@@ -40,6 +40,7 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
+        private readonly Animation.ActionPlaybackQueue _actionPlayback;
         private readonly PlayerConfigState _config;
         private readonly ConfigPacketModule _configModule;
         private readonly Actions.PlayerActionService _actionService;
@@ -107,6 +108,7 @@ namespace Gordian.Core.Network
 
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
+            _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world);
 
             _configModule = new ConfigPacketModule(_config, _sendChunkCallback, LogPacket);
             _configModule.Register(_dispatcher);
@@ -208,6 +210,11 @@ namespace Gordian.Core.Network
         /// Gets the combat, spell casting, ability, and emote packet handling module.
         /// </summary>
         public CombatPacketModule CombatModule => _combatModule;
+
+        /// <summary>
+        /// Gets the bridge from S2C 0x028 actions to entity animation (swings, casts, hit reactions).
+        /// </summary>
+        public Animation.ActionPlaybackQueue ActionPlayback => _actionPlayback;
 
         /// <summary>
         /// Gets the character configuration module (S2C 0x0B4; C2S 0x0DB / 0x0DC for the config menu's server-side settings).

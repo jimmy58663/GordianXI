@@ -28,6 +28,19 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
+        /// A single-frame pose blended over whatever the clips produce, per joint in local space (rotation only): the
+        /// transient hit flinch toward the model's damage pose (<c>dfm</c> / <c>dbm</c>) or the guard / parry pose flash.
+        /// With a <paramref name="Reference"/> pose the overlay is additive: each joint turns by the pose's offset from the
+        /// reference (<c>dfm</c> against the neutral <c>dfi</c>), scaled by the weight, on top of the playing clip. Without one
+        /// the joint blends toward the pose itself.
+        /// </summary>
+        /// <param name="Clip">The pose clip; sampled at time 0.</param>
+        /// <param name="Weight">0 = no effect, 1 = the full pose (or the full offset).</param>
+        /// <param name="JointMask">Joints the overlay may move (true), or null for every joint the clip has a track for.</param>
+        /// <param name="Reference">The neutral pose the offset is measured from, or null for an absolute blend.</param>
+        public readonly record struct PoseOverlay(AnimationClip Clip, float Weight, bool[]? JointMask = null, AnimationClip? Reference = null);
+
+        /// <summary>
         /// Computes bind-pose world rotation and translation for each joint in the skeleton hierarchy.
         /// Optionally accepts parentOverrides mapping jointIndex -> replacementParentJointIndex (e.g. for re-parenting weapon grip joints to hands).
         /// </summary>
@@ -74,7 +87,7 @@ namespace Gordian.Core.Resources.Graphics
         /// Joints without a track in the clip (or when clip is null) retain their static bind-pose transform.
         /// Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
         /// </summary>
-        public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null, PoseOverlay? overlay = null)
         {
             int n = skeleton.Count;
             if (n == 0)
@@ -144,17 +157,25 @@ namespace Gordian.Core.Resources.Graphics
                     Vector3 t = joint.Translation;
                     Quaternion r = joint.Rotation;
                     Vector3 s = Vector3.One;
+                    Quaternion deltaRot = Quaternion.Identity;
+                    bool hasDelta = false;
                     if (clip != null && clip.TrySample(i, timeSeconds, loop, out var animRot, out var animTrans, out var animScale))
                     {
                         t += animTrans;
-                        // Protocol spec referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js:
-                        // anim applied after bind rotation: rotation = qMul(s.q, rotation).
-                        // In .NET Quaternion.Multiply(a, b), animRot * r directly matches qMul(s.q, rotation).
-                        r = animRot * r;
+                        deltaRot = animRot;
+                        hasDelta = true;
                         if (i != 0)
                         {
                             s = animScale; // root scale ignored per FFXI spec
                         }
+                    }
+                    if (ApplyOverlay(overlay, i, ref deltaRot)) hasDelta = true;
+                    if (hasDelta)
+                    {
+                        // Protocol spec referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js:
+                        // anim applied after bind rotation: rotation = qMul(s.q, rotation).
+                        // In .NET Quaternion.Multiply(a, b), animRot * r directly matches qMul(s.q, rotation).
+                        r = deltaRot * r;
                     }
 
                     if (i == 0)
@@ -223,15 +244,16 @@ namespace Gordian.Core.Resources.Graphics
             float timeB,
             bool loopB,
             float blendWeight,
-            IReadOnlyDictionary<int, int>? parentOverrides = null)
+            IReadOnlyDictionary<int, int>? parentOverrides = null,
+            PoseOverlay? overlay = null)
         {
             if (blendWeight <= 0f || clipB == null)
             {
-                return EvaluatePose(skeleton, clipA, timeA, loopA, parentOverrides);
+                return EvaluatePose(skeleton, clipA, timeA, loopA, parentOverrides, overlay);
             }
             if (blendWeight >= 1f || clipA == null)
             {
-                return EvaluatePose(skeleton, clipB, timeB, loopB, parentOverrides);
+                return EvaluatePose(skeleton, clipB, timeB, loopB, parentOverrides, overlay);
             }
 
             int n = skeleton.Count;
@@ -350,11 +372,17 @@ namespace Gordian.Core.Resources.Graphics
                         }
 
                         t += transDelta;
+                        ApplyOverlay(overlay, i, ref blendedDeltaRot);
                         r = blendedDeltaRot * r;
                         if (i != 0)
                         {
                             s = blendedScale;
                         }
+                    }
+                    else
+                    {
+                        Quaternion overlayDelta = Quaternion.Identity;
+                        if (ApplyOverlay(overlay, i, ref overlayDelta)) r = overlayDelta * r;
                     }
 
                     if (i == 0)
@@ -405,6 +433,32 @@ namespace Gordian.Core.Resources.Graphics
             } while (missing && passes < n + 2);
 
             return new EvaluatedPose(rot, trans, scale);
+        }
+
+        /// <summary>
+        /// Applies the overlay to a joint's local rotation delta: turns it by the weighted offset of the pose from its reference,
+        /// or blends it toward the pose (quaternion NLERP along the shortest arc). Returns whether the overlay touched the joint.
+        /// </summary>
+        private static bool ApplyOverlay(PoseOverlay? overlay, int joint, ref Quaternion deltaRot)
+        {
+            if (overlay is not { } o || o.Weight <= 0f) return false;
+            if (o.JointMask != null && (joint >= o.JointMask.Length || !o.JointMask[joint])) return false;
+            if (!o.Clip.TrySample(joint, 0f, false, out var poseRot, out _, out _)) return false;
+
+            float w = Math.Min(o.Weight, 1f);
+            if (o.Reference != null)
+            {
+                if (!o.Reference.TrySample(joint, 0f, false, out var referenceRot, out _, out _)) return false;
+                var offset = Quaternion.Normalize(poseRot * Quaternion.Conjugate(referenceRot));
+                if (offset.W < 0f) offset = -offset;
+                var scaled = Quaternion.Normalize(Quaternion.Lerp(Quaternion.Identity, offset, w));
+                deltaRot = Quaternion.Normalize(scaled * deltaRot);
+                return true;
+            }
+
+            if (Quaternion.Dot(deltaRot, poseRot) < 0f) poseRot = -poseRot;
+            deltaRot = Quaternion.Normalize(Quaternion.Lerp(deltaRot, poseRot, w));
+            return true;
         }
 
         /// <summary>

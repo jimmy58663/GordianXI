@@ -447,9 +447,10 @@ namespace Gordian.App.Graphics
 
                     entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, entityModel);
 
-                    bool loop = category != AnimationCategory.Death && !entity.Animation.IsPlayingTransition;
+                    // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
+                    bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, loop, engaged ? entityModel.ParentOverrides : null, out var pose);
+                    float top = UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                     if (isTarget) TargetAnchor = pos + new Vector3(0.0f, top + TargetAnchorClearance, 0.0f);
@@ -489,24 +490,27 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Uploads an entity's current pose and returns the height (yalms above its feet) of its highest joint.
         /// </summary>
-        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, bool loop, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        private float UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
         {
+            bool loop = animState.LoopsCurrentClip;
+            var overlay = animState.Overlay;
             if (animState.IsBlending && animState.PreviousClip != null)
             {
                 pose = SkeletonPoseEvaluator.EvaluateBlendedPose(
                     skeleton,
                     animState.PreviousClip,
                     animState.PreviousElapsedSeconds,
-                    loop,
+                    animState.PreviousClipLoops,
                     animState.CurrentClip,
                     animState.ElapsedSeconds,
                     loop,
                     animState.BlendWeight,
-                    parentOverrides);
+                    parentOverrides,
+                    overlay);
             }
             else
             {
-                pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides);
+                pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides, overlay);
             }
             int count = pose.Rotations.Length;
 
