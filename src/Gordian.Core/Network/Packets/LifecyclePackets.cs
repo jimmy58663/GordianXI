@@ -33,15 +33,20 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// World position update mode flags sent by server in S2C 0x05B / 0x065 (POSMODE).
+    /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B and 0x0065.
     /// </summary>
     public enum PosMode : byte
     {
         Normal = 0x00,
         Event = 0x01,
         Clear = 0x02,
-        Pop = 0x03,
+        /// <summary>Places the entity, then deletes it with pop effect 3 (LandSandBoat's POP).</summary>
+        PlaceAndDeletePop = 0x03,
         Reset = 0x05,
-        Materialize = 0x06,
+        /// <summary>Places the entity, then deletes it with pop effect 6 (LandSandBoat's MATERIALIZE).</summary>
+        PlaceAndDeleteMaterialize = 0x06,
+        /// <summary>Places the entity; for the local player the retail client also opens the zone's indoor area (XiZone::OpenIndoor).</summary>
+        OpenIndoor = 0x07,
         Lock = 0x08,
         Unlock = 0x09,
         Rotate = 0x0A
@@ -57,7 +62,14 @@ namespace Gordian.Core.Network.Packets
         /// Modes that place the entity at <see cref="Position"/> (the rest rotate, lock or clear flags only).
         /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B.
         /// </summary>
-        public bool MovesEntity => (byte)Mode is 0x00 or 0x01 or 0x03 or 0x05 or 0x06 or 0x07;
+        public bool MovesEntity => Mode is PosMode.Normal or PosMode.Event or PosMode.PlaceAndDeletePop or PosMode.Reset
+                                        or PosMode.PlaceAndDeleteMaterialize or PosMode.OpenIndoor;
+
+        /// <summary>
+        /// Modes that delete the entity after placing it (the retail client calls XiAtelBuff::ObjectDelete with a pop effect).
+        /// Mode behaviour referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x005B.
+        /// </summary>
+        public bool DeletesEntity => Mode is PosMode.PlaceAndDeletePop or PosMode.PlaceAndDeleteMaterialize;
     }
 
     /// <summary>

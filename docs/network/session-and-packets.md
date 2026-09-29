@@ -66,12 +66,14 @@ LandSandBoat sends almost every missing S2C packet. These arrive in an ordinary 
 
 **Offsets.** XiPackets offsets count from the start of the packet. Our decoders receive the payload after the 4-byte header (`PacketParser`), so our offset = XiPackets offset − 4.
 
+Fixed since the audit:
+- [#97](https://github.com/jimmy58663/GordianXI/issues/97): linkshell C2S `0x0E1`/`0x0E2`/`0x0E4` are 144 bytes (`0x90`, XiPackets). `0x0E2` has two builders: `BuildSetLsMsg` sets byte +4 bit 6 (`0x40`, change the message) and `BuildSetLsWriteLevel` sets bit 5 (`0x20`, change the access level, level in bits 2-3 of +5). LSB ignores the packet unless one of them is set.
+- [#98](https://github.com/jimmy58663/GordianXI/issues/98): `PartyKind.Alliance` is 5 (XiPackets `0x006E`, LSB `enums/party_kind.h`).
+- [#99](https://github.com/jimmy58663/GordianXI/issues/99): S2C `0x05E` is a 176-byte payload (LSB `s2c/0x05e_conquest.h`; XiPackets has no layout yet). Payload offsets: balance 0, alliance 1, 27 region records at 22 (4 bytes each: ranking with beastmen, ranking without, graphics, owner 0 = neutral or nation + 1), current-region percentages 130-135, next tally 136, conquest points 140, beastmen percentage 144, Besieged overview word 156 (bits 0-1 Astral Candescence, 2-3 Al Zahbi orders), Mamook/Halvung/Arrapago stronghold words 160/164/168 (bits 0-2 orders, 3-10 forces, 11-14 level, 15 mirror destroyed, 16-19 mirrors (LSB sends the count halved), 20-23 prisoners), Imperial Standing 172.
+- [#101](https://github.com/jimmy58663/GordianXI/issues/101): `0x05B`/`0x065` modes 3 (`PlaceAndDeletePop`) and 6 (`PlaceAndDeleteMaterialize`) place another entity and then remove it from `WorldState` (the pop effect is not played yet). For the local player they only place it. Mode 7 (`OpenIndoor`) places the entity; the indoor area it opens for the local player is not modelled. LSB defines these modes but never sends them, so only unit tests cover them.
+
 Wrong today (bugs):
-- [#97](https://github.com/jimmy58663/GordianXI/issues/97): linkshell C2S `0x0E1`/`0x0E2`/`0x0E4` are 148 bytes instead of 144, and `0x0E2` sets no action bits.
-- [#98](https://github.com/jimmy58663/GordianXI/issues/98): `PartyKind.Alliance` is 1; it should be 5.
-- [#99](https://github.com/jimmy58663/GordianXI/issues/99): S2C `0x05E` conquest never decodes.
 - [#100](https://github.com/jimmy58663/GordianXI/issues/100): S2C field fixes. `0x061` exp, `0x062` craft skills, `0x112` RoE chunk, `0x08C` merits, `0x026` mannequin, `0x037` dead counter, `0x030` synthesis enum, `0x00E` masks, `0x077` flags, `0x0CC` name (needs a capture).
-- [#101](https://github.com/jimmy58663/GordianXI/issues/101): `0x05B`/`0x065` position modes 3 and 6 should despawn the entity.
 - [#102](https://github.com/jimmy58663/GordianXI/issues/102): C2S corrections. `0x116` block index, `0x01A` ground-target axes, `0x00A` login fields.
 - The Auction House can't sell: `0x04E` AskCommit/LotIn are missing, and `AuctionCommand.Open` isn't a client command. Noted on [#90](https://github.com/jimmy58663/GordianXI/issues/90).
 

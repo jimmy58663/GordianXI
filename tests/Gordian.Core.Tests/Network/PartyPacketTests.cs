@@ -180,6 +180,19 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void PartyPacketBuilder_AllianceKind_WritesFive()
+        {
+            // LSB validates the kind with oneOf<PartyKind> (0 = party, 5 = alliance) and rejects anything else.
+            Assert.Equal(5, PartyPacketBuilder.BuildGroupSolicitReq(12345, 42, PartyKind.Alliance)[10]);
+            Assert.Equal(5, PartyPacketBuilder.BuildGroupLeave(PartyKind.Alliance)[4]);
+            Assert.Equal(5, PartyPacketBuilder.BuildGroupBreakup(PartyKind.Alliance)[4]);
+
+            byte[] invite = new byte[28];
+            invite[7] = 5;
+            Assert.Equal(PartyKind.Alliance, new S2C_0x0DC_GroupSolicitReq(invite).Kind);
+        }
+
+        [Fact]
         public void PartyPacketBuilder_BuildGroupStrike_CreatesValidPacket()
         {
             byte[] packet = PartyPacketBuilder.BuildGroupStrike(54321, 99, "KickedPlayer", 0, 106);

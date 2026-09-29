@@ -80,6 +80,32 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.True(other.SnapToTargetPending);
         }
 
+        [Theory]
+        [InlineData(PosMode.PlaceAndDeletePop)]
+        [InlineData(PosMode.PlaceAndDeleteMaterialize)]
+        public void PlaceAndDeleteModes_DespawnTheOtherEntity(PosMode mode)
+        {
+            using var h = new Harness();
+            var other = new PlayerEntity(OtherId, 2) { Position = new Vector3(0, 0, 0), IsSpawned = true };
+            h.Net.Parser.World.UpsertEntity(other);
+
+            h.Wpos(OtherId, new Vector3(-30, 1, 5), mode);
+
+            Assert.False(h.Net.Parser.World.TryGetByServerId(OtherId, out _));
+            Assert.False(other.IsSpawned);
+            Assert.Equal(new Vector3(-30, 1, 5), other.TargetPosition);
+        }
+
+        [Fact]
+        public void PlaceAndDeleteMode_OnlyPlacesTheLocalPlayer()
+        {
+            using var h = new Harness();
+            h.Wpos(LocalId, new Vector3(50, 0, -20), PosMode.PlaceAndDeletePop);
+
+            Assert.True(h.Net.Parser.World.TryGetByServerId(LocalId, out _));
+            Assert.Equal(50f, h.Net.PositionX);
+        }
+
         [Fact]
         public void RotateOnlyTurnsAndLockHoldsThePlayerUntilUnlocked()
         {

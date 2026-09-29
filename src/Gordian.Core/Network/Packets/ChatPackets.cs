@@ -424,7 +424,18 @@ namespace Gordian.Core.Network.Packets
     public static class ChatOutboundPackets
     {
         public const int UserMsgSubPacketSize = 152;
-        public const int LinkshellSubPacketSize = 148;
+        /// <summary>
+        /// C2S 0x0E1/0x0E2/0x0E4 size: 0x90 (4 header + 12 fields + 128 message). LandSandBoat drops any fixed-size
+        /// C2S packet whose header size differs from its struct, so this must be exact.
+        /// Size referenced from XiPackets (https://github.com/atom0s/XiPackets, world/client/0x00E1, 0x00E2).
+        /// </summary>
+        public const int LinkshellSubPacketSize = 144;
+
+        /// <summary>C2S 0x0E2 byte +4 bit 5: the packet changes the message access level.</summary>
+        private const byte SetLsMsgChangeWriteLevelFlag = 0x20;
+
+        /// <summary>C2S 0x0E2 byte +4 bit 6: the packet changes the message text.</summary>
+        private const byte SetLsMsgChangeMessageFlag = 0x40;
         public const int AssistChannelSubPacketSize = 24;
 
         /// <summary>
@@ -726,27 +737,17 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// Builds C2S 0x0E2 (GP_CLI_COMMAND_SET_LSMSG): Sets linkshell MOTD message and access permissions.
-        /// Protocol specification referenced from LandSandBoat (src/map/packets/c2s/0x0e2_set_lsmsg.h).
+        /// Builds C2S 0x0E2 (GP_CLI_COMMAND_SET_LSMSG) that changes the linkshell message text (byte +4 bit 6).
+        /// Protocol specification referenced from LandSandBoat (src/map/packets/c2s/0x0e2_set_lsmsg.h) and
+        /// XiPackets (https://github.com/atom0s/XiPackets, world/client/0x00E2).
         /// </summary>
         public static void BuildSetLsMsg(
             Span<byte> destination,
             LinkshellSlot slot,
             ReadOnlySpan<char> message,
-            LinkshellWriteLevel writeLevel = LinkshellWriteLevel.Linkshell,
             ushort sequenceId = 0)
         {
-            if (destination.Length < LinkshellSubPacketSize)
-                throw new ArgumentException($"Destination must be at least {LinkshellSubPacketSize} bytes.", nameof(destination));
-
-            destination.Slice(0, LinkshellSubPacketSize).Clear();
-            ushort words = (ushort)(LinkshellSubPacketSize / 4);
-            ushort headerWord = (ushort)(0x0E2 | (words << 9));
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
-
-            byte byte1 = (byte)((((int)slot & 0x03) << 6) | (((int)writeLevel & 0x03) << 2));
-            destination[5] = byte1;
+            WriteSetLsMsgHeader(destination, slot, SetLsMsgChangeMessageFlag, LinkshellWriteLevel.Linkshell, sequenceId);
 
             if (!message.IsEmpty)
             {
@@ -764,15 +765,53 @@ namespace Gordian.Core.Network.Packets
             }
         }
 
-        public static byte[] BuildSetLsMsg(
-            LinkshellSlot slot,
-            string message,
-            LinkshellWriteLevel writeLevel = LinkshellWriteLevel.Linkshell,
-            ushort sequenceId = 0)
+        public static byte[] BuildSetLsMsg(LinkshellSlot slot, string message, ushort sequenceId = 0)
         {
             byte[] packet = new byte[LinkshellSubPacketSize];
-            BuildSetLsMsg(packet.AsSpan(), slot, message.AsSpan(), writeLevel, sequenceId);
+            BuildSetLsMsg(packet.AsSpan(), slot, message.AsSpan(), sequenceId);
             return packet;
+        }
+
+        /// <summary>
+        /// Builds C2S 0x0E2 (GP_CLI_COMMAND_SET_LSMSG) that changes who may write the linkshell message
+        /// (byte +4 bit 5, level in bits 2-3 of +5). Only the linkshell owner may do this.
+        /// Protocol specification referenced from LandSandBoat (src/map/packets/c2s/0x0e2_set_lsmsg.h) and
+        /// XiPackets (https://github.com/atom0s/XiPackets, world/client/0x00E2).
+        /// </summary>
+        public static void BuildSetLsWriteLevel(
+            Span<byte> destination,
+            LinkshellSlot slot,
+            LinkshellWriteLevel writeLevel,
+            ushort sequenceId = 0)
+        {
+            WriteSetLsMsgHeader(destination, slot, SetLsMsgChangeWriteLevelFlag, writeLevel, sequenceId);
+        }
+
+        public static byte[] BuildSetLsWriteLevel(LinkshellSlot slot, LinkshellWriteLevel writeLevel, ushort sequenceId = 0)
+        {
+            byte[] packet = new byte[LinkshellSubPacketSize];
+            BuildSetLsWriteLevel(packet.AsSpan(), slot, writeLevel, sequenceId);
+            return packet;
+        }
+
+        private static void WriteSetLsMsgHeader(
+            Span<byte> destination,
+            LinkshellSlot slot,
+            byte actionFlag,
+            LinkshellWriteLevel writeLevel,
+            ushort sequenceId)
+        {
+            if (destination.Length < LinkshellSubPacketSize)
+                throw new ArgumentException($"Destination must be at least {LinkshellSubPacketSize} bytes.", nameof(destination));
+
+            destination.Slice(0, LinkshellSubPacketSize).Clear();
+            ushort words = (ushort)(LinkshellSubPacketSize / 4);
+            ushort headerWord = (ushort)(0x0E2 | (words << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(2, 2), sequenceId);
+
+            destination[4] = actionFlag;
+            destination[5] = (byte)((((int)slot & 0x03) << 6) | (((int)writeLevel & 0x03) << 2));
         }
 
         /// <summary>

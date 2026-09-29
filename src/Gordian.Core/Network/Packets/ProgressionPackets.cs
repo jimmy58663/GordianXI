@@ -697,16 +697,74 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x05E (GP_SERV_COMMAND_CONQUEST): Conquest regional influence and Besieged overview.
+    /// One conquest region record from S2C 0x05E. Owner is 0 for neutral, otherwise nation + 1
+    /// (1 San d'Oria, 2 Bastok, 3 Windurst, 4 beastmen).
+    /// </summary>
+    public readonly record struct ConquestRegion(byte RankingWithBeastmen, byte RankingNoBeastmen, byte Graphics, byte Owner);
+
+    /// <summary>
+    /// One beastmen stronghold from the S2C 0x05E Besieged block. <see cref="Mirrors"/> is the wire value; LandSandBoat
+    /// sends the mirror count halved.
+    /// </summary>
+    public readonly record struct BesiegedStronghold(byte Orders, byte Forces, byte Level, bool MirrorDestroyed, byte Mirrors, byte Prisoners)
+    {
+        /// <summary>Decodes the packed 32-bit stronghold word (bits 0-2 orders, 3-10 forces, 11-14 level, 15 mirror destroyed, 16-19 mirrors, 20-23 prisoners).</summary>
+        public static BesiegedStronghold FromWord(uint word) => new(
+            (byte)(word & 0x7),
+            (byte)((word >> 3) & 0xFF),
+            (byte)((word >> 11) & 0xF),
+            ((word >> 15) & 0x1) != 0,
+            (byte)((word >> 16) & 0xF),
+            (byte)((word >> 20) & 0xF));
+    }
+
+    /// <summary>
+    /// S2C 0x05E (GP_SERV_COMMAND_CONQUEST): Conquest regional influence and Besieged overview. The payload is 176 bytes:
+    /// a 156-byte conquest block (balance, alliance, 27 four-byte region records at 22, current-region percentages at 130,
+    /// next tally at 136, conquest points at 140, beastmen percentage at 144) followed by a 20-byte Besieged block
+    /// (overview word at 156, Mamook/Halvung/Arrapago stronghold words at 160/164/168, Imperial Standing at 172).
+    /// XiPackets (world/server/0x005E) does not document this packet yet.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x05e_conquest.h).
     /// </summary>
     public readonly ref struct S2C_0x05E_Conquest
     {
         public const ushort PacketId = 0x05E;
+        public const int PayloadSize = 176;
+        public const int RegionCount = 27;
+
+        private const int RegionsOffset = 22;
+        private const int BesiegedOffset = 156;
 
         public byte Balance { get; }
         public byte Alliance { get; }
+
+        /// <summary>San d'Oria/Bastok/Windurst share of the current region, in percent of all four influences (beastmen included).</summary>
+        public byte CurrentRegionSandoria { get; }
+        public byte CurrentRegionBastok { get; }
+        public byte CurrentRegionWindurst { get; }
+
+        /// <summary>San d'Oria/Bastok/Windurst share of the current region, in percent of the three nations only.</summary>
+        public byte CurrentRegionSandoriaPct { get; }
+        public byte CurrentRegionBastokPct { get; }
+        public byte CurrentRegionWindurstPct { get; }
+
+        /// <summary>Beastmen share of the current region, in percent of all four influences.</summary>
+        public byte CurrentRegionBeastmen { get; }
+
+        /// <summary>Days until the next conquest tally.</summary>
+        public byte NextTally { get; }
+
         public uint ConquestPoints { get; }
+
+        /// <summary>Astral Candescence holder (overview bits 0-1).</summary>
+        public byte AstralCandescence { get; }
+
+        /// <summary>Al Zahbi orders (overview bits 2-3).</summary>
+        public byte AlZahbiOrders { get; }
+
+        public BesiegedStronghold Mamook { get; }
+        public BesiegedStronghold Halvung { get; }
+        public BesiegedStronghold Arrapago { get; }
         public uint ImperialStanding { get; }
         public bool IsValid { get; }
 
@@ -715,30 +773,40 @@ namespace Gordian.Core.Network.Packets
         public S2C_0x05E_Conquest(ReadOnlySpan<byte> payload)
         {
             _payload = payload;
-            if (payload.Length < 184)
+            if (payload.Length < PayloadSize)
             {
-                Balance = 0;
-                Alliance = 0;
-                ConquestPoints = 0;
-                ImperialStanding = 0;
                 IsValid = false;
                 return;
             }
 
             Balance = payload[0];
             Alliance = payload[1];
-            ConquestPoints = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(144, 4));
-            ImperialStanding = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(180, 4));
+            CurrentRegionSandoria = payload[130];
+            CurrentRegionBastok = payload[131];
+            CurrentRegionWindurst = payload[132];
+            CurrentRegionSandoriaPct = payload[133];
+            CurrentRegionBastokPct = payload[134];
+            CurrentRegionWindurstPct = payload[135];
+            NextTally = payload[136];
+            ConquestPoints = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(140, 4));
+            CurrentRegionBeastmen = payload[144];
+
+            uint overview = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(BesiegedOffset, 4));
+            AstralCandescence = (byte)(overview & 0x3);
+            AlZahbiOrders = (byte)((overview >> 2) & 0x3);
+            Mamook = BesiegedStronghold.FromWord(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(BesiegedOffset + 4, 4)));
+            Halvung = BesiegedStronghold.FromWord(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(BesiegedOffset + 8, 4)));
+            Arrapago = BesiegedStronghold.FromWord(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(BesiegedOffset + 12, 4)));
+            ImperialStanding = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(172, 4));
             IsValid = true;
         }
 
-        public (byte Owner, byte Ranking) GetRegionInfo(int regionIndex)
+        /// <summary>Gets region record <paramref name="regionIndex"/> (0 Ronfaure .. 26 Tavnazia), or default when invalid.</summary>
+        public ConquestRegion GetRegion(int regionIndex)
         {
-            if (!IsValid || regionIndex < 0 || regionIndex >= 27) return (0, 0);
-            int offset = 22 + (regionIndex * 4);
-            byte ranking = _payload[offset];
-            byte owner = _payload[offset + 3];
-            return (owner, ranking);
+            if (!IsValid || regionIndex < 0 || regionIndex >= RegionCount) return default;
+            ReadOnlySpan<byte> r = _payload.Slice(RegionsOffset + (regionIndex * 4), 4);
+            return new ConquestRegion(r[0], r[1], r[2], r[3]);
         }
     }
 

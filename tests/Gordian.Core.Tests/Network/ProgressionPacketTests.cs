@@ -324,13 +324,56 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void S2C_0x05E_Conquest_DecodesLsbLayout()
+        {
+            // 176-byte payload: conquestdata_t (156) + besiegeddata_t (20), per LandSandBoat s2c/0x05e_conquest.h.
+            byte[] payload = new byte[176];
+            payload[0] = 3;
+            payload[1] = 1;
+            payload[22] = 2; payload[23] = 1; payload[24] = 0x40; payload[25] = 3; // region 0 (Ronfaure)
+            payload[22 + 26 * 4 + 3] = 4;                                        // region 26 (Tavnazia) owner
+            payload[130] = 40; payload[131] = 30; payload[132] = 20;
+            payload[133] = 44; payload[134] = 33; payload[135] = 22;
+            payload[136] = 6;
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(140, 4), 12345);
+            payload[144] = 10;
+            // Overview: Astral Candescence 1, Al Zahbi orders 2.
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(156, 4), 1u | (2u << 2));
+            // Mamook: orders 3, forces 150, level 5, mirror destroyed, mirrors 2, prisoners 1.
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(160, 4),
+                3u | (150u << 3) | (5u << 11) | (1u << 15) | (2u << 16) | (1u << 20));
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(172, 4), 9876);
+
+            var conquest = new S2C_0x05E_Conquest(payload);
+
+            Assert.True(conquest.IsValid);
+            Assert.Equal(3, conquest.Balance);
+            Assert.Equal(1, conquest.Alliance);
+            Assert.Equal(new ConquestRegion(2, 1, 0x40, 3), conquest.GetRegion(0));
+            Assert.Equal(4, conquest.GetRegion(26).Owner);
+            Assert.Equal(default, conquest.GetRegion(27));
+            Assert.Equal((40, 30, 20), (conquest.CurrentRegionSandoria, conquest.CurrentRegionBastok, conquest.CurrentRegionWindurst));
+            Assert.Equal((44, 33, 22), (conquest.CurrentRegionSandoriaPct, conquest.CurrentRegionBastokPct, conquest.CurrentRegionWindurstPct));
+            Assert.Equal(6, conquest.NextTally);
+            Assert.Equal(12345u, conquest.ConquestPoints);
+            Assert.Equal(10, conquest.CurrentRegionBeastmen);
+            Assert.Equal(1, conquest.AstralCandescence);
+            Assert.Equal(2, conquest.AlZahbiOrders);
+            Assert.Equal(new BesiegedStronghold(3, 150, 5, true, 2, 1), conquest.Mamook);
+            Assert.Equal(default, conquest.Halvung);
+            Assert.Equal(9876u, conquest.ImperialStanding);
+
+            Assert.False(new S2C_0x05E_Conquest(new byte[175]).IsValid);
+        }
+
+        [Fact]
         public void S2C_0x05E_0x115_0x073_0x110_DecodesCorrectly()
         {
             // 0x05E Conquest
-            byte[] conqPayload = new byte[184];
+            byte[] conqPayload = new byte[176];
             conqPayload[0] = 1; // Balance
             conqPayload[1] = 2; // Alliance
-            BinaryPrimitives.WriteUInt32LittleEndian(conqPayload.AsSpan(144, 4), 50000); // CP
+            BinaryPrimitives.WriteUInt32LittleEndian(conqPayload.AsSpan(140, 4), 50000); // CP
 
             var conq = new S2C_0x05E_Conquest(conqPayload);
             Assert.True(conq.IsValid);

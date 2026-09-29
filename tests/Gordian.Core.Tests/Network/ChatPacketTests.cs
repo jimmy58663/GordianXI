@@ -336,11 +336,11 @@ namespace Gordian.Core.Tests.Network
         {
             byte[] packet = ChatOutboundPackets.BuildGetLsMsg(LinkshellSlot.LS2, 202);
 
-            Assert.Equal(148, packet.Length);
+            Assert.Equal(144, packet.Length);
 
             ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
             Assert.Equal(0x0E1, headerWord & 0x1FF);
-            Assert.Equal(37, headerWord >> 9); // 148 / 4 = 37 words
+            Assert.Equal(36, headerWord >> 9); // 144 / 4 = 36 words
 
             Assert.Equal(202, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(2, 2)));
             Assert.Equal((byte)(1 << 6), packet[5]); // LS2 in bits 6..7
@@ -349,24 +349,37 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void C2S_0x0E2_SetLsMsg_BuildsValidWirePacket()
         {
-            byte[] packet = ChatOutboundPackets.BuildSetLsMsg(
-                LinkshellSlot.LS1,
-                "New linkshell rule: be kind",
-                LinkshellWriteLevel.Pearlsack,
-                303);
+            byte[] packet = ChatOutboundPackets.BuildSetLsMsg(LinkshellSlot.LS1, "New linkshell rule: be kind", 303);
 
-            Assert.Equal(148, packet.Length);
+            Assert.Equal(144, packet.Length);
 
             ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
             Assert.Equal(0x0E2, headerWord & 0x1FF);
-            Assert.Equal(37, headerWord >> 9);
+            Assert.Equal(36, headerWord >> 9);
 
             Assert.Equal(303, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(2, 2)));
-            // LS1 (0 << 6) | Pearlsack (1 << 2) = 0x04
-            Assert.Equal(0x04, packet[5]);
+            Assert.Equal(0x40, packet[4]); // change-message flag
+            Assert.Equal(0x00, packet[5]);
 
             string msg = Encoding.ASCII.GetString(packet.AsSpan(16, 27));
             Assert.Equal("New linkshell rule: be kind", msg);
+        }
+
+        [Fact]
+        public void C2S_0x0E2_SetLsWriteLevel_BuildsValidWirePacket()
+        {
+            byte[] packet = ChatOutboundPackets.BuildSetLsWriteLevel(LinkshellSlot.LS1, LinkshellWriteLevel.Pearlsack, 304);
+
+            Assert.Equal(144, packet.Length);
+
+            ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
+            Assert.Equal(0x0E2, headerWord & 0x1FF);
+            Assert.Equal(36, headerWord >> 9);
+
+            Assert.Equal(0x20, packet[4]); // change-access-level flag
+            // LS1 (0 << 6) | Pearlsack (1 << 2) = 0x04
+            Assert.Equal(0x04, packet[5]);
+            Assert.All(packet.AsSpan(16).ToArray(), b => Assert.Equal(0, b));
         }
 
         [Fact]
@@ -374,11 +387,11 @@ namespace Gordian.Core.Tests.Network
         {
             byte[] packet = ChatOutboundPackets.BuildGetLsPriv(LinkshellSlot.LS1, 404);
 
-            Assert.Equal(148, packet.Length);
+            Assert.Equal(144, packet.Length);
 
             ushort headerWord = BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(0, 2));
             Assert.Equal(0x0E4, headerWord & 0x1FF);
-            Assert.Equal(37, headerWord >> 9);
+            Assert.Equal(36, headerWord >> 9);
 
             Assert.Equal(404, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(2, 2)));
             Assert.Equal(0x00, packet[5]); // LS1 in bits 6..7
