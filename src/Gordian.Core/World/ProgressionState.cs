@@ -152,6 +152,29 @@ namespace Gordian.Core.World
         public byte RoEUnityShared { get; private set; }
         public byte RoEUnityLeader { get; private set; }
 
+        /// <summary>Unity rankings for the previous (index 0) and current (index 1) week from S2C 0x063 type 0x07.</summary>
+        public UnityWeekInfo[] UnityWeeks { get; } = { new UnityWeekInfo(), new UnityWeekInfo() };
+
+        #endregion
+
+        #region Misc Data (S2C 0x063)
+
+        public ushort LimitPoints { get; private set; }
+        public int MeritPoints { get; private set; }
+        public byte MaxMeritPoints { get; private set; }
+        public int BluSpellPointBonus { get; private set; }
+        public bool CanUseMeritMode { get; private set; }
+        public bool XpCappedOrMeritMode { get; private set; }
+        public bool MeritModeEnabled { get; private set; }
+
+        /// <summary>Whether job points are unlocked (S2C 0x063 type 0x05).</summary>
+        public bool JobPointsUnlocked { get; private set; }
+
+        private readonly (ushort Capacity, ushort Points, ushort Spent)[] _jobPointTotals =
+            new (ushort, ushort, ushort)[S2C_0x063_MiscData.JobPointJobCount];
+
+        private readonly uint[] _teleportMasks = new uint[S2C_0x063_MiscData.TeleportMaskWordCount];
+
         #endregion
 
         #region Events
@@ -177,6 +200,7 @@ namespace Gordian.Core.World
         public event Action? FishingUpdated;
         public event Action? ToteboardUpdated;
         public event Action? UnityUpdated;
+        public event Action? TeleportMasksUpdated;
 
         #endregion
 
@@ -579,6 +603,106 @@ namespace Gordian.Core.World
             UnityUpdated?.Invoke();
         }
 
+        /// <summary>Applies S2C 0x063 type 0x02: limit points, merit points and the merit mode flags.</summary>
+        public void UpdateMiscMerits(in S2C_0x063_MiscData misc)
+        {
+            lock (_lock)
+            {
+                LimitPoints = misc.LimitPoints;
+                MeritPoints = misc.MeritPoints;
+                MaxMeritPoints = misc.MaxMeritPoints;
+                BluSpellPointBonus = misc.BluBonus;
+                CanUseMeritMode = misc.CanUseMeritMode;
+                XpCappedOrMeritMode = misc.XpCappedOrMeritMode;
+                MeritModeEnabled = misc.MeritModeEnabled;
+            }
+
+            MeritsUpdated?.Invoke();
+        }
+
+        /// <summary>Applies S2C 0x063 type 0x05: per-job capacity points, job points and points spent.</summary>
+        public void UpdateMiscJobPoints(in S2C_0x063_MiscData misc)
+        {
+            lock (_lock)
+            {
+                JobPointsUnlocked = misc.JobPointsUnlocked;
+                for (int job = 0; job < _jobPointTotals.Length; job++)
+                {
+                    _jobPointTotals[job] = misc.GetJobPointsEntry(job);
+                }
+            }
+
+            JobPointsUpdated?.Invoke();
+        }
+
+        /// <summary>Capacity points, unspent job points and points spent for a job id (1-23).</summary>
+        public (ushort Capacity, ushort Points, ushort Spent) GetJobPointTotals(int jobNo)
+        {
+            if ((uint)jobNo >= _jobPointTotals.Length) return default;
+            lock (_lock) return _jobPointTotals[jobNo];
+        }
+
+        /// <summary>Applies S2C 0x063 type 0x06: the home point, survival guide, waypoint and other unlock masks.</summary>
+        public void UpdateTeleportMasks(in S2C_0x063_MiscData misc)
+        {
+            lock (_lock)
+            {
+                for (int i = 0; i < _teleportMasks.Length; i++) _teleportMasks[i] = misc.GetTeleportMaskWord(i);
+            }
+
+            TeleportMasksUpdated?.Invoke();
+        }
+
+        /// <summary>Whether a home point is unlocked (bit index across mask words 0-3).</summary>
+        public bool HasHomePoint(int bit) => HasTeleportBit(0, 4, bit);
+
+        /// <summary>Whether a survival guide is unlocked (words 4-7).</summary>
+        public bool HasSurvivalGuide(int bit) => HasTeleportBit(4, 4, bit);
+
+        /// <summary>Whether a waypoint is unlocked (words 8-11).</summary>
+        public bool HasWaypoint(int bit) => HasTeleportBit(8, 4, bit);
+
+        /// <summary>Whether a telepoint is unlocked (word 12).</summary>
+        public bool HasTelepoint(int bit) => HasTeleportBit(12, 1, bit);
+
+        /// <summary>Whether an atmacite teleport is unlocked (word 13).</summary>
+        public bool HasAtmos(int bit) => HasTeleportBit(13, 1, bit);
+
+        /// <summary>Whether an eschan portal is unlocked (word 14).</summary>
+        public bool HasEschanPortal(int bit) => HasTeleportBit(14, 1, bit);
+
+        private bool HasTeleportBit(int firstWord, int wordCount, int bit)
+        {
+            if (bit < 0 || bit >= wordCount * 32) return false;
+            lock (_lock) return (_teleportMasks[firstWord + bit / 32] & (1u << (bit % 32))) != 0;
+        }
+
+        /// <summary>Applies one S2C 0x063 type 0x07 Unity block (base, members, points or personal) to its week.</summary>
+        public void UpdateMiscUnity(in S2C_0x063_MiscData misc)
+        {
+            var week = UnityWeeks[misc.UnityCurrentWeek ? 1 : 0];
+            lock (_lock)
+            {
+                switch (misc.UnityDataType)
+                {
+                    case 0x00:
+                        week.FinalizedTimestamp = misc.UnityBaseTimestamp;
+                        break;
+                    case 0x01:
+                        for (int i = 0; i < S2C_0x063_MiscData.UnityCount; i++) week.Members[i] = misc.GetUnityValue(i);
+                        break;
+                    case 0x02:
+                        for (int i = 0; i < S2C_0x063_MiscData.UnityCount; i++) week.Points[i] = misc.GetUnityValue(i);
+                        break;
+                    case 0x14:
+                        week.PersonalRankingPoints = misc.UnityPersonalPoints;
+                        break;
+                }
+            }
+
+            UnityUpdated?.Invoke();
+        }
+
         public void SetMyRoomOperation(MyRoomOperationInfo operation)
         {
             lock (_lock) LastMyRoomOperation = operation;
@@ -596,5 +720,15 @@ namespace Gordian.Core.World
         }
 
         #endregion
+    }
+
+    /// <summary>One week of Unity rankings (S2C 0x063 type 0x07). The arrays are indexed by Unity 0-10.</summary>
+    public sealed class UnityWeekInfo
+    {
+        /// <summary>Earth seconds since the Vana'diel epoch when the rankings were finalized; 0 for the running week.</summary>
+        public uint FinalizedTimestamp { get; internal set; }
+        public uint[] Members { get; } = new uint[S2C_0x063_MiscData.UnityCount];
+        public uint[] Points { get; } = new uint[S2C_0x063_MiscData.UnityCount];
+        public ushort PersonalRankingPoints { get; internal set; }
     }
 }

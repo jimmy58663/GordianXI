@@ -665,6 +665,190 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// S2C 0x063 (GP_SERV_COMMAND_MISCDATA): a multi-type packet selected by the u16 <see cref="Type"/> at packet +0x04.
+    /// The payload passed in starts at that type field: <c>type</c> (u16), <c>unknown06</c> (u16, the data size), then the
+    /// per-type data at payload +4. Only the header and typed accessors live here; state updates are in
+    /// <see cref="ProgressionState"/> and <see cref="LocalPlayerState"/>.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets, world/server/0x0063) and
+    /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x063_miscdata_*.h).
+    /// </summary>
+    public readonly ref struct S2C_0x063_MiscData
+    {
+        public const ushort PacketId = 0x063;
+
+        public const ushort TypeMerits = 0x02;
+        public const ushort TypeMonstrosity1 = 0x03;
+        public const ushort TypeMonstrosity2 = 0x04;
+        public const ushort TypeJobPoints = 0x05;
+        public const ushort TypeHomepoints = 0x06;
+        public const ushort TypeUnity = 0x07;
+        public const ushort TypeStatusIcons = 0x09;
+        public const ushort TypeUnknown0A = 0x0A;
+
+        /// <summary>Status icon slots in type 0x09.</summary>
+        public const int StatusIconCount = 32;
+
+        /// <summary>Job entries in type 0x05 (index = job id; entry 0 is unused).</summary>
+        public const int JobPointJobCount = 24;
+
+        /// <summary>Unity concords tracked by the Unity data; the arrays hold 11 entries.</summary>
+        public const int UnityCount = 11;
+
+        /// <summary>Words in the type 0x06 teleport unlock masks.</summary>
+        public const int TeleportMaskWordCount = 16;
+
+        /// <summary>A status icon timestamp meaning "no timer" (infinite or hidden).</summary>
+        public const uint NoTimer = 0x7FFFFFFF;
+
+        /// <summary>The icon id of an empty slot.</summary>
+        public const ushort EmptyIcon = 0x00FF;
+
+        private const int DataOffset = 4;
+        private const int MeritsSize = 5;
+        private const int JobPointsHeaderSize = 4;
+        private const int JobPointEntrySize = 6;
+        private const int StatusIconsSize = StatusIconCount * 2 + StatusIconCount * 4;
+        private const int UnityHeaderSize = 8;
+        private const int UnityWordsOffset = 10;
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        /// <summary>True when the header is present and the data is long enough for the type's layout.</summary>
+        public bool IsValid { get; }
+        public ushort Type { get; }
+
+        public S2C_0x063_MiscData(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < DataOffset)
+            {
+                Type = 0;
+                IsValid = false;
+                return;
+            }
+
+            Type = BinaryPrimitives.ReadUInt16LittleEndian(payload);
+            int needed = Type switch
+            {
+                TypeMerits => MeritsSize,
+                TypeJobPoints => JobPointsHeaderSize + JobPointEntrySize * JobPointJobCount,
+                TypeHomepoints => TeleportMaskWordCount * 4,
+                TypeUnity => UnityHeaderSize,
+                TypeStatusIcons => StatusIconsSize,
+                _ => 0,
+            };
+            IsValid = payload.Length >= DataOffset + needed;
+        }
+
+        #region Type 0x02: merits
+
+        /// <summary>Limit points (u16 at data +0).</summary>
+        public ushort LimitPoints => IsType(TypeMerits) ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(DataOffset)) : (ushort)0;
+
+        private ushort MeritWord => IsType(TypeMerits) ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(DataOffset + 2)) : (ushort)0;
+
+        /// <summary>Merit points held (0-127).</summary>
+        public int MeritPoints => MeritWord & 0x7F;
+
+        /// <summary>Blue mage spell point bonus (0-63).</summary>
+        public int BluBonus => (MeritWord >> 7) & 0x3F;
+
+        /// <summary>Level 75+ with the Limit Breaker key item.</summary>
+        public bool CanUseMeritMode => (MeritWord & (1 << 13)) != 0;
+
+        /// <summary>The experience bar is capped, or the player is in merit mode.</summary>
+        public bool XpCappedOrMeritMode => (MeritWord & (1 << 14)) != 0;
+
+        /// <summary>Merit mode is on and the current job qualifies.</summary>
+        public bool MeritModeEnabled => (MeritWord & (1 << 15)) != 0;
+
+        /// <summary>Maximum merit points (data +4).</summary>
+        public byte MaxMeritPoints => IsType(TypeMerits) ? _payload[DataOffset + 4] : (byte)0;
+
+        #endregion
+
+        #region Type 0x05: job points
+
+        /// <summary>Whether job points are unlocked (bit 0 of the flags byte).</summary>
+        public bool JobPointsUnlocked => IsType(TypeJobPoints) && (_payload[DataOffset] & 1) != 0;
+
+        /// <summary>Capacity points, unspent job points and total spent for a job (1-23; index 0 is unused).</summary>
+        public (ushort CapacityPoints, ushort JobPoints, ushort JobPointsSpent) GetJobPointsEntry(int jobNo)
+        {
+            if (!IsType(TypeJobPoints) || (uint)jobNo >= JobPointJobCount) return default;
+            var e = _payload.Slice(DataOffset + JobPointsHeaderSize + jobNo * JobPointEntrySize, JobPointEntrySize);
+            return (BinaryPrimitives.ReadUInt16LittleEndian(e),
+                BinaryPrimitives.ReadUInt16LittleEndian(e.Slice(2)),
+                BinaryPrimitives.ReadUInt16LittleEndian(e.Slice(4)));
+        }
+
+        #endregion
+
+        #region Type 0x06: teleport unlock masks
+
+        /// <summary>
+        /// One of the 16 mask words at data +0: home point x4, survival guide x4, waypoint x4, telepoint, atmos,
+        /// eschan portal, unknown.
+        /// </summary>
+        public uint GetTeleportMaskWord(int index)
+        {
+            if (!IsType(TypeHomepoints) || (uint)index >= TeleportMaskWordCount) return 0;
+            return BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + index * 4));
+        }
+
+        #endregion
+
+        #region Type 0x07: Unity
+
+        /// <summary>True for the current week, false for the previous week (data +0).</summary>
+        public bool UnityCurrentWeek => IsType(TypeUnity) && _payload[DataOffset] != 0;
+
+        /// <summary>The Unity data kind (data +1): 0 base, 1 members, 2 points, 0x14 personal, others raw values.</summary>
+        public byte UnityDataType => IsType(TypeUnity) ? _payload[DataOffset + 1] : (byte)0;
+
+        /// <summary>Base kind: Earth seconds since the Vana'diel epoch when the week was finalized (data +8); 0 while it runs.</summary>
+        public uint UnityBaseTimestamp => HasUnityData(4) ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + 8)) : 0;
+
+        /// <summary>Personal kind: the player's ranking points (u16 at data +8).</summary>
+        public ushort UnityPersonalPoints => HasUnityData(2) ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(DataOffset + 8)) : (ushort)0;
+
+        /// <summary>Members or points kind: one of the 11 u32 values that follow the u16 readiness flag (data +10).</summary>
+        public uint GetUnityValue(int unity)
+        {
+            if ((uint)unity >= UnityCount || !HasUnityData(UnityWordsOffset - UnityHeaderSize + (unity + 1) * 4)) return 0;
+            return BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + UnityWordsOffset + unity * 4));
+        }
+
+        private bool HasUnityData(int bytesAfterHeader) =>
+            IsType(TypeUnity) && _payload.Length >= DataOffset + UnityHeaderSize + bytesAfterHeader;
+
+        #endregion
+
+        #region Type 0x09: status icons
+
+        /// <summary>The icon id in a slot; <see cref="EmptyIcon"/> when empty.</summary>
+        public ushort GetStatusIcon(int slot)
+        {
+            if (!IsType(TypeStatusIcons) || (uint)slot >= StatusIconCount) return EmptyIcon;
+            return BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(DataOffset + slot * 2));
+        }
+
+        /// <summary>
+        /// The end timestamp of a slot: the server's Vana'diel time in 1/60 s ticks, deliberately overflowing a u32
+        /// (the client corrects for it); <see cref="NoTimer"/> for untimed or hidden effects.
+        /// </summary>
+        public uint GetStatusTimestamp(int slot)
+        {
+            if (!IsType(TypeStatusIcons) || (uint)slot >= StatusIconCount) return NoTimer;
+            return BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + StatusIconCount * 2 + slot * 4));
+        }
+
+        #endregion
+
+        private bool IsType(ushort type) => IsValid && Type == type;
+    }
+
+    /// <summary>
     /// S2C 0x111 (GP_SERV_COMMAND_ROE_ACTIVELOG): Records of Eminence active objectives (64 entries).
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x111_roe_activelog.h).
     /// </summary>

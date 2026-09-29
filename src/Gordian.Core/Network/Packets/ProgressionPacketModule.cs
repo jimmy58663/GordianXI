@@ -59,6 +59,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x115_Fish.PacketId, HandleFish);
             dispatcher.Register(S2C_0x073_ChocoboToteboard.PacketId, HandleChocoboToteboard);
             dispatcher.Register(S2C_0x110_Unity.PacketId, HandleUnity);
+            dispatcher.Register(S2C_0x063_MiscData.PacketId, HandleMiscData);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -84,6 +85,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x115_Fish.PacketId);
             dispatcher.Unregister(S2C_0x073_ChocoboToteboard.PacketId);
             dispatcher.Unregister(S2C_0x110_Unity.PacketId);
+            dispatcher.Unregister(S2C_0x063_MiscData.PacketId);
         }
 
         #region Inbound Handlers
@@ -298,6 +300,32 @@ namespace Gordian.Core.Network.Packets
 
             _progressionState.UpdateUnity(in unity);
             GordianLog.Debug("UNITY", $"Updated Unity status: Sparks={unity.Sparks}, Deeds={unity.Deeds}");
+        }
+
+        private void HandleMiscData(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var misc = new S2C_0x063_MiscData(payload);
+            if (!misc.IsValid) return;
+
+            switch (misc.Type)
+            {
+                case S2C_0x063_MiscData.TypeMerits:
+                    _progressionState.UpdateMiscMerits(in misc);
+                    break;
+                case S2C_0x063_MiscData.TypeJobPoints:
+                    _progressionState.UpdateMiscJobPoints(in misc);
+                    break;
+                case S2C_0x063_MiscData.TypeHomepoints:
+                    _progressionState.UpdateTeleportMasks(in misc);
+                    break;
+                case S2C_0x063_MiscData.TypeUnity:
+                    _progressionState.UpdateMiscUnity(in misc);
+                    break;
+                case S2C_0x063_MiscData.TypeStatusIcons:
+                    _localPlayerState.UpdateStatusIcons(in misc);
+                    break;
+                // Monstrosity (0x03, 0x04) is post-MVP; 0x0A is unused by the client.
+            }
         }
 
         #endregion
