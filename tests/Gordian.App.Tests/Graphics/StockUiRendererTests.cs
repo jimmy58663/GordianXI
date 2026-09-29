@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
 using Gordian.Core.Resources.Ui;
@@ -922,6 +923,85 @@ namespace Gordian.App.Tests.Graphics
                 // The first status icon lands at (144, 50) (buff frame (142, 48) + slot (2, 2)); its centre differs from the clear colour.
                 var icon = Pixel(pixels, width, 144 + 12, 50 + 12);
                 Assert.NotEqual(Pixel(pixels, width, 100, 100), icon);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
+        /// Renders name plates at several distances: colours from "ncol", the tinted linkshell pearl, the seeking orb,
+        /// the new player "?", the job mastery stars, and the target cursor over a name; writes name_plates.png when
+        /// GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersNamePlatesWithIconsAndStars()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 640, height = 360;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiNamePlateTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.35f, 0.42f, 0.3f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                // 208 pixels per yalm is the local player at ~6 yalms on a 1440-pixel screen (scale 2.67).
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var pearl = new UiColor(0x40, 0x10, 0x60, 0x80);
+                StockUiNamePlates.DrawPlate(renderer, font, "Tarudrake", new NamePlateAnchor(1, new Vector2(170, 60), 6, 208),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.Anonymous), NamePlateIcon.Linkshell, pearl, false, width, height);
+                StockUiNamePlates.DrawPlate(renderer, font, "Selh'teus", new NamePlateAnchor(2, new Vector2(470, 60), 6, 208),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.Party), NamePlateIcon.None, null, false, width, height);
+                StockUiNamePlates.DrawPlate(renderer, font, "Cybin", new NamePlateAnchor(3, new Vector2(170, 170), 8, 156),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.Party), NamePlateIcon.NewPlayer, null, true, width, height);
+                StockUiNamePlates.DrawPlate(renderer, font, "Yoran-Oran", new NamePlateAnchor(4, new Vector2(470, 170), 12, 104),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.SeekingParty), NamePlateIcon.SeekingParty, null, false, width, height);
+                var rarab = StockUiNamePlates.DrawPlate(renderer, font, "Island Rarab", new NamePlateAnchor(5, new Vector2(170, 290), 20, 62),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.UnclaimedMonster), NamePlateIcon.None, null, false, width, height);
+                StockUiNamePlates.DrawPlate(renderer, font, "A.M.A.N. Liaison", new NamePlateAnchor(6, new Vector2(470, 290), 7, 178),
+                    StockUiNamePlates.ColorOf(library, NamePlateColor.Npc), NamePlateIcon.Info, null, false, width, height);
+                Assert.NotNull(rarab);
+                var plate = rarab!.Value;
+                var tip = new Vector2(plate.Center.X, Math.Min(plate.Center.Y - plate.GlyphHeight * StockUiNamePlates.CursorGapShare, plate.Top));
+                StockUiTargetWindow.DrawCursor(renderer, library, tip, 1.0f, 0);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "name_plates.png"), pixels, (int)width, (int)height);
+                }
+
+                // Something is drawn along the middle of the first name.
+                bool drawn = false;
+                var clear = Pixel(pixels, width, 5, 5);
+                for (int x = 120; x < 220 && !drawn; x++) drawn = Pixel(pixels, width, x, 60) != clear;
+                Assert.True(drawn);
 
                 framebuffer.Dispose(); color.Dispose(); cl.Dispose();
             }

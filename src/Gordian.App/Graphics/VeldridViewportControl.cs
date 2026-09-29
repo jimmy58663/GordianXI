@@ -744,18 +744,41 @@ namespace Gordian.App.Graphics
             if (_stockUiRenderer == null || gd == null) return;
             StockUi.EnsureLoading(ResourceManager);
             uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
+            var viewProjection = Camera.ViewMatrix * Camera.ProjectionMatrix;
             Vector2? cursor = _renderer?.EntityRenderer?.TargetAnchor is { } anchor
-                ? ProjectToScreen(anchor, Camera.ViewMatrix * Camera.ProjectionMatrix, width, height, gd.IsClipSpaceYInverted)
+                ? ProjectToScreen(anchor, viewProjection, width, height, gd.IsClipSpaceYInverted)
                 : null;
-            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, width, height, cursor);
+            _namePlateAnchors.Clear();
+            if (_renderer?.EntityRenderer is { } entities)
+            {
+                // Projection M22 = 1 / tan(fovY / 2): a yalm at view depth w spans M22 * (height / 2) / w pixels.
+                float focalPixels = Camera.ProjectionMatrix.M22 * height * 0.5f;
+                foreach (var overhead in entities.OverheadAnchors)
+                {
+                    if (ProjectToScreen(overhead.Point, viewProjection, width, height, gd.IsClipSpaceYInverted, out float depth) is { } screen)
+                    {
+                        _namePlateAnchors.Add(new NamePlateAnchor(overhead.ServerId, screen, depth, focalPixels / depth));
+                    }
+                }
+            }
+            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, width, height, cursor, _namePlateAnchors);
         }
+
+        private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();
 
         /// <summary>
         /// Screen pixel of a display-space point (null behind the camera), matching the 3D pass's clip space.
         /// </summary>
-        internal static Vector2? ProjectToScreen(Vector3 point, Matrix4x4 viewProjection, uint width, uint height, bool clipSpaceYInverted)
+        internal static Vector2? ProjectToScreen(Vector3 point, Matrix4x4 viewProjection, uint width, uint height, bool clipSpaceYInverted) =>
+            ProjectToScreen(point, viewProjection, width, height, clipSpaceYInverted, out _);
+
+        /// <summary>
+        /// As <see cref="ProjectToScreen(Vector3, Matrix4x4, uint, uint, bool)"/>, with the point's view depth (clip W).
+        /// </summary>
+        internal static Vector2? ProjectToScreen(Vector3 point, Matrix4x4 viewProjection, uint width, uint height, bool clipSpaceYInverted, out float depth)
         {
             Vector4 clip = Vector4.Transform(new Vector4(point, 1.0f), viewProjection);
+            depth = clip.W;
             if (clip.W <= 0.0001f) return null;
             float x = clip.X / clip.W, y = clip.Y / clip.W;
             return new Vector2((x * 0.5f + 0.5f) * width, (clipSpaceYInverted ? y * 0.5f + 0.5f : 0.5f - y * 0.5f) * height);

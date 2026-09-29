@@ -230,6 +230,7 @@ namespace Gordian.Core.Network.Packets
             player.IsCharmed = pc.IsCharmed;
             player.IsMentor = pc.IsMentor;
             player.IsNewPlayer = pc.IsNewPlayer;
+            player.NamePlate = pc.NamePlate;
 
             player.LsColorR = pc.LsColorR;
             player.LsColorG = pc.LsColorG;
@@ -387,6 +388,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 entity.IsNonBlocking = npcPacket.IsNonBlocking;
+                entity.NamePlate = npcPacket.NamePlate;
                 entity.Hpp = npcPacket.Hpp;
                 entity.AnimationState = npcPacket.ServerStatus;
                 entity.AnimationSub = npcPacket.AnimationSub;
@@ -477,6 +479,7 @@ namespace Gordian.Core.Network.Packets
             _localPlayer.UpdateFromCharStatus(charStatus);
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
+                localEnt.NamePlate = charStatus.NamePlate;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a
                 // standing player play a step on every status update.

@@ -108,10 +108,12 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Draws the HUD for a session over the framebuffer's current contents. <paramref name="targetCursor"/> is the
-        /// screen point the target cursor points at (just above the target's head), when the target is on screen.
+        /// screen point of the target's overhead point, when the target is on screen; <paramref name="namePlates"/> are
+        /// the overhead points of the entities drawn this frame, where their names go. The target cursor sits above the
+        /// target's name, or on the overhead point when it has none.
         /// </summary>
         public void Render(StockUiRenderer renderer, CharacterSession? session, Framebuffer framebuffer, uint width, uint height,
-            Vector2? targetCursor = null)
+            Vector2? targetCursor = null, IReadOnlyList<NamePlateAnchor>? namePlates = null)
         {
             var library = _library;
             if (!Enabled || library == null || session == null)
@@ -136,11 +138,23 @@ namespace Gordian.App.Graphics
             }
 
             renderer.Begin(library);
+            var groups = GroupParty(session);
+            NamePlateBounds? targetPlate = null;
+            if (namePlates != null && _font is { } plateFont)
+            {
+                var ownParty = new List<uint>();
+                foreach (var member in groups.Own) ownParty.Add(member.ServerId);
+                targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height);
+            }
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
             {
+                if (targetPlate is { } plate)
+                {
+                    float tip = Math.Min(plate.Center.Y - plate.GlyphHeight * StockUiNamePlates.CursorGapShare, plate.Top);
+                    cursor = new Vector2(plate.Center.X, tip);
+                }
                 StockUiTargetWindow.DrawCursor(renderer, library, cursor, Layout.Scale, Stopwatch.GetTimestamp());
             }
-            var groups = GroupParty(session);
             var party = DrawPartyWindow(renderer, library, session, groups, width, height);
             DrawAllianceWindows(renderer, library, groups, width, height);
             DrawLogWindows(renderer, library, session, party, width, height);

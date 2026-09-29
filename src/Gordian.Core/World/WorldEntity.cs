@@ -639,6 +639,11 @@ namespace Gordian.Core.World
         public bool IsHidden { get; set; }
 
         /// <summary>
+        /// Flags from the last entity update that change the name plate (colour, icon, stars, or hiding the name).
+        /// </summary>
+        public NamePlateFlags NamePlate { get; set; }
+
+        /// <summary>
         /// The server marked this entity as one the local player passes straight through.
         /// </summary>
         public bool IsNonBlocking { get; set; }
