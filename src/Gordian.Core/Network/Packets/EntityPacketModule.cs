@@ -299,11 +299,11 @@ namespace Gordian.Core.Network.Packets
                 entity = existing;
             }
 
-            // Monsters and NPCs share indices below 1024: the general section's living-mob flag tells them apart. Once
-            // known as a monster an entity stays one (the flag clears on death and is absent from position-only updates).
+            // Monsters and NPCs share indices below 1024: the monster flag tells them apart. Once known as a monster an
+            // entity stays one (the flag clears when it dies).
             if (type == EntityType.Npc)
             {
-                if (npcPacket.HasGeneral && npcPacket.HasLivingMobFlag) type = EntityType.Monster;
+                if (npcPacket.IsMonster) type = EntityType.Monster;
                 else if (!isNew && entity.Type == EntityType.Monster) type = EntityType.Monster;
             }
 

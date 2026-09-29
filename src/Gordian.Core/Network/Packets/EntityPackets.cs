@@ -470,12 +470,15 @@ namespace Gordian.Core.Network.Packets
         public bool HasGeneral => (UpdateFlags & EntityUpdateFlags.General) != 0;
 
         /// <summary>
-        /// Packet byte 0x25 bit 0x08: set for living monsters, pets and trusts in the general (HP) section and never for
-        /// NPCs, which share the 0-1023 index range with monsters. Meaningful only when <see cref="HasGeneral"/>; it
-        /// clears when a monster dies. Referenced from LandSandBoat (https://github.com/LandSandBoat/server,
-        /// src/map/packets/entity_update.cpp).
+        /// <c>Flags1.MonsterFlag</c> (bit 0 of packet byte 0x20): the client shows the entity as a monster (yellow name,
+        /// attackable) rather than an NPC, which share the 0-1023 index range. LandSandBoat writes the entity's status in
+        /// that byte in every update: mob-allegiance entities spawn with status Update (1), NPCs with Normal (0), and a
+        /// dying mob fades to Disappear (2), clearing it. (Packet byte 0x25, once read for this, is <c>Flags2.g</c>, the
+        /// hitbox size.) Referenced from XiPackets (https://github.com/atom0s/XiPackets, world/server/0x000E, flags1_t)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server, src/map/packets/entity_update.cpp,
+        /// src/map/entities/base_entity.cpp CBaseEntity::Spawn).
         /// </summary>
-        public bool HasLivingMobFlag => _payload.Length > 0x21 && (_payload[0x21] & 0x08) != 0;
+        public bool IsMonster => (Flags1 & 0x01) != 0;
 
         /// <summary>
         /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.
