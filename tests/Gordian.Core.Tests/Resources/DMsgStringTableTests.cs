@@ -73,5 +73,67 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal("Cure", table.Records[0].PrimaryText);
             Assert.Equal("Cure", table.Records[0].NamedFields["spell_name"]);
         }
+    
+
+        /// <summary>
+        /// Builds a one-block fixed-stride table whose block holds a numeric sub-entry (value <paramref name="id"/>)
+        /// followed by a text sub-entry, like a key-item row.
+        /// </summary>
+        private static byte[] BuildIdAndNameTable(params (uint Id, string Name)[] rows)
+        {
+            const int stride = 96;
+            const int tableOffset = 64;
+            int fileSize = tableOffset + stride * rows.Length;
+            byte[] buffer = new byte[fileSize];
+
+            Encoding.ASCII.GetBytes("d_msg").CopyTo(buffer.AsSpan(0, 5));
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(0x14, 4), (uint)fileSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(0x18, 4), tableOffset);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(0x20, 4), stride);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(0x28, 4), (uint)rows.Length);
+
+            for (int r = 0; r < rows.Length; r++)
+            {
+                var block = buffer.AsSpan(tableOffset + r * stride, stride);
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(0, 4), 2);
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(4, 4), 20);  // sub 0 at 20
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(8, 4), 1);   // kind 1: number
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(12, 4), 24); // sub 1 at 24
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(16, 4), 0);  // kind 0: text
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(20, 4), rows[r].Id);
+                BinaryPrimitives.WriteUInt32LittleEndian(block.Slice(24, 4), 1);
+                Encoding.ASCII.GetBytes(rows[r].Name).CopyTo(block.Slice(24 + 4 + 0x18));
+            }
+
+            return buffer;
+        }
+
+        [Fact]
+        public void DMsg_Parse_NumericOne_StaysNumeric()
+        {
+            var table = DMsgStringTable.Parse(BuildIdAndNameTable((1, "Zeruhn report")), new[] { "id", "name" });
+
+            Assert.NotNull(table);
+            var record = table!.Records[0];
+            Assert.True(record.TryGetNumber(0, out uint id));
+            Assert.Equal(1u, id);
+            Assert.Equal("1", record.NamedFields["id"]);
+            Assert.Equal("Zeruhn report", record.NamedFields["name"]);
+            Assert.False(record.TryGetNumber(1, out _));
+        }
+
+        [Fact]
+        public void DMsg_TryGetById_UsesSubEntryZeroNotRow()
+        {
+            var table = DMsgStringTable.Parse(BuildIdAndNameTable((8, "airship pass"), (1, "Zeruhn report"), (3072, "Chocobo companion")),
+                new[] { "id", "name" });
+
+            Assert.NotNull(table);
+            Assert.True(table!.TryGetById(1, out var zeruhn));
+            Assert.Equal("Zeruhn report", zeruhn.NamedFields["name"]);
+            Assert.True(table.TryGetById(3072, out var chocobo));
+            Assert.Equal(2, chocobo.Index);
+            Assert.False(table.TryGetById(2, out _));
+        }
     }
 }

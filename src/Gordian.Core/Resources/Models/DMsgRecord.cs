@@ -47,15 +47,32 @@ namespace Gordian.Core.Resources.Models
         public int Offset { get; }
         public IReadOnlyList<string> SubStrings { get; }
         public IReadOnlyDictionary<string, string> NamedFields { get; }
+        private readonly uint?[] _numbers;
 
         public string PrimaryText => SubStrings.Count > 0 ? SubStrings[0] : string.Empty;
 
-        public DMsgRecord(int index, int offset, IReadOnlyList<string> subStrings, IReadOnlyDictionary<string, string>? namedFields = null)
+        public DMsgRecord(int index, int offset, IReadOnlyList<string> subStrings, IReadOnlyDictionary<string, string>? namedFields = null, uint?[]? numbers = null)
         {
             Index = index;
             Offset = offset;
             SubStrings = subStrings ?? Array.Empty<string>();
             NamedFields = namedFields ?? new Dictionary<string, string>();
+            _numbers = numbers ?? Array.Empty<uint?>();
+        }
+
+        /// <summary>
+        /// Reads a numeric sub-entry (for example a key item's id in sub-entry 0). False when the sub-entry is text or missing.
+        /// </summary>
+        public bool TryGetNumber(int subIndex, out uint value)
+        {
+            if ((uint)subIndex < (uint)_numbers.Length && _numbers[subIndex] is uint number)
+            {
+                value = number;
+                return true;
+            }
+
+            value = 0;
+            return false;
         }
 
         public override string ToString() => $"[DMsg {Index}] {PrimaryText}";
