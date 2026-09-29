@@ -481,6 +481,14 @@ namespace Gordian.Core.Network.Packets
         public bool IsMonster => (Flags1 & 0x01) != 0;
 
         /// <summary>
+        /// <c>Flags3.TrustFlag</c> (bit 0 of packet byte 0x28): the entity is a Trust. LandSandBoat sets it (with the
+        /// Trust spawn bits, 0x45) in every update of a Trust. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets, world/server/0x000E, flags3_t) and LandSandBoat
+        /// (https://github.com/LandSandBoat/server, src/map/packets/entity_update.cpp).
+        /// </summary>
+        public bool IsTrust => (Flags3 & 0x01) != 0;
+
+        /// <summary>
         /// Movement frame timer / timestamp (bits 0..12 of Flags0). Non-zero when moving, zero when stationary.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) flags0_t.
         /// </summary>

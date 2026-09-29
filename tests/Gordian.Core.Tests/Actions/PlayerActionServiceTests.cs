@@ -151,6 +151,78 @@ namespace Gordian.Core.Tests.Actions
         }
 
         [Fact]
+        public async Task ExecuteCommand_Attack_WhileEngagedOnAnother_SendsChangeTarget()
+        {
+            _world.UpsertEntity(new WorldEntity(0x02020203, 26, EntityType.Monster) { Name = "Wild_Rabbit", Hpp = 100 });
+            await _actionService.ExecuteCommandAsync("/attack Forest_Hare");
+            Assert.Equal((ushort)CliActionId.Attack, ActionIdOf(_sentChunks[^1]));
+
+            var res = await _actionService.ExecuteCommandAsync("/attack Wild_Rabbit");
+
+            Assert.True(res.Success);
+            byte[] packet = _sentChunks[^1];
+            Assert.Equal((ushort)CliActionId.ChangeTarget, ActionIdOf(packet));
+            Assert.Equal(0x02020203u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(4, 4)));
+            Assert.Equal(26, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(8, 2)));
+            Assert.True(_combatState.IsEngaged);
+            Assert.Equal(0x02020203u, _combatState.TargetServerId);
+
+            // Attacking the engaged target again is a plain Attack.
+            await _actionService.ExecuteCommandAsync("/attack Wild_Rabbit");
+            Assert.Equal((ushort)CliActionId.Attack, ActionIdOf(_sentChunks[^1]));
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_Refa_ReleasesOneOrAllOwnTrusts()
+        {
+            _world.UpsertEntity(new WorldEntity(0x01A00700, 1792, EntityType.Trust) { Name = "Shantotto" });
+            _world.UpsertEntity(new WorldEntity(0x01A00701, 1793, EntityType.Trust) { Name = "Kupipi" });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x01020304, TargetIndex = 10, Name = "TestPlayer" });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x01A00700, TargetIndex = 1792, Name = "Shantotto" });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x01A00701, TargetIndex = 1793, Name = "Kupipi" });
+
+            var res = await _actionService.ExecuteCommandAsync("/refa kupipi");
+            Assert.True(res.Success);
+            byte[] one = Assert.Single(_sentChunks);
+            Assert.Equal((ushort)CliActionId.Talk, ActionIdOf(one));
+            Assert.Equal(0x01A00701u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(one.AsSpan(4, 4)));
+            Assert.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(one.AsSpan(12, 4)));
+
+            _sentChunks.Clear();
+            res = await _actionService.ExecuteCommandAsync("/refa all");
+            Assert.True(res.Success);
+            Assert.Equal(2, _sentChunks.Count);
+            Assert.Equal(0x01A00700u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_sentChunks[0].AsSpan(4, 4)));
+            Assert.Equal(0u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_sentChunks[0].AsSpan(12, 4)));
+            Assert.Equal(0x01A00701u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_sentChunks[1].AsSpan(4, 4)));
+            Assert.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_sentChunks[1].AsSpan(12, 4)));
+
+            _sentChunks.Clear();
+            res = await _actionService.ExecuteCommandAsync("/refa Prishe");
+            Assert.False(res.Success);
+            Assert.Empty(_sentChunks);
+        }
+
+        [Theory]
+        [InlineData("/fish", CliActionId.Fish, 0u)]
+        [InlineData("/sprint", CliActionId.Sprint, 0u)]
+        [InlineData("/dig", CliActionId.ChocoboDig, 0u)]
+        [InlineData("/blockaid on", CliActionId.Blockaid, 1u)]
+        public async Task ExecuteCommand_SelfActions_TargetThePlayer(string input, CliActionId action, uint param)
+        {
+            var res = await _actionService.ExecuteCommandAsync(input);
+
+            Assert.True(res.Success);
+            byte[] packet = Assert.Single(_sentChunks);
+            Assert.Equal((ushort)action, ActionIdOf(packet));
+            Assert.Equal(0x01020304u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(4, 4)));
+            Assert.Equal(10, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(8, 2)));
+            Assert.Equal(param, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(12, 4)));
+        }
+
+        private static ushort ActionIdOf(byte[] packet) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(10, 2));
+
+        [Fact]
         public async Task ExecuteCommand_Attack_WithoutTarget_ReturnsWarning()
         {
             _actionService.ClearTarget();
