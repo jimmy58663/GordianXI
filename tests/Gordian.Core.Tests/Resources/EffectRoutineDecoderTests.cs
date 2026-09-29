@@ -29,6 +29,22 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void Decode_KeepsSpawnsPastTheFirst128Commands()
+        {
+            // Pso'Xja's barrier routines (d_ga/effe/bari/s000) run 266 commands; the spawns past 128 must not be dropped.
+            var entries = new (string, ushort, ushort)[265];
+            for (int i = 0; i < entries.Length; i++) entries[i] = ($"g{i:D3}", 2, 10);
+            byte[] payload = BuildRoutinePayload(0, entries);
+
+            var routine = EffectRoutineDecoder.Decode(payload, "s000");
+
+            Assert.NotNull(routine);
+            Assert.Equal(265, routine.Spawns.Count);
+            Assert.Equal(new EffectRoutineSpawn("g264", 528, 10), routine.Spawns[^1]);
+            Assert.Equal(530, routine.TotalFrames);
+        }
+
+        [Fact]
         public void Decode_RejectsTruncatedPayload()
         {
             Assert.Null(EffectRoutineDecoder.Decode(new byte[0x10], "s000"));
