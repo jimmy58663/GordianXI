@@ -33,7 +33,9 @@ namespace Gordian.Core.Resources.Graphics
     /// section start, including its 16-byte header) and +0x1C the total length. Each command is { u8 op, u16 size in
     /// dwords (low 5 bits), u8, u16 delay, u16 duration, 4-char reference, ... }; a command runs at the sum of the
     /// delays before it (its own delay is the wait after it). Op 0x02 spawns a generator; op 0x00 ends the list.
-    /// Other commands advance the clock but are otherwise ignored.
+    /// Other commands advance the clock but are otherwise ignored. The walk has no command cap: retail routines run to
+    /// 266 commands (Pso'Xja's barriers), and every routine's list ends on op 0x00 within its section, so the payload
+    /// length bounds it (a zero-size command still advances one dword).
     /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/effect.js and
     /// ui/js/dat.js parseRoutine, after xi-tools and xim).
     /// </summary>
@@ -41,7 +43,6 @@ namespace Gordian.Core.Resources.Graphics
     {
         private const byte OpEnd = 0x00;
         private const byte OpSpawnGenerator = 0x02;
-        private const int MaxCommands = 128;
 
         public static EffectRoutine? Decode(ReadOnlySpan<byte> payload, string datId)
         {
@@ -54,7 +55,7 @@ namespace Gordian.Core.Resources.Graphics
             var spawns = new List<EffectRoutineSpawn>();
             int clock = 0;
             int p = commandsOffset;
-            for (int guard = 0; guard < MaxCommands && p + 8 <= payload.Length; guard++)
+            while (p + 8 <= payload.Length)
             {
                 byte op = payload[p];
                 int sizeDwords = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 1)) & 0x1F;
