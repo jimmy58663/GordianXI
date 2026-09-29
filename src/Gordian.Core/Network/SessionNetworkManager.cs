@@ -190,6 +190,9 @@ namespace Gordian.Core.Network
         /// </summary>
         public CombatPacketModule CombatModule => _parser.CombatModule;
 
+        /// <summary>Bridge from S2C 0x028 actions to entity animation.</summary>
+        public Animation.ActionPlaybackQueue ActionPlayback => _parser.ActionPlayback;
+
         /// <summary>
         /// Gets the character configuration module (server-side config flags and chat filters).
         /// </summary>

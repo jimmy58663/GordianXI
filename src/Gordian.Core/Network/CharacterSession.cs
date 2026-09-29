@@ -96,6 +96,9 @@ namespace Gordian.Core.Network
         /// </summary>
         public CombatPacketModule CombatModule => NetworkManager.CombatModule;
 
+        /// <summary>Bridge from S2C 0x028 actions to entity animation (swings, casts, hit reactions).</summary>
+        public Animation.ActionPlaybackQueue ActionPlayback => NetworkManager.ActionPlayback;
+
         /// <summary>
         /// Gets the unified player action coordinator service.
         /// </summary>
