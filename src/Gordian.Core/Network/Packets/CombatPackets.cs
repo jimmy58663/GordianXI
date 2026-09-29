@@ -161,15 +161,33 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// Crafting synthesis animation and result effect transmitted in S2C 0x030.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x030_effect.h).
+    /// Crafting synthesis animation effect (S2C 0x030 <c>EffectNum</c>): the element of the crystal used.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/enums/synthesis_effect.h).
     /// </summary>
     public enum SynthesisEffect : short
     {
-        None = 0,
-        SynthesisSuccess = 1,
-        SynthesisFailure = 2,
-        SynthesisRune = 3
+        None = 0x00,
+        Water = 0x10,
+        Wind = 0x11,
+        Fire = 0x12,
+        Earth = 0x13,
+        Lightning = 0x14,
+        Ice = 0x15,
+        Light = 0x16,
+        Dark = 0x17
+    }
+
+    /// <summary>
+    /// Synthesis outcome LSB sends in S2C 0x030 <c>Type</c> with a synthesis effect.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/utils/synthutils.h, SYNTHESIS_RESULT).
+    /// </summary>
+    public enum SynthesisResult : byte
+    {
+        Fail = 0,
+        Success = 1,
+        HighQuality1 = 2,
+        HighQuality2 = 3,
+        HighQuality3 = 4
     }
 
     #endregion
@@ -562,10 +580,13 @@ namespace Gordian.Core.Network.Packets
         public uint UniqueNo { get; }
         public ushort ActIndex { get; }
         public SynthesisEffect EffectNum { get; }
+        /// <summary>The client's <c>CraftParam</c>; for a synthesis LSB sends the <see cref="SynthesisResult"/> here.</summary>
         public byte Type { get; }
         public byte Status { get; }
         public ushort Timer { get; }
         public bool IsValid { get; }
+
+        public SynthesisResult Result => (SynthesisResult)Type;
 
         public S2C_0x030_Effect(ReadOnlySpan<byte> payload)
         {

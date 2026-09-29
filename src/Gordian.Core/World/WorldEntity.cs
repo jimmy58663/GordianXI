@@ -662,7 +662,7 @@ namespace Gordian.Core.World
         /// <summary>
         /// For an elevator: how many seconds a leg takes.
         /// </summary>
-        public byte TransportTravelSeconds { get; set; }
+        public uint TransportTravelSeconds { get; set; }
 
         /// <summary>
         /// For an elevator or ship: when (Earth seconds since the Vana'diel epoch, on this client's synced clock) the

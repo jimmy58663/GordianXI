@@ -77,8 +77,8 @@ namespace Gordian.Core.World
         public byte MainJobLevel { get; private set; }
         public JobId SubJob { get; private set; } = JobId.None;
         public byte SubJobLevel { get; private set; }
-        public short ExpNow { get; private set; }
-        public short ExpNext { get; private set; }
+        public ushort ExpNow { get; private set; }
+        public ushort ExpNext { get; private set; }
         public ushort TitleId { get; private set; }
         public ushort Rank { get; private set; }
         public ushort RankPoints { get; private set; }
@@ -158,7 +158,8 @@ namespace Gordian.Core.World
         public byte MountId { get; private set; }
         public byte WardrobeMask { get; private set; }
         public ushort CostumeId { get; private set; }
-        public uint DeadCounterSeconds { get; private set; }
+        /// <summary>Seconds left before a dead character is force-homepointed (S2C 0x037 <c>dead_counter1</c>).</summary>
+        public uint HomepointSecondsRemaining { get; private set; }
         #endregion
 
         #region Locomotion & Speed
@@ -263,7 +264,7 @@ namespace Gordian.Core.World
                 MountId = status.MountId;
                 WardrobeMask = status.WardrobeMask;
                 CostumeId = status.CostumeId;
-                DeadCounterSeconds = status.DeadCounterSeconds;
+                HomepointSecondsRemaining = status.HomepointSecondsRemaining;
 
                 if (status.Speed > 0 && Speed != status.Speed)
                 {

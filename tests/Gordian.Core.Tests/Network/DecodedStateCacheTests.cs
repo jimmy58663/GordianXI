@@ -40,14 +40,14 @@ namespace Gordian.Core.Tests.Network
             byte[] payload = new byte[12];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000042);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 0x42);
-            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(6, 2), (short)SynthesisEffect.SynthesisFailure);
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(6, 2), (short)SynthesisEffect.Dark);
             payload[8] = 3;
             payload[9] = 1;
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(10, 2), 25);
             dispatcher.Dispatch(new PacketHeader(0x030, 16, 1), payload);
 
             Assert.True(state.TryGetCraftEffect(0x01000042, out var effect));
-            Assert.Equal(SynthesisEffect.SynthesisFailure, effect.Effect);
+            Assert.Equal(SynthesisEffect.Dark, effect.Effect);
             Assert.Equal(3, effect.Param);
             Assert.Equal(1, effect.ServerStatus);
             Assert.Equal(25, effect.Timer);
@@ -298,11 +298,11 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(7000, state.LastDialogMessage!.MessageId);
             Assert.True(state.LastDialogMessage.HideName);
 
-            byte[] op = new byte[8];
+            byte[] op = new byte[12];
             BinaryPrimitives.WriteUInt16LittleEndian(op.AsSpan(0, 2), 3);
             op[2] = (byte)MyRoomOperationResult.PlantCheck;
-            op[5] = 11;
-            op[6] = (byte)ContainerId.MogSafe;
+            op[6] = 11;
+            op[7] = (byte)ContainerId.MogSafe;
             dispatcher.Dispatch(new PacketHeader(0x0FA, 12, 2), op);
             Assert.Equal(new MyRoomOperationInfo(3, MyRoomOperationResult.PlantCheck, 11, ContainerId.MogSafe), state.LastMyRoomOperation);
         }

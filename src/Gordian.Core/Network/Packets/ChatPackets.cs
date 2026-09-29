@@ -403,13 +403,13 @@ namespace Gordian.Core.Network.Packets
             return len > 0 ? Encoding.ASCII.GetString(modSpan.Slice(0, len)) : string.Empty;
         }
 
+        /// <summary>
+        /// <c>encodedLsName</c> (payload 156, 16 bytes): the 6-bit packed name, see <see cref="LinkshellNameCodec"/>.
+        /// </summary>
         public string GetLinkshellName()
         {
             if (!IsValid || _payload.Length < 172) return string.Empty;
-            ReadOnlySpan<byte> lsSpan = _payload.Slice(156, 16);
-            int len = 0;
-            while (len < lsSpan.Length && lsSpan[len] != 0) len++;
-            return len > 0 ? Encoding.ASCII.GetString(lsSpan.Slice(0, len)) : string.Empty;
+            return LinkshellNameCodec.Decode(_payload.Slice(156, 16));
         }
     }
 

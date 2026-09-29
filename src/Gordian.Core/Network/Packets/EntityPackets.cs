@@ -383,7 +383,8 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x00E (GP_SERV_COMMAND_CHAR_NPC): NPC / Monster Update / Spawn / Despawn.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/entity_update.cpp).
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/entity_update.cpp)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E).
     /// </summary>
     public readonly ref struct S2C_0x00E_CharNpc
     {
@@ -514,34 +515,35 @@ namespace Gordian.Core.Network.Packets
         public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
 
         /// <summary>
-        /// Reads look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc.
-        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) mmo.h and entity_update.h
+        /// Look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc. This is the
+        /// <c>SubKind:3</c> field of the u16 at payload 0x2C; its upper 13 bits are the unused <c>Status</c>.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) mmo.h and entity_update.h,
+        /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E) SubKind / Status.
         /// </summary>
-        public ushort LookSize => _payload.Length >= 0x2E
-            ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2C, 2))
-            : (ushort)0;
+        public ushort LookSize => (ushort)SubKind;
 
         /// <summary>
-        /// Sub-animation state parameter (offset 0x2A in whole packet, payload offset 0x26).
+        /// Sub-animation state parameter: flags3_t <c>MonStat</c>, the low 3 bits of packet byte 0x2A (payload 0x26).
         /// For Uragnites: 4 = out of shell (open), 5 = in shell (closed).
         /// For Worms: 0 = surfaced, 1 = submerged.
-        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp and uragnite.lua.
+        /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp and uragnite.lua,
+        /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E) flags3_t.
         /// </summary>
-        public byte AnimationSub => _payload.Length >= 0x27 ? _payload[0x26] : (byte)0;
+        public byte AnimationSub => _payload.Length >= 0x27 ? (byte)(_payload[0x26] & 0x07) : (byte)0;
 
         /// <summary>
         /// For an elevator or ship (look size 3 / 4): the FourCC of the zone object it moves (packet 0x34), the Earth
         /// second since the Vana'diel epoch its current leg started (0x38) and, for an elevator, the leg's travel time in
-        /// seconds (0x3C). False when the packet carries no transport data.
+        /// seconds (0x3C, the u32 <c>EndTime</c>; LSB fills only its low byte). False when the packet carries no transport data.
         /// Layout referenced from LandSandBoat (https://github.com/LandSandBoat/server) packets/entity_update.cpp
-        /// getTransportNPCName.
+        /// getTransportNPCName, and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E) SubKind 3.
         /// </summary>
-        public bool TryGetTransport(out string objectId, out uint legStartSeconds, out byte travelSeconds)
+        public bool TryGetTransport(out string objectId, out uint legStartSeconds, out uint travelSeconds)
         {
             objectId = string.Empty;
             legStartSeconds = 0;
             travelSeconds = 0;
-            if (SubKind is not (EntitySubKind.Elevator or EntitySubKind.Ship) || _payload.Length < 0x39) return false;
+            if (SubKind is not (EntitySubKind.Elevator or EntitySubKind.Ship) || _payload.Length < 0x38) return false;
 
             var id = _payload.Slice(0x30, 4);
             int length = id.IndexOf((byte)0);
@@ -554,7 +556,9 @@ namespace Gordian.Core.Network.Packets
 
             objectId = System.Text.Encoding.ASCII.GetString(id.Slice(0, length));
             legStartSeconds = BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x34, 4));
-            travelSeconds = SubKind == EntitySubKind.Elevator ? _payload[0x38] : (byte)0;
+            travelSeconds = SubKind == EntitySubKind.Elevator && _payload.Length >= 0x3C
+                ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x38, 4))
+                : 0;
             return true;
         }
 
@@ -575,11 +579,9 @@ namespace Gordian.Core.Network.Packets
         {
             if (_payload.Length < 0x30) return 0;
 
-            ushort size = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x2C, 2));
-
             // Only MODEL_STANDARD (0), MODEL_UNK_5 (5), MODEL_AUTOMATON (6) carry a simple numeric model ID.
             // All other size values (1=Equipped, 2=Door, 3=Elevator, 4=Ship, 7=Chocobo) must return 0.
-            if (size is not (0 or 5 or 6))
+            if (LookSize is not (0 or 5 or 6))
             {
                 return 0;
             }
@@ -628,21 +630,47 @@ namespace Gordian.Core.Network.Packets
             return 0;
         }
 
+        public bool HasName2 => (UpdateFlags & EntityUpdateFlags.Name2) != 0;
+
+        /// <summary>First actor index of the client's spawnable range (pets, trusts); 0-1023 are static NPCs.</summary>
+        private const ushort FirstSpawnableIndex = 1792;
+        private const ushort FirstPlayerIndex = 1024;
+        private const int NameLength = 16;
+
         /// <summary>
-        /// Reads entity name ASCII string.
+        /// The entity name the packet carries, or empty. <c>Name[16]</c> sits in one of three places:
+        /// <list type="bullet">
+        /// <item>SubKind 1 with the <c>Name2</c> flag: packet 0x44 (payload 0x40), for a spawnable, or for a static NPC whose
+        /// name starts with a printable character.</item>
+        /// <item>A static NPC (index &lt; 1024) with the <c>Name</c> flag and a <c>HasName</c> byte of 1 at packet 0x34:
+        /// the name follows at packet 0x35.</item>
+        /// <item>Otherwise, with the <c>Name</c> flag: packet 0x34 (payload 0x30). The retail client reads this only for
+        /// spawnables, but LSB sends every NPC and mob name here, and the entity module prefers the zone's DAT name.</item>
+        /// </list>
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E), "Entity Name".
         /// </summary>
         public string GetName()
         {
-            if (!HasName) return string.Empty;
-            int nameOffset = 0x30; // 0x34 - 4
-            if (_payload.Length <= nameOffset) return string.Empty;
-
-            ReadOnlySpan<byte> nameSpan = _payload.Slice(nameOffset);
-            int len = 0;
-            while (len < nameSpan.Length && len < 24 && nameSpan[len] != 0)
+            if (SubKind == EntitySubKind.Equipped && HasName2
+                && (ActorIndex >= FirstSpawnableIndex || (ActorIndex < FirstPlayerIndex && _payload.Length > 0x40 && _payload[0x40] > (byte)' ')))
             {
-                len++;
+                return ReadName(0x40);
             }
+
+            if (!HasName) return string.Empty;
+            if (ActorIndex < FirstPlayerIndex && _payload.Length > 0x30 && _payload[0x30] == 1)
+            {
+                return ReadName(0x31);
+            }
+            return ReadName(0x30);
+        }
+
+        private string ReadName(int offset)
+        {
+            if (_payload.Length <= offset) return string.Empty;
+            ReadOnlySpan<byte> nameSpan = _payload.Slice(offset, Math.Min(NameLength, _payload.Length - offset));
+            int len = nameSpan.IndexOf((byte)0);
+            if (len < 0) len = nameSpan.Length;
             return len > 0 ? Encoding.ASCII.GetString(nameSpan.Slice(0, len)) : string.Empty;
         }
     }
@@ -665,7 +693,23 @@ namespace Gordian.Core.Network.Packets
         public byte LsColorB { get; }
         public uint Flags2 { get; }
         public uint Flags3 { get; }
-        public uint DeadCounterSeconds { get; }
+        /// <summary>
+        /// <c>dead_counter1</c>: the homepoint countdown in 1/60 s ticks, offset by 6 minutes (the client force-homepoints
+        /// once it drops below 6 minutes), as LSB's <c>char_status.cpp</c> sends it.
+        /// </summary>
+        public uint DeadCounterTicks { get; }
+
+        /// <summary>Seconds left before the forced homepoint: <see cref="DeadCounterTicks"/> / 60 - 360, floored at 0.</summary>
+        public uint HomepointSecondsRemaining => DeadCounterToSeconds(DeadCounterTicks);
+
+        public const uint DeadCounterTicksPerSecond = 60;
+        public const uint DeadCounterOffsetSeconds = 6 * 60;
+
+        public static uint DeadCounterToSeconds(uint ticks)
+        {
+            uint seconds = ticks / DeadCounterTicksPerSecond;
+            return seconds > DeadCounterOffsetSeconds ? seconds - DeadCounterOffsetSeconds : 0;
+        }
         public ushort CostumeId { get; }
         public ushort WarpTargetIndex { get; }
         public ushort FellowTargetIndex { get; }
@@ -690,7 +734,7 @@ namespace Gordian.Core.Network.Packets
                 LsColorB = 0;
                 Flags2 = 0;
                 Flags3 = 0;
-                DeadCounterSeconds = 0;
+                DeadCounterTicks = 0;
                 CostumeId = 0;
                 WarpTargetIndex = 0;
                 FellowTargetIndex = 0;
@@ -713,7 +757,7 @@ namespace Gordian.Core.Network.Packets
             LsColorB = payload[47];
             Flags2 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(48, 4));
             Flags3 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(52, 4));
-            DeadCounterSeconds = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(56, 4));
+            DeadCounterTicks = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(56, 4));
             CostumeId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(64, 2));
             WarpTargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(66, 2));
             FellowTargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(68, 2));
@@ -749,8 +793,12 @@ namespace Gordian.Core.Network.Packets
         public byte MainJobLevel { get; }
         public JobId SubJob { get; }
         public byte SubJobLevel { get; }
-        public short ExpNow { get; }
-        public short ExpNext { get; }
+        /// <summary>
+        /// Current and to-next-level EXP. XiPackets and LSB declare both as int16, but LSB's exp-to-next table
+        /// goes above 32767, so they are read unsigned.
+        /// </summary>
+        public ushort ExpNow { get; }
+        public ushort ExpNext { get; }
         public short Attack { get; }
         public short Defense { get; }
         public ushort TitleId { get; }
@@ -770,7 +818,7 @@ namespace Gordian.Core.Network.Packets
         public S2C_0x061_CliStatus(ReadOnlySpan<byte> payload)
         {
             _payload = payload;
-            if (payload.Length < 0x60) // 0x64 - 4
+            if (payload.Length < 0x6C) // 0x70 - 4
             {
                 HpMax = 0;
                 MpMax = 0;
@@ -802,8 +850,8 @@ namespace Gordian.Core.Network.Packets
             MainJobLevel = payload[9];
             SubJob = (JobId)payload[10];
             SubJobLevel = payload[11];
-            ExpNow = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(12, 2));
-            ExpNext = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(14, 2));
+            ExpNow = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
+            ExpNext = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
 
             // bp_base is at 16..29 (7 x ushort)
             // bp_adj is at 30..43 (7 x short)
@@ -875,14 +923,40 @@ namespace Gordian.Core.Network.Packets
             return BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(124 + (index * 2), 2));
         }
 
+        /// <summary>Entries 0-47 are combat skills; 48-63 are crafting skills, packed differently.</summary>
+        public const int FirstCraftSkillIndex = 48;
+
+        /// <summary>Crafting entries the server does not use are sent as 0xFFFF.</summary>
+        private const ushort UnusedCraftSkill = 0xFFFF;
+
+        /// <summary>
+        /// Bit 15: a combat skill is capped for the current level; a crafting skill has reached its rank's cap.
+        /// </summary>
         public bool IsSkillCapped(int index)
         {
-            return (GetSkillBase(index) & 0x8000) != 0;
+            ushort raw = GetSkillBase(index);
+            return raw != UnusedCraftSkill && (raw & 0x8000) != 0;
         }
 
+        /// <summary>
+        /// The skill level. A combat entry is <c>level | cap bit</c>; a crafting entry is
+        /// <c>level * 0x20 + rank</c> (plus the cap bit), as LSB's <c>charutils::BuildingCharSkillsTable</c> packs it.
+        /// </summary>
         public ushort GetSkillLevel(int index)
         {
-            return (ushort)(GetSkillBase(index) & 0x7FFF);
+            ushort raw = GetSkillBase(index);
+            if (index < FirstCraftSkillIndex) return (ushort)(raw & 0x7FFF);
+            if (raw == UnusedCraftSkill) return 0;
+            return (ushort)((raw & 0x7FFF) >> 5);
+        }
+
+        /// <summary>A crafting skill's rank (0 = Amateur ... 10 = Legend); 0 for combat skills and unused entries.</summary>
+        public byte GetCraftRank(int index)
+        {
+            if (index < FirstCraftSkillIndex) return 0;
+            ushort raw = GetSkillBase(index);
+            if (raw == UnusedCraftSkill) return 0;
+            return (byte)(raw & 0x1F);
         }
     }
 
@@ -950,13 +1024,22 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x077 (GP_SERV_COMMAND_ENTITY_VIS): Entity Visibility Range Updates.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x077_entity_vis.cpp).
+    /// The client handles only <c>Flags == 1</c>, where <c>Data[128]</c> is a list of up to 32 UniqueNo values for
+    /// otherwise-hidden entities it may see; any other flag value leaves the data uninterpreted.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x077_entity_vis.cpp)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0077).
     /// </summary>
     public readonly ref struct S2C_0x077_EntityVis
     {
         public const ushort PacketId = 0x077;
+        public const byte UniqueNoListFlag = 1;
 
         public byte Flags { get; }
+
+        /// <summary>True when <see cref="Flags"/> is 1 and the data is a UniqueNo list.</summary>
+        public bool IsUniqueNoList => Flags == UniqueNoListFlag;
+
+        /// <summary>UniqueNo entries in the list; 0 unless <see cref="IsUniqueNoList"/>.</summary>
         public int Count { get; }
         public bool IsValid { get; }
 
@@ -974,7 +1057,7 @@ namespace Gordian.Core.Network.Packets
             }
 
             Flags = payload[0];
-            Count = Math.Min(32, (payload.Length - 4) / 4);
+            Count = Flags == UniqueNoListFlag ? Math.Min(32, (payload.Length - 4) / 4) : 0;
             IsValid = true;
         }
 

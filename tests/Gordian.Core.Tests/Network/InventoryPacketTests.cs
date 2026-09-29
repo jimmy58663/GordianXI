@@ -181,15 +181,22 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void S2C_0x026_ItemSubcontainer_DecodesMannequin()
         {
-            byte[] payload = new byte[24];
+            byte[] payload = new byte[28]; // LSB: 26 bytes of data, padded to a 4-byte packet size
             payload[0] = 1; // is used
             payload[1] = (byte)ContainerId.MogSafe;
             payload[2] = 4; // slot
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(6, 2), 100); // Head
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(8, 2), 200); // Body
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(16, 2), 300); // Main
-            payload[22] = 1; // Hume M
-            payload[23] = 2; // Pose
+            payload[4] = 0xFC; payload[5] = 0xFC; // unknown01
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(6, 2), 0x0102); // Race/hair
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(8, 2), 100); // Head
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(10, 2), 200); // Body
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(12, 2), 210); // Hands
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(14, 2), 220); // Legs
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(16, 2), 230); // Feet
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(18, 2), 300); // Main
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(20, 2), 310); // Sub
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(22, 2), 320); // Range
+            payload[24] = 1; // Hume M
+            payload[25] = 2; // Pose
 
             var p = new S2C_0x026_ItemSubcontainer(payload);
 
@@ -197,11 +204,32 @@ namespace Gordian.Core.Tests.Network
             Assert.True(p.IsUsed);
             Assert.Equal(ContainerId.MogSafe, p.Container);
             Assert.Equal(4, p.Slot);
+            Assert.Equal(0x0102, p.ModelIdRaceHair);
             Assert.Equal(100, p.ModelIdHead);
             Assert.Equal(200, p.ModelIdBody);
+            Assert.Equal(210, p.ModelIdHands);
+            Assert.Equal(220, p.ModelIdLegs);
+            Assert.Equal(230, p.ModelIdFeet);
             Assert.Equal(300, p.ModelIdMain);
+            Assert.Equal(310, p.ModelIdSub);
+            Assert.Equal(320, p.ModelIdRange);
             Assert.Equal(1, p.Race);
             Assert.Equal(2, p.Pose);
+        }
+
+        [Fact]
+        public void S2C_0x026_ItemSubcontainer_RetailLengthHasNoRaceOrPose()
+        {
+            byte[] payload = new byte[24]; // XiPackets: data[24]
+            payload[0] = 1;
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(22, 2), 320); // Range
+
+            var p = new S2C_0x026_ItemSubcontainer(payload);
+
+            Assert.True(p.IsValid);
+            Assert.Equal(320, p.ModelIdRange);
+            Assert.Equal(0, p.Race);
+            Assert.Equal(0, p.Pose);
         }
 
         [Fact]

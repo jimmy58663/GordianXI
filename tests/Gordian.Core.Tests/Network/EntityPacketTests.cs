@@ -172,7 +172,7 @@ namespace Gordian.Core.Tests.Network
             payload[47] = 30; // B
             // Flags2: PetIndex at bits 3..18
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(48, 4), 77 << 3);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(56, 4), 1800); // Dead counter seconds
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(56, 4), 60 * (360 + 1800)); // Dead counter: 1/60 s ticks, +6 min
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(64, 2), 5); // CostumeId
             payload[0x57] = 2; // MountId
             payload[0x58] = 0x7B; // WardrobeMask
@@ -186,7 +186,9 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(20, status.LsColorG);
             Assert.Equal(30, status.LsColorB);
             Assert.Equal(77, status.PetActorIndex);
-            Assert.Equal(1800u, status.DeadCounterSeconds);
+            Assert.Equal(60u * (360 + 1800), status.DeadCounterTicks);
+            Assert.Equal(1800u, status.HomepointSecondsRemaining);
+            Assert.Equal(0u, S2C_0x037_CharStatus.DeadCounterToSeconds(60 * 300)); // below the 6-minute offset
             Assert.Equal(5, status.CostumeId);
             Assert.Equal(2, status.MountId);
             Assert.Equal(0x7B, status.WardrobeMask);
@@ -197,15 +199,15 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void S2C_0x061_CliStatus_DecodesValidPayload()
         {
-            byte[] payload = new byte[0x64];
+            byte[] payload = new byte[0x6C];
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(0, 4), 1450); // HP
             BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(4, 4), 620);  // MP
             payload[8] = (byte)JobId.Warrior;
             payload[9] = 99;
             payload[10] = (byte)JobId.Ninja;
             payload[11] = 49;
-            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(12, 2), 4500); // ExpNow
-            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(14, 2), 10000); // ExpNext
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(12, 2), 4500); // ExpNow
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(14, 2), 40000); // ExpNext: above short.MaxValue, as LSB sends
 
             // bp_base at 16..29: STR, DEX, VIT, AGI, INT, MND, CHR
             for (int i = 0; i < 7; i++)
@@ -238,7 +240,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(JobId.Ninja, stats.SubJob);
             Assert.Equal(49, stats.SubJobLevel);
             Assert.Equal(4500, stats.ExpNow);
-            Assert.Equal(10000, stats.ExpNext);
+            Assert.Equal(40000, stats.ExpNext);
             Assert.Equal(520, stats.Attack);
             Assert.Equal(480, stats.Defense);
             Assert.Equal(70, stats.GetBaseStat(0));
@@ -271,6 +273,29 @@ namespace Gordian.Core.Tests.Network
             Assert.True(skills.IsSkillCapped(0));
             Assert.Equal(350, skills.GetSkillLevel(1));
             Assert.False(skills.IsSkillCapped(1));
+        }
+
+        [Fact]
+        public void S2C_0x062_CliStatus2_DecodesCraftSkillsAsLevelAndRank()
+        {
+            byte[] payload = new byte[252];
+            // Skill 48 (Fishing): level 62, rank 6 (Craftsman), rank cap not reached
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(124 + (48 * 2), 2), (62 * 0x20) + 6);
+            // Skill 49 (Woodworking): level 70, rank 7, at its rank cap
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(124 + (49 * 2), 2), ((70 * 0x20) + 7) | 0x8000);
+            // Skill 58: unused, sent as 0xFFFF
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(124 + (58 * 2), 2), 0xFFFF);
+
+            var skills = new S2C_0x062_CliStatus2(payload);
+            Assert.Equal(62, skills.GetSkillLevel(48));
+            Assert.Equal(6, skills.GetCraftRank(48));
+            Assert.False(skills.IsSkillCapped(48));
+            Assert.Equal(70, skills.GetSkillLevel(49));
+            Assert.Equal(7, skills.GetCraftRank(49));
+            Assert.True(skills.IsSkillCapped(49));
+            Assert.Equal(0, skills.GetSkillLevel(58));
+            Assert.Equal(0, skills.GetCraftRank(58));
+            Assert.False(skills.IsSkillCapped(58));
         }
 
         [Fact]
@@ -314,6 +339,14 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x501u, vis.GetUniqueNo(0));
             Assert.Equal(0x502u, vis.GetUniqueNo(1));
             Assert.Equal(0x503u, vis.GetUniqueNo(2));
+
+            // Any other flag value: the data is not a UniqueNo list.
+            payload[0] = 2;
+            var other = new S2C_0x077_EntityVis(payload);
+            Assert.True(other.IsValid);
+            Assert.False(other.IsUniqueNoList);
+            Assert.Equal(0, other.Count);
+            Assert.Equal(0u, other.GetUniqueNo(0));
         }
 
         [Fact]
@@ -746,6 +779,83 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((1 << 8) | 5, entity.Appearance.FaceModel);
             Assert.Equal(10, entity.Appearance.Head);
             Assert.Equal(20, entity.Appearance.Body);
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_StatusBitsDoNotLeakIntoSubKind()
+        {
+            byte[] payload = new byte[0x34];
+            // SubKind:3 = 0 (standard model) with Status bits set above it.
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), (ushort)(0 | (0x155 << 3)));
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2E, 2), 300);
+            payload[0x26] = 0xFC | 0x05; // MonStat 5 plus neighbouring flags3 bits
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.Equal(0, npc.LookSize);
+            Assert.False(npc.IsEquippedLook);
+            Assert.Equal(300u, npc.GetModelId());
+            Assert.Equal(5, npc.AnimationSub);
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_ElevatorEndTimeIsU32()
+        {
+            byte[] payload = new byte[0x44];
+            payload[0x2C] = (byte)EntitySubKind.Elevator;
+            Encoding.ASCII.GetBytes("_2d1").CopyTo(payload.AsSpan(0x30));
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x34, 4), 123456);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x38, 4), 300); // EndTime above one byte
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.True(npc.TryGetTransport(out string id, out uint legStart, out uint travel));
+            Assert.Equal("_2d1", id);
+            Assert.Equal(123456u, legStart);
+            Assert.Equal(300u, travel);
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_NameIsAtMostSixteenBytes()
+        {
+            byte[] payload = new byte[0x48];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 1800); // spawnable
+            payload[6] = (byte)EntityUpdateFlags.Name;
+            Encoding.ASCII.GetBytes("ABCDEFGHIJKLMNOPQRSTUVWX").CopyTo(payload.AsSpan(0x30));
+
+            Assert.Equal("ABCDEFGHIJKLMNOP", new S2C_0x00E_CharNpc(payload).GetName());
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_StaticNpcRenameSkipsHasNameByte()
+        {
+            byte[] payload = new byte[0x48];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 100); // static NPC
+            payload[6] = (byte)EntityUpdateFlags.Name;
+            payload[0x30] = 1; // HasName
+            Encoding.ASCII.GetBytes("Moogle").CopyTo(payload.AsSpan(0x31));
+
+            Assert.Equal("Moogle", new S2C_0x00E_CharNpc(payload).GetName());
+        }
+
+        [Fact]
+        public void S2C_0x00E_CharNpc_Name2ReadsFromPacket0x44()
+        {
+            byte[] payload = new byte[0x50];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 1900); // spawnable
+            payload[6] = (byte)(EntityUpdateFlags.Model | EntityUpdateFlags.Name2);
+            payload[0x2C] = (byte)EntitySubKind.Equipped;
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2E, 2), 0x0201); // GrapIDTbl[0]
+            Encoding.ASCII.GetBytes("Shantotto").CopyTo(payload.AsSpan(0x40));
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.False(npc.HasName);
+            Assert.True(npc.HasName2);
+            Assert.Equal("Shantotto", npc.GetName());
+
+            // A static NPC's Name2 name is used only when it starts with a printable character.
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 50);
+            Assert.Equal("Shantotto", new S2C_0x00E_CharNpc(payload).GetName());
+            payload[0x40] = (byte)' ';
+            Assert.Equal(string.Empty, new S2C_0x00E_CharNpc(payload).GetName());
         }
 
         [Fact]

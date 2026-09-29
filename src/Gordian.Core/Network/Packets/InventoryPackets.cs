@@ -531,15 +531,23 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x026: Subcontainer and mannequin equipment display info.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x026_item_subcontainer.h).
+    /// Payload layout: is_used (0), container (1), index (2), two unknown fields (3-5), then the mannequin's
+    /// model ids: race/hair (6), head (8), body (10), hands (12), legs (14), feet (16), main (18), sub (20),
+    /// range (22). XiPackets' data block ends there (24 bytes); LSB appends race (24) and pose (25), so those
+    /// are read only when present.
+    /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0026)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x026_item_subcontainer.h).
     /// </summary>
     public readonly ref struct S2C_0x026_ItemSubcontainer
     {
         public const ushort PacketId = 0x026;
+        private const int ModelBlockLength = 24;
+        private const int RacePoseLength = 26;
 
         public bool IsUsed { get; }
         public ContainerId Container { get; }
         public byte Slot { get; }
+        public ushort ModelIdRaceHair { get; }
         public ushort ModelIdHead { get; }
         public ushort ModelIdBody { get; }
         public ushort ModelIdHands { get; }
@@ -548,17 +556,22 @@ namespace Gordian.Core.Network.Packets
         public ushort ModelIdMain { get; }
         public ushort ModelIdSub { get; }
         public ushort ModelIdRange { get; }
+
+        /// <summary>LSB only (payload 24); 0 when the packet ends after the model ids.</summary>
         public byte Race { get; }
+
+        /// <summary>LSB only (payload 25); 0 when the packet ends after the model ids.</summary>
         public byte Pose { get; }
         public bool IsValid { get; }
 
         public S2C_0x026_ItemSubcontainer(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < 24)
+            if (payload.Length < ModelBlockLength)
             {
                 IsUsed = false;
                 Container = ContainerId.Inventory;
                 Slot = 0;
+                ModelIdRaceHair = 0;
                 ModelIdHead = 0;
                 ModelIdBody = 0;
                 ModelIdHands = 0;
@@ -576,16 +589,18 @@ namespace Gordian.Core.Network.Packets
             IsUsed = payload[0] != 0;
             Container = (ContainerId)payload[1];
             Slot = payload[2];
-            ModelIdHead = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
-            ModelIdBody = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
-            ModelIdHands = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(10, 2));
-            ModelIdLegs = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
-            ModelIdFeet = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
-            ModelIdMain = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
-            ModelIdSub = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(18, 2));
-            ModelIdRange = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(20, 2));
-            Race = payload[22];
-            Pose = payload[23];
+            ModelIdRaceHair = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            ModelIdHead = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            ModelIdBody = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(10, 2));
+            ModelIdHands = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
+            ModelIdLegs = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
+            ModelIdFeet = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(16, 2));
+            ModelIdMain = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(18, 2));
+            ModelIdSub = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(20, 2));
+            ModelIdRange = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(22, 2));
+            bool hasRacePose = payload.Length >= RacePoseLength;
+            Race = hasRacePose ? payload[24] : (byte)0;
+            Pose = hasRacePose ? payload[25] : (byte)0;
             IsValid = true;
         }
     }

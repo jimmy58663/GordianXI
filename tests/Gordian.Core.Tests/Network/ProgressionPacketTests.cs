@@ -228,18 +228,37 @@ namespace Gordian.Core.Tests.Network
             Assert.True(enter.IsValid);
             Assert.Equal(1, enter.Result);
 
-            // 0x0FA MyRoomOperation
-            byte[] opPayload = new byte[8];
+            // 0x0FA MyRoomOperation, LSB layout: u16 item, u8 result, index at 6, category at 7
+            byte[] opPayload = new byte[12];
             BinaryPrimitives.WriteUInt16LittleEndian(opPayload.AsSpan(0, 2), 1234); // ItemNo
             opPayload[2] = (byte)MyRoomOperationResult.Layout;
-            opPayload[5] = 3; // Index
-            opPayload[6] = 2; // Category
+            opPayload[6] = 3; // Index
+            opPayload[7] = 2; // Category
 
             var op = new S2C_0x0FA_MyRoomOperation(opPayload);
             Assert.True(op.IsValid);
             Assert.Equal(1234, op.MyroomItemNo);
             Assert.Equal(MyRoomOperationResult.Layout, op.Result);
             Assert.Equal(3, op.MyroomItemIndex);
+            Assert.Equal(2, op.MyroomCategory);
+        }
+
+        [Fact]
+        public void S2C_0x0FA_MyRoomOperation_DecodesXiPacketsLayout()
+        {
+            // XiPackets layout: u32 item, u32 result, index at 8, category at 9
+            byte[] payload = new byte[12];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 1234);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), (uint)MyRoomOperationResult.PlantCheck);
+            payload[8] = 5;
+            payload[9] = 9; // Mog Safe 2
+
+            var op = new S2C_0x0FA_MyRoomOperation(payload);
+            Assert.True(op.IsValid);
+            Assert.Equal(1234, op.MyroomItemNo);
+            Assert.Equal(MyRoomOperationResult.PlantCheck, op.Result);
+            Assert.Equal(5, op.MyroomItemIndex);
+            Assert.Equal(9, op.MyroomCategory);
         }
 
         [Fact]
@@ -256,10 +275,10 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void S2C_0x08C_Merit_DecodesTotalAndEntries()
+        public void S2C_0x08C_Merit_DecodesEntryCountAndEntries()
         {
-            byte[] payload = new byte[12];
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0, 2), 45); // MeritCount
+            byte[] payload = new byte[4 + (4 * 3)];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0, 2), 2); // merit_count: entries in this packet
 
             // Entry 0
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 10); // Index
@@ -269,11 +288,37 @@ namespace Gordian.Core.Tests.Network
             var merit = new S2C_0x08C_Merit(payload);
 
             Assert.True(merit.IsValid);
-            Assert.Equal(45, merit.MeritCount);
+            Assert.Equal(2, merit.MeritCount);
+            Assert.Equal(2, merit.EntryCount);
             var entry = merit.GetMeritEntry(0);
             Assert.Equal(10, entry.Index);
             Assert.Equal(2, entry.Next);
             Assert.Equal(5, entry.Count);
+            Assert.Equal(0, merit.GetMeritEntry(2).Index); // past merit_count
+        }
+
+        [Fact]
+        public void S2C_0x08C_Merit_OddIndexRemovesTheMerit()
+        {
+            var state = new ProgressionState();
+
+            byte[] fill = new byte[4 + (4 * 2)];
+            BinaryPrimitives.WriteUInt16LittleEndian(fill.AsSpan(0, 2), 2);
+            BinaryPrimitives.WriteUInt16LittleEndian(fill.AsSpan(4, 2), 0x40); fill[6] = 1; fill[7] = 3;
+            BinaryPrimitives.WriteUInt16LittleEndian(fill.AsSpan(8, 2), 0x42); fill[10] = 1; fill[11] = 1;
+            state.UpdateMerits(new S2C_0x08C_Merit(fill));
+            Assert.Equal(3, state.GetMeritLevel(0x40));
+            Assert.Equal(1, state.GetMeritLevel(0x42));
+
+            // Lowering merit 0x42 to 0 sends a single entry with index 0x42 + 1.
+            byte[] lower = new byte[4 + (4 * 2)];
+            BinaryPrimitives.WriteUInt16LittleEndian(lower.AsSpan(0, 2), 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(lower.AsSpan(4, 2), 0x43); lower[6] = 1; lower[7] = 0;
+            state.UpdateMerits(new S2C_0x08C_Merit(lower));
+
+            Assert.Equal(3, state.GetMeritLevel(0x40));
+            Assert.Equal(0, state.GetMeritLevel(0x42));
+            Assert.Equal(0, state.GetMeritLevel(0x43));
         }
 
         [Fact]
@@ -321,6 +366,27 @@ namespace Gordian.Core.Tests.Network
             Assert.True(logChunk.IsValid);
             Assert.Equal(0, logChunk.Offset);
             Assert.Equal(0x01, logChunk.GetData()[0]);
+        }
+
+        [Fact]
+        public void S2C_0x112_RoeLog_OffsetIsAChunkIndex()
+        {
+            var state = new ProgressionState();
+
+            // Chunk 0 marks record 0 complete; chunk 2 marks record 2 * 128 * 8 = 2048 complete.
+            byte[] chunk0 = new byte[132];
+            chunk0[0] = 0x01;
+            byte[] chunk2 = new byte[132];
+            chunk2[0] = 0x01;
+            BinaryPrimitives.WriteUInt16LittleEndian(chunk2.AsSpan(128, 2), 2);
+
+            state.UpdateRoeLogChunk(new S2C_0x112_RoeLog(chunk0));
+            state.UpdateRoeLogChunk(new S2C_0x112_RoeLog(chunk2));
+
+            Assert.Equal(256, new S2C_0x112_RoeLog(chunk2).ByteOffset);
+            Assert.True(state.IsRoeObjectiveCompleted(0));
+            Assert.True(state.IsRoeObjectiveCompleted(2048));
+            Assert.False(state.IsRoeObjectiveCompleted(2));
         }
 
         [Fact]
@@ -422,7 +488,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(5, comlink.ItemIndex);
 
             // 0x0E2 GroupList2
-            byte[] list2Payload = new byte[52];
+            byte[] list2Payload = new byte[44]; // sized to the name, not the full Name[16]
             BinaryPrimitives.WriteUInt32LittleEndian(list2Payload.AsSpan(0, 4), 999);
             BinaryPrimitives.WriteUInt32LittleEndian(list2Payload.AsSpan(4, 4), 800); // HP
             BinaryPrimitives.WriteUInt16LittleEndian(list2Payload.AsSpan(20, 2), 15);  // ActIndex
@@ -433,6 +499,13 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(999u, list2.UniqueNo);
             Assert.Equal(800u, list2.Hp);
             Assert.Equal("Kupopo", list2.GetName());
+
+            // A 3-letter name: 36 fixed bytes + 4 name bytes (padded to 4).
+            byte[] shortName = new byte[40];
+            Encoding.ASCII.GetBytes("Ayu").CopyTo(shortName.AsSpan(36));
+            var shortList2 = new S2C_0x0E2_GroupList2(shortName);
+            Assert.True(shortList2.IsValid);
+            Assert.Equal("Ayu", shortList2.GetName());
 
             // 0x11D PartyReq
             byte[] reqPayload = new byte[28];

@@ -234,7 +234,7 @@ namespace Gordian.Core.Network.Packets
             if (!merit.IsValid) return;
 
             _progressionState.UpdateMerits(in merit);
-            GordianLog.Debug("PROGRESSION", $"Updated Merits: TotalPoints={merit.MeritCount}");
+            GordianLog.Debug("PROGRESSION", $"Updated Merits: Entries={merit.EntryCount}");
         }
 
         private void HandleJobPoints(PacketHeader header, ReadOnlySpan<byte> payload)
