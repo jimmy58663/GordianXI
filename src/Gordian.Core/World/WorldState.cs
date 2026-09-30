@@ -124,6 +124,27 @@ namespace Gordian.Core.World
             }
         }
 
+        private double _lockedHours = double.NaN;
+
+        /// <summary>Whether an event has stopped this session's clock (<see cref="LockTimeOfDay"/>).</summary>
+        public bool IsTimeOfDayLocked => !double.IsNaN(_lockedHours);
+
+        /// <summary>
+        /// Stops the clock at an hour, as an event does (opcode 0x77, XiDateTime::DisableGameTimer): the time of day
+        /// reads that hour (minute 0) until <see cref="UnlockTimeOfDay"/>.
+        /// </summary>
+        public void LockTimeOfDay(int hour) => _lockedHours = Math.Clamp(hour, 0, 23);
+
+        /// <summary>Lets the clock run again (opcode 0x78, or the event's end).</summary>
+        public void UnlockTimeOfDay() => _lockedHours = double.NaN;
+
+        /// <summary>The time of day in hours [0, 24): the event's stopped clock, else Vana'diel time now.</summary>
+        public float GetTimeOfDayHours(DateTime utcNow)
+        {
+            double locked = _lockedHours;
+            return double.IsNaN(locked) ? VanaTime.GetTimeOfDayHours(utcNow) : (float)locked;
+        }
+
         public void UpdateWeather(ushort weatherNumber)
         {
             bool changed = false;

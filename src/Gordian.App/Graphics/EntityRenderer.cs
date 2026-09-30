@@ -368,8 +368,16 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
+                // A running event (cutscene) may place the entity itself (retail CopyAllPosEvent) or hide it.
+                // The local player's own position stays the controller's (it is what the client reports to the server).
+                var eventPose = entity.EventPose;
+                if (eventPose != null)
+                {
+                    if (entity.ServerId != localPlayerServerId) entity.Position = eventPose.Position;
+                    entity.RenderHeadingRadians = eventPose.Heading;
+                }
                 // For remote entities, smoothly interpolate render position towards target network position
-                if (entity.ServerId != localPlayerServerId)
+                else if (entity.ServerId != localPlayerServerId)
                 {
                     entity.InterpolatePosition(deltaSeconds);
                 }
@@ -383,7 +391,9 @@ namespace Gordian.App.Graphics
                 // Mapped to terrain display coordinates: (-x, -y, z).
                 // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
                 // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
-                Vector3 pos = (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
+                Vector3 pos = eventPose != null
+                    ? new Vector3(-eventPose.Position.X, -EntityGrounding.GetDisplayHeight(eventPose.Position, collision), eventPose.Position.Z)
+                    : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
                     : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);
                 Vector3 minBox = pos + new Vector3(-1.0f, -0.2f, -1.0f);

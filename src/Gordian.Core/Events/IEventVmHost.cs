@@ -1,4 +1,6 @@
 // src/Gordian.Core/Events/IEventVmHost.cs
+using System.Numerics;
+
 namespace Gordian.Core.Events
 {
     /// <summary>Who says a message the VM prints.</summary>
@@ -79,6 +81,50 @@ namespace Gordian.Core.Events
             serverId = 0;
             index = 0;
             return false;
+        }
+
+        /// <summary>
+        /// Where an entity stands (internal axes, Y = height), which way it faces (wire-convention radians) and its
+        /// movement speed in yalms per second: an event entity's starting <c>EventPos</c> / <c>EventDir</c> /
+        /// <c>MainSpeed</c> (XiEvent::XiEventInit), and the target of a look-at. False when the entity is unknown.
+        /// </summary>
+        bool TryGetEntityPose(uint serverId, out Vector3 position, out float heading, out float speed)
+        {
+            position = default;
+            heading = 0;
+            speed = 0;
+            return false;
+        }
+
+        /// <summary>
+        /// Places an entity for the event (the staging opcodes 0x36 / 0x37 / 0xBA, walks 0x1F / 0x5A, facing 0x39 /
+        /// 0x1E / 0x4A / 0x4B): position, heading and, while walking, the walk speed (0 when standing).
+        /// </summary>
+        void SetEntityPose(uint serverId, Vector3 position, float heading, float speed)
+        {
+        }
+
+        /// <summary>Sets an entity's event hide flag (opcodes 0x22 / 0x4E).</summary>
+        void SetEntityHidden(uint serverId, bool hidden)
+        {
+        }
+
+        /// <summary>Turns the HUD's cutscene mode on (opcode 0x67) or off (0x68).</summary>
+        void SetCutsceneHud(bool on)
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0x77: stops the game clock at <paramref name="hour"/> (minute 0) and / or sets the weather number;
+        /// -1 leaves that one alone.
+        /// </summary>
+        void LockEnvironment(int hour, int weather)
+        {
+        }
+
+        /// <summary>Opcode 0x78: the clock runs again and the zone's weather returns.</summary>
+        void UnlockEnvironment()
+        {
         }
     }
 }

@@ -1,7 +1,9 @@
 // src/Gordian.Core/Events/EventVm.cs
 using System;
 using System.Buffers.Binary;
+using System.Numerics;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Events
 {
@@ -60,6 +62,8 @@ namespace Gordian.Core.Events
         {
             public int Priority;
             public int Pc;
+            /// <summary>The goal of the stack's walk (0x1F / 0x5A), internal axes.</summary>
+            public Vector3 MovePosition;
             public float WaitTime;
             public int Slot;
             public byte RequestFlag;
@@ -81,6 +85,19 @@ namespace Gordian.Core.Events
         private float _frameDelay;
         private bool _queryOpen;
         private float _eventX, _eventY, _eventZ, _eventDir;
+        /// <summary>Walk speed of 0x1F / 0x5A in yalms per second (retail <c>MainSpeed</c>; opcode 0x32 sets it).</summary>
+        private float _mainSpeed = DefaultWalkSpeed;
+        /// <summary>The script placed or turned the entity since the last publish (<see cref="PublishPose"/>).</summary>
+        private bool _poseDirty;
+        /// <summary>The script has placed the entity at least once: from then on the event owns its pose.</summary>
+        private bool _posed;
+        private bool _walkedThisRun;
+        /// <summary>Whether the event position is a real place (the entity's, or one the script set), not the origin.</summary>
+        private bool _positionKnown;
+        private float _publishedSpeed;
+
+        /// <summary>The walk speed when neither the entity nor the script gives one (yalms per second).</summary>
+        public const float DefaultWalkSpeed = 4.0f;
 
         /// <summary>A VM that is its event's only entity (its own <see cref="EventScene"/> on the given work zone).</summary>
         public EventVm(EventBlock block, ushort eventId, EventWorkZone zone, IEventVmHost host, uint entityServerId, ushort entityIndex)
@@ -114,7 +131,121 @@ namespace Gordian.Core.Events
                 _stacks[0] = new RequestStack { Priority = StartPriority, Pc = _offsets[slot], WaitTime = -1f, Slot = slot, Who = entityServerId };
                 _pc = _offsets[slot];
             }
+            // The event position starts where the entity stands (XiEvent::XiEventInit copies it from the entity).
+            if (host.TryGetEntityPose(entityServerId, out var position, out float heading, out float speed))
+            {
+                (_eventX, _eventY, _eventZ, _eventDir) = (position.X, position.Y, position.Z, heading);
+                _positionKnown = true;
+                if (speed > 0) _mainSpeed = speed;
+            }
             scene.Add(this);
+        }
+
+        /// <summary>The event position (internal axes, Y = height) and heading (wire-convention radians) of this entity.</summary>
+        public (Vector3 Position, float Heading) EventPosition => (new Vector3(_eventX, _eventY, _eventZ), _eventDir);
+
+        /// <summary>Whether the script has placed or turned the entity (the event then owns its pose until it ends).</summary>
+        public bool IsPosed => _posed;
+
+        /// <summary>Moves the event position (a staging opcode of this or another entity's script).</summary>
+        private void SetEventPosition(float x, float y, float z)
+        {
+            (_eventX, _eventY, _eventZ) = (x, y, z);
+            _positionKnown = true;
+            _poseDirty = true;
+        }
+
+        private void SetEventHeading(float heading)
+        {
+            _eventDir = heading;
+            _poseDirty = true;
+        }
+
+        /// <summary>A script heading (4096 steps per turn) in wire-convention radians, within [0, 2π).</summary>
+        private static float ScriptHeading(int value)
+        {
+            float radians = (value & 0xFFF) * (2f * MathF.PI / 4096f);
+            return radians < 0f ? radians + 2f * MathF.PI : radians;
+        }
+
+        /// <summary>Where the named actor stands: its event position when it takes part in the event, else the world's.</summary>
+        private bool TryGetActorPosition(int lookup, out Vector3 position)
+        {
+            var (serverId, _) = ResolveActor(lookup);
+            position = default;
+            if (serverId == uint.MaxValue) return false;
+            if (Scene.FindActor(serverId) is { } actor)
+            {
+                position = actor.EventPosition.Position;
+                return true;
+            }
+            return _host.TryGetEntityPose(serverId == 0 ? Scene.PlayerServerId : serverId, out position, out _, out _);
+        }
+
+        /// <summary>
+        /// 0x1F (CodeMOVE) and 0x5A (CodeMOVE2), XiEvents OpCodes/0x001F and 0x005A. Sub-case 0 stores the goal (x, y,
+        /// height operands) in the running stack; sub-case 1 walks the event position toward it at the walk speed, turning
+        /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height is
+        /// the goal's, then the floor's), 0x5A moves in all three axes.
+        /// </summary>
+        private void ExecMove(bool freeFlight)
+        {
+            byte mode = Code8(1);
+            ref var stack = ref _stacks[_runPos];
+            if (mode == 0)
+            {
+                stack.MovePosition = new Vector3(GetWork(2) * 0.001f, GetWork(6) * 0.001f, GetWork(4) * 0.001f);
+                _pc += 8;
+                return;
+            }
+            if (mode != 1)
+            {
+                _host.OnSkippedOpcode(_code[_pc], _pc);
+                _pc += 2;
+                return;
+            }
+            var goal = stack.MovePosition;
+            if (!_positionKnown)
+            {
+                // Nowhere to walk from (the entity never arrived and the script did not place it): be at the goal.
+                SetEventPosition(goal.X, goal.Y, goal.Z);
+                _pc += 2;
+                _retFlag = true;
+                return;
+            }
+            float dx = goal.X - _eventX, dy = goal.Y - _eventY, dz = goal.Z - _eventZ;
+            float distance = freeFlight ? MathF.Sqrt(dx * dx + dy * dy + dz * dz) : MathF.Sqrt(dx * dx + dz * dz);
+            float step = _mainSpeed * _frameDelay / 60f;
+            if (dx * dx + dz * dz > 1e-8f) _eventDir = WorldEntity.HeadingOf(dx, dz);
+            if (step > 0f && distance > step)
+            {
+                _eventX += dx / distance * step;
+                _eventZ += dz / distance * step;
+                _eventY = freeFlight ? _eventY + dy / distance * step : goal.Y;
+                _walkedThisRun = true;
+            }
+            else
+            {
+                (_eventX, _eventY, _eventZ) = (goal.X, goal.Y, goal.Z);
+                _pc += 2;
+            }
+            _poseDirty = true;
+            _retFlag = true;
+        }
+
+        /// <summary>
+        /// Hands the entity's event pose to the host when the script changed it, or when a walk started or stopped
+        /// (retail draws an event entity at its <c>EventPos</c>, XiAtelBuff::CopyAllPosEvent).
+        /// </summary>
+        private void PublishPose()
+        {
+            float speed = _walkedThisRun ? _mainSpeed : 0f;
+            _walkedThisRun = false;
+            if (!_poseDirty && (!_posed || speed == _publishedSpeed)) return;
+            _poseDirty = false;
+            _posed = true;
+            _publishedSpeed = speed;
+            _host.SetEntityPose(EntityServerId, new Vector3(_eventX, _eventY, _eventZ), _eventDir, speed);
         }
 
         /// <summary>The event this VM takes part in.</summary>
@@ -191,7 +322,11 @@ namespace Gordian.Core.Events
                     _runPos = i;
                 }
             }
-            if (priority == FreePriority) return;
+            if (priority == FreePriority)
+            {
+                PublishPose(); // another entity's script may have placed this one
+                return;
+            }
             _frameDelay = frameDelay;
             _pc = _stacks[_runPos].Pc;
             _retFlag = false;
@@ -212,6 +347,7 @@ namespace Gordian.Core.Events
                 Step();
             }
             if (_stacks[_runPos].Priority != FreePriority) _stacks[_runPos].Pc = _pc;
+            PublishPose();
         }
 
         /// <summary>Frees the running request stack (opcode 0x00; 0x1B with an empty return stack).</summary>
@@ -729,18 +865,97 @@ namespace Gordian.Core.Events
                     _pc += 10;
                     return;
                 case 0x36:
-                    _eventX = GetWork(1) * 0.001f;
-                    _eventZ = GetWork(3) * 0.001f;
-                    _eventY = GetWork(5) * 0.001f;
+                    // Operands x, y, height (the scripts' order); internal Y is the height.
+                    SetEventPosition(GetWork(1) * 0.001f, GetWork(5) * 0.001f, GetWork(3) * 0.001f);
                     _pc += 7;
                     return;
                 case 0x37:
-                    _eventX = GetWork(1) * 0.001f;
-                    _eventZ = GetWork(3) * 0.001f;
-                    _eventY = GetWork(5) * 0.001f;
-                    _eventDir = GetWork(7) * 6.283f * 0.00024414062f;
+                    SetEventPosition(GetWork(1) * 0.001f, GetWork(5) * 0.001f, GetWork(3) * 0.001f);
+                    SetEventHeading(ScriptHeading(GetWork(7)));
                     _pc += 9;
                     return;
+                case 0xBA:
+                {
+                    // Another entity's event position and heading: actor, x, y, height, heading (XiEvents OpCodes/0x00BA).
+                    var target = RequestTarget(Code32(1));
+                    if (target != null)
+                    {
+                        target.SetEventPosition(GetWork(5) * 0.001f, GetWork(9) * 0.001f, GetWork(7) * 0.001f);
+                        target.SetEventHeading(ScriptHeading(GetWork(11)));
+                    }
+                    _pc += 13;
+                    return;
+                }
+                case 0x1F:
+                case 0x5A:
+                    ExecMove(op == 0x5A);
+                    return;
+                case 0x32:
+                    _mainSpeed = GetWork(1) * 0.1f;
+                    _pc += 3;
+                    return;
+                case 0x39:
+                    SetEventHeading(ScriptHeading(GetWork(1)));
+                    _pc += 3;
+                    return;
+                case 0x1E:
+                {
+                    // Face the named actor (and talk to it: the mouth animation is not played).
+                    if (TryGetActorPosition(Code32(1), out var at)) SetEventHeading(WorldEntity.HeadingOf(at.X - _eventX, at.Z - _eventZ));
+                    _pc += 5;
+                    return;
+                }
+                case 0x4A:
+                {
+                    // The first actor turns to face the second (XiEvents OpCodes/0x004A, CodeDTURA).
+                    var turner = RequestTarget(Code32(1));
+                    if (turner != null && TryGetActorPosition(Code32(5), out var at))
+                    {
+                        var (from, _) = turner.EventPosition;
+                        turner.SetEventHeading(WorldEntity.HeadingOf(at.X - from.X, at.Z - from.Z));
+                    }
+                    _pc += 9;
+                    return;
+                }
+                case 0x4B:
+                {
+                    // An actor's heading (only actors in the event: retail turns others directly, not done here).
+                    RequestTarget(Code32(1))?.SetEventHeading(ScriptHeading(GetWork(5)));
+                    _pc += 7;
+                    return;
+                }
+                case 0x22:
+                    _host.SetEntityHidden(EntityServerId, (Code8(1) & 1) != 0);
+                    _pc += 2;
+                    return;
+                case 0x67:
+                    // The event message mode and no compass (XiEvents OpCodes/0x0067): the HUD's cutscene mode.
+                    _host.SetCutsceneHud(true);
+                    _pc += 5;
+                    return;
+                case 0x68:
+                    _host.SetCutsceneHud(false);
+                    _pc++;
+                    return;
+                case 0x77:
+                {
+                    // Stop the clock at an hour and / or set the weather; 255 leaves either as it is (OpCodes/0x0077).
+                    int hour = GetWork(1), weather = GetWork(3);
+                    _host.LockEnvironment(hour == 255 ? -1 : hour, weather == 255 ? -1 : weather);
+                    _pc += 5;
+                    return;
+                }
+                case 0x78:
+                    _host.UnlockEnvironment();
+                    _pc++;
+                    return;
+                case 0x4E:
+                {
+                    var (serverId, _) = ResolveActor(Code32(2));
+                    if (serverId != uint.MaxValue) _host.SetEntityHidden(serverId == 0 ? Scene.PlayerServerId : serverId, (Code8(1) & 1) != 0);
+                    _pc += 6;
+                    return;
+                }
                 case 0x44:
                     if (_host.EntityExists(unchecked((uint)GetWork(1)))) _pc += 5;
                     else _pc = Code16(3);

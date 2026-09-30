@@ -40,6 +40,13 @@ namespace Gordian.Core.Animation
                 return AnimationCategory.Death;
             }
 
+            // An event (cutscene) moving the entity: the script's walk speed decides, not the server's movement.
+            if (entity.EventPose is { } pose)
+            {
+                if (pose.Speed <= 0f) return AnimationCategory.Idle;
+                return pose.Speed <= EventPose.WalkSpeedLimit ? AnimationCategory.Walk : AnimationCategory.Run;
+            }
+
             DateTime now = utcNow ?? DateTime.UtcNow;
             bool isRemotePlayer = !isLocalPlayer && entity.Type == EntityType.Player;
             bool isTimedOut = !isLocalPlayer && entity.LastPositionChangeUtc != DateTime.MinValue && (now - entity.LastPositionChangeUtc).TotalMilliseconds >= RemoteEntityIdleTimeoutMs;

@@ -150,14 +150,17 @@ namespace Gordian.App.Graphics
 
             renderer.Begin(library);
             var groups = GroupParty(session);
+            // An event's cutscene mode (opcode 0x67) leaves out the names and the targeting and status windows; the
+            // party window stays, since the log windows are laid out against it.
+            bool cutscene = session.Events.IsCutsceneHud;
             NamePlateBounds? targetPlate = null;
-            if (namePlates != null && _font is { } plateFont)
+            if (namePlates != null && _font is { } plateFont && !cutscene)
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
                 targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, Layout.NamePlateScale);
             }
-            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
+            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene)
             {
                 if (targetPlate is { } plate)
                 {
@@ -167,10 +170,13 @@ namespace Gordian.App.Graphics
                 StockUiTargetWindow.DrawCursor(renderer, library, cursor, Layout.Scale, Stopwatch.GetTimestamp());
             }
             var party = DrawPartyWindow(renderer, library, session, groups, width, height);
-            DrawAllianceWindows(renderer, library, groups, width, height);
+            if (!cutscene) DrawAllianceWindows(renderer, library, groups, width, height);
             DrawLogWindows(renderer, library, session, party, width, height);
-            DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
-            DrawStatusIcons(renderer, library, session, width, height);
+            if (!cutscene)
+            {
+                DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
+                DrawStatusIcons(renderer, library, session, width, height);
+            }
             DrawMenus(renderer, library, session, menus, width, height);
             bool unlocked = Drag.Unlocked;
             if (unlocked)

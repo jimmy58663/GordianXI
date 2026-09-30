@@ -34,6 +34,18 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(AnimationCategory.Combat, AnimationStateClassifier.Classify(entity, isEngaged: true));
         }
 
+        [Theory]
+        [InlineData(0f, AnimationCategory.Idle)]
+        [InlineData(2.0f, AnimationCategory.Walk)]
+        [InlineData(4.0f, AnimationCategory.Run)]
+        public void Classify_EventPose_TheScriptWalkSpeedDecides(float speed, AnimationCategory expected)
+        {
+            // The server says the NPC runs; the event walking it (or standing it) wins (#86).
+            var entity = CreateEntity(speed: 50, type: EntityType.Npc);
+            entity.EventPose = new EventPose(Vector3.Zero, 0f, speed);
+            Assert.Equal(expected, AnimationStateClassifier.Classify(entity, isEngaged: false));
+        }
+
         [Fact]
         public void Classify_ZeroSpeed_ReturnsIdle()
         {

@@ -657,7 +657,31 @@ namespace Gordian.Core.World
         /// running event (retail draws event entities by their event state, then restores the entity's own state when
         /// the event object is destroyed).
         /// </summary>
-        public bool IsDrawn => !IsHidden || IsInEvent;
+        public bool IsDrawn => !IsEventHidden && (!IsHidden || IsInEvent);
+
+        private volatile EventPose? _eventPose;
+        private volatile bool _isEventHidden;
+
+        /// <summary>
+        /// Where a running event (cutscene) has placed the entity, or null when the event leaves it alone. While set,
+        /// the renderer draws the entity here instead of its server position (retail copies an event entity's
+        /// <c>EventPos</c> / <c>EventDir</c> over its position: XiAtelBuff::CopyAllPosEvent). Cleared when the event ends.
+        /// </summary>
+        public EventPose? EventPose
+        {
+            get => _eventPose;
+            set => _eventPose = value;
+        }
+
+        /// <summary>
+        /// Hidden by a running event: the scripts' hide flag (opcodes 0x22 / 0x4E, retail <c>Render.Flags0</c> bit 17) or
+        /// the cutscene's NO_PCS / NO_NPCS flags for entities outside the event. Cleared when the event ends.
+        /// </summary>
+        public bool IsEventHidden
+        {
+            get => _isEventHidden;
+            set => _isEventHidden = value;
+        }
 
         /// <summary>
         /// Flags from the last entity update that change the name plate (colour, icon, stars, or hiding the name).

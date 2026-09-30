@@ -142,6 +142,32 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>
+        /// Every new-character intro (#86; zone and event from LandSandBoat's New_Character_Cutscenes.lua) runs to its
+        /// end on all its entities, with its lines printed. Writes the opcodes still stepped over, by use count.
+        /// </summary>
+        [Theory]
+        [InlineData(236, 1)]   // Port Bastok
+        [InlineData(234, 1)]   // Bastok Mines
+        [InlineData(235, 0)]   // Bastok Markets (then event 7)
+        [InlineData(235, 7)]
+        [InlineData(231, 535)] // Northern San d'Oria
+        [InlineData(230, 503)] // Southern San d'Oria
+        [InlineData(232, 500)] // Port San d'Oria
+        [InlineData(238, 531)] // Windurst Waters
+        [InlineData(241, 367)] // Windurst Woods
+        [InlineData(240, 305)] // Port Windurst
+        public void NewCharacterIntro_RunsToItsEnd(int zoneId, int eventId)
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, zoneId, (ushort)eventId);
+            Assert.True(run.Scene.IsFinished);
+            Assert.NotEmpty(run.Host.Printed);
+            var skipped = run.Host.Skipped.GroupBy(o => o).OrderByDescending(g => g.Count()).Select(g => $"{g.Key:X2}x{g.Count()}");
+            _output.WriteLine($"skipped opcodes: {string.Join(" ", skipped)}");
+        }
+
+        /// <summary>
         /// Southern San d'Oria (230), event 663 (Femitte's goldsmithing task): Femitte calls "Rouva?" and her attendant
         /// Rouva (0x010E60C4) answers, each line from the speaker's own block, run by companion requests from the player's block, which directs the scene.
         /// Before #85 only Femitte's block ran, so Rouva stayed silent.
@@ -158,6 +184,82 @@ namespace Gordian.Core.Tests.Events
             int answer = run.Host.Printed.FindIndex(p => p.Message == 8887 && p.Id == 0x010E60C4); // "Right away, my lady."
             Assert.True(call >= 0 && answer == call + 1);
             Assert.True(run.Scene.IsEnded);
+        }
+
+        /// <summary>
+        /// The session path of the Windurst Woods intro (#86): S2C 0x00A with event 367 and LandSandBoat's flags
+        /// RESET_CAMERA | NO_PCS | NO_NPCS | OPENING_MODE. Entities outside the event are hidden, the scripts hide the
+        /// four NPCs their blocks flag (0x22 01) and walk others (0x1F), and everything is given back when the event ends.
+        /// </summary>
+        [Fact]
+        public void WindurstWoodsIntro_FromLogin_StagesActorsAndRestoresThem()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController();
+            var previousLoader = EventDialogController.DatLoader;
+            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
+            const uint OtherPc = 0x00054321, Bystander = 0x010F1050, Hidden = 0x010F1081, Nanaa = 0x010F100F, Director = 0x010F100B;
+            try
+            {
+                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
+                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+                byte[] login = new byte[144];
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2),
+                    (ushort)(CutsceneFlags.ResetCamera | CutsceneFlags.NoPcs | CutsceneFlags.NoNpcs | CutsceneFlags.OpeningMode));
+                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+                foreach (var (id, type) in new[] { (OtherPc, Gordian.Core.World.EntityType.Player), (Bystander, Gordian.Core.World.EntityType.Npc),
+                    (Hidden, Gordian.Core.World.EntityType.Npc), (Nanaa, Gordian.Core.World.EntityType.Npc), (Director, Gordian.Core.World.EntityType.Npc) })
+                {
+                    parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), type) { Position = new System.Numerics.Vector3(10, 0, 10) });
+                }
+
+                bool bystanderHidden = false, pcHidden = false, flaggedHidden = false, nanaaPosed = false, nanaaWalked = false, cutsceneHud = false, clockLocked = false;
+                parser.World.UpdateWeather(1);
+                for (int i = 0; i < 200_000 && (i < 120 || controller.IsActive); i++)
+                {
+                    controller.Tick(Frame);
+                    controller.Confirm();
+                    parser.Progression.AcknowledgeEventUpdate();
+                    if (!controller.IsActive) continue;
+                    parser.World.TryGetByServerId(Bystander, out var bystander);
+                    parser.World.TryGetByServerId(OtherPc, out var pc);
+                    parser.World.TryGetByServerId(Hidden, out var hidden);
+                    parser.World.TryGetByServerId(Nanaa, out var nanaa);
+                    bystanderHidden |= bystander!.IsEventHidden;
+                    pcHidden |= pc!.IsEventHidden;
+                    flaggedHidden |= hidden!.IsEventHidden;
+                    nanaaPosed |= nanaa!.EventPose != null;
+                    nanaaWalked |= nanaa.EventPose is { Speed: > 0 };
+                    cutsceneHud |= controller.IsCutsceneHud;
+                    clockLocked |= parser.World.IsTimeOfDayLocked;
+                }
+                Assert.False(controller.IsActive);
+                Assert.True(bystanderHidden);
+                Assert.True(pcHidden);
+                Assert.True(flaggedHidden);
+                Assert.True(nanaaPosed);
+                Assert.True(nanaaWalked);
+                Assert.True(cutsceneHud); // 0x67
+                Assert.True(clockLocked); // 0x77
+                Assert.False(controller.IsCutsceneHud);
+                Assert.False(parser.World.IsTimeOfDayLocked);
+                Assert.Equal(1, parser.World.WeatherNumber); // the zone's weather is back
+                foreach (var entity in parser.World.GetAllEntities())
+                {
+                    Assert.False(entity.IsEventHidden);
+                    Assert.Null(entity.EventPose);
+                }
+            }
+            finally
+            {
+                EventDialogController.DatLoader = previousLoader;
+            }
         }
 
         /// <summary>
