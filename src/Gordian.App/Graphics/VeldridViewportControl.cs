@@ -755,6 +755,7 @@ namespace Gordian.App.Graphics
                 float focalPixels = Camera.ProjectionMatrix.M22 * height * 0.5f;
                 foreach (var overhead in entities.OverheadAnchors)
                 {
+                    if (_namePlateOcclusion.IsOccluded(Camera.Collision, overhead.ServerId, Camera.Position, overhead.Point)) continue;
                     if (ProjectToScreen(overhead.Point, viewProjection, width, height, gd.IsClipSpaceYInverted, out float depth) is { } screen)
                     {
                         _namePlateAnchors.Add(new NamePlateAnchor(overhead.ServerId, screen, depth, focalPixels / depth));
@@ -765,6 +766,7 @@ namespace Gordian.App.Graphics
         }
 
         private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();
+        private readonly NamePlateOcclusion _namePlateOcclusion = new();
 
         /// <summary>
         /// Screen pixel of a display-space point (null behind the camera), matching the 3D pass's clip space.

@@ -100,6 +100,13 @@ void main()
 
         public void ClearClip() => _clip = null;
 
+        /// <summary>
+        /// Texels trimmed from every edge of each source rectangle drawn while set (0 = none). Sprites scaled up with
+        /// bilinear filtering sample half a texel past their rectangle, which picks up the neighbouring cell of the
+        /// atlas as faint lines along the quad's edges; a half-texel inset keeps the samples inside (name plates).
+        /// </summary>
+        public float TexelInset { get; set; }
+
         private readonly GraphicsDevice _gd;
         private readonly Pipeline[] _pipelines;
         private readonly ResourceLayout _uniformLayout;
@@ -217,14 +224,25 @@ void main()
             if (stretch.ExtraY != 0 && part.TopLeft.Y < stretch.PivotY && part.BottomLeft.Y >= stretch.PivotY && quadHeight > 0)
                 srcHeight += stretch.ExtraY * srcHeight / quadHeight;
 
-            float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
-            float u1 = (part.SourceX + srcWidth) / texWidth, v1 = (part.SourceY + srcHeight) / texHeight;
+            float inset = srcWidth > 2 * TexelInset && srcHeight > 2 * TexelInset ? TexelInset : 0;
+            float u0 = (part.SourceX + inset) / texWidth, v0 = (part.SourceY + inset) / texHeight;
+            float u1 = (part.SourceX + srcWidth - inset) / texWidth, v1 = (part.SourceY + srcHeight - inset) / texHeight;
             ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
 
-            var tl = new UiVertex { Position = Point(part.TopLeft, x, y, scale, stretch), TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) };
-            var tr = new UiVertex { Position = Point(part.TopRight, x, y, scale, stretch), TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) };
-            var bl = new UiVertex { Position = Point(part.BottomLeft, x, y, scale, stretch), TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) };
-            var br = new UiVertex { Position = Point(part.BottomRight, x, y, scale, stretch), TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) };
+            Vector2 pTL = Point(part.TopLeft, x, y, scale, stretch), pTR = Point(part.TopRight, x, y, scale, stretch);
+            Vector2 pBL = Point(part.BottomLeft, x, y, scale, stretch), pBR = Point(part.BottomRight, x, y, scale, stretch);
+            if (inset > 0)
+            {
+                // Trim the quad by the same share as the source so the sprite keeps its size per texel.
+                float fx = inset / srcWidth, fy = inset / srcHeight;
+                Vector2 At(float a, float b) => Vector2.Lerp(Vector2.Lerp(pTL, pTR, a), Vector2.Lerp(pBL, pBR, a), b);
+                (pTL, pTR, pBL, pBR) = (At(fx, fy), At(1 - fx, fy), At(fx, 1 - fy), At(1 - fx, 1 - fy));
+            }
+
+            var tl = new UiVertex { Position = pTL, TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) };
+            var tr = new UiVertex { Position = pTR, TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) };
+            var bl = new UiVertex { Position = pBL, TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) };
+            var br = new UiVertex { Position = pBR, TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) };
 
             AddQuad(set, part.BlendMode, tl, tr, bl, br);
         }
@@ -297,7 +315,18 @@ void main()
             if (_library == null || width <= 0 || height <= 0) return;
             if (!TryGetTextureSet(textureName, out var set, out float texWidth, out float texHeight)) return;
 
-            float u0 = srcX / texWidth, v0 = srcY / texHeight, u1 = (srcX + srcWidth) / texWidth, v1 = (srcY + srcHeight) / texHeight;
+            float inset = TexelInset;
+            if (inset > 0 && srcWidth > 2 * inset && srcHeight > 2 * inset)
+            {
+                float dx = width * inset / srcWidth, dy = height * inset / srcHeight;
+                x += dx; y += dy; width -= 2 * dx; height -= 2 * dy;
+            }
+            else
+            {
+                inset = 0;
+            }
+            float u0 = (srcX + inset) / texWidth, v0 = (srcY + inset) / texHeight;
+            float u1 = (srcX + srcWidth - inset) / texWidth, v1 = (srcY + srcHeight - inset) / texHeight;
             uint cl = Pack(left, null), cr = Pack(right, null);
             AddQuad(set, blend,
                 new UiVertex { Position = new Vector2(x, y), TexCoord = new Vector2(u0, v0), Color = cl },

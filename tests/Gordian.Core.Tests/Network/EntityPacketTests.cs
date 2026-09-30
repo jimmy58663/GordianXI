@@ -625,6 +625,34 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void EntityPacketModule_PositionOnlyUpdate_KeepsNamePlateFlagsAndLinkshellColour()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (chunk, enc) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] p1 = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(p1.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(p1.AsSpan(4, 2), 0x0123);
+            p1[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General);
+            BinaryPrimitives.WriteUInt32LittleEndian(p1.AsSpan(28, 4), 1u << 17); // LinkShellFlag
+            p1[32] = 0x8F; p1[33] = 0xDF; p1[34] = 0xCF;                          // r, g, b
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p1.Length + 4), 1), p1);
+
+            // A running player's position updates carry no flags or colour.
+            byte[] p2 = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(p2.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(p2.AsSpan(4, 2), 0x0123);
+            p2[6] = (byte)EntityUpdateFlags.Position;
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p2.Length + 4), 2), p2);
+
+            Assert.True(world.TryGetByServerId(0x01020304, out var ent));
+            var player = Assert.IsType<PlayerEntity>(ent);
+            Assert.Equal(NamePlateFlags.Linkshell, player.NamePlate);
+            Assert.Equal((0x8F, 0xDF, 0xCF), (player.LsColorR, player.LsColorG, player.LsColorB));
+        }
+
+        [Fact]
         public void EntityPacketModule_RateLimitsCharReq()
         {
             var world = new WorldState();

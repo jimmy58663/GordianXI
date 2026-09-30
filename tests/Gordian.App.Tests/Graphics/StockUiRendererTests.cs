@@ -970,7 +970,7 @@ namespace Gordian.App.Tests.Graphics
                 // 208 pixels per yalm is the local player at ~6 yalms on a 1440-pixel screen (scale 2.67).
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
                 renderer.Begin(library);
-                var pearl = new UiColor(0x40, 0x10, 0x60, 0x80);
+                var pearl = StockUiNamePlates.PearlTint(0x8F, 0xDF, 0xCF);
                 StockUiNamePlates.DrawPlate(renderer, font, "Tarudrake", new NamePlateAnchor(1, new Vector2(170, 60), 6, 208),
                     StockUiNamePlates.ColorOf(library, NamePlateColor.Anonymous), NamePlateIcon.Linkshell, pearl, false, width, height);
                 StockUiNamePlates.DrawPlate(renderer, font, "Selh'teus", new NamePlateAnchor(2, new Vector2(470, 60), 6, 208),

@@ -144,7 +144,7 @@ namespace Gordian.App.Graphics
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
-                targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height);
+                targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, Layout.NamePlateScale);
             }
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null)
             {

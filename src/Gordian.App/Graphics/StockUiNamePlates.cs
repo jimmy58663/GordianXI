@@ -28,13 +28,24 @@ namespace Gordian.App.Graphics
     /// <para>
     /// Measured from Windower captures (2026-09-29): the plates scale with distance, not with targeting; the local
     /// player's plate at the default camera distance has a 24 px cap height at 2560 x 1440 against the ~9 px source
-    /// glyph, which with the 60 degree camera at about 6 yalms gives <see cref="YalmsPerFontPixel"/>.
+    /// glyph, which with the 60 degree camera at about 6 yalms gives 0.0128 yalms per font pixel; the default is 10%
+    /// larger than that (the maintainer's choice after the first in-game test, 2026-09-29), and players scale it with
+    /// <c>/uilayout names &lt;n&gt;</c> (<see cref="StockUiLayout.NamePlateScale"/>).
+    /// </para>
+    /// <para>
+    /// Plates behind zone geometry are left out by the caller (<see cref="NamePlateOcclusion"/>).
     /// </para>
     /// </summary>
     public static class StockUiNamePlates
     {
-        /// <summary>World size of one fontshp layout pixel (24 px cap / 9 px glyph at ~6 yalms, 1440 px, 60 degrees).</summary>
-        public const float YalmsPerFontPixel = 0.0128f;
+        /// <summary>
+        /// World size of one fontshp layout pixel: 0.0128 (24 px cap / 9 px glyph at ~6 yalms, 1440 px, 60 degrees) made
+        /// 10% larger.
+        /// </summary>
+        public const float YalmsPerFontPixel = 0.0128f * 1.1f;
+
+        /// <summary>Half a texel trimmed from each glyph and icon so bilinear scaling does not pick up neighbouring atlas cells.</summary>
+        private const float GlyphTexelInset = 0.5f;
 
         /// <summary>Smallest glyph scale (screen pixels per font pixel), so distant names stay legible. Provisional.</summary>
         public const float MinScale = 1.0f;
@@ -68,8 +79,9 @@ namespace Gordian.App.Graphics
             new(127, 96, 64, 127),
         };
 
-        /// <summary>Glyph scale of a plate: world sized, clamped.</summary>
-        public static float ScaleFor(float pixelsPerYalm) => Math.Clamp(pixelsPerYalm * YalmsPerFontPixel, MinScale, MaxScale);
+        /// <summary>Glyph scale of a plate: world sized, clamped, times the player's size setting.</summary>
+        public static float ScaleFor(float pixelsPerYalm, float sizeMultiplier = 1.0f) =>
+            Math.Clamp(pixelsPerYalm * YalmsPerFontPixel, MinScale, MaxScale) * sizeMultiplier;
 
         /// <summary>A name colour from the "ncol" group (the corner colour of its image), or the fallback table.</summary>
         public static UiColor ColorOf(UiResourceLibrary library, NamePlateColor color)
@@ -87,7 +99,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static NamePlateBounds? Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font,
             CharacterSession session, IReadOnlyList<NamePlateAnchor> anchors, IReadOnlyCollection<uint> ownPartyIds,
-            uint width, uint height)
+            uint width, uint height, float sizeMultiplier = 1.0f)
         {
             if (anchors.Count == 0) return null;
             var ordered = new List<NamePlateAnchor>(anchors);
@@ -111,24 +123,36 @@ namespace Gordian.App.Graphics
 
                 var color = ColorOf(library, NamePlateStyle.Color(entity, flags, localId, ownPartyIds, claimGroup));
                 var icon = NamePlateStyle.Icon(flags, gmLevel);
-                UiColor? iconTint = icon == NamePlateIcon.Linkshell && entity is PlayerEntity p
-                    ? new UiColor((byte)(p.LsColorR >> 1), (byte)(p.LsColorG >> 1), (byte)(p.LsColorB >> 1), 0x80)
-                    : null;
+                UiColor? iconTint = null;
+                if (icon == NamePlateIcon.Linkshell)
+                {
+                    var (r, g, b) = isLocal ? session.LocalPlayer.LinkshellColor
+                        : entity is PlayerEntity p ? (p.LsColorR, p.LsColorG, p.LsColorB) : ((byte)0x80, (byte)0x80, (byte)0x80);
+                    iconTint = PearlTint(r, g, b);
+                }
 
                 var bounds = DrawPlate(renderer, font, entity.Name, anchor, color, icon, iconTint,
-                    (flags & NamePlateFlags.JobMaster) != 0, width, height);
-                if (bounds is { } b && entity.ServerId == targetId) target = b;
+                    (flags & NamePlateFlags.JobMaster) != 0, width, height, sizeMultiplier);
+                if (bounds is { } drawn && entity.ServerId == targetId) target = drawn;
             }
             return target;
         }
 
         /// <summary>
+        /// The linkshell pearl's tint: the entity update's colour bytes used as they are, as a half-scale UI colour
+        /// (0x80 = the texture unchanged, 0xFF about double). The pearl art is mid grey, so halving them first came out
+        /// at less than half retail's brightness; retail samples 2.1-2.6 times the halved result (in-game comparison,
+        /// 2026-09-29). LandSandBoat sends each 4-bit channel as (c &lt;&lt; 4) + 15 (packets/char_update.cpp).
+        /// </summary>
+        public static UiColor PearlTint(byte r, byte g, byte b) => new(r, g, b, 0x80);
+
+        /// <summary>
         /// Draws one plate centred on the anchor; null when it lies off screen.
         /// </summary>
         public static NamePlateBounds? DrawPlate(StockUiRenderer renderer, UiFont font, string name, NamePlateAnchor anchor,
-            UiColor color, NamePlateIcon icon, UiColor? iconTint, bool jobMaster, uint width, uint height)
+            UiColor color, NamePlateIcon icon, UiColor? iconTint, bool jobMaster, uint width, uint height, float sizeMultiplier = 1.0f)
         {
-            float s = ScaleFor(anchor.PixelsPerYalm);
+            float s = ScaleFor(anchor.PixelsPerYalm, sizeMultiplier);
             float textWidth = font.MeasureWidth(name) * s;
             float lineHeight = font.LineHeight * s;
             float left = anchor.Screen.X - textWidth * 0.5f;
@@ -138,6 +162,7 @@ namespace Gordian.App.Graphics
             float starHeight = jobMaster ? 16 * s : 0;
             if (left + textWidth < 0 || left - iconWidth > width || top + lineHeight < 0 || top - starHeight > height) return null;
 
+            renderer.TexelInset = GlyphTexelInset;
             if (icon != NamePlateIcon.None && (int)icon < font.Group.Images.Count)
             {
                 var image = font.Group.Images[(int)icon];
@@ -147,6 +172,7 @@ namespace Gordian.App.Graphics
             renderer.DrawText(font, name, left, top, s, color);
 
             if (jobMaster) DrawStars(renderer, font, anchor.Screen.X, top, s);
+            renderer.TexelInset = 0;
 
             return new NamePlateBounds(new Vector2(anchor.Screen.X, anchor.Screen.Y), top - starHeight, lineHeight);
         }
