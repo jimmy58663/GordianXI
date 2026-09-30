@@ -214,6 +214,7 @@ namespace Gordian.Core.Resources.Graphics
             {
                 int insPos = instructionOffset;
                 string currentTexture = string.Empty;
+                byte currentDisplayType = 0;
 
                 while (insPos + 2 <= payload.Length)
                 {
@@ -238,6 +239,9 @@ namespace Gordian.Core.Resources.Graphics
                         case 0x8010: // Render props (44 bytes: tFactor, f0, f1, flags, ambientMultiplier, unk, specular)
                             if (insPos + 44 <= payload.Length)
                             {
+                                // Byte 13 (the second flag byte) is the displayType of the pieces that follow, until the
+                                // next 0x8010. Layout referenced from xi-tools (docs/gear/pose.md, "Hidden pieces").
+                                currentDisplayType = payload[insPos + 13];
                                 insPos += 44;
                             }
                             break;
@@ -284,7 +288,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Topology = MeshTopology.TriangleStrip,
                                         Corners = corners,
                                         TextureName = currentTexture,
-                                        Mirrored = false
+                                        Mirrored = false,
+                                        DisplayType = currentDisplayType
                                     });
 
                                     if (symmetric)
@@ -294,7 +299,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Topology = MeshTopology.TriangleStrip,
                                             Corners = corners,
                                             TextureName = currentTexture,
-                                            Mirrored = true
+                                            Mirrored = true,
+                                            DisplayType = currentDisplayType
                                         });
                                     }
                                 }
@@ -337,7 +343,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Topology = MeshTopology.TriangleList,
                                         Corners = corners,
                                         TextureName = currentTexture,
-                                        Mirrored = false
+                                        Mirrored = false,
+                                        DisplayType = currentDisplayType
                                     });
 
                                     if (symmetric)
@@ -347,7 +354,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Topology = MeshTopology.TriangleList,
                                             Corners = corners,
                                             TextureName = currentTexture,
-                                            Mirrored = true
+                                            Mirrored = true,
+                                            DisplayType = currentDisplayType
                                         });
                                     }
                                 }
@@ -383,7 +391,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Topology = MeshTopology.TriangleList,
                                         Corners = corners,
                                         TextureName = string.Empty,
-                                        Mirrored = false
+                                        Mirrored = false,
+                                        DisplayType = currentDisplayType
                                     });
 
                                     if (symmetric)
@@ -393,7 +402,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Topology = MeshTopology.TriangleList,
                                             Corners = corners,
                                             TextureName = string.Empty,
-                                            Mirrored = true
+                                            Mirrored = true,
+                                            DisplayType = currentDisplayType
                                         });
                                     }
                                 }
@@ -433,7 +443,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Topology = MeshTopology.TriangleStrip,
                                         Corners = corners,
                                         TextureName = string.Empty,
-                                        Mirrored = false
+                                        Mirrored = false,
+                                        DisplayType = currentDisplayType
                                     });
 
                                     if (symmetric)
@@ -443,7 +454,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Topology = MeshTopology.TriangleStrip,
                                             Corners = corners,
                                             TextureName = string.Empty,
-                                            Mirrored = true
+                                            Mirrored = true,
+                                            DisplayType = currentDisplayType
                                         });
                                     }
                                 }

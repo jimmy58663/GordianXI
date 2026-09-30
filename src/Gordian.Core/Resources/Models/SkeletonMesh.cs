@@ -41,6 +41,13 @@ namespace Gordian.Core.Resources.Models
         public MeshCorner[] Corners { get; init; } = Array.Empty<MeshCorner>();
         public string TextureName { get; init; } = string.Empty;
         public bool Mirrored { get; init; }
+
+        /// <summary>
+        /// What the piece is, for gear occlusion (byte 13 of the 0x8010 render-properties block in force when the
+        /// piece was read; 0 when none preceded it): 1-3 hair, 4 face, 5 wrist, 6 pants, 7 shins. See
+        /// <see cref="GearOcclusion"/>.
+        /// </summary>
+        public byte DisplayType { get; init; }
     }
 
     /// <summary>
@@ -52,6 +59,9 @@ namespace Gordian.Core.Resources.Models
         public SkinnedVertex[]? FlippedVertices { get; set; }
         public List<SkeletonMeshPiece> Pieces { get; } = new();
         public bool Symmetric { get; set; }
+        /// <summary>
+        /// What this mesh hides on other pieces of the worn set (0x2A header byte 3). See <see cref="GearOcclusion"/>.
+        /// </summary>
         public byte OccludeType { get; set; }
         public string SourcePath { get; set; } = string.Empty;
     }

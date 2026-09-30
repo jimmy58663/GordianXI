@@ -115,7 +115,8 @@ namespace Gordian.Core.Resources
             ReadOnlySpan<byte> primaryDat,
             IReadOnlyList<ReadOnlyMemory<byte>>? extraDats = null,
             string name = "",
-            IReadOnlyDictionary<int, int>? parentOverrides = null)
+            IReadOnlyDictionary<int, int>? parentOverrides = null,
+            GearOcclusion? gearOcclusion = null)
         {
             var model = new EntityModel { Name = name };
 
@@ -165,6 +166,16 @@ namespace Gordian.Core.Resources
                     AddRoutines(model, extra.Routines);
                     allMeshes.AddRange(extra.Meshes);
                 }
+            }
+
+            if (gearOcclusion != null)
+            {
+                // The union spans every worn mesh (and whatever the caller seeded, such as a stowed ranged weapon),
+                // then each piece is kept or dropped against it.
+                foreach (var mesh in allMeshes) gearOcclusion.Add(mesh.OccludeType);
+                int hidden = 0;
+                foreach (var mesh in allMeshes) hidden += gearOcclusion.RemoveHiddenPieces(mesh);
+                if (hidden > 0) GordianLog.Debug("RES", $"{name}: gear occlusion hid {hidden} piece(s).");
             }
 
             if (model.Skeleton != null && allMeshes.Count > 0)
@@ -226,6 +237,7 @@ namespace Gordian.Core.Resources
 
             var extraDats = new List<ReadOnlyMemory<byte>>();
             var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
+            var occlusion = new GearOcclusion();
 
             // 1. Face slot (from GrapIdTable[0] & 0xFF)
             ushort faceId = (ushort)(faceModel & 0xFF);
@@ -259,8 +271,17 @@ namespace Gordian.Core.Resources
                     byte[]? gearDat = datByFileId(gearFid);
                     if (gearDat != null && gearDat.Length > 0)
                     {
+                        if (slot == CharacterSlot.Ranged)
+                        {
+                            // A stowed ranged weapon is equipped but not drawn: nothing animates its back-mount bone and
+                            // the client scales it to zero until the weapon is drawn. It still counts toward occlusion.
+                            // Referenced from xi-tools (docs/gear/pose.md, "The weapon on the floor").
+                            foreach (var mesh in ParseDatContainer(gearDat, "Ranged").Meshes) occlusion.Add(mesh.OccludeType);
+                            continue;
+                        }
+
                         extraDats.Add(gearDat);
-                        if (slot is CharacterSlot.Main or CharacterSlot.Sub or CharacterSlot.Ranged)
+                        if (slot is CharacterSlot.Main or CharacterSlot.Sub)
                         {
                             weaponDats.Add((slot, gearDat));
                         }
@@ -278,7 +299,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides);
+            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion);
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
