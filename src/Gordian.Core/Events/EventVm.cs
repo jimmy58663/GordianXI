@@ -930,12 +930,13 @@ namespace Gordian.Core.Events
                     _pc += 2;
                     return;
                 case 0x67:
-                    // The event message mode and no compass (XiEvents OpCodes/0x0067): the HUD's cutscene mode.
-                    _host.SetCutsceneHud(true);
+                    // The event message mode and no compass (XiEvents OpCodes/0x0067, PresetEventMessageMode with two
+                    // work values): the HUD steps aside and the event's lines show on the screen, not in the log.
+                    _host.SetEventMessageMode(true, GetWork(1), GetWork(3));
                     _pc += 5;
                     return;
                 case 0x68:
-                    _host.SetCutsceneHud(false);
+                    _host.SetEventMessageMode(false, 0, 0);
                     _pc++;
                     return;
                 case 0x77:

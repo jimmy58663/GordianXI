@@ -96,6 +96,18 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void Decode_ReadsTheTimedClose()
+        {
+            // The Southern San d'Oria intro's narration: text, 0x7F 0x34 0x09 (close after 9 s), then the prompt.
+            var raw = Ascii("But now, her reign of glory is but a memory.").Concat(new byte[] { 0x7F, 0x34, 0x09, 0x7F, 0x31, 0x00, 0x07 }).ToArray();
+            var message = EventMessageDecoder.Decode(raw);
+            Assert.Equal(9, message.AutoCloseSeconds);
+            Assert.True(message.HasPrompt);
+            Assert.Equal("But now, her reign of glory is but a memory.", message.ToPlainText());
+            Assert.Null(EventMessageDecoder.Decode(Ascii("Halt!").Concat(new byte[] { 0x7F, 0x31, 0x00 }).ToArray()).AutoCloseSeconds);
+        }
+
+        [Fact]
         public void Decode_ReadsNumberNameAndSelectorCodes()
         {
             // "It costs " 0x0A 0x03 " gil to " 0x01 0x05 '#' 0x82 0x80 0x80 0x80 " " 0x0C 0x01 "[registered to/removed from]" "."

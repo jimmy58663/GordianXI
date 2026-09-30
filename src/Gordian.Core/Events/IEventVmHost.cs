@@ -109,8 +109,11 @@ namespace Gordian.Core.Events
         {
         }
 
-        /// <summary>Turns the HUD's cutscene mode on (opcode 0x67) or off (0x68).</summary>
-        void SetCutsceneHud(bool on)
+        /// <summary>
+        /// Turns the event message mode on (opcode 0x67, with its two work values) or off (0x68): while on, the HUD is
+        /// hidden and the event's lines show on the screen instead of the log.
+        /// </summary>
+        void SetEventMessageMode(bool on, int x, int y)
         {
         }
 

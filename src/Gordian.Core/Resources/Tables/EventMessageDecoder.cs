@@ -32,6 +32,11 @@ namespace Gordian.Core.Resources.Tables
         Colour,
         /// <summary>An inline icon (0xEF n): elements, auto-translate brackets and the like.</summary>
         Icon,
+        /// <summary>
+        /// The message closes by itself after <see cref="EventMessageSegment.Argument"/> seconds (0x7F 0x34 n), as the
+        /// intro narration does.
+        /// </summary>
+        AutoClose,
         /// <summary>A code this decoder knows the length of but not the meaning.</summary>
         Unknown,
     }
@@ -55,6 +60,7 @@ namespace Gordian.Core.Resources.Tables
             {
                 if (segment.Kind == EventMessageSegmentKind.Prompt) HasPrompt = true;
                 if (segment.Kind == EventMessageSegmentKind.ChoicesStart) HasChoices = true;
+                if (segment.Kind == EventMessageSegmentKind.AutoClose) AutoCloseSeconds = segment.Argument;
             }
         }
 
@@ -62,6 +68,9 @@ namespace Gordian.Core.Resources.Tables
 
         /// <summary>Whether the message ends with a wait for the player's confirm.</summary>
         public bool HasPrompt { get; }
+
+        /// <summary>Seconds after which the message closes by itself (0x7F 0x34 n), or null when it waits (or does not).</summary>
+        public int? AutoCloseSeconds { get; }
 
         /// <summary>Whether the message carries a choice list (a query menu's options).</summary>
         public bool HasChoices { get; }
@@ -100,7 +109,9 @@ namespace Gordian.Core.Resources.Tables
     /// <item>0x0A n prints number parameter n; 0x0C n "[a/b/c]" prints the alternative number parameter n picks;
     /// 0x08 / 0x09 the player's / NPC's name; 0x19 n another entity's name; 0x1F c sets a colour; the other codes
     /// below 0x20 take one argument byte.</item>
-    /// <item>0x7F 0x31 (then 0x00) is the prompt: the event waits for the player's confirm. Other 0x7F codes are two
+    /// <item>0x7F 0x31 (then 0x00) is the prompt: the event waits for the player's confirm. 0x7F 0x34 n closes the message
+    /// after n seconds (the Southern San d'Oria intro's narration carries 9 and 5; the maintainer's retail recording,
+    /// 2026-09-30, shows those lines for 9.2-9.3 s and 5.1 s). Other 0x7F codes are two
     /// bytes long except 0x34-0x36, 0x80, 0x84, 0x86, 0x8C and 0x92 (three) and 0x38 (four).</item>
     /// <item>0xEF n is an icon; 0xFD ... 0xFD (six bytes) an auto-translate resource; everything else is Shift-JIS text.</item>
     /// </list>
@@ -280,6 +291,8 @@ namespace Gordian.Core.Resources.Tables
                 case 0xFC:
                     return i + 2; // entity name wrap markers
                 case 0x34:
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.AutoClose, Argument: i + 2 < raw.Length ? raw[i + 2] : 0, Code: code));
+                    return i + 3;
                 case 0x35:
                 case 0x36:
                 case 0x80:

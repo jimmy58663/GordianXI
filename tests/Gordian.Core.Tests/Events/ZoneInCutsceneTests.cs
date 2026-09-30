@@ -136,11 +136,11 @@ namespace Gordian.Core.Tests.Events
                 BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 878);
                 parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
 
-                // None of the eight NPCs is in this world: the start waits for them (C2S 0x016), then runs anyway.
+                // None of the eight NPCs is in this world: a zone-in start waits for them (C2S 0x016) longer, then runs anyway.
                 int waited = 0;
-                for (; waited < 200 && !controller.IsActive; waited++) controller.Tick(Frame);
+                for (; waited < 2000 && !controller.IsActive; waited++) controller.Tick(Frame);
                 Assert.True(controller.IsActive);
-                Assert.InRange(waited, 60 * EventDialogController.EntityWaitSeconds - 2, 60 * EventDialogController.EntityWaitSeconds + 2);
+                Assert.InRange(waited, 60 * EventDialogController.ZoneInEntityWaitSeconds - 2, 60 * EventDialogController.ZoneInEntityWaitSeconds + 2);
                 for (int i = 0; i < 100000 && controller.IsActive; i++)
                 {
                     controller.Tick(Frame);
