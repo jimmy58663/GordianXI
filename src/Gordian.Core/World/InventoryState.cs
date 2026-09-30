@@ -373,6 +373,27 @@ namespace Gordian.Core.World
             EquipChanged?.Invoke(equipSlot, container, slot);
         }
 
+        /// <summary>
+        /// Empties every equipment slot (S2C 0x04F). Raises <see cref="EquipChanged"/> for each slot that held an item.
+        /// </summary>
+        public void ClearEquipment()
+        {
+            Span<bool> cleared = stackalloc bool[(int)EquipSlotId.Count];
+            lock (_lock)
+            {
+                for (int i = 0; i < _equippedGear.Length; i++)
+                {
+                    cleared[i] = _equippedGear[i].Slot != 0xFF;
+                    _equippedGear[i] = (ContainerId.Inventory, 0xFF);
+                }
+            }
+
+            for (int i = 0; i < cleared.Length; i++)
+            {
+                if (cleared[i]) EquipChanged?.Invoke((EquipSlotId)i, ContainerId.Inventory, 0xFF);
+            }
+        }
+
         #endregion
 
         #region Currencies
