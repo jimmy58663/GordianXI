@@ -27,7 +27,9 @@ namespace Gordian.Core.Resources
         private readonly object _lock = new();
         private readonly string _gameDirectory;
         private readonly IVirtualFileSystem _vfs;
-        private readonly FileTableResolver _fileTable = new();
+        // Replaced whole on a reload (built off to the side, then swapped), so readers never see a half-built table.
+        private volatile FileTableResolver _fileTable = new();
+        private volatile bool _fileTableInitialized;
 
         private readonly ConcurrentDictionary<uint, ItemRecord> _itemCache = new();
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
@@ -52,6 +54,8 @@ namespace Gordian.Core.Resources
         {
             _gameDirectory = gameDirectory ?? string.Empty;
             _vfs = vfs ?? new VirtualFileSystem(_gameDirectory, resourcesDirectory);
+            // A VFS reload (hot reload, a pack toggled, the VFS switched off) can change what any DAT resolves to.
+            _vfs.OnReloaded += ClearCache;
         }
 
         /// <summary>
@@ -61,6 +65,7 @@ namespace Gordian.Core.Resources
         /// </summary>
         public bool InitializeFileTable()
         {
+            var table = new FileTableResolver();
             try
             {
                 byte[]? ftBytes = null;
@@ -86,7 +91,7 @@ namespace Gordian.Core.Resources
 
                 if (ftBytes != null && vtBytes != null)
                 {
-                    _fileTable.LoadTablePair(ftBytes, vtBytes);
+                    table.LoadTablePair(ftBytes, vtBytes);
 
                     // Also load expansion tables (ROM2 through ROM10)
                     for (int rom = 2; rom <= 10; rom++)
@@ -115,11 +120,13 @@ namespace Gordian.Core.Resources
 
                         if (expFt != null && expVt != null)
                         {
-                            _fileTable.LoadTablePair(expFt, expVt);
+                            table.LoadTablePair(expFt, expVt);
                         }
                     }
 
-                    GordianLog.Info("RES", $"Loaded master file table with {_fileTable.Count} entries across base and expansions.");
+                    _fileTable = table;
+                    _fileTableInitialized = true;
+                    GordianLog.Info("RES", $"Loaded master file table with {table.Count} entries across base and expansions.");
                     return true;
                 }
             }
@@ -708,20 +715,35 @@ namespace Gordian.Core.Resources
         private int _cacheGeneration;
 
         /// <summary>
-        /// Increases each time <see cref="ClearCache"/> runs. Renderers that keep GPU copies of cached models watch it
-        /// and free those copies, since the models they came from are no longer handed out.
+        /// Increases each time <see cref="ClearCache"/> runs, after the caches are cleared. Holders of data built from
+        /// cached resources (GPU copies of entity models, the loaded zone, the stock UI library) watch it and rebuild.
         /// </summary>
         public int CacheGeneration => Volatile.Read(ref _cacheGeneration);
 
+        /// <summary>
+        /// Drops everything read from DATs so the next request reads the files again; runs on every VFS reload. A file
+        /// table that was loaded is rebuilt first (the old one stays in use if that fails), since nothing refills it lazily.
+        /// </summary>
         public void ClearCache()
         {
-            Interlocked.Increment(ref _cacheGeneration);
+            if (_fileTableInitialized && !InitializeFileTable())
+            {
+                GordianLog.Warning("RES", "Could not rebuild the file table after a VFS reload; keeping the previous one.");
+            }
             _zoneCache.Clear();
+            _collisionCache.Clear();
             _entityModelCache.Clear();
             _actorEffectCache.Clear();
             _itemCache.Clear();
             _dmsgCache.Clear();
-            _fileTable.Clear();
+            lock (_lock)
+            {
+                _sharedEffectsLoaded = false;
+                _sharedEffects = null;
+            }
+            ZoneEntityNames.Reset();
+            Interlocked.Increment(ref _cacheGeneration);
+            GordianLog.Info("RES", "Resource caches cleared; DATs will be read again.");
         }
     }
 }

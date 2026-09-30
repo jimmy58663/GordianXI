@@ -207,6 +207,8 @@ namespace Gordian.App.Graphics
         }
 
         private ushort _loadedZoneId;
+        // ResourceManager.CacheGeneration the loaded zone was read under; a change (a VFS reload) reloads the zone.
+        private int _loadedZoneGeneration;
         private static double TickSeconds(long timestamp) => (double)timestamp / Stopwatch.Frequency;
 
         private readonly TickPositionSmoother _playerSmoother = new();
@@ -243,13 +245,27 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// A reload of the zone already on screen (after a VFS reload) that fails keeps drawing the loaded zone rather
+        /// than retrying every frame; a later reload tries again.
+        /// </summary>
+        private bool KeepLoadedZoneAfterFailedReload(ushort zoneId, int generation)
+        {
+            if (zoneId != _loadedZoneId) return false;
+            _loadedZoneGeneration = generation;
+            GordianLog.Warning("Graphics", $"Could not reload Zone {zoneId} after a resource reload; keeping the loaded zone.");
+            return true;
+        }
+
         private void CheckAndLoadPendingZone()
         {
-            int targetZone = _pendingZoneLoad;
-            if (targetZone == 0 || targetZone == _loadedZoneId) return;
-
             var rm = ResourceManager;
             if (rm == null) return;
+
+            int generation = rm.CacheGeneration;
+            bool loadedZoneStale = _loadedZoneId != 0 && generation != _loadedZoneGeneration;
+            int targetZone = _pendingZoneLoad != 0 ? _pendingZoneLoad : (loadedZoneStale ? _loadedZoneId : 0);
+            if (targetZone == 0 || (targetZone == _loadedZoneId && !loadedZoneStale)) return;
 
             if (Interlocked.CompareExchange(ref _isZoneLoading, 1, 0) != 0)
             {
@@ -271,6 +287,8 @@ namespace Gordian.App.Graphics
                         {
                             _renderer?.LoadZone(zoneGeom, zoneTextures);
                             _loadedZoneId = zoneToLoad;
+                            // Read before the load, so a reload that lands mid-load triggers another one.
+                            _loadedZoneGeneration = generation;
                             _currentZoneGeom = zoneGeom;
                             ShareZoneCollision();
 
@@ -293,7 +311,7 @@ namespace Gordian.App.Graphics
                         }
                         GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU.");
                     }
-                    else
+                    else if (!KeepLoadedZoneAfterFailedReload(zoneToLoad, generation))
                     {
                         // Re-queue so the render loop retries on the next frame
                         _pendingZoneLoad = zoneToLoad;
@@ -302,8 +320,8 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    _pendingZoneLoad = zoneToLoad;
                     GordianLog.Error("Graphics", $"Failed to load Zone {zoneToLoad}: {ex.Message}");
+                    if (!KeepLoadedZoneAfterFailedReload(zoneToLoad, generation)) _pendingZoneLoad = zoneToLoad;
                 }
                 finally
                 {
