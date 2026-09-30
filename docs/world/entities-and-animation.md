@@ -6,6 +6,23 @@
 
 - Dynamic character mesh decoder stitching Race + Face + 5 Armor Slots (Head, Body, Hands, Legs, Feet) + Weapons from distinct DATs (`CharacterSlot`: Face=0, Head=1, Body=2, Hands=3, Legs=4, Feet=5, Main=6, Sub=7, Ranged=8; playable `CharacterRace`: Hume M/F 1/2, Elvaan M/F 3/4, Taru M/F 5/6, Mithra 7, Galka 8).
 - Bind-pose entity rendering at live `WorldEntity` coordinates
+- **Gear occlusion (#88).** Worn gear hides the body pieces it covers, as in retail.
+  - Every 0x2A mesh declares an `OccludeType` (header byte 3): what it hides on other pieces. Every piece carries a `DisplayType`: byte 13 of the 0x8010 render-properties block in force when the piece is read, 0 before any.
+  - `AssembleCharacter` builds the union of occludeTypes across the worn set, and `GearOcclusion` drops each piece it hides:
+
+    | displayType | Piece | Hidden by |
+    |---|---|---|
+    | 1 | hair | `0x02`-`0x06` |
+    | 2, 3 | hair | `0x04`-`0x06` |
+    | 4 | face | `0x05` |
+    | 5 | wrist | `0x12` |
+    | 6 | pants | `0x32` |
+    | 7 | shins | `0x22` |
+
+    `0x11`/`0x21`/`0x31` are body/legs/feet self-markers that hide nothing. Models are cached per grap table, so an equipment change reassembles with the new union.
+  - A stowed ranged weapon is not drawn (retail scales it to zero until drawn) but its occludeType counts. Drawing it during a ranged attack is #158.
+  - Checked on retail Hume Male DATs (`GearOcclusionRealDataTests`, 2026-09-30): full helm head 22 (`0x05`) with sleeved body 3 (`0x12`) hides 14 face-DAT pieces (displayTypes 1, 3, 4) and 2 hand pieces (5), 2374 to 1952 triangles. This matches xi-tools `xi gear pose`.
+  - Rule and byte positions referenced from xi-tools `docs/gear/pose.md` ("Hidden pieces", after xim `ActorModel.isOccluded`).
 - **Where a PC's look comes from.** Other players: the grap id table in S2C `0x00D` (only when the Model send flag is set). Your own character: S2C `0x00A` at zone-in, then S2C `0x051` `GRAP_LIST`, which LSB sends at login, game-ok, on every visible equipment change and on lockstyle. `SessionNetworkManager` keeps the latest table and reapplies it to the local entity. `ResourceManager.TryLoadEntityModel` caches one assembled `EntityModel` per race, face and full grap table. `EntityRenderer` caches GPU buffers per `EntityModel` instance, not by model name: a PC model is named `{race}_Face{n}` whatever it wears, so a name key made same-race, same-face characters share the first one's gear (#153). When `ResourceManager.ClearCache` runs it bumps `CacheGeneration`, and `EntityRenderer` then frees its GPU copies of the dropped models.
 - NPC, Monster, and Trust model rendering from DAT resource caches (monsters/NPC models resolve via `EntityModelOffset = 98239` to `98239 + modelId`).
 - NPC-only child races (look race 29 Mithra kitten, 30 girl, 31 boy; 115 server NPCs such as Southern San d'Oria's Authere and Blendare): skeletons `ROM/61/110`, `ROM/61/58`, `ROM/61/85` carry their own idle / walk / run clips, and each outfit slot resolves to `slotBase + modelId` (0-19 Hume, 20+ Elvaan variants).
