@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Threading;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
@@ -704,8 +705,17 @@ namespace Gordian.Core.Resources
             });
         }
 
+        private int _cacheGeneration;
+
+        /// <summary>
+        /// Increases each time <see cref="ClearCache"/> runs. Renderers that keep GPU copies of cached models watch it
+        /// and free those copies, since the models they came from are no longer handed out.
+        /// </summary>
+        public int CacheGeneration => Volatile.Read(ref _cacheGeneration);
+
         public void ClearCache()
         {
+            Interlocked.Increment(ref _cacheGeneration);
             _zoneCache.Clear();
             _entityModelCache.Clear();
             _actorEffectCache.Clear();

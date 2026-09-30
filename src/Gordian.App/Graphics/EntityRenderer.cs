@@ -70,6 +70,8 @@ namespace Gordian.App.Graphics
         // table. Model names are not unique (every PC of a race and face is "{race}_Face{n}" whatever it wears), so a
         // name key drew every such character in the gear of the first one uploaded (#153).
         private readonly ConcurrentDictionary<EntityModel, GpuEntityModel> _gpuModelCache = new(ReferenceEqualityComparer.Instance);
+        // ResourceManager.CacheGeneration the GPU cache was filled under; a change means its models were dropped.
+        private int _gpuModelCacheGeneration;
         private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
 
         // Per entity: where its floor was last probed and the sub-environment that floor links (null = outdoors).
@@ -333,6 +335,14 @@ namespace Gordian.App.Graphics
             IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null)
         {
             if (_disposed || cl == null || entities == null) return;
+
+            if (resourceManager != null && resourceManager.CacheGeneration != _gpuModelCacheGeneration)
+            {
+                // The resource cache was cleared (a VFS reload): its models are rebuilt from the new files, so the
+                // GPU copies of the old ones would never be drawn again. Free them rather than keep them to exit.
+                _gpuModelCacheGeneration = resourceManager.CacheGeneration;
+                ClearGpuModelCache();
+            }
 
             int draws = 0;
             int visible = 0;
@@ -813,16 +823,21 @@ namespace Gordian.App.Graphics
             return model;
         }
 
-        public void Dispose()
+        private void ClearGpuModelCache()
         {
-            if (_disposed) return;
-            _disposed = true;
-
             foreach (var kvp in _gpuModelCache)
             {
                 kvp.Value.Dispose();
             }
             _gpuModelCache.Clear();
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            ClearGpuModelCache();
 
             foreach (var kvp in _jointPaletteByEntity)
             {
