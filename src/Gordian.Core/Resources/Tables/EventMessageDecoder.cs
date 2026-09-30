@@ -37,6 +37,16 @@ namespace Gordian.Core.Resources.Tables
         /// intro narration does.
         /// </summary>
         AutoClose,
+        /// <summary>
+        /// Where the event message mode shows the message (0x02 x:u16 0x03 y:u16): <see cref="EventMessageSegment.Values"/>
+        /// holds x and y.
+        /// </summary>
+        Position,
+        /// <summary>
+        /// One of two words picked by the player's sex (0x7F 0x85 "[male/female]", e.g. "[his/her]"):
+        /// <see cref="EventMessageSegment.Alternatives"/>.
+        /// </summary>
+        GenderSelector,
         /// <summary>A code this decoder knows the length of but not the meaning.</summary>
         Unknown,
     }
@@ -61,6 +71,7 @@ namespace Gordian.Core.Resources.Tables
                 if (segment.Kind == EventMessageSegmentKind.Prompt) HasPrompt = true;
                 if (segment.Kind == EventMessageSegmentKind.ChoicesStart) HasChoices = true;
                 if (segment.Kind == EventMessageSegmentKind.AutoClose) AutoCloseSeconds = segment.Argument;
+                if (segment.Kind == EventMessageSegmentKind.Position && segment.Values is { Count: 2 } at) Position = (at[0], at[1]);
             }
         }
 
@@ -68,6 +79,9 @@ namespace Gordian.Core.Resources.Tables
 
         /// <summary>Whether the message ends with a wait for the player's confirm.</summary>
         public bool HasPrompt { get; }
+
+        /// <summary>Where the event message mode shows the message (0x02 code), or null.</summary>
+        public (int X, int Y)? Position { get; }
 
         /// <summary>Seconds after which the message closes by itself (0x7F 0x34 n), or null when it waits (or does not).</summary>
         public int? AutoCloseSeconds { get; }
@@ -111,7 +125,8 @@ namespace Gordian.Core.Resources.Tables
     /// below 0x20 take one argument byte.</item>
     /// <item>0x7F 0x31 (then 0x00) is the prompt: the event waits for the player's confirm. 0x7F 0x34 n closes the message
     /// after n seconds (the Southern San d'Oria intro's narration carries 9 and 5; the maintainer's retail recording,
-    /// 2026-09-30, shows those lines for 9.2-9.3 s and 5.1 s). Other 0x7F codes are two
+    /// 2026-09-30, shows those lines for 9.2-9.3 s and 5.1 s). 0x7F 0x85 "[a/b]" picks by the player's sex; 0x02 x 0x03 y
+    /// (six bytes) places a line on the screen. Other 0x7F codes are two
     /// bytes long except 0x34-0x36, 0x80, 0x84, 0x86, 0x8C and 0x92 (three) and 0x38 (four).</item>
     /// <item>0xEF n is an icon; 0xFD ... 0xFD (six bytes) an auto-translate resource; everything else is Shift-JIS text.</item>
     /// </list>
@@ -166,8 +181,19 @@ namespace Gordian.Core.Resources.Tables
                         i = DecodeNameBlock(raw, i, segments);
                         break;
                     case 0x02:
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: 0x02));
-                        i += 5;
+                        // 0x02 x:u16 0x03 y:u16: the narration's screen position (the Southern San d'Oria intro's lines
+                        // start 02 50 00 03 54 01, x 80, y 340, where the maintainer's retail recording shows them).
+                        if (i + 5 < raw.Length && raw[i + 3] == 0x03)
+                        {
+                            int x = raw[i + 1] | (raw[i + 2] << 8), y = raw[i + 4] | (raw[i + 5] << 8);
+                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Position, Code: 0x02, Values: new[] { x, y }));
+                            i += 6;
+                        }
+                        else
+                        {
+                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: 0x02));
+                            i += 5;
+                        }
                         break;
                     case 0x07:
                         segments.Add(new EventMessageSegment(EventMessageSegmentKind.LineBreak));
@@ -287,6 +313,23 @@ namespace Gordian.Core.Resources.Tables
                 case 0x93:
                     segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Code: 0x93));
                     return i + 2;
+                case 0x85:
+                {
+                    // "[his/her]": the player's sex picks (the retail recording shows a Mithra's lines with "her").
+                    int p = i + 2;
+                    if (p < raw.Length && raw[p] == (byte)'[')
+                    {
+                        int close = raw.Slice(p).IndexOf((byte)']');
+                        if (close > 0)
+                        {
+                            string inner = Cp932.GetString(raw.Slice(p + 1, close - 1));
+                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.GenderSelector, Code: code, Alternatives: inner.Split('/')));
+                            return p + close + 1;
+                        }
+                    }
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: code));
+                    return i + 2;
+                }
                 case 0xFB:
                 case 0xFC:
                     return i + 2; // entity name wrap markers

@@ -605,7 +605,23 @@ namespace Gordian.Core.Events
             return "???";
         }
 
-        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName);
+        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, PlayerIsFemale());
+
+        /// <summary>
+        /// The player's sex from its look's race byte (1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru male/female, 7 Mithra, 8 Galka),
+        /// or null before the look is known.
+        /// </summary>
+        private bool? PlayerIsFemale()
+        {
+            uint id = _player?.ServerId ?? 0;
+            if (id == 0 || _world == null || !_world.TryGetByServerId(id, out var entity)) return null;
+            return ((entity.Appearance.FaceModel >> 8) & 0xFF) switch
+            {
+                1 or 3 or 5 or 8 => false,
+                2 or 4 or 6 or 7 => true,
+                _ => null,
+            };
+        }
 
         private static string? ResolveName(byte kind, int id) => NameResolver?.Invoke(kind, id);
 
@@ -664,7 +680,9 @@ namespace Gordian.Core.Events
                 // The event message mode shows the line on the screen, not in the log.
                 var shown = new List<string>(lines.Count);
                 for (int i = 0; i < lines.Count; i++) shown.Add(i == 0 && name.Length > 0 ? $"{name} : {lines[i]}" : lines[i]);
-                _eventText = new EventScreenText(shown, _eventTextX, _eventTextY);
+                // The line's own position (0x02 code), else the mode's values.
+                var (x, y) = decoded.Position ?? (_eventTextX, _eventTextY);
+                _eventText = new EventScreenText(shown, x, y);
             }
             else
             {
@@ -1003,15 +1021,17 @@ namespace Gordian.Core.Events
         {
             private readonly EventWorkZone _zone;
 
-            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName)
+            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName, bool? playerIsFemale = null)
             {
                 _zone = zone;
                 PlayerName = playerName;
                 NpcName = npcName;
+                PlayerIsFemale = playerIsFemale;
             }
 
             public string PlayerName { get; }
             public string NpcName { get; }
+            public bool? PlayerIsFemale { get; }
 
             public int GetNumber(int index) => _zone.GetMessageParameter(index);
 

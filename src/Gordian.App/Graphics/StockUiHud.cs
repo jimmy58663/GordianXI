@@ -182,7 +182,7 @@ namespace Gordian.App.Graphics
             }
             else if (session.Events.EventText is { } eventText)
             {
-                DrawEventText(renderer, eventText);
+                DrawEventText(renderer, eventText, width, height);
             }
             DrawMenus(renderer, library, session, menus, width, height);
             bool unlocked = Drag.Unlocked;
@@ -197,24 +197,25 @@ namespace Gordian.App.Graphics
             renderer.End(framebuffer, width, height);
         }
 
-        /// <summary>Left of the event message text from the mode's first value, layout pixels (see <see cref="DrawEventText"/>).</summary>
-        public const float EventTextLeftInset = 22;
+        /// <summary>The screen height the event text positions were measured at (the maintainer's 1440p retail client area).</summary>
+        public const float EventTextReferenceHeight = 1416f;
 
         /// <summary>
         /// An event line in the event message mode (opcode 0x67): white log-font text with a dark shadow, its lines
-        /// <see cref="StockUiLogFont.CellHeight"/> apart. Placed from the mode's two values: the text's left edge at the
-        /// first minus <see cref="EventTextLeftInset"/>, its last line's bottom at the second (layout pixels). Fitted to one
-        /// retail recording (the maintainer's Southern San d'Oria intro, 2026-09-30: values 100 and 380, three-line
-        /// narration at x 78, top 332 at UI scale 1); the other intros' values (Port Bastok 80 / 340, Windurst Woods 80-130
-        /// / 80-340) are not checked yet.
+        /// <see cref="StockUiLogFont.CellHeight"/> apart. Its position is the line's own 0x02 code (else the mode's two
+        /// values): the left edge at x, the first line's middle at y, in pixels of a client area
+        /// <see cref="EventTextReferenceHeight"/> high, scaled to the screen's height so the text keeps its place near the
+        /// top left at any resolution. Measured on the maintainer's retail recording (Southern San d'Oria intro,
+        /// 2026-09-30: lines coded x 80, y 340 drawn at x 78, top 332 of a 2544 x 1416 client area at UI scale 1).
         /// </summary>
-        private void DrawEventText(StockUiRenderer renderer, Gordian.Core.Events.EventScreenText text)
+        private void DrawEventText(StockUiRenderer renderer, Gordian.Core.Events.EventScreenText text, uint width, uint height)
         {
             var font = _logFont;
             if (font == null || text.Lines.Count == 0) return;
             float s = Layout.Scale;
-            float x = (text.X - EventTextLeftInset) * s;
-            float y = (text.Y - text.Lines.Count * StockUiLogFont.CellHeight) * s;
+            float k = height / EventTextReferenceHeight;
+            float x = text.X * k;
+            float y = text.Y * k - StockUiLogFont.CellHeight * s / 2f;
             var shadow = new UiColor(0, 0, 0, 0x80);
             var white = new UiColor(0x80, 0x80, 0x80, 0x80);
             for (int i = 0; i < text.Lines.Count; i++)

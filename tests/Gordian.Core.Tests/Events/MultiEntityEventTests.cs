@@ -187,7 +187,8 @@ namespace Gordian.Core.Tests.Events
                         narrationTicks++;
                         run++;
                         maxNarrationRun = Math.Max(maxNarrationRun, run);
-                        Assert.Equal((100, 380), (text.X, text.Y));
+                        Assert.Equal((80, 340), (text.X, text.Y)); // the lines' own 0x02 position
+                        Assert.DoesNotContain(text.Lines, l => l.Contains('<'));
                     }
                     else
                     {

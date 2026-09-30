@@ -186,8 +186,8 @@ namespace Gordian.Core.Events
         /// <summary>
         /// 0x1F (CodeMOVE) and 0x5A (CodeMOVE2), XiEvents OpCodes/0x001F and 0x005A. Sub-case 0 stores the goal (x, y,
         /// height operands) in the running stack; sub-case 1 walks the event position toward it at the walk speed, turning
-        /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height is
-        /// the goal's, then the floor's), 0x5A moves in all three axes.
+        /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height moves toward the
+        /// goal's with the walk and is drawn on the floor below), 0x5A moves in all three axes.
         /// </summary>
         private void ExecMove(bool freeFlight)
         {
@@ -220,9 +220,11 @@ namespace Gordian.Core.Events
             if (dx * dx + dz * dz > 1e-8f) _eventDir = WorldEntity.HeadingOf(dx, dz);
             if (step > 0f && distance > step)
             {
+                // The height moves with the walk (a ground walk's goal height is often not the floor's: the Southern
+                // San d'Oria knights walk from height -2 to a goal at 0; taken at once it sank them into the floor).
                 _eventX += dx / distance * step;
                 _eventZ += dz / distance * step;
-                _eventY = freeFlight ? _eventY + dy / distance * step : goal.Y;
+                _eventY += dy / distance * step;
                 _walkedThisRun = true;
             }
             else
