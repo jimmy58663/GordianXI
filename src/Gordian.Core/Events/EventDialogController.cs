@@ -60,6 +60,8 @@ namespace Gordian.Core.Events
         /// <summary>An event whose start waits for the entities it names to arrive (<see cref="EntityWaitSeconds"/>).</summary>
         private CutsceneEventInfo? _waitingStart;
         private double _waitingSeconds;
+        /// <summary>The world entities taking part in the running event (game tick thread only), released when it ends.</summary>
+        private readonly List<WorldEntity> _participants = new();
         private volatile bool _receivePending;
         private volatile bool _cancelRequested;
         private volatile bool _zoneChanged;
@@ -165,12 +167,17 @@ namespace Gordian.Core.Events
         {
             var scene = _scene;
             if (scene == null) return false;
-            if (scene.IsWaitingForConfirm && (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)))
-            {
-                scene.Confirm();
-                Changed?.Invoke();
-            }
+            if (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)) Confirm();
             return true;
+        }
+
+        /// <summary>Dismisses the line the running event waits on (Confirm or Cancel on it).</summary>
+        public void Confirm()
+        {
+            var scene = _scene;
+            if (scene == null || !scene.IsWaitingForConfirm) return;
+            scene.Confirm();
+            Changed?.Invoke();
         }
 
         /// <summary>
@@ -240,6 +247,7 @@ namespace Gordian.Core.Events
             GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} on {scene.Actors.Count} entities: {string.Join(", ", blocks)}.");
             _receivePending = false;
             _scene = scene;
+            MarkParticipants(scene);
             if (_player != null) _player.IsMovementLocked = true;
             Changed?.Invoke();
         }
@@ -352,6 +360,7 @@ namespace Gordian.Core.Events
             _scene = null;
             _info = null;
             CloseQueryMenu();
+            ReleaseParticipants();
             if (_player != null) _player.IsMovementLocked = false;
             // The end value is the shared work zone's, unless a query was cancelled.
             if (info != null) SendEnd(info, scene.EndParameter);
@@ -363,8 +372,35 @@ namespace Gordian.Core.Events
             _scene = null;
             _info = null;
             CloseQueryMenu();
+            ReleaseParticipants();
             if (_player != null) _player.IsMovementLocked = false;
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Marks the entities of the event as taking part (<see cref="WorldEntity.IsInEvent"/>), so the renderer draws
+        /// them even when the server hides them: the cutscene-only NPCs of an intro.
+        /// </summary>
+        private void MarkParticipants(EventScene scene)
+        {
+            var world = _world;
+            if (world == null) return;
+            foreach (var actor in scene.Actors)
+            {
+                if (!world.TryGetByServerId(actor.EntityServerId, out var entity)) continue;
+                entity.IsInEvent = true;
+                _participants.Add(entity);
+            }
+        }
+
+        /// <summary>
+        /// The event is over: its entities follow the server's state again, so the cutscene-only NPCs, which the server
+        /// keeps hidden, disappear (retail restores an entity's own state when its event object is destroyed).
+        /// </summary>
+        private void ReleaseParticipants()
+        {
+            foreach (var entity in _participants) entity.IsInEvent = false;
+            _participants.Clear();
         }
 
         private void SendEnd(CutsceneEventInfo info, uint endParameter)

@@ -377,6 +377,7 @@ namespace Gordian.App.Graphics
                 {
                     entity.RenderHeadingRadians = entity.HeadingRadians;
                 }
+                if (!entity.IsDrawn) continue;
 
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).

@@ -159,5 +159,61 @@ namespace Gordian.Core.Tests.Events
             Assert.True(call >= 0 && answer == call + 1);
             Assert.True(run.Scene.IsEnded);
         }
+
+        /// <summary>
+        /// The cutscene-only NPCs of an intro: LandSandBoat keeps them at status Disappear, so their updates carry the
+        /// HideFlag. They are drawn while they take part in the event and hidden again once it ends (the maintainer's
+        /// in-game test of #85, 2026-09-30: they stayed visible after the Windurst Woods intro). An NPC outside the event
+        /// stays hidden throughout.
+        /// </summary>
+        [Fact]
+        public void WindurstWoodsIntro_CutsceneNpcsAreDrawnOnlyDuringTheEvent()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController();
+            var previousLoader = EventDialogController.DatLoader;
+            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
+            const uint Nanaa = 0x010F100F, Outsider = 0x010F1050;
+            try
+            {
+                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
+                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+                byte[] login = new byte[144];
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
+                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+                foreach (uint id in new[] { Nanaa, Outsider })
+                {
+                    parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+                }
+                parser.World.TryGetByServerId(Nanaa, out var nanaa);
+                parser.World.TryGetByServerId(Outsider, out var outsider);
+                Assert.False(nanaa!.IsDrawn);
+
+                bool drawnDuring = false, outsiderDrawn = false;
+                for (int i = 0; i < 200_000 && (i < 120 || controller.IsActive); i++)
+                {
+                    controller.Tick(Frame);
+                    controller.Confirm();
+                    parser.Progression.AcknowledgeEventUpdate();
+                    if (!controller.IsActive) continue;
+                    drawnDuring |= nanaa.IsDrawn;
+                    outsiderDrawn |= outsider!.IsDrawn;
+                }
+                Assert.False(controller.IsActive);
+                Assert.True(drawnDuring);
+                Assert.False(outsiderDrawn);
+                Assert.False(nanaa.IsDrawn); // the server still hides her: gone once the event ends
+                Assert.False(nanaa.IsInEvent);
+            }
+            finally
+            {
+                EventDialogController.DatLoader = previousLoader;
+            }
+        }
     }
 }
