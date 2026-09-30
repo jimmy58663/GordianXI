@@ -638,6 +638,27 @@ namespace Gordian.Core.World
         /// </summary>
         public bool IsHidden { get; set; }
 
+        private volatile bool _isInEvent;
+
+        /// <summary>
+        /// Taking part in the running event (its actor block runs a VM). An event draws its entities even when the
+        /// server hides them: LandSandBoat keeps cutscene-only NPCs at status Disappear (2) or CutsceneOnly (6), which
+        /// is the low byte of the entity update's Flags1 and so sets <see cref="IsHidden"/>. Cleared when the event ends,
+        /// when the server's state applies again.
+        /// </summary>
+        public bool IsInEvent
+        {
+            get => _isInEvent;
+            set => _isInEvent = value;
+        }
+
+        /// <summary>
+        /// Whether the renderer draws the entity: not while the server hides it (HideFlag), unless it takes part in the
+        /// running event (retail draws event entities by their event state, then restores the entity's own state when
+        /// the event object is destroyed).
+        /// </summary>
+        public bool IsDrawn => !IsHidden || IsInEvent;
+
         /// <summary>
         /// Flags from the last entity update that change the name plate (colour, icon, stars, or hiding the name).
         /// </summary>
