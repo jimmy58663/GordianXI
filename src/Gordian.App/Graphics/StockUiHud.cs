@@ -149,6 +149,10 @@ namespace Gordian.App.Graphics
             }
 
             renderer.Begin(library);
+            // An event's screen fades (#165): the 3D scene's under the interface, then the interface's own.
+            var presentation = session.Events.Presentation;
+            renderer.DrawScreenTint(width, height, presentation.SceneColor);
+            renderer.Opacity = presentation.InterfaceOpacity;
             var groups = GroupParty(session);
             // An event's cutscene mode (opcode 0x67) leaves out the names and the targeting and status windows; the
             // party window stays, since the log windows are laid out against it.

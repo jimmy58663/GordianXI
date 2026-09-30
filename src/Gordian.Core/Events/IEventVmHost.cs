@@ -126,5 +126,49 @@ namespace Gordian.Core.Events
         void UnlockEnvironment()
         {
         }
+
+        /// <summary>
+        /// Opcode 0x45: plays routine <paramref name="routine"/> of the scene resource DAT <paramref name="fileId"/> as task
+        /// <paramref name="taskId"/> on two actors (server ids; 0 = the local player): its camera shots and fades.
+        /// Returns how many 60 Hz frames the task runs; 0 when the resource or routine is missing, so a wait on it ends at once.
+        /// </summary>
+        int StartSceneTask(int taskId, int fileId, string routine, uint casterServerId, uint targetServerId) => 0;
+
+        /// <summary>Opcode 0x52 (or the same task started again): stops the task's routine where it is.</summary>
+        void StopSceneTask(int taskId)
+        {
+        }
+
+        /// <summary>Opcode 0x46: the event takes the camera from the player (true) or gives it back.</summary>
+        void SetEventCamera(bool held)
+        {
+        }
+
+        /// <summary>
+        /// Opcodes 0x2C / 0x5B / 0x66: an entity (server id; 0 = the local player) plays the motion routine
+        /// <paramref name="routine"/> toward <paramref name="targetServerId"/>, from its own motions
+        /// (<see cref="EventMotionSource.Own"/>), after loading the event motion DAT <paramref name="resource"/>
+        /// (<see cref="EventMotionSource.Bank"/>: a file id), or from a player-model motion package
+        /// (<see cref="EventMotionSource.Package"/>). Returns how many 60 Hz frames it plays (0 when it has none).
+        /// </summary>
+        int PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId) => 0;
+
+        /// <summary>Opcode 0x50: the entity stops the event motion <paramref name="routine"/>.</summary>
+        void StopEntityMotion(uint serverId, string routine)
+        {
+        }
+    }
+
+    /// <summary>Where an event motion comes from (<see cref="IEventVmHost.PlayEntityMotion"/>).</summary>
+    public enum EventMotionSource : byte
+    {
+        /// <summary>The entity's own loaded motions (0x2C).</summary>
+        Own,
+
+        /// <summary>An event motion DAT loaded onto the entity first (0x5B).</summary>
+        Bank,
+
+        /// <summary>A motion package of a player-model entity (0x66, XiEvents' ReadTpcEventMotionRes).</summary>
+        Package,
     }
 }

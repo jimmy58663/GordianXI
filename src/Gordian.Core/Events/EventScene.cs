@@ -16,6 +16,12 @@ namespace Gordian.Core.Events
     /// waits while it is open.
     /// </para>
     /// <para>
+    /// The scene also keeps the event's scheduler state (#165): the main scheduler's tasks (0x45 starts one, 0x52 ends
+    /// it, 0x55 waits for it) and the action each entity plays for the event (0x2C / 0x5B / 0x66 start one, 0x50 ends
+    /// it, 0x53 waits for it), each running for the frames its resource says. A task whose resource is missing lasts
+    /// no frames, so no wait on it can hold the scene.
+    /// </para>
+    /// <para>
     /// When the event is over: on the end flag, or once every entity that carries the event id itself has run out of
     /// requests (catch-all blocks alone do not hold the event open). Retail's own rule for an event that never runs
     /// 0x21 is not documented; every talk and intro scene checked ends its owner's part with 0x21 or 0x00.
@@ -36,6 +42,9 @@ namespace Gordian.Core.Events
 
         /// <summary>The local player's server id, so actor code 0x7FFFFFF0 finds the player's event object.</summary>
         public uint PlayerServerId { get; set; }
+
+        /// <summary>Whether the event holds the camera (0x46 01 until 0x46 00).</summary>
+        public bool IsCameraHeld { get; internal set; }
 
         /// <summary>The event objects, one per entity, in start order.</summary>
         public IReadOnlyList<EventVm> Actors => _actors;
@@ -80,8 +89,104 @@ namespace Gordian.Core.Events
             if (_messageOpenSeconds > 0) _messageOpenSeconds = Math.Max(0, _messageOpenSeconds - elapsed.TotalSeconds);
             // Retail's frame delay: the 60 Hz frames since the last tick, the same for every opcode of the tick.
             float frameDelay = (float)(elapsed.TotalSeconds * 60.0);
+            AdvanceTasks(frameDelay);
             for (int i = 0; i < _actors.Count && !IsEnded; i++) _actors[i].Run(frameDelay);
         }
+
+        #region Scheduler tasks
+
+        /// <summary>
+        /// A task of the main scheduler (0x45): a scene routine on two actors, identified as retail's KillScheduler /
+        /// IsMovingScheduler find it, by resource file, routine and actors.
+        /// </summary>
+        private sealed class SchedulerTask
+        {
+            public int Id;
+            public int FileId;
+            public uint Tag;
+            public uint Caster;
+            public uint Target;
+            public float RemainingFrames;
+        }
+
+        /// <summary>An action an entity plays for the event (0x2C / 0x5B / 0x66), until its routine's length has passed.</summary>
+        private struct EntityAction
+        {
+            public uint Tag;
+            public float RemainingFrames;
+        }
+
+        private readonly List<SchedulerTask> _tasks = new();
+        private readonly Dictionary<uint, EntityAction> _entityActions = new();
+        private int _nextTaskId;
+
+        private void AdvanceTasks(float frames)
+        {
+            for (int i = _tasks.Count - 1; i >= 0; i--)
+            {
+                _tasks[i].RemainingFrames -= frames;
+                if (_tasks[i].RemainingFrames <= 0) _tasks.RemoveAt(i);
+            }
+            if (_entityActions.Count == 0) return;
+            foreach (uint id in new List<uint>(_entityActions.Keys))
+            {
+                var action = _entityActions[id];
+                action.RemainingFrames -= frames;
+                if (action.RemainingFrames <= 0) _entityActions.Remove(id);
+                else _entityActions[id] = action;
+            }
+        }
+
+        private int FindTask(int fileId, uint tag, uint caster, uint target) =>
+            _tasks.FindIndex(t => t.FileId == fileId && t.Tag == tag && t.Caster == caster && t.Target == target);
+
+        /// <summary>A new task id, for the host to play a task under before <see cref="AddTask"/> registers it.</summary>
+        internal int NewTaskId() => ++_nextTaskId;
+
+        /// <summary>
+        /// Registers a started task that lasts <paramref name="frames"/> (none: it is over at once); the same task
+        /// started again replaces the old one, whose id is returned (-1 when there was none).
+        /// </summary>
+        internal int AddTask(int id, int fileId, uint tag, uint caster, uint target, float frames)
+        {
+            int existing = FindTask(fileId, tag, caster, target);
+            int replaced = existing >= 0 ? _tasks[existing].Id : -1;
+            if (existing >= 0) _tasks.RemoveAt(existing);
+            if (frames > 0) _tasks.Add(new SchedulerTask { Id = id, FileId = fileId, Tag = tag, Caster = caster, Target = target, RemainingFrames = frames });
+            return replaced;
+        }
+
+        /// <summary>Removes a task (0x52); the id it ran under, or -1 when it was not running.</summary>
+        internal int RemoveTask(int fileId, uint tag, uint caster, uint target)
+        {
+            int index = FindTask(fileId, tag, caster, target);
+            if (index < 0) return -1;
+            int id = _tasks[index].Id;
+            _tasks.RemoveAt(index);
+            return id;
+        }
+
+        /// <summary>Whether a task is still running (0x55 waits on it).</summary>
+        internal bool IsTaskRunning(int fileId, uint tag, uint caster, uint target) => FindTask(fileId, tag, caster, target) >= 0;
+
+        /// <summary>An entity's event action started (it replaces the one it was playing).</summary>
+        internal void SetEntityAction(uint serverId, uint tag, float frames)
+        {
+            if (frames > 0) _entityActions[serverId] = new EntityAction { Tag = tag, RemainingFrames = frames };
+            else _entityActions.Remove(serverId);
+        }
+
+        /// <summary>Ends an entity's event action if it is <paramref name="tag"/> (0x50).</summary>
+        internal void EndEntityAction(uint serverId, uint tag)
+        {
+            if (_entityActions.TryGetValue(serverId, out var action) && action.Tag == tag) _entityActions.Remove(serverId);
+        }
+
+        /// <summary>Whether an entity still plays the event action <paramref name="tag"/> (0x53 waits on it).</summary>
+        internal bool IsEntityActionPlaying(uint serverId, uint tag) =>
+            _entityActions.TryGetValue(serverId, out var action) && action.Tag == tag;
+
+        #endregion
 
         /// <summary>Ends the event (0x21, a cancelled query, a server cancel), closing any open query.</summary>
         public void End(bool cancelled)

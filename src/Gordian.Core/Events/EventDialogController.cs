@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Network.Packets;
@@ -88,6 +89,24 @@ namespace Gordian.Core.Events
         /// </summary>
         public const double EntityWaitSeconds = 1.5;
 
+        /// <summary>
+        /// The running event's camera shots and screen fades (#165), which the viewport follows; reset when the event
+        /// ends.
+        /// </summary>
+        public EventPresentation Presentation { get; } = new();
+
+        /// <summary>Scene resource DATs by file id (null: missing), read once per zone.</summary>
+        private readonly Dictionary<int, EventSceneResource?> _sceneResources = new();
+
+        /// <summary>Event motion DATs by file id (null: missing), read once per zone.</summary>
+        private readonly Dictionary<int, EventMotionBank?> _motionBanks = new();
+
+        /// <summary>The entities the running event loaded motion banks onto (game tick thread only), cleared when it ends.</summary>
+        private readonly List<WorldEntity> _banked = new();
+
+        /// <summary>Whether a 0x66 motion package was already reported as not loaded (once per session).</summary>
+        private bool _packageNoted;
+
         /// <summary>Whether an event is running (the character is held and Confirm belongs to the dialog).</summary>
         public bool IsActive => _scene != null;
 
@@ -141,6 +160,8 @@ namespace Gordian.Core.Events
                 _dialog = null;
                 _scriptZone = -1;
                 _zone.Clear();
+                _sceneResources.Clear();
+                _motionBanks.Clear();
             }
             if (_cancelRequested)
             {
@@ -295,6 +316,9 @@ namespace Gordian.Core.Events
         {
             _cutsceneHud = false;
             UnlockEnvironment();
+            Presentation.Reset();
+            foreach (var entity in _banked) entity.Animation.ClearEventMotionBanks();
+            _banked.Clear();
             var world = _world;
             if (world != null)
             {
@@ -738,6 +762,99 @@ namespace Gordian.Core.Events
                 }
             }
             return false;
+        }
+
+        int IEventVmHost.StartSceneTask(int taskId, int fileId, string routine, uint casterServerId, uint targetServerId)
+        {
+            var resource = LoadSceneResource(fileId);
+            if (resource == null || !resource.TryGetRoutine(routine, out var scene))
+            {
+                GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId}: {(resource == null ? "no such file" : "no such routine")}; it ends at once.");
+                return 0;
+            }
+            // Actor-relative camera routes are placed at the first actor, where the event shows it.
+            var origin = System.Numerics.Vector3.Zero;
+            if (_scene?.FindActor(casterServerId) is { } actor) origin = actor.EventPosition.Position;
+            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out _, out _)) origin = position;
+            Presentation.Play(taskId, resource, scene, origin);
+            return scene.TotalFrames;
+        }
+
+        void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);
+
+        void IEventVmHost.SetEventCamera(bool held) => Presentation.SetCameraHeld(held);
+
+        int IEventVmHost.PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return 0;
+            if (source == EventMotionSource.Bank)
+            {
+                if (LoadMotionBank(resource) is { } bank)
+                {
+                    entity.Animation.AddEventMotionBank(bank);
+                    if (!_banked.Contains(entity)) _banked.Add(entity);
+                }
+            }
+            else if (source == EventMotionSource.Package && !_packageNoted)
+            {
+                // Where a package's DAT lives is not known yet (XiEvents' ReadTpcEventMotionRes); the entity's own motions play.
+                _packageNoted = true;
+                GordianLog.Info("EVENT", $"Motion package {resource} ({routine}) is not loaded; player-model gestures use the entity's own motions.");
+            }
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                ActorId = serverId,
+                Motion = ActionMotion.EventMotion,
+                Routine = routine,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+            return entity.Animation.GetRoutineFrames(routine);
+        }
+
+        void IEventVmHost.StopEntityMotion(uint serverId, string routine)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                ActorId = serverId,
+                Motion = ActionMotion.EventMotionStop,
+                Routine = routine,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+        }
+
+        private EventSceneResource? LoadSceneResource(int fileId)
+        {
+            if (_sceneResources.TryGetValue(fileId, out var cached)) return cached;
+            EventSceneResource? resource = null;
+            try
+            {
+                if (DatLoader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("EVENT", $"Scene resource {fileId} could not be read: {ex.Message}");
+            }
+            _sceneResources[fileId] = resource;
+            return resource;
+        }
+
+        private EventMotionBank? LoadMotionBank(int fileId)
+        {
+            if (_motionBanks.TryGetValue(fileId, out var cached)) return cached;
+            EventMotionBank? bank = null;
+            try
+            {
+                if (DatLoader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("EVENT", $"Event motion DAT {fileId} could not be read: {ex.Message}");
+            }
+            _motionBanks[fileId] = bank;
+            return bank;
         }
 
         void IEventVmHost.OnSkippedOpcode(byte opcode, int pc)

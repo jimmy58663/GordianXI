@@ -33,7 +33,17 @@ namespace Gordian.Core.Animation
         Ability,
 
         /// <summary>Stops the actor's sustained action (a chant or item use that was interrupted).</summary>
-        Interrupt
+        Interrupt,
+
+        /// <summary>
+        /// An event gesture (opcodes 0x2C / 0x5B / 0x66): the routine named by <see cref="ActionRequest.Routine"/>, from the
+        /// actor's event motion banks first, then its model. It replaces whatever action the actor is playing (retail kills
+        /// the last action first, XiEvents OpCodes/0x005B).
+        /// </summary>
+        EventMotion,
+
+        /// <summary>Stops the event gesture named by <see cref="ActionRequest.Routine"/> (an event's 0x50).</summary>
+        EventMotionStop
     }
 
     /// <summary>

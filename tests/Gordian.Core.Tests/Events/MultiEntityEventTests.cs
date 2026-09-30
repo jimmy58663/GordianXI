@@ -51,6 +51,28 @@ namespace Gordian.Core.Tests.Events
             var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(zoneId))!)!;
             var dialog = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(zoneId))!)!;
             var host = new RecordingHost();
+            // The schedulers run for the lengths the retail scene and motion DATs give (#165).
+            var scenes = new Dictionary<int, EventSceneResource?>();
+            var banks = new Dictionary<int, Gordian.Core.Animation.EventMotionBank?>();
+            host.RoutineSource = (fileId, routine) =>
+            {
+                if (!scenes.TryGetValue(fileId, out var resource))
+                {
+                    var bytes = rm.LoadDatBytesByFileId(fileId);
+                    scenes[fileId] = resource = bytes == null ? null : EventSceneResource.Parse(bytes);
+                }
+                return resource != null && resource.TryGetRoutine(routine, out var r) ? r.TotalFrames : 0;
+            };
+            host.MotionSource = (source, resource, routine) =>
+            {
+                if (source != EventMotionSource.Bank) return 0;
+                if (!banks.TryGetValue(resource, out var bank))
+                {
+                    var bytes = rm.LoadDatBytesByFileId(resource);
+                    banks[resource] = bank = bytes == null ? null : Gordian.Core.Animation.EventMotionBank.Parse(bytes, resource);
+                }
+                return bank?.GetRoutineFrames(routine) ?? 0;
+            };
             var scene = new EventScene(new EventWorkZone()) { PlayerServerId = PlayerId };
             var run = new Run { Scene = scene, Host = host, Dialog = dialog };
             foreach (var block in script.Blocks)
@@ -78,6 +100,10 @@ namespace Gordian.Core.Tests.Events
                 _output.WriteLine($"  0x{vm.EntityServerId:X8}{(vm.CarriesEvent ? "" : " (catch-all)")}: {ops.Values.Sum()} ops, {requests} request ops, finished={vm.IsFinished}");
             }
             foreach (var p in host.Printed) _output.WriteLine($"    0x{p.Id:X8} msg {p.Message}: {dialog.GetPlainText(p.Message)}");
+            int found = host.SceneTasks.Count(t => host.RoutineSource!(t.FileId, t.Routine) > 0);
+            int gestures = host.Motions.Count(m => host.MotionSource!(m.Source, m.Resource, m.Routine) > 0);
+            _output.WriteLine($"  scene tasks {host.SceneTasks.Count} ({found} found, files {string.Join(",", host.SceneTasks.Select(t => t.FileId).Distinct())}), " +
+                $"motions {host.Motions.Count} ({gestures} from banks), camera holds {string.Join(",", host.CameraHolds)}");
             Assert.True(scene.IsFinished);
             return run;
         }

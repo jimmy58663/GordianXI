@@ -295,6 +295,27 @@ namespace Gordian.Core.Graphics
             _frustum.Update(_viewProjectionMatrix);
         }
 
+        /// <summary>
+        /// Shows an event's cutscene camera (display space): eye, look-at point, vertical field of view (radians) and roll
+        /// around the view direction (radians). The camera's own field of view and orbit are left as they were, so the
+        /// player's view comes back unchanged when the event lets go.
+        /// </summary>
+        public void SetEventView(Vector3 eye, Vector3 target, float fieldOfView, float roll, float aspectRatio)
+        {
+            var forward = target - eye;
+            if (forward.LengthSquared() < 1e-8f) return;
+            _aspectRatio = Math.Max(0.1f, aspectRatio);
+            _position = eye;
+            _target = target;
+            var up = Vector3.UnitY;
+            if (roll != 0f && float.IsFinite(roll)) up = Vector3.Transform(up, Quaternion.CreateFromAxisAngle(Vector3.Normalize(forward), roll));
+            float fov = Math.Clamp(float.IsFinite(fieldOfView) ? fieldOfView : _fov, 0.1f, MathF.PI - 0.1f);
+            _viewMatrix = Matrix4x4.CreateLookAt(_position, _target, up);
+            _projectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView(fov, _aspectRatio, _nearClip, _farClip);
+            _viewProjectionMatrix = Matrix4x4.Multiply(_viewMatrix, _projectionMatrix);
+            _frustum.Update(_viewProjectionMatrix);
+        }
+
         private float EaseFollowHeight(float height, float deltaSeconds)
         {
             if (!_hasFollowHeight || deltaSeconds <= 0.0f || MathF.Abs(height - _followHeight) > FollowHeightSnapDistance)
