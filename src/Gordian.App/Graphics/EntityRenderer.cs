@@ -66,7 +66,10 @@ namespace Gordian.App.Graphics
             (AnimationCategory.Death, "ded"),
         };
 
-        private readonly ConcurrentDictionary<string, GpuEntityModel> _gpuModelCache = new();
+        // Keyed by the model instance: ResourceManager already caches one EntityModel per race, face and full grap id
+        // table. Model names are not unique (every PC of a race and face is "{race}_Face{n}" whatever it wears), so a
+        // name key drew every such character in the gear of the first one uploaded (#153).
+        private readonly ConcurrentDictionary<EntityModel, GpuEntityModel> _gpuModelCache = new(ReferenceEqualityComparer.Instance);
         private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
 
         // Per entity: where its floor was last probed and the sub-environment that floor links (null = outdoors).
@@ -639,8 +642,7 @@ namespace Gordian.App.Graphics
 
         private GpuEntityModel GetOrUploadGpuModel(EntityModel model)
         {
-            string key = string.IsNullOrEmpty(model.Name) ? model.GetHashCode().ToString() : model.Name;
-            if (_gpuModelCache.TryGetValue(key, out var cached))
+            if (_gpuModelCache.TryGetValue(model, out var cached))
             {
                 return cached;
             }
@@ -703,7 +705,7 @@ namespace Gordian.App.Graphics
                 });
             }
 
-            _gpuModelCache[key] = gpuModel;
+            _gpuModelCache[model] = gpuModel;
             return gpuModel;
         }
 

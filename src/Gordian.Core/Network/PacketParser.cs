@@ -307,6 +307,16 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Raised with the local player's model table from GP_SERV_GRAP_LIST (0x051): login, game-ok and every change
+        /// to the player's visible equipment or lockstyle.
+        /// </summary>
+        public event Action<ushort[]>? LocalAppearanceReceived
+        {
+            add => _lifecycleModule.LocalAppearanceReceived += value;
+            remove => _lifecycleModule.LocalAppearanceReceived -= value;
+        }
+
+        /// <summary>
         /// Raised when the server responds with a zone transition or logout directive (0x00B).
         /// Parameters: LogoutState, TargetIp, TargetPort, ErrorCode.
         /// </summary>

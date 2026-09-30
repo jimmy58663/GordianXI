@@ -346,6 +346,16 @@ namespace Gordian.Core.Network
                 }
                 GordianLog.Info("NET", $"Captured local player login appearance (Face/Race: 0x{grap[0]:X4}, Name: {name})");
             };
+            _parser.LocalAppearanceReceived += grap =>
+            {
+                // EnsureLocalPlayerEntity reapplies the cached table on every position update, so keep it current.
+                _cachedPlayerAppearance = grap;
+                uint sid = _parser.LocalPlayer.ServerId != 0 ? _parser.LocalPlayer.ServerId : CharacterId;
+                if (sid != 0 && _parser.World.TryGetByServerId(sid, out var existing) && existing is PlayerEntity pe)
+                {
+                    pe.Appearance.CopyFrom(grap);
+                }
+            };
             _parser.ActionService.LocalPlayerMoved += (pos, dir) =>
             {
                 PositionX = pos.X;
