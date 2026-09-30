@@ -58,6 +58,11 @@
   - Modern asset pack scanner (`resources/assets/`) with `manifest.json` parsing and DAT aliasing (`.glb` replacing `.DAT`)
   - Master `vfs.json` load order, priority stacking, and pack auto-discovery
   - Safe debounced runtime hot-reloading with master toggle
+  - **What a reload refreshes.** Every VFS reload (a hot reload, a pack toggled, the VFS switched on or off) raises `OnReloaded`, and `ResourceManager` answers with `ClearCache`:
+    - It first rebuilds the file table, if one was loaded. The new table is built off to the side and swapped in, and the old one stays if the rebuild fails.
+    - It then drops the zone, collision, entity model, actor effect, item and DMSG caches, the shared effects DAT and the zone NPC names. Last, it bumps `CacheGeneration`.
+    - Holders of built data watch `CacheGeneration`: `EntityRenderer` frees its GPU entity models, the viewport reloads the zone on screen (keeping it if the reload fails), and the stock UI reloads its library and status icons (the renderer re-uploads textures for a new library).
+    - Sessions whose zone is not on screen keep their collision mesh until they change zone.
   - Modder documentation and reference manifests distributed in `resources/`
 
 ## State and memory telemetry

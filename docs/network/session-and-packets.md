@@ -57,7 +57,7 @@ This audit compared every opcode in XiPackets `world/client/` and `world/server/
 
 LandSandBoat sends almost every missing S2C packet. These arrive in an ordinary session and are dropped today:
 - `0x067` char sync
-- `0x051` own model
+- `0x051` own model (decoded since #153, see below)
 - `0x0CA`, `0x0AE`, `0x0AD`, `0x08E`, `0x04F`, `0x041`, `0x058`, `0x038`, `0x053`
 
 **Why a wrong size matters.** LSB's `ValidatedPacketHandler` (`packet_system.cpp`) silently drops a fixed-size C2S packet unless its header size equals `roundUp4(sizeof(struct))`. A C2S size that differs from XiPackets or LSB is therefore a dead packet, not a cosmetic difference. Only `0x01E`, `0x01F`, `0x02B`, `0x02C`, `0x0A0`, `0x0A1`, `0x0B5`, `0x0B6` and `0x0D3` are variable-length.
@@ -93,7 +93,7 @@ Missing packets, grouped by feature:
 - ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
 - ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is [#143](https://github.com/jimmy58663/GordianXI/issues/143).
 - [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
-- [#108](https://github.com/jimmy58663/GordianXI/issues/108): `0x051`/`0x04F`.
+- [#108](https://github.com/jimmy58663/GordianXI/issues/108): `0x04F` equip clear. `0x051` `GRAP_LIST` is decoded (#153): payload 0-17 is the nine-entry grap id table (race/face, head, body, hands, legs, feet, main, sub, ranged), which becomes the local player's appearance.
 - [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`.
 - [#110](https://github.com/jimmy58663/GordianXI/issues/110): message and event-parameter packets, including the `0x05A` emote echo.
 - [#111](https://github.com/jimmy58663/GordianXI/issues/111): `/heal`, `/sit`, `/random`, widescan.

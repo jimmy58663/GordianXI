@@ -382,6 +382,40 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// S2C 0x051 (GP_SERV_COMMAND_GRAP_LIST): the local player's own model table (race/face and the visible model of
+    /// each equipment slot, or the lockstyle models). Sent at login, again at game-ok, and whenever the player's
+    /// visible equipment changes. Other players' tables arrive in S2C 0x00D instead.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0051, and the
+    /// send points from LandSandBoat (https://github.com/LandSandBoat/server) packets/s2c/0x051_grap_list.cpp.
+    /// </summary>
+    public readonly ref struct S2C_0x051_GrapList
+    {
+        public const ushort PacketId = 0x051;
+        private readonly ReadOnlySpan<byte> _payload;
+        public bool IsValid { get; }
+
+        public S2C_0x051_GrapList(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            IsValid = payload.Length >= 18;
+        }
+
+        /// <summary>
+        /// Reads the 9-entry GrapIDTbl (payload offset 0): 0 race/face, 1 head, 2 body, 3 hands, 4 legs, 5 feet,
+        /// 6 main, 7 sub, 8 ranged.
+        /// </summary>
+        public bool TryGetGrapIdTable(Span<ushort> destination)
+        {
+            if (!IsValid || destination.Length < 9) return false;
+            for (int i = 0; i < 9; i++)
+            {
+                destination[i] = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(i * 2, 2));
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
     /// S2C 0x0EE: Server Feature Restrictions Packet. Carries a full 64-bit
     /// <see cref="FeatureRestrictions"/> bitmask so the server can restrict any combination
     /// of client capabilities without being constrained to a fixed set of named tiers.
@@ -797,6 +831,9 @@ namespace Gordian.Core.Network.Packets
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
+        /// <summary>Raised with the local player's model table from S2C 0x051 (login, game-ok, equipment changes).</summary>
+        public event Action<ushort[]>? LocalAppearanceReceived;
+
         /// <summary>
         /// The character zoned in inside an event (S2C 0x00A event fields), raised after <see cref="ZoneReceived"/>:
         /// the client runs it like a 0x032 event of the player and finishes it with C2S 0x05B, or the server keeps the
@@ -830,6 +867,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x00B_Logout.PacketId, HandleLogout);
             dispatcher.Register(S2C_0x015_PosPing.PacketId, HandlePosPing);
             dispatcher.Register(S2C_0x057_Weather.PacketId, HandleWeather);
+            dispatcher.Register(S2C_0x051_GrapList.PacketId, HandleGrapList);
             dispatcher.Register(S2C_0x05B_WPos.PacketId, HandleWPos);
             dispatcher.Register(S2C_0x065_WPos2.PacketId, HandleWPos2);
             dispatcher.Register(S2C_0x0EE_FeatureRestrictions.PacketId, HandleFeatureRestrictions);
@@ -928,6 +966,16 @@ namespace Gordian.Core.Network.Packets
                 GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WEATHER (0x057): Weather={weather.WeatherNumber}, Offset={weather.WeatherOffsetTime}, StartTime={weather.StartTime}");
                 WeatherReceived?.Invoke(weather.WeatherNumber);
             }
+        }
+
+        private void HandleGrapList(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var list = new S2C_0x051_GrapList(payload);
+            Span<ushort> grap = stackalloc ushort[9];
+            if (!list.TryGetGrapIdTable(grap)) return;
+            ushort[] table = grap.ToArray();
+            GordianLog.Debug("LIFECYCLE", $"GP_SERV_GRAP_LIST (0x051): face/race=0x{table[0]:X4} gear={string.Join(',', table[1..])}");
+            LocalAppearanceReceived?.Invoke(table);
         }
 
         private void HandleWPos(PacketHeader header, ReadOnlySpan<byte> payload)

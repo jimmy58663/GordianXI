@@ -31,6 +31,8 @@ namespace Gordian.App.Graphics
         private int _loadStarted;
         private ResourceManager? _resources;
         private int _skinReloading;
+        // ResourceManager.CacheGeneration the current library was read under; a change (a VFS reload) reloads it.
+        private int _libraryGeneration;
 
         /// <summary>The layout used for the last frame (the session's shared layout, see StockUiLayoutStore).</summary>
         public StockUiLayout Layout { get; private set; } = new();
@@ -59,6 +61,7 @@ namespace Gordian.App.Graphics
         {
             if (resources == null || Interlocked.CompareExchange(ref _loadStarted, 1, 0) != 0) return;
             _resources = resources;
+            int generation = resources.CacheGeneration;
             Task.Run(() =>
             {
                 try
@@ -68,6 +71,7 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    _libraryGeneration = generation;
                     _library = library;
                 }
                 catch (Exception ex)
@@ -78,13 +82,17 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Reloads the UI resources with another window skin (1-8) in the background when the layout's skin changed
-        /// (the config menu's "Window Type", or <c>/uilayout skin</c>); the current library draws until it is ready.
+        /// Reloads the UI resources in the background when the layout's window skin (1-8) changed (the config menu's
+        /// "Window Type", or <c>/uilayout skin</c>) or the resource caches were cleared by a VFS reload; the current
+        /// library draws until the new one is ready. A new library makes the renderer drop its uploaded textures.
         /// </summary>
         private void EnsureWindowSkin(UiResourceLibrary current, int skin)
         {
             var resources = _resources;
-            if (resources == null || current.WindowSkin == skin || Interlocked.CompareExchange(ref _skinReloading, 1, 0) != 0) return;
+            if (resources == null) return;
+            int generation = resources.CacheGeneration;
+            bool reloaded = generation != _libraryGeneration;
+            if ((current.WindowSkin == skin && !reloaded) || Interlocked.CompareExchange(ref _skinReloading, 1, 0) != 0) return;
             Task.Run(() =>
             {
                 try
@@ -93,6 +101,7 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
                 catch (Exception ex)
@@ -101,6 +110,8 @@ namespace Gordian.App.Graphics
                 }
                 finally
                 {
+                    // Also on failure: a reload that cannot read the UI DATs keeps the current library, not retry each frame.
+                    _libraryGeneration = generation;
                     Interlocked.Exchange(ref _skinReloading, 0);
                 }
             });

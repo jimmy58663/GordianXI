@@ -107,7 +107,7 @@ namespace Gordian.Core.Resources.Tables
             }
         }
 
-        /// <summary>Drops the cache (tests).</summary>
+        /// <summary>Drops the cache (tests, and a VFS reload through <see cref="ResourceManager.ClearCache"/>).</summary>
         public static void Reset()
         {
             lock (Sync)
