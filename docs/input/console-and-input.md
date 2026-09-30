@@ -15,7 +15,16 @@
 
 - **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad) with smart text-input isolation
 - **Gamepad / Controller:** Full XInput, DirectInput, and SDL/Silk gamepad support (Xbox, PlayStation, generic HID) with deadzone, rumble, and axis calibration
-- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets by distance
+- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets left and right on screen (see [Target cycling](#target-cycling))
 - Rebindable control mapping engine with JSON persistence and modifier key support (`keybinds.json`)
 - Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
 - Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher
+
+### Target cycling
+
+`TargetCycling` (Core) picks the target for the cycling keys: Tab / Shift+Tab, the right / left triggers and d-pad right / left (the `TargetNearest` / `TargetPrevious` actions, labelled Next Target (Right) / (Left)), and for Confirm (gamepad A, Space in the Compact layout) with nothing targeted.
+
+- **Candidates:** spawned, not hidden or invisible, named entities other than elevators and ships, within 50 yalms of the player, in front of the camera and inside its horizontal field of view. The player is a candidate (self-target). Each gets a horizontal screen position (-1 left edge to +1 right edge, taken 1 yalm above its feet) and its distance from the player.
+- **Nothing targeted** (or the target is off screen): the nearest candidate by distance on the pressed side of the screen centre; Confirm takes the nearest on either side. When that side is empty the other side's nearest is taken. The player is only picked when nobody else is on screen.
+- **A target on screen:** the next candidate over in the pressed direction, ordered left to right on screen (at the same position, nearest first), wrapping from one edge to the other so every candidate is reachable. Picking only the nearest on that side would skip a far target between two nearer ones.
+- **Evidence:** the issue's (#134) description of the retail feel and the maintainer's choice of the hybrid rule with wrapping; not yet checked against retail or Windower captures for tie-breaks.

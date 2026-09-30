@@ -1127,31 +1127,27 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// Tab / Shift+Tab (and the triggers): the next / previous target by distance within 50 yalms, wrapping; the
-        /// nearest when nothing in range is targeted.
+        /// Tab / Shift+Tab (the triggers, the d-pad): the next target to the right / left on screen, or the nearest on
+        /// that side of the screen centre when nothing on screen is targeted (see <see cref="TargetCycling"/>).
         /// </summary>
         private void UpdateTargetCycling()
         {
-            if (_actionService == null) return;
             int direction = _inputState.WasActionTriggered(InputAction.TargetNearest) ? 1
                 : _inputState.WasActionTriggered(InputAction.TargetPrevious) ? -1 : 0;
-            if (direction == 0 || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
+            if (direction != 0) CycleTarget(direction);
+        }
 
-            var candidates = new List<WorldEntity>();
-            foreach (var candidate in _world.GetEntitiesInRadius(localEnt.Position, 50.0f))
-            {
-                if (candidate.ServerId != _localPlayer.ServerId && candidate.IsSpawned) candidates.Add(candidate);
-            }
-            if (candidates.Count == 0) return;
-            candidates.Sort((a, b) =>
-            {
-                int byDistance = Vector3.DistanceSquared(localEnt.Position, a.Position).CompareTo(Vector3.DistanceSquared(localEnt.Position, b.Position));
-                return byDistance != 0 ? byDistance : a.ServerId.CompareTo(b.ServerId);
-            });
+        /// <summary>
+        /// Targets the candidate <see cref="TargetCycling.Pick"/> chooses for <paramref name="direction"/> (+1 right,
+        /// -1 left, 0 the nearest on either side).
+        /// </summary>
+        private void CycleTarget(int direction)
+        {
+            if (_actionService == null || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
 
-            int current = _actionService.CurrentTarget is { } target ? candidates.FindIndex(c => c.ServerId == target.ServerId) : -1;
-            int next = current < 0 ? (direction > 0 ? 0 : candidates.Count - 1) : (current + direction + candidates.Count) % candidates.Count;
-            _actionService.SetTarget(candidates[next]);
+            var candidates = TargetCycling.Gather(_world.GetEntitiesInRadius(localEnt.Position, TargetCycling.Range), _localPlayer.ServerId, localEnt.Position, _camera);
+            uint pick = TargetCycling.Pick(candidates, _actionService.CurrentTarget?.ServerId ?? 0, direction);
+            if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 
         private void UpdateActionTriggers()
@@ -1173,10 +1169,11 @@ namespace Gordian.Core.Input
             }
 
             // Confirm on a targeted NPC or door talks to it; on yourself, another player, a monster, a pet or a trust
-            // it opens the target command menu (retail).
-            if (_inputState.WasActionTriggered(InputAction.Confirm) && _actionService.CurrentTarget != null)
+            // it opens the target command menu (retail). With nothing targeted it targets the nearest on screen.
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
             {
-                if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
+                if (_actionService.CurrentTarget == null) CycleTarget(0);
+                else if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
                 else _actionService.OpenTargetCommandMenu();
             }
 

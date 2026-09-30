@@ -337,6 +337,43 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Update_ConfirmWithNoTarget_TargetsNearestOnScreen()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            var forward = Vector3.Normalize(controller.Camera.Forward with { Y = 0 });
+            world.UpsertEntity(new WorldEntity(0x20, 0x20, EntityType.Monster) { Name = "Far", Position = forward * 20, IsSpawned = true });
+            world.UpsertEntity(new WorldEntity(0x21, 0x21, EntityType.Monster) { Name = "Near", Position = (forward * 8) + (controller.Camera.Right * 2), IsSpawned = true });
+
+            input.SetKeyDown(GordianKey.Space);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(0x21u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
+        public void Update_Tab_StepsRightOnScreen()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            var forward = Vector3.Normalize(controller.Camera.Forward with { Y = 0 });
+            var right = controller.Camera.Right;
+            var left = new WorldEntity(0x30, 0x30, EntityType.Monster) { Name = "Left", Position = (forward * 10) - (right * 4), IsSpawned = true };
+            var farRight = new WorldEntity(0x31, 0x31, EntityType.Monster) { Name = "Right", Position = (forward * 30) + (right * 6), IsSpawned = true };
+            world.UpsertEntity(left);
+            world.UpsertEntity(farRight);
+            actionService.SetTarget(left);
+
+            input.SetKeyDown(GordianKey.Tab);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            // The player (screen centre) sits between the two.
+            Assert.Equal(0x12345678u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
         public void Update_WhenLockedOn_FacesTargetDirectly()
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();

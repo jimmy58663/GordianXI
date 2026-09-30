@@ -599,8 +599,8 @@ namespace Gordian.App.ViewModels
             // Targeting & Menus
             AddBindingRow(InputAction.Confirm, "Interaction", "Confirm / Action");
             AddBindingRow(InputAction.Cancel, "Interaction", "Cancel / Clear Target");
-            AddBindingRow(InputAction.TargetNearest, "Targeting", "Target Nearest Entity");
-            AddBindingRow(InputAction.TargetPrevious, "Targeting", "Target Previous Entity");
+            AddBindingRow(InputAction.TargetNearest, "Targeting", "Next Target (Right)");
+            AddBindingRow(InputAction.TargetPrevious, "Targeting", "Next Target (Left)");
             AddBindingRow(InputAction.TargetSelf, "Targeting", "Target Self");
             AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 1");
             AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 2");
