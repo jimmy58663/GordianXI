@@ -40,6 +40,7 @@ namespace Gordian.App.Graphics
 layout(location = 0) in vec2 Position;
 layout(location = 1) in vec2 TexCoord;
 layout(location = 2) in vec4 Color;
+layout(location = 3) in float Depth;
 
 layout(location = 0) out vec2 fsin_TexCoord;
 layout(location = 1) out vec4 fsin_Color;
@@ -53,7 +54,7 @@ void main()
 {
     fsin_TexCoord = TexCoord;
     fsin_Color = Color;
-    gl_Position = vec4(Position * ScreenTransform.xy + ScreenTransform.zw, 0.0, 1.0);
+    gl_Position = vec4(Position * ScreenTransform.xy + ScreenTransform.zw, Depth, 1.0);
 }
 ";
 
@@ -81,10 +82,20 @@ void main()
             public Vector2 TexCoord;
             public uint Color;
 
-            public const uint SizeInBytes = 20;
+            /// <summary>Clip-space depth (z / w); only depth-tested batches compare it.</summary>
+            public float Depth;
+
+            public const uint SizeInBytes = 24;
         }
 
-        private readonly record struct Batch(ResourceSet Texture, UiBlendMode Blend, int FirstVertex, int VertexCount, UiClip? Clip);
+        private readonly record struct Batch(ResourceSet Texture, UiBlendMode Blend, int FirstVertex, int VertexCount, UiClip? Clip, bool DepthTested);
+
+        /// <summary>
+        /// While set, quads are drawn at this clip-space depth (z / w of the 3D pass's projection) and tested against
+        /// the scene's depth buffer without writing it, so walls and models in front hide them pixel by pixel (in-world
+        /// name plates). Null = the ordinary overlay. Has no effect when the framebuffer has no depth attachment.
+        /// </summary>
+        public float? Depth { get; set; }
 
         /// <summary>Height of a menu window's title band in layout pixels; the body below it is drawn opaque (see <see cref="DrawMenu"/>).</summary>
         public const float MenuBandHeight = 20;
@@ -100,8 +111,18 @@ void main()
 
         public void ClearClip() => _clip = null;
 
+        /// <summary>
+        /// Texels trimmed from every edge of each source rectangle drawn while set (0 = none). Sprites scaled up with
+        /// bilinear filtering sample half a texel past their rectangle, which picks up the neighbouring cell of the
+        /// atlas as faint lines along the quad's edges; a half-texel inset keeps the samples inside (name plates).
+        /// </summary>
+        public float TexelInset { get; set; }
+
         private readonly GraphicsDevice _gd;
         private readonly Pipeline[] _pipelines;
+
+        /// <summary>The same pipelines with the depth test on (write off), for <see cref="Depth"/>; null without a depth attachment.</summary>
+        private readonly Pipeline[]? _depthPipelines;
         private readonly ResourceLayout _uniformLayout;
         private readonly ResourceLayout _textureLayout;
         private readonly DeviceBuffer _uniformBuffer;
@@ -146,7 +167,8 @@ void main()
             var vertexLayout = new VertexLayoutDescription(
                 new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
+                new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm),
+                new VertexElementDescription("Depth", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1));
 
             // One pipeline per part blend mode: alpha, additive, and darkening (destination minus source).
             var blends = new[]
@@ -159,20 +181,30 @@ void main()
                     BlendFactor.SourceAlpha, BlendFactor.One, BlendFunction.ReverseSubtract,
                     BlendFactor.Zero, BlendFactor.One, BlendFunction.Add)),
             };
-            _pipelines = new Pipeline[blends.Length];
-            for (int i = 0; i < blends.Length; i++)
+            Pipeline[] CreatePipelines(DepthStencilStateDescription depth)
             {
-                _pipelines[i] = factory.CreateGraphicsPipeline(new GraphicsPipelineDescription
+                var pipelines = new Pipeline[blends.Length];
+                for (int i = 0; i < blends.Length; i++)
                 {
-                    BlendState = blends[i],
-                    DepthStencilState = DepthStencilStateDescription.Disabled,
-                    RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
-                        depthClipEnabled: false, scissorTestEnabled: true),
-                    PrimitiveTopology = PrimitiveTopology.TriangleList,
-                    ResourceLayouts = new[] { _uniformLayout, _textureLayout },
-                    ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, _shaders),
-                    Outputs = outputs,
-                });
+                    pipelines[i] = factory.CreateGraphicsPipeline(new GraphicsPipelineDescription
+                    {
+                        BlendState = blends[i],
+                        DepthStencilState = depth,
+                        RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
+                            depthClipEnabled: false, scissorTestEnabled: true),
+                        PrimitiveTopology = PrimitiveTopology.TriangleList,
+                        ResourceLayouts = new[] { _uniformLayout, _textureLayout },
+                        ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, _shaders),
+                        Outputs = outputs,
+                    });
+                }
+                return pipelines;
+            }
+            _pipelines = CreatePipelines(DepthStencilStateDescription.Disabled);
+            if (outputs.DepthAttachment != null)
+            {
+                // The 3D pass clears depth to 1 and tests LessEqual; the UI tests the same way and never writes it.
+                _depthPipelines = CreatePipelines(new DepthStencilStateDescription(depthTestEnabled: true, depthWriteEnabled: false, ComparisonKind.LessEqual));
             }
 
             _vertexCapacity = 6 * 1024;
@@ -192,6 +224,8 @@ void main()
             }
             _vertices.Clear();
             _batches.Clear();
+            Depth = null;
+            TexelInset = 0;
         }
 
         /// <summary>
@@ -217,14 +251,25 @@ void main()
             if (stretch.ExtraY != 0 && part.TopLeft.Y < stretch.PivotY && part.BottomLeft.Y >= stretch.PivotY && quadHeight > 0)
                 srcHeight += stretch.ExtraY * srcHeight / quadHeight;
 
-            float u0 = part.SourceX / texWidth, v0 = part.SourceY / texHeight;
-            float u1 = (part.SourceX + srcWidth) / texWidth, v1 = (part.SourceY + srcHeight) / texHeight;
+            float inset = srcWidth > 2 * TexelInset && srcHeight > 2 * TexelInset ? TexelInset : 0;
+            float u0 = (part.SourceX + inset) / texWidth, v0 = (part.SourceY + inset) / texHeight;
+            float u1 = (part.SourceX + srcWidth - inset) / texWidth, v1 = (part.SourceY + srcHeight - inset) / texHeight;
             ApplyFlips(part, ref u0, ref v0, ref u1, ref v1);
 
-            var tl = new UiVertex { Position = Point(part.TopLeft, x, y, scale, stretch), TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) };
-            var tr = new UiVertex { Position = Point(part.TopRight, x, y, scale, stretch), TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) };
-            var bl = new UiVertex { Position = Point(part.BottomLeft, x, y, scale, stretch), TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) };
-            var br = new UiVertex { Position = Point(part.BottomRight, x, y, scale, stretch), TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) };
+            Vector2 pTL = Point(part.TopLeft, x, y, scale, stretch), pTR = Point(part.TopRight, x, y, scale, stretch);
+            Vector2 pBL = Point(part.BottomLeft, x, y, scale, stretch), pBR = Point(part.BottomRight, x, y, scale, stretch);
+            if (inset > 0)
+            {
+                // Trim the quad by the same share as the source so the sprite keeps its size per texel.
+                float fx = inset / srcWidth, fy = inset / srcHeight;
+                Vector2 At(float a, float b) => Vector2.Lerp(Vector2.Lerp(pTL, pTR, a), Vector2.Lerp(pBL, pBR, a), b);
+                (pTL, pTR, pBL, pBR) = (At(fx, fy), At(1 - fx, fy), At(fx, 1 - fy), At(1 - fx, 1 - fy));
+            }
+
+            var tl = new UiVertex { Position = pTL, TexCoord = new Vector2(u0, v0), Color = Pack(part.ColorTopLeft, tint) };
+            var tr = new UiVertex { Position = pTR, TexCoord = new Vector2(u1, v0), Color = Pack(part.ColorTopRight, tint) };
+            var bl = new UiVertex { Position = pBL, TexCoord = new Vector2(u0, v1), Color = Pack(part.ColorBottomLeft, tint) };
+            var br = new UiVertex { Position = pBR, TexCoord = new Vector2(u1, v1), Color = Pack(part.ColorBottomRight, tint) };
 
             AddQuad(set, part.BlendMode, tl, tr, bl, br);
         }
@@ -265,17 +310,21 @@ void main()
         private void AddQuad(ResourceSet set, UiBlendMode blend, UiVertex tl, UiVertex tr, UiVertex bl, UiVertex br)
         {
             int first = _vertices.Count;
+            bool depthTested = Depth.HasValue && _depthPipelines != null;
+            float depth = depthTested ? Depth!.Value : 0.0f;
+            tl.Depth = depth; tr.Depth = depth; bl.Depth = depth; br.Depth = depth;
             _vertices.Add(tl); _vertices.Add(tr); _vertices.Add(bl);
             _vertices.Add(tr); _vertices.Add(br); _vertices.Add(bl);
 
-            if (_batches.Count > 0 && ReferenceEquals(_batches[^1].Texture, set) && _batches[^1].Blend == blend && _batches[^1].Clip == _clip)
+            if (_batches.Count > 0 && ReferenceEquals(_batches[^1].Texture, set) && _batches[^1].Blend == blend && _batches[^1].Clip == _clip
+                && _batches[^1].DepthTested == depthTested)
             {
                 var last = _batches[^1];
                 _batches[^1] = last with { VertexCount = last.VertexCount + 6 };
             }
             else
             {
-                _batches.Add(new Batch(set, blend, first, 6, _clip));
+                _batches.Add(new Batch(set, blend, first, 6, _clip, depthTested));
             }
         }
 
@@ -297,7 +346,18 @@ void main()
             if (_library == null || width <= 0 || height <= 0) return;
             if (!TryGetTextureSet(textureName, out var set, out float texWidth, out float texHeight)) return;
 
-            float u0 = srcX / texWidth, v0 = srcY / texHeight, u1 = (srcX + srcWidth) / texWidth, v1 = (srcY + srcHeight) / texHeight;
+            float inset = TexelInset;
+            if (inset > 0 && srcWidth > 2 * inset && srcHeight > 2 * inset)
+            {
+                float dx = width * inset / srcWidth, dy = height * inset / srcHeight;
+                x += dx; y += dy; width -= 2 * dx; height -= 2 * dy;
+            }
+            else
+            {
+                inset = 0;
+            }
+            float u0 = (srcX + inset) / texWidth, v0 = (srcY + inset) / texHeight;
+            float u1 = (srcX + srcWidth - inset) / texWidth, v1 = (srcY + srcHeight - inset) / texHeight;
             uint cl = Pack(left, null), cr = Pack(right, null);
             AddQuad(set, blend,
                 new UiVertex { Position = new Vector2(x, y), TexCoord = new Vector2(u0, v0), Color = cl },
@@ -499,15 +559,16 @@ void main()
             _commandList.SetFullViewports();
             _commandList.SetFullScissorRects();
             _commandList.SetVertexBuffer(0, _vertexBuffer);
-            UiBlendMode? current = null;
+            (UiBlendMode Blend, bool DepthTested)? current = null;
             UiClip? currentClip = null;
             foreach (var batch in _batches)
             {
-                if (batch.Blend != current)
+                if (current != (batch.Blend, batch.DepthTested))
                 {
-                    _commandList.SetPipeline(_pipelines[(int)batch.Blend]);
+                    var pipelines = batch.DepthTested ? _depthPipelines! : _pipelines;
+                    _commandList.SetPipeline(pipelines[(int)batch.Blend]);
                     _commandList.SetGraphicsResourceSet(0, _uniformSet);
-                    current = batch.Blend;
+                    current = (batch.Blend, batch.DepthTested);
                 }
                 if (batch.Clip != currentClip)
                 {
@@ -659,6 +720,7 @@ void main()
             _vertexBuffer.Dispose();
             _commandList.Dispose();
             foreach (var pipeline in _pipelines) pipeline.Dispose();
+            if (_depthPipelines != null) foreach (var pipeline in _depthPipelines) pipeline.Dispose();
             foreach (var shader in _shaders) shader.Dispose();
             _uniformSet.Dispose();
             _uniformBuffer.Dispose();

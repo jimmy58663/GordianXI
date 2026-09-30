@@ -90,6 +90,12 @@ namespace Gordian.Core.World
         public byte UnityFaction { get; private set; }
         public uint UnityPoints { get; private set; }
         public byte GmLevel { get; set; }
+
+        /// <summary>The local player's name plate flags, from S2C 0x037.</summary>
+        public NamePlateFlags NamePlate { get; private set; }
+
+        /// <summary>The equipped linkshell's colour (S2C 0x037 r, g, b; LandSandBoat sends each 4-bit channel as (c &lt;&lt; 4) + 15).</summary>
+        public (byte R, byte G, byte B) LinkshellColor { get; private set; }
         public bool IsGm => GmLevel > 0;
         #endregion
 
@@ -336,6 +342,9 @@ namespace Gordian.Core.World
                 WardrobeMask = status.WardrobeMask;
                 CostumeId = status.CostumeId;
                 HomepointSecondsRemaining = status.HomepointSecondsRemaining;
+                NamePlate = status.NamePlate;
+                LinkshellColor = (status.LsColorR, status.LsColorG, status.LsColorB);
+                GmLevel = status.GmLevel;
 
                 if (status.Speed > 0 && Speed != status.Speed)
                 {

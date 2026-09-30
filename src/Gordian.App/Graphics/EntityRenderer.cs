@@ -27,6 +27,9 @@ namespace Gordian.App.Graphics
     /// <param name="Pose">The skeleton's last drawn pose, in model space.</param>
     public readonly record struct ActorAnchor(Matrix4x4 ModelToWorld, Skeleton? Skeleton, SkeletonPoseEvaluator.EvaluatedPose Pose);
 
+    /// <summary>An entity's overhead point this frame (display space), where its name plate is centred.</summary>
+    public readonly record struct OverheadAnchor(uint ServerId, Vector3 Point);
+
     /// <summary>
     /// Hardware-accelerated 3D entity renderer for GordianXI.
     /// Renders players, NPCs, monsters, and trusts at live WorldEntity coordinates with GPU
@@ -90,6 +93,14 @@ namespace Gordian.App.Graphics
         /// (null when the target was not drawn); the target cursor's tip is placed there.
         /// </summary>
         public Vector3? TargetAnchor { get; private set; }
+
+        /// <summary>
+        /// The overhead point (see <see cref="TargetAnchor"/>) of every entity drawn this frame, where its name plate is
+        /// centred.
+        /// </summary>
+        public IReadOnlyList<OverheadAnchor> OverheadAnchors => _overheadAnchors;
+
+        private readonly List<OverheadAnchor> _overheadAnchors = new();
 
         /// <summary>
         /// Where each spawned entity was placed this frame: its model-to-display transform and, for a skinned model drawn
@@ -324,6 +335,7 @@ namespace Gordian.App.Graphics
             int visible = 0;
             int culled = 0;
             TargetAnchor = null;
+            _overheadAnchors.Clear();
 
             float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
             float fogRange = Math.Max(0.001f, fogFar - environment.FogStart);
@@ -473,12 +485,11 @@ namespace Gordian.App.Graphics
                     UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
-                    if (isTarget) TargetAnchor = pos + new Vector3(0.0f, CursorHeight(entityModel), 0.0f);
                 }
-                else if (isTarget)
-                {
-                    TargetAnchor = pos + new Vector3(0.0f, maxBox.Y - pos.Y, 0.0f);
-                }
+
+                var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) : maxBox.Y - pos.Y, 0.0f);
+                _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
+                if (isTarget) TargetAnchor = overhead;
 
                 for (int m = 0; m < gpuModel.Submeshes.Count; m++)
                 {

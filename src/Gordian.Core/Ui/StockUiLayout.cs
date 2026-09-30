@@ -114,6 +114,13 @@ namespace Gordian.Core.Ui
         public PartyStatusIconSide PartyStatusIconSide { get; set; } = PartyStatusIconSide.Left;
 
         /// <summary>
+        /// Multiplies the size of the in-world name plates (1 = the default; <c>/uilayout names &lt;n&gt;</c>).
+        /// </summary>
+        public float NamePlateScale { get; set; } = 1.0f;
+
+        public const float MinNamePlateScale = 0.5f, MaxNamePlateScale = 3.0f;
+
+        /// <summary>
         /// The window skin (1-8, ROM/0/14-21), chosen on the config menu's Windows page ("Window Type") as in retail.
         /// </summary>
         public int WindowSkin { get; set; } = 1;
@@ -243,6 +250,12 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
+        public void SetNamePlateScale(float scale)
+        {
+            lock (_sync) NamePlateScale = Math.Clamp(scale, MinNamePlateScale, MaxNamePlateScale);
+            Changed?.Invoke();
+        }
+
         public void SetShowPartyTp(bool show)
         {
             lock (_sync) ShowPartyTp = show;
@@ -313,6 +326,7 @@ namespace Gordian.Core.Ui
                 ShowPartyTp = false;
                 ShowPartyStatusIcons = false;
                 PartyStatusIconSide = PartyStatusIconSide.Left;
+                NamePlateScale = 1.0f;
             }
             Changed?.Invoke();
         }

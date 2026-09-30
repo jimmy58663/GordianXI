@@ -5,6 +5,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Text;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Network.Packets
 {
@@ -231,6 +232,43 @@ namespace Gordian.Core.Network.Packets
         /// Fully hidden and untargetable (Flags1 bit 1, HideFlag).
         /// </summary>
         public bool IsHidden => ((Flags1 >> 1) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>Flags4</c> (payload 0x2F): bit 1 TrialFlag, bit 6 JobMasterFlag. 0 when the packet is too short.
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D flags4_t.
+        /// </summary>
+        public byte Flags4 => _payload.Length > 0x2F ? _payload[0x2F] : (byte)0;
+
+        /// <summary>
+        /// The name plate flags: flags1 LfgFlag (11), AnonymousFlag (12), YellFlag (13), AwayFlag (14), PlayOnelineFlag
+        /// (16), LinkShellFlag (17), LinkDeadFlag (18), BazaarFlag (31); flags2 GmIconFlag (28), AutoPartyFlag (31);
+        /// flags3 LfgMasterFlag (1), NewCharacterFlag (23), MentorFlag (24); flags4 TrialFlag (1), JobMasterFlag (6).
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D.
+        /// </summary>
+        public NamePlateFlags NamePlate
+        {
+            get
+            {
+                var flags = NamePlateFlags.None;
+                if ((Flags1 & (1u << 11)) != 0) flags |= NamePlateFlags.SeekingParty;
+                if ((Flags1 & (1u << 12)) != 0) flags |= NamePlateFlags.Anonymous;
+                if ((Flags1 & (1u << 13)) != 0) flags |= NamePlateFlags.CalledForHelp;
+                if ((Flags1 & (1u << 14)) != 0) flags |= NamePlateFlags.Away;
+                if ((Flags1 & (1u << 16)) != 0) flags |= NamePlateFlags.PlayOnline;
+                if ((Flags1 & (1u << 17)) != 0) flags |= NamePlateFlags.Linkshell;
+                if ((Flags1 & (1u << 18)) != 0) flags |= NamePlateFlags.LinkDead;
+                if ((Flags1 & (1u << 31)) != 0) flags |= NamePlateFlags.Bazaar;
+                if ((Flags2 & (1u << 28)) != 0) flags |= NamePlateFlags.GmIconHidden;
+                if ((Flags2 & (1u << 31)) != 0) flags |= NamePlateFlags.AutoParty;
+                if ((Flags3 & (1u << 1)) != 0) flags |= NamePlateFlags.SeekingMasterParty;
+                if ((Flags3 & (1u << 23)) != 0) flags |= NamePlateFlags.NewPlayer;
+                if ((Flags3 & (1u << 24)) != 0) flags |= NamePlateFlags.Mentor;
+                byte flags4 = Flags4;
+                if ((flags4 & 0x02) != 0) flags |= NamePlateFlags.Trial;
+                if ((flags4 & 0x40) != 0) flags |= NamePlateFlags.JobMaster;
+                return flags;
+            }
+        }
 
         /// <summary>
         /// Reads the 9-element equipment/model visual appearance table (GrapIDTbl) if model flag is set.
@@ -526,6 +564,23 @@ namespace Gordian.Core.Network.Packets
         public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
 
         /// <summary>
+        /// The name plate flags an NPC or monster carries: flags1 YellFlag (13, orange name), flags3 MentorFlag (24, the
+        /// A.M.A.N. Liaison's tutorial "i") and flags3 <c>unknown_3_5</c> (29, health bar and name not drawn).
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t / flags3_t.
+        /// </summary>
+        public NamePlateFlags NamePlate
+        {
+            get
+            {
+                var flags = NamePlateFlags.None;
+                if ((Flags1 & (1u << 13)) != 0) flags |= NamePlateFlags.CalledForHelp;
+                if ((Flags3 & (1u << 24)) != 0) flags |= NamePlateFlags.InfoNpc;
+                if ((Flags3 & (1u << 29)) != 0) flags |= NamePlateFlags.NameHidden;
+                return flags;
+            }
+        }
+
+        /// <summary>
         /// Look size / model type: 0 = MODEL_STANDARD, 1 = MODEL_EQUIPPED, 2 = DOOR, 3 = ELEVATOR, etc. This is the
         /// <c>SubKind:3</c> field of the u16 at payload 0x2C; its upper 13 bits are the unused <c>Status</c>.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) mmo.h and entity_update.h,
@@ -754,6 +809,7 @@ namespace Gordian.Core.Network.Packets
                 PetActorIndex = 0;
                 MountId = 0;
                 WardrobeMask = 0;
+                _flags4 = 0;
                 IsValid = false;
                 return;
             }
@@ -778,6 +834,7 @@ namespace Gordian.Core.Network.Packets
             PetActorIndex = (ushort)((Flags2 >> 3) & 0xFFFF);
             MountId = payload.Length >= 0x58 ? payload[0x57] : (byte)0;
             WardrobeMask = payload.Length >= 0x59 ? payload[0x58] : (byte)0;
+            _flags4 = payload.Length > 0x54 ? payload[0x54] : (byte)0;
 
             IsValid = true;
         }
@@ -788,6 +845,45 @@ namespace Gordian.Core.Network.Packets
         public bool IsInvisible => ((Flags1 >> 15) & 0x01) != 0;
         public bool HasBazaar => ((Flags1 >> 29) & 0x01) != 0;
         public bool IsCharmed => ((Flags1 >> 30) & 0x01) != 0;
+
+        /// <summary>GM level (flags0 bits 29-31).</summary>
+        public byte GmLevel => (byte)((Flags0 >> 29) & 0x07);
+
+        /// <summary>Flags4 (payload 0x54): bit 7 JobMasterFlag. 0 when the packet is too short.</summary>
+        public byte Flags4 => _flags4;
+
+        private readonly byte _flags4;
+
+        /// <summary>
+        /// The local player's name plate flags: flags0 LfgFlag (4), AnonymousFlag (5), CfhFlag (6), AwayFlag (7),
+        /// PlayOnelineFlag (24), LinkShellFlag (25), LinkDeadFlag (26); flags1 BazaarFlag (29), GmIconFlag (31); flags2
+        /// AutoPartyFlag (2); flags3 LfgMasterFlag (0), TrialFlag (1), NewCharacterFlag (3), MentorFlag (4); flags4
+        /// JobMasterFlag (7). The bit positions differ from 0x00D's.
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
+        /// </summary>
+        public NamePlateFlags NamePlate
+        {
+            get
+            {
+                var flags = NamePlateFlags.None;
+                if ((Flags0 & (1u << 4)) != 0) flags |= NamePlateFlags.SeekingParty;
+                if ((Flags0 & (1u << 5)) != 0) flags |= NamePlateFlags.Anonymous;
+                if ((Flags0 & (1u << 6)) != 0) flags |= NamePlateFlags.CalledForHelp;
+                if ((Flags0 & (1u << 7)) != 0) flags |= NamePlateFlags.Away;
+                if ((Flags0 & (1u << 24)) != 0) flags |= NamePlateFlags.PlayOnline;
+                if ((Flags0 & (1u << 25)) != 0) flags |= NamePlateFlags.Linkshell;
+                if ((Flags0 & (1u << 26)) != 0) flags |= NamePlateFlags.LinkDead;
+                if ((Flags1 & (1u << 29)) != 0) flags |= NamePlateFlags.Bazaar;
+                if ((Flags1 & (1u << 31)) != 0) flags |= NamePlateFlags.GmIconHidden;
+                if ((Flags2 & (1u << 2)) != 0) flags |= NamePlateFlags.AutoParty;
+                if ((Flags3 & (1u << 0)) != 0) flags |= NamePlateFlags.SeekingMasterParty;
+                if ((Flags3 & (1u << 1)) != 0) flags |= NamePlateFlags.Trial;
+                if ((Flags3 & (1u << 3)) != 0) flags |= NamePlateFlags.NewPlayer;
+                if ((Flags3 & (1u << 4)) != 0) flags |= NamePlateFlags.Mentor;
+                if ((_flags4 & 0x80) != 0) flags |= NamePlateFlags.JobMaster;
+                return flags;
+            }
+        }
     }
 
     /// <summary>

@@ -1527,7 +1527,7 @@ namespace Gordian.Core.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
             "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
@@ -1593,6 +1593,12 @@ namespace Gordian.Core.Actions
                     ? $"Party member status icons shown on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()} of the party window."
                     : "Party member status icons hidden (retail).", Kind);
             }
+            if (first == "names" && parts.Length == 2 && (parts[1].Equals("default", StringComparison.OrdinalIgnoreCase) || TryFloat(parts[1], out _)))
+            {
+                // The in-world name plates' size, as a multiple of the default.
+                layout.SetNamePlateScale(TryFloat(parts[1], out float names) ? names : 1.0f);
+                return PlayerActionResult.Ok($"Name plate size {layout.NamePlateScale:0.##}x.", Kind);
+            }
             if (first == "scale" && parts.Length == 2 && TryFloat(parts[1], out float globalScale))
             {
                 layout.SetScale(globalScale);
@@ -1640,7 +1646,8 @@ namespace Gordian.Core.Actions
         private static string DescribeUiLayout(StockUiLayout layout)
         {
             var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}, window skin {layout.WindowSkin}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}" +
-                (layout.ShowPartyStatusIcons ? $", party status icons on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()}" : string.Empty));
+                (layout.ShowPartyStatusIcons ? $", party status icons on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()}" : string.Empty) +
+                (layout.NamePlateScale != 1.0f ? $", name plates {layout.NamePlateScale:0.##}x" : string.Empty));
             var overrides = layout.GetOverrides();
             if (overrides.Count == 0) return sb.Append("; every window at its retail placement.").ToString();
             foreach (var (id, o) in overrides)

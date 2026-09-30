@@ -72,6 +72,15 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(service.ApplyUiLayoutCommand("tp on").Success);
             Assert.True(layout.ShowPartyTp);
 
+            // Name plate size: a multiple of the default, clamped; "default" restores it.
+            Assert.True(service.ApplyUiLayoutCommand("names 1.25").Success);
+            Assert.Equal(1.25f, layout.NamePlateScale);
+            Assert.True(service.ApplyUiLayoutCommand("names 10").Success);
+            Assert.Equal(StockUiLayout.MaxNamePlateScale, layout.NamePlateScale);
+            Assert.True(service.ApplyUiLayoutCommand("names default").Success);
+            Assert.Equal(1.0f, layout.NamePlateScale);
+            Assert.False(service.ApplyUiLayoutCommand("names big").Success);
+
             // Opt-in party member status icons: on (left by default), a side, off.
             Assert.True(service.ApplyUiLayoutCommand("buffs on").Success);
             Assert.True(layout.ShowPartyStatusIcons);

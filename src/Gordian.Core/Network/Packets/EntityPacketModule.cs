@@ -213,27 +213,34 @@ namespace Gordian.Core.Network.Packets
                 player.ClaimServerId = pc.BtTargetId;
             }
 
-            player.GmLevel = pc.GmLevel;
-            if (pc.UniqueNo == _localPlayer.ServerId)
+            // The client reads the name plate flags and the linkshell colour only from updates with the General bit set;
+            // position-only updates leave those fields empty (a running player's pearl vanished until they stopped).
+            // Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D, SendFlg handling.
+            bool general = isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0;
+            if (general)
             {
-                _localPlayer.GmLevel = pc.GmLevel;
+                player.GmLevel = pc.GmLevel;
+                if (pc.UniqueNo == _localPlayer.ServerId)
+                {
+                    _localPlayer.GmLevel = pc.GmLevel;
+                }
+                player.IsSeekingParty = pc.IsSeekingParty;
+                player.IsAnonymous = pc.IsAnonymous;
+                player.IsAway = pc.IsAway;
+                player.HasBazaar = pc.HasBazaar;
+                player.IsMentor = pc.IsMentor;
+                player.IsNewPlayer = pc.IsNewPlayer;
+                player.NamePlate = pc.NamePlate;
+                player.LsColorR = pc.LsColorR;
+                player.LsColorG = pc.LsColorG;
+                player.LsColorB = pc.LsColorB;
             }
-            player.IsSeekingParty = pc.IsSeekingParty;
-            player.IsAnonymous = pc.IsAnonymous;
-            player.IsAway = pc.IsAway;
             player.IsInvisible = pc.IsInvisible;
             player.GraphSize = pc.GraphSize;
             player.IsHidden = pc.IsHidden;
             player.IsNonBlocking = pc.IsNonBlocking;
             if (pc.HasPosition) player.IgnoresWorldCollision = pc.IgnoresWorldCollision;
-            player.HasBazaar = pc.HasBazaar;
             player.IsCharmed = pc.IsCharmed;
-            player.IsMentor = pc.IsMentor;
-            player.IsNewPlayer = pc.IsNewPlayer;
-
-            player.LsColorR = pc.LsColorR;
-            player.LsColorG = pc.LsColorG;
-            player.LsColorB = pc.LsColorB;
 
             player.PetActorIndex = pc.PetActorIndex;
             player.Appearance.CostumeId = pc.CostumeId;
@@ -387,6 +394,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 entity.IsNonBlocking = npcPacket.IsNonBlocking;
+                entity.NamePlate = npcPacket.NamePlate;
                 entity.Hpp = npcPacket.Hpp;
                 entity.AnimationState = npcPacket.ServerStatus;
                 entity.AnimationSub = npcPacket.AnimationSub;
@@ -477,6 +485,7 @@ namespace Gordian.Core.Network.Packets
             _localPlayer.UpdateFromCharStatus(charStatus);
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
+                localEnt.NamePlate = charStatus.NamePlate;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a
                 // standing player play a step on every status update.
