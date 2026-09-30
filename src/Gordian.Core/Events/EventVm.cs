@@ -23,55 +23,102 @@ namespace Gordian.Core.Events
     /// zone map behind it (the map itself is not drawn yet), 0x9D reads the scripts' tables, and 0x00 / 0x21 end the event, after which the client sends 0x05B mode 0 with work value 1
     /// (0x40000000 when the player cancelled a query).
     /// </para>
-    /// The retail VM runs up to 16 request stacks so several actors can act at once; this interpreter runs the
-    /// event's own stack only and steps over the request opcodes (0x27-0x2A).
+    /// <para>
+    /// Each entity taking part in an event has its own VM, and all of an event's VMs share one <see cref="EventScene"/>
+    /// (#85). A VM holds 16 request stacks (XiEvents "Event VM Structures.md", <c>reqstack_t</c>): each is a program
+    /// position with a priority (lower runs first, 255 = free), its own wait timer and the slot (<c>TagNum</c>) of
+    /// the event it runs. The event's own stack starts at priority 16; every frame the VM runs its most urgent stack
+    /// until it yields (XiEvent::EventIdle). 0x00 (and 0x1B with nothing to return to) frees the running stack; 0x21
+    /// ends the whole event. The companion opcodes 0x27-0x29 queue a request on another entity's VM (XiEvent::ReqSet):
+    /// that entity runs the event at <em>slot</em> n of its own offset table, not event id n (xi-tools
+    /// <c>docs/events/retail-events.md</c>, "The one rule"); 0x28 then waits until the entity has started it, 0x29
+    /// until it has finished it, and 0x2A waits until the entity has nothing queued at or above a priority.
+    /// </para>
     /// </summary>
     public sealed class EventVm
     {
         /// <summary>The 0x05B end parameter of an event the player cancelled.</summary>
         public const uint CancelledEndParameter = 0x40000000;
 
+        /// <summary>The priority of the event's own request stack at its start (XiEvent::XiEventInit).</summary>
+        public const int StartPriority = 16;
+
+        /// <summary>The priority of a free request stack.</summary>
+        public const int FreePriority = 255;
+
+        /// <summary>The number of request stacks of a VM.</summary>
+        public const int RequestStackCount = 16;
+
         /// <summary>
         /// Runaway guard only: the home point script walks its zone tables in nested loops of tens of thousands of
         /// opcodes within one tick (retail runs them without a limit).
         /// </summary>
         private const int MaxStepsPerTick = 2_000_000;
-        private const float FramesPerSecond = 60f;
+
+        /// <summary>One request stack (XiEvents <c>reqstack_t</c>).</summary>
+        private struct RequestStack
+        {
+            public int Priority;
+            public int Pc;
+            public float WaitTime;
+            public int Slot;
+            public byte RequestFlag;
+            public uint Who;
+        }
 
         private readonly byte[] _code;
         private readonly int[] _references;
+        private readonly IReadOnlyList<ushort> _offsets;
         private readonly int[] _local = new int[80];
         private readonly int[] _jumpStack = new int[8];
+        private readonly RequestStack[] _stacks = new RequestStack[RequestStackCount];
         private readonly EventWorkZone _zone;
         private readonly IEventVmHost _host;
         private int _jumpDepth;
+        private int _runPos;
         private int _pc;
         private bool _retFlag;
-        private float _waitTime = -1f;
         private float _frameDelay;
-        private double _messageOpenSeconds;
         private bool _queryOpen;
         private float _eventX, _eventY, _eventZ, _eventDir;
 
+        /// <summary>A VM that is its event's only entity (its own <see cref="EventScene"/> on the given work zone).</summary>
         public EventVm(EventBlock block, ushort eventId, EventWorkZone zone, IEventVmHost host, uint entityServerId, ushort entityIndex)
+            : this(block, eventId, new EventScene(zone), host, entityServerId, entityIndex)
+        {
+        }
+
+        /// <summary>The VM of one entity of an event; it joins <paramref name="scene"/>.</summary>
+        public EventVm(EventBlock block, ushort eventId, EventScene scene, IEventVmHost host, uint entityServerId, ushort entityIndex)
         {
             ArgumentNullException.ThrowIfNull(block);
-            _zone = zone ?? throw new ArgumentNullException(nameof(zone));
+            Scene = scene ?? throw new ArgumentNullException(nameof(scene));
+            _zone = scene.Zone;
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _code = block.Code;
+            _offsets = block.Offsets;
             _references = new int[block.References.Count];
             for (int i = 0; i < _references.Length; i++) _references[i] = unchecked((int)block.References[i]);
             EntityServerId = entityServerId;
             EntityIndex = entityIndex;
             EventId = eventId;
-            // Only the start is used: an event's code may jump or call past the next event's offset (actor blocks
-            // share code), so execution is bounded by the block's code and the end opcodes, not by that offset.
-            if (!block.TryGetEvent(eventId, out _pc, out _))
+            for (int i = 0; i < _stacks.Length; i++) FreeStack(i);
+            // The event id, else the block's catch-all (XiEvent::XiEventInit). Only the start is used: an event's code
+            // may jump or call past the next event's offset (actor blocks share code), so execution is bounded by the
+            // block's code and the end opcodes, not by that offset.
+            int slot = block.IndexOf(eventId);
+            CarriesEvent = slot >= 0;
+            if (slot < 0) slot = block.IndexOf(EventBlock.AnyEventId);
+            if (slot >= 0)
             {
-                _pc = 0;
-                IsFinished = true;
+                _stacks[0] = new RequestStack { Priority = StartPriority, Pc = _offsets[slot], WaitTime = -1f, Slot = slot, Who = entityServerId };
+                _pc = _offsets[slot];
             }
+            scene.Add(this);
         }
+
+        /// <summary>The event this VM takes part in.</summary>
+        public EventScene Scene { get; }
 
         public ushort EventId { get; }
 
@@ -79,17 +126,33 @@ namespace Gordian.Core.Events
         public uint EntityServerId { get; }
         public ushort EntityIndex { get; }
 
-        /// <summary>Whether the event ran to its end (or was cut short); the client then sends 0x05B mode 0.</summary>
-        public bool IsFinished { get; private set; }
+        /// <summary>Whether the block carries the event id itself, not only the catch-all.</summary>
+        public bool CarriesEvent { get; }
+
+        /// <summary>Whether any request stack of this VM still has work.</summary>
+        public bool HasRequests
+        {
+            get
+            {
+                foreach (var stack in _stacks)
+                {
+                    if (stack.Priority != FreePriority) return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>Whether this VM has nothing left to run, or the event ended; the client then sends 0x05B mode 0.</summary>
+        public bool IsFinished => Scene.IsEnded || !HasRequests;
 
         /// <summary>Whether the player cancelled a query, which ends the event with <see cref="CancelledEndParameter"/>.</summary>
-        public bool IsCancelled { get; private set; }
+        public bool IsCancelled => Scene.IsCancelled;
 
         /// <summary>Whether a printed message is still open (the player's confirm closes it early).</summary>
-        public bool IsWaitingForConfirm => _messageOpenSeconds > 0;
+        public bool IsWaitingForConfirm => Scene.IsWaitingForConfirm;
 
         /// <summary>The value the end packet reports.</summary>
-        public uint EndParameter => IsCancelled ? CancelledEndParameter : unchecked((uint)_zone.EndParameter);
+        public uint EndParameter => Scene.EndParameter;
 
         /// <summary>Current byte-code position, for diagnostics.</summary>
         public int ProgramCounter => _pc;
@@ -101,51 +164,206 @@ namespace Gordian.Core.Events
         public IReadOnlyList<int> Locals => _local;
 
         /// <summary>The player confirmed the open message: the event goes on at its next tick.</summary>
-        public void Confirm() => _messageOpenSeconds = 0;
+        public void Confirm() => Scene.Confirm();
 
         /// <summary>Stops the event where it is (a server cancel, or a zone change).</summary>
-        public void Abort(bool cancelled)
-        {
-            if (cancelled) IsCancelled = true;
-            Finish();
-        }
+        public void Abort(bool cancelled) => Scene.End(cancelled);
 
-        /// <summary>Runs the event until it yields (a wait, a prompt, a query, a server round trip) or ends.</summary>
-        public void Tick(TimeSpan elapsed)
+        /// <summary>
+        /// Runs one frame of this VM's event (its <see cref="Scene"/>, which ticks every entity of the event): until
+        /// each yields (a wait, a prompt, a query, a server round trip) or ends.
+        /// </summary>
+        public void Tick(TimeSpan elapsed) => Scene.Tick(elapsed);
+
+        /// <summary>
+        /// Runs this VM's most urgent request stack until it yields (XiEvent::EventIdle); called by the scene once a
+        /// frame with the frames since the last one.
+        /// </summary>
+        internal void Run(float frameDelay)
         {
-            if (IsFinished) return;
-            // Retail's frame delay: the 60 Hz frames since the last tick, the same for every opcode of the tick.
-            _frameDelay = (float)(elapsed.TotalSeconds * FramesPerSecond);
-            if (_messageOpenSeconds > 0) _messageOpenSeconds = Math.Max(0, _messageOpenSeconds - elapsed.TotalSeconds);
+            if (Scene.IsEnded) return;
+            int priority = FreePriority;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_stacks[i].Priority <= priority)
+                {
+                    priority = _stacks[i].Priority;
+                    _runPos = i;
+                }
+            }
+            if (priority == FreePriority) return;
+            _frameDelay = frameDelay;
+            _pc = _stacks[_runPos].Pc;
             _retFlag = false;
             int steps = 0;
-            while (!_retFlag && !IsFinished)
+            while (!_retFlag)
             {
                 if (++steps > MaxStepsPerTick)
                 {
                     _host.OnSkippedOpcode(0xFF, _pc);
-                    Finish();
-                    return;
+                    EndRequest();
+                    break;
                 }
                 if (_pc < 0 || _pc >= _code.Length)
                 {
-                    Finish();
-                    return;
+                    EndRequest();
+                    break;
                 }
                 Step();
             }
+            if (_stacks[_runPos].Priority != FreePriority) _stacks[_runPos].Pc = _pc;
         }
 
-        private void Finish()
+        /// <summary>Frees the running request stack (opcode 0x00; 0x1B with an empty return stack).</summary>
+        private void EndRequest()
         {
-            IsFinished = true;
+            FreeStack(_runPos);
             _retFlag = true;
-            if (_queryOpen)
-            {
-                _queryOpen = false;
-                _host.CloseQuery();
-            }
+            if (!HasRequests) CloseQuery();
         }
+
+        private void FreeStack(int index) =>
+            _stacks[index] = new RequestStack { Priority = FreePriority, Pc = 0, WaitTime = -1f, Slot = 0, Who = 0 };
+
+        /// <summary>Ends the whole event (0x21, a cancelled query).</summary>
+        private void EndEvent(bool cancelled)
+        {
+            Scene.End(cancelled);
+            _retFlag = true;
+        }
+
+        /// <summary>Closes this VM's query if one is open (the event or its last request ended).</summary>
+        internal void CloseQuery()
+        {
+            if (!_queryOpen) return;
+            _queryOpen = false;
+            _host.CloseQuery();
+        }
+
+        #region Requests
+
+        /// <summary>
+        /// Queues the event at <paramref name="slot"/> of this VM's offset table at <paramref name="priority"/>
+        /// (XiEvent::ReqSet): 0 when that slot is already queued or running, 1 when queued, 2 when no stack is free,
+        /// -1 for a slot the block does not have.
+        /// </summary>
+        private int RequestSet(int slot, int priority, uint who)
+        {
+            if (slot < 0 || slot >= _offsets.Count) return -1;
+            int free = -1;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_stacks[i].Priority == FreePriority) free = i;
+                else if (_stacks[i].Slot == slot) return 0;
+            }
+            if (free < 0) return 2;
+            _stacks[free] = new RequestStack { Priority = priority, Pc = _offsets[slot], WaitTime = -1f, Slot = slot, Who = who };
+            return 1;
+        }
+
+        /// <summary>
+        /// Where the event at <paramref name="slot"/> stands on this VM (XiEvent::GetReqStatus): 0 while it is the
+        /// running stack, 1 while it waits in another stack, -1 once no stack holds it.
+        /// </summary>
+        private int RequestStatus(int slot)
+        {
+            if (_stacks[_runPos].Priority != FreePriority && _stacks[_runPos].Slot == slot) return 0;
+            foreach (var stack in _stacks)
+            {
+                if (stack.Priority != FreePriority && stack.Slot == slot) return 1;
+            }
+            return -1;
+        }
+
+        /// <summary>Whether every stack of this VM is less urgent than <paramref name="priority"/> (XiEvent::GetReqLevel).</summary>
+        private bool IsFreeAt(int priority)
+        {
+            foreach (var stack in _stacks)
+            {
+                if (stack.Priority <= priority) return false;
+            }
+            return true;
+        }
+
+        /// <summary>The VM of the entity an actor operand names, when it takes part in the event.</summary>
+        private EventVm? RequestTarget(int lookup)
+        {
+            var (serverId, _) = ResolveActor(lookup);
+            return Scene.FindActor(serverId);
+        }
+
+        /// <summary>
+        /// 0x27 (CodeREQ), 0x28 (CodeREQSW) and 0x29 (CodeREQEW): <c>op priority actor:u32 slot</c>. Queue the event at
+        /// <c>slot</c> on the actor; 0x27 goes on at once (retrying while the actor has no free stack), 0x28 waits
+        /// until the actor has started it and 0x29 until the actor has finished it. The waits are kept in the running
+        /// stack's request flag (1 = queued, 2 = started). Referenced from XiEvents OpCodes 0x0027-0x0029; the
+        /// decompiled status tests read inverted against the opcodes' names (start wait / end wait) and would never
+        /// release an end wait, so the waits here follow the names.
+        /// </summary>
+        private void ExecRequest(byte op)
+        {
+            int priority = Code8(1);
+            int slot = Code8(6);
+            var target = RequestTarget(Code32(2));
+            ref var stack = ref _stacks[_runPos];
+            if (op == 0x27 || stack.RequestFlag == 0)
+            {
+                int result = target?.RequestSet(slot, priority, EntityServerId) ?? -1;
+                if (result == 2)
+                {
+                    _retFlag = true; // no free stack yet: ask again next frame
+                    return;
+                }
+                if (op != 0x27 && result == 1)
+                {
+                    stack.RequestFlag = 1;
+                    _retFlag = true;
+                    return;
+                }
+                stack.RequestFlag = 0;
+                _pc += 7;
+                return;
+            }
+            int status = target?.RequestStatus(slot) ?? -1;
+            if (stack.RequestFlag == 1)
+            {
+                if (status == 1)
+                {
+                    _retFlag = true; // still queued behind the actor's more urgent work
+                    return;
+                }
+                if (op == 0x29 && status == 0)
+                {
+                    stack.RequestFlag = 2;
+                    _retFlag = true;
+                    return;
+                }
+            }
+            else if (status != -1)
+            {
+                _retFlag = true; // 0x29: the actor is still running it
+                return;
+            }
+            stack.RequestFlag = 0;
+            _pc += 7;
+        }
+
+        /// <summary>
+        /// 0x2A: <c>op priority actor:u32</c>, waits until the actor has no request at or above the priority
+        /// (XiEvents OpCodes/0x002A, XiEvent::GetReqLevel); an actor outside the event does not hold it.
+        /// </summary>
+        private void ExecRequestLevelWait()
+        {
+            var target = RequestTarget(Code32(2));
+            if (target != null && !target.IsFreeAt(Code8(1)))
+            {
+                _retFlag = true;
+                return;
+            }
+            _pc += 6;
+        }
+
+        #endregion
 
         private ushort Code16(int offset) =>
             _pc + offset + 1 < _code.Length ? BinaryPrimitives.ReadUInt16LittleEndian(_code.AsSpan(_pc + offset, 2)) : (ushort)0;
@@ -226,7 +444,8 @@ namespace Gordian.Core.Events
 
         /// <summary>
         /// The entity an actor operand names (XiEvents' <c>GetActorIndex</c>): the player's hard-coded numbers, the
-        /// event's own entity (0x7FFFFFF8 and any value without a zone prefix), or an NPC server id.
+        /// party and alliance members by slot, the event's own entity (0x7FFFFFF8 and any value without a zone prefix),
+        /// or an NPC server id.
         /// </summary>
         private (uint ServerId, ushort Index) ResolveActor(int lookup)
         {
@@ -240,8 +459,30 @@ namespace Gordian.Core.Events
                 case 0x7FFFFFF8:
                     return (EntityServerId, EntityIndex);
             }
+            if (TryGetPartySlot(value, out int party, out int slot))
+            {
+                return _host.TryGetPartyMember(party, slot, out uint serverId, out ushort index) ? (serverId, index) : (uint.MaxValue, (ushort)0);
+            }
             if ((value & 0xFF000000) != 0) return (value, (ushort)(value & 0x3FF));
             return (EntityServerId, EntityIndex);
+        }
+
+        /// <summary>
+        /// The party slot an actor code names (XiEvents "Event VM Functions.md", GetActorNum / GetActorIndex):
+        /// 0x7FFFFFC1-C5 and 0x7FFFFFF1-F5 are the other members of the player's party (slots 1-5), 0x7FFFFFC6-CB
+        /// and 0x7FFFFFCC-D1 the members of alliance parties 1 and 2 (slots 0-5).
+        /// </summary>
+        public static bool TryGetPartySlot(uint code, out int party, out int slot)
+        {
+            (party, slot) = code switch
+            {
+                >= 0x7FFFFFC1 and <= 0x7FFFFFC5 => (0, (int)(code - 0x7FFFFFC0)),
+                >= 0x7FFFFFC6 and <= 0x7FFFFFCB => (1, (int)(code - 0x7FFFFFC6)),
+                >= 0x7FFFFFCC and <= 0x7FFFFFD1 => (2, (int)(code - 0x7FFFFFCC)),
+                >= 0x7FFFFFF1 and <= 0x7FFFFFF5 => (0, (int)(code - 0x7FFFFFF0)),
+                _ => (-1, -1),
+            };
+            return party >= 0;
         }
 
         private static int BitMask(int from, int to)
@@ -262,7 +503,7 @@ namespace Gordian.Core.Events
             switch (op)
             {
                 case 0x00:
-                    Finish();
+                    EndRequest();
                     return;
                 case 0x01:
                     _pc = Code16(1);
@@ -326,14 +567,17 @@ namespace Gordian.Core.Events
                     return;
                 case 0x1B:
                     if (_jumpDepth > 0) _pc = _jumpStack[--_jumpDepth];
-                    else Finish();
+                    else EndRequest();
                     return;
                 case 0x1C:
-                    if (_waitTime < 0f) _waitTime = GetWork(1);
-                    _waitTime -= _frameDelay;
+                {
+                    ref float wait = ref _stacks[_runPos].WaitTime;
+                    if (wait < 0f) wait = GetWork(1);
+                    wait -= _frameDelay;
                     _retFlag = true;
-                    if (_waitTime < 0f) _pc += 3;
+                    if (wait < 0f) _pc += 3;
                     return;
+                }
                 case 0x1D:
                     PrintMessage(GetWork(1), EventSpeaker.Entity, EntityServerId, EntityIndex);
                     _pc += 3;
@@ -343,10 +587,10 @@ namespace Gordian.Core.Events
                     _pc += 2;
                     return;
                 case 0x21:
-                    Finish();
+                    EndEvent(false);
                     return;
                 case 0x23:
-                    if (_messageOpenSeconds > 0) _retFlag = true;
+                    if (Scene.IsWaitingForConfirm) _retFlag = true;
                     else _pc++;
                     return;
                 case 0x24:
@@ -378,7 +622,7 @@ namespace Gordian.Core.Events
                             return;
                         default:
                             _host.OnSkippedOpcode(op, _pc);
-                            Finish();
+                            EndRequest();
                             return;
                     }
                 case 0x25:
@@ -386,7 +630,15 @@ namespace Gordian.Core.Events
                     ExecQueryWait(op == 0x25);
                     return;
                 case 0x26:
-                    Finish(); // yields forever in retail; nothing more of the dialog would show
+                    EndRequest(); // yields forever in retail; nothing more of the dialog would show
+                    return;
+                case 0x27:
+                case 0x28:
+                case 0x29:
+                    ExecRequest(op);
+                    return;
+                case 0x2A:
+                    ExecRequestLevelWait();
                     return;
                 case 0x2B:
                 {
@@ -524,11 +776,14 @@ namespace Gordian.Core.Events
                     _retFlag = true;
                     return;
                 case 0x6F:
-                    if (_waitTime < 0f) _waitTime = 16f; // a wait already running (0x1C) keeps its time
-                    _waitTime -= _frameDelay;
+                {
+                    ref float wait = ref _stacks[_runPos].WaitTime;
+                    if (wait < 0f) wait = 16f; // a wait already running (0x1C) keeps its time
+                    wait -= _frameDelay;
                     _retFlag = true;
-                    if (_waitTime < 0f) _pc++;
+                    if (wait < 0f) _pc++;
                     return;
+                }
                 case 0x82:
                     _pc = Code16(5); // the position rectangle test: not inside (no cutscene staging here)
                     return;
@@ -551,7 +806,7 @@ namespace Gordian.Core.Events
                     ExecTable();
                     return;
                 case 0xBE:
-                    SetWork(1, unchecked((int)EntityServerId));
+                    SetWork(1, unchecked((int)_stacks[_runPos].Who)); // who asked for the running request
                     _pc += 3;
                     return;
                 default:
@@ -560,7 +815,7 @@ namespace Gordian.Core.Events
                     _host.OnSkippedOpcode(op, _pc);
                     if (length <= 0)
                     {
-                        Finish();
+                        EndRequest();
                         return;
                     }
                     _pc += length;
@@ -675,7 +930,7 @@ namespace Gordian.Core.Events
                     return;
                 default:
                     _host.OnSkippedOpcode(0x9D, _pc);
-                    Finish();
+                    EndRequest();
                     return;
             }
         }
@@ -731,8 +986,7 @@ namespace Gordian.Core.Events
                 _zone.Selection = endOnCancel ? 254 : 255;
                 if (endOnCancel)
                 {
-                    IsCancelled = true;
-                    Finish();
+                    EndEvent(true);
                     return;
                 }
             }
@@ -745,7 +999,7 @@ namespace Gordian.Core.Events
 
         private void PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
-            _messageOpenSeconds = Math.Max(0, _host.PrintMessage(messageId, speaker, speakerServerId, speakerIndex));
+            Scene.OpenMessage(_host.PrintMessage(messageId, speaker, speakerServerId, speakerIndex));
         }
     }
 }

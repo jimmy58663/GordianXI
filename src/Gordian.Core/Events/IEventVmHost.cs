@@ -68,5 +68,17 @@ namespace Gordian.Core.Events
 
         /// <summary>An opcode the VM stepped over without running, for diagnostics.</summary>
         void OnSkippedOpcode(byte opcode, int pc);
+
+        /// <summary>
+        /// The member at <paramref name="slot"/> of party <paramref name="party"/> (0 = the player's own party, where
+        /// slot 0 is the player; 1 and 2 = the alliance's other parties), for the scripts' party actor codes
+        /// (<see cref="EventVm.TryGetPartySlot"/>). False when the slot is empty.
+        /// </summary>
+        bool TryGetPartyMember(int party, int slot, out uint serverId, out ushort index)
+        {
+            serverId = 0;
+            index = 0;
+            return false;
+        }
     }
 }

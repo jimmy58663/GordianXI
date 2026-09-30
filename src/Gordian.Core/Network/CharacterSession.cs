@@ -200,7 +200,8 @@ namespace Gordian.Core.Network
                 if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == Packets.LinkshellSlot.LS1 ? 1 : 2, true);
             };
             Locomotion.Chat = Chat;
-            Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName);
+            Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName,
+                Party, index => _ = EntityModule.RequestEntityInfoAsync(index));
             Locomotion.Events = Events;
             // The NPC shop (Tier 2 chunk 6c): S2C 0x03E / 0x03C / 0x03D drive the shop windows through the inventory
             // state; the windows send 0x083 (buy) and 0x084 + 0x085 (appraise, sell). A zone change ends the shop.
