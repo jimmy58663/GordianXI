@@ -161,7 +161,11 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// S2C 0x0DD (GP_SERV_COMMAND_GROUP_LIST): Detailed Party Member Information.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0dd_group_list.h).
+    /// The packet is sized to the name: the fixed fields end at payload 36, and the 16-byte <c>Name</c> is cut to the
+    /// name's length rounded up to 4 plus 4 bytes of padding (a 7-letter name gives a 48-byte payload). XiPackets lists
+    /// the size as varying.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0dd_group_list.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00DD).
     /// </summary>
     public readonly ref struct S2C_0x0DD_GroupList
     {
@@ -197,10 +201,14 @@ namespace Gordian.Core.Network.Packets
 
         private readonly ReadOnlySpan<byte> _payload;
 
+        /// <summary>Where the name starts; also the length of the fixed fields.</summary>
+        private const int NameOffset = 36;
+        private const int NameLength = 16;
+
         public S2C_0x0DD_GroupList(ReadOnlySpan<byte> payload)
         {
             _payload = payload;
-            if (payload.Length < 52)
+            if (payload.Length < NameOffset)
             {
                 UniqueNo = 0;
                 Hp = 0;
@@ -247,8 +255,8 @@ namespace Gordian.Core.Network.Packets
 
         public string GetName()
         {
-            if (!IsValid || _payload.Length < 52) return string.Empty;
-            var nameSlice = _payload.Slice(36, Math.Min(16, _payload.Length - 36));
+            if (!IsValid) return string.Empty;
+            var nameSlice = _payload.Slice(NameOffset, Math.Min(NameLength, _payload.Length - NameOffset));
             int nullIdx = nameSlice.IndexOf((byte)0);
             if (nullIdx >= 0) nameSlice = nameSlice.Slice(0, nullIdx);
             return Encoding.ASCII.GetString(nameSlice);

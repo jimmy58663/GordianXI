@@ -274,6 +274,59 @@ namespace Gordian.Core.Tests.Network
             Assert.False(partyState.HasPendingInvite);
         }
     
+        /// <summary>
+        /// A 0x0DD payload as LandSandBoat sizes it: the 36 fixed bytes, then the name padded to a multiple of 4 plus
+        /// 4 more bytes (0x0dd_group_list.cpp).
+        /// </summary>
+        private static byte[] NameSizedGroupList(uint uniqueNo, string name)
+        {
+            int nameSize = Math.Min(name.Length, 16);
+            byte[] payload = new byte[36 + ((nameSize + 3) / 4 * 4) + 4];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), uniqueNo);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 1234); // Hp
+            payload[25] = 80; // Hpp
+            Encoding.ASCII.GetBytes(name.Substring(0, nameSize)).CopyTo(payload.AsSpan(36));
+            return payload;
+        }
+
+        [Theory]
+        [InlineData("Knot", 44)]
+        [InlineData("Gordian", 48)]
+        [InlineData("Tarudrake", 52)]
+        [InlineData("Abcdefghijklmnop", 56)]
+        public void S2C_0x0DD_GroupList_ReadsNameSizedPackets(string name, int payloadLength)
+        {
+            byte[] payload = NameSizedGroupList(1002, name);
+            Assert.Equal(payloadLength, payload.Length);
+
+            var list = new S2C_0x0DD_GroupList(payload);
+
+            Assert.True(list.IsValid);
+            Assert.Equal(1234u, list.Hp);
+            Assert.Equal(name, list.GetName());
+        }
+
+        [Fact]
+        public void S2C_0x0DD_GroupList_RejectsAPayloadShorterThanTheFixedFields()
+        {
+            Assert.False(new S2C_0x0DD_GroupList(new byte[35]).IsValid);
+        }
+
+        [Fact]
+        public void GroupList_ForAShortName_NamesThePartyMember()
+        {
+            var party = new PartyState();
+            var dispatcher = new PacketDispatcher();
+            new PartyPacketModule(party, (_, _) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] payload = NameSizedGroupList(1002, "Knot");
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0DD_GroupList.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            var knot = party.Members.Single(m => m.ServerId == 1002);
+            Assert.Equal("Knot", knot.Name);
+            Assert.Equal(1234u, knot.Hp);
+        }
+
         [Fact]
         public void PartyVitals_SurviveRosterUpdates_AndFollowGroupAttr()
         {
