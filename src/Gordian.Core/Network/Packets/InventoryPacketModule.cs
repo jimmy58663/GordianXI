@@ -55,6 +55,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x03E_ShopOpen.PacketId, HandleShopOpen);
             dispatcher.Register(S2C_0x03F_ShopBuy.PacketId, HandleShopBuy);
             dispatcher.Register(S2C_0x04C_Auc.PacketId, HandleAuc);
+            dispatcher.Register(S2C_0x04F_EquipClear.PacketId, HandleEquipClear);
             dispatcher.Register(S2C_0x050_EquipList.PacketId, HandleEquipList);
             dispatcher.Register(S2C_0x082_GuildBuy.PacketId, HandleGuildBuy);
             dispatcher.Register(S2C_0x083_GuildBuyList.PacketId, HandleGuildBuyList);
@@ -92,6 +93,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x03E_ShopOpen.PacketId);
             dispatcher.Unregister(S2C_0x03F_ShopBuy.PacketId);
             dispatcher.Unregister(S2C_0x04C_Auc.PacketId);
+            dispatcher.Unregister(S2C_0x04F_EquipClear.PacketId);
             dispatcher.Unregister(S2C_0x050_EquipList.PacketId);
             dispatcher.Unregister(S2C_0x082_GuildBuy.PacketId);
             dispatcher.Unregister(S2C_0x083_GuildBuyList.PacketId);
@@ -245,6 +247,12 @@ namespace Gordian.Core.Network.Packets
             GordianLog.Info("AUCTION", $"Auction response: Command={p.Command}, Result={p.Result}, Item={p.ItemId}, Price={p.Price}");
             _inventoryState.SetAuctionResponse(new AuctionResponse(p.Command, p.AucWorkIndex, p.Result, p.ResultStatus,
                 p.ParcelStat, p.ParcelItemIndex, p.ItemId, p.Count, p.Price, p.SellerName));
+        }
+
+        private void HandleEquipClear(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            // The 0x050s that follow re-equip what is still worn.
+            _inventoryState.ClearEquipment();
         }
 
         private void HandleEquipList(PacketHeader header, ReadOnlySpan<byte> payload)

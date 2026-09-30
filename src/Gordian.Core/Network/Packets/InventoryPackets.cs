@@ -824,6 +824,24 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// S2C 0x04F (GP_SERV_COMMAND_EQUIP_CLEAR): clears every equipment slot. The server follows it with a 0x050 for
+    /// each slot still equipped, so any slot not resent is empty. LSB sends it at login and when it resyncs equipment
+    /// after an item transaction. The payload is 4 bytes of padding.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x004F, and the send
+    /// points from LandSandBoat (https://github.com/LandSandBoat/server) packets/c2s/0x00a_login.cpp and
+    /// entities/char_entity.cpp resyncEquipment.
+    /// </summary>
+    public readonly ref struct S2C_0x04F_EquipClear
+    {
+        public const ushort PacketId = 0x04F;
+        public bool IsValid => true;
+
+        public S2C_0x04F_EquipClear(ReadOnlySpan<byte> payload)
+        {
+        }
+    }
+
+    /// <summary>
     /// S2C 0x050: Equipped gear slot change update.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x050_equip_list.h).
     /// </summary>
