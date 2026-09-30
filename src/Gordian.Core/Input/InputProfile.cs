@@ -176,6 +176,24 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
+        /// Moves the gamepad d-pad left / right of a profile saved before the target cursor actions existed from Target
+        /// Previous / Target Nearest (Shift+Tab / Tab) to <see cref="InputAction.TargetCursorLeft"/> /
+        /// <see cref="InputAction.TargetCursorRight"/>, which cycle through yourself as retail's d-pad does.
+        /// </summary>
+        public void EnsureTargetCursorBindings()
+        {
+            if (GetChords(InputAction.TargetCursorLeft).Count > 0 || GetChords(InputAction.TargetCursorRight).Count > 0) return;
+            foreach (var (old, chord, action) in new[]
+            {
+                (InputAction.TargetPrevious, new InputChord(GamepadButton.DPadLeft), InputAction.TargetCursorLeft),
+                (InputAction.TargetNearest, new InputChord(GamepadButton.DPadRight), InputAction.TargetCursorRight),
+            })
+            {
+                if (Bindings.TryGetValue(old, out var chords) && chords.Remove(chord)) Bind(action, chord);
+            }
+        }
+
+        /// <summary>
         /// Gives a profile saved before the log windows could be selected the retail keys for it (keypad +, gamepad Y),
         /// taking them from the actions the old presets gave them (Target Nearest, Autorun).
         /// </summary>
@@ -464,8 +482,8 @@ namespace Gordian.Core.Input
 
             p.Bind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
             p.Bind(InputAction.TargetParty2, new InputChord(GamepadButton.DPadDown));
-            p.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.DPadLeft));
-            p.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.DPadRight));
+            p.Bind(InputAction.TargetCursorLeft, new InputChord(GamepadButton.DPadLeft));
+            p.Bind(InputAction.TargetCursorRight, new InputChord(GamepadButton.DPadRight));
 
             p.Bind(InputAction.MacroCtrl1, new InputChord(GamepadButton.LeftShoulder));
             p.Bind(InputAction.MacroAlt1, new InputChord(GamepadButton.RightShoulder));
@@ -488,6 +506,7 @@ namespace Gordian.Core.Input
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
+            profile.EnsureTargetCursorBindings();
             return profile;
         }
 

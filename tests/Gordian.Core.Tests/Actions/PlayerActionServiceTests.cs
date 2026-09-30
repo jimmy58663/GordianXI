@@ -608,5 +608,21 @@ namespace Gordian.Core.Tests.Actions
 
             Assert.Contains("Usage", _actionService.ApplyAnchorCommand("sideways").Message);
         }
+        [Fact]
+        public void SetTargetByPartySlot_CountsTheOtherMembersInPartyOrder()
+        {
+            _world.UpsertEntity(new WorldEntity(0x0A, 0x0A, EntityType.Player) { Name = "Second", IsSpawned = true });
+            _world.UpsertEntity(new WorldEntity(0x0B, 0x0B, EntityType.Player) { Name = "Third", IsSpawned = true });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x0B, Name = "Third", MemberNumber = 2 });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x01020304, Name = "TestPlayer", MemberNumber = 0 });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x0A, Name = "Second", MemberNumber = 1 });
+            _partyState.UpsertMember(new PartyMember { ServerId = 0x0C, Name = "OtherParty", MemberNumber = 0, PartyNumber = 1 });
+
+            Assert.True(_actionService.SetTargetByPartySlot(1));
+            Assert.Equal(0x0Au, _actionService.CurrentTarget?.ServerId);
+            Assert.True(_actionService.SetTargetByPartySlot(2));
+            Assert.Equal(0x0Bu, _actionService.CurrentTarget?.ServerId);
+            Assert.False(_actionService.SetTargetByPartySlot(3));
+        }
     }
 }

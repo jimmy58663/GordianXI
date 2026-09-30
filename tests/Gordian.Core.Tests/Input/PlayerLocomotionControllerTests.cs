@@ -336,6 +336,88 @@ namespace Gordian.Core.Tests.Input
             return (controller, input, world, player, localEnt, actionService);
         }
 
+        private static (WorldEntity left, WorldEntity right) PlaceTwoMobs(PlayerLocomotionController controller, WorldState world)
+        {
+            var leftMob = new WorldEntity(0x30, 0x30, EntityType.Monster) { Name = "Left", Position = TargetCyclingTests.InView(controller.Camera, Vector3.Zero, 10, -4), IsSpawned = true };
+            var rightMob = new WorldEntity(0x31, 0x31, EntityType.Monster) { Name = "Right", Position = TargetCyclingTests.InView(controller.Camera, Vector3.Zero, 30, 6), IsSpawned = true };
+            world.UpsertEntity(leftMob);
+            world.UpsertEntity(rightMob);
+            return (leftMob, rightMob);
+        }
+
+        private static GamepadState Pad(GamepadButton buttons) => new(true, buttons, Vector2.Zero, Vector2.Zero, 0f, 0f, 1);
+
+        [Fact]
+        public void Update_TabWithNoTarget_TargetsClosest()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            PlaceTwoMobs(controller, world);
+
+            input.SetKeyDown(GordianKey.Tab);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
+        public void Update_TabFromLeftMob_SkipsSelfToTheRightMob()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            var (leftMob, _) = PlaceTwoMobs(controller, world);
+            actionService.SetTarget(leftMob);
+
+            input.SetKeyDown(GordianKey.Tab);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(0x31u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
+        public void Update_KeyboardConfirmWithNoTarget_DoesNotTarget()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            PlaceTwoMobs(controller, world);
+
+            input.SetKeyDown(GordianKey.Space);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Null(actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void Update_GamepadAWithNoTarget_TargetsClosest()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            PlaceTwoMobs(controller, world);
+
+            input.SetGamepadState(Pad(GamepadButton.A));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
+        public void Update_DPadWithNoTarget_TargetsSelf_ThenStepsFromSelf()
+        {
+            var (controller, input, world, player, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            PlaceTwoMobs(controller, world);
+
+            input.SetGamepadState(Pad(GamepadButton.DPadRight));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(player.ServerId, actionService.CurrentTarget?.ServerId);
+
+            input.SetGamepadState(Pad(GamepadButton.None));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetGamepadState(Pad(GamepadButton.DPadLeft));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
+        }
+
         [Fact]
         public void Update_WhenLockedOn_FacesTargetDirectly()
         {

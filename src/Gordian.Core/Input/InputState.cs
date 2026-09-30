@@ -30,6 +30,7 @@ namespace Gordian.Core.Input
         private readonly HashSet<InputAction> _heldActions = new HashSet<InputAction>();
         private readonly HashSet<InputAction> _triggeredActions = new HashSet<InputAction>();
         private readonly HashSet<InputAction> _releasedActions = new HashSet<InputAction>();
+        private readonly HashSet<InputAction> _gamepadActions = new HashSet<InputAction>();
 
         // High-level movement state toggles
         public bool AutorunActive { get; set; }
@@ -210,6 +211,7 @@ namespace Gordian.Core.Input
                 _heldActions.Clear();
                 _triggeredActions.Clear();
                 _releasedActions.Clear();
+                _gamepadActions.Clear();
 
                 // 1. Evaluate Keyboard key chords
                 foreach (var key in _heldKeys)
@@ -288,6 +290,7 @@ namespace Gordian.Core.Input
                                 if (profile.TryGetAction(chord, menuContext, out var act))
                                 {
                                     _heldActions.Add(act);
+                                    _gamepadActions.Add(act);
                                 }
                                 else if (_modifiers != InputModifiers.None)
                                 {
@@ -295,6 +298,7 @@ namespace Gordian.Core.Input
                                     if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
                                     {
                                         _heldActions.Add(plainAct);
+                                        _gamepadActions.Add(plainAct);
                                     }
                                 }
                             }
@@ -366,6 +370,15 @@ namespace Gordian.Core.Input
         public bool WasActionTriggered(InputAction action)
         {
             lock (_lock) return _triggeredActions.Contains(action);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="action"/> was triggered this frame and a gamepad button holds it (retail gives some
+        /// actions an extra meaning on the pad, such as Confirm targeting the closest thing when nothing is targeted).
+        /// </summary>
+        public bool WasActionTriggeredByGamepad(InputAction action)
+        {
+            lock (_lock) return _triggeredActions.Contains(action) && _gamepadActions.Contains(action);
         }
 
         public bool WasActionReleased(InputAction action)

@@ -1127,31 +1127,28 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// Tab / Shift+Tab (and the triggers): the next / previous target by distance within 50 yalms, wrapping; the
-        /// nearest when nothing in range is targeted.
+        /// Tab / Shift+Tab (and the triggers) and the d-pad's left / right target cursor (see <see cref="TargetCycling"/>).
         /// </summary>
         private void UpdateTargetCycling()
         {
-            if (_actionService == null) return;
-            int direction = _inputState.WasActionTriggered(InputAction.TargetNearest) ? 1
-                : _inputState.WasActionTriggered(InputAction.TargetPrevious) ? -1 : 0;
-            if (direction == 0 || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
+            if (_inputState.WasActionTriggered(InputAction.TargetNearest)) CycleTarget(TargetCycleMode.TabRight);
+            else if (_inputState.WasActionTriggered(InputAction.TargetPrevious)) CycleTarget(TargetCycleMode.TabLeft);
+            else if (_inputState.WasActionTriggered(InputAction.TargetCursorRight)) CycleTarget(TargetCycleMode.CursorRight);
+            else if (_inputState.WasActionTriggered(InputAction.TargetCursorLeft)) CycleTarget(TargetCycleMode.CursorLeft);
+        }
 
-            var candidates = new List<WorldEntity>();
-            foreach (var candidate in _world.GetEntitiesInRadius(localEnt.Position, 50.0f))
-            {
-                if (candidate.ServerId != _localPlayer.ServerId && candidate.IsSpawned) candidates.Add(candidate);
-            }
-            if (candidates.Count == 0) return;
-            candidates.Sort((a, b) =>
-            {
-                int byDistance = Vector3.DistanceSquared(localEnt.Position, a.Position).CompareTo(Vector3.DistanceSquared(localEnt.Position, b.Position));
-                return byDistance != 0 ? byDistance : a.ServerId.CompareTo(b.ServerId);
-            });
+        /// <summary>Targets what <see cref="TargetCycling.Pick"/> chooses for <paramref name="mode"/>.</summary>
+        private void CycleTarget(TargetCycleMode mode)
+        {
+            if (_actionService == null || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
 
-            int current = _actionService.CurrentTarget is { } target ? candidates.FindIndex(c => c.ServerId == target.ServerId) : -1;
-            int next = current < 0 ? (direction > 0 ? 0 : candidates.Count - 1) : (current + direction + candidates.Count) % candidates.Count;
-            _actionService.SetTarget(candidates[next]);
+            uint current = _actionService.CurrentTarget?.ServerId ?? 0;
+            var nearby = _world.GetEntitiesInRadius(localEnt.Position, TargetCycling.Range);
+            // A current target out of range still counts, past the screen edge it left by.
+            if (_actionService.CurrentTarget is { } target && !nearby.Contains(target)) nearby.Add(target);
+            var candidates = TargetCycling.Gather(nearby, _localPlayer.ServerId, current, localEnt.Position, _camera);
+            uint pick = TargetCycling.Pick(candidates, _localPlayer.ServerId, current, mode);
+            if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 
         private void UpdateActionTriggers()
@@ -1166,17 +1163,26 @@ namespace Gordian.Core.Input
 
             UpdateTargetCycling();
 
-            // Target Self
+            // Target Self (F1) and the other members of your party (F2-F6, in party window order)
             if (_inputState.WasActionTriggered(InputAction.TargetSelf))
             {
                 _actionService.SetTargetByServerId(_localPlayer.ServerId);
             }
+            for (int slot = 1; slot <= 5; slot++)
+            {
+                if (_inputState.WasActionTriggered((InputAction)((int)InputAction.TargetParty1 + slot - 1))) _actionService.SetTargetByPartySlot(slot);
+            }
 
             // Confirm on a targeted NPC or door talks to it; on yourself, another player, a monster, a pet or a trust
-            // it opens the target command menu (retail).
-            if (_inputState.WasActionTriggered(InputAction.Confirm) && _actionService.CurrentTarget != null)
+            // it opens the target command menu (retail). With nothing targeted, the gamepad's Confirm (A) targets the
+            // closest thing; the keyboard's does not (Tab does).
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
             {
-                if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
+                if (_actionService.CurrentTarget == null)
+                {
+                    if (_inputState.WasActionTriggeredByGamepad(InputAction.Confirm)) CycleTarget(TargetCycleMode.Closest);
+                }
+                else if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
                 else _actionService.OpenTargetCommandMenu();
             }
 

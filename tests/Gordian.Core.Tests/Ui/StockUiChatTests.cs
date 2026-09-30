@@ -379,6 +379,24 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void SavedProfilesMoveTheDPadToTheTargetCursor()
+        {
+            var old = InputProfile.CreateCompact();
+            old.Bindings.Remove(InputAction.TargetCursorLeft);
+            old.Bindings.Remove(InputAction.TargetCursorRight);
+            old.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.DPadLeft));
+            old.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.DPadRight));
+
+            var loaded = InputProfile.FromJson(old.SaveToJson());
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.DPadLeft), out var left));
+            Assert.Equal(InputAction.TargetCursorLeft, left);
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.DPadRight), out var right));
+            Assert.Equal(InputAction.TargetCursorRight, right);
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.Tab), out var tab));
+            Assert.Equal(InputAction.TargetNearest, tab);
+        }
+
+        [Fact]
         public void SavedProfilesGetTheLogWindowKeys()
         {
             var old = InputProfile.CreateFullNumpad();
