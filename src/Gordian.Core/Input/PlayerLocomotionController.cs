@@ -1142,8 +1142,12 @@ namespace Gordian.Core.Input
         {
             if (_actionService == null || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
 
-            var candidates = TargetCycling.Gather(_world.GetEntitiesInRadius(localEnt.Position, TargetCycling.Range), _localPlayer.ServerId, localEnt.Position, _camera);
-            uint pick = TargetCycling.Pick(candidates, _localPlayer.ServerId, _actionService.CurrentTarget?.ServerId ?? 0, mode);
+            uint current = _actionService.CurrentTarget?.ServerId ?? 0;
+            var nearby = _world.GetEntitiesInRadius(localEnt.Position, TargetCycling.Range);
+            // A current target out of range still counts, past the screen edge it left by.
+            if (_actionService.CurrentTarget is { } target && !nearby.Contains(target)) nearby.Add(target);
+            var candidates = TargetCycling.Gather(nearby, _localPlayer.ServerId, current, localEnt.Position, _camera);
+            uint pick = TargetCycling.Pick(candidates, _localPlayer.ServerId, current, mode);
             if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 

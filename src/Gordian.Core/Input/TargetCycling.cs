@@ -28,26 +28,26 @@ namespace Gordian.Core.Input
 
     /// <summary>
     /// Picks the target for the targeting keys, as the retail client does (checked in retail by the maintainer,
-    /// 2026-09-29). Candidates are the targetable entities within <see cref="Range"/> yalms that are in front of the
-    /// camera and inside its horizontal field of view, ordered left to right on screen (at the same position, nearest
-    /// first).
+    /// 2026-09-29). Candidates are the targetable entities within <see cref="Range"/> yalms inside the camera's
+    /// horizontal field of view, ordered left to right on screen (at the same position, nearest first).
     /// <list type="bullet">
     /// <item>Tab / Shift+Tab: with nothing targeted, the closest candidate; otherwise the next one to the right / left,
     /// wrapping round to the other edge. The player is never picked.</item>
     /// <item>D-pad right / left: with nothing targeted, the player; otherwise the next one to the right / left of the
     /// current target (the player included, at their own screen position); past the edge, back to the player.</item>
     /// </list>
-    /// A target that is off screen counts as nothing targeted.
+    /// A current target that has left the screen (or the range) stays in the order past the edge it left by, so the
+    /// next press carries on from that side.
     /// </summary>
     public static class TargetCycling
     {
-        /// <summary>How far away a target can be picked, in yalms.</summary>
+        /// <summary>How far away a target can be picked, in yalms (the monster draw distance).</summary>
         public const float Range = 50.0f;
 
-        /// <summary>Height above an entity's feet its screen position is taken at (about its chest), in yalms.</summary>
-        public const float AimHeight = 1.0f;
-
-        /// <summary>A candidate: its horizontal screen position (-1 left edge, +1 right edge) and distance from the player.</summary>
+        /// <summary>
+        /// A candidate: its horizontal screen position (-1 left edge, +1 right edge; beyond that for a current target
+        /// that has left the screen) and distance from the player.
+        /// </summary>
         public readonly record struct Candidate(uint ServerId, float ScreenX, float DistanceSquared, bool IsSelf);
 
         /// <summary>Whether an entity can be picked by cycling at all (spawned, visible, named, not a transport).</summary>
@@ -56,26 +56,66 @@ namespace Gordian.Core.Input
             && entity.Type is not (EntityType.Elevator or EntityType.Ship);
 
         /// <summary>
-        /// The on-screen candidates around the player at <paramref name="playerPosition"/>, as seen from
-        /// <paramref name="camera"/>.
+        /// A world position on the ground plane in the space the camera's angles are in: the renderer draws the world
+        /// mirrored, at (-x, -y, z) (see <see cref="ViewportCamera"/>), so the camera's yaw is a display-space yaw.
         /// </summary>
-        public static List<Candidate> Gather(IEnumerable<WorldEntity> nearby, uint selfServerId, Vector3 playerPosition, ViewportCamera camera)
+        public static Vector2 ToViewPlane(Vector3 world) => new(-world.X, world.Z);
+
+        /// <summary>
+        /// The camera's eye, forward and screen-right directions on the ground plane (<see cref="ToViewPlane"/>
+        /// space), with the player at <paramref name="playerPosition"/>. The orbital camera sits
+        /// <see cref="ViewportCamera.Distance"/> behind the player along its yaw (a wall pulling it in does not change
+        /// which side of the screen anything is on); the first-person eye is at the player.
+        /// </summary>
+        public static (Vector2 Eye, Vector2 Forward, Vector2 Right) ViewBasis(ViewportCamera camera, Vector3 playerPosition)
+        {
+            float yaw = camera.Yaw * (MathF.PI / 180.0f);
+            float pitch = camera.Pitch * (MathF.PI / 180.0f);
+            var forward = new Vector2(-MathF.Cos(yaw), -MathF.Sin(yaw));
+            // Screen right is Cross(forward, up) for the camera's right-handed look-at: (x, z) -> (-z, x).
+            var right = new Vector2(-forward.Y, forward.X);
+            Vector2 player = ToViewPlane(playerPosition);
+            Vector2 eye = camera.Mode switch
+            {
+                CameraMode.ThirdPersonOrbital => player - (forward * (MathF.Cos(pitch) * camera.Distance)),
+                CameraMode.FreeCam => new Vector2(camera.Position.X, camera.Position.Z),
+                _ => player,
+            };
+            return (eye, forward, right);
+        }
+
+        /// <summary>
+        /// The candidates around the player at <paramref name="playerPosition"/> that are on screen, seen from
+        /// <paramref name="camera"/>, plus the current target (<paramref name="currentServerId"/>) wherever it is.
+        /// </summary>
+        public static List<Candidate> Gather(IEnumerable<WorldEntity> nearby, uint selfServerId, uint currentServerId,
+            Vector3 playerPosition, ViewportCamera camera)
         {
             var result = new List<Candidate>();
-            Vector3 forward = camera.Forward;
-            Vector3 right = camera.Right;
+            var (eye, forward, right) = ViewBasis(camera, playerPosition);
             float halfWidth = MathF.Tan(camera.FieldOfView * 0.5f) * camera.AspectRatio;
             foreach (var entity in nearby)
             {
                 if (!IsTargetable(entity)) continue;
+                bool isSelf = entity.ServerId == selfServerId;
+                bool isCurrent = entity.ServerId == currentServerId && !isSelf;
                 float distanceSquared = Vector3.DistanceSquared(playerPosition, entity.Position);
-                if (distanceSquared > Range * Range) continue;
-                Vector3 toEntity = entity.Position + new Vector3(0, AimHeight, 0) - camera.Position;
-                float depth = Vector3.Dot(toEntity, forward);
-                if (depth <= camera.NearClip) continue;
-                float screenX = Vector3.Dot(toEntity, right) / (depth * halfWidth);
-                if (MathF.Abs(screenX) > 1.0f) continue;
-                result.Add(new Candidate(entity.ServerId, screenX, distanceSquared, entity.ServerId == selfServerId));
+                if (distanceSquared > Range * Range && !isCurrent) continue;
+
+                Vector2 toEntity = ToViewPlane(entity.Position) - eye;
+                float depth = Vector2.Dot(toEntity, forward);
+                float lateral = Vector2.Dot(toEntity, right);
+                bool onScreen = depth > camera.NearClip && MathF.Abs(lateral) <= depth * halfWidth;
+                if (onScreen && distanceSquared <= Range * Range)
+                {
+                    result.Add(new Candidate(entity.ServerId, lateral / (depth * halfWidth), distanceSquared, isSelf));
+                }
+                else if (isCurrent)
+                {
+                    // Past the edge it left by, further out the further round it is.
+                    float side = lateral < 0 ? -1.0f : 1.0f;
+                    result.Add(new Candidate(entity.ServerId, side * (2.0f + MathF.Abs(MathF.Atan2(lateral, depth))), distanceSquared, false));
+                }
             }
             return result;
         }

@@ -338,10 +338,8 @@ namespace Gordian.Core.Tests.Input
 
         private static (WorldEntity left, WorldEntity right) PlaceTwoMobs(PlayerLocomotionController controller, WorldState world)
         {
-            var forward = Vector3.Normalize(controller.Camera.Forward with { Y = 0 });
-            var right = controller.Camera.Right;
-            var leftMob = new WorldEntity(0x30, 0x30, EntityType.Monster) { Name = "Left", Position = (forward * 10) - (right * 4), IsSpawned = true };
-            var rightMob = new WorldEntity(0x31, 0x31, EntityType.Monster) { Name = "Right", Position = (forward * 30) + (right * 6), IsSpawned = true };
+            var leftMob = new WorldEntity(0x30, 0x30, EntityType.Monster) { Name = "Left", Position = TargetCyclingTests.InView(controller.Camera, Vector3.Zero, 10, -4), IsSpawned = true };
+            var rightMob = new WorldEntity(0x31, 0x31, EntityType.Monster) { Name = "Right", Position = TargetCyclingTests.InView(controller.Camera, Vector3.Zero, 30, 6), IsSpawned = true };
             world.UpsertEntity(leftMob);
             world.UpsertEntity(rightMob);
             return (leftMob, rightMob);
