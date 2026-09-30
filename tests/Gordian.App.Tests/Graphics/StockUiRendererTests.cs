@@ -1013,6 +1013,80 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Name plates are depth-tested against the scene: with the depth buffer at 0.3, a plate at depth 0.5 is hidden,
+        /// one at 0.2 shows, and ordinary UI (no depth) draws over everything.
+        /// </summary>
+        [Fact]
+        public void NamePlatesAreHiddenBehindSceneDepth()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 480, height = 120;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiNamePlateDepthTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.35f, 0.42f, 0.3f, 1.0f));
+                cl.ClearDepthStencil(0.3f);
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var white = StockUiNamePlates.ColorOf(library, NamePlateColor.Player);
+                StockUiNamePlates.DrawPlate(renderer, font, "Behind", new NamePlateAnchor(1, new Vector2(80, 40), 6, 208, 0.5f),
+                    white, NamePlateIcon.None, null, false, width, height);
+                StockUiNamePlates.DrawPlate(renderer, font, "Front", new NamePlateAnchor(2, new Vector2(240, 40), 6, 208, 0.2f),
+                    white, NamePlateIcon.None, null, false, width, height);
+                renderer.DrawText(font, "Overlay", 330, 30, 2.0f, white);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "name_plates_depth.png"), pixels, (int)width, (int)height);
+                }
+
+                var clear = Pixel(pixels, width, 5, 5);
+                bool Drawn(int x0, int x1)
+                {
+                    for (int x = x0; x < x1; x++)
+                        for (int y = 25; y < 55; y++)
+                            if (Pixel(pixels, width, x, y) != clear) return true;
+                    return false;
+                }
+                Assert.False(Drawn(10, 160));
+                Assert.True(Drawn(180, 300));
+                Assert.True(Drawn(330, 470));
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders an alliance at 1:1 (the retail layout space): your party of six with the alliance leader, the two
         /// alliance windows, the locked-on target window, the target cursor and the opt-in party status icons; writes
         /// alliance_lock.png when GORDIAN_UI_DUMP is set, for comparison with retail alliance captures.

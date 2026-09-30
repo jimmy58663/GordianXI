@@ -11,10 +11,11 @@ namespace Gordian.App.Graphics
 {
     /// <summary>
     /// An entity's overhead point projected to the screen: <paramref name="Screen"/> in pixels, its
-    /// <paramref name="Depth"/> in front of the camera (yalms) and <paramref name="PixelsPerYalm"/>, how many screen
-    /// pixels a yalm spans at that depth.
+    /// <paramref name="Depth"/> in front of the camera (yalms), <paramref name="PixelsPerYalm"/>, how many screen
+    /// pixels a yalm spans at that depth, and <paramref name="ClipDepth"/>, the depth-buffer value the plate is drawn
+    /// at (null = drawn over everything).
     /// </summary>
-    public readonly record struct NamePlateAnchor(uint ServerId, Vector2 Screen, float Depth, float PixelsPerYalm);
+    public readonly record struct NamePlateAnchor(uint ServerId, Vector2 Screen, float Depth, float PixelsPerYalm, float? ClipDepth = null);
 
     /// <summary>
     /// Where the target's name plate was drawn this frame, so the target cursor can sit above it.
@@ -33,7 +34,9 @@ namespace Gordian.App.Graphics
     /// <c>/uilayout names &lt;n&gt;</c> (<see cref="StockUiLayout.NamePlateScale"/>).
     /// </para>
     /// <para>
-    /// Plates behind zone geometry are left out by the caller (<see cref="NamePlateOcclusion"/>).
+    /// Each plate is a flat card at its entity's depth (<see cref="NamePlateAnchor.ClipDepth"/>), tested against the
+    /// scene's depth buffer: walls and models in front cut it pixel by pixel, as retail does (a wall edge crossing the
+    /// A.M.A.N. Liaison's name, in-game comparison 2026-09-29).
     /// </para>
     /// </summary>
     public static class StockUiNamePlates
@@ -163,6 +166,7 @@ namespace Gordian.App.Graphics
             if (left + textWidth < 0 || left - iconWidth > width || top + lineHeight < 0 || top - starHeight > height) return null;
 
             renderer.TexelInset = GlyphTexelInset;
+            renderer.Depth = anchor.ClipDepth;
             if (icon != NamePlateIcon.None && (int)icon < font.Group.Images.Count)
             {
                 var image = font.Group.Images[(int)icon];
@@ -173,6 +177,7 @@ namespace Gordian.App.Graphics
 
             if (jobMaster) DrawStars(renderer, font, anchor.Screen.X, top, s);
             renderer.TexelInset = 0;
+            renderer.Depth = null;
 
             return new NamePlateBounds(new Vector2(anchor.Screen.X, anchor.Screen.Y), top - starHeight, lineHeight);
         }

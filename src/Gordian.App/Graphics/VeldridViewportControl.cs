@@ -755,10 +755,10 @@ namespace Gordian.App.Graphics
                 float focalPixels = Camera.ProjectionMatrix.M22 * height * 0.5f;
                 foreach (var overhead in entities.OverheadAnchors)
                 {
-                    if (_namePlateOcclusion.IsOccluded(Camera.Collision, overhead.ServerId, Camera.Position, overhead.Point)) continue;
                     if (ProjectToScreen(overhead.Point, viewProjection, width, height, gd.IsClipSpaceYInverted, out float depth) is { } screen)
                     {
-                        _namePlateAnchors.Add(new NamePlateAnchor(overhead.ServerId, screen, depth, focalPixels / depth));
+                        _namePlateAnchors.Add(new NamePlateAnchor(overhead.ServerId, screen, depth, focalPixels / depth,
+                            NamePlateClipDepth(overhead.Point, viewProjection)));
                     }
                 }
             }
@@ -766,7 +766,22 @@ namespace Gordian.App.Graphics
         }
 
         private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();
-        private readonly NamePlateOcclusion _namePlateOcclusion = new();
+
+        /// <summary>Yalms toward the camera a name plate's depth is taken, so its own entity's head does not cut it.</summary>
+        private const float NamePlateDepthBias = 0.5f;
+
+        /// <summary>
+        /// The depth-buffer value of a name plate (clip z / w, the 3D pass's convention), taken
+        /// <see cref="NamePlateDepthBias"/> nearer the camera than the overhead point.
+        /// </summary>
+        private float NamePlateClipDepth(Vector3 point, Matrix4x4 viewProjection)
+        {
+            var toCamera = Camera.Position - point;
+            float distance = toCamera.Length();
+            if (distance > NamePlateDepthBias) point += toCamera * (NamePlateDepthBias / distance);
+            var clip = Vector4.Transform(new Vector4(point, 1.0f), viewProjection);
+            return clip.W > 0.0001f ? Math.Clamp(clip.Z / clip.W, 0.0f, 1.0f) : 0.0f;
+        }
 
         /// <summary>
         /// Screen pixel of a display-space point (null behind the camera), matching the 3D pass's clip space.
