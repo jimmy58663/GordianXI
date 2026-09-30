@@ -62,6 +62,18 @@ namespace Gordian.Core.Events
         private double _waitingSeconds;
         /// <summary>The world entities taking part in the running event (game tick thread only), released when it ends.</summary>
         private readonly List<WorldEntity> _participants = new();
+        /// <summary>The entities the running event placed or hid (game tick thread only), reset when it ends.</summary>
+        private readonly HashSet<uint> _staged = new();
+        private volatile bool _cutsceneHud;
+        private bool _clockLocked;
+        /// <summary>The zone's weather number before the event set its own (0x77), or -1.</summary>
+        private int _savedWeather = -1;
+
+        /// <summary>
+        /// Whether the running event has the HUD in its cutscene mode (opcode 0x67 until 0x68 or the end): the HUD then
+        /// leaves out the name plates, the target cursor and window, the alliance windows and the status icons.
+        /// </summary>
+        public bool IsCutsceneHud => _cutsceneHud;
         private volatile bool _receivePending;
         private volatile bool _cancelRequested;
         private volatile bool _zoneChanged;
@@ -248,8 +260,52 @@ namespace Gordian.Core.Events
             _receivePending = false;
             _scene = scene;
             MarkParticipants(scene);
+            ApplyCutsceneFlags(scene, (CutsceneFlags)info.Mode);
             if (_player != null) _player.IsMovementLocked = true;
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// NO_PCS / NO_NPCS: the other players, or the NPCs and monsters, that take no part in the event are not drawn
+        /// while it runs (entities that arrive during the event are not hidden).
+        /// </summary>
+        private void ApplyCutsceneFlags(EventScene scene, CutsceneFlags flags)
+        {
+            var world = _world;
+            if (world == null || (flags & (CutsceneFlags.NoPcs | CutsceneFlags.NoNpcs)) == 0) return;
+            uint self = _player?.ServerId ?? 0;
+            int hidden = 0;
+            foreach (var entity in world.GetAllEntities())
+            {
+                if (entity.ServerId == self || scene.FindActor(entity.ServerId) != null) continue;
+                bool isPlayer = entity.Type == EntityType.Player;
+                if (isPlayer ? (flags & CutsceneFlags.NoPcs) == 0 : (flags & CutsceneFlags.NoNpcs) == 0) continue;
+                entity.IsEventHidden = true;
+                _staged.Add(entity.ServerId);
+                hidden++;
+            }
+            GordianLog.Info("EVENT", $"Cutscene flags 0x{(uint)flags:X}: {hidden} entities outside the event hidden.");
+        }
+
+        /// <summary>
+        /// Gives every entity the event placed or hid back to the world (retail's ~XiEvent resets the event state), ends
+        /// the HUD's cutscene mode and lets the clock and weather go if the script did not.
+        /// </summary>
+        private void ClearStaging()
+        {
+            _cutsceneHud = false;
+            UnlockEnvironment();
+            var world = _world;
+            if (world != null)
+            {
+                foreach (uint id in _staged)
+                {
+                    if (!world.TryGetByServerId(id, out var entity)) continue;
+                    entity.EventPose = null;
+                    entity.IsEventHidden = false;
+                }
+            }
+            _staged.Clear();
         }
 
         /// <summary>
@@ -361,6 +417,7 @@ namespace Gordian.Core.Events
             _info = null;
             CloseQueryMenu();
             ReleaseParticipants();
+            ClearStaging();
             if (_player != null) _player.IsMovementLocked = false;
             // The end value is the shared work zone's, unless a query was cancelled.
             if (info != null) SendEnd(info, scene.EndParameter);
@@ -373,6 +430,7 @@ namespace Gordian.Core.Events
             _info = null;
             CloseQueryMenu();
             ReleaseParticipants();
+            ClearStaging();
             if (_player != null) _player.IsMovementLocked = false;
             Changed?.Invoke();
         }
@@ -576,6 +634,77 @@ namespace Gordian.Core.Events
 
         bool IEventVmHost.TryGetPartyMember(int party, int slot, out uint serverId, out ushort index) =>
             TryGetPartyMember(party, slot, out serverId, out index);
+
+        bool IEventVmHost.TryGetEntityPose(uint serverId, out System.Numerics.Vector3 position, out float heading, out float speed)
+        {
+            position = default;
+            heading = 0;
+            speed = 0;
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (serverId == 0 || _world == null || !_world.TryGetByServerId(serverId, out var entity)) return false;
+            if (entity.EventPose is { } pose)
+            {
+                (position, heading) = (pose.Position, pose.Heading);
+            }
+            else
+            {
+                position = entity.Position;
+                heading = entity.RenderHeadingRadians != 0f ? entity.RenderHeadingRadians : entity.HeadingRadians;
+            }
+            // Speed bytes are tenths of a yalm per second (50 = the 5.0 yalms/s base run).
+            byte baseSpeed = entity.SpeedBase != 0 ? entity.SpeedBase : entity.Speed;
+            speed = baseSpeed / 10f;
+            return true;
+        }
+
+        void IEventVmHost.SetEntityPose(uint serverId, System.Numerics.Vector3 position, float heading, float speed)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventPose = new EventPose(position, heading, speed);
+            _staged.Add(serverId);
+        }
+
+        void IEventVmHost.SetCutsceneHud(bool on) => _cutsceneHud = on;
+
+        void IEventVmHost.LockEnvironment(int hour, int weather)
+        {
+            if (hour >= 0)
+            {
+                _world?.LockTimeOfDay(hour);
+                _clockLocked = true;
+            }
+            if (weather >= 0 && _world != null)
+            {
+                if (_savedWeather < 0) _savedWeather = _world.WeatherNumber;
+                _world.UpdateWeather((ushort)weather);
+            }
+            GordianLog.Info("EVENT", $"Event environment: hour {hour}, weather {weather}.");
+        }
+
+        void IEventVmHost.UnlockEnvironment() => UnlockEnvironment();
+
+        private void UnlockEnvironment()
+        {
+            if (_clockLocked)
+            {
+                _world?.UnlockTimeOfDay();
+                _clockLocked = false;
+            }
+            if (_savedWeather >= 0)
+            {
+                _world?.UpdateWeather((ushort)_savedWeather);
+                _savedWeather = -1;
+            }
+        }
+
+        void IEventVmHost.SetEntityHidden(uint serverId, bool hidden)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.IsEventHidden = hidden;
+            _staged.Add(serverId);
+        }
 
         /// <summary>
         /// A party slot's member: in the player's own party slot 0 is the player and slots 1-5 the other members in

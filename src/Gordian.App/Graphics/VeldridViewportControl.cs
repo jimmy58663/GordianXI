@@ -294,7 +294,7 @@ namespace Gordian.App.Graphics
 
                             if (zoneGeom?.EnvironmentData != null)
                             {
-                                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
                                 string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
                                 _lastVanaHour = vanaHour;
                                 _lastWeatherId = weather;
@@ -655,7 +655,7 @@ namespace Gordian.App.Graphics
                             // Only advances automatically when in live mode (_timeOfDayCycleIndex == 0); manual F10 presets are preserved.
                             if (_currentZoneGeom?.EnvironmentData != null && _timeOfDayCycleIndex == 0)
                             {
-                                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
                                 string activeWeather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
                                 if (Math.Abs(vanaHour - _lastVanaHour) >= 0.05f || activeWeather != _lastWeatherId)
                                 {
@@ -841,7 +841,7 @@ namespace Gordian.App.Graphics
                 _timeOfDayCycleIndex = 0;
                 if (_currentZoneGeom?.EnvironmentData != null)
                 {
-                    float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                    float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
                     var kf = _currentZoneGeom.EnvironmentData.Interpolate(vanaHour, currentWeather);
                     if (kf != null)
                     {
@@ -957,7 +957,7 @@ namespace Gordian.App.Graphics
             _lastWeatherId = weatherId;
             if (_renderer?.LoadedZone?.EnvironmentData != null)
             {
-                float vanaHour = VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
                 var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(vanaHour, weatherId);
                 if (kf != null)
                 {

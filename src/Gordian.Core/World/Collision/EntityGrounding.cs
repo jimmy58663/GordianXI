@@ -30,6 +30,16 @@ namespace Gordian.Core.World.Collision
             GetDisplayHeight(entity, collision, ReadOnlySpan<PlatformHeight>.Empty);
 
         /// <summary>
+        /// The walkable floor at or below a position (at most a step above it), or its own height without one: where an
+        /// event places an entity (retail calibrates event positions to the floor, VCalibrate).
+        /// </summary>
+        public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision) =>
+            collision != null && collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
+                PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out var ground)
+                ? ground.Height
+                : position.Y;
+
+        /// <summary>
         /// As <see cref="GetDisplayHeight(WorldEntity, ZoneCollisionMesh?)"/>, with moving platforms: a character
         /// standing on one is drawn on its floor and keeps riding it while it stays within the platform's footprint,
         /// however far it moves from the character's reported height (a Windower capture shows a player standing still

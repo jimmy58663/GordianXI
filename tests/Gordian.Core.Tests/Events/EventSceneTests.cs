@@ -62,6 +62,9 @@ namespace Gordian.Core.Tests.Events
             return (scene, host);
         }
 
+        private static void AssertNear(System.Numerics.Vector3 expected, System.Numerics.Vector3 actual) =>
+            Assert.True(System.Numerics.Vector3.Distance(expected, actual) < 1e-4f, $"expected {expected}, got {actual}");
+
         private static List<int> Messages(RecordingHost host) => host.Printed.Select(p => p.Message).ToList();
 
         [Fact]
@@ -218,6 +221,102 @@ namespace Gordian.Core.Tests.Events
             var vm = scene.FindActor(Actor)!;
             Assert.Equal(unchecked((int)Director), vm.Locals[0]);
             Assert.Equal(unchecked((int)Actor), vm.Locals[1]);
+        }
+
+        [Fact]
+        public void Opcode37_PlacesTheEntity_OperandsXYHeightAndHeading()
+        {
+            // 37 x=ref0 y=ref1 height=ref2 heading=ref3 ; 00  (1024 of 4096 steps = a quarter turn = South)
+            var block = Block(Director, new uint[] { 1000, 2000, 3000, 1024 }, Code(0x37, Ref(0), Ref(1), Ref(2), Ref(3), 0x00));
+            var (scene, host) = Scene(block);
+            scene.Tick(Frame);
+            var pose = Assert.Single(host.Poses);
+            Assert.Equal(Director, pose.Id);
+            AssertNear(new System.Numerics.Vector3(1, 3, 2), pose.Position); // internal Y is the height
+            Assert.Equal(MathF.PI / 2, pose.Heading, 3);
+            Assert.Equal(0f, pose.Speed);
+        }
+
+        [Fact]
+        public void Opcode1F_WalksAtTheScriptSpeedFacingItsWay_ThenStands()
+        {
+            // 32 speed=ref0 (30 tenths = 3 yalms/s) ; 1F 00 goal x=ref1 y=ref2 height=ref2 ; 1F 01 ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 30, 3000, 0, 900 },
+                Code(0x32, Ref(0), 0x1F, 0x00, Ref(1), Ref(2), Ref(2), 0x1F, 0x01, 0x48, Ref(3), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, MathF.PI, 5f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 200) scene.Tick(Frame);
+            // 3 yalms at 3 yalms/s: about a second of frames, walking East (heading 0) at the script's speed.
+            Assert.InRange(frames, 59, 62);
+            Assert.All(host.Poses.Take(host.Poses.Count - 1), p => Assert.Equal(3f, p.Speed));
+            Assert.All(host.Poses, p => Assert.Equal(0f, p.Heading, 3));
+            var last = host.Poses[^1];
+            AssertNear(new System.Numerics.Vector3(3, 0, 0), last.Position);
+            Assert.Equal(0f, last.Speed); // standing at the goal
+        }
+
+        [Fact]
+        public void Opcode1F_FromAnUnknownPlace_IsAtTheGoalAtOnce()
+        {
+            // The entity never arrived and nothing placed it: walking from the origin would take minutes.
+            var block = Block(Director, new uint[] { 90000, 0, 900 },
+                Code(0x1F, 0x00, Ref(0), Ref(1), Ref(1), 0x1F, 0x01, 0x48, Ref(2), 0x00));
+            var (scene, host) = Scene(block);
+            scene.Tick(Frame);
+            scene.Tick(Frame);
+            Assert.Single(host.Printed);
+            AssertNear(new System.Numerics.Vector3(90, 0, 0), host.Poses[^1].Position);
+        }
+
+        [Fact]
+        public void Opcode4A_TurnsTheFirstActorToFaceTheSecond()
+        {
+            // The director turns the actor toward the player, who stands due North (+Z) of it.
+            var director = Block(Director, Array.Empty<uint>(), Code(0x4A, Id(Actor), Id(0x7FFFFFF0), 0x00));
+            var actor = Block(Actor, Array.Empty<uint>(), Code(0x00));
+            var host = new RecordingHost();
+            host.Entities[Actor] = (new System.Numerics.Vector3(5, 0, 5), 0f, 0f);
+            host.Entities[0x00012345] = (new System.Numerics.Vector3(5, 0, 15), 0f, 0f);
+            var scene = new EventScene(new EventWorkZone()) { PlayerServerId = 0x00012345 };
+            _ = new EventVm(director, EventId, scene, host, Director, 1);
+            _ = new EventVm(actor, EventId, scene, host, Actor, 2);
+            scene.Tick(Frame);
+            var pose = Assert.Single(host.Poses);
+            Assert.Equal(Actor, pose.Id);
+            Assert.Equal(3 * MathF.PI / 2, pose.Heading, 3); // North is wire 192 = 3π/2
+            AssertNear(new System.Numerics.Vector3(5, 0, 5), pose.Position);
+        }
+
+        [Fact]
+        public void OpcodeBA_PlacesAnotherActorOfTheEvent()
+        {
+            // BA actor x=ref0 y=ref1 height=ref2 heading=ref3
+            var director = Block(Director, new uint[] { 7000, 8000, 500, 2048 }, Code(0xBA, Id(Actor), Ref(0), Ref(1), Ref(2), Ref(3), 0x00));
+            var actor = Block(Actor, Array.Empty<uint>(), Code(0x00));
+            var (scene, host) = Scene(director, actor);
+            scene.Tick(Frame);
+            var pose = Assert.Single(host.Poses);
+            Assert.Equal(Actor, pose.Id);
+            AssertNear(new System.Numerics.Vector3(7, 0.5f, 8), pose.Position);
+            Assert.Equal(MathF.PI, pose.Heading, 3);
+        }
+
+        [Fact]
+        public void Opcodes22And4E_SetTheEventHideFlag()
+        {
+            // 22 01 hides the entity itself; 4E 00 actor shows another; 4E 01 player hides the player.
+            var director = Block(Director, Array.Empty<uint>(), Code(0x22, 0x01, 0x4E, 0x00, Id(Actor), 0x4E, 0x01, Id(0x7FFFFFF0), 0x00));
+            var host = new RecordingHost();
+            var scene = new EventScene(new EventWorkZone()) { PlayerServerId = 0x00012345 };
+            _ = new EventVm(director, EventId, scene, host, Director, 1);
+            scene.Tick(Frame);
+            Assert.True(host.Hidden[Director]);
+            Assert.False(host.Hidden[Actor]);
+            Assert.True(host.Hidden[0x00012345]);
         }
 
         [Theory]

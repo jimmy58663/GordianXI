@@ -52,6 +52,23 @@ namespace Gordian.Core.Tests.Events
         public bool EntityExists(uint serverId) => serverId == 0x010E6001;
         public int GetEntityValue(uint serverId, int key) => EntityValues.TryGetValue(key, out int v) ? v : 0;
         public void OnSkippedOpcode(byte opcode, int pc) => Skipped.Add(opcode);
+
+        /// <summary>Where the entities stand before the event (server id → position, heading, speed).</summary>
+        public Dictionary<uint, (System.Numerics.Vector3 Position, float Heading, float Speed)> Entities { get; } = new();
+        public List<(uint Id, System.Numerics.Vector3 Position, float Heading, float Speed)> Poses { get; } = new();
+        public Dictionary<uint, bool> Hidden { get; } = new();
+
+        public bool TryGetEntityPose(uint serverId, out System.Numerics.Vector3 position, out float heading, out float speed)
+        {
+            bool known = Entities.TryGetValue(serverId, out var e);
+            (position, heading, speed) = e;
+            return known;
+        }
+
+        public void SetEntityPose(uint serverId, System.Numerics.Vector3 position, float heading, float speed) =>
+            Poses.Add((serverId, position, heading, speed));
+
+        public void SetEntityHidden(uint serverId, bool hidden) => Hidden[serverId] = hidden;
     }
 
     public class EventVmTests
