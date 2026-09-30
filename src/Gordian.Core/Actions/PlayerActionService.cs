@@ -434,6 +434,24 @@ namespace Gordian.Core.Actions
         }
 
         /// <summary>
+        /// Targets the member in <paramref name="slot"/> (1-5) of your own party, counting the other members in party
+        /// window order (F2-F6 in retail; F1, yourself, is slot 0). Returns false when the slot is empty or the member
+        /// is not in the zone.
+        /// </summary>
+        public bool SetTargetByPartySlot(int slot)
+        {
+            var members = _partyModule.State.Members;
+            var self = members.FirstOrDefault(m => m.ServerId == _localPlayer.ServerId);
+            byte ownParty = self?.PartyNumber ?? 0;
+            var others = members.Where(m => m.PartyNumber == ownParty && m.ServerId != _localPlayer.ServerId)
+                .OrderBy(m => m.MemberNumber).ToList();
+            if (slot < 1 || slot > others.Count) return false;
+            if (!_world.TryGetByServerId(others[slot - 1].ServerId, out var entity) || entity == null) return false;
+            SetTarget(entity);
+            return true;
+        }
+
+        /// <summary>
         /// Clears the current target.
         /// </summary>
         public void ClearTarget()

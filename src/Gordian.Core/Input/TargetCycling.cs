@@ -7,17 +7,37 @@ using Gordian.Core.World;
 
 namespace Gordian.Core.Input
 {
+    /// <summary>How a targeting key moves the target (see <see cref="TargetCycling"/>).</summary>
+    public enum TargetCycleMode
+    {
+        /// <summary>The closest candidate, the player excluded (Tab or gamepad Confirm with nothing targeted).</summary>
+        Closest,
+
+        /// <summary>Tab: the next candidate to the right on screen, wrapping to the left-most; the player excluded.</summary>
+        TabRight,
+
+        /// <summary>Shift+Tab: the next candidate to the left on screen, wrapping to the right-most; the player excluded.</summary>
+        TabLeft,
+
+        /// <summary>D-pad right: the next candidate to the right on screen, the player at the start and end.</summary>
+        CursorRight,
+
+        /// <summary>D-pad left: the next candidate to the left on screen, the player at the start and end.</summary>
+        CursorLeft,
+    }
+
     /// <summary>
-    /// Picks the target for the target-cycling keys (Tab / Shift+Tab, the triggers and d-pad) and for Confirm with
-    /// nothing targeted. Candidates are the targetable entities within <see cref="Range"/> yalms that are in front of
-    /// the camera and inside its horizontal field of view, the player included.
+    /// Picks the target for the targeting keys, as the retail client does (checked in retail by the maintainer,
+    /// 2026-09-29). Candidates are the targetable entities within <see cref="Range"/> yalms that are in front of the
+    /// camera and inside its horizontal field of view, ordered left to right on screen (at the same position, nearest
+    /// first).
     /// <list type="bullet">
-    /// <item>Nothing targeted: the nearest candidate (by distance from the player) on the pressed side of the screen
-    /// centre, or on either side for Confirm; the other side when that side is empty. The player is only picked
-    /// when nobody else is on screen.</item>
-    /// <item>A target on screen: the next candidate over on screen in the pressed direction (ties by distance),
-    /// wrapping from one edge of the screen to the other, so every candidate is reachable.</item>
+    /// <item>Tab / Shift+Tab: with nothing targeted, the closest candidate; otherwise the next one to the right / left,
+    /// wrapping round to the other edge. The player is never picked.</item>
+    /// <item>D-pad right / left: with nothing targeted, the player; otherwise the next one to the right / left of the
+    /// current target (the player included, at their own screen position); past the edge, back to the player.</item>
     /// </list>
+    /// A target that is off screen counts as nothing targeted.
     /// </summary>
     public static class TargetCycling
     {
@@ -61,44 +81,57 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// The candidate to target next: <paramref name="direction"/> is +1 (right), -1 (left) or 0 (Confirm, nothing
-        /// targeted, either side). <paramref name="currentServerId"/> is the current target (0 = none; a target not
-        /// among the candidates counts as none). Returns the server id, or 0 when there is nothing to pick.
+        /// The server id to target for <paramref name="mode"/>, given the current target
+        /// (<paramref name="currentServerId"/>, 0 = none), or 0 when there is nothing to pick.
         /// </summary>
-        public static uint Pick(IReadOnlyList<Candidate> candidates, uint currentServerId, int direction)
+        public static uint Pick(IReadOnlyList<Candidate> candidates, uint selfServerId, uint currentServerId, TargetCycleMode mode)
         {
-            if (candidates.Count == 0) return 0;
-            int current = -1;
-            if (currentServerId != 0 && direction != 0)
-            {
-                for (int i = 0; i < candidates.Count; i++)
-                {
-                    if (candidates[i].ServerId == currentServerId) current = i;
-                }
-            }
-            return current < 0 ? PickFirst(candidates, direction) : PickNext(candidates, current, direction);
-        }
-
-        private static uint PickFirst(IReadOnlyList<Candidate> candidates, int direction)
-        {
-            uint best = NearestOnSide(candidates, direction);
-            if (best == 0 && direction != 0) best = NearestOnSide(candidates, 0);
-            if (best != 0) return best;
+            var others = new List<Candidate>();
+            Candidate? self = null;
             foreach (var candidate in candidates)
             {
-                if (candidate.IsSelf) return candidate.ServerId;
+                if (candidate.ServerId == selfServerId) self = candidate;
+                else others.Add(candidate);
             }
-            return 0;
+            others.Sort(CompareScreenOrder);
+
+            switch (mode)
+            {
+                case TargetCycleMode.TabRight or TargetCycleMode.TabLeft:
+                {
+                    int current = IndexOf(others, currentServerId);
+                    if (current < 0) return Closest(others);
+                    int step = mode == TargetCycleMode.TabRight ? 1 : -1;
+                    return others[(current + step + others.Count) % others.Count].ServerId;
+                }
+                case TargetCycleMode.CursorRight or TargetCycleMode.CursorLeft:
+                {
+                    if (selfServerId == 0) return 0;
+                    // The player sits at their own screen position (the centre when not on screen, e.g. first person).
+                    var ordered = new List<Candidate>(others);
+                    ordered.Add(self ?? new Candidate(selfServerId, 0.0f, 0.0f, true));
+                    ordered.Sort(CompareScreenOrder);
+                    int current = currentServerId == 0 ? -1 : IndexOf(ordered, currentServerId);
+                    if (current < 0) return selfServerId;
+                    int next = current + (mode == TargetCycleMode.CursorRight ? 1 : -1);
+                    return next >= 0 && next < ordered.Count ? ordered[next].ServerId : selfServerId;
+                }
+                default:
+                    return Closest(others);
+            }
         }
 
-        private static uint NearestOnSide(IReadOnlyList<Candidate> candidates, int direction)
+        private static int IndexOf(List<Candidate> ordered, uint serverId)
+        {
+            if (serverId == 0) return -1;
+            return ordered.FindIndex(c => c.ServerId == serverId);
+        }
+
+        private static uint Closest(List<Candidate> others)
         {
             Candidate? best = null;
-            foreach (var candidate in candidates)
+            foreach (var candidate in others)
             {
-                if (candidate.IsSelf) continue;
-                if (direction > 0 && candidate.ScreenX < 0) continue;
-                if (direction < 0 && candidate.ScreenX > 0) continue;
                 if (best is not { } b || candidate.DistanceSquared < b.DistanceSquared
                     || (candidate.DistanceSquared == b.DistanceSquared && candidate.ServerId < b.ServerId))
                 {
@@ -106,15 +139,6 @@ namespace Gordian.Core.Input
                 }
             }
             return best?.ServerId ?? 0;
-        }
-
-        private static uint PickNext(IReadOnlyList<Candidate> candidates, int current, int direction)
-        {
-            var ordered = new List<Candidate>(candidates);
-            ordered.Sort(CompareScreenOrder);
-            int index = ordered.IndexOf(candidates[current]);
-            int next = (index + direction + ordered.Count) % ordered.Count;
-            return ordered[next].ServerId;
         }
 
         /// <summary>Left to right on screen; at the same position, nearest first.</summary>

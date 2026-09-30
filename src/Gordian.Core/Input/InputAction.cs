@@ -55,6 +55,15 @@ namespace Gordian.Core.Input
         /// </summary>
         CycleLogWindow,
 
+        /// <summary>
+        /// Moves the target cursor to the next target to the left on screen (retail: gamepad d-pad left); with nothing
+        /// targeted it targets yourself, and past the left edge it returns to you. See <see cref="TargetCycling"/>.
+        /// </summary>
+        TargetCursorLeft = 57,
+
+        /// <summary>The d-pad right counterpart of <see cref="TargetCursorLeft"/>.</summary>
+        TargetCursorRight = 58,
+
         // Menu navigation (only resolved while a stock menu is open; the same keys drive the camera otherwise)
         MenuUp = 60,
         MenuDown,

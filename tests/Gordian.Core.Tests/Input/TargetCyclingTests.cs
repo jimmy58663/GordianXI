@@ -23,70 +23,83 @@ namespace Gordian.Core.Tests.Input
             new Candidate(Self, 0.0f, 0, true),
         ];
 
-        [Fact]
-        public void Pick_NothingTargeted_TakesNearestOnPressedSide()
+        private static uint Pick(uint current, TargetCycleMode mode) => TargetCycling.Pick(Scene, Self, current, mode);
+
+        [Theory]
+        [InlineData(TargetCycleMode.TabRight)]
+        [InlineData(TargetCycleMode.TabLeft)]
+        [InlineData(TargetCycleMode.Closest)]
+        public void Pick_TabOrConfirm_NothingTargeted_TakesClosestButNotSelf(TargetCycleMode mode)
         {
-            Assert.Equal(0xCu, TargetCycling.Pick(Scene, 0, +1));
-            Assert.Equal(0xAu, TargetCycling.Pick(Scene, 0, -1));
+            Assert.Equal(0xAu, Pick(0, mode));
         }
 
         [Fact]
-        public void Pick_Confirm_TakesNearestOnEitherSideButNotSelf()
+        public void Pick_Tab_StepsRightSkippingSelf_AndWrapsToLeftMost()
         {
-            Assert.Equal(0xAu, TargetCycling.Pick(Scene, 0, 0));
+            Assert.Equal(0xBu, Pick(0xA, TargetCycleMode.TabRight));
+            Assert.Equal(0xCu, Pick(0xB, TargetCycleMode.TabRight));
+            Assert.Equal(0xAu, Pick(0xC, TargetCycleMode.TabRight));
         }
 
         [Fact]
-        public void Pick_NothingOnPressedSide_TakesNearestOnOtherSide()
+        public void Pick_ShiftTab_StepsLeft_AndWrapsToRightMost()
         {
-            var leftOnly = new List<Candidate> { new(0xA, -0.6f, 400, false), new(0xB, -0.2f, 100, false), new(Self, 0.0f, 0, true) };
-            Assert.Equal(0xBu, TargetCycling.Pick(leftOnly, 0, +1));
+            Assert.Equal(0xBu, Pick(0xC, TargetCycleMode.TabLeft));
+            Assert.Equal(0xCu, Pick(0xA, TargetCycleMode.TabLeft));
         }
 
         [Fact]
-        public void Pick_OnlySelfOnScreen_TargetsSelf()
+        public void Pick_Tab_OnSelf_TakesClosest()
         {
-            Assert.Equal(Self, TargetCycling.Pick([new Candidate(Self, 0.0f, 0, true)], 0, +1));
+            Assert.Equal(0xAu, Pick(Self, TargetCycleMode.TabRight));
         }
 
         [Fact]
-        public void Pick_Empty_ReturnsNone()
+        public void Pick_Tab_NothingButSelf_PicksNothing()
         {
-            Assert.Equal(0u, TargetCycling.Pick([], 0, +1));
+            Assert.Equal(0u, TargetCycling.Pick([new Candidate(Self, 0.0f, 0, true)], Self, 0, TargetCycleMode.TabRight));
+        }
+
+        [Theory]
+        [InlineData(TargetCycleMode.CursorRight)]
+        [InlineData(TargetCycleMode.CursorLeft)]
+        public void Pick_DPad_NothingTargeted_TargetsSelf(TargetCycleMode mode)
+        {
+            Assert.Equal(Self, Pick(0, mode));
+            Assert.Equal(Self, Pick(0x77, mode)); // an off-screen target counts as nothing targeted
         }
 
         [Fact]
-        public void Pick_Right_StepsAcrossTheScreenVisitingEveryoneIncludingSelf_AndWraps()
+        public void Pick_DPadRight_StepsRightFromSelf_AndReturnsToSelfPastTheEdge()
         {
-            var visited = new List<uint>();
-            uint current = 0xA;
-            for (int i = 0; i < 4; i++)
-            {
-                current = TargetCycling.Pick(Scene, current, +1);
-                visited.Add(current);
-            }
-            Assert.Equal([0xBu, Self, 0xCu, 0xAu], visited);
+            Assert.Equal(0xCu, Pick(Self, TargetCycleMode.CursorRight));
+            Assert.Equal(Self, Pick(0xC, TargetCycleMode.CursorRight));
+            Assert.Equal(Self, Pick(0xB, TargetCycleMode.CursorRight));
         }
 
         [Fact]
-        public void Pick_Left_StepsBackAndWraps()
+        public void Pick_DPadLeft_StepsLeftFromSelf_AndReturnsToSelfPastTheEdge()
         {
-            Assert.Equal(0xCu, TargetCycling.Pick(Scene, 0xA, -1));
-            Assert.Equal(Self, TargetCycling.Pick(Scene, 0xC, -1));
+            Assert.Equal(0xBu, Pick(Self, TargetCycleMode.CursorLeft));
+            Assert.Equal(0xAu, Pick(0xB, TargetCycleMode.CursorLeft));
+            Assert.Equal(Self, Pick(0xA, TargetCycleMode.CursorLeft));
+        }
+
+        [Fact]
+        public void Pick_DPad_SelfOffScreen_SitsAtScreenCentre()
+        {
+            var noSelf = Scene.FindAll(c => !c.IsSelf);
+            Assert.Equal(0xCu, TargetCycling.Pick(noSelf, Self, Self, TargetCycleMode.CursorRight));
+            Assert.Equal(0xBu, TargetCycling.Pick(noSelf, Self, Self, TargetCycleMode.CursorLeft));
         }
 
         [Fact]
         public void Pick_SameScreenPosition_OrdersNearestFirst()
         {
-            var stacked = new List<Candidate> { new(0x2, 0.3f, 400, false), new(0x1, 0.3f, 100, false), new(0x3, -0.3f, 50, false) };
-            Assert.Equal(0x1u, TargetCycling.Pick(stacked, 0x3, +1));
-            Assert.Equal(0x2u, TargetCycling.Pick(stacked, 0x1, +1));
-        }
-
-        [Fact]
-        public void Pick_TargetOffScreen_ActsAsNothingTargeted()
-        {
-            Assert.Equal(0xCu, TargetCycling.Pick(Scene, 0x77, +1));
+            var stacked = new List<Candidate> { new(0x2, 0.3f, 400, false), new(0x3, 0.3f, 100, false), new(0x4, -0.3f, 50, false) };
+            Assert.Equal(0x3u, TargetCycling.Pick(stacked, Self, 0x4, TargetCycleMode.TabRight));
+            Assert.Equal(0x2u, TargetCycling.Pick(stacked, Self, 0x3, TargetCycleMode.TabRight));
         }
 
         private static ViewportCamera CameraAt(Vector3 player)

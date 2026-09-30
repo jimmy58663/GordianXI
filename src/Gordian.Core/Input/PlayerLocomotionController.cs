@@ -1127,26 +1127,23 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// Tab / Shift+Tab (the triggers, the d-pad): the next target to the right / left on screen, or the nearest on
-        /// that side of the screen centre when nothing on screen is targeted (see <see cref="TargetCycling"/>).
+        /// Tab / Shift+Tab (and the triggers) and the d-pad's left / right target cursor (see <see cref="TargetCycling"/>).
         /// </summary>
         private void UpdateTargetCycling()
         {
-            int direction = _inputState.WasActionTriggered(InputAction.TargetNearest) ? 1
-                : _inputState.WasActionTriggered(InputAction.TargetPrevious) ? -1 : 0;
-            if (direction != 0) CycleTarget(direction);
+            if (_inputState.WasActionTriggered(InputAction.TargetNearest)) CycleTarget(TargetCycleMode.TabRight);
+            else if (_inputState.WasActionTriggered(InputAction.TargetPrevious)) CycleTarget(TargetCycleMode.TabLeft);
+            else if (_inputState.WasActionTriggered(InputAction.TargetCursorRight)) CycleTarget(TargetCycleMode.CursorRight);
+            else if (_inputState.WasActionTriggered(InputAction.TargetCursorLeft)) CycleTarget(TargetCycleMode.CursorLeft);
         }
 
-        /// <summary>
-        /// Targets the candidate <see cref="TargetCycling.Pick"/> chooses for <paramref name="direction"/> (+1 right,
-        /// -1 left, 0 the nearest on either side).
-        /// </summary>
-        private void CycleTarget(int direction)
+        /// <summary>Targets what <see cref="TargetCycling.Pick"/> chooses for <paramref name="mode"/>.</summary>
+        private void CycleTarget(TargetCycleMode mode)
         {
             if (_actionService == null || _localPlayer.ServerId == 0 || !_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) || localEnt == null) return;
 
             var candidates = TargetCycling.Gather(_world.GetEntitiesInRadius(localEnt.Position, TargetCycling.Range), _localPlayer.ServerId, localEnt.Position, _camera);
-            uint pick = TargetCycling.Pick(candidates, _actionService.CurrentTarget?.ServerId ?? 0, direction);
+            uint pick = TargetCycling.Pick(candidates, _localPlayer.ServerId, _actionService.CurrentTarget?.ServerId ?? 0, mode);
             if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 
@@ -1162,17 +1159,25 @@ namespace Gordian.Core.Input
 
             UpdateTargetCycling();
 
-            // Target Self
+            // Target Self (F1) and the other members of your party (F2-F6, in party window order)
             if (_inputState.WasActionTriggered(InputAction.TargetSelf))
             {
                 _actionService.SetTargetByServerId(_localPlayer.ServerId);
             }
+            for (int slot = 1; slot <= 5; slot++)
+            {
+                if (_inputState.WasActionTriggered((InputAction)((int)InputAction.TargetParty1 + slot - 1))) _actionService.SetTargetByPartySlot(slot);
+            }
 
             // Confirm on a targeted NPC or door talks to it; on yourself, another player, a monster, a pet or a trust
-            // it opens the target command menu (retail). With nothing targeted it targets the nearest on screen.
+            // it opens the target command menu (retail). With nothing targeted, the gamepad's Confirm (A) targets the
+            // closest thing; the keyboard's does not (Tab does).
             if (_inputState.WasActionTriggered(InputAction.Confirm))
             {
-                if (_actionService.CurrentTarget == null) CycleTarget(0);
+                if (_actionService.CurrentTarget == null)
+                {
+                    if (_inputState.WasActionTriggeredByGamepad(InputAction.Confirm)) CycleTarget(TargetCycleMode.Closest);
+                }
                 else if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
                 else _actionService.OpenTargetCommandMenu();
             }

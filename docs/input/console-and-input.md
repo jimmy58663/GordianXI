@@ -22,9 +22,11 @@
 
 ### Target cycling
 
-`TargetCycling` (Core) picks the target for the cycling keys: Tab / Shift+Tab, the right / left triggers and d-pad right / left (the `TargetNearest` / `TargetPrevious` actions, labelled Next Target (Right) / (Left)), and for Confirm (gamepad A, Space in the Compact layout) with nothing targeted.
+`TargetCycling` (Core) picks the target for the targeting keys, matching retail (checked in retail by the maintainer, 2026-09-29, #134).
 
-- **Candidates:** spawned, not hidden or invisible, named entities other than elevators and ships, within 50 yalms of the player, in front of the camera and inside its horizontal field of view. The player is a candidate (self-target). Each gets a horizontal screen position (-1 left edge to +1 right edge, taken 1 yalm above its feet) and its distance from the player.
-- **Nothing targeted** (or the target is off screen): the nearest candidate by distance on the pressed side of the screen centre; Confirm takes the nearest on either side. When that side is empty the other side's nearest is taken. The player is only picked when nobody else is on screen.
-- **A target on screen:** the next candidate over in the pressed direction, ordered left to right on screen (at the same position, nearest first), wrapping from one edge to the other so every candidate is reachable. Picking only the nearest on that side would skip a far target between two nearer ones.
-- **Evidence:** the issue's (#134) description of the retail feel and the maintainer's choice of the hybrid rule with wrapping; not yet checked against retail or Windower captures for tie-breaks.
+- **Candidates:** spawned, not hidden or invisible, named entities other than elevators and ships, within 50 yalms of the player, in front of the camera and inside its horizontal field of view, ordered left to right on screen (screen position taken 1 yalm above the feet; at the same position, nearest first). A target that is off screen counts as nothing targeted.
+- **Tab / Shift+Tab** (`TargetNearest` / `TargetPrevious`, also the right / left triggers): with nothing targeted, the closest candidate by distance; otherwise the next candidate to the right / left of the current target, wrapping to the left-most / right-most. Your own character is never picked.
+- **D-pad right / left** (`TargetCursorRight` / `TargetCursorLeft`): with nothing targeted, yourself; otherwise the next candidate to the right / left, with you in the order at your own screen position (the centre in first person); past the edge of the screen it returns to you. Profiles saved before these actions existed have the d-pad moved onto them on load (`InputProfile.EnsureTargetCursorBindings`).
+- **Gamepad A** (Confirm from a gamepad button, `InputState.WasActionTriggeredByGamepad`) with nothing targeted targets the closest candidate. Confirm from the keyboard (Space, Enter, keypad 5) never targets; on the keyboard only Tab and Shift+Tab do.
+- **F1-F6:** F1 targets yourself, F2-F6 (`TargetParty1`-`TargetParty5`) the other members of your own party in party window order (`PlayerActionService.SetTargetByPartySlot`); an empty slot or a member outside the zone does nothing.
+

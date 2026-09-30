@@ -599,12 +599,16 @@ namespace Gordian.App.ViewModels
             // Targeting & Menus
             AddBindingRow(InputAction.Confirm, "Interaction", "Confirm / Action");
             AddBindingRow(InputAction.Cancel, "Interaction", "Cancel / Clear Target");
-            AddBindingRow(InputAction.TargetNearest, "Targeting", "Next Target (Right)");
-            AddBindingRow(InputAction.TargetPrevious, "Targeting", "Next Target (Left)");
+            AddBindingRow(InputAction.TargetNearest, "Targeting", "Cycle Target Right (skips yourself)");
+            AddBindingRow(InputAction.TargetPrevious, "Targeting", "Cycle Target Left (skips yourself)");
+            AddBindingRow(InputAction.TargetCursorRight, "Targeting", "Target Cursor Right (via yourself)");
+            AddBindingRow(InputAction.TargetCursorLeft, "Targeting", "Target Cursor Left (via yourself)");
             AddBindingRow(InputAction.TargetSelf, "Targeting", "Target Self");
-            AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 1");
-            AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 2");
-            AddBindingRow(InputAction.TargetParty3, "Targeting", "Target Party Member 3");
+            AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 2");
+            AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 3");
+            AddBindingRow(InputAction.TargetParty3, "Targeting", "Target Party Member 4");
+            AddBindingRow(InputAction.TargetParty4, "Targeting", "Target Party Member 5");
+            AddBindingRow(InputAction.TargetParty5, "Targeting", "Target Party Member 6");
             AddBindingRow(InputAction.OpenMenu, "Interface", "Open Main Menu");
             AddBindingRow(InputAction.OpenChat, "Interface", "Focus Chat Prompt");
             AddBindingRow(InputAction.CycleLogWindow, "Interface", "Select Log Window");
