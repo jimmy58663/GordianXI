@@ -161,7 +161,11 @@ namespace Gordian.App.Graphics
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
+                // The plates belong to the scene: they fade to black with it (the fdo? / fdi? fades) and come back with it.
+                var scene = presentation.SceneColor;
+                renderer.Opacity = presentation.InterfaceOpacity * Math.Clamp((scene.X + scene.Y + scene.Z) / 3f, 0f, 1f);
                 targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, Layout.NamePlateScale);
+                renderer.Opacity = presentation.InterfaceOpacity;
             }
             if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene)
             {
