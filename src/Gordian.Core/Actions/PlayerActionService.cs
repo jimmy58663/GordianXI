@@ -955,12 +955,12 @@ namespace Gordian.Core.Actions
             }
         }
 
-        public async Task<PlayerActionResult> EmoteAsync(EmoteId emote, uint targetId = 0, ushort targetIndex = 0)
+        public async Task<PlayerActionResult> EmoteAsync(EmoteId emote, uint targetId = 0, ushort targetIndex = 0, ushort param = 0)
         {
             var (resolvedId, resolvedIdx, _) = ResolveTarget(targetId, targetIndex, string.Empty);
             try
             {
-                await _combatModule.RequestEmoteAsync(resolvedId, resolvedIdx, emote).ConfigureAwait(false);
+                await _combatModule.RequestEmoteAsync(resolvedId, resolvedIdx, emote, param: param).ConfigureAwait(false);
                 return PlayerActionResult.Ok($"Emote: {emote}", ChatCommandResultKind.Emote);
             }
             catch (Exception ex)
@@ -1831,7 +1831,7 @@ namespace Gordian.Core.Actions
                     return await ReleaseTrustAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.Emote:
-                    return await EmoteAsync(cmd.Emote, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+                    return await EmoteAsync(cmd.Emote, cmd.TargetServerId, cmd.TargetIndex, cmd.ActionParam).ConfigureAwait(false);
 
                 // Chat & Communication
                 case ChatCommandResultKind.SendChat:

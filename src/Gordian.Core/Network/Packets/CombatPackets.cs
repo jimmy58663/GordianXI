@@ -143,33 +143,70 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// Standard FFXI emote identifiers transmitted in C2S 0x05D.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x05d_motion.h).
+    /// Emote ids sent as C2S 0x05D <c>Number</c> (and played by event opcode 0x6E). Point is 0; there is no "none" value.
+    /// <c>/sit</c> is not an emote: it is its own packet (C2S 0x0EA). Ids referenced from XiPackets
+    /// (https://github.com/atom0s/XiPackets/tree/main/world/client/0x005D) and LandSandBoat
+    /// (https://github.com/LandSandBoat/server/blob/base/src/map/enums/emote.h).
     /// </summary>
     public enum EmoteId : byte
     {
-        None = 0,
-        Cheer = 1,
-        Clap = 2,
-        Wave = 3,
-        Bow = 4,
-        Point = 5,
-        Salute = 6,
-        Kneel = 7,
-        Laugh = 8,
-        Cry = 9,
-        No = 10,
-        Yes = 11,
-        Surprised = 12,
-        Blush = 13,
-        Sit = 14,
-        Farewell = 15,
-        Joy = 16,
-        Comfort = 17,
-        Panic = 18,
-        Disgusted = 19,
-        Angry = 20,
-        Shocked = 21
+        Point = 0,
+        Bow = 1,
+        Salute = 2,
+        Kneel = 3,
+        Laugh = 4,
+        Cry = 5,
+        No = 6,
+        Yes = 7,
+        Wave = 8,
+        Goodbye = 9,
+        Welcome = 10,
+        Joy = 11,
+        Cheer = 12,
+        Clap = 13,
+        Praise = 14,
+        Smile = 15,
+        Poke = 16,
+        Slap = 17,
+        Stagger = 18,
+        Sigh = 19,
+        Comfort = 20,
+        Surprised = 21,
+        Amazed = 22,
+        Stare = 23,
+        Blush = 24,
+        Angry = 25,
+        Disgusted = 26,
+        Muted = 27,
+        Doze = 28,
+        Panic = 29,
+        Grin = 30,
+        Dance = 31,
+        Think = 32,
+        Fume = 33,
+        Doubt = 34,
+        Sulk = 35,
+        Psych = 36,
+        Huh = 37,
+        Shocked = 38,
+        /// <summary>HELM gathering motions; LandSandBoat sends them, the client never requests them.</summary>
+        Logging = 40,
+        Excavation = 41,
+        Harvesting = 42,
+        /// <summary>Sent with <c>Param</c> 1.</summary>
+        Hurray = 43,
+        Toss = 44,
+        /// <summary><c>/dance1</c>-<c>/dance4</c>, sent with <c>Param</c> 2-5.</summary>
+        Dance1 = 65,
+        Dance2 = 66,
+        Dance3 = 67,
+        Dance4 = 68,
+        /// <summary><c>/bell</c>, <c>Param</c> is the note.</summary>
+        Bell = 73,
+        /// <summary><c>/jobemote</c>, <c>Param</c> is the job id + 30.</summary>
+        Job = 74,
+        /// <summary><c>/aim</c>, sent with <c>Param</c> 53.</summary>
+        Aim = 96
     }
 
     /// <summary>
