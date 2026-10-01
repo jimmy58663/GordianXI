@@ -5,10 +5,22 @@
 ## Phase 6: Scripting runtime, addons and package manager
 
 - [ ] **Sandboxed Lua Scripting Engine (`Gordian.Addons`):**
-  - [ ] Single Lua VM (NLua / KeraLua) with Windower/Ashita API compatibility shims — the sole supported addon language; no secondary JavaScript/TypeScript runtime
-  - [ ] Allowlist-only script environment: every addon executes with a restricted `_ENV` containing exclusively the curated addon API table (below). The dangerous parts of the Lua/NLua standard surface — CLR interop (`luanet`), `os.execute`, raw `io.*`, `require`/`dofile`/`loadstring`, `debug.*` — are never present in that environment in the first place, rather than removed/blocklisted after the fact
-  - [ ] Scoped addon storage API (`storage.read_config()`, `storage.write_config(data)`, `storage.log(line)`) as the sanctioned replacement for raw `io.*`: confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory`, with path-traversal validation and a size quota so an addon can persist settings/logs without ever reaching an arbitrary path on disk
-  - [ ] Event bus (`on_packet_in`, `on_packet_out`, `on_chat`, `on_zone_change`), zero access to `Gordian.Automation`
+  - [ ] Dedicated native Lua 5.4 VM per loaded addon via KeraLua P/Invoke: complete fault isolation (crashes never affect other addons or the engine), leak-proof unloading (`lua_close`), and zero .NET GC overhead. Cross-platform native binaries for Windows, Linux, and macOS (x64 and ARM64).
+  - [ ] Allowlist-only script environment: every addon executes with a restricted `_ENV` containing exclusively curated API tables. Because KeraLua binds directly to pure ANSI C Lua, CLR reflection (`luanet`) does not exist; dangerous globals (`os.execute`, raw `io.*`, `require`/`dofile`/`loadstring`, `debug.*`) are absent from the sandbox environment at creation.
+  - [ ] Scoped addon storage API (`storage.read_config()`, `storage.write_config(data)`, `storage.log(line)`) as the sanctioned replacement for raw `io.*`: confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory`, with path-traversal validation and a size quota.
+  - [ ] C#-backed `AddonRegistry` categorized by runtime flavor (`Gordian`, `Windower`, `Ashita`):
+    - Windower addons receive `_G.windower` and standard pure-Lua helpers (`config.lua`, `tables.lua`).
+    - Ashita addons receive `_G.AshitaCore`, `_G.ashita`, and direct passthrough to GordianXI's native `_G.imgui`.
+    - Native Gordian addons receive `_G.gordian` with zero legacy overhead.
+  - [ ] Lua 5.1 Backward-Compatibility Shim: a lightweight compatibility module providing the `bit` library (`band`, `bor`, `bxor`, `rshift`, `lshift`), `unpack = table.unpack`, and `loadstring = load` so legacy Windower/Ashita addons written for Lua 5.1/LuaJIT run natively on the modern Lua 5.4 VM.
+  - [ ] C# Pub-Sub Event Registry & Opcode Pre-Filtering:
+    - Event registrations (`windower.register_event`, `ashita.events.register`, `gordian.register_event`) register callbacks directly with C# dispatch dictionaries.
+    - Incoming packets are pre-filtered by opcode in C# before FFI invocation—VMs only wake up if subscribed to that specific opcode, eliminating broadcast overhead.
+  - [ ] Targeted Native IPC:
+    - Point-to-point direct messaging (`gordian.ipc.send('target_addon', action, payload)`), waking only the recipient VM.
+    - Topic-based pub-sub (`gordian.ipc.subscribe('channel', callback)`).
+    - Native structured table payloads (no string concatenation or manual serialization required).
+    - Legacy `windower.send_ipc_message` scoped strictly to active Windower VMs.
 - [ ] **3-Tier Menu & Action API for Addon Authors:**
   - [ ] *High-Level Intent API:* Safe, validated one-line triggers (`actions.cast("Cure IV")`, `actions.use_ability("Provoke")`, `inventory.equip()`, `event.choose(index)`).
   - [ ] *Reactive Live State Access:* Continuous, non-blocking read access to live cached game state (`LocalPlayerState`, recasts, inventory, party, world entities) without needing to wait for button click responses.
@@ -71,5 +83,6 @@ Updater constraints, docs site and open questions: [distribution.md](distributio
   - [ ] Addon debugging, log/error diagnostics, and backward-compatibility linting against Windower/Ashita shims
 - [ ] **GearSwap & Native Equipment Automation Assistant:**
   - [ ] Direct integration with Phase 4 DAT item/equipment database (stat queries, equipment slots, job restrictions, set bonuses)
-  - [ ] GearSwap `.lua` parser, validator, and translator into GordianXI native fast-swap rules
-  - [ ] Rule optimization for precast, midcast, aftercast, and situational macro sets
+  - [ ] Native GordianXI GearSwap Lua addon: pure Lua addon targeting Gordian's native API (`gordian.equip_set`) with direct in-memory DAT item database integration, eliminating legacy raw packet crafting, `packets.lua`, and sleep loops
+  - [ ] Backward-compatible GearSwap `.lua` profile loader and validator for precast, midcast, aftercast, and situational macro sets
+  - [ ] Atomic multi-slot equipment batching executed directly in C# network buffers
