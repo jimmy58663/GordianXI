@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using Gordian.Core.Resources;
@@ -586,5 +587,56 @@ namespace Gordian.Core.Tests.Resources
             Assert.Same(combatUpperTrack10, model.Animations["cwlk"].Tracks[10]);
             Assert.Same(combatUpperTrack11, model.Animations["cwlk"].Tracks[11]);
         }
-    }
+    
+        private static AnimationClip RegionClip(string name, int frames, params int[] joints)
+        {
+            var tracks = new Dictionary<int, BoneAnimationTrack>();
+            foreach (int j in joints) tracks[j] = new BoneAnimationTrack { JointIndex = j };
+            return new AnimationClip { Name = name, NumFrames = frames, KeyFrameDuration = 1f, Tracks = tracks };
+        }
+
+        /// <summary>
+        /// #163: a fixed NPC model stores a motion as body-region parts (wlk0 legs, wlk1 upper body, wlk2 waist); the stem
+        /// plays them together. Same-stem clips that move the same joints (a monster's swings) stay separate motions.
+        /// </summary>
+        [Fact]
+        public void BodyRegionParts_AreJoinedUnderTheirStem_SwingsAreNot()
+        {
+            var model = new EntityModel();
+            var clips = new List<AnimationClip>
+            {
+                RegionClip("run2", 13, 20, 21), RegionClip("run1", 13, 5, 6, 7, 8), RegionClip("run0", 13, 0, 1),
+                RegionClip("at0", 30, 0, 1, 2), RegionClip("at1", 40, 0, 1, 2),
+            };
+            foreach (var clip in clips)
+            {
+                model.Animations[clip.Name] = clip;
+                model.Animations.TryAdd(clip.Name[..^1], clip);
+            }
+            EntityModelLoader.MergeBodyRegionParts(model, clips);
+
+            Assert.Equal(new[] { 0, 1, 5, 6, 7, 8, 20, 21 }, model.Animations["run"].Tracks.Keys.OrderBy(k => k).ToArray());
+            Assert.Equal(13, model.Animations["run"].NumFrames);
+            Assert.Same(clips[3], model.Animations["at"]);
+            Assert.Same(clips[4], model.Animations["at1"]);
+        }
+
+        /// <summary>
+        /// The retail models of #163: Curilla (model 69) and Prince Trion (model 64) walk and stand with every joint
+        /// animated (99), not the legs or waist part alone. Skipped without the game install.
+        /// </summary>
+        [Theory]
+        [InlineData(69u)]
+        [InlineData(64u)]
+        public void FixedNpcModels_WalkWithTheirWholeSkeleton(uint modelId)
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var model = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            Assert.Equal(model.Skeleton!.Count, model.Animations["wlk"].Tracks.Count);
+            Assert.Equal(model.Skeleton.Count, model.Animations["idl"].Tracks.Count);
+        }
+}
 }

@@ -138,6 +138,7 @@ namespace Gordian.Core.Resources
                     model.Animations[stripped] = clip;
                 }
             }
+            MergeBodyRegionParts(model, primary.Animations);
 
             AddRoutines(model, primary.Routines);
 
@@ -518,6 +519,50 @@ namespace Gordian.Core.Resources
                         model.Animations[$"c{cat}"] = compositeClip;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Joins a motion stored in body-region parts into one clip under its stem name: a fixed NPC model (Curilla,
+        /// model 69) carries <c>wlk0</c> (16 joints: legs), <c>wlk1</c> (73: upper body, arms and the weapon joints) and
+        /// <c>wlk2</c> (10: waist), and the stem used to name only the first part in file order, so a walk moved the legs
+        /// alone, the upper body stayed in its bind pose with the sword at the floor (#163), and <c>run</c> was the
+        /// waist part. Parts are joined only when they animate disjoint joints; same-stem clips that each move the whole
+        /// skeleton (a monster's swings <c>at0</c>-<c>at2</c>) are different motions and keep the first as the stem.
+        /// </summary>
+        internal static void MergeBodyRegionParts(EntityModel model, List<AnimationClip> clips)
+        {
+            var byStem = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in clips)
+            {
+                string stem = StripBodyRegionSuffix(clip.Name);
+                if (stem == clip.Name) continue;
+                if (!byStem.TryGetValue(stem, out var list)) byStem[stem] = list = new List<AnimationClip>();
+                list.Add(clip);
+            }
+            foreach (var (stem, parts) in byStem)
+            {
+                if (parts.Count < 2) continue;
+                var tracks = new Dictionary<int, BoneAnimationTrack>();
+                bool disjoint = true;
+                foreach (var part in parts)
+                {
+                    foreach (var (joint, track) in part.Tracks)
+                    {
+                        if (!tracks.TryAdd(joint, track)) disjoint = false;
+                    }
+                }
+                if (!disjoint) continue;
+                // Timing from the part that moves the most joints (the parts of one motion share it in the retail models).
+                var timing = parts[0];
+                foreach (var part in parts) if (part.Tracks.Count > timing.Tracks.Count) timing = part;
+                model.Animations[stem] = new AnimationClip
+                {
+                    Name = stem,
+                    NumFrames = timing.NumFrames,
+                    KeyFrameDuration = timing.KeyFrameDuration,
+                    Tracks = tracks
+                };
             }
         }
 
