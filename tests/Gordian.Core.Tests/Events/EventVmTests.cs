@@ -49,7 +49,7 @@ namespace Gordian.Core.Tests.Events
             ReceivePending = true;
         }
         public void SetControlLock(bool locked) => Locks.Add(locked);
-        public bool EntityExists(uint serverId) => serverId == 0x010E6001;
+        public bool EntityExists(uint serverId) => serverId == 0x010E6001 || Entities.ContainsKey(serverId);
         public int GetEntityValue(uint serverId, int key) => EntityValues.TryGetValue(key, out int v) ? v : 0;
         public void OnSkippedOpcode(byte opcode, int pc) => Skipped.Add(opcode);
 
@@ -118,6 +118,9 @@ namespace Gordian.Core.Tests.Events
         public List<int> OpenedZones { get; } = new();
         public bool IsEventZoneLoading { get; set; }
         public void OpenEventZone(int zoneId) => OpenedZones.Add(zoneId);
+
+        public List<(uint Id, uint Target, int SpeechFrame)> Looks { get; } = new();
+        public void SetEntityLook(uint serverId, uint targetServerId, int speechFrame) => Looks.Add((serverId, targetServerId, speechFrame));
     }
 
     public class EventVmTests

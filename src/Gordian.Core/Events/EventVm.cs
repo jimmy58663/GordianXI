@@ -920,8 +920,12 @@ namespace Gordian.Core.Events
                     return;
                 case 0x1E:
                 {
-                    // Face the named actor (and talk to it: the mouth animation is not played).
-                    if (TryGetActorPosition(Code32(1), out var at)) SetEventHeading(WorldEntity.HeadingOf(at.X - _eventX, at.Z - _eventZ));
+                    // Face the named actor and look at it (XiEvents OpCodes/0x001E: lookatone with speech frame 6).
+                    if (TryGetActorPosition(Code32(1), out var at))
+                    {
+                        SetEventHeading(WorldEntity.HeadingOf(at.X - _eventX, at.Z - _eventZ));
+                        LookAt(EntityServerId, TaskActor(Code32(1)), 6);
+                    }
                     _pc += 5;
                     return;
                 }
@@ -933,6 +937,7 @@ namespace Gordian.Core.Events
                     {
                         var (from, _) = turner.EventPosition;
                         turner.SetEventHeading(WorldEntity.HeadingOf(at.X - from.X, at.Z - from.Z));
+                        LookAt(TaskActor(Code32(1)), TaskActor(Code32(5)), 6);
                     }
                     _pc += 9;
                     return;
@@ -1113,13 +1118,30 @@ namespace Gordian.Core.Events
                     // Waits for the actor's action resources to load (OpCodes/0x0080, CodeLOADWAIT); they load when asked here.
                     _pc += 5;
                     return;
+                case 0x79:
+                    // Look at another actor (XiEvents OpCodes/0x0079): sub 0 lookatone(actor, target, 6), sub 1 with the
+                    // speech frame from a work value; sub 2 sets a look axis (two work values, units unknown: not done).
+                    switch (Code8(1))
+                    {
+                        case 0:
+                            LookAt(TaskActor(Code32(2)), TaskActor(Code32(6)), 6);
+                            break;
+                        case 1:
+                            LookAt(TaskActor(Code32(2)), TaskActor(Code32(6)), GetWork(10));
+                            break;
+                    }
+                    _pc += EventOpcodeTable.GetLength(_code, _pc);
+                    return;
+                case 0x7B:
+                    // The actor stops looking and talking (OpCodes/0x007B: look mode cleared, NpcSpeechFrame -1).
+                    if (TaskActor(Code32(1)) is var quiet && quiet != uint.MaxValue) _host.SetEntityLook(quiet, uint.MaxValue, -1);
+                    _pc += 5;
+                    return;
                 case 0x2F:
                 case 0x33:
                 case 0x42:
-                case 0x7B:
                 case 0x7C:
-                case 0x79:
-                    // Opcodes with no effect on a client that draws no mouth, head look or render-flag variants. The
+                    // Opcodes with no effect on a client that draws no render-flag variants. The
                     // scripts' use of 0x2F (Render.Flags0 bit 19) always sits next to the 0x22 / 0x4E hide that does the work.
                     _pc += EventOpcodeTable.GetLength(_code, _pc);
                     return;
@@ -1211,6 +1233,13 @@ namespace Gordian.Core.Events
             if (serverId == 0) return Scene.PlayerServerId;
             if (serverId == Scene.PlayerServerId || Scene.FindActor(serverId) != null || _host.EntityExists(serverId)) return serverId;
             return uint.MaxValue;
+        }
+
+        /// <summary>lookatone: one actor (server id) looks at another, when both are known.</summary>
+        private void LookAt(uint looker, uint target, int speechFrame)
+        {
+            if (looker == uint.MaxValue || target == uint.MaxValue) return;
+            _host.SetEntityLook(looker, target, speechFrame);
         }
 
         /// <summary>The scene's action tag of an emote (0x6E), which no motion opcode names.</summary>
