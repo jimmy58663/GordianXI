@@ -77,7 +77,7 @@ namespace Gordian.Core.Ui
         /// </summary>
         public static bool ShowsName(WorldEntity entity, NamePlateFlags flags)
         {
-            if (!entity.IsSpawned || entity.IsHidden || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
+            if (!entity.IsSpawned || (entity.IsHidden && !entity.IsInEvent) || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
             if (entity is PlayerEntity) return true;
             if ((flags & NamePlateFlags.NameHidden) != 0) return false;
             return !ModelHidesName(entity.Appearance.ModelId);

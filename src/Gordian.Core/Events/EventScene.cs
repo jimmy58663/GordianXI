@@ -118,6 +118,7 @@ namespace Gordian.Core.Events
 
         private readonly List<SchedulerTask> _tasks = new();
         private readonly Dictionary<uint, EntityAction> _entityActions = new();
+        private readonly Dictionary<uint, float> _turns = new();
         private int _nextTaskId;
 
         private void AdvanceTasks(float frames)
@@ -127,15 +128,36 @@ namespace Gordian.Core.Events
                 _tasks[i].RemainingFrames -= frames;
                 if (_tasks[i].RemainingFrames <= 0) _tasks.RemoveAt(i);
             }
-            if (_entityActions.Count == 0) return;
-            foreach (uint id in new List<uint>(_entityActions.Keys))
+            if (_entityActions.Count > 0)
             {
-                var action = _entityActions[id];
-                action.RemainingFrames -= frames;
-                if (action.RemainingFrames <= 0) _entityActions.Remove(id);
-                else _entityActions[id] = action;
+                foreach (uint id in new List<uint>(_entityActions.Keys))
+                {
+                    var action = _entityActions[id];
+                    action.RemainingFrames -= frames;
+                    if (action.RemainingFrames <= 0) _entityActions.Remove(id);
+                    else _entityActions[id] = action;
+                }
+            }
+            if (_turns.Count > 0)
+            {
+                foreach (uint id in new List<uint>(_turns.Keys))
+                {
+                    float left = _turns[id] - frames;
+                    if (left <= 0) _turns.Remove(id);
+                    else _turns[id] = left;
+                }
             }
         }
+
+        /// <summary>An entity starts turning toward a new event heading; it arrives after <paramref name="frames"/> (60 Hz).</summary>
+        internal void StartTurn(uint serverId, float frames)
+        {
+            if (frames > 0) _turns[serverId] = frames;
+            else _turns.Remove(serverId);
+        }
+
+        /// <summary>Whether an entity is still turning (0x76 / 0x70 wait on it).</summary>
+        internal bool IsTurning(uint serverId) => _turns.ContainsKey(serverId);
 
         private int FindTask(int fileId, uint tag, uint caster, uint target) =>
             _tasks.FindIndex(t => t.FileId == fileId && t.Tag == tag && t.Caster == caster && t.Target == target);
@@ -181,6 +203,9 @@ namespace Gordian.Core.Events
         {
             if (_entityActions.TryGetValue(serverId, out var action) && action.Tag == tag) _entityActions.Remove(serverId);
         }
+
+        /// <summary>Ends whatever event action an entity plays (0x5E / 0x6B return it to idle).</summary>
+        internal void EndEntityActions(uint serverId) => _entityActions.Remove(serverId);
 
         /// <summary>Whether an entity still plays the event action <paramref name="tag"/> (0x53 waits on it).</summary>
         internal bool IsEntityActionPlaying(uint serverId, uint tag) =>

@@ -292,6 +292,43 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void Opcode76_WaitsWhileTheActorTurns()
+        {
+            // 39 heading=ref0 (a half turn from 0) ; 76 actor ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 2048, 900 }, Code(0x39, Ref(0), 0x76, Id(Director), 0x48, Ref(1), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, 0f, 0f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 200) scene.Tick(Frame);
+            // ln(π / 0.05) / 8 = 0.52 s of turning.
+            Assert.InRange(frames, 30, 34);
+        }
+
+        [Fact]
+        public void Opcode76_PassesWhenTheActorIsNotTurning()
+        {
+            var block = Block(Director, new uint[] { 900 }, Code(0x76, Id(Director), 0x48, Ref(0), 0x00));
+            var (scene, host) = Scene(block);
+            scene.Tick(Frame);
+            Assert.Single(host.Printed);
+        }
+
+        [Fact]
+        public void Opcodes5EAnd6B_ReturnTheActorToIdle()
+        {
+            // 66 gesture on the director, then 5E resets the event entity and 6B the actor
+            var block = Block(Director, new uint[] { 900 }, Code(0x5E, Id(0x306C6469), 0x6B, Id(0x306C6469), Id(Actor), 0x48, Ref(0), 0x00));
+            var actor = Block(Actor, Array.Empty<uint>(), Code(0x00));
+            var (scene, host) = Scene(block, actor);
+            scene.Tick(Frame);
+            Assert.Equal(new[] { (Director, string.Empty), (Actor, string.Empty) }, host.StoppedMotions);
+            Assert.Single(host.Printed);
+        }
+
+        [Fact]
         public void OpcodeBA_PlacesAnotherActorOfTheEvent()
         {
             // BA actor x=ref0 y=ref1 height=ref2 heading=ref3
