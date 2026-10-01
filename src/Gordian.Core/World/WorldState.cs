@@ -79,6 +79,7 @@ namespace Gordian.Core.World
                     {
                         _currentZoneId = value;
                         _collision = null;
+                        _eventZoneId = 0;
                         changed = true;
                     }
                 }
@@ -137,6 +138,30 @@ namespace Gordian.Core.World
 
         /// <summary>Lets the clock run again (opcode 0x78, or the event's end).</summary>
         public void UnlockTimeOfDay() => _lockedHours = double.NaN;
+
+        private volatile int _eventZoneId;
+        private volatile int _displayedZoneId;
+
+        /// <summary>
+        /// Another zone an event shows instead of the session's own (opcodes 0x34 / 0x35: the Windurst intros open Windurst
+        /// Walls for their first scene), or 0. While set the viewport draws that zone's terrain and no entities (retail
+        /// deletes every actor before it opens the zone). Cleared by the event's end and by a zone change.
+        /// </summary>
+        public ushort EventZoneId
+        {
+            get => (ushort)_eventZoneId;
+            set => _eventZoneId = value;
+        }
+
+        /// <summary>The zone the viewport should draw for this session: the event's zone, else the current one.</summary>
+        public ushort SceneZoneId => EventZoneId != 0 ? EventZoneId : CurrentZoneId;
+
+        /// <summary>The zone whose terrain a viewport last finished loading for this session (0 while none has).</summary>
+        public ushort DisplayedZoneId
+        {
+            get => (ushort)_displayedZoneId;
+            set => _displayedZoneId = value;
+        }
 
         /// <summary>The time of day in hours [0, 24): the event's stopped clock, else Vana'diel time now.</summary>
         public float GetTimeOfDayHours(DateTime utcNow)

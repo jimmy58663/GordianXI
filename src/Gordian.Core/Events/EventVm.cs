@@ -970,6 +970,10 @@ namespace Gordian.Core.Events
                     _host.UnlockEnvironment();
                     _pc++;
                     return;
+                case 0x34:
+                case 0x35:
+                    ExecOpenZone();
+                    return;
                 case 0x4E:
                 {
                     var (serverId, _) = ResolveActor(Code32(2));
@@ -1211,6 +1215,38 @@ namespace Gordian.Core.Events
 
         /// <summary>The scene's action tag of an emote (0x6E), which no motion opcode names.</summary>
         private const uint EmoteTag = 0x746F6D65; // "emot"
+
+        /// <summary>
+        /// 0x34 / 0x35 (XiEvents OpCodes/0x0034, 0x0035): retail deletes every actor and yields, yields again while the map
+        /// load flag is up, then opens the zone the work value at +1 names (XiZone::Open) and goes on; 0x34 may close the
+        /// event zone first. The Windurst intros open Windurst Walls (239) with 0x34 for their first scene and their own
+        /// zone with 0x35 after it. Here the host draws the zone in place of the session's own and the opcode waits while
+        /// it loads, at most <see cref="ZoneOpenTimeoutFrames"/>.
+        /// </summary>
+        private void ExecOpenZone()
+        {
+            if (_zoneOpenFrames < 0f)
+            {
+                _host.OpenEventZone(GetWork(1));
+                _zoneOpenFrames = 0f;
+                _retFlag = true;
+                return;
+            }
+            _zoneOpenFrames += _frameDelay;
+            if (_host.IsEventZoneLoading && _zoneOpenFrames < ZoneOpenTimeoutFrames)
+            {
+                _retFlag = true;
+                return;
+            }
+            _zoneOpenFrames = -1f;
+            _pc += 3;
+        }
+
+        /// <summary>How long 0x34 / 0x35 wait for the zone to load before going on without it (15 s).</summary>
+        private const float ZoneOpenTimeoutFrames = 900f;
+
+        /// <summary>Frames 0x34 / 0x35 have waited for their zone, -1 while none is opening.</summary>
+        private float _zoneOpenFrames = -1f;
 
         /// <summary>0x5E / 0x6B: the entity's event action ends and it returns to idle.</summary>
         private void ResetMotion(uint serverId)

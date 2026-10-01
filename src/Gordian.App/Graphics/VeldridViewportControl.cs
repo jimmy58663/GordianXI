@@ -263,6 +263,12 @@ namespace Gordian.App.Graphics
             if (rm == null) return;
 
             int generation = rm.CacheGeneration;
+            // An event may show another zone for a scene (0x34 / 0x35) and then the session's own again.
+            if (Volatile.Read(ref _isZoneLoading) == 0 && (_activeSession?.World ?? WorldState) is { } sceneWorld)
+            {
+                ushort sceneZone = sceneWorld.SceneZoneId;
+                if (sceneZone != 0 && sceneZone != _loadedZoneId) _pendingZoneLoad = sceneZone;
+            }
             bool loadedZoneStale = _loadedZoneId != 0 && generation != _loadedZoneGeneration;
             int targetZone = _pendingZoneLoad != 0 ? _pendingZoneLoad : (loadedZoneStale ? _loadedZoneId : 0);
             if (targetZone == 0 || (targetZone == _loadedZoneId && !loadedZoneStale)) return;
@@ -291,6 +297,10 @@ namespace Gordian.App.Graphics
                             _loadedZoneGeneration = generation;
                             _currentZoneGeom = zoneGeom;
                             ShareZoneCollision();
+                            foreach (var world in new[] { _activeSession?.World, WorldState })
+                            {
+                                if (world != null) world.DisplayedZoneId = zoneToLoad;
+                            }
 
                             if (zoneGeom?.EnvironmentData != null)
                             {
@@ -696,7 +706,8 @@ namespace Gordian.App.Graphics
                                 deltaSeconds,
                                 _deviceManager.CurrentWidth,
                                 _deviceManager.CurrentHeight,
-                                WorldState?.Entities,
+                                // An event's other zone (0x34 / 0x35) is shown without any entity: retail deletes the actors.
+                                (_activeSession?.World ?? WorldState)?.EventZoneId is > 0 ? Array.Empty<WorldEntity>() : WorldState?.Entities,
                                 ResourceManager,
                                 localPlayerServerId,
                                 isLocalPlayerEngaged,

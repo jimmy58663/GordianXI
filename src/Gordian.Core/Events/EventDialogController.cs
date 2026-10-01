@@ -412,6 +412,7 @@ namespace Gordian.Core.Events
             _sorted.Clear();
             _flags = 0;
             UnlockEnvironment();
+            if (_world != null) _world.EventZoneId = 0;
             Presentation.Reset();
             foreach (var entity in _banked) entity.Animation.ClearEventMotionBanks();
             _banked.Clear();
@@ -867,6 +868,18 @@ namespace Gordian.Core.Events
         }
 
         void IEventVmHost.UnlockEnvironment() => UnlockEnvironment();
+
+        void IEventVmHost.OpenEventZone(int zoneId)
+        {
+            var world = _world;
+            if (world == null) return;
+            world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
+            GordianLog.Info("EVENT", world.EventZoneId == 0 ? $"Event zone: back to zone {world.CurrentZoneId}." : $"Event zone: zone {zoneId} opened for the scene.");
+        }
+
+        // No viewport has drawn this session yet (0): nothing to wait for.
+        bool IEventVmHost.IsEventZoneLoading =>
+            _world is { } world && world.DisplayedZoneId != 0 && world.DisplayedZoneId != world.SceneZoneId;
 
         private void UnlockEnvironment()
         {
