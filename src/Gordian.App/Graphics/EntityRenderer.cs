@@ -530,7 +530,10 @@ namespace Gordian.App.Graphics
                 for (int m = 0; m < gpuModel.Submeshes.Count; m++)
                 {
                     var submesh = gpuModel.Submeshes[m];
-                    var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
+                    // By the model's own texture, not its name: models share names with different pixels (#163).
+                    var texSet = GpuTextureCache.Resolve(submesh.TextureName, gpuModel.Textures) is { } texture
+                        ? _textureCache.GetOrCreateResourceSet(texture)
+                        : _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
 
                     cl.SetGraphicsResourceSet(1, texSet);
                     cl.SetVertexBuffer(0, submesh.VertexBuffer);

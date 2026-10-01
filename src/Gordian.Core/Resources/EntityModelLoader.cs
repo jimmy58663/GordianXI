@@ -64,6 +64,7 @@ namespace Gordian.Core.Resources
                         var mesh = SkeletonMeshDecoder.DecodeMesh(payload, sourceName);
                         if (mesh != null)
                         {
+                            mesh.SectionName = h.DatId;
                             meshes.Add(mesh);
                         }
                         break;
@@ -143,6 +144,12 @@ namespace Gordian.Core.Resources
             AddRoutines(model, primary.Routines);
 
             var allMeshes = new List<SkeletonMeshGroup>(primary.Meshes);
+            var hiddenSlots = InitialHiddenWeaponSlots(model.RawMotionRoutines);
+            if (hiddenSlots.Count > 0)
+            {
+                int removed = allMeshes.RemoveAll(m => WeaponSlotOf(m.SectionName) is int slot && hiddenSlots.Contains(slot));
+                if (removed > 0) GordianLog.Debug("RES", $"{name}: init hides weapon slot(s) {string.Join(",", hiddenSlots)} ({removed} mesh(es)).");
+            }
 
             if (extraDats != null)
             {
@@ -520,6 +527,35 @@ namespace Gordian.Core.Resources
                     }
                 }
             }
+        }
+
+        /// <summary>The weapon slot of a <c>wepN</c> mesh section, or null.</summary>
+        internal static int? WeaponSlotOf(string sectionName) =>
+            sectionName.Length == 4 && sectionName.StartsWith("wep", StringComparison.Ordinal) && char.IsDigit(sectionName[3])
+                ? sectionName[3] - '0'
+                : null;
+
+        /// <summary>
+        /// The weapon slots a model's <c>init</c> routine leaves hidden (op 0x75, following its links within the model):
+        /// Prince Trion's model 64 runs <c>wof4</c> ("weapon off") from <c>init</c>, hiding the sword and scabbard of its
+        /// <c>wep4</c> folder, which <c>won4</c> would show again; drawn anyway they hung at his hips pointing outward (#163).
+        /// </summary>
+        internal static HashSet<int> InitialHiddenWeaponSlots(IReadOnlyDictionary<string, RawMotionRoutine> routines)
+        {
+            var state = new Dictionary<int, bool>();
+            void Walk(RawMotionRoutine routine, int depth)
+            {
+                if (depth > 4) return;
+                foreach (var command in routine.Commands)
+                {
+                    if (command.Op == 0x75 && command.WeaponSlot >= 0) state[command.WeaponSlot] = command.HideWeapon;
+                    else if (command.Op is 0x03 or 0x3B && routines.TryGetValue(command.Reference, out var child)) Walk(child, depth + 1);
+                }
+            }
+            if (routines.TryGetValue("init", out var init)) Walk(init, 0);
+            var hidden = new HashSet<int>();
+            foreach (var (slot, hide) in state) if (hide) hidden.Add(slot);
+            return hidden;
         }
 
         /// <summary>

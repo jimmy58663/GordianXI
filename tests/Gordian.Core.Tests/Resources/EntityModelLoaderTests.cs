@@ -625,6 +625,40 @@ namespace Gordian.Core.Tests.Resources
         /// The retail models of #163: Curilla (model 69) and Prince Trion (model 64) walk and stand with every joint
         /// animated (99), not the legs or waist part alone. Skipped without the game install.
         /// </summary>
+        /// <summary>
+        /// #163: a fixed NPC model's init routine hides a weapon slot (op 0x75, followed through a blocking link), so the
+        /// slot's wepN meshes are left out; the last command for a slot wins.
+        /// </summary>
+        [Fact]
+        public void InitRoutine_HidesWeaponSlots()
+        {
+            static MotionRoutineCommand ShowHide(int slot, bool hide) => new(0x75, 0, 1, string.Empty, 0, 0, 1, 1f, -1, 0, slot, hide);
+            var routines = new Dictionary<string, RawMotionRoutine>
+            {
+                ["init"] = new() { Name = "init", Commands = new[] { new MotionRoutineCommand(0x3B, 0, 0, "wof4", 0, 0, 1, 1f, -1, 0), ShowHide(2, true) } },
+                ["wof4"] = new() { Name = "wof4", Commands = new[] { ShowHide(4, true), ShowHide(2, false) } },
+            };
+            Assert.Equal(new[] { 2, 4 }, EntityModelLoader.InitialHiddenWeaponSlots(routines).OrderBy(s => s).ToArray());
+            Assert.Equal(4, EntityModelLoader.WeaponSlotOf("wep4"));
+            Assert.Null(EntityModelLoader.WeaponSlotOf("hh_b"));
+        }
+
+        /// <summary>Prince Trion's model 64: init runs wof4, which hides its wep4 sword and scabbard. Skipped without the game install.</summary>
+        [Fact]
+        public void TrionModel_InitHidesItsWeapon()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var raw = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(64))!);
+            var routines = raw.Routines.ToDictionary(r => r.Name);
+            Assert.Equal(new[] { 4 }, EntityModelLoader.InitialHiddenWeaponSlots(routines).ToArray());
+            Assert.Equal(2, raw.Meshes.Count(m => m.SectionName == "wep4"));
+            var curilla = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(69))!);
+            Assert.Empty(EntityModelLoader.InitialHiddenWeaponSlots(curilla.Routines.ToDictionary(r => r.Name))); // her sword stays
+        }
+
         [Theory]
         [InlineData(69u)]
         [InlineData(64u)]

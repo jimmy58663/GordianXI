@@ -83,7 +83,9 @@ namespace Gordian.Core.Resources.Models
         int Loops,
         float Speed,
         int PoseIndex,
-        int ReactionTicks);
+        int ReactionTicks,
+        int WeaponSlot = -1,
+        bool HideWeapon = false);
 
     /// <summary>A Section 0x07 routine's commands, before links are followed.</summary>
     public sealed class RawMotionRoutine

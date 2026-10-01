@@ -22,6 +22,9 @@ namespace Gordian.App.Graphics
         private readonly ConcurrentDictionary<string, (Texture Tex, TextureView View, ResourceSet Set)> _cache =
             new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Resource sets by decoded texture instance (<see cref="GetOrCreateResourceSet(DecodedTexture)"/>).</summary>
+        private readonly ConcurrentDictionary<DecodedTexture, ResourceSet> _byTexture = new(ReferenceEqualityComparer.Instance);
+
         private Texture _defaultTexture = null!;
         private TextureView _defaultTextureView = null!;
         private ResourceSet _defaultResourceSet = null!;
@@ -151,6 +154,67 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// The texture a submesh names in a decoded texture table: the exact name, else the first whose name ends with
+        /// it (or it with theirs). Null when none matches.
+        /// </summary>
+        public static DecodedTexture? Resolve(string? textureName, IReadOnlyDictionary<string, DecodedTexture>? decodedTextures)
+        {
+            if (string.IsNullOrWhiteSpace(textureName) || decodedTextures == null) return null;
+            string cleanKey = textureName.Trim();
+            if (decodedTextures.TryGetValue(cleanKey, out var decoded) && decoded != null) return decoded;
+            foreach (var kvp in decodedTextures)
+            {
+                if (kvp.Key.EndsWith(cleanKey, StringComparison.OrdinalIgnoreCase) || cleanKey.EndsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return kvp.Value;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The GPU resource set of one decoded texture, keyed by its content rather than its name: models carry textures
+        /// of the same name with different pixels (the fixed NPC models' <c>em_h11_2</c> heads), and a name key drew one
+        /// model's face on another (Balasiel, #163). Identical textures still share one upload.
+        /// </summary>
+        public ResourceSet GetOrCreateResourceSet(DecodedTexture texture)
+        {
+            ArgumentNullException.ThrowIfNull(texture);
+            if (_byTexture.TryGetValue(texture, out var known)) return known;
+            var hash = new HashCode();
+            hash.AddBytes(texture.RgbaPixels);
+            string contentKey = $"{texture.Name.Trim()}|{texture.Width}x{texture.Height}|{hash.ToHashCode():X8}";
+            if (!_cache.TryGetValue(contentKey, out var entry))
+            {
+                if (Upload(texture, contentKey) is not { } uploaded) return _defaultResourceSet;
+                entry = uploaded;
+            }
+            _byTexture[texture] = entry.Set;
+            return entry.Set;
+        }
+
+        private (Texture Tex, TextureView View, ResourceSet Set)? Upload(DecodedTexture decoded, string key)
+        {
+            try
+            {
+                var factory = _gd.ResourceFactory;
+                uint width = (uint)Math.Max(1, decoded.Width);
+                uint height = (uint)Math.Max(1, decoded.Height);
+                var tex = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+                _gd.UpdateTexture(tex, decoded.RgbaPixels, 0, 0, 0, width, height, 1, 0, 0);
+                var view = factory.CreateTextureView(tex);
+                var set = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, view, _sampler));
+                _cache[key] = (tex, view, set);
+                return (tex, view, set);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("Graphics", $"Failed to upload GPU texture '{decoded.Name}': {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Retrieves or creates a GPU ResourceSet for the given texture name from decoded texture tables.
         /// Falls back to the default neutral checkerboard if the texture is missing.
         /// </summary>
@@ -273,6 +337,7 @@ namespace Gordian.App.Graphics
                 kvp.Value.Tex.Dispose();
             }
             _cache.Clear();
+            _byTexture.Clear();
         }
 
         public void Dispose()

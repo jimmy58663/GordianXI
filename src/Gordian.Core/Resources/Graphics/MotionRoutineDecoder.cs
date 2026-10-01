@@ -43,6 +43,7 @@ namespace Gordian.Core.Resources.Graphics
         private const byte OpFlinchSource = 0x21;
         private const byte OpFlinchTarget = 0x25;
         private const byte OpPoseFlash = 0x5A;
+        private const byte OpShowHideWeapon = 0x75;
 
         /// <summary>
         /// Reads a routine's commands. Returns null when the payload is too short or its command offset is out of range.
@@ -89,6 +90,15 @@ namespace Gordian.Core.Resources.Graphics
                     case OpFlinchSource or OpFlinchTarget when command.Length >= 0x1C:
                         commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f, -1,
                             ReactionTicks: (int)ReadPositiveFloat(command.Slice(0x18), 0f)));
+                        break;
+
+                    case OpShowHideWeapon when command.Length >= 0x10:
+                        // u32 hide (1) or show (0), u16 weapon slot: ROM/0/0.DAT's hwmg stows slots 0 and 1 for a cast;
+                        // a fixed NPC model's init runs wof4 to hide its wep4 weapon (Prince Trion, model 64). Op meaning
+                        // from xi-tools docs/reference/ps2_decomp_crosscheck.md (HideWepControl).
+                        commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f, -1, 0,
+                            WeaponSlot: BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x0C)),
+                            HideWeapon: BinaryPrimitives.ReadUInt32LittleEndian(command.Slice(0x08)) != 0));
                         break;
 
                     case OpPoseFlash when command.Length >= 0x18:
