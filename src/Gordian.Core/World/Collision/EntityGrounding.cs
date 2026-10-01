@@ -34,7 +34,14 @@ namespace Gordian.Core.World.Collision
         /// event places an entity (retail calibrates event positions to the floor, VCalibrate).
         /// </summary>
         public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision) =>
-            collision != null && collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
+            GetDisplayHeight(position, collision, PlayerLocomotionController.StepUpHeight);
+
+        /// <summary>How far above an event position its floor may be (event walks move their height in a line between floors).</summary>
+        public const float EventStepUpHeight = 2.5f;
+
+        /// <summary>As <see cref="GetDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with the floor allowed up to <paramref name="stepUp"/> above.</summary>
+        public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision, float stepUp) =>
+            collision != null && collision.TryGetSteppedGround(position, stepUp,
                 PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out var ground)
                 ? ground.Height
                 : position.Y;

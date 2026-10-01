@@ -97,6 +97,12 @@ void main()
         /// </summary>
         public float? Depth { get; set; }
 
+        /// <summary>
+        /// Multiplies the opacity of every quad drawn while set, 0-1 (an event's interface fade); reset to 1 by
+        /// <see cref="Begin"/>.
+        /// </summary>
+        public float Opacity { get; set; } = 1f;
+
         /// <summary>Height of a menu window's title band in layout pixels; the body below it is drawn opaque (see <see cref="DrawMenu"/>).</summary>
         public const float MenuBandHeight = 20;
 
@@ -226,6 +232,7 @@ void main()
             _batches.Clear();
             Depth = null;
             TexelInset = 0;
+            Opacity = 1f;
         }
 
         /// <summary>
@@ -635,7 +642,7 @@ void main()
             return new Vector2(x + px * scale, y + py * scale);
         }
 
-        private static uint Pack(UiColor c, UiColor? tint)
+        private uint Pack(UiColor c, UiColor? tint)
         {
             int r = c.R, g = c.G, b = c.B, a = c.A;
             if (tint is { } t)
@@ -645,7 +652,37 @@ void main()
                 b = Math.Min(255, b * t.B / 0x80);
                 a = Math.Min(255, a * t.A / 0x80);
             }
+            if (Opacity < 1f) a = (int)MathF.Round(a * Math.Max(0f, Opacity));
             return (uint)(r | (g << 8) | (b << 16) | (a << 24));
+        }
+
+        /// <summary>A 1 x 1 white texel for solid quads.</summary>
+        private static readonly DecodedTexture WhiteTexel = new("gordian:white", 1, 1, new byte[] { 255, 255, 255, 255 });
+
+        /// <summary>
+        /// Multiplies the whole screen drawn so far by a colour (1 = unchanged, 0 = black), for an event's screen fades:
+        /// a black quad whose opacity darkens toward the colour, or a white one added for a colour above 1. A tinted
+        /// colour is drawn as its grey average.
+        /// </summary>
+        public void DrawScreenTint(float width, float height, Vector3 multiplier)
+        {
+            float level = (multiplier.X + multiplier.Y + multiplier.Z) / 3f;
+            if (MathF.Abs(level - 1f) < 0.002f || width <= 0 || height <= 0) return;
+            if (!_textures.TryGetValue(WhiteTexel.Name, out var entry))
+            {
+                entry = Upload(WhiteTexel);
+                _textures[WhiteTexel.Name] = entry;
+            }
+            if (entry is not { } e) return;
+            // The shader doubles the vertex colour: an alpha byte of 127.5 is full opacity.
+            float alpha = level < 1f ? 1f - Math.Max(0f, level) : Math.Min(1f, level - 1f);
+            byte shade = level < 1f ? (byte)0 : (byte)0x80;
+            uint c = (uint)(shade | (shade << 8) | (shade << 16) | ((int)MathF.Round(alpha * 127.5f) << 24));
+            AddQuad(e.Set, level < 1f ? UiBlendMode.Alpha : UiBlendMode.Add,
+                new UiVertex { Position = new Vector2(0, 0), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(width, 0), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(0, height), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(width, height), TexCoord = Vector2.Zero, Color = c });
         }
 
         private bool TryGetTextureSet(string textureName, out ResourceSet set, out float width, out float height)

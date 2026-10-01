@@ -26,6 +26,9 @@ namespace Gordian.Core.Events
         /// item, '8' zone) and <paramref name="id"/> the thing's id. Null when unknown.
         /// </summary>
         string? ResolveName(byte kind, int id);
+
+        /// <summary>Whether the player is female (picks 0x7F 0x85 "[his/her]"), or null when unknown.</summary>
+        bool? PlayerIsFemale => null;
     }
 
     /// <summary>
@@ -98,6 +101,9 @@ namespace Gordian.Core.Events
                         }
                         break;
                     }
+                    case EventMessageSegmentKind.GenderSelector when segment.Alternatives is { Count: >= 2 } words:
+                        line.Append(context.PlayerIsFemale is bool female ? words[female ? 1 : 0] : $"[{string.Join('/', words)}]");
+                        break;
                     case EventMessageSegmentKind.PlayerName:
                         line.Append(context.PlayerName);
                         break;

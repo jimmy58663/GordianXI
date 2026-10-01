@@ -11,8 +11,9 @@ namespace Gordian.Core.Events
     /// The talk subset of the retail event VM: runs one event of an <see cref="EventBlock"/> far enough to print
     /// its dialog, show its choice menus and answer the server (Tier 2 chunk 6). Control flow, the work-value
     /// arithmetic and bit opcodes, message and query opcodes, waits, the event update / end handshake and the
-    /// control lock are interpreted; camera, animation, scheduler, map and other cutscene opcodes are stepped over
-    /// by their documented length (<see cref="EventOpcodeTable"/>), so a cutscene plays as its text alone.
+    /// control lock are interpreted, and so are the cutscene staging opcodes (#86) and the schedulers that carry the
+    /// camera, fades and gestures (#165: 0x45 / 0x52 / 0x55, 0x2C / 0x5B / 0x66 / 0x50 / 0x53, 0x46); the other
+    /// opcodes are stepped over by their documented length (<see cref="EventOpcodeTable"/>).
     /// <para>
     /// Opcode semantics referenced from XiEvents (https://github.com/atom0s/XiEvents, "Event VM Functions.md",
     /// "Event VM Structures.md" and "OpCodes/"): operands are 16-bit work references resolved by
@@ -185,8 +186,8 @@ namespace Gordian.Core.Events
         /// <summary>
         /// 0x1F (CodeMOVE) and 0x5A (CodeMOVE2), XiEvents OpCodes/0x001F and 0x005A. Sub-case 0 stores the goal (x, y,
         /// height operands) in the running stack; sub-case 1 walks the event position toward it at the walk speed, turning
-        /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height is
-        /// the goal's, then the floor's), 0x5A moves in all three axes.
+        /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height moves toward the
+        /// goal's with the walk and is drawn on the floor below), 0x5A moves in all three axes.
         /// </summary>
         private void ExecMove(bool freeFlight)
         {
@@ -219,9 +220,11 @@ namespace Gordian.Core.Events
             if (dx * dx + dz * dz > 1e-8f) _eventDir = WorldEntity.HeadingOf(dx, dz);
             if (step > 0f && distance > step)
             {
+                // The height moves with the walk (a ground walk's goal height is often not the floor's: the Southern
+                // San d'Oria knights walk from height -2 to a goal at 0; taken at once it sank them into the floor).
                 _eventX += dx / distance * step;
                 _eventZ += dz / distance * step;
-                _eventY = freeFlight ? _eventY + dy / distance * step : goal.Y;
+                _eventY += dy / distance * step;
                 _walkedThisRun = true;
             }
             else
@@ -929,12 +932,13 @@ namespace Gordian.Core.Events
                     _pc += 2;
                     return;
                 case 0x67:
-                    // The event message mode and no compass (XiEvents OpCodes/0x0067): the HUD's cutscene mode.
-                    _host.SetCutsceneHud(true);
+                    // The event message mode and no compass (XiEvents OpCodes/0x0067, PresetEventMessageMode with two
+                    // work values): the HUD steps aside and the event's lines show on the screen, not in the log.
+                    _host.SetEventMessageMode(true, GetWork(1), GetWork(3));
                     _pc += 5;
                     return;
                 case 0x68:
-                    _host.SetCutsceneHud(false);
+                    _host.SetEventMessageMode(false, 0, 0);
                     _pc++;
                     return;
                 case 0x77:
@@ -961,15 +965,62 @@ namespace Gordian.Core.Events
                     else _pc = Code16(3);
                     return;
                 case 0x46:
-                    if (Code8(1) == 2)
+                    // The event camera (XiEvents OpCodes/0x0046, CodeDEFCAMERA): 1 takes the camera from the player, 0
+                    // gives it back (ending every camera task), 2 reads whether the player has it.
+                    switch (Code8(1))
                     {
-                        SetWork(2, 1);
-                        _pc += 4;
+                        case 0:
+                            Scene.IsCameraHeld = false;
+                            _host.SetEventCamera(false);
+                            break;
+                        case 1:
+                            Scene.IsCameraHeld = true;
+                            _host.SetEventCamera(true);
+                            break;
+                        case 2:
+                            SetWork(2, Scene.IsCameraHeld ? 0 : 1);
+                            _pc += 4;
+                            return;
                     }
-                    else
+                    _pc += 2;
+                    return;
+                case 0x45:
+                    ExecStartTask();
+                    return;
+                case 0x52:
+                    ExecEndTask();
+                    return;
+                case 0x55:
+                    ExecWaitTask();
+                    return;
+                case 0x2C:
+                    ExecEntityMotion(EventMotionSource.Own, 0, 1);
+                    _pc += 13;
+                    return;
+                case 0x5B:
+                case 0x66:
+                    // Both yield a frame after starting the motion (RetFlag = 1).
+                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, MotionBankFileId(GetWork(1)), 3);
+                    else ExecEntityMotion(EventMotionSource.Package, GetWork(1), 3);
+                    _pc += 15;
+                    _retFlag = true;
+                    return;
+                case 0x50:
+                    if (TryTaskActors(Code32(1), Code32(5), out uint stopped, out _))
                     {
-                        _pc += 2;
+                        uint tag = unchecked((uint)Code32(9));
+                        Scene.EndEntityAction(stopped, tag);
+                        _host.StopEntityMotion(stopped, FourCc(tag));
                     }
+                    _pc += 13;
+                    return;
+                case 0x53:
+                    if (TryTaskActors(Code32(1), Code32(5), out uint waited, out _) && Scene.IsEntityActionPlaying(waited, unchecked((uint)Code32(9))))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _pc += 13;
                     return;
                 case 0x48:
                     PrintMessage(GetWork(1), EventSpeaker.None, 0, 0);
@@ -1038,6 +1089,114 @@ namespace Gordian.Core.Events
                 }
             }
         }
+
+        #region Schedulers
+
+        /// <summary>
+        /// The two actors of a scheduler opcode as server ids (the local player as <see cref="EventScene.PlayerServerId"/>,
+        /// or 0 before it is known). False when either names nobody in the zone: retail then steps over the opcode.
+        /// </summary>
+        private bool TryTaskActors(int first, int second, out uint actor, out uint target)
+        {
+            actor = TaskActor(first);
+            target = TaskActor(second);
+            return actor != uint.MaxValue && target != uint.MaxValue;
+        }
+
+        private uint TaskActor(int lookup)
+        {
+            var (serverId, _) = ResolveActor(lookup);
+            if (serverId == uint.MaxValue) return uint.MaxValue;
+            if (serverId == 0) return Scene.PlayerServerId;
+            if (serverId == Scene.PlayerServerId || Scene.FindActor(serverId) != null || _host.EntityExists(serverId)) return serverId;
+            return uint.MaxValue;
+        }
+
+        /// <summary>A little-endian FourCC operand as text (trailing NULs dropped).</summary>
+        private static string FourCc(uint value)
+        {
+            Span<char> chars = stackalloc char[4];
+            int length = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                char c = (char)((value >> (8 * i)) & 0xFF);
+                if (c == (char)0) break;
+                chars[length++] = c;
+            }
+            return new string(chars[..length]);
+        }
+
+        /// <summary>
+        /// The event motion DAT of 0x5B's resource number (XiEvents OpCodes/0x005B, ReadEventMotionRes): 32104 + n below
+        /// 512, then 49135 + n, 56345 + n (from 1024), 59739 + n (from 2048) and 66339 + n (from 3072).
+        /// </summary>
+        public static int MotionBankFileId(int resource) => resource switch
+        {
+            < 512 => resource + 32104,
+            < 1024 => resource + 49135,
+            < 2048 => resource + 56345,
+            < 3072 => resource + 59739,
+            _ => resource + 66339,
+        };
+
+        /// <summary>
+        /// 0x45 (CodeLOADSCHEDULER): <c>op p:u16 actor:u32 target:u32 routine:u32 value:u16</c>. Plays routine
+        /// <c>routine</c> of scene resource <c>p</c> (<see cref="EventSceneResource.GetFileId"/>) on the two actors as a
+        /// task of the main scheduler: its camera shots and fades. The trailing value (0 in every intro) is not used.
+        /// </summary>
+        private void ExecStartTask()
+        {
+            int fileId = EventSceneResource.GetFileId(GetWork(1));
+            if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
+            {
+                uint tag = unchecked((uint)Code32(11));
+                int id = Scene.NewTaskId();
+                int frames = _host.StartSceneTask(id, fileId, FourCc(tag), caster, target);
+                int replaced = Scene.AddTask(id, fileId, tag, caster, target, frames);
+                if (replaced >= 0) _host.StopSceneTask(replaced);
+            }
+            _pc += 17;
+        }
+
+        /// <summary>0x52 (CodeENDLOADSCHEDULER): the same operands without the value; stops that task.</summary>
+        private void ExecEndTask()
+        {
+            if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
+            {
+                int id = Scene.RemoveTask(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target);
+                if (id >= 0) _host.StopSceneTask(id);
+            }
+            _pc += 15;
+        }
+
+        /// <summary>0x55 (CodeWAITLOADSCHEDULER): the same operands; waits while that task runs.</summary>
+        private void ExecWaitTask()
+        {
+            if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target)
+                && Scene.IsTaskRunning(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target))
+            {
+                _retFlag = true;
+                return;
+            }
+            _pc += 15;
+        }
+
+        /// <summary>
+        /// 0x2C (CodeSCHEDULOR: <c>op actor:u32 target:u32 routine:u32</c>), 0x5B and 0x66 (CodeLOADEXTSCHEDULER:
+        /// <c>op resource:u16 actor:u32 target:u32 routine:u32</c>): the actor plays a motion routine toward the target,
+        /// from its own motions, from an event motion DAT loaded onto it first (0x5B) or from its player-model motion
+        /// package (0x66). Routine 0 and <c>xxxx</c> start nothing (XiEvents OpCodes/0x005B).
+        /// </summary>
+        private void ExecEntityMotion(EventMotionSource source, int resource, int actorOffset)
+        {
+            if (!TryTaskActors(Code32(actorOffset), Code32(actorOffset + 4), out uint actor, out uint target)) return;
+            uint tag = unchecked((uint)Code32(actorOffset + 8));
+            if (tag == 0 || tag == 0x78787878) return;
+            int frames = _host.PlayEntityMotion(actor, source, resource, FourCc(tag), target);
+            Scene.SetEntityAction(actor, tag, frames);
+        }
+
+        #endregion
 
         /// <summary>
         /// Opcode 0x9D: the scripts' tables. A table is a run of 16-bit work references inside the byte code (mostly

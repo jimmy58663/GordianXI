@@ -51,6 +51,28 @@ namespace Gordian.Core.Tests.Events
             var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(zoneId))!)!;
             var dialog = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(zoneId))!)!;
             var host = new RecordingHost();
+            // The schedulers run for the lengths the retail scene and motion DATs give (#165).
+            var scenes = new Dictionary<int, EventSceneResource?>();
+            var banks = new Dictionary<int, Gordian.Core.Animation.EventMotionBank?>();
+            host.RoutineSource = (fileId, routine) =>
+            {
+                if (!scenes.TryGetValue(fileId, out var resource))
+                {
+                    var bytes = rm.LoadDatBytesByFileId(fileId);
+                    scenes[fileId] = resource = bytes == null ? null : EventSceneResource.Parse(bytes);
+                }
+                return resource != null && resource.TryGetRoutine(routine, out var r) ? r.TotalFrames : 0;
+            };
+            host.MotionSource = (source, resource, routine) =>
+            {
+                if (source != EventMotionSource.Bank) return 0;
+                if (!banks.TryGetValue(resource, out var bank))
+                {
+                    var bytes = rm.LoadDatBytesByFileId(resource);
+                    banks[resource] = bank = bytes == null ? null : Gordian.Core.Animation.EventMotionBank.Parse(bytes, resource);
+                }
+                return bank?.GetRoutineFrames(routine) ?? 0;
+            };
             var scene = new EventScene(new EventWorkZone()) { PlayerServerId = PlayerId };
             var run = new Run { Scene = scene, Host = host, Dialog = dialog };
             foreach (var block in script.Blocks)
@@ -78,6 +100,10 @@ namespace Gordian.Core.Tests.Events
                 _output.WriteLine($"  0x{vm.EntityServerId:X8}{(vm.CarriesEvent ? "" : " (catch-all)")}: {ops.Values.Sum()} ops, {requests} request ops, finished={vm.IsFinished}");
             }
             foreach (var p in host.Printed) _output.WriteLine($"    0x{p.Id:X8} msg {p.Message}: {dialog.GetPlainText(p.Message)}");
+            int found = host.SceneTasks.Count(t => host.RoutineSource!(t.FileId, t.Routine) > 0);
+            int gestures = host.Motions.Count(m => host.MotionSource!(m.Source, m.Resource, m.Routine) > 0);
+            _output.WriteLine($"  scene tasks {host.SceneTasks.Count} ({found} found, files {string.Join(",", host.SceneTasks.Select(t => t.FileId).Distinct())}), " +
+                $"motions {host.Motions.Count} ({gestures} from banks), camera holds {string.Join(",", host.CameraHolds)}");
             Assert.True(scene.IsFinished);
             return run;
         }
@@ -103,6 +129,98 @@ namespace Gordian.Core.Tests.Events
             Assert.Contains(run.Host.Printed, p => p.Id == 0x010EA004);
             Assert.True(run.Scene.IsEnded); // by 0x21
             Assert.True(run.Ticks > 60); // the scene's waits take time
+        }
+
+        /// <summary>
+        /// The Southern San d'Oria intro (230, event 503) as the maintainer's retail recording showed it (2026-09-30): it
+        /// comes with the zone, its NPCs arrive seconds later (the start waits for them, and one arriving after the start
+        /// still joins the event with the place its script gave it), the narration shows on the screen in the event message
+        /// mode (0x67) instead of the log and closes by itself after its 0x7F 0x34 time (9 s).
+        /// </summary>
+        [Fact]
+        public void SouthernSandoriaIntro_FromLogin_WaitsForItsNpcs_AndShowsTheNarrationOnScreen()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController();
+            var chat = new Gordian.Core.Ui.StockUiChat();
+            var previousLoader = EventDialogController.DatLoader;
+            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
+            const uint Ceraule = 0x010E6001, Knight = 0x010E6068, TempleKnight = 0x010E60D7;
+            try
+            {
+                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
+                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+                byte[] login = new byte[144];
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 230);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 503);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2), 0x83);
+                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+
+                // Nothing for 5 s: the zone-in start keeps waiting.
+                for (int i = 0; i < 300; i++) controller.Tick(Frame);
+                Assert.False(controller.IsActive);
+                // Ceraule arrives (hidden by the server, as LandSandBoat sends cutscene NPCs); 1.5 s later the event runs.
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Ceraule, 1, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+                // A cutscene-only knight of the 1:50 scene: placed at the start, out of sight until the script shows it.
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(TempleKnight, 0xD7, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+                int waited = 0;
+                for (; waited < 600 && !controller.IsActive; waited++) controller.Tick(Frame);
+                Assert.True(controller.IsActive);
+                Assert.InRange(waited, 60 * EventDialogController.EntityWaitSeconds - 2, 60 * EventDialogController.EntityWaitSeconds + 2);
+
+                // A knight arrives after the start: it joins the event and takes the place its script gave it.
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Knight, 104, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+                bool narrationShown = false, knightJoined = false, ceraulePosed = false;
+                int narrationTicks = 0, logLinesInMode = 0, maxNarrationRun = 0, run = 0, narrationPages = 0, pagesBeforeKnight = -1;
+                bool wasShowing = false;
+                for (int i = 0; i < 200_000 && controller.IsActive; i++)
+                {
+                    int before = chat.Log.Count(0);
+                    controller.Tick(Frame);
+                    parser.Progression.AcknowledgeEventUpdate();
+                    if (controller.IsCutsceneHud) logLinesInMode += chat.Log.Count(0) - before;
+                    var text = controller.EventText;
+                    if (text != null && !wasShowing) narrationPages++;
+                    wasShowing = text != null;
+                    parser.World.TryGetByServerId(TempleKnight, out var temple);
+                    if (temple!.IsDrawn && pagesBeforeKnight < 0) pagesBeforeKnight = narrationPages;
+                    if (text != null)
+                    {
+                        narrationShown = true;
+                        narrationTicks++;
+                        run++;
+                        maxNarrationRun = Math.Max(maxNarrationRun, run);
+                        Assert.Equal((80, 340), (text.X, text.Y)); // the lines' own 0x02 position
+                        Assert.DoesNotContain(text.Lines, l => l.Contains('<'));
+                    }
+                    else
+                    {
+                        run = 0;
+                        // Lines outside the narration (after 0x68) wait for Confirm, as in retail.
+                        if (!controller.IsCutsceneHud) controller.Confirm();
+                    }
+                    parser.World.TryGetByServerId(Knight, out var knight);
+                    knightJoined |= knight!.IsInEvent && knight.EventPose != null && knight.IsDrawn;
+                    parser.World.TryGetByServerId(Ceraule, out var ceraule);
+                    ceraulePosed |= ceraule!.EventPose != null;
+                }
+                Assert.False(controller.IsActive);
+                Assert.True(narrationShown);
+                Assert.Equal(0, logLinesInMode);
+                Assert.InRange(maxNarrationRun, 9 * 60 - 3, 9 * 60 + 3); // 0x7F 0x34 09
+                Assert.True(knightJoined);
+                Assert.True(pagesBeforeKnight >= 7, $"the 1:50 knight showed after {pagesBeforeKnight} narration pages"); // after all of them
+                Assert.True(ceraulePosed);
+                Assert.True(chat.Log.Count(0) > 5); // the talk after 0x68 goes to the log
+            }
+            finally
+            {
+                EventDialogController.DatLoader = previousLoader;
+            }
         }
 
         /// <summary>Windurst Woods (241), event 367: the player's block has a bare end; NPC 0x010F100B's ~2 KB part is the scene.</summary>
@@ -221,7 +339,7 @@ namespace Gordian.Core.Tests.Events
 
                 bool bystanderHidden = false, pcHidden = false, flaggedHidden = false, nanaaPosed = false, nanaaWalked = false, cutsceneHud = false, clockLocked = false;
                 parser.World.UpdateWeather(1);
-                for (int i = 0; i < 200_000 && (i < 120 || controller.IsActive); i++)
+                for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
                 {
                     controller.Tick(Frame);
                     controller.Confirm();
@@ -297,7 +415,7 @@ namespace Gordian.Core.Tests.Events
                 Assert.False(nanaa!.IsDrawn);
 
                 bool drawnDuring = false, outsiderDrawn = false;
-                for (int i = 0; i < 200_000 && (i < 120 || controller.IsActive); i++)
+                for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
                 {
                     controller.Tick(Frame);
                     controller.Confirm();

@@ -115,6 +115,9 @@ namespace Gordian.App.Graphics
 
         private readonly Dictionary<uint, ActorAnchor> _actorAnchors = new();
 
+        /// <summary>Where each event-posed entity is drawn (render thread only; see <see cref="EventPoseSmoother"/>).</summary>
+        private readonly Dictionary<uint, EventPoseSmoother> _eventPoses = new();
+
         /// <summary>
         /// The skeleton reference that marks the overhead point: a straight offset up from the root joint, authored per
         /// skeleton (Goblin 1.8, Island Rarab 1.7, Raven 2.8, Marine Dhalmel 6.05; Hume 2.0, Tarutaru 1.3, Galka 2.6
@@ -373,12 +376,21 @@ namespace Gordian.App.Graphics
                 var eventPose = entity.EventPose;
                 if (eventPose != null)
                 {
+                    // The script moves the pose on the game tick; the drawing follows it smoothly (walks, turns).
+                    if (!_eventPoses.TryGetValue(entity.ServerId, out var smoother))
+                    {
+                        smoother = new EventPoseSmoother(eventPose.Position, eventPose.Heading);
+                        _eventPoses[entity.ServerId] = smoother;
+                    }
+                    smoother.Advance(eventPose, deltaSeconds);
+                    eventPose = eventPose with { Position = smoother.Position, Heading = smoother.Heading };
                     if (entity.ServerId != localPlayerServerId) entity.Position = eventPose.Position;
                     entity.RenderHeadingRadians = eventPose.Heading;
                 }
                 // For remote entities, smoothly interpolate render position towards target network position
                 else if (entity.ServerId != localPlayerServerId)
                 {
+                    _eventPoses.Remove(entity.ServerId);
                     entity.InterpolatePosition(deltaSeconds);
                 }
                 else
@@ -392,7 +404,7 @@ namespace Gordian.App.Graphics
                 // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
                 // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
                 Vector3 pos = eventPose != null
-                    ? new Vector3(-eventPose.Position.X, -EntityGrounding.GetDisplayHeight(eventPose.Position, collision), eventPose.Position.Z)
+                    ? new Vector3(-eventPose.Position.X, -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight), eventPose.Position.Z)
                     : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
                     : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);

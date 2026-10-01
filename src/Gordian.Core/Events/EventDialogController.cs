@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Network.Packets;
@@ -70,10 +71,29 @@ namespace Gordian.Core.Events
         private int _savedWeather = -1;
 
         /// <summary>
-        /// Whether the running event has the HUD in its cutscene mode (opcode 0x67 until 0x68 or the end): the HUD then
-        /// leaves out the name plates, the target cursor and window, the alliance windows and the status icons.
+        /// Whether the running event is in its event message mode (opcode 0x67 until 0x68 or the end): the HUD is hidden
+        /// (log and party windows, name plates, target, status icons: XiEvents OpCodes/0x0067 hides "the entire HUD") and
+        /// the event's lines show on the screen (<see cref="EventText"/>) instead of the log.
         /// </summary>
         public bool IsCutsceneHud => _cutsceneHud;
+
+        /// <summary>
+        /// The line the event shows on the screen in its event message mode while it is open, or null. Read by the
+        /// renderer (replaced as a whole).
+        /// </summary>
+        public EventScreenText? EventText
+        {
+            get
+            {
+                var text = _eventText;
+                var scene = _scene;
+                return text != null && _cutsceneHud && scene != null && scene.IsWaitingForConfirm ? text : null;
+            }
+        }
+
+        private volatile EventScreenText? _eventText;
+        private int _eventTextX;
+        private int _eventTextY;
         private volatile bool _receivePending;
         private volatile bool _cancelRequested;
         private volatile bool _zoneChanged;
@@ -87,6 +107,49 @@ namespace Gordian.Core.Events
         /// whose NPC the server never sends from holding the start forever.
         /// </summary>
         public const double EntityWaitSeconds = 1.5;
+
+        /// <summary>
+        /// How long a zone-in event's start waits for the first of its NPCs: they arrive only once the zone is entered
+        /// (the maintainer's Southern San d'Oria intro, 2026-09-30: the event came with the zone, its 35 NPCs 7 s later).
+        /// Once any has arrived the start waits <see cref="EntityWaitSeconds"/> after the last arrival.
+        /// </summary>
+        public const double ZoneInEntityWaitSeconds = 15.0;
+
+        /// <summary>The entities still missing at the last check of a waiting start, and the seconds since one arrived.</summary>
+        private int _waitingMissing;
+        private double _waitingIdleSeconds;
+        private bool _waitingAnyArrived;
+
+        /// <summary>
+        /// Poses and hide flags the running event gave entities that were not in the zone yet (game tick thread only);
+        /// applied when they arrive.
+        /// </summary>
+        private readonly Dictionary<uint, EventPose> _pendingPoses = new();
+        private readonly Dictionary<uint, bool> _pendingHidden = new();
+
+        /// <summary>The running event's cutscene flags, for entities that arrive after its start.</summary>
+        private CutsceneFlags _flags;
+
+        /// <summary>The entities the running event has already sorted (taking part, or hidden by its flags).</summary>
+        private readonly HashSet<uint> _sorted = new();
+
+        /// <summary>
+        /// The running event's camera shots and screen fades (#165), which the viewport follows; reset when the event
+        /// ends.
+        /// </summary>
+        public EventPresentation Presentation { get; } = new();
+
+        /// <summary>Scene resource DATs by file id (null: missing), read once per zone.</summary>
+        private readonly Dictionary<int, EventSceneResource?> _sceneResources = new();
+
+        /// <summary>Event motion DATs by file id (null: missing), read once per zone.</summary>
+        private readonly Dictionary<int, EventMotionBank?> _motionBanks = new();
+
+        /// <summary>The entities the running event loaded motion banks onto (game tick thread only), cleared when it ends.</summary>
+        private readonly List<WorldEntity> _banked = new();
+
+        /// <summary>Whether a 0x66 motion package was already reported as not loaded (once per session).</summary>
+        private bool _packageNoted;
 
         /// <summary>Whether an event is running (the character is held and Confirm belongs to the dialog).</summary>
         public bool IsActive => _scene != null;
@@ -141,6 +204,8 @@ namespace Gordian.Core.Events
                 _dialog = null;
                 _scriptZone = -1;
                 _zone.Clear();
+                _sceneResources.Clear();
+                _motionBanks.Clear();
             }
             if (_cancelRequested)
             {
@@ -156,7 +221,18 @@ namespace Gordian.Core.Events
             else if (_waitingStart != null)
             {
                 _waitingSeconds += elapsed.TotalSeconds;
-                if (MissingEntities(_waitingStart, request: false) == 0 || _waitingSeconds >= EntityWaitSeconds)
+                _waitingIdleSeconds += elapsed.TotalSeconds;
+                int missing = MissingEntities(_waitingStart, request: false);
+                if (missing < _waitingMissing)
+                {
+                    _waitingMissing = missing;
+                    _waitingIdleSeconds = 0;
+                    _waitingAnyArrived = true;
+                }
+                bool timedOut = _waitingAnyArrived || !_waitingStart.FromZoneIn
+                    ? _waitingIdleSeconds >= EntityWaitSeconds
+                    : _waitingSeconds >= ZoneInEntityWaitSeconds;
+                if (missing == 0 || timedOut)
                 {
                     var waiting = _waitingStart;
                     _waitingStart = null;
@@ -165,6 +241,7 @@ namespace Gordian.Core.Events
             }
             var scene = _scene;
             if (scene == null) return;
+            SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
             if (scene.IsFinished) FinishEvent(scene);
@@ -206,9 +283,12 @@ namespace Gordian.Core.Events
                 StartEvent(info);
                 return;
             }
-            GordianLog.Info("EVENT", $"Event {info.EventPara} waits for {missing} entities it names.");
+            GordianLog.Info("EVENT", $"Event {info.EventPara} waits for {missing} entities it names{(info.FromZoneIn ? " (zone-in)" : string.Empty)}.");
             _waitingStart = info;
             _waitingSeconds = 0;
+            _waitingIdleSeconds = 0;
+            _waitingMissing = missing;
+            _waitingAnyArrived = false;
         }
 
         /// <summary>
@@ -271,20 +351,47 @@ namespace Gordian.Core.Events
         /// </summary>
         private void ApplyCutsceneFlags(EventScene scene, CutsceneFlags flags)
         {
+            _flags = flags;
+            int hidden = SortArrivals(scene);
+            GordianLog.Info("EVENT", $"Cutscene flags 0x{(uint)flags:X}: {hidden} entities outside the event hidden.");
+        }
+
+        /// <summary>
+        /// Sorts the entities not seen yet since the event started: one taking part is marked as such and gets the pose
+        /// and hide flag its script gave it before it arrived (a zone-in intro's NPCs arrive seconds after its start);
+        /// any other is hidden when the cutscene flags say so (NO_PCS / NO_NPCS). Returns how many it hid.
+        /// </summary>
+        private int SortArrivals(EventScene scene)
+        {
             var world = _world;
-            if (world == null || (flags & (CutsceneFlags.NoPcs | CutsceneFlags.NoNpcs)) == 0) return;
+            if (world == null) return 0;
             uint self = _player?.ServerId ?? 0;
             int hidden = 0;
             foreach (var entity in world.GetAllEntities())
             {
-                if (entity.ServerId == self || scene.FindActor(entity.ServerId) != null) continue;
+                if (!_sorted.Add(entity.ServerId) || entity.ServerId == self) continue;
+                if (scene.FindActor(entity.ServerId) != null)
+                {
+                    JoinEvent(entity);
+                    if (_pendingPoses.Remove(entity.ServerId, out var pose))
+                    {
+                        entity.EventPose = pose;
+                        _staged.Add(entity.ServerId);
+                    }
+                    if (_pendingHidden.Remove(entity.ServerId, out bool isHidden))
+                    {
+                        entity.IsEventHidden = isHidden;
+                        _staged.Add(entity.ServerId);
+                    }
+                    continue;
+                }
                 bool isPlayer = entity.Type == EntityType.Player;
-                if (isPlayer ? (flags & CutsceneFlags.NoPcs) == 0 : (flags & CutsceneFlags.NoNpcs) == 0) continue;
+                if (isPlayer ? (_flags & CutsceneFlags.NoPcs) == 0 : (_flags & CutsceneFlags.NoNpcs) == 0) continue;
                 entity.IsEventHidden = true;
                 _staged.Add(entity.ServerId);
                 hidden++;
             }
-            GordianLog.Info("EVENT", $"Cutscene flags 0x{(uint)flags:X}: {hidden} entities outside the event hidden.");
+            return hidden;
         }
 
         /// <summary>
@@ -294,13 +401,27 @@ namespace Gordian.Core.Events
         private void ClearStaging()
         {
             _cutsceneHud = false;
+            _eventText = null;
+            _pendingPoses.Clear();
+            _pendingHidden.Clear();
+            _sorted.Clear();
+            _flags = 0;
             UnlockEnvironment();
+            Presentation.Reset();
+            foreach (var entity in _banked) entity.Animation.ClearEventMotionBanks();
+            _banked.Clear();
             var world = _world;
             if (world != null)
             {
                 foreach (uint id in _staged)
                 {
                     if (!world.TryGetByServerId(id, out var entity)) continue;
+                    if (entity.EventPose != null && id != (_player?.ServerId ?? 0))
+                    {
+                        // Back where the server has it at once, not walked there from the event's spot.
+                        entity.SnapToTargetPending = true;
+                        entity.RenderHeadingRadians = entity.HeadingRadians;
+                    }
                     entity.EventPose = null;
                     entity.IsEventHidden = false;
                 }
@@ -445,9 +566,27 @@ namespace Gordian.Core.Events
             if (world == null) return;
             foreach (var actor in scene.Actors)
             {
-                if (!world.TryGetByServerId(actor.EntityServerId, out var entity)) continue;
-                entity.IsInEvent = true;
-                _participants.Add(entity);
+                if (world.TryGetByServerId(actor.EntityServerId, out var entity)) JoinEvent(entity);
+            }
+        }
+
+        /// <summary>
+        /// Marks an entity as taking part in the event. One the server hides (a cutscene-only NPC) starts the event with
+        /// its event hide flag set, so it stays out of sight until the script shows it (0x4E 00 / 0x22 00): the Southern
+        /// San d'Oria intro places the returning knights at its start and shows them only for their scene (the
+        /// maintainer's retail recording: absent at 1:21, walking in at 1:50), with no script hiding them before; the
+        /// Windurst Woods intro shows the hidden Nanaa Mihgo the same way. Retail's mapping from the server's hide state to
+        /// Render.Flags0 bit 17 is inferred from these scripts.
+        /// </summary>
+        private void JoinEvent(WorldEntity entity)
+        {
+            if (entity.IsInEvent) return;
+            entity.IsInEvent = true;
+            _participants.Add(entity);
+            if (entity.IsHidden && entity.ServerId != (_player?.ServerId ?? 0))
+            {
+                entity.IsEventHidden = true;
+                _staged.Add(entity.ServerId);
             }
         }
 
@@ -480,7 +619,23 @@ namespace Gordian.Core.Events
             return "???";
         }
 
-        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName);
+        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, PlayerIsFemale());
+
+        /// <summary>
+        /// The player's sex from its look's race byte (1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru male/female, 7 Mithra, 8 Galka),
+        /// or null before the look is known.
+        /// </summary>
+        private bool? PlayerIsFemale()
+        {
+            uint id = _player?.ServerId ?? 0;
+            if (id == 0 || _world == null || !_world.TryGetByServerId(id, out var entity)) return null;
+            return ((entity.Appearance.FaceModel >> 8) & 0xFF) switch
+            {
+                1 or 3 or 5 or 8 => false,
+                2 or 4 or 6 or 7 => true,
+                _ => null,
+            };
+        }
 
         private static string? ResolveName(byte kind, int id) => NameResolver?.Invoke(kind, id);
 
@@ -534,10 +689,24 @@ namespace Gordian.Core.Events
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
-            PrintLines(lines, speaker == EventSpeaker.Entity ? name : null, ChatLogChannel.Dialog);
+            if (_cutsceneHud)
+            {
+                // The event message mode shows the line on the screen, not in the log.
+                var shown = new List<string>(lines.Count);
+                for (int i = 0; i < lines.Count; i++) shown.Add(i == 0 && name.Length > 0 ? $"{name} : {lines[i]}" : lines[i]);
+                // The line's own position (0x02 code), else the mode's values.
+                var (x, y) = decoded.Position ?? (_eventTextX, _eventTextY);
+                _eventText = new EventScreenText(shown, x, y);
+            }
+            else
+            {
+                PrintLines(lines, speaker == EventSpeaker.Entity ? name : null, ChatLogChannel.Dialog);
+            }
             int length = 0;
             foreach (string line in lines) length += line.Length;
-            GordianLog.Debug("DIALOG", $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}): {(lines.Count > 0 ? lines[0] : string.Empty)}");
+            GordianLog.Debug("DIALOG", $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}, closes after {decoded.AutoCloseSeconds?.ToString() ?? "-"} s): {(lines.Count > 0 ? lines[0] : string.Empty)}");
+            // A timed message (0x7F 0x34 n) closes by itself; a prompt waits for Confirm.
+            if (decoded.AutoCloseSeconds is int seconds) return seconds;
             return decoded.HasPrompt ? PromptOpenSeconds : 0;
         }
 
@@ -660,12 +829,22 @@ namespace Gordian.Core.Events
         void IEventVmHost.SetEntityPose(uint serverId, System.Numerics.Vector3 position, float heading, float speed)
         {
             if (serverId == 0) serverId = _player?.ServerId ?? 0;
-            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
-            entity.EventPose = new EventPose(position, heading, speed);
+            var pose = new EventPose(position, heading, speed);
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity))
+            {
+                _pendingPoses[serverId] = pose; // applied when the entity arrives (SortArrivals)
+                return;
+            }
+            entity.EventPose = pose;
             _staged.Add(serverId);
         }
 
-        void IEventVmHost.SetCutsceneHud(bool on) => _cutsceneHud = on;
+        void IEventVmHost.SetEventMessageMode(bool on, int x, int y)
+        {
+            _cutsceneHud = on;
+            (_eventTextX, _eventTextY) = (x, y);
+            if (!on) _eventText = null;
+        }
 
         void IEventVmHost.LockEnvironment(int hour, int weather)
         {
@@ -701,7 +880,11 @@ namespace Gordian.Core.Events
         void IEventVmHost.SetEntityHidden(uint serverId, bool hidden)
         {
             if (serverId == 0) serverId = _player?.ServerId ?? 0;
-            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity))
+            {
+                _pendingHidden[serverId] = hidden;
+                return;
+            }
             entity.IsEventHidden = hidden;
             _staged.Add(serverId);
         }
@@ -740,6 +923,99 @@ namespace Gordian.Core.Events
             return false;
         }
 
+        int IEventVmHost.StartSceneTask(int taskId, int fileId, string routine, uint casterServerId, uint targetServerId)
+        {
+            var resource = LoadSceneResource(fileId);
+            if (resource == null || !resource.TryGetRoutine(routine, out var scene))
+            {
+                GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId}: {(resource == null ? "no such file" : "no such routine")}; it ends at once.");
+                return 0;
+            }
+            // Actor-relative camera routes are placed at the first actor, where the event shows it.
+            var origin = System.Numerics.Vector3.Zero;
+            if (_scene?.FindActor(casterServerId) is { } actor) origin = actor.EventPosition.Position;
+            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out _, out _)) origin = position;
+            Presentation.Play(taskId, resource, scene, origin);
+            return scene.TotalFrames;
+        }
+
+        void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);
+
+        void IEventVmHost.SetEventCamera(bool held) => Presentation.SetCameraHeld(held);
+
+        int IEventVmHost.PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return 0;
+            if (source == EventMotionSource.Bank)
+            {
+                if (LoadMotionBank(resource) is { } bank)
+                {
+                    entity.Animation.AddEventMotionBank(bank);
+                    if (!_banked.Contains(entity)) _banked.Add(entity);
+                }
+            }
+            else if (source == EventMotionSource.Package && !_packageNoted)
+            {
+                // Where a package's DAT lives is not known yet (XiEvents' ReadTpcEventMotionRes); the entity's own motions play.
+                _packageNoted = true;
+                GordianLog.Info("EVENT", $"Motion package {resource} ({routine}) is not loaded; player-model gestures use the entity's own motions.");
+            }
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                ActorId = serverId,
+                Motion = ActionMotion.EventMotion,
+                Routine = routine,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+            return entity.Animation.GetRoutineFrames(routine);
+        }
+
+        void IEventVmHost.StopEntityMotion(uint serverId, string routine)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                ActorId = serverId,
+                Motion = ActionMotion.EventMotionStop,
+                Routine = routine,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+        }
+
+        private EventSceneResource? LoadSceneResource(int fileId)
+        {
+            if (_sceneResources.TryGetValue(fileId, out var cached)) return cached;
+            EventSceneResource? resource = null;
+            try
+            {
+                if (DatLoader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("EVENT", $"Scene resource {fileId} could not be read: {ex.Message}");
+            }
+            _sceneResources[fileId] = resource;
+            return resource;
+        }
+
+        private EventMotionBank? LoadMotionBank(int fileId)
+        {
+            if (_motionBanks.TryGetValue(fileId, out var cached)) return cached;
+            EventMotionBank? bank = null;
+            try
+            {
+                if (DatLoader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("EVENT", $"Event motion DAT {fileId} could not be read: {ex.Message}");
+            }
+            _motionBanks[fileId] = bank;
+            return bank;
+        }
+
         void IEventVmHost.OnSkippedOpcode(byte opcode, int pc)
         {
             if (opcode == 0xFF) GordianLog.Warning("EVENT", $"Event step limit hit at {pc}; the event is ended.");
@@ -759,15 +1035,17 @@ namespace Gordian.Core.Events
         {
             private readonly EventWorkZone _zone;
 
-            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName)
+            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName, bool? playerIsFemale = null)
             {
                 _zone = zone;
                 PlayerName = playerName;
                 NpcName = npcName;
+                PlayerIsFemale = playerIsFemale;
             }
 
             public string PlayerName { get; }
             public string NpcName { get; }
+            public bool? PlayerIsFemale { get; }
 
             public int GetNumber(int index) => _zone.GetMessageParameter(index);
 

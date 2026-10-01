@@ -14,7 +14,9 @@ namespace Gordian.Core.Animation
     /// and continuous clip advancement. Lives on WorldEntity so its lifetime matches the entity's own.
     /// On top of the continuous (stance / locomotion) channel it plays one-shot actions from S2C 0x028 (swings, chants,
     /// releases) and the weapon draw / sheathe through the model's motion routines, then blends back to the stance, plus a
-    /// pose overlay for hit reactions (the flinch toward the damage pose, the guard / parry pose flash).
+    /// pose overlay for hit reactions (the flinch toward the damage pose, the guard / parry pose flash). Event gestures
+    /// (<see cref="ActionMotion.EventMotion"/>) play the same way, from the event motion banks an event loaded onto the
+    /// entity (<see cref="AddEventMotionBank"/>) or its model.
     /// Clean-room implementation referencing FFXI animation blending specifications in xi-model-viewer (https://github.com/vekien/xi-model-viewer)
     /// and the motion routine rules in xi-tools (docs/ability/mixer.md).
     /// </summary>
@@ -136,6 +138,12 @@ namespace Gordian.Core.Animation
         private int _actionHitTick = -1;
         private WeaponMotion _weaponMotion;
 
+        /// <summary>The event motion banks loaded onto the entity, most recent last (replaced as a whole: other threads add them).</summary>
+        private volatile EventMotionBank[] _eventBanks = Array.Empty<EventMotionBank>();
+
+        /// <summary>The bank the playing action's routine comes from (its clips are looked up there first), or null.</summary>
+        private EventMotionBank? _actionBank;
+
         private AnimationClip? _overlayClip;
         private AnimationClip? _overlayReference;
         private bool[]? _overlayMask;
@@ -148,6 +156,54 @@ namespace Gordian.Core.Animation
         {
             ArgumentNullException.ThrowIfNull(request);
             _incomingActions.Enqueue(request);
+        }
+
+        /// <summary>
+        /// Loads an event motion bank onto the entity (opcode 0x5B; thread-safe): its routines play for event gestures
+        /// before the model's own. Loading the same bank again changes nothing.
+        /// </summary>
+        public void AddEventMotionBank(EventMotionBank bank)
+        {
+            ArgumentNullException.ThrowIfNull(bank);
+            var banks = _eventBanks;
+            foreach (var loaded in banks)
+            {
+                if (ReferenceEquals(loaded, bank)) return;
+            }
+            var next = new EventMotionBank[banks.Length + 1];
+            banks.CopyTo(next, 0);
+            next[^1] = bank;
+            _eventBanks = next;
+        }
+
+        /// <summary>Drops the event motion banks (the event ended; thread-safe).</summary>
+        public void ClearEventMotionBanks() => _eventBanks = Array.Empty<EventMotionBank>();
+
+        /// <summary>The event motion banks loaded onto the entity.</summary>
+        public IReadOnlyList<EventMotionBank> EventMotionBanks => _eventBanks;
+
+        /// <summary>
+        /// How many 60 Hz frames the routine <paramref name="name"/> plays on this entity (one pass of a looping one), from
+        /// its event motion banks, else its model once it has been drawn; 0 when it is not known.
+        /// </summary>
+        public int GetRoutineFrames(string name)
+        {
+            var banks = _eventBanks;
+            for (int i = banks.Length - 1; i >= 0; i--)
+            {
+                if (banks[i].Routines.TryGetValue(name, out var routine)) return OnePassTicks(routine);
+            }
+            var model = _lastModel;
+            return model != null && model.MotionRoutines.TryGetValue(name, out var own) ? OnePassTicks(own) : 0;
+        }
+
+        /// <summary>A routine's length in ticks, counting a looping (sustained) last clip once.</summary>
+        public static int OnePassTicks(MotionRoutine routine)
+        {
+            if (routine.Segments.Count == 0) return routine.TotalTicks;
+            var last = routine.Segments[^1];
+            int onePass = last.StartTick + Math.Max(last.DurationTicks, 1);
+            return routine.IsSustained ? onePass : Math.Max(routine.TotalTicks, onePass);
         }
 
         /// <summary>Queues a hit reaction for the target (thread-safe).</summary>
@@ -359,6 +415,22 @@ namespace Gordian.Core.Animation
                     continue;
                 }
 
+                if (request.Motion == ActionMotion.EventMotionStop)
+                {
+                    if (ActiveRoutine?.Name == request.Routine && _lastModel != null) EndAction(_lastModel, blend: true);
+                    _queuedActions.RemoveAll(q => q.Motion == ActionMotion.EventMotion && q.Routine == request.Routine);
+                    continue;
+                }
+
+                if (request.Motion == ActionMotion.EventMotion)
+                {
+                    // An event gesture kills the last action (XiEvents OpCodes/0x005B, KillLastAction) and starts at once.
+                    if (ActiveRoutine != null && _lastModel != null) EndAction(_lastModel, blend: true);
+                    _queuedActions.RemoveAll(q => q.Motion == ActionMotion.EventMotion);
+                    _queuedActions.Insert(0, request);
+                    continue;
+                }
+
                 // A sustained action (a chant) gives way at once to whatever comes next (its release, a swing).
                 if (ActiveRoutine is { IsSustained: true } && _queuedActions.Count == 0 && _lastModel != null)
                 {
@@ -387,7 +459,10 @@ namespace Gordian.Core.Animation
                     continue;
                 }
 
-                var (routine, allowsLocomotion) = ResolveRoutine(model, request, isMoving);
+                EventMotionBank? bank = null;
+                var (routine, allowsLocomotion) = request.Motion == ActionMotion.EventMotion
+                    ? (ResolveEventMotion(model, request.Routine, out bank), false)
+                    : ResolveRoutine(model, request, isMoving);
                 if (routine == null || routine.Segments.Count == 0)
                 {
                     // Nothing to show on the body: the result still lands.
@@ -396,7 +471,7 @@ namespace Gordian.Core.Animation
                     continue;
                 }
 
-                StartAction(model, request, routine, allowsLocomotion, WeaponMotion.None, now);
+                StartAction(model, request, routine, allowsLocomotion, WeaponMotion.None, now, bank);
                 return true;
             }
             return false;
@@ -411,8 +486,10 @@ namespace Gordian.Core.Animation
             return true;
         }
 
-        private void StartAction(EntityModel model, ActionRequest? request, MotionRoutine routine, bool allowsLocomotion, WeaponMotion weaponMotion, long now)
+        private void StartAction(EntityModel model, ActionRequest? request, MotionRoutine routine, bool allowsLocomotion, WeaponMotion weaponMotion, long now,
+            EventMotionBank? bank = null)
         {
+            _actionBank = bank;
             IsPlayingTransition = false;
             TransitionClip = null;
             ActiveRoutine = routine;
@@ -443,7 +520,9 @@ namespace Gordian.Core.Animation
             bool previousLoops = LoopsCurrentClip;
             _segmentIndex = index;
             var segment = ActiveRoutine!.Segments[index];
-            if (!model.Animations.TryGetValue(segment.ClipName, out var clip)) return;
+            AnimationClip? clip = null;
+            if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
+            else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
             SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond, previousLoops, restart: true);
         }
 
@@ -495,6 +574,7 @@ namespace Gordian.Core.Animation
             bool actionClipLoops = LoopsCurrentClip;
             ActiveRoutine = null;
             _actionRequest = null;
+            _actionBank = null;
             _segmentIndex = -1;
             _weaponMotion = WeaponMotion.None;
             request?.DeliverHits();
@@ -550,6 +630,22 @@ namespace Gordian.Core.Animation
                 default:
                     return (null, false);
             }
+        }
+
+        /// <summary>An event gesture's routine: from the most recent event motion bank that has it, else the model.</summary>
+        private MotionRoutine? ResolveEventMotion(EntityModel model, string name, out EventMotionBank? bank)
+        {
+            var banks = _eventBanks;
+            for (int i = banks.Length - 1; i >= 0; i--)
+            {
+                if (banks[i].Routines.TryGetValue(name, out var routine))
+                {
+                    bank = banks[i];
+                    return routine;
+                }
+            }
+            bank = null;
+            return model.MotionRoutines.TryGetValue(name, out var own) ? own : null;
         }
 
         private (MotionRoutine? Routine, bool AllowsLocomotion) ResolveSwing(EntityModel model, string standingPrefix,

@@ -16,7 +16,8 @@ namespace Gordian.Core.World
         ushort Mode,
         int[] NumericParams,
         string[] StringParams,
-        uint[] DataParams
+        uint[] DataParams,
+        bool FromZoneIn = false
     );
 
     /// <summary>
@@ -207,7 +208,7 @@ namespace Gordian.Core.World
         #region State Mutators
 
         public void StartEvent(uint uniqueNo, ushort actIndex, ushort eventNum, ushort eventPara, ushort mode,
-            int[]? numericParams = null, string[]? stringParams = null, uint[]? dataParams = null)
+            int[]? numericParams = null, string[]? stringParams = null, uint[]? dataParams = null, bool fromZoneIn = false)
         {
             CutsceneEventInfo info;
             lock (_lock)
@@ -220,7 +221,8 @@ namespace Gordian.Core.World
                     mode,
                     numericParams ?? new int[8],
                     stringParams ?? new string[4],
-                    dataParams ?? new uint[8]
+                    dataParams ?? new uint[8],
+                    fromZoneIn
                 );
                 ActiveEvent = info;
             }

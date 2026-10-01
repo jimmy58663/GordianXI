@@ -57,6 +57,39 @@ namespace Gordian.Core.Tests.Animation
             for (int i = 0; i < ticks; i++) state.Advance(Tick, category, 0, model);
         }
 
+        /// <summary>
+        /// An event gesture (#165) plays from the event motion bank loaded onto the entity, with the bank's clip, cutting
+        /// off the action that was playing; a named stop ends it.
+        /// </summary>
+        [Fact]
+        public void EventMotion_PlaysFromTheBank_ReplacesTheAction_AndStopsByName()
+        {
+            var model = Model([("at0", 2f)], Swing("ati0", "at0", 120, 60));
+            var bankRoutine = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(40, MotionRoutineDecoderTests.PlayClip("tl1?", 0, 40, 4, 4, 1)), "tlk0")!;
+            var bank = new EventMotionBank(32174, [Clip("tl10", 0.6f)], [bankRoutine]);
+            Assert.Equal(40, bank.GetRoutineFrames("tlk0"));
+
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.EnqueueAction(Request(ActionMotion.Swing));
+            Run(state, model, AnimationCategory.Idle, 5);
+            Assert.Equal("at0", state.CurrentClip!.Name);
+
+            state.AddEventMotionBank(bank);
+            Assert.Equal(40, state.GetRoutineFrames("tlk0"));
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "tlk0"));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("tlk0", state.ActiveRoutine!.Name);
+            Assert.Equal("tl10", state.CurrentClip!.Name);
+
+            state.EnqueueAction(Request(ActionMotion.EventMotionStop, routine: "tlk0"));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.False(state.IsPlayingAction);
+
+            state.ClearEventMotionBanks();
+            Assert.Equal(0, state.GetRoutineFrames("tlk0"));
+        }
+
         [Fact]
         public void Swing_PlaysRoutineClip_LandsHitAtHitTick_ThenBlendsBackToStance()
         {

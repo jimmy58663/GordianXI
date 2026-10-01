@@ -96,6 +96,43 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void Decode_ReadsTheTimedClose()
+        {
+            // The Southern San d'Oria intro's narration: text, 0x7F 0x34 0x09 (close after 9 s), then the prompt.
+            var raw = Ascii("But now, her reign of glory is but a memory.").Concat(new byte[] { 0x7F, 0x34, 0x09, 0x7F, 0x31, 0x00, 0x07 }).ToArray();
+            var message = EventMessageDecoder.Decode(raw);
+            Assert.Equal(9, message.AutoCloseSeconds);
+            Assert.True(message.HasPrompt);
+            Assert.Equal("But now, her reign of glory is but a memory.", message.ToPlainText());
+            Assert.Null(EventMessageDecoder.Decode(Ascii("Halt!").Concat(new byte[] { 0x7F, 0x31, 0x00 }).ToArray()).AutoCloseSeconds);
+        }
+
+        [Fact]
+        public void Decode_ReadsTheScreenPositionAndTheGenderSelector()
+        {
+            // 02 50 00 03 54 01 (x 80, y 340) "Of course, " 7F 85 "[he/she]" " has only begun." 7F 34 09 7F 31 00
+            var raw = new byte[] { 0x02, 0x50, 0x00, 0x03, 0x54, 0x01 }.Concat(Ascii("Of course, ")).Concat(new byte[] { 0x7F, 0x85 })
+                .Concat(Ascii("[he/she]")).Concat(Ascii(" has only begun.")).Concat(new byte[] { 0x7F, 0x34, 0x09, 0x7F, 0x31, 0x00 }).ToArray();
+            var message = EventMessageDecoder.Decode(raw);
+            Assert.Equal((80, 340), message.Position);
+            Assert.Equal(9, message.AutoCloseSeconds);
+            var female = new GenderContext(true);
+            Assert.Equal("Of course, she has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, female)));
+            Assert.Equal("Of course, he has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, new GenderContext(false))));
+            Assert.Equal("Of course, [he/she] has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, new GenderContext(null))));
+        }
+
+        private sealed class GenderContext(bool? female) : Gordian.Core.Events.IEventMessageContext
+        {
+            public int GetNumber(int index) => 0;
+            public string PlayerName => "Cybin";
+            public string NpcName => string.Empty;
+            public string? GetEntityName(int index) => null;
+            public string? ResolveName(byte kind, int id) => null;
+            public bool? PlayerIsFemale => female;
+        }
+
+        [Fact]
         public void Decode_ReadsNumberNameAndSelectorCodes()
         {
             // "It costs " 0x0A 0x03 " gil to " 0x01 0x05 '#' 0x82 0x80 0x80 0x80 " " 0x0C 0x01 "[registered to/removed from]" "."

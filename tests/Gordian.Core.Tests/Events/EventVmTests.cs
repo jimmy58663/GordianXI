@@ -69,6 +69,42 @@ namespace Gordian.Core.Tests.Events
             Poses.Add((serverId, position, heading, speed));
 
         public void SetEntityHidden(uint serverId, bool hidden) => Hidden[serverId] = hidden;
+
+        /// <summary>How many frames each scene routine (by name) runs; routines not listed are missing (0 frames).</summary>
+        public Dictionary<string, int> RoutineFrames { get; } = new();
+        public List<(int Id, int FileId, string Routine, uint Caster, uint Target)> SceneTasks { get; } = new();
+        public List<int> StoppedTasks { get; } = new();
+        public List<bool> CameraHolds { get; } = new();
+
+        /// <summary>When set, how many frames a scene routine (file id, name) runs, instead of <see cref="RoutineFrames"/>.</summary>
+        public Func<int, string, int>? RoutineSource { get; set; }
+
+        /// <summary>When set, how many frames an entity motion (source, resource, name) plays, instead of <see cref="MotionFrames"/>.</summary>
+        public Func<EventMotionSource, int, string, int>? MotionSource { get; set; }
+
+        /// <summary>How many frames each entity motion (by routine name) plays.</summary>
+        public Dictionary<string, int> MotionFrames { get; } = new();
+        public List<(uint Id, EventMotionSource Source, int Resource, string Routine)> Motions { get; } = new();
+        public List<(uint Id, string Routine)> StoppedMotions { get; } = new();
+
+        public int StartSceneTask(int taskId, int fileId, string routine, uint casterServerId, uint targetServerId)
+        {
+            SceneTasks.Add((taskId, fileId, routine, casterServerId, targetServerId));
+            if (RoutineSource != null) return RoutineSource(fileId, routine);
+            return RoutineFrames.TryGetValue(routine, out int frames) ? frames : 0;
+        }
+
+        public void StopSceneTask(int taskId) => StoppedTasks.Add(taskId);
+        public void SetEventCamera(bool held) => CameraHolds.Add(held);
+
+        public int PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)
+        {
+            Motions.Add((serverId, source, resource, routine));
+            if (MotionSource != null) return MotionSource(source, resource, routine);
+            return MotionFrames.TryGetValue(routine, out int frames) ? frames : 0;
+        }
+
+        public void StopEntityMotion(uint serverId, string routine) => StoppedMotions.Add((serverId, routine));
     }
 
     public class EventVmTests
@@ -263,12 +299,12 @@ namespace Gordian.Core.Tests.Events
         [Fact]
         public void UnknownOpcodes_AreSteppedOverByLength_AndUnknownLengthsEndTheEvent()
         {
-            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 66 ... (15 bytes, skipped) ; 48 ref0 ; E7 (unknown length) ; 48 ref1
+            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 2F ... (6 bytes, skipped) ; 48 ref0 ; E7 (unknown length) ; 48 ref1
             var code = new byte[]
             {
                 0x1E, 0xF0, 0xFF, 0xFF, 0x7F,
                 0x20, 0x01,
-                0x66, 0x07, 0x80, 0xF8, 0xFF, 0xFF, 0x7F, 0xF8, 0xFF, 0xFF, 0x7F, 0x74, 0x6C, 0x6B, 0x30,
+                0x2F, 0x01, 0xF8, 0xFF, 0xFF, 0x7F,
                 0x48, 0x00, 0x80,
                 0xE7, 0x01, 0x11, 0x22,
                 0x48, 0x01, 0x80,
@@ -278,7 +314,7 @@ namespace Gordian.Core.Tests.Events
             vm.Tick(Frame);
             Assert.Equal(new[] { true }, host.Locks);
             Assert.Equal(9, Assert.Single(host.Printed).Message);
-            Assert.Contains((byte)0x66, host.Skipped);
+            Assert.Contains((byte)0x2F, host.Skipped);
             Assert.Contains((byte)0xE7, host.Skipped);
             Assert.True(vm.IsFinished);
         }
