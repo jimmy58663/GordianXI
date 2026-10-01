@@ -154,10 +154,10 @@ namespace Gordian.App.Graphics
             renderer.DrawScreenTint(width, height, presentation.SceneColor);
             renderer.Opacity = presentation.InterfaceOpacity;
             var groups = GroupParty(session);
-            // An event's message mode (opcode 0x67) hides the HUD and shows the event's lines on the screen instead.
+            // An event's message mode (opcode 0x67) hides the HUD windows and shows the event's lines on the screen instead; name plates stay (the retail recording shows them through the aerial shots).
             bool cutscene = session.Events.IsCutsceneHud;
             NamePlateBounds? targetPlate = null;
-            if (namePlates != null && _font is { } plateFont && !cutscene)
+            if (namePlates != null && _font is { } plateFont)
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
