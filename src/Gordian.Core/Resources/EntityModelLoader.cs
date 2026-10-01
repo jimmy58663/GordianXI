@@ -35,7 +35,9 @@ namespace Gordian.Core.Resources
         /// Reads and extracts Skeleton (0x29), SkeletonMesh (0x2A), SkeletonAnimation (0x2B), and
         /// Texture (0x20) sections from a raw DAT payload.
         /// </summary>
-        public static RawDatContainer ParseDatContainer(ReadOnlySpan<byte> datBytes, string sourceName = "")
+        /// <param name="datSource">The DAT the bytes came from (a file label or path): stamps the textures'
+        /// <see cref="DecodedTexture.Source"/> so caches can share them safely.</param>
+        public static RawDatContainer ParseDatContainer(ReadOnlySpan<byte> datBytes, string sourceName = "", string? datSource = null)
         {
             var meshes = new List<SkeletonMeshGroup>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
@@ -64,6 +66,7 @@ namespace Gordian.Core.Resources
                         var mesh = SkeletonMeshDecoder.DecodeMesh(payload, sourceName);
                         if (mesh != null)
                         {
+                            mesh.SectionName = h.DatId;
                             meshes.Add(mesh);
                         }
                         break;
@@ -87,6 +90,7 @@ namespace Gordian.Core.Resources
                         var tex = TextureDecoder.DecodeTexture(payload);
                         if (tex != null)
                         {
+                            tex.Source = DecodedTexture.SourceOf(datSource, h.Offset);
                             if (!textures.ContainsKey(tex.Name))
                             {
                                 textures[tex.Name] = tex;
@@ -116,11 +120,13 @@ namespace Gordian.Core.Resources
             IReadOnlyList<ReadOnlyMemory<byte>>? extraDats = null,
             string name = "",
             IReadOnlyDictionary<int, int>? parentOverrides = null,
-            GearOcclusion? gearOcclusion = null)
+            GearOcclusion? gearOcclusion = null,
+            string? primarySource = null,
+            IReadOnlyList<string?>? extraSources = null)
         {
             var model = new EntityModel { Name = name };
 
-            var primary = ParseDatContainer(primaryDat, name);
+            var primary = ParseDatContainer(primaryDat, name, primarySource);
             model.Skeleton = primary.Skeleton;
             model.ParentOverrides = parentOverrides;
 
@@ -138,16 +144,23 @@ namespace Gordian.Core.Resources
                     model.Animations[stripped] = clip;
                 }
             }
+            MergeBodyRegionParts(model, primary.Animations);
 
             AddRoutines(model, primary.Routines);
 
             var allMeshes = new List<SkeletonMeshGroup>(primary.Meshes);
+            var hiddenSlots = InitialHiddenWeaponSlots(model.RawMotionRoutines);
+            if (hiddenSlots.Count > 0)
+            {
+                int removed = allMeshes.RemoveAll(m => WeaponSlotOf(m.SectionName) is int slot && hiddenSlots.Contains(slot));
+                if (removed > 0) GordianLog.Debug("RES", $"{name}: init hides weapon slot(s) {string.Join(",", hiddenSlots)} ({removed} mesh(es)).");
+            }
 
             if (extraDats != null)
             {
                 for (int i = 0; i < extraDats.Count; i++)
                 {
-                    var extra = ParseDatContainer(extraDats[i].Span, $"Part_{i}");
+                    var extra = ParseDatContainer(extraDats[i].Span, $"Part_{i}", extraSources != null && i < extraSources.Count ? extraSources[i] : null);
                     if (model.Skeleton == null && extra.Skeleton != null)
                     {
                         model.Skeleton = extra.Skeleton;
@@ -236,6 +249,7 @@ namespace Gordian.Core.Resources
             }
 
             var extraDats = new List<ReadOnlyMemory<byte>>();
+            var extraSources = new List<string?>();
             var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
             var occlusion = new GearOcclusion();
 
@@ -247,6 +261,7 @@ namespace Gordian.Core.Resources
                 if (faceDat != null && faceDat.Length > 0)
                 {
                     extraDats.Add(faceDat);
+                    extraSources.Add(DecodedTexture.FileLabel(faceFid));
                 }
             }
 
@@ -281,6 +296,7 @@ namespace Gordian.Core.Resources
                         }
 
                         extraDats.Add(gearDat);
+                        extraSources.Add(DecodedTexture.FileLabel(gearFid));
                         if (slot is CharacterSlot.Main or CharacterSlot.Sub)
                         {
                             weaponDats.Add((slot, gearDat));
@@ -299,7 +315,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion);
+            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources);
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
@@ -521,6 +537,90 @@ namespace Gordian.Core.Resources
             }
         }
 
+        /// <summary>The weapon slot of a <c>wepN</c> mesh section, or null.</summary>
+        internal static int? WeaponSlotOf(string sectionName) =>
+            sectionName.Length == 4 && sectionName.StartsWith("wep", StringComparison.Ordinal) && char.IsDigit(sectionName[3])
+                ? sectionName[3] - '0'
+                : null;
+
+        /// <summary>
+        /// The weapon slots a model's <c>init</c> routine leaves hidden (op 0x75, following its links within the model):
+        /// Prince Trion's model 64 runs <c>wof4</c> ("weapon off") from <c>init</c>, hiding the sword and scabbard of its
+        /// <c>wep4</c> folder, which <c>won4</c> would show again; drawn anyway they hung at his hips pointing outward (#163).
+        /// </summary>
+        internal static HashSet<int> InitialHiddenWeaponSlots(IReadOnlyDictionary<string, RawMotionRoutine> routines)
+        {
+            var state = new Dictionary<int, bool>();
+            void Walk(RawMotionRoutine routine, int depth)
+            {
+                if (depth > 4) return;
+                foreach (var command in routine.Commands)
+                {
+                    if (command.Op == 0x75 && command.WeaponSlot >= 0) state[command.WeaponSlot] = command.HideWeapon;
+                    else if (command.Op is 0x03 or 0x3B && routines.TryGetValue(command.Reference, out var child)) Walk(child, depth + 1);
+                }
+            }
+            if (routines.TryGetValue("init", out var init)) Walk(init, 0);
+            var hidden = new HashSet<int>();
+            foreach (var (slot, hide) in state) if (hide) hidden.Add(slot);
+            return hidden;
+        }
+
+        /// <summary>
+        /// Joins a motion stored in body-region parts into one clip under its stem name: a fixed NPC model (Curilla,
+        /// model 69) carries <c>wlk0</c> (16 joints: legs), <c>wlk1</c> (73: upper body, arms and the weapon joints) and
+        /// <c>wlk2</c> (10: waist), and the stem used to name only the first part in file order, so a walk moved the legs
+        /// alone, the upper body stayed in its bind pose with the sword at the floor (#163), and <c>run</c> was the
+        /// waist part. Parts are joined only when they animate disjoint joints; same-stem clips that each move the whole
+        /// skeleton (a monster's swings <c>at0</c>-<c>at2</c>) are different motions and keep the first as the stem.
+        /// </summary>
+        internal static void MergeBodyRegionParts(EntityModel model, List<AnimationClip> clips)
+        {
+            foreach (var joined in JoinBodyRegionParts(clips)) model.Animations[joined.Name] = joined;
+        }
+
+        /// <summary>
+        /// The joined clips of every stem whose parts animate disjoint joints (see <see cref="MergeBodyRegionParts"/>),
+        /// named by the stem. Used for models and for event motion banks, which store gestures the same way.
+        /// </summary>
+        public static List<AnimationClip> JoinBodyRegionParts(IEnumerable<AnimationClip> clips)
+        {
+            var byStem = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in clips)
+            {
+                string stem = StripBodyRegionSuffix(clip.Name);
+                if (stem == clip.Name) continue;
+                if (!byStem.TryGetValue(stem, out var list)) byStem[stem] = list = new List<AnimationClip>();
+                list.Add(clip);
+            }
+            var joinedClips = new List<AnimationClip>();
+            foreach (var (stem, parts) in byStem)
+            {
+                if (parts.Count < 2) continue;
+                var tracks = new Dictionary<int, BoneAnimationTrack>();
+                bool disjoint = true;
+                foreach (var part in parts)
+                {
+                    foreach (var (joint, track) in part.Tracks)
+                    {
+                        if (!tracks.TryAdd(joint, track)) disjoint = false;
+                    }
+                }
+                if (!disjoint) continue;
+                // Timing from the part that moves the most joints (the parts of one motion share it in the retail models).
+                var timing = parts[0];
+                foreach (var part in parts) if (part.Tracks.Count > timing.Tracks.Count) timing = part;
+                joinedClips.Add(new AnimationClip
+                {
+                    Name = stem,
+                    NumFrames = timing.NumFrames,
+                    KeyFrameDuration = timing.KeyFrameDuration,
+                    Tracks = tracks
+                });
+            }
+            return joinedClips;
+        }
+
         /// <summary>
         /// Strips a trailing body-region digit (0=lower, 1=upper, 2=waist) from a clip name,
         /// e.g. "idl0" -&gt; "idl". Names without a recognized trailing digit are left unchanged.
@@ -628,7 +728,7 @@ namespace Gordian.Core.Resources
                 return null;
             }
 
-            return AssembleModel(dat, null, $"Monster_{modelId}");
+            return AssembleModel(dat, null, $"Monster_{modelId}", primarySource: DecodedTexture.FileLabel(fileId));
         }
     }
 }

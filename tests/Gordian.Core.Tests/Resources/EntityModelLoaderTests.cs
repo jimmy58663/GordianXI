@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using Gordian.Core.Resources;
@@ -586,5 +587,143 @@ namespace Gordian.Core.Tests.Resources
             Assert.Same(combatUpperTrack10, model.Animations["cwlk"].Tracks[10]);
             Assert.Same(combatUpperTrack11, model.Animations["cwlk"].Tracks[11]);
         }
-    }
+    
+        private static AnimationClip RegionClip(string name, int frames, params int[] joints)
+        {
+            var tracks = new Dictionary<int, BoneAnimationTrack>();
+            foreach (int j in joints) tracks[j] = new BoneAnimationTrack { JointIndex = j };
+            return new AnimationClip { Name = name, NumFrames = frames, KeyFrameDuration = 1f, Tracks = tracks };
+        }
+
+        /// <summary>
+        /// #163: a fixed NPC model stores a motion as body-region parts (wlk0 legs, wlk1 upper body, wlk2 waist); the stem
+        /// plays them together. Same-stem clips that move the same joints (a monster's swings) stay separate motions.
+        /// </summary>
+        [Fact]
+        public void BodyRegionParts_AreJoinedUnderTheirStem_SwingsAreNot()
+        {
+            var model = new EntityModel();
+            var clips = new List<AnimationClip>
+            {
+                RegionClip("run2", 13, 20, 21), RegionClip("run1", 13, 5, 6, 7, 8), RegionClip("run0", 13, 0, 1),
+                RegionClip("at0", 30, 0, 1, 2), RegionClip("at1", 40, 0, 1, 2),
+            };
+            foreach (var clip in clips)
+            {
+                model.Animations[clip.Name] = clip;
+                model.Animations.TryAdd(clip.Name[..^1], clip);
+            }
+            EntityModelLoader.MergeBodyRegionParts(model, clips);
+
+            Assert.Equal(new[] { 0, 1, 5, 6, 7, 8, 20, 21 }, model.Animations["run"].Tracks.Keys.OrderBy(k => k).ToArray());
+            Assert.Equal(13, model.Animations["run"].NumFrames);
+            Assert.Same(clips[3], model.Animations["at"]);
+            Assert.Same(clips[4], model.Animations["at1"]);
+        }
+
+        /// <summary>
+        /// The retail models of #163: Curilla (model 69) and Prince Trion (model 64) walk and stand with every joint
+        /// animated (99), not the legs or waist part alone. Skipped without the game install.
+        /// </summary>
+        /// <summary>
+        /// #163: a fixed NPC model's init routine hides a weapon slot (op 0x75, followed through a blocking link), so the
+        /// slot's wepN meshes are left out; the last command for a slot wins.
+        /// </summary>
+        [Fact]
+        public void InitRoutine_HidesWeaponSlots()
+        {
+            static MotionRoutineCommand ShowHide(int slot, bool hide) => new(0x75, 0, 1, string.Empty, 0, 0, 1, 1f, -1, 0, slot, hide);
+            var routines = new Dictionary<string, RawMotionRoutine>
+            {
+                ["init"] = new() { Name = "init", Commands = new[] { new MotionRoutineCommand(0x3B, 0, 0, "wof4", 0, 0, 1, 1f, -1, 0), ShowHide(2, true) } },
+                ["wof4"] = new() { Name = "wof4", Commands = new[] { ShowHide(4, true), ShowHide(2, false) } },
+            };
+            Assert.Equal(new[] { 2, 4 }, EntityModelLoader.InitialHiddenWeaponSlots(routines).OrderBy(s => s).ToArray());
+            Assert.Equal(4, EntityModelLoader.WeaponSlotOf("wep4"));
+            Assert.Null(EntityModelLoader.WeaponSlotOf("hh_b"));
+        }
+
+        /// <summary>
+        /// Every decoded texture carries where it came from (#163): two fixed NPC models with a texture of the same name
+        /// keep different sources (cached apart), and the same gear section loaded for two characters keeps one (shared).
+        /// Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void Textures_CarryTheirSource()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var sources = new Dictionary<string, HashSet<string>>();
+            for (uint id = 1; id < 200; id++)
+            {
+                var model = EntityModelLoader.LoadMonsterModel(id, rm.LoadDatBytesByFileId);
+                if (model == null) continue;
+                foreach (var texture in model.Textures.Values)
+                {
+                    Assert.StartsWith($"file{CharacterEquipmentResolver.GetMonsterFileId(id)}@", texture.Source);
+                    if (!sources.TryGetValue(texture.Name, out var set)) sources[texture.Name] = set = new HashSet<string>();
+                    set.Add(texture.Source);
+                }
+            }
+            Assert.Contains(sources.Values, set => set.Count > 1); // names repeat across models, sources do not
+
+            ushort[] grap = { 0, 0x1001, 0x2001, 0x3001, 0x4001, 0x5001, 0, 0, 0 };
+            var a = EntityModelLoader.AssembleCharacter(CharacterRace.ElvaanMale, 2, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            var b = EntityModelLoader.AssembleCharacter(CharacterRace.ElvaanMale, 3, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            var bodyA = a.Textures.Values.Where(t => t.Source.Length > 0).Select(t => t.Source).ToHashSet();
+            var bodyB = b.Textures.Values.Where(t => t.Source.Length > 0).Select(t => t.Source).ToHashSet();
+            Assert.NotEmpty(bodyA.Intersect(bodyB)); // the same gear DATs: shared sources
+            Assert.NotEqual(bodyA, bodyB);            // different faces: their own
+        }
+
+        /// <summary>
+        /// The event motion bank Curilla talks with in the Southern San d'Oria intro (bank 140, file 32244) stores its
+        /// gestures as body-region parts; a gesture plays them all, so her arms and sheathed sword keep their place (#163).
+        /// Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void EventMotionBank_GesturesMoveTheWholeSkeleton()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var bank = Gordian.Core.Animation.EventMotionBank.Parse(rm.LoadDatBytesByFileId(32244)!, 32244)!;
+            var clip = bank.Clips[bank.Routines["tlk0"].Segments[0].ClipName];
+            Assert.Equal(99, clip.Tracks.Count);
+            Assert.True(clip.Tracks.ContainsKey(84) && clip.Tracks.ContainsKey(96)); // the sword's joints
+        }
+
+        /// <summary>Prince Trion's model 64: init runs wof4, which hides its wep4 sword and scabbard. Skipped without the game install.</summary>
+        [Fact]
+        public void TrionModel_InitHidesItsWeapon()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var raw = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(64))!);
+            var routines = raw.Routines.ToDictionary(r => r.Name);
+            Assert.Equal(new[] { 4 }, EntityModelLoader.InitialHiddenWeaponSlots(routines).ToArray());
+            Assert.Equal(2, raw.Meshes.Count(m => m.SectionName == "wep4"));
+            var curilla = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(69))!);
+            Assert.Empty(EntityModelLoader.InitialHiddenWeaponSlots(curilla.Routines.ToDictionary(r => r.Name))); // her sword stays
+        }
+
+        [Theory]
+        [InlineData(69u)]
+        [InlineData(64u)]
+        public void FixedNpcModels_WalkWithTheirWholeSkeleton(uint modelId)
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var model = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            Assert.Equal(model.Skeleton!.Count, model.Animations["wlk"].Tracks.Count);
+            Assert.Equal(model.Skeleton.Count, model.Animations["idl"].Tracks.Count);
+        }
+}
 }

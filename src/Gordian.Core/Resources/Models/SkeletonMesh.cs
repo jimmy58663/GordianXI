@@ -64,5 +64,8 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public byte OccludeType { get; set; }
         public string SourcePath { get; set; } = string.Empty;
+
+        /// <summary>The mesh section's name (e.g. <c>hh_b</c>, <c>wep4</c>).</summary>
+        public string SectionName { get; set; } = string.Empty;
     }
 }

@@ -530,6 +530,7 @@ namespace Gordian.App.Graphics
                 for (int m = 0; m < gpuModel.Submeshes.Count; m++)
                 {
                     var submesh = gpuModel.Submeshes[m];
+                    // The model's own texture of that name, uploaded by its source (never by name: #163).
                     var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
 
                     cl.SetGraphicsResourceSet(1, texSet);

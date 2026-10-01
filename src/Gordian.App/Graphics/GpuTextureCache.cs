@@ -19,8 +19,17 @@ namespace Gordian.App.Graphics
         private readonly ResourceLayout _textureLayout;
         private readonly Sampler _sampler;
 
-        private readonly ConcurrentDictionary<string, (Texture Tex, TextureView View, ResourceSet Set)> _cache =
-            new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Uploads by texture source (DAT and section), shared by every texture decoded from it.</summary>
+        private readonly ConcurrentDictionary<string, (Texture Tex, TextureView View, ResourceSet Set)> _bySource = new(StringComparer.Ordinal);
+
+        /// <summary>Every upload, for disposal.</summary>
+        private readonly ConcurrentBag<(Texture Tex, TextureView View, ResourceSet Set)> _uploads = new();
+
+        /// <summary>Texture names already reported missing (logged once each).</summary>
+        private readonly ConcurrentDictionary<string, byte> _missing = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Resource sets by decoded texture instance (<see cref="GetOrCreateResourceSet(DecodedTexture)"/>).</summary>
+        private readonly ConcurrentDictionary<DecodedTexture, ResourceSet> _byTexture = new(ReferenceEqualityComparer.Instance);
 
         private Texture _defaultTexture = null!;
         private TextureView _defaultTextureView = null!;
@@ -151,76 +160,84 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Retrieves or creates a GPU ResourceSet for the given texture name from decoded texture tables.
-        /// Falls back to the default neutral checkerboard if the texture is missing.
+        /// The texture a submesh names in a decoded texture table: the exact name, else the first whose name ends with
+        /// it (or it with theirs). Null when none matches. A name is only meaningful inside its own table.
+        /// </summary>
+        public static DecodedTexture? Resolve(string? textureName, IReadOnlyDictionary<string, DecodedTexture>? decodedTextures)
+        {
+            if (string.IsNullOrWhiteSpace(textureName) || decodedTextures == null) return null;
+            string cleanKey = textureName.Trim();
+            if (decodedTextures.TryGetValue(cleanKey, out var decoded) && decoded != null) return decoded;
+            foreach (var kvp in decodedTextures)
+            {
+                if (kvp.Key.EndsWith(cleanKey, StringComparison.OrdinalIgnoreCase) || cleanKey.EndsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return kvp.Value;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The GPU resource set of one decoded texture. Uploads are keyed by where the texture came from
+        /// (<see cref="DecodedTexture.Source"/>: DAT and section, unique across the install), so every model or zone that
+        /// loaded the same section shares one upload; a texture without a source gets its own. Never by name: texture
+        /// names repeat across DATs with different pixels (1,009 names among the fixed NPC models alone), and a name key
+        /// drew one model's face on another (Balasiel, #163).
+        /// </summary>
+        public ResourceSet GetOrCreateResourceSet(DecodedTexture texture)
+        {
+            ArgumentNullException.ThrowIfNull(texture);
+            if (_byTexture.TryGetValue(texture, out var known)) return known;
+            ResourceSet set;
+            if (texture.Source.Length > 0 && _bySource.TryGetValue(texture.Source, out var shared))
+            {
+                set = shared.Set;
+            }
+            else
+            {
+                if (Upload(texture) is not { } uploaded) return _defaultResourceSet;
+                if (texture.Source.Length > 0) _bySource[texture.Source] = uploaded;
+                set = uploaded.Set;
+            }
+            _byTexture[texture] = set;
+            return set;
+        }
+
+        private (Texture Tex, TextureView View, ResourceSet Set)? Upload(DecodedTexture decoded)
+        {
+            try
+            {
+                var factory = _gd.ResourceFactory;
+                uint width = (uint)Math.Max(1, decoded.Width);
+                uint height = (uint)Math.Max(1, decoded.Height);
+                GordianLog.Debug("GPU_TEX", $"Uploading GPU texture '{decoded.Name}' from '{decoded.Source}', {width}x{height}.");
+                var tex = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+                _gd.UpdateTexture(tex, decoded.RgbaPixels, 0, 0, 0, width, height, 1, 0, 0);
+                var view = factory.CreateTextureView(tex);
+                var set = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, view, _sampler));
+                var entry = (tex, view, set);
+                _uploads.Add(entry);
+                return entry;
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("Graphics", $"Failed to upload GPU texture '{decoded.Name}': {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The resource set of the texture a submesh names in its own texture table (<see cref="Resolve"/>), uploaded
+        /// as <see cref="GetOrCreateResourceSet(DecodedTexture)"/> keys it; the default checkerboard when the table has none.
         /// </summary>
         public ResourceSet GetOrCreateResourceSet(
             string? textureName,
             IReadOnlyDictionary<string, DecodedTexture>? decodedTextures)
         {
-            if (string.IsNullOrWhiteSpace(textureName))
-            {
-                return _defaultResourceSet;
-            }
-
-            string cleanKey = textureName.Trim();
-
-            if (_cache.TryGetValue(cleanKey, out var entry))
-            {
-                return entry.Set;
-            }
-
-            DecodedTexture? decoded = null;
-            if (decodedTextures != null)
-            {
-                if (!decodedTextures.TryGetValue(cleanKey, out decoded) || decoded == null)
-                {
-                    // Fallback fuzzy search: check if key ends with cleanKey or cleanKey ends with key
-                    foreach (var kvp in decodedTextures)
-                    {
-                        if (kvp.Key.EndsWith(cleanKey, StringComparison.OrdinalIgnoreCase) ||
-                            cleanKey.EndsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
-                        {
-                            decoded = kvp.Value;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (decoded != null)
-            {
-                try
-                {
-                    var factory = _gd.ResourceFactory;
-                    uint width = (uint)Math.Max(1, decoded.Width);
-                    uint height = (uint)Math.Max(1, decoded.Height);
-
-                    GordianLog.Info("GPU_TEX", $"Uploading GPU texture '{textureName}', cleanKey='{cleanKey}', decoded='{decoded.Name}', W={width}, H={height}, PixelsLen={decoded.RgbaPixels.Length}");
-
-                    var tex = factory.CreateTexture(TextureDescription.Texture2D(
-                        width, height, 1, 1,
-                        PixelFormat.R8_G8_B8_A8_UNorm,
-                        TextureUsage.Sampled));
-
-                    _gd.UpdateTexture(tex, decoded.RgbaPixels, 0, 0, 0, width, height, 1, 0, 0);
-
-                    var view = factory.CreateTextureView(tex);
-                    var set = factory.CreateResourceSet(new ResourceSetDescription(
-                        _textureLayout,
-                        view,
-                        _sampler));
-
-                    _cache[cleanKey] = (tex, view, set);
-                    return set;
-                }
-                catch (Exception ex)
-                {
-                    GordianLog.Warning("Graphics", $"Failed to upload GPU texture '{textureName}': {ex.Message}");
-                }
-            }
-
-            GordianLog.Warning("GPU_TEX", $"TEXTURE NOT FOUND: '{textureName}', returning default checkerboard!");
+            if (string.IsNullOrWhiteSpace(textureName)) return _defaultResourceSet;
+            if (Resolve(textureName, decodedTextures) is { } decoded) return GetOrCreateResourceSet(decoded);
+            if (_missing.TryAdd(textureName.Trim(), 0)) GordianLog.Warning("GPU_TEX", $"TEXTURE NOT FOUND: '{textureName}', returning default checkerboard!");
             return _defaultResourceSet;
         }
 
@@ -266,13 +283,14 @@ namespace Gordian.App.Graphics
 
         public void Clear()
         {
-            foreach (var kvp in _cache)
+            while (_uploads.TryTake(out var entry))
             {
-                kvp.Value.Set.Dispose();
-                kvp.Value.View.Dispose();
-                kvp.Value.Tex.Dispose();
+                entry.Set.Dispose();
+                entry.View.Dispose();
+                entry.Tex.Dispose();
             }
-            _cache.Clear();
+            _bySource.Clear();
+            _byTexture.Clear();
         }
 
         public void Dispose()

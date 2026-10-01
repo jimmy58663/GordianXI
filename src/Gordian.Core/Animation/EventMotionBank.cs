@@ -21,12 +21,17 @@ namespace Gordian.Core.Animation
         public EventMotionBank(int fileId, IEnumerable<AnimationClip> clips, IEnumerable<RawMotionRoutine> routines)
         {
             FileId = fileId;
-            foreach (var clip in clips)
+            var all = new List<AnimationClip>(clips);
+            foreach (var clip in all)
             {
                 _clips[clip.Name] = clip;
                 // Routines name a clip by its first three letters and a wildcard (tl1?), as on the models.
                 if (clip.Name.Length >= 2 && clip.Name[^1] is >= '0' and <= '2') _clips.TryAdd(clip.Name[..^1], clip);
             }
+            // A gesture is stored as body-region parts (tlk0 legs, tlk1 upper body with the weapon joints, tlk2 waist),
+            // as on the fixed NPC models: the stem plays them together. With the legs part alone, Curilla's arms and
+            // sheathed sword fell to the bind pose while she talked (#163, bank 140 = file 32244).
+            foreach (var joined in EntityModelLoader.JoinBodyRegionParts(all)) _clips[joined.Name] = joined;
             foreach (var routine in routines)
             {
                 if (routine.Name.Length > 0) _raw[routine.Name] = routine;
