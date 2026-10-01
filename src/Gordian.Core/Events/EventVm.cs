@@ -156,8 +156,25 @@ namespace Gordian.Core.Events
             _poseDirty = true;
         }
 
-        private void SetEventHeading(float heading)
+        /// <summary>
+        /// A turn rate model: the drawn heading eases toward the event heading (exponential, 8 per second: the viewport's
+        /// <c>EventPoseSmoother</c>), so a turn is over once the remaining angle is under <see cref="TurnDoneRadians"/>.
+        /// Retail's own turn speed is not measured.
+        /// </summary>
+        private const float TurnEaseRate = 8f, TurnDoneRadians = 0.05f;
+
+        /// <summary>
+        /// Turns the entity's event heading. An explicit turn (<paramref name="turn"/>, not a placement) keeps the entity
+        /// turning for the time the ease takes, which 0x76 / 0x70 wait for (retail's <c>Render.Flags3</c> bit 1, TurnCancel).
+        /// </summary>
+        private void SetEventHeading(float heading, bool turn = true)
         {
+            if (turn && _positionKnown)
+            {
+                float delta = MathF.Abs(MathF.IEEERemainder(heading - _eventDir, 2f * MathF.PI));
+                float seconds = delta > TurnDoneRadians ? MathF.Log(delta / TurnDoneRadians) / TurnEaseRate : 0f;
+                Scene.StartTurn(EntityServerId, seconds * 60f);
+            }
             _eventDir = heading;
             _poseDirty = true;
         }
@@ -874,7 +891,7 @@ namespace Gordian.Core.Events
                     return;
                 case 0x37:
                     SetEventPosition(GetWork(1) * 0.001f, GetWork(5) * 0.001f, GetWork(3) * 0.001f);
-                    SetEventHeading(ScriptHeading(GetWork(7)));
+                    SetEventHeading(ScriptHeading(GetWork(7)), turn: false);
                     _pc += 9;
                     return;
                 case 0xBA:
@@ -884,7 +901,7 @@ namespace Gordian.Core.Events
                     if (target != null)
                     {
                         target.SetEventPosition(GetWork(5) * 0.001f, GetWork(9) * 0.001f, GetWork(7) * 0.001f);
-                        target.SetEventHeading(ScriptHeading(GetWork(11)));
+                        target.SetEventHeading(ScriptHeading(GetWork(11)), turn: false);
                     }
                     _pc += 13;
                     return;
@@ -1022,6 +1039,51 @@ namespace Gordian.Core.Events
                     }
                     _pc += 13;
                     return;
+                case 0x5E:
+                    // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the
+                    // idle motion named by the operand); the idle name is not used, the entity's own idle plays.
+                    ResetMotion(EntityServerId);
+                    _pc += 5;
+                    return;
+                case 0x6B:
+                    // The same for the actor at +5 (OpCodes/0x006B: operands motion:u32 actor:u32).
+                    if (TaskActor(Code32(5)) is var resetActor && resetActor != uint.MaxValue) ResetMotion(resetActor);
+                    _pc += 9;
+                    return;
+                case 0x76:
+                {
+                    // Wait while the actor turns (OpCodes/0x0076: Render.Flags3 bit 1 set by a turn, yields).
+                    uint turning = TaskActor(Code32(1));
+                    if (turning != uint.MaxValue && Scene.IsTurning(turning))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _pc += 5;
+                    return;
+                }
+                case 0x70:
+                    if (Scene.IsTurning(EntityServerId))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _pc++;
+                    return;
+                case 0x80:
+                    // Waits for the actor's action resources to load (OpCodes/0x0080, CodeLOADWAIT); they load when asked here.
+                    _pc += 5;
+                    return;
+                case 0x2F:
+                case 0x33:
+                case 0x42:
+                case 0x7B:
+                case 0x7C:
+                case 0x79:
+                    // Opcodes with no effect on a client that draws no mouth, head look or render-flag variants. The
+                    // scripts' use of 0x2F (Render.Flags0 bit 19) always sits next to the 0x22 / 0x4E hide that does the work.
+                    _pc += EventOpcodeTable.GetLength(_code, _pc);
+                    return;
                 case 0x48:
                     PrintMessage(GetWork(1), EventSpeaker.None, 0, 0);
                     _pc += 3;
@@ -1110,6 +1172,13 @@ namespace Gordian.Core.Events
             if (serverId == 0) return Scene.PlayerServerId;
             if (serverId == Scene.PlayerServerId || Scene.FindActor(serverId) != null || _host.EntityExists(serverId)) return serverId;
             return uint.MaxValue;
+        }
+
+        /// <summary>0x5E / 0x6B: the entity's event action ends and it returns to idle.</summary>
+        private void ResetMotion(uint serverId)
+        {
+            Scene.EndEntityActions(serverId);
+            _host.StopEntityMotion(serverId, string.Empty);
         }
 
         /// <summary>A little-endian FourCC operand as text (trailing NULs dropped).</summary>

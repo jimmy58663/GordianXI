@@ -299,12 +299,12 @@ namespace Gordian.Core.Tests.Events
         [Fact]
         public void UnknownOpcodes_AreSteppedOverByLength_AndUnknownLengthsEndTheEvent()
         {
-            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 2F ... (6 bytes, skipped) ; 48 ref0 ; E7 (unknown length) ; 48 ref1
+            // 1E look-at (5 bytes, skipped) ; 20 01 lock ; 7D ... (3 bytes, skipped) ; 48 ref0 ; E7 (unknown length) ; 48 ref1
             var code = new byte[]
             {
                 0x1E, 0xF0, 0xFF, 0xFF, 0x7F,
                 0x20, 0x01,
-                0x2F, 0x01, 0xF8, 0xFF, 0xFF, 0x7F,
+                0x7D, 0x01, 0x02,
                 0x48, 0x00, 0x80,
                 0xE7, 0x01, 0x11, 0x22,
                 0x48, 0x01, 0x80,
@@ -314,7 +314,7 @@ namespace Gordian.Core.Tests.Events
             vm.Tick(Frame);
             Assert.Equal(new[] { true }, host.Locks);
             Assert.Equal(9, Assert.Single(host.Printed).Message);
-            Assert.Contains((byte)0x2F, host.Skipped);
+            Assert.Contains((byte)0x7D, host.Skipped);
             Assert.Contains((byte)0xE7, host.Skipped);
             Assert.True(vm.IsFinished);
         }

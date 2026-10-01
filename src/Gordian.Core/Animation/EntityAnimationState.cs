@@ -417,8 +417,13 @@ namespace Gordian.Core.Animation
 
                 if (request.Motion == ActionMotion.EventMotionStop)
                 {
-                    if (ActiveRoutine?.Name == request.Routine && _lastModel != null) EndAction(_lastModel, blend: true);
-                    _queuedActions.RemoveAll(q => q.Motion == ActionMotion.EventMotion && q.Routine == request.Routine);
+                    // An empty name stops any event gesture (0x5E / 0x6B, the return to idle).
+                    bool any = request.Routine.Length == 0;
+                    if (_lastModel != null && (any ? _actionRequest?.Motion == ActionMotion.EventMotion : ActiveRoutine?.Name == request.Routine))
+                    {
+                        EndAction(_lastModel, blend: true);
+                    }
+                    _queuedActions.RemoveAll(q => q.Motion == ActionMotion.EventMotion && (any || q.Routine == request.Routine));
                     continue;
                 }
 
