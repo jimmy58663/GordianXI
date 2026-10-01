@@ -5,22 +5,30 @@
 ## Phase 6: Scripting runtime, addons and package manager
 
 - [ ] **Sandboxed Lua Scripting Engine (`Gordian.Addons`):**
-  - [ ] Dedicated native Lua 5.4 VM per loaded addon via KeraLua P/Invoke: complete fault isolation (crashes never affect other addons or the engine), leak-proof unloading (`lua_close`), and zero .NET GC overhead. Cross-platform native binaries for Windows, Linux, and macOS (x64 and ARM64).
-  - [ ] Allowlist-only script environment: every addon executes with a restricted `_ENV` containing exclusively curated API tables. Because KeraLua binds directly to pure ANSI C Lua, CLR reflection (`luanet`) does not exist; dangerous globals (`os.execute`, raw `io.*`, `require`/`dofile`/`loadstring`, `debug.*`) are absent from the sandbox environment at creation.
+  - [ ] Dedicated native Lua 5.4 VM per loaded addon via KeraLua P/Invoke: fault isolation for Lua errors, leak-proof unloading (`lua_close`) and no managed Lua heap. Cross-platform native binaries for Windows, Linux, and macOS (x64 and ARM64); decide who builds and signs them and add KeraLua and Lua to `THIRD_PARTY_NOTICES.md` when the package is introduced. Packet payloads cross the P/Invoke boundary by copy (or a read-only userdata view); the choice must respect the packet pipeline's no-allocation rule.
+  - [ ] Allowlist-only script environment: every addon executes with a restricted `_ENV` containing exclusively curated API tables. Because KeraLua binds directly to pure ANSI C Lua, CLR reflection (`luanet`) does not exist; dangerous globals (`os.execute`, raw `io.*`, `require`/`dofile`/`loadstring`, `debug.*`) are absent from the sandbox environment at creation. Binary chunks are never loadable: every compile path uses text mode only (`mode = "t"`), since Lua bytecode loading is a known sandbox escape.
+  - [ ] Per-VM resource limits, so one addon cannot hang or exhaust the engine: an instruction-count hook (`lua_sethook`) for CPU time per callback, a custom allocator (`lua_newstate`) for a memory cap, and a stack-depth limit. A limit breach unloads that addon only.
   - [ ] Scoped addon storage API (`storage.read_config()`, `storage.write_config(data)`, `storage.log(line)`) as the sanctioned replacement for raw `io.*`: confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory`, with path-traversal validation and a size quota.
-  - [ ] C#-backed `AddonRegistry` categorized by runtime flavor (`Gordian`, `Windower`, `Ashita`):
-    - Windower addons receive `_G.windower` and standard pure-Lua helpers (`config.lua`, `tables.lua`).
-    - Ashita addons receive `_G.AshitaCore`, `_G.ashita`, and direct passthrough to GordianXI's native `_G.imgui`.
-    - Native Gordian addons receive `_G.gordian` with zero legacy overhead.
-  - [ ] Lua 5.1 Backward-Compatibility Shim: a lightweight compatibility module providing the `bit` library (`band`, `bor`, `bxor`, `rshift`, `lshift`), `unpack = table.unpack`, and `loadstring = load` so legacy Windower/Ashita addons written for Lua 5.1/LuaJIT run natively on the modern Lua 5.4 VM.
+  - [ ] Runtime flavors, detected **only by the top-level directory** an addon is installed under: `addons/gordian/`, `addons/windower/`, `addons/ashita/`. The flavor is never read from the addon's own files (manifest or script), so an addon cannot claim a flavor with a larger API surface; symlinks that leave the flavor directory are rejected. The flavor fixes the VM's environment at creation and never changes. A C#-backed `AddonRegistry` tracks addons per flavor:
+    - Windower addons receive `_G.windower` and standard pure-Lua helpers (`config.lua`, `tables.lua`), plus the 5.1 shim.
+    - Ashita addons receive `_G.AshitaCore`, `_G.ashita` and `_G.imgui` (an adapter onto `gordian.imgui`, see below), plus the 5.1 shim.
+    - Native Gordian addons receive `_G.gordian` and run on plain Lua 5.4 with no shim.
+    - **No mixing:** an addon never loads more than one flavor's API. A Windower addon that wants Ashita's imgui, or any Gordian feature, is ported to a Gordian addon. Touching a global from another flavor fails at load time with an error naming the missing global.
+  - [ ] Lua 5.1 Backward-Compatibility Shim, loaded **only** into the Windower and Ashita flavors, so legacy addons written for Lua 5.1/LuaJIT run on the Lua 5.4 VM. Contents, to be confirmed against a corpus of real addons before the phase is called done:
+    - `bit` library: `band`, `bor`, `bxor`, `bnot`, `lshift`, `rshift`, `arshift`, `rol`, `ror`, `tobit`, `tohex`.
+    - Globals: `unpack = table.unpack`, `loadstring` (bound to the addon's sandboxed `_ENV`, text mode only), `setfenv`/`getfenv` emulation over `_ENV`, `table.getn`, `math.pow`, `string.gfind`, `module`/`package.seeall` emulation where feasible.
+    - Integer/float semantics (the 5.3+ integer subtype changes `/`, `//` and number formatting) are a known compatibility risk for packet bit-math. Cover them in tests rather than assume parity.
+    - LuaJIT `ffi` is out of scope unless a needed Ashita addon requires it.
+  - [ ] **`gordian.imgui`:** a near-1:1 binding of Dear ImGui over ImGui.NET, authored from Dear ImGui's own API (MIT) and not from Ashita's binding (GPL), with a denylist for anything that touches the host: no `.ini` persistence (window state goes through `storage`), no file dialogs, no clipboard, and no raw texture paths or GPU pointers (textures are opaque handles from a Gordian API). Each addon gets its own ID-stack scope, so two addons using the same window title do not collide, and draws run inside the HUD frame on the render thread under a per-frame draw budget. The pinned ImGui.NET version is part of the compatibility contract. The Ashita flavor's `imgui` is a thin adapter translating Ashita-style calls onto `gordian.imgui`, covering what popular Ashita addons need, and lives with the shims so it can be dropped later. Windower's own text/prim UI is separate and not ImGui.
   - [ ] C# Pub-Sub Event Registry & Opcode Pre-Filtering:
     - Event registrations (`windower.register_event`, `ashita.events.register`, `gordian.register_event`) register callbacks directly with C# dispatch dictionaries.
-    - Incoming packets are pre-filtered by opcode in C# before FFI invocation—VMs only wake up if subscribed to that specific opcode, eliminating broadcast overhead.
-  - [ ] Targeted Native IPC:
-    - Point-to-point direct messaging (`gordian.ipc.send('target_addon', action, payload)`), waking only the recipient VM.
-    - Topic-based pub-sub (`gordian.ipc.subscribe('channel', callback)`).
-    - Native structured table payloads (no string concatenation or manual serialization required).
-    - Legacy `windower.send_ipc_message` scoped strictly to active Windower VMs.
+    - Incoming packets are pre-filtered by opcode in C# before FFI invocation, so a VM only wakes up if subscribed to that specific opcode.
+    - The legacy API surfaces are implemented clean-room from public documentation and cited in XML doc-comments (Windower and Ashita are copyleft; see `AGENTS.md`).
+  - [ ] Targeted Native IPC, **isolated per flavor**: messages never cross flavors, so Gordian addons cannot call legacy addons and legacy addons cannot call Gordian ones.
+    - `gordian.ipc`: point-to-point messaging (`gordian.ipc.send('target_addon', action, payload)`), waking only the recipient VM, and topic pub-sub (`gordian.ipc.subscribe('channel', callback)`), reaching Gordian addons only.
+    - Legacy `windower.send_ipc_message` is scoped strictly to active Windower VMs (an Ashita equivalent, if needed, likewise to Ashita VMs).
+    - Payloads are structured tables deep-copied between Lua states (tables cannot be shared across VMs). Functions, userdata and cyclic references are rejected, and size and rate limits apply so IPC cannot bypass the sandbox quotas.
+  - [ ] `Gordian.Addons` has no access to `Gordian.Automation`; nothing in the event bus, IPC or `gordian.equip_set` may become a route into it.
 - [ ] **3-Tier Menu & Action API for Addon Authors:**
   - [ ] *High-Level Intent API:* Safe, validated one-line triggers (`actions.cast("Cure IV")`, `actions.use_ability("Provoke")`, `inventory.equip()`, `event.choose(index)`).
   - [ ] *Reactive Live State Access:* Continuous, non-blocking read access to live cached game state (`LocalPlayerState`, recasts, inventory, party, world entities) without needing to wait for button click responses.
