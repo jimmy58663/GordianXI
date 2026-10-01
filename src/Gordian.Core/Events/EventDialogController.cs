@@ -154,8 +154,6 @@ namespace Gordian.Core.Events
         /// <summary>The entities the running event loaded motion banks onto (game tick thread only), cleared when it ends.</summary>
         private readonly List<WorldEntity> _banked = new();
 
-        /// <summary>Whether a 0x66 motion package was already reported as not loaded (once per session).</summary>
-        private bool _packageNoted;
 
         /// <summary>Whether an event is running (the character is held and Confirm belongs to the dialog).</summary>
         public bool IsActive => _scene != null;
@@ -962,11 +960,13 @@ namespace Gordian.Core.Events
                     if (!_banked.Contains(entity)) _banked.Add(entity);
                 }
             }
-            else if (source == EventMotionSource.Package && !_packageNoted)
+            else if (source == EventMotionSource.Package)
             {
-                // Where a package's DAT lives is not known yet (XiEvents' ReadTpcEventMotionRes); the entity's own motions play.
-                _packageNoted = true;
-                GordianLog.Info("EVENT", $"Motion package {resource} ({routine}) is not loaded; player-model gestures use the entity's own motions.");
+                if (LoadMotionPackage(resource) is { } package)
+                {
+                    entity.Animation.AddEventMotionBank(package);
+                    if (!_banked.Contains(entity)) _banked.Add(entity);
+                }
             }
             entity.Animation.EnqueueAction(new ActionRequest
             {
@@ -1054,6 +1054,16 @@ namespace Gordian.Core.Events
                 GordianLog.Warning("EVENT", $"Event motion DAT {fileId} could not be read: {ex.Message}");
             }
             _motionBanks[fileId] = bank;
+            return bank;
+        }
+
+        /// <summary>A 0x66 motion package: its DAT with the waist part when that one has routines, else the one without.</summary>
+        private EventMotionBank? LoadMotionPackage(int package)
+        {
+            if (package < 0 || package >= 176) return null;
+            var (withWaist, withoutWaist) = EventMotionBank.PackageFileIds(package);
+            var bank = LoadMotionBank(withWaist) ?? LoadMotionBank(withoutWaist);
+            if (bank == null) GordianLog.Debug("EVENT", $"Motion package {package} has no routines in files {withWaist} / {withoutWaist}.");
             return bank;
         }
 

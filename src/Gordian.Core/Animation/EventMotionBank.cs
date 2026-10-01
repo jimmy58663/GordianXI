@@ -54,6 +54,18 @@ namespace Gordian.Core.Animation
             return new EventMotionBank(fileId, container.Animations, container.Routines);
         }
 
+        /// <summary>
+        /// The two DATs of a 0x66 motion package (XiEvents OpCodes/0x005B, ReadTpcEventMotionRes; called a package, as in
+        /// xi-tools, which gives Cornelia's <c>kka0</c> as package 12). Located in the retail DATs (2026-10-01): file
+        /// 32360 + 2n holds package n with the waist part (the gestures' parts 0 and 1 and their routines in one folder,
+        /// part 2 in another; file 32361 + 2n is a twin, presumably for robe bodies as with the emotes), and file 32712 + n
+        /// holds it without the waist part; the first table ends where the second begins (176 packages). Some packages are
+        /// only in the second (29, the Royal Knights' talk: 32418 is empty, 32741 has it). Every package whose few
+        /// gestures pin it down (17, 22, 24, 25, 43, 51, 54, 57, 62, 63 over all zones' 0x66 uses) has them at both places.
+        /// The San d'Oria packages (20, 21, 29) are authored for the Elvaan skeleton.
+        /// </summary>
+        public static (int WithWaist, int WithoutWaist) PackageFileIds(int package) => (32360 + 2 * package, 32712 + package);
+
         /// <summary>How many 60 Hz frames a routine of the bank plays (one pass of a looping one), 0 when it has none.</summary>
         public int GetRoutineFrames(string name) =>
             Routines.TryGetValue(name, out var routine) ? EntityAnimationState.OnePassTicks(routine) : 0;
