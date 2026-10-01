@@ -643,6 +643,41 @@ namespace Gordian.Core.Tests.Resources
             Assert.Null(EntityModelLoader.WeaponSlotOf("hh_b"));
         }
 
+        /// <summary>
+        /// Every decoded texture carries where it came from (#163): two fixed NPC models with a texture of the same name
+        /// keep different sources (cached apart), and the same gear section loaded for two characters keeps one (shared).
+        /// Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void Textures_CarryTheirSource()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var sources = new Dictionary<string, HashSet<string>>();
+            for (uint id = 1; id < 200; id++)
+            {
+                var model = EntityModelLoader.LoadMonsterModel(id, rm.LoadDatBytesByFileId);
+                if (model == null) continue;
+                foreach (var texture in model.Textures.Values)
+                {
+                    Assert.StartsWith($"file{CharacterEquipmentResolver.GetMonsterFileId(id)}@", texture.Source);
+                    if (!sources.TryGetValue(texture.Name, out var set)) sources[texture.Name] = set = new HashSet<string>();
+                    set.Add(texture.Source);
+                }
+            }
+            Assert.Contains(sources.Values, set => set.Count > 1); // names repeat across models, sources do not
+
+            ushort[] grap = { 0, 0x1001, 0x2001, 0x3001, 0x4001, 0x5001, 0, 0, 0 };
+            var a = EntityModelLoader.AssembleCharacter(CharacterRace.ElvaanMale, 2, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            var b = EntityModelLoader.AssembleCharacter(CharacterRace.ElvaanMale, 3, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            var bodyA = a.Textures.Values.Where(t => t.Source.Length > 0).Select(t => t.Source).ToHashSet();
+            var bodyB = b.Textures.Values.Where(t => t.Source.Length > 0).Select(t => t.Source).ToHashSet();
+            Assert.NotEmpty(bodyA.Intersect(bodyB)); // the same gear DATs: shared sources
+            Assert.NotEqual(bodyA, bodyB);            // different faces: their own
+        }
+
         /// <summary>Prince Trion's model 64: init runs wof4, which hides its wep4 sword and scabbard. Skipped without the game install.</summary>
         [Fact]
         public void TrionModel_InitHidesItsWeapon()

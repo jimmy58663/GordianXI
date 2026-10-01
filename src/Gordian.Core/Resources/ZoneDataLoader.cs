@@ -256,7 +256,8 @@ namespace Gordian.Core.Resources
             ReadOnlySpan<byte> table2 = default,
             Dictionary<string, DecodedTexture>? outTextures = null,
             SharedEffectResources? sharedEffects = null,
-            bool actorEffects = false)
+            bool actorEffects = false,
+            string? datSource = null)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -314,6 +315,7 @@ namespace Gordian.Core.Resources
                     {
                         texCount++;
                         var texture = TextureDecoder.DecodeTexture(payload);
+                        if (texture != null) texture.Source = DecodedTexture.SourceOf(datSource, header.Offset);
                         if (texture != null && outTextures != null)
                         {
                             outTextures[texture.Name] = texture;

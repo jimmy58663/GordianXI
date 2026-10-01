@@ -35,7 +35,9 @@ namespace Gordian.Core.Resources
         /// Reads and extracts Skeleton (0x29), SkeletonMesh (0x2A), SkeletonAnimation (0x2B), and
         /// Texture (0x20) sections from a raw DAT payload.
         /// </summary>
-        public static RawDatContainer ParseDatContainer(ReadOnlySpan<byte> datBytes, string sourceName = "")
+        /// <param name="datSource">The DAT the bytes came from (a file label or path): stamps the textures'
+        /// <see cref="DecodedTexture.Source"/> so caches can share them safely.</param>
+        public static RawDatContainer ParseDatContainer(ReadOnlySpan<byte> datBytes, string sourceName = "", string? datSource = null)
         {
             var meshes = new List<SkeletonMeshGroup>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
@@ -88,6 +90,7 @@ namespace Gordian.Core.Resources
                         var tex = TextureDecoder.DecodeTexture(payload);
                         if (tex != null)
                         {
+                            tex.Source = DecodedTexture.SourceOf(datSource, h.Offset);
                             if (!textures.ContainsKey(tex.Name))
                             {
                                 textures[tex.Name] = tex;
@@ -117,11 +120,13 @@ namespace Gordian.Core.Resources
             IReadOnlyList<ReadOnlyMemory<byte>>? extraDats = null,
             string name = "",
             IReadOnlyDictionary<int, int>? parentOverrides = null,
-            GearOcclusion? gearOcclusion = null)
+            GearOcclusion? gearOcclusion = null,
+            string? primarySource = null,
+            IReadOnlyList<string?>? extraSources = null)
         {
             var model = new EntityModel { Name = name };
 
-            var primary = ParseDatContainer(primaryDat, name);
+            var primary = ParseDatContainer(primaryDat, name, primarySource);
             model.Skeleton = primary.Skeleton;
             model.ParentOverrides = parentOverrides;
 
@@ -155,7 +160,7 @@ namespace Gordian.Core.Resources
             {
                 for (int i = 0; i < extraDats.Count; i++)
                 {
-                    var extra = ParseDatContainer(extraDats[i].Span, $"Part_{i}");
+                    var extra = ParseDatContainer(extraDats[i].Span, $"Part_{i}", extraSources != null && i < extraSources.Count ? extraSources[i] : null);
                     if (model.Skeleton == null && extra.Skeleton != null)
                     {
                         model.Skeleton = extra.Skeleton;
@@ -244,6 +249,7 @@ namespace Gordian.Core.Resources
             }
 
             var extraDats = new List<ReadOnlyMemory<byte>>();
+            var extraSources = new List<string?>();
             var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
             var occlusion = new GearOcclusion();
 
@@ -255,6 +261,7 @@ namespace Gordian.Core.Resources
                 if (faceDat != null && faceDat.Length > 0)
                 {
                     extraDats.Add(faceDat);
+                    extraSources.Add(DecodedTexture.FileLabel(faceFid));
                 }
             }
 
@@ -289,6 +296,7 @@ namespace Gordian.Core.Resources
                         }
 
                         extraDats.Add(gearDat);
+                        extraSources.Add(DecodedTexture.FileLabel(gearFid));
                         if (slot is CharacterSlot.Main or CharacterSlot.Sub)
                         {
                             weaponDats.Add((slot, gearDat));
@@ -307,7 +315,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion);
+            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources);
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
@@ -709,7 +717,7 @@ namespace Gordian.Core.Resources
                 return null;
             }
 
-            return AssembleModel(dat, null, $"Monster_{modelId}");
+            return AssembleModel(dat, null, $"Monster_{modelId}", primarySource: DecodedTexture.FileLabel(fileId));
         }
     }
 }

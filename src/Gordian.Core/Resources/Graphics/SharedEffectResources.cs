@@ -23,7 +23,7 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Decodes the sprite sheets and textures of a shared effects DAT. The first section with a given DatId wins.
         /// </summary>
-        public static SharedEffectResources Parse(ReadOnlySpan<byte> datBytes)
+        public static SharedEffectResources Parse(ReadOnlySpan<byte> datBytes, string? datSource = null)
         {
             var shared = new SharedEffectResources();
             foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
@@ -39,7 +39,11 @@ namespace Gordian.Core.Resources.Graphics
                 else if (header.TypeCode == DatSectionType.Texture)
                 {
                     var texture = TextureDecoder.DecodeTexture(payload);
-                    if (texture != null) shared.Textures.TryAdd(texture.Name, texture);
+                    if (texture != null)
+                    {
+                        texture.Source = DecodedTexture.SourceOf(datSource, header.Offset);
+                        shared.Textures.TryAdd(texture.Name, texture);
+                    }
                 }
             }
             return shared;

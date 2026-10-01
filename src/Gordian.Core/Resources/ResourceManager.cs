@@ -548,7 +548,8 @@ namespace Gordian.Core.Resources
                     _keyTable1 ?? ReadOnlySpan<byte>.Empty,
                     _keyTable2 ?? ReadOnlySpan<byte>.Empty,
                     textures,
-                    GetSharedEffects());
+                    GetSharedEffects(),
+                    datSource: Graphics.DecodedTexture.FileLabel(ZoneDataLoader.GetZoneModelFileId(zoneId)));
 
                 // Share one collision mesh per zone with sessions that loaded it on their own.
                 if (_collisionCache.TryGetValue(zoneId, out var sharedCollision) && sharedCollision != null) zone.Collision = sharedCollision;
@@ -579,8 +580,9 @@ namespace Gordian.Core.Resources
             {
                 if (!_sharedEffectsLoaded)
                 {
-                    byte[]? bytes = LoadDatBytes(Path.Combine("ROM", "0", "0.DAT"));
-                    _sharedEffects = bytes != null && bytes.Length > 0 ? SharedEffectResources.Parse(bytes) : null;
+                    string sharedPath = Path.Combine("ROM", "0", "0.DAT");
+                    byte[]? bytes = LoadDatBytes(sharedPath);
+                    _sharedEffects = bytes != null && bytes.Length > 0 ? SharedEffectResources.Parse(bytes, sharedPath) : null;
                     if (_sharedEffects == null) GordianLog.Warning("RES", "Shared effects DAT ROM/0/0.DAT unavailable; generators linking shared effects will be skipped.");
                     _sharedEffectsLoaded = true;
                 }
@@ -707,8 +709,9 @@ namespace Gordian.Core.Resources
             if (modelId == 0) return null;
             return _actorEffectCache.GetOrAdd(modelId, id =>
             {
-                var bytes = LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(id));
-                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects());
+                int fileId = CharacterEquipmentResolver.GetMonsterFileId(id);
+                var bytes = LoadDatBytesByFileId(fileId);
+                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(fileId));
             });
         }
 

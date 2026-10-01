@@ -11,6 +11,20 @@ namespace Gordian.Core.Resources.Graphics
     public sealed class DecodedTexture
     {
         public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Where the texture was decoded from, unique across the install: the DAT (file id or path) and the section's
+        /// offset in it (<see cref="SourceOf"/>). Caches key on this, never on <see cref="Name"/>, which repeats across
+        /// DATs with different pixels. Empty for a texture built in code or from an unknown DAT (cached on its own).
+        /// </summary>
+        public string Source { get; set; } = string.Empty;
+
+        /// <summary>A <see cref="Source"/> for the section at <paramref name="sectionOffset"/> of DAT <paramref name="dat"/> (empty without a DAT).</summary>
+        public static string SourceOf(string? dat, int sectionOffset) => string.IsNullOrEmpty(dat) ? string.Empty : $"{dat}@{sectionOffset}";
+
+        /// <summary>The DAT label of a file id, for <see cref="SourceOf"/>.</summary>
+        public static string FileLabel(int fileId) => $"file{fileId}";
+
         public int Width { get; }
         public int Height { get; }
         public byte[] RgbaPixels { get; }

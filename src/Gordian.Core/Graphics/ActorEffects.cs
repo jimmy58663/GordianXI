@@ -52,7 +52,7 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// Returns the model's effects, or null when it has no generator that draws anything.
         /// </summary>
-        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null)
+        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null)
         {
             if (datBytes.IsEmpty) return null;
             // Most models carry no generators: skip the full parse (and a second decode of their body textures).
@@ -64,7 +64,7 @@ namespace Gordian.Core.Graphics
             if (!hasGenerator) return null;
 
             var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
-            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true);
+            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource);
 
             var layers = new List<WeatherSkyLayer>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
