@@ -147,7 +147,7 @@ namespace Gordian.Core.Tests.Events
             var chat = new Gordian.Core.Ui.StockUiChat();
             var previousLoader = EventDialogController.DatLoader;
             EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
-            const uint Ceraule = 0x010E6001, Knight = 0x010E6068;
+            const uint Ceraule = 0x010E6001, Knight = 0x010E6068, TempleKnight = 0x010E60D7;
             try
             {
                 controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
@@ -165,6 +165,8 @@ namespace Gordian.Core.Tests.Events
                 Assert.False(controller.IsActive);
                 // Ceraule arrives (hidden by the server, as LandSandBoat sends cutscene NPCs); 1.5 s later the event runs.
                 parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Ceraule, 1, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+                // A cutscene-only knight of the 1:50 scene: placed at the start, out of sight until the script shows it.
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(TempleKnight, 0xD7, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
                 int waited = 0;
                 for (; waited < 600 && !controller.IsActive; waited++) controller.Tick(Frame);
                 Assert.True(controller.IsActive);
@@ -173,7 +175,8 @@ namespace Gordian.Core.Tests.Events
                 // A knight arrives after the start: it joins the event and takes the place its script gave it.
                 parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Knight, 104, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
                 bool narrationShown = false, knightJoined = false, ceraulePosed = false;
-                int narrationTicks = 0, logLinesInMode = 0, maxNarrationRun = 0, run = 0;
+                int narrationTicks = 0, logLinesInMode = 0, maxNarrationRun = 0, run = 0, narrationPages = 0, pagesBeforeKnight = -1;
+                bool wasShowing = false;
                 for (int i = 0; i < 200_000 && controller.IsActive; i++)
                 {
                     int before = chat.Log.Count(0);
@@ -181,6 +184,10 @@ namespace Gordian.Core.Tests.Events
                     parser.Progression.AcknowledgeEventUpdate();
                     if (controller.IsCutsceneHud) logLinesInMode += chat.Log.Count(0) - before;
                     var text = controller.EventText;
+                    if (text != null && !wasShowing) narrationPages++;
+                    wasShowing = text != null;
+                    parser.World.TryGetByServerId(TempleKnight, out var temple);
+                    if (temple!.IsDrawn && pagesBeforeKnight < 0) pagesBeforeKnight = narrationPages;
                     if (text != null)
                     {
                         narrationShown = true;
@@ -206,6 +213,7 @@ namespace Gordian.Core.Tests.Events
                 Assert.Equal(0, logLinesInMode);
                 Assert.InRange(maxNarrationRun, 9 * 60 - 3, 9 * 60 + 3); // 0x7F 0x34 09
                 Assert.True(knightJoined);
+                Assert.True(pagesBeforeKnight >= 7, $"the 1:50 knight showed after {pagesBeforeKnight} narration pages"); // after all of them
                 Assert.True(ceraulePosed);
                 Assert.True(chat.Log.Count(0) > 5); // the talk after 0x68 goes to the log
             }

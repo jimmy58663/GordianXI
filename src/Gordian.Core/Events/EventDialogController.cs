@@ -372,11 +372,7 @@ namespace Gordian.Core.Events
                 if (!_sorted.Add(entity.ServerId) || entity.ServerId == self) continue;
                 if (scene.FindActor(entity.ServerId) != null)
                 {
-                    if (!entity.IsInEvent)
-                    {
-                        entity.IsInEvent = true;
-                        _participants.Add(entity);
-                    }
+                    JoinEvent(entity);
                     if (_pendingPoses.Remove(entity.ServerId, out var pose))
                     {
                         entity.EventPose = pose;
@@ -570,9 +566,27 @@ namespace Gordian.Core.Events
             if (world == null) return;
             foreach (var actor in scene.Actors)
             {
-                if (!world.TryGetByServerId(actor.EntityServerId, out var entity)) continue;
-                entity.IsInEvent = true;
-                _participants.Add(entity);
+                if (world.TryGetByServerId(actor.EntityServerId, out var entity)) JoinEvent(entity);
+            }
+        }
+
+        /// <summary>
+        /// Marks an entity as taking part in the event. One the server hides (a cutscene-only NPC) starts the event with
+        /// its event hide flag set, so it stays out of sight until the script shows it (0x4E 00 / 0x22 00): the Southern
+        /// San d'Oria intro places the returning knights at its start and shows them only for their scene (the
+        /// maintainer's retail recording: absent at 1:21, walking in at 1:50), with no script hiding them before; the
+        /// Windurst Woods intro shows the hidden Nanaa Mihgo the same way. Retail's mapping from the server's hide state to
+        /// Render.Flags0 bit 17 is inferred from these scripts.
+        /// </summary>
+        private void JoinEvent(WorldEntity entity)
+        {
+            if (entity.IsInEvent) return;
+            entity.IsInEvent = true;
+            _participants.Add(entity);
+            if (entity.IsHidden && entity.ServerId != (_player?.ServerId ?? 0))
+            {
+                entity.IsEventHidden = true;
+                _staged.Add(entity.ServerId);
             }
         }
 
