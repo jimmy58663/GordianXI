@@ -46,6 +46,14 @@ namespace Gordian.Core.Events
         /// <summary>Whether the event holds the camera (0x46 01 until 0x46 00).</summary>
         public bool IsCameraHeld { get; internal set; }
 
+        /// <summary>
+        /// The low word of retail's <c>CliEventModeLocal</c> as 0x38 set it (operand | 0x2000; 0 before), the mask of what the
+        /// event takes from the player: the Southern San d'Oria intro sets 0x13 for its aerial shots and 0x03 when the
+        /// player walks in, Bastok Markets 0x12, Ailevia's tour 0x03 (XiEvents OpCodes/0x0038 gives 0x2003). Which bit does
+        /// what is not known yet, so nothing reads it (#176).
+        /// </summary>
+        public int EventModeLocal { get; internal set; }
+
         /// <summary>The event objects, one per entity, in start order.</summary>
         public IReadOnlyList<EventVm> Actors => _actors;
 
@@ -210,6 +218,9 @@ namespace Gordian.Core.Events
         /// <summary>Whether an entity still plays the event action <paramref name="tag"/> (0x53 waits on it).</summary>
         internal bool IsEntityActionPlaying(uint serverId, uint tag) =>
             _entityActions.TryGetValue(serverId, out var action) && action.Tag == tag;
+
+        /// <summary>Whether an entity plays any event action (retail <c>AnimationPlay</c>: 0x6E waits for it, 0x99 yields on it).</summary>
+        internal bool IsEntityActing(uint serverId) => _entityActions.ContainsKey(serverId);
 
         #endregion
 

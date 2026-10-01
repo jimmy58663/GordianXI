@@ -33,6 +33,9 @@ namespace Gordian.Core.Events
             set => ZoneDatLoader.Load = value;
         }
 
+        /// <summary>Reads a DAT by its path under the game directory (<c>ROM/32/40.DAT</c>): the race emote motions of 0x6E.</summary>
+        public static Func<string, byte[]?>? DatPathLoader { get; set; }
+
         /// <summary>Names an item / key item / zone by id for the 0x01 codes of the text; null names show as &lt;#id&gt;.</summary>
         public static Func<byte, int, string?>? NameResolver { get; set; }
 
@@ -145,6 +148,9 @@ namespace Gordian.Core.Events
         /// <summary>Event motion DATs by file id (null: missing), read once per zone.</summary>
         private readonly Dictionary<int, EventMotionBank?> _motionBanks = new();
 
+        /// <summary>Emote motion banks by race and emote (null: none), read once per zone.</summary>
+        private readonly Dictionary<(CharacterRace Race, int Emote, int Variant), EventMotionBank?> _emoteBanks = new();
+
         /// <summary>The entities the running event loaded motion banks onto (game tick thread only), cleared when it ends.</summary>
         private readonly List<WorldEntity> _banked = new();
 
@@ -206,6 +212,7 @@ namespace Gordian.Core.Events
                 _zone.Clear();
                 _sceneResources.Clear();
                 _motionBanks.Clear();
+                _emoteBanks.Clear();
             }
             if (_cancelRequested)
             {
@@ -969,6 +976,40 @@ namespace Gordian.Core.Events
                 ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
             });
             return entity.Animation.GetRoutineFrames(routine);
+        }
+
+        int IEventVmHost.PlayEntityEmote(uint serverId, int emote, int variant)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return 0;
+            // Emotes are the player races' motions: an entity with a race look plays its race's (fixed models have none).
+            var race = (CharacterRace)((entity.Appearance.FaceModel >> 8) & 0xFF);
+            if (entity.Appearance.ModelId > 0 || race == CharacterRace.Unknown) return 0;
+            if (!_emoteBanks.TryGetValue((race, emote, variant), out var bank))
+            {
+                try
+                {
+                    bank = DatPathLoader == null ? null : EmoteMotion.LoadBank(race, emote, variant, DatPathLoader);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("EVENT", $"Emote {emote} of {race} could not be read: {ex.Message}");
+                }
+                _emoteBanks[(race, emote, variant)] = bank;
+                if (bank == null) GordianLog.Debug("EVENT", $"Emote {emote} (variant {variant}) has no motion for {race}.");
+            }
+            if (bank == null) return 0;
+            entity.Animation.AddEventMotionBank(bank);
+            if (!_banked.Contains(entity)) _banked.Add(entity);
+            string routine = EmoteMotion.RoutineName(emote);
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                ActorId = serverId,
+                Motion = ActionMotion.EventMotion,
+                Routine = routine,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+            return bank.GetRoutineFrames(routine);
         }
 
         void IEventVmHost.StopEntityMotion(uint serverId, string routine)
