@@ -678,6 +678,24 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotEqual(bodyA, bodyB);            // different faces: their own
         }
 
+        /// <summary>
+        /// The event motion bank Curilla talks with in the Southern San d'Oria intro (bank 140, file 32244) stores its
+        /// gestures as body-region parts; a gesture plays them all, so her arms and sheathed sword keep their place (#163).
+        /// Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void EventMotionBank_GesturesMoveTheWholeSkeleton()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var bank = Gordian.Core.Animation.EventMotionBank.Parse(rm.LoadDatBytesByFileId(32244)!, 32244)!;
+            var clip = bank.Clips[bank.Routines["tlk0"].Segments[0].ClipName];
+            Assert.Equal(99, clip.Tracks.Count);
+            Assert.True(clip.Tracks.ContainsKey(84) && clip.Tracks.ContainsKey(96)); // the sword's joints
+        }
+
         /// <summary>Prince Trion's model 64: init runs wof4, which hides its wep4 sword and scabbard. Skipped without the game install.</summary>
         [Fact]
         public void TrionModel_InitHidesItsWeapon()

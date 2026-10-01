@@ -576,6 +576,15 @@ namespace Gordian.Core.Resources
         /// </summary>
         internal static void MergeBodyRegionParts(EntityModel model, List<AnimationClip> clips)
         {
+            foreach (var joined in JoinBodyRegionParts(clips)) model.Animations[joined.Name] = joined;
+        }
+
+        /// <summary>
+        /// The joined clips of every stem whose parts animate disjoint joints (see <see cref="MergeBodyRegionParts"/>),
+        /// named by the stem. Used for models and for event motion banks, which store gestures the same way.
+        /// </summary>
+        public static List<AnimationClip> JoinBodyRegionParts(IEnumerable<AnimationClip> clips)
+        {
             var byStem = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
             foreach (var clip in clips)
             {
@@ -584,6 +593,7 @@ namespace Gordian.Core.Resources
                 if (!byStem.TryGetValue(stem, out var list)) byStem[stem] = list = new List<AnimationClip>();
                 list.Add(clip);
             }
+            var joinedClips = new List<AnimationClip>();
             foreach (var (stem, parts) in byStem)
             {
                 if (parts.Count < 2) continue;
@@ -600,14 +610,15 @@ namespace Gordian.Core.Resources
                 // Timing from the part that moves the most joints (the parts of one motion share it in the retail models).
                 var timing = parts[0];
                 foreach (var part in parts) if (part.Tracks.Count > timing.Tracks.Count) timing = part;
-                model.Animations[stem] = new AnimationClip
+                joinedClips.Add(new AnimationClip
                 {
                     Name = stem,
                     NumFrames = timing.NumFrames,
                     KeyFrameDuration = timing.KeyFrameDuration,
                     Tracks = tracks
-                };
+                });
             }
+            return joinedClips;
         }
 
         /// <summary>
