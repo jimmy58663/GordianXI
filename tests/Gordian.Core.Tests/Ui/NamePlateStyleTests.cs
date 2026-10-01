@@ -120,6 +120,11 @@ namespace Gordian.Core.Tests.Ui
             npc.IsHidden = true;
             Assert.False(NamePlateStyle.ShowsName(npc, NamePlateFlags.None));
 
+            // A server-hidden cutscene NPC that takes part in the event is drawn, so it has its name (Curilla, the guards).
+            npc.IsInEvent = true;
+            Assert.True(NamePlateStyle.ShowsName(npc, NamePlateFlags.None));
+            npc.IsInEvent = false;
+
             var player = new PlayerEntity(1, 1) { Name = "Tarudrake" };
             Assert.True(NamePlateStyle.ShowsName(player, NamePlateFlags.NameHidden));
         }
