@@ -14,7 +14,8 @@ namespace Gordian.Core.Animation
     /// the face mesh is bound to (Hume male 52, Hume female 30, Elvaan male 30, Elvaan female 57, Tarutaru 7, Mithra and
     /// Galka 40), with reference 3 the neck below it. The head also tilts toward the target's head: the maintainer's retail
     /// recording of the Windurst Waters intro as a Galka shows Ajido-Marujido and Apururu looking up at the player
-    /// (2026-10-02). How far and how fast retail turns and tilts the head is not measured.
+    /// (2026-10-02). How far and how fast retail turns and tilts the head is not measured. 0x79 sub 2 holds the head on a
+    /// fixed axis instead (<see cref="AxisAngles"/>, #188).
     /// </summary>
     public static class HeadLook
     {
@@ -64,6 +65,41 @@ namespace Gordian.Core.Animation
             if (MathF.Abs(rise) < 1e-4f) return 0f;
             return Math.Clamp(MathF.Atan2(rise, Math.Max(horizontalDistance, 0.05f)), -MaxPitch, MaxPitch);
         }
+
+        /// <summary>The event angle unit: 4096 steps to a turn, as the event headings use (0x37, 0x39).</summary>
+        public const float RadiansPerStep = MathF.Tau / 4096f;
+
+        /// <summary>
+        /// The head turn speed of a fixed look axis when the event set none (0x59 sub 2 / 3), in steps per second (provisional).
+        /// The maintainer's retail recording of Port Jeuno event 324 (Abyssea "A Journey Begins", 2026-10-02) holds the
+        /// player's axis (0, 1024) for 2 s in a shot from behind, and the head barely moves in that time: a few degrees, not the
+        /// quarter turn the value names. 50 steps per second (4.4 degrees) fits that; the scripts that set a speed use 20 to
+        /// 1500, mostly 100 to 250.
+        /// </summary>
+        public const int DefaultAxisTurnSpeed = 50;
+
+        /// <summary>
+        /// The head turn (x) and tilt (y, positive = up) of a fixed look axis (0x79 sub 2), clamped like a look at a target.
+        /// Provisional reading (#188): <c>LookAxisX</c> turns and <c>LookAxisY</c> tilts, 4096 steps to a turn. In Port Jeuno
+        /// event 324 the player holds (0, 1024) right before the "pink flash of light in the sky" appears above them, and the
+        /// retail shot from behind shows no sideways turn; the sign of the turn is not known.
+        /// </summary>
+        public static Vector2 AxisAngles(World.LookAxis axis) => new(
+            Math.Clamp(axis.X * RadiansPerStep, -MaxYaw, MaxYaw),
+            Math.Clamp(axis.Y * RadiansPerStep, -MaxPitch, MaxPitch));
+
+        /// <summary>
+        /// Moves the current turn and tilt toward <paramref name="target"/> at the event's head turn speed (steps per second,
+        /// provisional; 0 = <see cref="DefaultAxisTurnSpeed"/>), at a constant rate rather than the target look's ease.
+        /// </summary>
+        public static Vector2 AxisStep(Vector2 current, Vector2 target, int speed, float deltaSeconds)
+        {
+            float step = (speed > 0 ? speed : DefaultAxisTurnSpeed) * RadiansPerStep * Math.Max(0f, deltaSeconds);
+            return new Vector2(StepToward(current.X, target.X, step), StepToward(current.Y, target.Y, step));
+        }
+
+        private static float StepToward(float current, float target, float step) =>
+            MathF.Abs(target - current) <= step ? target : current + MathF.CopySign(step, target - current);
 
         /// <summary>Eases the current turn toward <paramref name="target"/> over <paramref name="deltaSeconds"/>.</summary>
         public static float Ease(float current, float target, float deltaSeconds) =>

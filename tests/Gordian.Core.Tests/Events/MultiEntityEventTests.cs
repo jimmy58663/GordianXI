@@ -108,6 +108,23 @@ namespace Gordian.Core.Tests.Events
             return run;
         }
 
+        /// <summary>
+        /// Port Jeuno (246), event 324 (Abyssea "A Journey Begins", LandSandBoat <c>A_Journey_Begins.lua</c>, on zoning in):
+        /// the director 0x010F6090 holds the player's head on the look axis (0, 1024) with 0x79 sub 2 and clears it with 0x7B
+        /// 121 frames later, the shot from behind the player before the pink flash in the maintainer's retail recording
+        /// (2026-10-02, #188); the scene sets no head turn speed.
+        /// </summary>
+        [Fact]
+        public void PortJeunoAbysseaIntro_HoldsThePlayersHeadOnALookAxis()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 246, 324);
+            Assert.Equal((PlayerId, 0, 1024), Assert.Single(run.Host.LookAxes));
+            Assert.Empty(run.Host.HeadTurnSpeeds);
+            Assert.Contains(run.Host.Looks, l => l.Id == PlayerId && l.Target == uint.MaxValue);
+        }
+
         private int RequestOps(Run run, uint actor) =>
             new byte[] { 0x27, 0x28, 0x29, 0x2A }.Sum(o => run.Opcodes[actor].GetValueOrDefault(o));
 

@@ -671,6 +671,19 @@ namespace Gordian.Core.World
             set => _eventLook = value;
         }
 
+        private volatile int _eventHeadTurnSpeed;
+
+        /// <summary>
+        /// The head turn speed a running event set (opcode 0x59 sub 2 / 3, retail <c>TurnSpeedHead</c>), or 0 for the
+        /// default. Read by the renderer for a fixed look axis (<see cref="Animation.HeadLook.AxisStep"/>). Cleared when the
+        /// event ends.
+        /// </summary>
+        public int EventHeadTurnSpeed
+        {
+            get => _eventHeadTurnSpeed;
+            set => _eventHeadTurnSpeed = value;
+        }
+
         private int _spokenLines;
 
         /// <summary>

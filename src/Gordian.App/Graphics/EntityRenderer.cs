@@ -619,27 +619,56 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The head turn and tilt to draw this frame: eased toward the entity's event look target (the bearing, and the
-        /// height of the target's head against its own, both clamped), or back to straight ahead when it looks at nobody.
+        /// height of the target's head against its own, both clamped), moved toward a fixed look axis (0x79 sub 2), or back
+        /// to straight ahead when it looks at nobody.
         /// </summary>
         private Vector2 HeadTurn(WorldEntity entity, Vector3 position, float heading, float deltaSeconds)
         {
             var target = Vector2.Zero;
+            _headTurn.TryGetValue(entity.ServerId, out var current);
+            if (entity.EventLook is { Axis: { } axis })
+            {
+                // A fixed look axis (0x79 sub 2): the head moves toward it at the event's head turn speed.
+                var held = HeadLook.AxisStep(current, HeadLook.AxisAngles(axis), entity.EventHeadTurnSpeed, deltaSeconds);
+                _headTurn[entity.ServerId] = held;
+                return held;
+            }
             if (entity.EventLook is { } look && _lookTargets.TryGetValue(look.TargetServerId, out var other))
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
                 target.X = HeadLook.TargetYaw(heading, position, otherPosition);
-                if (HeadHeight(entity.ServerId) is float own && HeadHeight(other.ServerId) is float theirs)
+                if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
                 {
                     float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
                     target.Y = HeadLook.TargetPitch(own, theirs, distance);
                 }
             }
-            _headTurn.TryGetValue(entity.ServerId, out var current);
             var next = new Vector2(HeadLook.Ease(current.X, target.X, deltaSeconds), HeadLook.Ease(current.Y, target.Y, deltaSeconds));
             if (target == Vector2.Zero && MathF.Abs(next.X) < 1e-3f && MathF.Abs(next.Y) < 1e-3f) _headTurn.Remove(entity.ServerId);
             else _headTurn[entity.ServerId] = next;
             return next;
         }
+
+        /// <summary>
+        /// The height to look at on a target (display space, Y up): its head where the event placed it. Entities are drawn
+        /// on the floor below their event place, so the head's height above the drawn root is added to the placed height:
+        /// Port Jeuno event 324 has the player look at the marker 0x010F608F (model 52), placed 50 yalms up for the flash
+        /// in the sky, and looking at its drawn head on the floor kept the player's head level (in-game test, 2026-10-02).
+        /// Only a place well above the drawn root counts (<see cref="AirborneLookLift"/>): the scripts place standing actors
+        /// at heights that need not be the floor's (0 throughout that scene), and the drawn head is right for them. A target
+        /// with no drawn head is looked at at its placed height.
+        /// </summary>
+        private float? LookHeight(WorldEntity target, Vector3 position)
+        {
+            float placed = -position.Y;
+            if (HeadHeight(target.ServerId) is not float head) return placed;
+            if (target.EventPose == null || !_actorAnchors.TryGetValue(target.ServerId, out var anchor)) return head;
+            float lift = placed - anchor.ModelToWorld.Translation.Y;
+            return lift > AirborneLookLift ? head + lift : head;
+        }
+
+        /// <summary>How far above its drawn root a target's event place must be for a look to aim at the place (yalms).</summary>
+        private const float AirborneLookLift = 2f;
 
         /// <summary>
         /// The height of an entity's head joint as last drawn (display space, Y up), or null before its first pose or for a

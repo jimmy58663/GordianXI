@@ -1048,6 +1048,14 @@ namespace Gordian.Core.Events
                     }
                     _pc += 13;
                     return;
+                case 0x59 when Code8(1) is 2 or 3:
+                    // The head turn speed (XiEvents OpCodes/0x0059: sub 2 sets TurnSpeedHead of the event's own entity from
+                    // the work value at +2, sub 3 of the actor at +2 from the work value at +6). The other subs (body turn
+                    // speed, walk speed, Render.Flags0 bit 21, action waits) are stepped over.
+                    if (Code8(1) == 2) _host.SetEntityHeadTurnSpeed(EntityServerId, GetWork(2));
+                    else if (TaskActor(Code32(2)) is var turner && turner != uint.MaxValue) _host.SetEntityHeadTurnSpeed(turner, GetWork(6));
+                    _pc += Code8(1) == 2 ? 4 : 8;
+                    return;
                 case 0x5E:
                     // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the
                     // idle motion named by the operand); the idle name is not used, the entity's own idle plays.
@@ -1120,7 +1128,7 @@ namespace Gordian.Core.Events
                     return;
                 case 0x79:
                     // Look at another actor (XiEvents OpCodes/0x0079): sub 0 lookatone(actor, target, 6), sub 1 with the
-                    // speech frame from a work value; sub 2 sets a look axis (two work values, units unknown: not done).
+                    // speech frame from a work value; sub 2 holds the head on a look axis (two work values).
                     switch (Code8(1))
                     {
                         case 0:
@@ -1128,6 +1136,9 @@ namespace Gordian.Core.Events
                             break;
                         case 1:
                             LookAt(TaskActor(Code32(2)), TaskActor(Code32(6)), GetWork(10));
+                            break;
+                        case 2:
+                            if (TaskActor(Code32(2)) is var looker && looker != uint.MaxValue) _host.SetEntityLookAxis(looker, GetWork(6), GetWork(8));
                             break;
                     }
                     _pc += EventOpcodeTable.GetLength(_code, _pc);
