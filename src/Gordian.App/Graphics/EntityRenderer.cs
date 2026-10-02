@@ -118,8 +118,11 @@ namespace Gordian.App.Graphics
         /// <summary>Where each event-posed entity is drawn (render thread only; see <see cref="EventPoseSmoother"/>).</summary>
         private readonly Dictionary<uint, EventPoseSmoother> _eventPoses = new();
 
-        /// <summary>Each entity's current head turn (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
-        private readonly Dictionary<uint, float> _headYaw = new();
+        /// <summary>Each entity's current head turn and tilt (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
+        private readonly Dictionary<uint, Vector2> _headTurn = new();
+
+        /// <summary>Each humanoid entity's talking mouth and blink (<see cref="FaceMotion"/>).</summary>
+        private readonly Dictionary<uint, FaceMotion> _faces = new();
 
         /// <summary>The entities of this frame by server id, filled only while some entity has an event look.</summary>
         private readonly Dictionary<uint, WorldEntity> _lookTargets = new();
@@ -382,6 +385,7 @@ namespace Gordian.App.Graphics
                     }
                     _entityEnvironments.Remove(entity.ServerId);
                     _actorAnchors.Remove(entity.ServerId);
+                    _faces.Remove(entity.ServerId);
                     continue;
                 }
 
@@ -532,8 +536,9 @@ namespace Gordian.App.Graphics
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    float headYaw = HeadYaw(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headYaw, out var pose);
+                    var headTurn = HeadTurn(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
+                    var face = Face(entity, entityModel!, category, deltaSeconds);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headTurn, face, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
@@ -612,27 +617,61 @@ namespace Gordian.App.Graphics
             return top;
         }
 
-        /// <summary>Uploads an entity's current pose.</summary>
         /// <summary>
-        /// The head turn to draw this frame: eased toward the entity's event look target (clamped), or back to straight
-        /// ahead when it looks at nobody.
+        /// The head turn and tilt to draw this frame: eased toward the entity's event look target (the bearing, and the
+        /// height of the target's head against its own, both clamped), or back to straight ahead when it looks at nobody.
         /// </summary>
-        private float HeadYaw(WorldEntity entity, Vector3 position, float heading, float deltaSeconds)
+        private Vector2 HeadTurn(WorldEntity entity, Vector3 position, float heading, float deltaSeconds)
         {
-            float target = 0f;
+            var target = Vector2.Zero;
             if (entity.EventLook is { } look && _lookTargets.TryGetValue(look.TargetServerId, out var other))
             {
-                target = HeadLook.TargetYaw(heading, position, other.EventPose?.Position ?? other.Position);
+                var otherPosition = other.EventPose?.Position ?? other.Position;
+                target.X = HeadLook.TargetYaw(heading, position, otherPosition);
+                if (HeadHeight(entity.ServerId) is float own && HeadHeight(other.ServerId) is float theirs)
+                {
+                    float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
+                    target.Y = HeadLook.TargetPitch(own, theirs, distance);
+                }
             }
-            _headYaw.TryGetValue(entity.ServerId, out float current);
-            float next = HeadLook.Ease(current, target, deltaSeconds);
-            if (target == 0f && MathF.Abs(next) < 1e-3f) _headYaw.Remove(entity.ServerId);
-            else _headYaw[entity.ServerId] = next;
+            _headTurn.TryGetValue(entity.ServerId, out var current);
+            var next = new Vector2(HeadLook.Ease(current.X, target.X, deltaSeconds), HeadLook.Ease(current.Y, target.Y, deltaSeconds));
+            if (target == Vector2.Zero && MathF.Abs(next.X) < 1e-3f && MathF.Abs(next.Y) < 1e-3f) _headTurn.Remove(entity.ServerId);
+            else _headTurn[entity.ServerId] = next;
             return next;
         }
 
-        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, float headYaw, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        /// <summary>
+        /// The height of an entity's head joint as last drawn (display space, Y up), or null before its first pose or for a
+        /// skeleton without a head reference.
+        /// </summary>
+        private float? HeadHeight(uint serverId)
         {
+            if (!_actorAnchors.TryGetValue(serverId, out var anchor) || anchor.Skeleton is not { } skeleton) return null;
+            int head = HeadLook.HeadJoint(skeleton);
+            if (head < 0 || head >= anchor.Pose.Translations.Length) return null;
+            return Vector3.Transform(anchor.Pose.Translations[head], anchor.ModelToWorld).Y;
+        }
+
+        /// <summary>
+        /// The entity's face this frame: the mouth moves once for each line it speaks (<see cref="WorldEntity.SpokenLines"/>),
+        /// and it blinks unless dead. Null for a model without face clips (monsters).
+        /// </summary>
+        private FaceMotion? Face(WorldEntity entity, EntityModel model, AnimationCategory category, float deltaSeconds)
+        {
+            if (!model.Animations.ContainsKey(FaceMotion.MouthClip) && !model.Animations.ContainsKey(FaceMotion.BlinkClip)) return null;
+            if (!_faces.TryGetValue(entity.ServerId, out var face))
+            {
+                face = new FaceMotion();
+                _faces[entity.ServerId] = face;
+            }
+            face.Advance(deltaSeconds, entity.SpokenLines, category != AnimationCategory.Death, model);
+            return face;
+        }
+
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, EntityModel model, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, Vector2 headTurn, FaceMotion? face, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        {
+            var skeleton = model.Skeleton!;
             bool loop = animState.LoopsCurrentClip;
             var overlay = animState.Overlay;
             if (animState.IsBlending && animState.PreviousClip != null)
@@ -653,8 +692,10 @@ namespace Gordian.App.Graphics
             {
                 pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides, overlay);
             }
-            // An event's head look (0x1E / 0x4A / 0x79) turns the head joint and what hangs from it.
-            HeadLook.Apply(skeleton, pose, HeadLook.HeadJoint(skeleton), headYaw);
+            // The talking mouth and the blink move the face joints, then an event's head look (0x1E / 0x4A / 0x79) turns
+            // the head joint and what hangs from it.
+            face?.Apply(model, pose);
+            HeadLook.Apply(skeleton, pose, HeadLook.HeadJoint(skeleton), headTurn.X, headTurn.Y);
             int count = pose.Rotations.Length;
 
             if (count > ZoneShaders.MaxPaletteJoints)

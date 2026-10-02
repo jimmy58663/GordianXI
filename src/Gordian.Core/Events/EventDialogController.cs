@@ -626,6 +626,15 @@ namespace Gordian.Core.Events
             return "???";
         }
 
+        /// <summary>The entity a line is spoken by (0 = the player), resolved as <see cref="EntityName"/> does, or null.</summary>
+        private WorldEntity? SpeakingEntity(uint serverId, ushort index)
+        {
+            if (_world == null) return null;
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (serverId != 0 && _world.TryGetByServerId(serverId, out var entity)) return entity;
+            return index != 0 && _world.TryGetByTargetIndex(index, out entity) ? entity : null;
+        }
+
         private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, PlayerIsFemale());
 
         /// <summary>
@@ -695,6 +704,7 @@ namespace Gordian.Core.Events
                 return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
+            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker) talker.Speak();
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
             if (_cutsceneHud)
             {

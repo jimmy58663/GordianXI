@@ -7,6 +7,6 @@ namespace Gordian.Core.World
     /// its <c>NpcSpeechFrame</c>; 0x7B clears them. The renderer turns the entity's head toward the target.
     /// </summary>
     /// <param name="TargetServerId">The entity looked at.</param>
-    /// <param name="SpeechFrame">Retail's <c>NpcSpeechFrame</c> (6 from 0x1E / 0x4A / 0x79 sub 0, a work value from sub 1); its drawing (the talking mouth) is not done.</param>
+    /// <param name="SpeechFrame">Retail's <c>NpcSpeechFrame</c> (6 from 0x1E / 0x4A / 0x79 sub 0, a work value from sub 1); kept, but not drawn: the mouth moves per spoken line instead (<see cref="Animation.FaceMotion"/>).</param>
     public sealed record EventLook(uint TargetServerId, int SpeechFrame);
 }
