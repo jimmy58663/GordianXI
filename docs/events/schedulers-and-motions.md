@@ -197,6 +197,6 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 ## Not done
 
 - 0xA1 (0x62's stop by its place; never used in retail, base disputed) and what file 5012 + n holds ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
-- Scene routine ops 0x0E (blur), 0x10 (cross-dissolve), 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known); generators drawing weighted meshes ([#204](https://github.com/jimmy58663/GordianXI/issues/204)).
+- Scene routine ops 0x0E (blur) and 0x10 (cross-dissolve) ([#205](https://github.com/jimmy58663/GordianXI/issues/205)), 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x22 / 0x7F and 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known; [#206](https://github.com/jimmy58663/GordianXI/issues/206)); generators drawing weighted meshes ([#204](https://github.com/jimmy58663/GordianXI/issues/204)).
 - Motion packages above 175 and package -1 ([#193](https://github.com/jimmy58663/GordianXI/issues/193)).
 - Emote ids from 39 on and the dances; robe-body emote waist parts.
