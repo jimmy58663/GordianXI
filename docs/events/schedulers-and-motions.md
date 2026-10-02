@@ -111,11 +111,11 @@ The scene DAT layout (`evte`, Route sections 0x06, routine sections 0x07, genera
 | packages 20, 21, 29 | San d'Oria talk, salute and thought sets, Elvaan skeleton | `32360 + 2n` / `32712 + n` | 0x66 (1,743 / 252 / 3,329) | loaded | [vm.md](vm.md#cutscene-schedulers), #176 |
 | package 12 | Cornelia's `kka0` | `32384` / `32724` | 0x66 (101) | loaded | xi-tools docs/cutscene_authoring.md |
 | packages 176 and up | 51 numbers from 176 to 2404, 1,067 uses | not located (the two tables hold 176 packages) | 0x66 | not loaded: `LoadMotionPackage` accepts 0-175, the gesture falls back to the entity's own motions | corpus scan, 2026-10-01 |
-| package -1 | `sha0` / `sha1` (kneeling) for Joachim and the player in Port Jeuno event 324; never an immediate, it comes from a work value | not known | 0x66 | not loaded, the actors stand, [#193](https://github.com/jimmy58663/GordianXI/issues/193) | #193 |
+| packages 9, 19, 29, 39, 49, 59, 69 | the race sets, package = skeleton slot · 10 + 9 (Hume male 9, Hume female 19, Elvaan male 29, Elvaan female 39, Tarutaru 49, Mithra 59, Galka 69): `sha0` kneels (Tarutaru hunch over, `rh0` / `rh1`), `sha1` gets up (not in 29, 39, 49), `sit0` / `sitl` / `sit1`, `sir0-1`, `tlk0-1`, `thk1-2` | `32712 + n` (32721, 32731, ... 32781; the first table is empty for them) | 0x66 from a work value: Port Jeuno 324 reads the actor's race (fact 0x7F07), takes 1 off (2 above 5: the Tarutaru share a skeleton), multiplies by 10 and adds 9, in a subroutine of each block (Joachim's at 94, the player's at 23814) | loaded. The "package -1" first noted in [#193](https://github.com/jimmy58663/GordianXI/issues/193) was this formula run with no race (0) | Port Jeuno 324 script and retail DATs, 2026-10-02 |
 | idle name | the idle the actor returns to (`idl0` 3,283 / 4,320 uses, `dft0` 23 / 45, `chi0`, `id10`, `1tl0`) | the actor's model | 0x5E / 0x6B | name not used; the entity's own idle plays (`ResetMotion`) | XiEvents OpCodes/0x005E, 0x006B |
 | stop / wait by tag | ends or waits for the gesture of that FourCC | - | 0x50 / 0x53 | `Scene.EndEntityAction`, `ActionMotion.EventMotionStop` | XiEvents OpCodes/0x0050, 0x0053 |
 
-**Beyond XiEvents:** the package file ids (XiEvents names ReadTpcEventMotionRes but not its files), the default talk set of package 0 confirmed in the retail file, and the packages above 175.
+**Beyond XiEvents:** the package file ids (XiEvents names ReadTpcEventMotionRes but not its files), the default talk set of package 0 confirmed in the retail file, the race sets 9-69 and the packages above 175.
 
 ## Clip and routine names
 
@@ -128,7 +128,8 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 | `dft0` | an idle name some scripts give 0x5E / 0x6B | - | 0x5E / 0x6B (23 / 45 uses) | not used | corpus scan |
 | `tlk0` / `tlk1` / `tlk2` | talk gesture (legs / upper body / waist) | banks and packages | 0x5B / 0x66 / 0x2C | played | retail DATs |
 | `thk0`-`thk2`, `ten0`-`ten2`, `dis0`, `pas0`, `tla0`-`tlc1`, `oti0-1`, `oro0-1` | think, other talk and gesture variants of the talk sets | package 0, bank 70 | 0x5B / 0x66 | played | retail DATs |
-| `sha0` / `sha1` | kneel (package -1) | not located | 0x66 | not played, [#193](https://github.com/jimmy58663/GordianXI/issues/193) | #193 |
+| `sha0` / `sha1` | kneel down and hold the kneel (the last clip loops until replaced) / get up | race packages 9-69 | 0x66 | played; the kneel holds until `sha1`, a reset or the event's end | [#193](https://github.com/jimmy58663/GordianXI/issues/193); the retail recording of Port Jeuno 324 shows Joachim kneeling and the Tarutaru player hunched over from the wake-up to about 2:34, both standing by 2:49 |
+| `corp` | lie on the ground: the PC corpse pose (`cor?` for 2 ticks, held) | the race base motions (`ROM/27/82`, ...) | 0x2C | played and held like `sha0` | retail DAT, #193 |
 | `kka0` | Cornelia's gesture | package 12 | 0x66 | played | xi-tools docs/cutscene_authoring.md |
 | `ati0`-`ati9`, `atf0` / `atb0` / `atl0` / `atr0`, `cni0`..., `ca??` -> `sh??`, `cm0` | combat routines | the model's DATs | S2C 0x028 (not events) | `ActionMotion` | [world/entities-and-animation.md](../world/entities-and-animation.md) |
 | `mou4` | talking mouth: the mouth joint over 31 frames at 15 fps (2 s), once per spoken line | every humanoid skeleton (Hume male joint 54, Hume female 32, Elvaan male 34, Elvaan female 63, Tarutaru 11, Mithra 46, Galka 44) | client, on each line an actor speaks (0x1D / 0x2B) | `FaceMotion.MouthClip` | retail skeletons, 2026-10-01 (#185) |
@@ -198,5 +199,5 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 
 - 0xA1 (0x62's stop by its place; never used in retail, base disputed) and what file 5012 + n holds ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
 - Scene routine ops 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x22 / 0x7F and 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known; [#206](https://github.com/jimmy58663/GordianXI/issues/206)).
-- Motion packages above 175 and package -1 ([#193](https://github.com/jimmy58663/GordianXI/issues/193)).
+- Motion packages above 175.
 - Emote ids from 39 on and the dances; robe-body emote waist parts.

@@ -152,7 +152,10 @@ namespace Gordian.Core.Events
         /// <summary>Emote motion banks by race and emote (null: none), read once per zone.</summary>
         private readonly Dictionary<(CharacterRace Race, int Emote, int Variant), EventMotionBank?> _emoteBanks = new();
 
-        /// <summary>The entities the running event loaded motion banks onto (game tick thread only), cleared when it ends.</summary>
+        /// <summary>
+        /// The entities the running event gave gestures (game tick thread only): when it ends their motion banks are dropped
+        /// and a gesture still holding its pose (<c>sha0</c>, <c>corp</c>, #193) is stopped.
+        /// </summary>
         private readonly List<WorldEntity> _banked = new();
 
 
@@ -421,7 +424,17 @@ namespace Gordian.Core.Events
             UnlockEnvironment();
             if (_world != null) _world.EventZoneId = 0;
             Presentation.Reset();
-            foreach (var entity in _banked) entity.Animation.ClearEventMotionBanks();
+            foreach (var entity in _banked)
+            {
+                entity.Animation.ClearEventMotionBanks();
+                entity.Animation.EnqueueAction(new ActionRequest
+                {
+                    ActorId = entity.ServerId,
+                    Motion = ActionMotion.EventMotionStop,
+                    Routine = string.Empty,
+                    ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+                });
+            }
             _banked.Clear();
             var world = _world;
             if (world != null)
@@ -1034,20 +1047,13 @@ namespace Gordian.Core.Events
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return 0;
             if (source == EventMotionSource.Bank)
             {
-                if (LoadMotionBank(resource) is { } bank)
-                {
-                    entity.Animation.AddEventMotionBank(bank);
-                    if (!_banked.Contains(entity)) _banked.Add(entity);
-                }
+                if (LoadMotionBank(resource) is { } bank) entity.Animation.AddEventMotionBank(bank);
             }
             else if (source == EventMotionSource.Package)
             {
-                if (LoadMotionPackage(resource) is { } package)
-                {
-                    entity.Animation.AddEventMotionBank(package);
-                    if (!_banked.Contains(entity)) _banked.Add(entity);
-                }
+                if (LoadMotionPackage(resource) is { } package) entity.Animation.AddEventMotionBank(package);
             }
+            if (!_banked.Contains(entity)) _banked.Add(entity);
             entity.Animation.EnqueueAction(new ActionRequest
             {
                 ActorId = serverId,
