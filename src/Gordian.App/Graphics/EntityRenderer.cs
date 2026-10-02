@@ -421,8 +421,11 @@ namespace Gordian.App.Graphics
                 // Mapped to terrain display coordinates: (-x, -y, z).
                 // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
                 // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
+                // An event places its actors on the floor below their event position unless it keeps their height (0x33 / 0x59 sub 5).
                 Vector3 pos = eventPose != null
-                    ? new Vector3(-eventPose.Position.X, -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight), eventPose.Position.Z)
+                    ? new Vector3(-eventPose.Position.X,
+                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight),
+                        eventPose.Position.Z)
                     : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
                     : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);

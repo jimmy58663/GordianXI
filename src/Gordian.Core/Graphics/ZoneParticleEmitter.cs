@@ -366,7 +366,7 @@ namespace Gordian.Core.Graphics
                 // A continuous singleton keeps exactly one particle alive.
                 if (Def.ContinuousSingleton && Particles.Count > 0) break;
                 // A generator whose particle lives forever emits exactly once (per start, for a routine-started one).
-                if (LivesForever && (Def.AutoRun ? _totalEmitted : _emittedSinceArm) > 0) break;
+                if (LivesForever && (Def.AutoRun && !StartsOnTrigger ? _totalEmitted : _emittedSinceArm) > 0) break;
 
                 _framesUntilNextParticle += Def.FramesPerEmission + PosRand(Def.EmissionVariance);
                 int count = ParticlesPerEmission;
@@ -386,7 +386,8 @@ namespace Gordian.Core.Graphics
         /// </summary>
         private bool IsDoneEmitting()
         {
-            if (Def.AutoRun) return false;
+            // An auto-running generator a scene routine starts emits from its start until it is killed.
+            if (Def.AutoRun) return StartsOnTrigger && !_armed;
             if (!_armed) return true;
             return _emitLifeTime >= _maxEmitTime && _emittedSinceArm > 0;
         }
@@ -417,6 +418,13 @@ namespace Gordian.Core.Graphics
         /// <paramref name="delayFrames"/> it emits for <paramref name="durationFrames"/> (at least once).
         /// </summary>
         public void Trigger(int delayFrames, int durationFrames) => _pendingTriggers.Add((delayFrames, durationFrames));
+
+        /// <summary>
+        /// Whether an auto-running generator waits for <see cref="Trigger"/> instead of emitting from the start, then
+        /// emits until <see cref="StopEmitting"/> / <see cref="Kill"/>: a cutscene scene file's generators, which its
+        /// routines spawn (0x02) and kill (0x1E), e.g. the sparkles <c>tub5</c> / <c>tub6</c> of file 70443 (#192).
+        /// </summary>
+        public bool StartsOnTrigger { get; set; }
 
         /// <summary>Ends the emission window and drops pending starts; live particles finish their lives.</summary>
         public void StopEmitting()
@@ -978,7 +986,10 @@ namespace Gordian.Core.Graphics
                 case 0x0B: // ColorTransformApplier
                     if (p.ColorTransforms.TryGetValue(slot, out var ct))
                     {
-                        var delta = new Vector4(ct[0] >> 7, ct[1] >> 7, ct[2] >> 7, ct[3] >> 7) * (0.5f * frames);
+                        // The rates are in colour bytes (0-255), and particle colours here are 0-1: retail's 70443 sparkles
+                        // (rate -16 on 0x58) dim over their 120-frame life, and zone 12's r-lt (720 / -128 / -432) reddens,
+                        // where a 0-1 reading clears or saturates them within two frames (#192).
+                        var delta = new Vector4(ct[0] >> 7, ct[1] >> 7, ct[2] >> 7, ct[3] >> 7) * (0.5f * frames / 255f);
                         p.Color += delta;
                     }
                     break;

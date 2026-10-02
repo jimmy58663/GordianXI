@@ -13,13 +13,13 @@ Every member reads the same operands: `op p:work actor:u32 target:u32 routine:Fo
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|
 | main scene tasks | camera shots, fades, overlays of a cutscene | `30704 + remap(p)` | 0x45 start, 0x55 wait, 0x52 stop | run: `EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask`, `EventSceneResource.GetFileId`; 161,392 uses, 782 files, 290 zones | XiEvents OpCodes/0x0045, 0x0052, 0x0055 |
-| 5012 band | short tasks, mostly `main` (files 5013, 5014), `kone` / `kon1` (5034) | `5012 + p` | 0x62 start, 0xA0 wait; XiEvents gives 0xA1 (stop) the 30704 base, not 5012 | stepped over (`EventOpcodeTable`); 4,597 uses, 91 files, 245 zones | XiEvents OpCodes/0x0062, 0x00A0, 0x00A1 |
+| 5012 band | short tasks, mostly `main` (files 5013, 5014), `kone` / `kon1` (5034) | `5012 + p` | 0x62 start, 0xA0 wait; XiEvents gives 0xA1 (stop) the 30704 base, not 5012 | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 0xA1 stepped (`EventOpcodeTable`); 4,597 uses, 91 files, 245 zones | XiEvents OpCodes/0x0062, 0x00A0, 0x00A1 |
 | 51183 band | effect tasks: `main`, `kill`, `str0`, `stop`; the eyelid opening `bl00` / `open` / `clos` / `kill` (51402) and the sky flash `mai1` / `mai2` / `stop` (51327) of Port Jeuno event 324 | `51183 + p` | 0x9F start, 0xA2 wait, 0xA3 stop | run: `EventSceneResource.GetSecondFileId`, effects by `SceneEffectPlayer` ([#192](https://github.com/jimmy58663/GordianXI/issues/192)); 5,348 uses, 245 files, 222 zones | XiEvents OpCodes/0x009F, 0x00A2, 0x00A3 |
-| 56685 band | effect tasks (`in00`, `mai1`, `stp1`...) | `56685 + p` | 0xBB, 0xBC wait, 0xBD stop | stepped over; 4,115 uses | XiEvents OpCodes/0x00BB-0x00BD |
-| 67355 band | effect tasks (`s000`, `kil0`, `b000`...) | `67355 + p` | 0xC5, 0xC6 wait, 0xC7 stop | stepped over; 2,597 uses | XiEvents OpCodes/0x00C5-0x00C7 |
-| 70435 band | effect tasks (`main`...) | `70435 + p` | 0xCD, 0xCE wait, 0xCF stop | stepped over; 3,789 uses | XiEvents OpCodes/0x00CD-0x00CF |
-| 70691 band | effect tasks (`s000`, `gnh1`, `star`...) | `70691 + p` | 0xD0, 0xD1 wait, 0xD2 stop | stepped over; 2,523 uses | XiEvents OpCodes/0x00D0-0x00D2 |
-| 102449 band | effect tasks (`s001`, `kl01`, `tama`...) | `102449 + p` | 0xD5, 0xD6 wait, 0xD7 stop | stepped over; 269 uses | XiEvents OpCodes/0x00D5-0x00D7 |
+| 56685 band | effect tasks (`in00`, `mai1`, `stp1`...) | `56685 + p` | 0xBB, 0xBC wait, 0xBD stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 4,115 uses | XiEvents OpCodes/0x00BB-0x00BD |
+| 67355 band | effect tasks (`s000`, `kil0`, `b000`...) | `67355 + p` | 0xC5, 0xC6 wait, 0xC7 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 2,597 uses | XiEvents OpCodes/0x00C5-0x00C7 |
+| 70435 band | effect tasks (`main`...) | `70435 + p` | 0xCD, 0xCE wait, 0xCF stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 3,789 uses | XiEvents OpCodes/0x00CD-0x00CF |
+| 70691 band | effect tasks (`s000`, `gnh1`, `star`...) | `70691 + p` | 0xD0, 0xD1 wait, 0xD2 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 2,523 uses | XiEvents OpCodes/0x00D0-0x00D2 |
+| 102449 band | effect tasks (`s001`, `kl01`, `tama`...) | `102449 + p` | 0xD5, 0xD6 wait, 0xD7 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 269 uses | XiEvents OpCodes/0x00D5-0x00D7 |
 | zone schedulers | zone-wide tasks | not mapped | 0x2D / 0x51 / 0x54 | stepped over | XiEvents OpCodes/0x002D, 0x0051, 0x0054 |
 | server schedulers | actor, map and magic animation scripts sent by the server | not mapped | S2C 0x038 / 0x039 / 0x03A | not decoded, [#109](https://github.com/jimmy58663/GordianXI/issues/109) | XiPackets |
 
@@ -76,10 +76,12 @@ Two files hold the tasks most scripts share. Frame counts are 60 Hz frames (rout
 | `open` | 0x3F `bk00` -> `bk01` (black, 150 frames, fades out), spawn `md00` and the eye-shaped mask `mb00`: the eyes opening on Joachim's legs (recording about 1:48-1:50) | 51402 | 0x9F | played as a full-screen fade; the eye-shaped mask is a weighted mesh, not drawn ([#204](https://github.com/jimmy58663/GordianXI/issues/204)) | retail DAT; recording |
 | `clos` | spawn `bk02` (fades to black over 160 frames), 0x3F `mb00` -> `mb02` (the eye closing), then `bk00` again at 152 | 51402 | 0x9F | played without the mask | retail DAT |
 | `kill` | 0x1E `bk00`: the black card goes | 51402 | 0x9F | played | retail DAT |
-| `mai1` | at 242 starts `strt`, at 322 starts `loop` repeating (0x73): the magenta cloud swelling in the sky (recording about 1:13-1:28) | 51327 (`p` 144) | 0x9F on the invisible marker 0x010F608F | played on the marker's event position | retail DAT; recording |
+| `mai1` | at 242 starts `strt`, at 322 starts `loop` repeating (0x73): the magenta cloud swelling in the sky (recording about 1:13-1:28) | 51327 (`p` 144) | 0x9F on the invisible marker 0x010F608F, which 0x59 sub 5 keeps about 50 yalms up | played at the marker (it was drawn on the street, under the floor, until 0x59 sub 5 ran) | retail DAT; recording |
 | `mai2` | starts `cas1` (scene colours, not played) and `kie0`, stops `loop` at 370, starts `edxx`, then `tama` repeating: the white burst, the rings and the beam (about 1:28-1:38) | 51327 | 0x9F | played except `cas1`'s colours | retail DAT; recording |
 | `stop` | 0x05 plays clip `ban2` on the actor, 0x5F stops `loop`, and `tama` after 160 frames | 51327 | 0x9F | routine stops played; the clip is not | retail DAT |
 | `fall` | dozens of generators about 229 above the director (light glows, a falling beam), the black card `bl00` in front of the camera, two blur commands (0x0E) and a 0x72 flash (44 30 3A, 6 frames, back over 20) | 51328 (`p` 145) | 0x9F on the director, twice | played except the blur and `wa01` (weighted mesh) | retail DAT |
+| `s002` / `kil2` | spawn the sparkles `tub5` / `tub6` (auto-running, in front of the camera, 0.5 out) / kill them: they float through the scene from 15.6 s to 48.4 s | 70443 (0xCD `p` 8) | 0xCD on the player | played: an auto-running generator of a scene file emits from its spawn until it is killed | retail DAT; script trace |
+| `se00`, `0pro`, `kpro`, `0rak`, `krak`, `ke00`, `0dkn` | spawn and kill the file's seven generators, all sounds (link type 0x3D: `1080`, `8238`, `4053`, `2088`, `6041`, `7124`, `7a24`) on the player and the marker | 57129 (0x45 `p` 488) | 0x45 | nothing to draw; the sounds wait for [#167](https://github.com/jimmy58663/GordianXI/issues/167) | retail DAT |
 
 ## Task names
 
@@ -90,7 +92,7 @@ The routine FourCC is a literal in the opcode (not a work reference). Shapes ove
 | `sNNN` (`s000`, `s001`, ... `s00s`, `s01n`, `sscb`) | a camera shot: its op 0x04 plays Route `cNNN` of the same file (e.g. `s002` -> `c002`, 1080 frames in 30840) | the cutscene's own scene DAT (Port Bastok intro: 30840 = `p` 136, ROM/62/88) | 0x45 (58,596) | played: `CameraRoute`, `ViewportCamera.SetEventView` | retail DATs, 2026-09-30; xi-tools docs/events/scene_dat_writer.md |
 | `wNNN`, `xNNN`, `yNNN`, `zNNN`, `qNNN`, `rNNN` | other shot series (Maat's test uses `w005`-`w014`) | the scene's DAT | 0x45 (`z###` 1,621, `y###` 1,434, `r###` 1,264, `x###` 963, `w###` 895) | played when the routine has op 0x04 | xi-tools docs/events/maat_93_study.md |
 | `fdo?` / `fdi?` / `fao?` / `fai?` / `ovl?` / `blon` / `blof` / `who?` / `whi?` / `qstc` | the shared fades and cues | 30904, 30905 | 0x45 | see the tables above | - |
-| `main`, `kill`, `stop`, `str0`, `star`, `mai1` / `mai2`, `kil0`... | effect tasks (generator spawns, op 0x02, and others) | the 5012 / 51183 / 56685 / 67355 / 70435 / 70691 / 102449 bands, and some 0x45 files | 0x62, 0x9F, 0xBB, 0xC5, 0xCD, 0xD0, 0xD5 (and 0x45) | played for 0x45 and 0x9F tasks (`SceneEffectPlayer`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)); the other bands are stepped ([#199](https://github.com/jimmy58663/GordianXI/issues/199)) | retail DATs; #192 |
+| `main`, `kill`, `stop`, `str0`, `star`, `mai1` / `mai2`, `kil0`... | effect tasks (generator spawns, op 0x02, and others) | the 5012 / 51183 / 56685 / 67355 / 70435 / 70691 / 102449 bands, and some 0x45 files | 0x62, 0x9F, 0xBB, 0xC5, 0xCD, 0xD0, 0xD5 (and 0x45) | played for every band (`SceneEffectPlayer`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)) | retail DATs; #192 |
 | `xxxx`, 0 | "no routine": the motion opcodes start nothing | - | 0x2C / 0x5B / 0x66 | skipped (`ExecEntityMotion`) | XiEvents OpCodes/0x005B |
 
 The scene DAT layout (`evte`, Route sections 0x06, routine sections 0x07, generators, `end`) and the Route fields are in [vm.md](vm.md#cutscene-schedulers) (`EventSceneResource`, `CameraRoute`, `SceneRoutine`).
@@ -194,7 +196,7 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 
 ## Not done
 
-- The scheduler family outside 0x45 and 0x9F (0x62, 0xBB, 0xC5, 0xCD, 0xD0, 0xD5 with their waits and stops, [#199](https://github.com/jimmy58663/GordianXI/issues/199)).
+- 0xA1 (0x62's stop by its place; never used in retail, base disputed) and what file 5012 + n holds ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
 - Scene routine ops 0x0E (blur), 0x10 (cross-dissolve), 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known); generators drawing weighted meshes ([#204](https://github.com/jimmy58663/GordianXI/issues/204)).
 - Motion packages above 175 and package -1 ([#193](https://github.com/jimmy58663/GordianXI/issues/193)).
 - Emote ids from 39 on and the dances; robe-body emote waist parts.

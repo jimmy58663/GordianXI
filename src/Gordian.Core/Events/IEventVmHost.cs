@@ -105,6 +105,14 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>Sets an entity's event hide flag (opcodes 0x22 / 0x4E).</summary>
+        /// <summary>
+        /// 0x33 (the event's own entity) / 0x59 sub 5 (a named actor): keeps the height the event places the entity at
+        /// (true) or puts it on the floor (false); retail <c>Render.Flags0</c> bit 21 (XiEvents OpCodes/0x0033, 0x0059).
+        /// </summary>
+        void SetEntityKeepsHeight(uint serverId, bool keep)
+        {
+        }
+
         void SetEntityHidden(uint serverId, bool hidden)
         {
         }

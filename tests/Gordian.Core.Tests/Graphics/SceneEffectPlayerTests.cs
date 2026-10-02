@@ -100,6 +100,23 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void Sparkles_AutoRunningGeneratorsWaitForTheirSpawn_EmitUntilKilled_AndFadeInRange()
+        {
+            // File 70443 (0xCD p = 8): s002 spawns tub5 / tub6 (auto-running, in front of the camera), kil2 kills them.
+            if (Open(70443) is not var (player, _)) return;
+            Run(player, 60);
+            Assert.Empty(Live(player)); // nothing in a scene file runs by itself
+            Assert.True(player.Start(6, "s002"));
+            Run(player, 400); // well past their 120-frame life: they keep coming
+            Assert.Equal(new[] { "tub5", "tub6" }, Live(player));
+            // The colour rate (-16 on 0x58) dims the sparkles over their life instead of clearing them at once.
+            Assert.All(player.Instance.Emitters.SelectMany(e => e.Emitter.Particles), p => Assert.InRange(p.TextureFactor.X, 0.01f, 1f));
+            Assert.True(player.Start(27, "kil2"));
+            Run(player, 5);
+            Assert.Empty(Live(player));
+        }
+
+        [Fact]
         public void Fall_SpawnsItsGeneratorsHighAboveTheActor()
         {
             if (Open(51328) is not var (player, _)) return;

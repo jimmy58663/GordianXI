@@ -48,6 +48,8 @@ namespace Gordian.Core.Graphics
             Instance = new ActorEffectInstance(effects ?? throw new ArgumentNullException(nameof(effects)), seed);
             foreach (var (layer, emitter) in Instance.Emitters)
             {
+                // Nothing in a scene file runs by itself: an auto-running generator emits from its spawn until it is killed.
+                emitter.StartsOnTrigger = true;
                 if (!emitter.Template.ChildOnly) _byName.TryAdd(layer.Name, emitter);
             }
         }

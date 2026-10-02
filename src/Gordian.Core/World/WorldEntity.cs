@@ -707,6 +707,19 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
+        /// A running event keeps the height it places the entity at instead of putting it on the floor below (retail
+        /// <c>Render.Flags0</c> bit 21, set by opcodes 0x33 / 0x59 sub 5: Port Jeuno 324 holds its invisible marker in
+        /// the sky where the explosion plays). Cleared when the event ends.
+        /// </summary>
+        public bool KeepsEventHeight
+        {
+            get => _keepsEventHeight;
+            set => _keepsEventHeight = value;
+        }
+
+        private volatile bool _keepsEventHeight;
+
+        /// <summary>
         /// Hidden by a running event: the scripts' hide flag (opcodes 0x22 / 0x4E, retail <c>Render.Flags0</c> bit 17) or
         /// the cutscene's NO_PCS / NO_NPCS flags for entities outside the event. Cleared when the event ends.
         /// </summary>

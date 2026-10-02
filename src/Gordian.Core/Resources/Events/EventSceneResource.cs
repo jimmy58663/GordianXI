@@ -329,6 +329,28 @@ namespace Gordian.Core.Resources.Events
         /// <summary>The scene DAT of the second range for work value <paramref name="p"/>: 51183 + p, without the remapping of <see cref="GetFileId"/>.</summary>
         public static int GetSecondFileId(int p) => SecondBaseFileId + p;
 
+        /// <summary>
+        /// The first file of the scene range a scheduler opcode other than 0x45 / 0x52 / 0x55 loads from (start, wait,
+        /// stop): 0x62 / 0xA0 5012, 0x9F / 0xA2 / 0xA3 51183, 0xBB-0xBD 56685, 0xC5-0xC7 67355, 0xCD-0xCF 70435,
+        /// 0xD0-0xD2 70691, 0xD5-0xD7 102449; -1 for any other opcode. Bases referenced from XiEvents
+        /// (https://github.com/atom0s/XiEvents, OpCodes/0x0062, 0x009F, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5 and their
+        /// wait / stop partners).
+        /// </summary>
+        public static int GetBandBase(byte opcode) => opcode switch
+        {
+            0x62 or 0xA0 => 5012,
+            0x9F or 0xA2 or 0xA3 => SecondBaseFileId,
+            0xBB or 0xBC or 0xBD => 56685,
+            0xC5 or 0xC6 or 0xC7 => 67355,
+            0xCD or 0xCE or 0xCF => 70435,
+            0xD0 or 0xD1 or 0xD2 => 70691,
+            0xD5 or 0xD6 or 0xD7 => 102449,
+            _ => -1,
+        };
+
+        /// <summary>The scene DAT scheduler opcode <paramref name="opcode"/> loads for work value <paramref name="p"/>: <see cref="GetBandBase"/> + p, not remapped.</summary>
+        public static int GetBandFileId(byte opcode, int p) => GetBandBase(opcode) is var b && b >= 0 ? b + p : -1;
+
         public IReadOnlyDictionary<string, CameraRoute> Routes => _routes;
 
         public IReadOnlyDictionary<string, SceneRoutine> Routines => _routines;
