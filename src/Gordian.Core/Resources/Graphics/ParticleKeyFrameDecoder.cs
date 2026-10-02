@@ -28,6 +28,9 @@ namespace Gordian.Core.Resources.Graphics
             Entries = entries ?? Array.Empty<KeyFrameEntry>();
         }
 
+        /// <summary>The width under which a curve's first segment is a step (retail steps are authored 1e-7 wide).</summary>
+        private const float StepEpsilon = 1e-6f;
+
         /// <summary>
         /// Evaluates the curve at a normalized progress value in the range [0.0, 1.0].
         /// </summary>
@@ -40,7 +43,14 @@ namespace Gordian.Core.Resources.Graphics
             if (progress >= 1.0f || Entries.Count == 1) return Entries[^1].Value;
             if (progress <= Entries[0].Time)
             {
-                return initialValueOverride ?? Entries[0].Value;
+                if (initialValueOverride.HasValue) return initialValueOverride.Value;
+                // A step authored at the start (a second key 1e-7 later, e.g. 51402's m001: 0, then 0.96) holds the
+                // stepped value from birth: the blink mask is born closed, not collapsed (#204).
+                if (progress >= Entries[0].Time && Entries.Count > 1 && Entries[1].Time - Entries[0].Time <= StepEpsilon)
+                {
+                    return Entries[1].Value;
+                }
+                return Entries[0].Value;
             }
 
             int nextIndex = -1;

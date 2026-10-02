@@ -101,5 +101,21 @@ namespace Gordian.Core.Tests.Resources
             Assert.Null(ParticleKeyFrameDecoder.DecodeKeyFrame(ReadOnlySpan<byte>.Empty, "NOPE"));
             Assert.Null(ParticleKeyFrameDecoder.DecodeKeyFrame(new byte[7], "SHORT"));
         }
+
+        [Fact]
+        public void Evaluate_AtBirth_TakesAStepAuthoredAtTheStart()
+        {
+            // 51402's m001: 0 at 0, 0.96 at 1e-7 (a step), 0.24 by 0.272 (#204).
+            var curve = new KeyFrameCurve("m001", new[]
+            {
+                new KeyFrameEntry(0f, 0f), new KeyFrameEntry(1e-7f, 0.96f), new KeyFrameEntry(0.272f, 0.24f), new KeyFrameEntry(1f, 0.24f)
+            });
+            Assert.Equal(0.96f, curve.Evaluate(0f));
+            Assert.Equal(0.5f, curve.Evaluate(0f, initialValueOverride: 0.5f));
+
+            // An ordinary first segment still starts at its first key.
+            var ramp = new KeyFrameCurve("ramp", new[] { new KeyFrameEntry(0f, 0f), new KeyFrameEntry(0.5f, 1f), new KeyFrameEntry(1f, 1f) });
+            Assert.Equal(0f, ramp.Evaluate(0f));
+        }
     }
 }

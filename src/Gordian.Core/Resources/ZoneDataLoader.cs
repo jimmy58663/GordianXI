@@ -274,6 +274,7 @@ namespace Gordian.Core.Resources
             var generatorPlacements = new List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)>();
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
             var particleMeshes = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var weightedMeshes = new Dictionary<string, WeightedMesh>(StringComparer.OrdinalIgnoreCase);
             var zoneRoutines = new List<(string? ParentDir, string? Weather, EffectRoutine Routine)>();
             var zoneMeshSections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var dirStack = new Stack<string>();
@@ -443,6 +444,21 @@ namespace Gordian.Core.Resources
                                 particleMeshes.TryAdd($"{weather}/{header.DatId}", meshes);
                             }
                             particleMeshes.TryAdd(header.DatId, meshes);
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.WeightedMesh:
+                    {
+                        var mesh = WeightedMeshDecoder.Decode(payload, header.DatId);
+                        if (mesh != null)
+                        {
+                            string? weather = ResolveCurrentWeather(dirStack);
+                            if (!string.IsNullOrEmpty(weather))
+                            {
+                                weightedMeshes.TryAdd($"{weather}/{header.DatId}", mesh);
+                            }
+                            weightedMeshes.TryAdd(header.DatId, mesh);
                         }
                         break;
                     }
@@ -892,13 +908,14 @@ namespace Gordian.Core.Resources
                 var setup = gen.Setup;
                 if (setup == null) continue;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
-                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) continue;
+                bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
                 if (skyGenerators.Contains(gen)) continue;
                 if (actorEffects ? gen.AttachType is ParticleAttachType.Sun or ParticleAttachType.Moon : gen.AttachType != ParticleAttachType.None) continue;
                 bool isWeather = !string.IsNullOrEmpty(genWeather);
-                // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle);
-                // an actor's generators always do, so each actor runs its own instance.
-                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || actorEffects;
+                // Sprite-sheet and weighted-mesh particles always run through the emitter (billboarding, card selection and
+                // morph weights are per particle); an actor's generators always do, so each actor runs its own instance.
+                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || isWeighted || actorEffects;
                 // Camera-following generators are weather emitters; the persistent ones are the sky layers above. A cutscene
                 // scene DAT's (cameraEffects) are screen overlays the scene plays in front of the camera (Port Jeuno 324's blink).
                 if (setup.FollowCamera && !cameraEffects && (!isWeather || setup.MaxLifeSpan == 0)) continue;
@@ -1081,17 +1098,25 @@ namespace Gordian.Core.Resources
                 var setup = gen.Setup;
                 if (setup == null) return null;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
-                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite) return null;
+                bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) return null;
 
                 string linkId = setup.LinkedDataId;
                 if (string.IsNullOrWhiteSpace(linkId) || ZoneDefDecoder.IsSkyMesh(linkId)) return null;
 
                 bool isParticleMesh = true;
                 List<MeshGroup>? effectMeshes = null;
+                WeightedMesh? weightedMesh = null;
                 if (isSprite)
                 {
                     effectMeshes = ResolveSpriteCards(linkId, genWeather, spriteSheets, sharedEffects, outTextures);
                     if (effectMeshes == null) return null;
+                }
+                else if (isWeighted)
+                {
+                    if (!string.IsNullOrEmpty(genWeather)) weightedMeshes.TryGetValue($"{genWeather}/{linkId}", out weightedMesh);
+                    if (weightedMesh == null && !weightedMeshes.TryGetValue(linkId, out weightedMesh)) return null;
+                    effectMeshes = [WeightedMeshGroup(weightedMesh)];
                 }
                 if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                 if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
@@ -1128,6 +1153,7 @@ namespace Gordian.Core.Resources
                 ApplyGeneratorRenderState(effect, gen, genWeather, envData, authoredOrder);
                 if (!string.IsNullOrEmpty(genWeather)) effect.WeatherIds.Add(genWeather);
                 if (isSprite) effect.IsSpriteSheet = true;
+                effect.WeightedMesh = weightedMesh;
                 if (isEmitter || isSprite)
                 {
                     effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
@@ -1374,6 +1400,31 @@ namespace Gordian.Core.Resources
                 });
             }
             return cards;
+        }
+
+        /// <summary>
+        /// A weighted mesh's first morph target as a raw-space triangle list: the layer's upload template (texture,
+        /// vertex count), which each particle draw overwrites with its own blend.
+        /// </summary>
+        private static MeshGroup WeightedMeshGroup(WeightedMesh mesh)
+        {
+            var vertices = new MeshVertex[mesh.VertexCount];
+            var indices = new int[mesh.VertexCount];
+            for (int v = 0; v < vertices.Length; v++)
+            {
+                vertices[v] = new MeshVertex(mesh.Positions[0][mesh.PositionIndices[v]], mesh.Normals[0][mesh.NormalIndices[v]],
+                    mesh.TexCoords[v], mesh.Colors[v]);
+                indices[v] = v;
+            }
+            return new MeshGroup
+            {
+                Name = mesh.Name,
+                TextureName = mesh.TextureName,
+                Vertices = vertices,
+                Indices = indices,
+                IsBlend = true,
+                NoCull = true
+            };
         }
 
         public static bool IsWaterGenerator(string name)
