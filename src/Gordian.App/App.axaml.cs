@@ -24,6 +24,7 @@ public partial class App : Application
 
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
         Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
+        Gordian.Core.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
         Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;

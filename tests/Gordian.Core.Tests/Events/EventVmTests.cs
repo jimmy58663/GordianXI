@@ -105,6 +105,15 @@ namespace Gordian.Core.Tests.Events
         }
 
         public void StopEntityMotion(uint serverId, string routine) => StoppedMotions.Add((serverId, routine));
+
+        public List<(uint Id, int Emote, int Variant)> Emotes { get; } = new();
+        public int EmoteFrames { get; set; }
+
+        public int PlayEntityEmote(uint serverId, int emote, int variant)
+        {
+            Emotes.Add((serverId, emote, variant));
+            return EmoteFrames;
+        }
     }
 
     public class EventVmTests

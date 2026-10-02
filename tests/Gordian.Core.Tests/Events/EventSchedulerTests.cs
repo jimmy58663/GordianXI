@@ -122,6 +122,37 @@ namespace Gordian.Core.Tests.Events
             Assert.InRange(ticks, 19, 21);
         }
 
+        /// <summary>0x6E actor emote (7 bytes).</summary>
+        private static IEnumerable<byte> Emote(int refIndex) => new byte[] { 0x6E }.Concat(U32(0x7FFFFFF8)).Concat(Ref(refIndex));
+
+        [Fact]
+        public void Emote_PlaysTheIdAndVariant_AndTheNextEmoteWaitsForTheFirst()
+        {
+            // 6E self ref0 ; 6E self ref1 ; 48 ref2 ; 00 (#176: Rahal claps, emote 13, in the Southern San d'Oria intro)
+            var code = Emote(0).Concat(Emote(1)).Concat(Print(2)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost { EmoteFrames = 30 };
+            var vm = Make(code, host, new uint[] { 13, 0x0102, 9 });
+
+            vm.Tick(Frame);
+            Assert.Equal((Npc, 13, 0), Assert.Single(host.Emotes));
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            Assert.Equal((Npc, 2, 1), host.Emotes[1]);
+            Assert.InRange(ticks, 29, 32);
+        }
+
+        [Fact]
+        public void AnimationWait_YieldsOneFrame_WithoutWaitingForTheEnd()
+        {
+            // 6E self ref0 ; 99 self ; 48 ref1 ; 00: retail's 0x99 steps past itself before it yields.
+            var code = Emote(0).Concat(new byte[] { 0x99 }).Concat(U32(0x7FFFFFF8)).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost { EmoteFrames = 100 };
+            var vm = Make(code, host, new uint[] { 6, 9 });
+            vm.Tick(Frame);
+            Assert.Empty(host.Printed);
+            vm.Tick(Frame);
+            Assert.Single(host.Printed);
+        }
+
         [Theory]
         [InlineData(70, 32174)]
         [InlineData(600, 49735)]

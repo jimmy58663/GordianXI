@@ -1070,6 +1070,41 @@ namespace Gordian.Core.Events
                     }
                     _pc++;
                     return;
+                case 0x38:
+                    // Sets the low word of CliEventModeLocal (XiEvents OpCodes/0x0038: the operand's low byte with 0x20 in
+                    // the high byte); recorded only, its bits are not mapped yet.
+                    Scene.EventModeLocal = (GetWork(1) & 0xFF) | 0x2000;
+                    _pc += 3;
+                    return;
+                case 0x6E:
+                {
+                    // An entity plays an emote (XiEvents OpCodes/0x006E, CodeEMOT): the work value at +5 holds the emote id
+                    // (low byte) and a variant (high byte). While the entity still plays an action the opcode waits.
+                    uint emoting = TaskActor(Code32(1));
+                    if (emoting == uint.MaxValue)
+                    {
+                        _pc += 7;
+                        return;
+                    }
+                    if (Scene.IsEntityActing(emoting))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    int emote = GetWork(5);
+                    Scene.SetEntityAction(emoting, EmoteTag, _host.PlayEntityEmote(emoting, emote & 0xFF, (emote >> 8) & 0xFF));
+                    _pc += 7;
+                    return;
+                }
+                case 0x99:
+                {
+                    // Yields a frame while the entity plays an action, then goes on either way (OpCodes/0x0099 steps past
+                    // itself before yielding, so it does not wait for the end).
+                    uint acting = TaskActor(Code32(1));
+                    if (acting != uint.MaxValue && Scene.IsEntityActing(acting)) _retFlag = true;
+                    _pc += 5;
+                    return;
+                }
                 case 0x80:
                     // Waits for the actor's action resources to load (OpCodes/0x0080, CodeLOADWAIT); they load when asked here.
                     _pc += 5;
@@ -1173,6 +1208,9 @@ namespace Gordian.Core.Events
             if (serverId == Scene.PlayerServerId || Scene.FindActor(serverId) != null || _host.EntityExists(serverId)) return serverId;
             return uint.MaxValue;
         }
+
+        /// <summary>The scene's action tag of an emote (0x6E), which no motion opcode names.</summary>
+        private const uint EmoteTag = 0x746F6D65; // "emot"
 
         /// <summary>0x5E / 0x6B: the entity's event action ends and it returns to idle.</summary>
         private void ResetMotion(uint serverId)

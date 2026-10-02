@@ -156,6 +156,12 @@ namespace Gordian.Core.Events
         /// </summary>
         int PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId) => 0;
 
+        /// <summary>
+        /// Opcode 0x6E: an entity (server id; 0 = the local player) plays an emote (the C2S 0x05D ids: 13 = clap), with
+        /// the opcode's second byte as <paramref name="variant"/>. Returns how many 60 Hz frames it plays (0 when it has none).
+        /// </summary>
+        int PlayEntityEmote(uint serverId, int emote, int variant) => 0;
+
         /// <summary>Opcode 0x50: the entity stops the event motion <paramref name="routine"/>.</summary>
         void StopEntityMotion(uint serverId, string routine)
         {
