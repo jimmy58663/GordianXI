@@ -99,7 +99,7 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void Blend_IsAPlainWeightedSumInDisplaySpace()
+        public void Blend_IsANormalizedWeightedSumInDisplaySpace()
         {
             var mesh = WeightedMeshDecoder.Decode(BuildPayload(), "mb")!;
             var output = new MeshVertex[mesh.VertexCount];
@@ -112,6 +112,13 @@ namespace Gordian.Core.Tests.Resources
 
             mesh.Blend(new[] { 0f, 1f }, output);
             Assert.Equal(new Vector3(0, -2, 1), output[0].Position);
+
+            // Weights that sum past 1 keep the mesh's size (Alzadaal's fish reach 1.74 mid-stroke).
+            mesh.Blend(new[] { 0.87f, 0.87f }, output);
+            Assert.Equal(new Vector3(0, -1, 1), output[0].Position);
+            // Weights summing to nothing draw the first target.
+            mesh.Blend(new[] { 0f, 0f }, output);
+            Assert.Equal(new Vector3(0, 0, 1), output[0].Position);
             Assert.Equal(mesh.Colors[0], output[0].ColorRgba);
             Assert.Equal(mesh.TexCoords[0], output[0].TexCoord);
         }

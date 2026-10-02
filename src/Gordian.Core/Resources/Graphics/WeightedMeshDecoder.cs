@@ -45,12 +45,26 @@ namespace Gordian.Core.Resources.Graphics
         public int VertexCount => PositionIndices.Length;
 
         /// <summary>
-        /// Blends the morph targets with <paramref name="weights"/> (a plain weighted sum: 51328's <c>uw</c> runs its
-        /// two weights from 1.5 / -0.5 to 0 / 1) into display-space vertices, one per triangle-list vertex.
+        /// Blends the morph targets with <paramref name="weights"/>, normalized to sum to 1, into display-space vertices,
+        /// one per triangle-list vertex. The authored weights do not keep their sum: Alzadaal's swimming fish (<c>fsk1</c>,
+        /// curves <c>mf00</c>-<c>mf03</c>) reach 1.74 mid-stroke and would swell with a plain sum. Weights summing to 0
+        /// draw the first target. Negative weights stay (51328's <c>uw</c> starts at 1.5 / -0.5).
         /// </summary>
         public void Blend(ReadOnlySpan<float> weights, Span<MeshVertex> output)
         {
             int targets = Math.Min(weights.Length, TargetCount);
+            float sum = 0f;
+            for (int t = 0; t < targets; t++) sum += weights[t];
+            Span<float> normalized = stackalloc float[MaxWeights];
+            if (MathF.Abs(sum) < 1e-4f)
+            {
+                normalized[0] = 1f;
+                targets = 1;
+            }
+            else
+            {
+                for (int t = 0; t < targets; t++) normalized[t] = weights[t] / sum;
+            }
             for (int v = 0; v < VertexCount; v++)
             {
                 int pi = PositionIndices[v];
@@ -59,7 +73,7 @@ namespace Gordian.Core.Resources.Graphics
                 Vector3 normal = Vector3.Zero;
                 for (int t = 0; t < targets; t++)
                 {
-                    float w = weights[t];
+                    float w = normalized[t];
                     if (w == 0f) continue;
                     position += Positions[t][pi] * w;
                     normal += Normals[t][ni] * w;
