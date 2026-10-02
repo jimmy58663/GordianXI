@@ -508,12 +508,13 @@ namespace Gordian.App.Graphics
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 
-                bool isSkinned = gpuModel.IsSkinned && entityModel?.Skeleton != null && entityModel.Skeleton.Count > 0;
+                var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
+                bool isSkinned = skinnedModel != null;
 
                 cl.SetPipeline(isSkinned ? _skinnedPipeline : _pipeline);
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
 
-                if (isSkinned)
+                if (skinnedModel != null)
                 {
                     bool isLocalPlayer = entity.ServerId == localPlayerServerId;
                     bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
@@ -531,15 +532,15 @@ namespace Gordian.App.Graphics
                             $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, MovTime={entity.LastMovTime})");
                     }
 
-                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, entityModel);
+                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
                     var headTurn = HeadTurn(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
-                    var face = Face(entity, entityModel!, category, deltaSeconds);
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headTurn, face, out var pose);
-                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
+                    var face = Face(entity, skinnedModel, category, deltaSeconds);
+                    UpdateJointPalette(cl, palette.Buffer, skinnedModel, entity.Animation, weaponsInHands ? skinnedModel.ParentOverrides : null, headTurn, face, out var pose);
+                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = skinnedModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
 
