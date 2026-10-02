@@ -256,6 +256,12 @@ namespace Gordian.Core.Resources.Events
         /// <summary>The DAT file id of scheduler resource <paramref name="p"/> (XiEvents <c>FUNC_DatIdHelper</c>).</summary>
         public static int GetFileId(int p) => BaseFileId + (p >= 600 ? p + 39643 : p >= 300 ? p + 25937 : p);
 
+        /// <summary>The first file of the second scene range (0x9F / 0xA2 / 0xA3; XiEvents OpCodes/0x009F).</summary>
+        public const int SecondBaseFileId = 51183;
+
+        /// <summary>The scene DAT of the second range for work value <paramref name="p"/>: 51183 + p, without the remapping of <see cref="GetFileId"/>.</summary>
+        public static int GetSecondFileId(int p) => SecondBaseFileId + p;
+
         public IReadOnlyDictionary<string, CameraRoute> Routes => _routes;
 
         public IReadOnlyDictionary<string, SceneRoutine> Routines => _routines;

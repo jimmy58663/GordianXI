@@ -1011,13 +1011,24 @@ namespace Gordian.Core.Events
                     _pc += 2;
                     return;
                 case 0x45:
-                    ExecStartTask();
+                    ExecStartTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x52:
-                    ExecEndTask();
+                    ExecEndTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x55:
-                    ExecWaitTask();
+                    ExecWaitTask(EventSceneResource.GetFileId(GetWork(1)));
+                    return;
+                case 0x9F:
+                    // The same scheduler on the second scene range (XiEvents OpCodes/0x009F, 0x00A2, 0x00A3: file 51183 + the
+                    // work value, not remapped): the effect and screen routines, such as Port Jeuno 324's flash and blink.
+                    ExecStartTask(EventSceneResource.GetSecondFileId(GetWork(1)));
+                    return;
+                case 0xA3:
+                    ExecEndTask(EventSceneResource.GetSecondFileId(GetWork(1)));
+                    return;
+                case 0xA2:
+                    ExecWaitTask(EventSceneResource.GetSecondFileId(GetWork(1)));
                     return;
                 case 0x2C:
                     ExecEntityMotion(EventMotionSource.Own, 0, 1);
@@ -1316,9 +1327,8 @@ namespace Gordian.Core.Events
         /// <c>routine</c> of scene resource <c>p</c> (<see cref="EventSceneResource.GetFileId"/>) on the two actors as a
         /// task of the main scheduler: its camera shots and fades. The trailing value (0 in every intro) is not used.
         /// </summary>
-        private void ExecStartTask()
+        private void ExecStartTask(int fileId)
         {
-            int fileId = EventSceneResource.GetFileId(GetWork(1));
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
             {
                 uint tag = unchecked((uint)Code32(11));
@@ -1331,21 +1341,21 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>0x52 (CodeENDLOADSCHEDULER): the same operands without the value; stops that task.</summary>
-        private void ExecEndTask()
+        private void ExecEndTask(int fileId)
         {
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
             {
-                int id = Scene.RemoveTask(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target);
+                int id = Scene.RemoveTask(fileId, unchecked((uint)Code32(11)), caster, target);
                 if (id >= 0) _host.StopSceneTask(id);
             }
             _pc += 15;
         }
 
         /// <summary>0x55 (CodeWAITLOADSCHEDULER): the same operands; waits while that task runs.</summary>
-        private void ExecWaitTask()
+        private void ExecWaitTask(int fileId)
         {
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target)
-                && Scene.IsTaskRunning(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target))
+                && Scene.IsTaskRunning(fileId, unchecked((uint)Code32(11)), caster, target))
             {
                 _retFlag = true;
                 return;

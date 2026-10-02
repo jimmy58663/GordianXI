@@ -67,6 +67,27 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void SecondRangeTask_LoadsFile51183PlusItsNumber_AndItsWaitAndStopMatch()
+        {
+            // 9F bl00 on p = ref0 ; A2 wait bl00 ; 48 print ref1 ; 9F clos ; A3 stop clos ; 00 (#192: Port Jeuno 324's blink)
+            var code = new byte[] { 0x9F }.Concat(Start(0, "bl00").Skip(1)).Concat(TaskOp(0xA2, 0, "bl00")).Concat(Print(1))
+                .Concat(new byte[] { 0x9F }).Concat(Start(0, "clos").Skip(1)).Concat(TaskOp(0xA3, 0, "clos"))
+                .Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.RoutineFrames["bl00"] = 20;
+            host.RoutineFrames["clos"] = 300;
+            var vm = Make(code, host, new uint[] { 219, 9 });
+
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            vm.Tick(Frame);
+
+            Assert.Equal(new[] { 51402, 51402 }, host.SceneTasks.Select(t => t.FileId)); // 51183 + 219, no remapping
+            Assert.InRange(ticks, 20, 22);
+            Assert.Equal(host.SceneTasks[1].Id, Assert.Single(host.StoppedTasks));
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
         public void MissingRoutine_EndsAtOnce_SoTheWaitDoesNotHold()
         {
             var code = Start(0, "zzzz").Concat(TaskOp(0x55, 0, "zzzz")).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
