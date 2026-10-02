@@ -142,6 +142,17 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>
+        /// Opcodes 0x34 / 0x35: the event deletes its actors and opens another zone for the scene (a zone id), or the
+        /// player's own zone again.
+        /// </summary>
+        void OpenEventZone(int zoneId)
+        {
+        }
+
+        /// <summary>Whether the zone of <see cref="OpenEventZone"/> is still loading (0x34 / 0x35 wait for it).</summary>
+        bool IsEventZoneLoading => false;
+
         /// <summary>Opcode 0x46: the event takes the camera from the player (true) or gives it back.</summary>
         void SetEventCamera(bool held)
         {

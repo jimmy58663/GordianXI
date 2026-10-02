@@ -338,9 +338,18 @@ namespace Gordian.Core.Tests.Events
                 }
 
                 bool bystanderHidden = false, pcHidden = false, flaggedHidden = false, nanaaPosed = false, nanaaWalked = false, cutsceneHud = false, clockLocked = false;
+                bool wallsShown = false, backHome = false;
+                int loadTicks = 0, eventTicks = 0, wallsTicks = 0;
                 parser.World.UpdateWeather(1);
+                parser.World.DisplayedZoneId = 241; // a viewport draws the session's zone
                 for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
                 {
+                    // The viewport takes half a second to load a zone the event opens (0x34 / 0x35, #175).
+                    if (parser.World.DisplayedZoneId != parser.World.SceneZoneId && ++loadTicks >= 30)
+                    {
+                        parser.World.DisplayedZoneId = parser.World.SceneZoneId;
+                        loadTicks = 0;
+                    }
                     controller.Tick(Frame);
                     controller.Confirm();
                     parser.Progression.AcknowledgeEventUpdate();
@@ -356,6 +365,10 @@ namespace Gordian.Core.Tests.Events
                     nanaaWalked |= nanaa.EventPose is { Speed: > 0 };
                     cutsceneHud |= controller.IsCutsceneHud;
                     clockLocked |= parser.World.IsTimeOfDayLocked;
+                    eventTicks++;
+                    if (parser.World.EventZoneId == 239) wallsTicks++;
+                    wallsShown |= parser.World.EventZoneId == 239;
+                    backHome |= wallsShown && parser.World.EventZoneId == 0;
                 }
                 Assert.False(controller.IsActive);
                 Assert.True(bystanderHidden);
@@ -368,6 +381,10 @@ namespace Gordian.Core.Tests.Events
                 Assert.False(controller.IsCutsceneHud);
                 Assert.False(parser.World.IsTimeOfDayLocked);
                 Assert.Equal(1, parser.World.WeatherNumber); // the zone's weather is back
+                Assert.True(wallsShown); // 0x34: Windurst Walls for the opening scene
+                Assert.True(backHome); // 0x35: Windurst Woods again
+                Assert.InRange(wallsTicks, 60 * 60, 100 * 60); // seven narration lines that close themselves (0x7F 0x34)
+                Assert.Equal(0, parser.World.EventZoneId);
                 foreach (var entity in parser.World.GetAllEntities())
                 {
                     Assert.False(entity.IsEventHidden);

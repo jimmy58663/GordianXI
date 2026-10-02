@@ -114,6 +114,10 @@ namespace Gordian.Core.Tests.Events
             Emotes.Add((serverId, emote, variant));
             return EmoteFrames;
         }
+
+        public List<int> OpenedZones { get; } = new();
+        public bool IsEventZoneLoading { get; set; }
+        public void OpenEventZone(int zoneId) => OpenedZones.Add(zoneId);
     }
 
     public class EventVmTests

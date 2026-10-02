@@ -154,6 +154,38 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Theory]
+        [InlineData(0x34)]
+        [InlineData(0x35)]
+        public void OpenZone_OpensTheWorkValuesZone_AndWaitsWhileItLoads(byte op)
+        {
+            // 34 ref0 ; 48 ref1 ; 00 (#175: the Windurst intros open Windurst Walls, 239, for their first scene)
+            var code = new[] { op }.Concat(Ref(0)).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            var vm = Make(code, host, new uint[] { 239, 9 });
+
+            vm.Tick(Frame);
+            Assert.Equal(239, Assert.Single(host.OpenedZones));
+            Assert.Empty(host.Printed); // yields after opening
+            host.IsEventZoneLoading = true;
+            for (int i = 0; i < 100; i++) vm.Tick(Frame);
+            Assert.Empty(host.Printed);
+            host.IsEventZoneLoading = false;
+            vm.Tick(Frame);
+            Assert.Single(host.Printed);
+            Assert.Single(host.OpenedZones);
+        }
+
+        [Fact]
+        public void OpenZone_GoesOnWithoutTheZoneAfterTheTimeout()
+        {
+            var code = new byte[] { 0x35 }.Concat(Ref(0)).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost { IsEventZoneLoading = true };
+            var vm = Make(code, host, new uint[] { 240, 9 });
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            Assert.InRange(ticks, 900, 905);
+        }
+
+        [Theory]
         [InlineData(70, 32174)]
         [InlineData(600, 49735)]
         [InlineData(1500, 57845)]
