@@ -662,7 +662,11 @@ namespace Gordian.App.Graphics
 
                 lock (_renderLock)
                 {
-                    if (_renderer != null) _renderer.World = _activeSession?.World ?? WorldState;
+                    if (_renderer != null)
+                    {
+                        _renderer.World = _activeSession?.World ?? WorldState;
+                        _renderer.EventPresentation = _activeSession?.Events.Presentation;
+                    }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {
                         try

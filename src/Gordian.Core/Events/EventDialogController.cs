@@ -129,6 +129,7 @@ namespace Gordian.Core.Events
         /// </summary>
         private readonly Dictionary<uint, EventPose> _pendingPoses = new();
         private readonly Dictionary<uint, bool> _pendingHidden = new();
+        private readonly Dictionary<uint, bool> _pendingKeepHeight = new();
 
         /// <summary>The running event's cutscene flags, for entities that arrive after its start.</summary>
         private CutsceneFlags _flags;
@@ -388,6 +389,11 @@ namespace Gordian.Core.Events
                         entity.IsEventHidden = isHidden;
                         _staged.Add(entity.ServerId);
                     }
+                    if (_pendingKeepHeight.Remove(entity.ServerId, out bool keepsHeight))
+                    {
+                        entity.KeepsEventHeight = keepsHeight;
+                        _staged.Add(entity.ServerId);
+                    }
                     continue;
                 }
                 bool isPlayer = entity.Type == EntityType.Player;
@@ -409,6 +415,7 @@ namespace Gordian.Core.Events
             _eventText = null;
             _pendingPoses.Clear();
             _pendingHidden.Clear();
+            _pendingKeepHeight.Clear();
             _sorted.Clear();
             _flags = 0;
             UnlockEnvironment();
@@ -432,6 +439,7 @@ namespace Gordian.Core.Events
                     entity.EventLook = null;
                     entity.EventHeadTurnSpeed = 0;
                     entity.IsEventHidden = false;
+                    entity.KeepsEventHeight = false;
                 }
             }
             _staged.Clear();
@@ -939,6 +947,18 @@ namespace Gordian.Core.Events
             _staged.Add(serverId);
         }
 
+        void IEventVmHost.SetEntityKeepsHeight(uint serverId, bool keep)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity))
+            {
+                _pendingKeepHeight[serverId] = keep; // the marker of Port Jeuno 324 arrives after the script sets it
+                return;
+            }
+            entity.KeepsEventHeight = keep;
+            _staged.Add(serverId);
+        }
+
         void IEventVmHost.SetEntityHidden(uint serverId, bool hidden)
         {
             if (serverId == 0) serverId = _player?.ServerId ?? 0;
@@ -994,10 +1014,13 @@ namespace Gordian.Core.Events
                 return 0;
             }
             // Actor-relative camera routes are placed at the first actor, where the event shows it.
+            // Effects follow the actor where it is drawn; the pose here stands in for an actor that is not drawn.
             var origin = System.Numerics.Vector3.Zero;
-            if (_scene?.FindActor(casterServerId) is { } actor) origin = actor.EventPosition.Position;
-            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out _, out _)) origin = position;
-            Presentation.Play(taskId, resource, scene, origin);
+            float heading = 0f;
+            if (_scene?.FindActor(casterServerId) is { } actor) (origin, heading) = actor.EventPosition;
+            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
+            if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
+            Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
             return scene.TotalFrames;
         }
 

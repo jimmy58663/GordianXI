@@ -50,9 +50,11 @@ namespace Gordian.Core.Graphics
     public static class ActorEffectLoader
     {
         /// <summary>
-        /// Returns the model's effects, or null when it has no generator that draws anything.
+        /// Returns the model's effects, or null when it has no generator that draws anything. With
+        /// <paramref name="cameraEffects"/> (a cutscene scene DAT, played by <see cref="SceneEffectPlayer"/>) the
+        /// camera-following generators are kept as well: the scene draws them in front of the camera.
         /// </summary>
-        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null)
+        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null, bool cameraEffects = false)
         {
             if (datBytes.IsEmpty) return null;
             // Most models carry no generators: skip the full parse (and a second decode of their body textures).
@@ -64,7 +66,7 @@ namespace Gordian.Core.Graphics
             if (!hasGenerator) return null;
 
             var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
-            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource);
+            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource, cameraEffects: cameraEffects);
 
             var layers = new List<WeatherSkyLayer>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);

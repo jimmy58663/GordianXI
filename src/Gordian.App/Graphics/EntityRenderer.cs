@@ -421,8 +421,11 @@ namespace Gordian.App.Graphics
                 // Mapped to terrain display coordinates: (-x, -y, z).
                 // For the local player, use the camera-synchronized position snapshot to eliminate cross-thread motion jitter.
                 // Other characters stand on the zone's floor, as in the legacy client, whatever height they report.
+                // An event places its actors on the floor below their event position unless it keeps their height (0x33 / 0x59 sub 5).
                 Vector3 pos = eventPose != null
-                    ? new Vector3(-eventPose.Position.X, -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight), eventPose.Position.Z)
+                    ? new Vector3(-eventPose.Position.X,
+                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight),
+                        eventPose.Position.Z)
                     : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
                     : new Vector3(-entity.Position.X, -EntityGrounding.GetDisplayHeight(entity, collision, platforms), entity.Position.Z);
@@ -508,12 +511,13 @@ namespace Gordian.App.Graphics
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 
-                bool isSkinned = gpuModel.IsSkinned && entityModel?.Skeleton != null && entityModel.Skeleton.Count > 0;
+                var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
+                bool isSkinned = skinnedModel != null;
 
                 cl.SetPipeline(isSkinned ? _skinnedPipeline : _pipeline);
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
 
-                if (isSkinned)
+                if (skinnedModel != null)
                 {
                     bool isLocalPlayer = entity.ServerId == localPlayerServerId;
                     bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
@@ -531,15 +535,15 @@ namespace Gordian.App.Graphics
                             $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, MovTime={entity.LastMovTime})");
                     }
 
-                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, entityModel);
+                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
                     var headTurn = HeadTurn(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
-                    var face = Face(entity, entityModel!, category, deltaSeconds);
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headTurn, face, out var pose);
-                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
+                    var face = Face(entity, skinnedModel, category, deltaSeconds);
+                    UpdateJointPalette(cl, palette.Buffer, skinnedModel, entity.Animation, weaponsInHands ? skinnedModel.ParentOverrides : null, headTurn, face, out var pose);
+                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = skinnedModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
 

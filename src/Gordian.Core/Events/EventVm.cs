@@ -1011,13 +1011,26 @@ namespace Gordian.Core.Events
                     _pc += 2;
                     return;
                 case 0x45:
-                    ExecStartTask();
+                    ExecStartTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x52:
-                    ExecEndTask();
+                    ExecEndTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x55:
-                    ExecWaitTask();
+                    ExecWaitTask(EventSceneResource.GetFileId(GetWork(1)));
+                    return;
+                case 0x9F or 0x62 or 0xBB or 0xC5 or 0xCD or 0xD0 or 0xD5:
+                    // The same scheduler on the other scene ranges, file base + the work value without 0x45's remapping
+                    // (XiEvents OpCodes/0x009F, 0x0062, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5): the effect and screen
+                    // routines, such as Port Jeuno 324's flash and blink (0x9F) and its sparkles on the player (0xCD).
+                    ExecStartTask(EventSceneResource.GetBandFileId(op, GetWork(1)));
+                    return;
+                case 0xA3 or 0xBD or 0xC7 or 0xCF or 0xD2 or 0xD7:
+                    // 0xA1 (0x62's stop by its place) is never used in retail and XiEvents gives it 0x52's base: stepped.
+                    ExecEndTask(EventSceneResource.GetBandFileId(op, GetWork(1)));
+                    return;
+                case 0xA2 or 0xA0 or 0xBC or 0xC6 or 0xCE or 0xD1 or 0xD6:
+                    ExecWaitTask(EventSceneResource.GetBandFileId(op, GetWork(1)));
                     return;
                 case 0x2C:
                     ExecEntityMotion(EventMotionSource.Own, 0, 1);
@@ -1050,11 +1063,22 @@ namespace Gordian.Core.Events
                     return;
                 case 0x59 when Code8(1) is 2 or 3:
                     // The head turn speed (XiEvents OpCodes/0x0059: sub 2 sets TurnSpeedHead of the event's own entity from
-                    // the work value at +2, sub 3 of the actor at +2 from the work value at +6). The other subs (body turn
-                    // speed, walk speed, Render.Flags0 bit 21, action waits) are stepped over.
+                    // the work value at +2, sub 3 of the actor at +2 from the work value at +6). Sub 5 is below; the other
+                    // subs (body turn speed, walk speed, action waits) are stepped over.
                     if (Code8(1) == 2) _host.SetEntityHeadTurnSpeed(EntityServerId, GetWork(2));
                     else if (TaskActor(Code32(2)) is var turner && turner != uint.MaxValue) _host.SetEntityHeadTurnSpeed(turner, GetWork(6));
                     _pc += Code8(1) == 2 ? 4 : 8;
+                    return;
+                case 0x59 when Code8(1) == 5:
+                    // Render.Flags0 bit 21 of the actor at +2 from the literal byte at +6 (XiEvents OpCodes/0x0059): the
+                    // event keeps the height it places the actor at (Port Jeuno 324's marker in the sky).
+                    if (TaskActor(Code32(2)) is var floating && floating != uint.MaxValue) _host.SetEntityKeepsHeight(floating, (Code8(6) & 1) != 0);
+                    _pc += 7;
+                    return;
+                case 0x33:
+                    // The same bit of the event's own entity from the byte at +1 (XiEvents OpCodes/0x0033).
+                    _host.SetEntityKeepsHeight(EntityServerId, (Code8(1) & 1) != 0);
+                    _pc += 2;
                     return;
                 case 0x5E:
                     // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the
@@ -1149,7 +1173,6 @@ namespace Gordian.Core.Events
                     _pc += 5;
                     return;
                 case 0x2F:
-                case 0x33:
                 case 0x42:
                 case 0x7C:
                     // Opcodes with no effect on a client that draws no render-flag variants. The
@@ -1327,9 +1350,8 @@ namespace Gordian.Core.Events
         /// <c>routine</c> of scene resource <c>p</c> (<see cref="EventSceneResource.GetFileId"/>) on the two actors as a
         /// task of the main scheduler: its camera shots and fades. The trailing value (0 in every intro) is not used.
         /// </summary>
-        private void ExecStartTask()
+        private void ExecStartTask(int fileId)
         {
-            int fileId = EventSceneResource.GetFileId(GetWork(1));
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
             {
                 uint tag = unchecked((uint)Code32(11));
@@ -1342,21 +1364,21 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>0x52 (CodeENDLOADSCHEDULER): the same operands without the value; stops that task.</summary>
-        private void ExecEndTask()
+        private void ExecEndTask(int fileId)
         {
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target))
             {
-                int id = Scene.RemoveTask(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target);
+                int id = Scene.RemoveTask(fileId, unchecked((uint)Code32(11)), caster, target);
                 if (id >= 0) _host.StopSceneTask(id);
             }
             _pc += 15;
         }
 
         /// <summary>0x55 (CodeWAITLOADSCHEDULER): the same operands; waits while that task runs.</summary>
-        private void ExecWaitTask()
+        private void ExecWaitTask(int fileId)
         {
             if (TryTaskActors(Code32(3), Code32(7), out uint caster, out uint target)
-                && Scene.IsTaskRunning(EventSceneResource.GetFileId(GetWork(1)), unchecked((uint)Code32(11)), caster, target))
+                && Scene.IsTaskRunning(fileId, unchecked((uint)Code32(11)), caster, target))
             {
                 _retFlag = true;
                 return;

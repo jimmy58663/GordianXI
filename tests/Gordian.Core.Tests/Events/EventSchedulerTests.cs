@@ -67,6 +67,72 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void SecondRangeTask_LoadsFile51183PlusItsNumber_AndItsWaitAndStopMatch()
+        {
+            // 9F bl00 on p = ref0 ; A2 wait bl00 ; 48 print ref1 ; 9F clos ; A3 stop clos ; 00 (#192: Port Jeuno 324's blink)
+            var code = new byte[] { 0x9F }.Concat(Start(0, "bl00").Skip(1)).Concat(TaskOp(0xA2, 0, "bl00")).Concat(Print(1))
+                .Concat(new byte[] { 0x9F }).Concat(Start(0, "clos").Skip(1)).Concat(TaskOp(0xA3, 0, "clos"))
+                .Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.RoutineFrames["bl00"] = 20;
+            host.RoutineFrames["clos"] = 300;
+            var vm = Make(code, host, new uint[] { 219, 9 });
+
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            vm.Tick(Frame);
+
+            Assert.Equal(new[] { 51402, 51402 }, host.SceneTasks.Select(t => t.FileId)); // 51183 + 219, no remapping
+            Assert.InRange(ticks, 20, 22);
+            Assert.Equal(host.SceneTasks[1].Id, Assert.Single(host.StoppedTasks));
+            Assert.True(vm.IsFinished);
+        }
+
+        [Theory]
+        [InlineData(0x62, 0xA0, null, 5012)]
+        [InlineData(0xBB, 0xBC, 0xBD, 56685)]
+        [InlineData(0xC5, 0xC6, 0xC7, 67355)]
+        [InlineData(0xCD, 0xCE, 0xCF, 70435)]
+        [InlineData(0xD0, 0xD1, 0xD2, 70691)]
+        [InlineData(0xD5, 0xD6, 0xD7, 102449)]
+        public void OtherSceneBands_LoadTheirBasePlusTheNumber_WaitAndStop(int start, int wait, int? stop, int baseFileId)
+        {
+            // start s002 on p = ref0 ; wait ; print ref1 ; start kil2 ; stop kil2 ; 00
+            // (#192 / #199: Port Jeuno 324's 0xCD s002 is file 70443)
+            var startOp = new[] { (byte)start };
+            var code = startOp.Concat(Start(0, "s002").Skip(1)).Concat(TaskOp((byte)wait, 0, "s002")).Concat(Print(1))
+                .Concat(startOp).Concat(Start(0, "kil2").Skip(1))
+                .Concat(stop is int stopOp ? TaskOp((byte)stopOp, 0, "kil2") : Enumerable.Empty<byte>()).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.RoutineFrames["s002"] = 12;
+            host.RoutineFrames["kil2"] = 300;
+            var vm = Make(code, host, new uint[] { 8, 9 });
+
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            vm.Tick(Frame);
+
+            Assert.All(host.SceneTasks, t => Assert.Equal(baseFileId + 8, t.FileId));
+            Assert.Equal(baseFileId + 8, EventSceneResource.GetBandFileId((byte)start, 8));
+            Assert.InRange(ticks, 12, 14);
+            if (stop != null) Assert.Equal(host.SceneTasks[1].Id, Assert.Single(host.StoppedTasks));
+            else Assert.Empty(host.StoppedTasks); // 0xA1 stays stepped
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
+        public void KeepHeight_0x59Sub5ForAnActor_And0x33ForTheOwnEntity()
+        {
+            // 59 05 actor 01 (Port Jeuno 324 holds its marker in the sky) ; 33 00 ; 00
+            const uint marker = 0x010E608F;
+            var code = new byte[] { 0x59, 0x05 }.Concat(U32(marker)).Concat(new byte[] { 0x01, 0x33, 0x00, 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.Entities[marker] = (default, 0f, 0f);
+            var vm = Make(code, host, Array.Empty<uint>());
+            for (int i = 0; i < 5 && !vm.IsFinished; i++) vm.Tick(Frame);
+            Assert.Equal(new[] { (marker, true), (Npc, false) }, host.KeepsHeight);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
         public void MissingRoutine_EndsAtOnce_SoTheWaitDoesNotHold()
         {
             var code = Start(0, "zzzz").Concat(TaskOp(0x55, 0, "zzzz")).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();

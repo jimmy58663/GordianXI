@@ -135,7 +135,7 @@ namespace Gordian.Core.Resources.Events
     /// <summary>What a scene routine command does, as far as the event presentation plays it.</summary>
     public enum SceneCommandKind : byte
     {
-        /// <summary>Anything not played (markers, blur 0x0E, cross-dissolve 0x10, effects, sound).</summary>
+        /// <summary>Anything not played (markers, blur 0x0E, cross-dissolve 0x10, sound 0x60, motion clips 0x05, scene colours 0x29 / 0x46).</summary>
         Other,
 
         /// <summary>Op 0x04: plays the camera route <see cref="SceneCommand.Reference"/> over the command's duration.</summary>
@@ -146,13 +146,43 @@ namespace Gordian.Core.Resources.Events
 
         /// <summary>Op 0x51: fades the 2D interface toward <see cref="SceneCommand.Color"/> (the <c>fao?</c> / <c>fai?</c> fades).</summary>
         InterfaceFade,
+
+        /// <summary>
+        /// Op 0x72: moves the colour added over the 3D scene toward <see cref="SceneCommand.Color"/> (B, G, R full scale;
+        /// the <c>who?</c> fades to white, <c>whi?</c> back to none, Port Jeuno 324's <c>fall</c> flash).
+        /// </summary>
+        ScreenFlash,
+
+        /// <summary>Op 0x02: starts the generator <see cref="SceneCommand.Reference"/> emitting for the command's duration.</summary>
+        SpawnGenerator,
+
+        /// <summary>Op 0x1E: kills the generator <see cref="SceneCommand.Reference"/> and its particles.</summary>
+        KillGenerator,
+
+        /// <summary>Op 0x3F: kills the generator <see cref="SceneCommand.Reference"/> and starts <see cref="SceneCommand.Reference2"/>.</summary>
+        ReplaceGenerator,
+
+        /// <summary>Op 0x03: starts the routine <see cref="SceneCommand.Reference"/> of the same file on the same actors.</summary>
+        StartRoutine,
+
+        /// <summary>Op 0x73: starts the routine <see cref="SceneCommand.Reference"/> repeating until it is stopped.</summary>
+        LoopRoutine,
+
+        /// <summary>Op 0x5F: stops the running routine <see cref="SceneCommand.Reference"/> (its particles live out their life).</summary>
+        StopRoutine,
     }
 
     /// <summary>
     /// One command of a scene routine, starting <see cref="StartFrame"/> 60 Hz frames into it and lasting
     /// <see cref="Duration"/> frames. <see cref="Color"/> is B, G, R, A from the low byte, 0x80 = unchanged.
+    /// <see cref="Reference2"/> is the second FourCC of op 0x3F.
     /// </summary>
-    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color);
+    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "")
+    {
+        /// <summary>Whether the command runs a particle generator or a routine (what <see cref="Gordian.Core.Graphics.SceneEffectPlayer"/> plays).</summary>
+        public bool IsEffect => Kind is SceneCommandKind.SpawnGenerator or SceneCommandKind.KillGenerator or SceneCommandKind.ReplaceGenerator
+            or SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine or SceneCommandKind.StopRoutine;
+    }
 
     /// <summary>
     /// A cutscene shot, fade or other timeline: Section 0x07 of a scene resource DAT, read with the same command walk as
@@ -168,6 +198,12 @@ namespace Gordian.Core.Resources.Events
     /// has the same layout in the <c>fao?</c> / <c>fai?</c> routines, which the Windurst Woods intro alternates on a black
     /// screen as its narration lines come and go, so it is read as the interface fade. Op 0x0E (<c>blon</c> / <c>blof</c>:
     /// a colour and a factor) and 0x10 (<c>ovl?</c>: a cross-dissolve between shots) are not played.
+    /// </para>
+    /// <para>
+    /// Effect commands (#192, read from Port Jeuno event 324's files 51402, 51327 and 51328): op 0x72 has 0x0F's layout
+    /// with a colour added over the scene at full scale (the <c>who?</c> / <c>whi?</c> white fades of 30905); ops 0x02,
+    /// 0x1E, 0x03, 0x73 and 0x5F name a generator or routine FourCC at +8, op 0x3F two (at +8 and +16). What each does is
+    /// in <see cref="Gordian.Core.Graphics.SceneEffectPlayer"/>.
     /// </para>
     /// </summary>
     public sealed class SceneRoutine
@@ -199,21 +235,52 @@ namespace Gordian.Core.Resources.Events
                 int duration = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 6));
                 var kind = SceneCommandKind.Other;
                 string reference = string.Empty;
+                string reference2 = string.Empty;
                 uint color = 0;
                 if (op == 0x04 && size >= 12 && p + 12 <= payload.Length)
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
                     if (reference.Length > 0) kind = SceneCommandKind.Camera;
                 }
-                else if ((op == 0x0F || op == 0x51) && size >= 12 && p + 12 <= payload.Length)
+                else if ((op == 0x0F || op == 0x51 || op == 0x72) && size >= 12 && p + 12 <= payload.Length)
                 {
                     color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
-                    kind = op == 0x0F ? SceneCommandKind.SceneFade : SceneCommandKind.InterfaceFade;
+                    kind = op switch { 0x0F => SceneCommandKind.SceneFade, 0x51 => SceneCommandKind.InterfaceFade, _ => SceneCommandKind.ScreenFlash };
                 }
-                commands.Add(new SceneCommand(op, kind, start, duration, reference, color));
+                else if (EffectKind(op) is { } effect && size >= 12 && p + 12 <= payload.Length)
+                {
+                    reference = ReadFourCc(payload.Slice(p + 8, 4));
+                    if (op == 0x3F && size >= 20 && p + 20 <= payload.Length) reference2 = ReadFourCc(payload.Slice(p + 16, 4));
+                    if (reference.Length > 0) kind = effect;
+                }
+                commands.Add(new SceneCommand(op, kind, start, duration, reference, color, reference2));
                 p += size;
             }
             return new SceneRoutine { Name = name, TotalFrames = total > 0 ? total : clock, Commands = commands };
+        }
+
+        private static SceneCommandKind? EffectKind(byte op) => op switch
+        {
+            0x02 => SceneCommandKind.SpawnGenerator,
+            0x1E => SceneCommandKind.KillGenerator,
+            0x3F => SceneCommandKind.ReplaceGenerator,
+            0x03 => SceneCommandKind.StartRoutine,
+            0x73 => SceneCommandKind.LoopRoutine,
+            0x5F => SceneCommandKind.StopRoutine,
+            _ => null,
+        };
+
+        /// <summary>Whether the routine runs generators or other routines (see <see cref="SceneCommand.IsEffect"/>).</summary>
+        public bool HasEffects
+        {
+            get
+            {
+                foreach (var command in Commands)
+                {
+                    if (command.IsEffect) return true;
+                }
+                return false;
+            }
         }
 
         private static string ReadFourCc(ReadOnlySpan<byte> span)
@@ -255,6 +322,34 @@ namespace Gordian.Core.Resources.Events
 
         /// <summary>The DAT file id of scheduler resource <paramref name="p"/> (XiEvents <c>FUNC_DatIdHelper</c>).</summary>
         public static int GetFileId(int p) => BaseFileId + (p >= 600 ? p + 39643 : p >= 300 ? p + 25937 : p);
+
+        /// <summary>The first file of the second scene range (0x9F / 0xA2 / 0xA3; XiEvents OpCodes/0x009F).</summary>
+        public const int SecondBaseFileId = 51183;
+
+        /// <summary>The scene DAT of the second range for work value <paramref name="p"/>: 51183 + p, without the remapping of <see cref="GetFileId"/>.</summary>
+        public static int GetSecondFileId(int p) => SecondBaseFileId + p;
+
+        /// <summary>
+        /// The first file of the scene range a scheduler opcode other than 0x45 / 0x52 / 0x55 loads from (start, wait,
+        /// stop): 0x62 / 0xA0 5012, 0x9F / 0xA2 / 0xA3 51183, 0xBB-0xBD 56685, 0xC5-0xC7 67355, 0xCD-0xCF 70435,
+        /// 0xD0-0xD2 70691, 0xD5-0xD7 102449; -1 for any other opcode. Bases referenced from XiEvents
+        /// (https://github.com/atom0s/XiEvents, OpCodes/0x0062, 0x009F, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5 and their
+        /// wait / stop partners).
+        /// </summary>
+        public static int GetBandBase(byte opcode) => opcode switch
+        {
+            0x62 or 0xA0 => 5012,
+            0x9F or 0xA2 or 0xA3 => SecondBaseFileId,
+            0xBB or 0xBC or 0xBD => 56685,
+            0xC5 or 0xC6 or 0xC7 => 67355,
+            0xCD or 0xCE or 0xCF => 70435,
+            0xD0 or 0xD1 or 0xD2 => 70691,
+            0xD5 or 0xD6 or 0xD7 => 102449,
+            _ => -1,
+        };
+
+        /// <summary>The scene DAT scheduler opcode <paramref name="opcode"/> loads for work value <paramref name="p"/>: <see cref="GetBandBase"/> + p, not remapped.</summary>
+        public static int GetBandFileId(byte opcode, int p) => GetBandBase(opcode) is var b && b >= 0 ? b + p : -1;
 
         public IReadOnlyDictionary<string, CameraRoute> Routes => _routes;
 

@@ -36,6 +36,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<uint, Gordian.Core.Graphics.ActorEffectSet?> _actorEffectCache = new();
+        private readonly ConcurrentDictionary<int, Gordian.Core.Graphics.ActorEffectSet?> _sceneEffectCache = new();
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
         private SharedEffectResources? _sharedEffects;
@@ -715,6 +716,21 @@ namespace Gordian.Core.Resources
             });
         }
 
+        /// <summary>
+        /// The particle effects of a cutscene scene resource DAT (the files the scheduler opcodes 0x45 / 0x9F load, see
+        /// <see cref="Events.EventSceneResource"/>), camera-following generators included, or null when it has none.
+        /// Cached per file id.
+        /// </summary>
+        public Gordian.Core.Graphics.ActorEffectSet? GetSceneEffects(int fileId)
+        {
+            if (fileId <= 0) return null;
+            return _sceneEffectCache.GetOrAdd(fileId, id =>
+            {
+                var bytes = LoadDatBytesByFileId(id);
+                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true);
+            });
+        }
+
         private int _cacheGeneration;
 
         /// <summary>
@@ -737,6 +753,7 @@ namespace Gordian.Core.Resources
             _collisionCache.Clear();
             _entityModelCache.Clear();
             _actorEffectCache.Clear();
+            _sceneEffectCache.Clear();
             _itemCache.Clear();
             _dmsgCache.Clear();
             lock (_lock)

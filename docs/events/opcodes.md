@@ -71,7 +71,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x30 | | 1 | stepped | 848 | Clears the client's "continue after control release" flag. |
 | 0x31 | `CodeSMOVE` | by sub | stepped | 308 | A floor-following walk in three axes with a time operand. |
 | 0x32 | | 3 | runs | 19,170 | Sets the entity's walk speed in tenths of a yalm per second. |
-| 0x33 | | 2 | ignored | 1,627 | Sets or clears `Render.Flags0` bit 21 of the event's own entity. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0x33 | | 2 | runs | 1,627 | Sets or clears `Render.Flags0` bit 21 of the event's own entity: the event keeps its placed height instead of the floor ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x34 | | 3 | runs | 1,297 | Removes every actor and opens another zone for the scene ([#175](https://github.com/jimmy58663/GordianXI/issues/175)). |
 | 0x35 | | 3 | runs | 882 | Like 0x34 without closing the current zone; the intros use it to return to their own zone. |
 | 0x36 | | 7 | runs | 883 | Places the event's entity at x, y, height. |
@@ -118,7 +118,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
 | 0x60 | | by sub | stepped | 50 | Sets `Render.Flags1` bit 30 (subs 0/1) or starts a zone scheduler action (sub 2). |
 | 0x61 | | 2 | stepped | 327 | Sets or clears `Render.Flags2` bit 0 of the event's own entity. |
-| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | stepped | 1,701 | Like 0x45, from scheduler file 5012 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | runs | 1,701 | Like 0x45, from scheduler file 5012 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x63 | | 3 | stepped | 0 | Plays an emote id on the event's entity and waits while one plays. |
 | 0x64 | | 11 | stepped | 176 | Stores the 2D distance between two points held in work values. |
 | 0x65 | `CodeGETDISTANCEAA` | 11 | stepped | 13 | Stores the 3D distance between two actors, in thousandths of a yalm. |
@@ -179,11 +179,11 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x9C |  | 3 | runs | 71 | Stores the client language (2 = English). |
 | 0x9D |  | by sub | partial | 1,850 | Script tables inside the byte code: read, write, share and jump through them, plus string copies and compares. |
 | 0x9E |  | 2 | stepped | 21 | Says whether a room load during the event should report the sub-region to the server. |
-| 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | stepped | 1,883 | Starts a scene task like 0x45, from file 51183 + n ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
-| 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | runs | 1,883 | Starts a scene task like 0x45, from file 51183 + n: effect routines ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 0 | Stops a scene task like 0x52. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
-| 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA4 |  | 2 | stepped | 442 | Sets or clears `Render.Flags3` bit 26 of the event entity. |
 | 0xA5 |  | 2 | stepped | 406 | Sets or clears `Render.Flags3` bit 11 of the event entity. |
 | 0xA6 |  | by sub | stepped | 203 | Asks the server for the event map number (C2S 0x0EB, answer S2C 0x10E), waits, or reads the sub-map. Real use: one event (see Part 2). |
@@ -207,9 +207,9 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xB8 |  | 27 | stepped | 36 | Adds a named marker on a map and shows it, opening the map if needed. |
 | 0xB9 |  | 8 | stepped | 9 | Renames a map marker from the event read buffer. |
 | 0xBA |  | 13 | runs | 3,560 | Places another actor of the event: position and heading. |
-| 0xBB |  | 17 | stepped | 478 | Starts a scene task like 0x45, from file 56685 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xBC |  | 15 | stepped | 55 | Waits for a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xBD |  | 15 | stepped | 1 | Stops a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBB |  | 17 | runs | 478 | Starts a scene task like 0x45, from file 56685 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBC |  | 15 | runs | 55 | Waits for a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBD |  | 15 | runs | 1 | Stops a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xBE |  | 3 | runs | 0 | Stores the server id of the entity that queued the running request. |
 | 0xBF |  | by sub | stepped | 60 | Chocobo racing: reads race, chocobo, section or result parameters. |
 | 0xC0 |  | 3 | stepped | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
@@ -217,25 +217,25 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0xC3 |  | 7 | stepped | 54 | Copies a work string and a value into one of eight 20-byte slots. |
 | 0xC4 |  | 12 | stepped | 206 | The 0x73 spell-casting task with three more kinds chosen by the sub byte. |
-| 0xC5 |  | 17 | stepped | 708 | Starts a scene task like 0x45, from file 67355 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xC6 |  | 15 | stepped | 47 | Waits for a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xC7 |  | 15 | stepped | 4 | Stops a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC5 |  | 17 | runs | 708 | Starts a scene task like 0x45, from file 67355 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC6 |  | 15 | runs | 47 | Waits for a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC7 |  | 15 | runs | 4 | Stops a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xC8 |  | 7 | stepped | 29 | Opens the map window with given parameters (the intro map tutorial, [#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
 | 0xC9 |  | 1 | stepped | 16 | Restarts the clock (unlike 0x78 it leaves the weather). |
 | 0xCA |  | ? | no length | 0 | No handler in the current client. |
 | 0xCB |  | ? | no length | 8 | No handler in the current client; all eight census hits are 0x9D table data. |
 | 0xCC |  | by sub | stepped | 2,689 | Item information windows, the zone search menu and the event item window. |
-| 0xCD |  | 17 | stepped | 1,039 | Starts a scene task like 0x45, from file 70435 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xCE |  | 15 | stepped | 71 | Waits for a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xCF |  | 15 | stepped | 1 | Stops a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD0 |  | 17 | stepped | 453 | Starts a scene task like 0x45, from file 70691 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD1 |  | 15 | stepped | 0 | Waits for a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD2 |  | 15 | stepped | 0 | Stops a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCD |  | 17 | runs | 1,039 | Starts a scene task like 0x45, from file 70435 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCE |  | 15 | runs | 71 | Waits for a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCF |  | 15 | runs | 1 | Stops a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD0 |  | 17 | runs | 453 | Starts a scene task like 0x45, from file 70691 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD1 |  | 15 | runs | 0 | Waits for a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD2 |  | 15 | runs | 0 | Stops a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD3 |  | 6 | stepped | 89 | Clears an actor's queued motions. |
 | 0xD4 |  | by sub | partial | 655 | The query with the zone map behind it (home point lists) and the map marker data for it ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
-| 0xD5 |  | 17 | stepped | 73 | Starts a scene task like 0x45, from file 102449 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD6 |  | 15 | stepped | 4 | Waits for a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD7 |  | 15 | stepped | 1 | Stops a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD5 |  | 17 | runs | 73 | Starts a scene task like 0x45, from file 102449 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD6 |  | 15 | runs | 4 | Waits for a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD7 |  | 15 | runs | 1 | Stops a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD8 |  | by sub | stepped | 46 | Sets another entity's event roll, heading or pitch, or copies them from its last position. |
 | 0xD9 |  | 2 | stepped | 24 | Sets a sound-effect related flag (thought to lift the limit on sounds playing at once). |
 
@@ -290,7 +290,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - GordianXI (`EventVm.ExecMove`): the distance is horizontal; the walk speed is 0x32's, else the entity's own, else 4.0. An entity whose place is unknown is put at the goal at once. The renderer draws the entity on the floor below its event position.
 - **Differs from XiEvents:** retail sets the height to the goal's height on every frame and then snaps it to the floor. GordianXI moves the height with the walk instead: the Southern San d'Oria knights walk from height -2 to a goal at 0, and taking the goal height at once sank them into the floor (code note in `ExecMove`).
-- **Beyond XiEvents:** in the pseudo code of 0x1F, 0x31, 0x36 and 0x37 the floor snap is skipped when the entity has `Render.Flags0` bit 20 or 21 or `Render.Flags2` bit 14 set. Bit 21 is the one 0x33 (own entity) and 0x59 sub 5 (another actor) set, so those opcodes are how a script keeps an actor off the floor. GordianXI ignores both and always draws on the floor (inferred from the pseudo code; not checked in game).
+- **Beyond XiEvents:** in the pseudo code of 0x1F, 0x31, 0x36 and 0x37 the floor snap is skipped when the entity has `Render.Flags0` bit 20 or 21 or `Render.Flags2` bit 14 set. Bit 21 is the one 0x33 (own entity) and 0x59 sub 5 (another actor) set, so those opcodes are how a script keeps an actor off the floor. GordianXI runs both (`WorldEntity.KeepsEventHeight`, #192): the renderer then draws the entity at its placed height instead of the floor below. Port Jeuno 324 sets it with 0x59 sub 5 on its invisible marker 0x010F608F right before 0xBA places the marker about 50 yalms up, where the sky explosion plays; with the floor snap the explosion was buried in the street (in-game test, 2026-10-02).
 
 ### 0x20
 
@@ -426,7 +426,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x02 | 4 | 10 | head turn speed of the event's own entity | runs: `SetEntityHeadTurnSpeed` |
 | 0x03 | 8 | 53 | head turn speed of a named actor | runs |
 | 0x04 | 8 | 4,308 | walk speed (operand times 0.1) | stepped |
-| 0x05 | 7 | 755 | `Render.Flags0` bit 21 of a named actor (literal byte at +6) | stepped |
+| 0x05 | 7 | 755 | `Render.Flags0` bit 21 of a named actor (literal byte at +6) | runs: `SetEntityKeepsHeight` (Port Jeuno 324 keeps its sky marker 0x010F608F up, #192) |
 | 0x06 | 6 | 24 | yield while the actor's emote action plays | stepped |
 | 0x07 | 4 | 0 | a movement flag (0 or 1) of the event's own entity | stepped |
 | 0x08 | 8 | 1 | the same flag of a named actor | stepped |
@@ -704,7 +704,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xD5 | 0xD6 | 0xD7 | 102449 | 73 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x7D (player only, tag `main`) | | | 5112 | 57 |
 
-- All are stepped. In Port Jeuno event 324 the 0x9F tasks carry the eyelid opening and the flash in the sky; running them as `EventScene` tasks is drafted for [#192](https://github.com/jimmy58663/GordianXI/issues/192).
+- Every family but 0xA1 runs (#192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)): `EventSceneResource.GetBandBase` gives the base per opcode. 0xA1 is never used in retail and its base is disputed (below), so it stays stepped. 0x9F / 0xA2 / 0xA3 run as `EventScene` tasks on file `51183 + p` (`EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask` with `EventSceneResource.GetSecondFileId`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)): in Port Jeuno event 324 they carry the eyelid opening (51402) and the flash in the sky (51327). Their routines' effect commands are played as described in [vm.md](vm.md#cutscene-schedulers). In the same scene 0xCD starts `s002` of file 70443 (`p` 8) on the player at 15.6 s, the sparkles floating in front of the camera, and `kil2` ends them at 48.4 s.
 - **Differs from XiEvents:** XiEvents gives 0xA1 the base 30704 (0x52's), which would make it a copy of 0x52, while its wait partner 0xA0 uses 0x62's 5012. 0xA1 never occurs in the retail scripts, so this is not settled.
 
 ### 0xA6

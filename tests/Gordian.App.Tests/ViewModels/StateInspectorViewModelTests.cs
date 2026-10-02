@@ -201,8 +201,13 @@ namespace Gordian.App.Tests.ViewModels
 
             _vm.RunDeadReckoningBenchmarkCommand.Execute(null);
 
-            // Give async task brief moment to execute 50 iterations
-            await System.Threading.Tasks.Task.Delay(100);
+            // The command runs the 50 iterations in the background: wait for it to finish rather than a fixed delay, which
+            // a slow CI runner can outlast (failed once on ubuntu-latest at 100 ms).
+            var deadline = System.Diagnostics.Stopwatch.StartNew();
+            while (_vm.IsBenchmarking && deadline.Elapsed < System.TimeSpan.FromSeconds(10))
+            {
+                await System.Threading.Tasks.Task.Delay(10);
+            }
 
             Assert.False(_vm.IsBenchmarking);
             Assert.Contains("iter", _vm.BenchmarkResultText);

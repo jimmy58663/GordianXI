@@ -149,9 +149,10 @@ namespace Gordian.App.Graphics
             }
 
             renderer.Begin(library);
-            // An event's screen fades (#165): the 3D scene's under the interface, then the interface's own.
+            // An event's screen fades (#165): the 3D scene's under the interface (and its 0x72 flashes, #192), then the interface's own.
             var presentation = session.Events.Presentation;
             renderer.DrawScreenTint(width, height, presentation.SceneColor);
+            renderer.DrawScreenFlash(width, height, presentation.SceneFlash);
             renderer.Opacity = presentation.InterfaceOpacity;
             var groups = GroupParty(session);
             // An event's message mode (opcode 0x67) hides the HUD windows and shows the event's lines on the screen instead; name plates stay (the retail recording shows them through the aerial shots).

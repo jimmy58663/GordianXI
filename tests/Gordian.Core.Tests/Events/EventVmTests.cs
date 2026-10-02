@@ -125,6 +125,8 @@ namespace Gordian.Core.Tests.Events
         public List<(uint Id, int AxisX, int AxisY)> LookAxes { get; } = new();
         public void SetEntityLookAxis(uint serverId, int axisX, int axisY) => LookAxes.Add((serverId, axisX, axisY));
 
+        public List<(uint Id, bool Keep)> KeepsHeight { get; } = new();
+        public void SetEntityKeepsHeight(uint serverId, bool keep) => KeepsHeight.Add((serverId, keep));
         public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
         public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
     }
