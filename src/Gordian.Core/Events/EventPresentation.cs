@@ -8,9 +8,10 @@ using Gordian.Core.Resources.Events;
 namespace Gordian.Core.Events
 {
     /// <summary>
-    /// What a running event shows beyond its actors: the cutscene camera and the screen fades its scene routines play
-    /// (<see cref="SceneRoutine"/>, started by the scheduler opcodes 0x45 and stopped by 0x52), and whether the event
-    /// holds the camera (0x46). The event VM feeds it on the game tick; the renderer reads it every frame, sampling the
+    /// What a running event shows beyond its actors: the cutscene camera, the screen fades and flashes its scene routines
+    /// play (<see cref="SceneRoutine"/>, started by the scheduler opcodes 0x45 / 0x9F and stopped by 0x52 / 0xA3), the log
+    /// of tasks whose routines run particle generators (<see cref="CopySceneEffects"/>, played by the renderer with
+    /// <see cref="Graphics.SceneEffectPlayer"/>), and whether the event holds the camera (0x46). The event VM feeds it on the game tick; the renderer reads it every frame, sampling the
     /// camera moves and fades at the frame's time so they run smoothly between ticks.
     /// <para>
     /// A camera command plays its route over its duration and then holds the route's last pose until another shot
@@ -20,6 +21,37 @@ namespace Gordian.Core.Events
     /// when the event ends everything returns to normal.
     /// </para>
     /// </summary>
+    /// <summary>What happened to a scene effect task (see <see cref="SceneEffectEvent"/>).</summary>
+    public enum SceneEffectEventKind : byte
+    {
+        /// <summary>A task started a routine that runs generators or other routines.</summary>
+        Start,
+
+        /// <summary>The task was stopped (0x52 / 0xA3, or replaced by the same task started again).</summary>
+        Stop,
+
+        /// <summary>The event ended: every scene effect goes.</summary>
+        Reset,
+    }
+
+    /// <summary>
+    /// One entry of the scene effect log the renderer follows (<see cref="EventPresentation.CopySceneEffects"/>): a task
+    /// that plays routine <see cref="Routine"/> of <see cref="Resource"/> (file <see cref="FileId"/>) on actor
+    /// <see cref="CasterServerId"/>, which stood at <see cref="Origin"/> (internal axes) facing <see cref="Heading"/>
+    /// when it started (for an actor that is not drawn, like the invisible marker of Port Jeuno 324's sky flash).
+    /// </summary>
+    public sealed record SceneEffectEvent(
+        long Sequence,
+        SceneEffectEventKind Kind,
+        int TaskId,
+        int FileId = 0,
+        EventSceneResource? Resource = null,
+        string Routine = "",
+        uint CasterServerId = 0,
+        uint TargetServerId = 0,
+        Vector3 Origin = default,
+        float Heading = 0f);
+
     public sealed class EventPresentation
     {
         private sealed class Shot
@@ -45,8 +77,13 @@ namespace Gordian.Core.Events
         private readonly List<Shot> _shots = new();
         private readonly List<Fade> _sceneFades = new();
         private readonly List<Fade> _interfaceFades = new();
+        private readonly List<Fade> _flashFades = new();
+        private readonly List<SceneEffectEvent> _effects = new();
+        private readonly HashSet<int> _effectTasks = new();
+        private long _effectSequence;
         private Vector3 _sceneBase = Vector3.One;
         private Vector3 _interfaceBase = Vector3.One;
+        private Vector3 _flashBase = Vector3.Zero;
         private volatile bool _cameraHeld;
 
         /// <summary>The time in seconds commands are scheduled and sampled against (replaceable for tests).</summary>
@@ -63,15 +100,38 @@ namespace Gordian.Core.Events
             new(((bgra >> 16) & 0xFF) / 128f, ((bgra >> 8) & 0xFF) / 128f, (bgra & 0xFF) / 128f);
 
         /// <summary>
+        /// The colour a 0x72 command adds over the scene, 0-1 per channel: its B, G, R bytes are full scale (FF FF FF =
+        /// white in <c>who?</c>, 00 = nothing in <c>whi?</c>).
+        /// </summary>
+        public static Vector3 FlashColorOf(uint bgra) =>
+            new(((bgra >> 16) & 0xFF) / 255f, ((bgra >> 8) & 0xFF) / 255f, (bgra & 0xFF) / 255f);
+
+        /// <summary>Entries the effect log keeps; the renderer reads it every frame, so it never falls this far behind.</summary>
+        public const int MaxSceneEffectEvents = 256;
+
+        /// <summary>
         /// Schedules a routine's camera shots and fades from now. <paramref name="origin"/> anchors actor-relative
         /// routes (the task's first actor, internal axes).
         /// </summary>
-        public void Play(int taskId, EventSceneResource resource, SceneRoutine routine, Vector3 origin)
+        public void Play(int taskId, EventSceneResource resource, SceneRoutine routine, Vector3 origin) =>
+            Play(taskId, resource, routine, origin, 0, 0, 0, 0f);
+
+        /// <summary>
+        /// Schedules a routine's camera shots, fades and flashes from now, and logs its effects (generators and the routines
+        /// it starts) for the renderer when it has any: they play on <paramref name="casterServerId"/>, which stands at
+        /// <paramref name="origin"/> facing <paramref name="heading"/>.
+        /// </summary>
+        public void Play(int taskId, EventSceneResource resource, SceneRoutine routine, Vector3 origin, int fileId, uint casterServerId, uint targetServerId, float heading)
         {
             ArgumentNullException.ThrowIfNull(resource);
             ArgumentNullException.ThrowIfNull(routine);
             lock (_lock)
             {
+                if (routine.HasEffects)
+                {
+                    AddEffect(new SceneEffectEvent(0, SceneEffectEventKind.Start, taskId, fileId, resource, routine.Name, casterServerId, targetServerId, origin, heading));
+                    _effectTasks.Add(taskId);
+                }
                 double now = Clock();
                 foreach (var command in routine.Commands)
                 {
@@ -87,6 +147,9 @@ namespace Gordian.Core.Events
                             break;
                         case SceneCommandKind.InterfaceFade:
                             Insert(_interfaceFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _interfaceBase);
+                            break;
+                        case SceneCommandKind.ScreenFlash:
+                            Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
                             break;
                     }
                 }
@@ -116,9 +179,35 @@ namespace Gordian.Core.Events
                 }
                 _sceneFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 _interfaceFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
+                _flashFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 Recompute(_sceneFades, _sceneBase);
                 Recompute(_interfaceFades, _interfaceBase);
+                Recompute(_flashFades, _flashBase);
+                if (_effectTasks.Remove(taskId)) AddEffect(new SceneEffectEvent(0, SceneEffectEventKind.Stop, taskId));
             }
+        }
+
+        /// <summary>
+        /// Copies the effect log entries after <paramref name="afterSequence"/> into <paramref name="into"/> (oldest
+        /// first) and returns the newest sequence number, to pass next time.
+        /// </summary>
+        public long CopySceneEffects(long afterSequence, List<SceneEffectEvent> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_lock)
+            {
+                foreach (var entry in _effects)
+                {
+                    if (entry.Sequence > afterSequence) into.Add(entry);
+                }
+                return _effectSequence;
+            }
+        }
+
+        private void AddEffect(SceneEffectEvent entry)
+        {
+            _effects.Add(entry with { Sequence = ++_effectSequence });
+            if (_effects.Count > MaxSceneEffectEvents) _effects.RemoveRange(0, _effects.Count - MaxSceneEffectEvents);
         }
 
         /// <summary>0x46: the event takes the camera (true) or gives it back, which ends every camera move.</summary>
@@ -138,8 +227,12 @@ namespace Gordian.Core.Events
                 _shots.Clear();
                 _sceneFades.Clear();
                 _interfaceFades.Clear();
+                _flashFades.Clear();
                 _sceneBase = Vector3.One;
                 _interfaceBase = Vector3.One;
+                _flashBase = Vector3.Zero;
+                _effectTasks.Clear();
+                AddEffect(new SceneEffectEvent(0, SceneEffectEventKind.Reset, -1));
             }
         }
 
@@ -174,6 +267,14 @@ namespace Gordian.Core.Events
         public Vector3 SceneColorAt(double now)
         {
             lock (_lock) return Evaluate(_sceneFades, ref _sceneBase, now);
+        }
+
+        /// <summary>The colour added over the 3D scene now, 0-1 per channel (0x72: the <c>who?</c> / <c>whi?</c> white fades and flashes).</summary>
+        public Vector3 SceneFlash => SceneFlashAt(Clock());
+
+        public Vector3 SceneFlashAt(double now)
+        {
+            lock (_lock) return Evaluate(_flashFades, ref _flashBase, now);
         }
 
         /// <summary>How visible the 2D interface is now, 0-1 (the <c>fao?</c> / <c>fai?</c> fades).</summary>

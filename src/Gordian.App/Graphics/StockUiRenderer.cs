@@ -685,6 +685,29 @@ void main()
                 new UiVertex { Position = new Vector2(width, height), TexCoord = Vector2.Zero, Color = c });
         }
 
+        /// <summary>
+        /// Adds <paramref name="color"/> (0-1 per channel) over the whole screen: an event's 0x72 flash or white fade
+        /// (<see cref="Gordian.Core.Events.EventPresentation.SceneFlash"/>). Nothing is drawn while it is black.
+        /// </summary>
+        public void DrawScreenFlash(float width, float height, Vector3 color)
+        {
+            if (color.X + color.Y + color.Z < 0.004f || width <= 0 || height <= 0) return;
+            if (!_textures.TryGetValue(WhiteTexel.Name, out var entry))
+            {
+                entry = Upload(WhiteTexel);
+                _textures[WhiteTexel.Name] = entry;
+            }
+            if (entry is not { } e) return;
+            // The shader doubles the vertex colour: 127.5 is full scale.
+            static uint Channel(float value) => (uint)MathF.Round(Math.Clamp(value, 0f, 1f) * 127.5f);
+            uint c = Channel(color.X) | (Channel(color.Y) << 8) | (Channel(color.Z) << 16) | (0x80u << 24);
+            AddQuad(e.Set, UiBlendMode.Add,
+                new UiVertex { Position = new Vector2(0, 0), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(width, 0), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(0, height), TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = new Vector2(width, height), TexCoord = Vector2.Zero, Color = c });
+        }
+
         private bool TryGetTextureSet(string textureName, out ResourceSet set, out float width, out float height)
         {
             set = null!;

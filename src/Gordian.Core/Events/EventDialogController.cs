@@ -994,10 +994,13 @@ namespace Gordian.Core.Events
                 return 0;
             }
             // Actor-relative camera routes are placed at the first actor, where the event shows it.
+            // Effects follow the actor where it is drawn; the pose here stands in for an actor that is not drawn.
             var origin = System.Numerics.Vector3.Zero;
-            if (_scene?.FindActor(casterServerId) is { } actor) origin = actor.EventPosition.Position;
-            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out _, out _)) origin = position;
-            Presentation.Play(taskId, resource, scene, origin);
+            float heading = 0f;
+            if (_scene?.FindActor(casterServerId) is { } actor) (origin, heading) = actor.EventPosition;
+            else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
+            if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
+            Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
             return scene.TotalFrames;
         }
 

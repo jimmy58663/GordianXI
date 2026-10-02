@@ -42,6 +42,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         public WorldState? World { get; set; }
 
+        /// <summary>
+        /// The running event's presentation (<see cref="Gordian.Core.Events.EventPresentation"/>), whose scene effect log
+        /// the renderer plays: the particle generators of cutscene scene routines (#192). Null without a session.
+        /// </summary>
+        public Gordian.Core.Events.EventPresentation? EventPresentation { get; set; }
+
         // Sub-environment lighting (indoor areas such as Metalworks' ev01/ev02): one scene uniform and set per id.
         private readonly Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
             new(StringComparer.OrdinalIgnoreCase);
@@ -93,6 +99,25 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<ActorEffectSet, Dictionary<WeatherSkyLayer, List<GpuWeatherSkySubmesh>>> _actorEffectMeshes = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<uint, ActorEffectInstance> _actorEffects = new();
         private readonly HashSet<uint> _liveEffectActors = new();
+
+        /// <summary>A scene file's effects playing on one actor (see <see cref="UpdateSceneEffects"/>).</summary>
+        private sealed class SceneEffectSlot
+        {
+            public required SceneEffectPlayer Player;
+            public required ActorEffectSet Effects;
+            public uint ActorServerId;
+            /// <summary>Where the actor stood when the last task started (display space), for an actor that is not drawn.</summary>
+            public Matrix4x4 FallbackModelToWorld;
+            public Matrix4x4 ModelToWorld;
+        }
+
+        private readonly Dictionary<(int FileId, uint Actor), SceneEffectSlot> _sceneEffects = new();
+        private readonly Dictionary<int, (int FileId, uint Actor)> _sceneEffectTasks = new();
+        private readonly List<Gordian.Core.Events.SceneEffectEvent> _sceneEffectEvents = new();
+        private readonly List<(int FileId, uint Actor)> _idleSceneEffects = new();
+        private Gordian.Core.Events.EventPresentation? _sceneEffectSource;
+        private long _sceneEffectSequence;
+        private Matrix4x4 _cameraToWorld = Matrix4x4.Identity;
         private readonly List<uint> _staleEffectActors = new();
 
         /// <summary>
@@ -1052,6 +1077,7 @@ namespace Gordian.App.Graphics
                 culled += _entityRenderer.CulledEntities;
             }
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
+            UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
 
             // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
@@ -1117,7 +1143,7 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0))
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1137,6 +1163,7 @@ namespace Gordian.App.Graphics
                     _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, _emitters.GetValueOrDefault(effectMesh.Layer), null));
                 }
                 AddActorEffectDraws(camera);
+                AddSceneEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
@@ -1711,6 +1738,147 @@ namespace Gordian.App.Graphics
                         ActorEffectInstance.GetJointReference(emitter.Template.Definition));
                     Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
                     foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Plays the particle effects of cutscene scene routines (#192): follows the event presentation's log, keeps one
+        /// <see cref="SceneEffectPlayer"/> per scene file and actor (a task's kill reaches what another task of the file
+        /// spawned on that actor), and advances them in the actor's model space, or in the camera's space for the
+        /// camera-following generators (the black cards of Port Jeuno 324's blink). An actor that is not drawn (the
+        /// invisible marker of that scene's sky flash) keeps the place it had when its task started.
+        /// </summary>
+        private void UpdateSceneEffects(ViewportCamera camera, ZoneEnvironmentSettings environment, IEnumerable<WorldEntity>? entities, ResourceManager? resourceManager, float deltaSeconds)
+        {
+            var presentation = EventPresentation;
+            if (!ReferenceEquals(presentation, _sceneEffectSource))
+            {
+                ClearSceneEffects();
+                _sceneEffectSource = presentation;
+                // A new source is replayed from its last event end: a zone-in event's scene can start before this frame.
+                _sceneEffectSequence = 0;
+            }
+            if (presentation == null) return;
+
+            _sceneEffectEvents.Clear();
+            _sceneEffectSequence = presentation.CopySceneEffects(_sceneEffectSequence, _sceneEffectEvents);
+            foreach (var entry in _sceneEffectEvents)
+            {
+                switch (entry.Kind)
+                {
+                    case Gordian.Core.Events.SceneEffectEventKind.Reset:
+                        ClearSceneEffects();
+                        break;
+                    case Gordian.Core.Events.SceneEffectEventKind.Stop:
+                        if (_sceneEffectTasks.Remove(entry.TaskId, out var stoppedKey) && _sceneEffects.TryGetValue(stoppedKey, out var stopped))
+                        {
+                            stopped.Player.Stop(entry.TaskId);
+                        }
+                        break;
+                    case Gordian.Core.Events.SceneEffectEventKind.Start:
+                        StartSceneEffect(entry, resourceManager);
+                        break;
+                }
+            }
+            if (_sceneEffects.Count == 0) return;
+
+            float frames = Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f;
+            float dayFraction = environment.TimeOfDayHours / 24.0f;
+            Vector3 daylight = StrongestLight(environment);
+            int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
+            int moonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+            // Camera space in raw DAT axes: the eye at the origin looking down +Z; drawn through the display flip and the
+            // camera's basis (the billboard basis the effect pass uses) at the eye.
+            _cameraToWorld = CreateBillboardBasis(camera.Right, camera.Up, camera.Forward) * Matrix4x4.CreateTranslation(camera.Position);
+            var cameraFrame = new ZoneParticleFrame(Vector3.Zero, dayFraction, daylight, Vector3.UnitZ, dayOfWeek, moonPhase);
+            _idleSceneEffects.Clear();
+            foreach (var (key, slot) in _sceneEffects)
+            {
+                slot.ModelToWorld = _entityRenderer != null && _entityRenderer.ActorAnchors.TryGetValue(slot.ActorServerId, out var anchor)
+                    ? anchor.ModelToWorld
+                    : slot.FallbackModelToWorld;
+                // A zone-in event's scene can start before its zone is loaded, and the load drops the effect meshes.
+                UploadActorEffectMeshes(slot.Effects);
+                if (!Matrix4x4.Invert(slot.ModelToWorld, out var worldToModel)) continue;
+                var actorFrame = new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToModel), dayFraction, daylight,
+                    Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToModel)), dayOfWeek, moonPhase);
+                slot.Player.Update(frames, actorFrame, cameraFrame);
+                if (slot.Player.IsIdle) _idleSceneEffects.Add(key);
+            }
+            foreach (var key in _idleSceneEffects)
+            {
+                if (!_sceneEffectTasks.ContainsValue(key)) _sceneEffects.Remove(key);
+            }
+        }
+
+        private void StartSceneEffect(Gordian.Core.Events.SceneEffectEvent entry, ResourceManager? resourceManager)
+        {
+            if (entry.Resource == null || resourceManager == null) return;
+            var key = (entry.FileId, entry.CasterServerId);
+            if (!_sceneEffects.TryGetValue(key, out var slot))
+            {
+                var effects = resourceManager.GetSceneEffects(entry.FileId);
+                if (effects == null)
+                {
+                    GordianLog.Debug("EVENT", $"Scene effects of file {entry.FileId}: none drawn (no generator this client draws); task {entry.Routine} plays nothing.");
+                    return;
+                }
+                slot = new SceneEffectSlot
+                {
+                    Player = new SceneEffectPlayer(entry.Resource, effects, unchecked(entry.FileId * 31 + (int)entry.CasterServerId)),
+                    Effects = effects,
+                    ActorServerId = entry.CasterServerId,
+                };
+                _sceneEffects[key] = slot;
+                UploadActorEffectMeshes(effects);
+            }
+            // The actor's place as the event shows it, in the entity renderer's model frame (internal axes to display).
+            var position = new Vector3(-entry.Origin.X, -entry.Origin.Y, entry.Origin.Z);
+            slot.FallbackModelToWorld = EntityModelFrame * Matrix4x4.CreateRotationY(-entry.Heading - MathF.PI) * Matrix4x4.CreateTranslation(position);
+            if (slot.Player.Start(entry.TaskId, entry.Routine)) _sceneEffectTasks[entry.TaskId] = key;
+        }
+
+        private void ClearSceneEffects()
+        {
+            _sceneEffects.Clear();
+            _sceneEffectTasks.Clear();
+        }
+
+        /// <summary>The entity renderer's model-to-display turn (180 degrees about X), for actors placed without it.</summary>
+        private static readonly Matrix4x4 EntityModelFrame = Matrix4x4.CreateScale(1.0f, -1.0f, -1.0f);
+
+        /// <summary>
+        /// Queues the scene effects' live particles: camera-following generators in the camera's frame, the others in
+        /// their actor's frame at the joint reference they attach to (the model origin for unattached ones).
+        /// </summary>
+        private void AddSceneEffectDraws(ViewportCamera camera)
+        {
+            foreach (var slot in _sceneEffects.Values)
+            {
+                if (!_actorEffectMeshes.TryGetValue(slot.Effects, out var byLayer)) continue;
+                ActorAnchor? anchor = _entityRenderer != null && _entityRenderer.ActorAnchors.TryGetValue(slot.ActorServerId, out var drawn) ? drawn : null;
+                float distance = Vector3.Distance(camera.Position, slot.ModelToWorld.Translation);
+                foreach (var (layer, emitter) in slot.Player.Instance.Emitters)
+                {
+                    if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                    Matrix4x4 frame;
+                    float sortDistance = distance;
+                    if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
+                    {
+                        frame = DisplayFlip * _cameraToWorld;
+                        sortDistance = 0.0f;
+                    }
+                    else
+                    {
+                        var definition = emitter.Template.Definition;
+                        Vector3 joint = definition.AttachType == ParticleAttachType.None || anchor is not { } posed
+                            ? Vector3.Zero
+                            : ActorEffectInstance.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
+                                ActorEffectInstance.GetJointReference(definition));
+                        frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * slot.ModelToWorld;
+                    }
+                    foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, sortDistance, emitter, frame));
                 }
             }
         }

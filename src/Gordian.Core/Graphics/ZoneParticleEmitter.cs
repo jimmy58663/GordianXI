@@ -418,6 +418,20 @@ namespace Gordian.Core.Graphics
         /// </summary>
         public void Trigger(int delayFrames, int durationFrames) => _pendingTriggers.Add((delayFrames, durationFrames));
 
+        /// <summary>Ends the emission window and drops pending starts; live particles finish their lives.</summary>
+        public void StopEmitting()
+        {
+            _pendingTriggers.Clear();
+            _armed = false;
+        }
+
+        /// <summary>Stops emitting and removes every live particle (a scene routine's kill, op 0x1E / 0x3F).</summary>
+        public void Kill()
+        {
+            StopEmitting();
+            Particles.Clear();
+        }
+
         private void AdvanceTriggers(float frames)
         {
             for (int i = _pendingTriggers.Count - 1; i >= 0; i--)

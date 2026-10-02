@@ -248,6 +248,9 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Parses an entire Zone DAT container buffer into structured ZoneGeometry and DecodedTextures.
+        /// <paramref name="actorEffects"/> reads a model or scene DAT's generators as an actor's effects (see
+        /// <see cref="Gordian.Core.Graphics.ActorEffectLoader"/>); <paramref name="cameraEffects"/> keeps its
+        /// camera-following generators too (a cutscene scene DAT's screen overlays).
         /// </summary>
         public static ZoneGeometry ParseZoneContainer(
             ReadOnlySpan<byte> datBytes,
@@ -257,7 +260,8 @@ namespace Gordian.Core.Resources
             Dictionary<string, DecodedTexture>? outTextures = null,
             SharedEffectResources? sharedEffects = null,
             bool actorEffects = false,
-            string? datSource = null)
+            string? datSource = null,
+            bool cameraEffects = false)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -895,8 +899,9 @@ namespace Gordian.Core.Resources
                 // Sprite-sheet particles always run through the emitter (billboarding and card selection are per particle);
                 // an actor's generators always do, so each actor runs its own instance.
                 bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || actorEffects;
-                // Camera-following generators are weather emitters; the persistent ones are the sky layers above.
-                if (setup.FollowCamera && (!isWeather || setup.MaxLifeSpan == 0)) continue;
+                // Camera-following generators are weather emitters; the persistent ones are the sky layers above. A cutscene
+                // scene DAT's (cameraEffects) are screen overlays the scene plays in front of the camera (Port Jeuno 324's blink).
+                if (setup.FollowCamera && !cameraEffects && (!isWeather || setup.MaxLifeSpan == 0)) continue;
 
                 // A non-auto-running generator only runs when a routine in its directory starts it: a looping ambient
                 // routine (its schedule), or a short weather routine the client plays at random (lightning strikes).

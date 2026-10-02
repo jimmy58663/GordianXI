@@ -218,6 +218,93 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(1f, presentation.InterfaceOpacity, 3);
         }
 
+        private static byte[] Name(string fourCc, int padTo = 4) => System.Text.Encoding.ASCII.GetBytes(fourCc).Concat(new byte[padTo - 4]).ToArray();
+
+        [Fact]
+        public void EffectCommands_DecodeTheirGeneratorsAndRoutines()
+        {
+            // As in Port Jeuno 324's scene files (#192): 0x3F names two generators, each in an 8-byte slot.
+            var dat = SceneDat((0x07, "test", RoutinePayload(100,
+                Command(0x02, 4, 0, 160, Name("bk02")),
+                Command(0x3F, 7, 10, 0, Name("mb00", 8).Concat(Name("mb02", 8)).ToArray()),
+                Command(0x1E, 4, 0, 0, Name("bk00")),
+                Command(0x03, 4, 0, 0, Name("strt")),
+                Command(0x73, 5, 0, 0, Name("loop", 12)),
+                Command(0x5F, 4, 0, 0, Name("tama")),
+                Command(0x72, 3, 0, 6, new byte[] { 0x3A, 0x30, 0x44, 0x80 }),
+                Command(0x60, 8, 0, 0, Name("8158", 24)))));
+            var routine = EventSceneResource.Parse(dat).Routines["test"];
+            Assert.True(routine.HasEffects);
+            var c = routine.Commands;
+            Assert.Equal((SceneCommandKind.SpawnGenerator, "bk02", 0, 160), (c[0].Kind, c[0].Reference, c[0].StartFrame, c[0].Duration));
+            Assert.Equal((SceneCommandKind.ReplaceGenerator, "mb00", "mb02"), (c[1].Kind, c[1].Reference, c[1].Reference2));
+            Assert.Equal((SceneCommandKind.KillGenerator, "bk00", 10), (c[2].Kind, c[2].Reference, c[2].StartFrame));
+            Assert.Equal((SceneCommandKind.StartRoutine, "strt"), (c[3].Kind, c[3].Reference));
+            Assert.Equal((SceneCommandKind.LoopRoutine, "loop"), (c[4].Kind, c[4].Reference));
+            Assert.Equal((SceneCommandKind.StopRoutine, "tama"), (c[5].Kind, c[5].Reference));
+            Assert.Equal(SceneCommandKind.ScreenFlash, c[6].Kind);
+            Assert.Equal(new Vector3(0x44, 0x30, 0x3A) / 255f, EventPresentation.FlashColorOf(c[6].Color));
+            Assert.Equal(SceneCommandKind.Other, c[7].Kind); // a sound (#167)
+            Assert.False(c[6].IsEffect);
+        }
+
+        [Fact]
+        public void WhiteFade_AddsWhiteOverTheScene_AndFadesBack()
+        {
+            // who1 / whi1 of file 30905: 0x72 to FF FF FF over 60 frames, then back to 00.
+            var dat = SceneDat(
+                (0x07, "who1", RoutinePayload(60, Command(0x72, 3, 60, 60, new byte[] { 0xFF, 0xFF, 0xFF, 0x80 }))),
+                (0x07, "whi1", RoutinePayload(60, Command(0x72, 3, 60, 60, new byte[] { 0, 0, 0, 0x80 }))));
+            var resource = EventSceneResource.Parse(dat);
+            double now = 0;
+            var presentation = new EventPresentation { Clock = () => now };
+            Assert.Equal(Vector3.Zero, presentation.SceneFlash);
+            presentation.Play(1, resource, resource.Routines["who1"], Vector3.Zero);
+            now = 0.5;
+            Assert.Equal(0.5f, presentation.SceneFlash.X, 3);
+            Assert.Equal(Vector3.One, presentation.SceneColor); // the scene itself is not darkened
+            now = 2;
+            Assert.Equal(Vector3.One, presentation.SceneFlash);
+            presentation.Play(2, resource, resource.Routines["whi1"], Vector3.Zero);
+            now = 2.25;
+            Assert.Equal(0.75f, presentation.SceneFlash.Z, 3);
+            now = 4;
+            Assert.Equal(Vector3.Zero, presentation.SceneFlash);
+            presentation.Play(3, resource, resource.Routines["who1"], Vector3.Zero);
+            now = 5;
+            presentation.Reset();
+            Assert.Equal(Vector3.Zero, presentation.SceneFlash);
+        }
+
+        [Fact]
+        public void EffectLog_RecordsTasksThatRunGenerators_TheirStops_AndTheEnd()
+        {
+            var dat = SceneDat(
+                (0x07, "bl00", RoutinePayload(3, Command(0x02, 4, 3, 2, Name("bk00")))),
+                (0x07, "fdo1", RoutinePayload(60, Command(0x0F, 3, 60, 60, new byte[] { 0, 0, 0, 0x80 }))));
+            var resource = EventSceneResource.Parse(dat);
+            var presentation = new EventPresentation { Clock = () => 0 };
+            presentation.Play(4, resource, resource.Routines["bl00"], new Vector3(1, 2, 3), 51402, 0x0100_0001, 0x0100_0002, 1.5f);
+            presentation.Play(5, resource, resource.Routines["fdo1"], Vector3.Zero, 30904, 0x0100_0001, 0, 0f); // no effects: not logged
+            presentation.Stop(5);
+            presentation.Stop(4);
+            presentation.Stop(4); // already stopped
+
+            var log = new List<SceneEffectEvent>();
+            long last = presentation.CopySceneEffects(0, log);
+            Assert.Equal(2, log.Count);
+            var start = log[0];
+            Assert.Equal((SceneEffectEventKind.Start, 4, 51402, "bl00", 0x0100_0001u, 0x0100_0002u), (start.Kind, start.TaskId, start.FileId, start.Routine, start.CasterServerId, start.TargetServerId));
+            Assert.Equal((new Vector3(1, 2, 3), 1.5f), (start.Origin, start.Heading));
+            Assert.Same(resource, start.Resource);
+            Assert.Equal((SceneEffectEventKind.Stop, 4), (log[1].Kind, log[1].TaskId));
+
+            presentation.Reset();
+            log.Clear();
+            Assert.Equal(last + 1, presentation.CopySceneEffects(last, log));
+            Assert.Equal(SceneEffectEventKind.Reset, Assert.Single(log).Kind);
+        }
+
         /// <summary>
         /// The Port Bastok intro's shots (scene resource p = 136, file 30840) and the shared fades (p = 200, file 30904)
         /// from the installed game: each shot routine plays the Route of its number, and the fades carry the colours the

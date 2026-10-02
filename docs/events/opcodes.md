@@ -179,11 +179,11 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x9C |  | 3 | runs | 71 | Stores the client language (2 = English). |
 | 0x9D |  | by sub | partial | 1,850 | Script tables inside the byte code: read, write, share and jump through them, plus string copies and compares. |
 | 0x9E |  | 2 | stepped | 21 | Says whether a room load during the event should report the sub-region to the server. |
-| 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | stepped | 1,883 | Starts a scene task like 0x45, from file 51183 + n ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | runs | 1,883 | Starts a scene task like 0x45, from file 51183 + n: effect routines ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 0 | Stops a scene task like 0x52. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
-| 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
+| 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA4 |  | 2 | stepped | 442 | Sets or clears `Render.Flags3` bit 26 of the event entity. |
 | 0xA5 |  | 2 | stepped | 406 | Sets or clears `Render.Flags3` bit 11 of the event entity. |
 | 0xA6 |  | by sub | stepped | 203 | Asks the server for the event map number (C2S 0x0EB, answer S2C 0x10E), waits, or reads the sub-map. Real use: one event (see Part 2). |
@@ -704,7 +704,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xD5 | 0xD6 | 0xD7 | 102449 | 73 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x7D (player only, tag `main`) | | | 5112 | 57 |
 
-- All are stepped. In Port Jeuno event 324 the 0x9F tasks carry the eyelid opening and the flash in the sky; running them as `EventScene` tasks is drafted for [#192](https://github.com/jimmy58663/GordianXI/issues/192).
+- 0x9F / 0xA2 / 0xA3 run as `EventScene` tasks on file `51183 + p` (`EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask` with `EventSceneResource.GetSecondFileId`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)): in Port Jeuno event 324 they carry the eyelid opening (51402) and the flash in the sky (51327). Their routines' effect commands are played as described in [vm.md](vm.md#cutscene-schedulers). The other families are stepped ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
 - **Differs from XiEvents:** XiEvents gives 0xA1 the base 30704 (0x52's), which would make it a copy of 0x52, while its wait partner 0xA0 uses 0x62's 5012. 0xA1 never occurs in the retail scripts, so this is not settled.
 
 ### 0xA6

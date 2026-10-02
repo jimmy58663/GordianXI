@@ -25,4 +25,4 @@
 
 ## Closed questions
 
-- Closed: point lights on entities (not needed). Repeat-expiration (`0x05`) generators do not accumulate: all 6,085 in the zone DATs are continuous singletons. Actor-attached weather effects (e.g. `weat/clod/tobi` birds) moved to Phase 5C model-embedded effect routines. Model DATs' own generators run on their actors through the same emitters (see [entities-and-animation.md](../world/entities-and-animation.md), #9).
+- Closed: point lights on entities (not needed). Repeat-expiration (`0x05`) generators do not accumulate: all 6,085 in the zone DATs are continuous singletons. Actor-attached weather effects (e.g. `weat/clod/tobi` birds) moved to Phase 5C model-embedded effect routines. Model DATs' own generators run on their actors through the same emitters (see [entities-and-animation.md](../world/entities-and-animation.md), #9), and so do the generators of cutscene scene files, camera-following ones included (`SceneEffectPlayer`, [events/vm.md](../events/vm.md#cutscene-schedulers), #192). Generators drawing a weighted mesh (Section 0x25) are skipped everywhere ([#204](https://github.com/jimmy58663/GordianXI/issues/204)).
