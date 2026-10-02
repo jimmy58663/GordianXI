@@ -576,5 +576,49 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(EmoteId.Bow, res.Emote);
             Assert.Equal(0x20001234u, res.TargetServerId);
         }
+
+        // Emote ids from XiPackets world/client/0x005D and LandSandBoat src/map/enums/emote.h.
+        [Theory]
+        [InlineData(EmoteId.Point, 0)]
+        [InlineData(EmoteId.Bow, 1)]
+        [InlineData(EmoteId.Wave, 8)]
+        [InlineData(EmoteId.Cheer, 12)]
+        [InlineData(EmoteId.Clap, 13)]
+        [InlineData(EmoteId.Shocked, 38)]
+        [InlineData(EmoteId.Hurray, 43)]
+        [InlineData(EmoteId.Toss, 44)]
+        public void C2S_0x05D_Emote_WritesTheProtocolNumber(EmoteId emote, byte number)
+        {
+            byte[] buffer = new byte[16];
+            int len = CombatPacketBuilder.BuildEmoteRequest(buffer, 7, 0x01020304, 0x0506, emote, mode: 2, param: 1);
+            Assert.Equal(16, len);
+            Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4, 4))); // UniqueNo
+            Assert.Equal(0x0506, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(8, 2)));      // ActIndex
+            Assert.Equal(number, buffer[10]);                                                        // Number
+            Assert.Equal(2, buffer[11]);                                                             // Mode
+            Assert.Equal(1, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(12, 2)));          // Param
+        }
+
+        [Theory]
+        [InlineData("/clap", EmoteId.Clap, 0)]
+        [InlineData("/cheer", EmoteId.Cheer, 0)]
+        [InlineData("/point", EmoteId.Point, 0)]
+        [InlineData("/farewell", EmoteId.Goodbye, 0)]
+        [InlineData("/hurray", EmoteId.Hurray, 1)]
+        [InlineData("/em clap", EmoteId.Clap, 0)]
+        public void ChatCommandRouter_EmoteCommands_MapToProtocolIds(string input, EmoteId emote, ushort param)
+        {
+            var res = ChatCommandRouter.Parse(input);
+            Assert.Equal(ChatCommandResultKind.Emote, res.Kind);
+            Assert.Equal(emote, res.Emote);
+            Assert.Equal(param, res.ActionParam);
+        }
+
+        [Fact]
+        public void ChatCommandRouter_Sit_IsNotAnEmote()
+        {
+            Assert.NotEqual(ChatCommandResultKind.Emote, ChatCommandRouter.Parse("/sit").Kind);
+            Assert.Equal(ChatCommandResultKind.LocalNotice, ChatCommandRouter.Parse("/em sit").Kind);
+        }
     }
 }

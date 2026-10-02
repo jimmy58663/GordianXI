@@ -150,6 +150,10 @@ The status icon timestamp is meant to overflow a u32; `GetStatusIconRemainingSec
 
 Not checked against a retail capture. Verify with `dotnet test tests/Gordian.Core.Tests --filter "FullyQualifiedName~BuildAction|FullyQualifiedName~Dig|FullyQualifiedName~Refa|FullyQualifiedName~ChangeTarget|FullyQualifiedName~SelfActions|FullyQualifiedName~TrustFlag"`.
 
+### C2S 0x05D emotes
+
+`CombatPacketBuilder.BuildEmoteRequest` writes UniqueNo, ActIndex, `Number` (the emote id), `Mode` (0 both, 1 text, 2 motion) and `Param`. `EmoteId` holds the protocol ids: 0 point, 1 bow, 2 salute ... 12 cheer, 13 clap ... 38 shocked, 43 hurray (`Param` 1), 44 toss; there is no "none" id. `ChatCommandRouter` routes `/<emote> [target]` and `/em <emote> [target]` for the emotes every character has; the dances, `/bell`, `/jobemote` and `/aim` need a `Param` and are not routed. `/sit` is not an emote (C2S 0x0EA, [#111](https://github.com/jimmy58663/GordianXI/issues/111)). Event opcode 0x6E plays the same ids. Ids from XiPackets `world/client/0x005D` and LandSandBoat `src/map/enums/emote.h` ([#178](https://github.com/jimmy58663/GordianXI/issues/178): the client used to number them from its own list, so `/cheer` sent bow). Verify with `dotnet test tests/Gordian.Core.Tests --filter "FullyQualifiedName~Emote"`.
+
 ### Treasure pool (S2C 0x0D2 / 0x0D3, C2S 0x041 / 0x042)
 
 `TreasurePacketModule` (`TreasurePackets.cs`, `TreasurePacketModule.cs`) fills `TreasurePoolState` (`session.Treasure`, 10 slots). Layouts from XiPackets `world/server/0x00D2`, `0x00D3` and `world/client/0x0041`, `0x0042`; the values LandSandBoat sends from `s2c/0x0d2_trophy_list.cpp` and `0x0d3_trophy_solution.*`.

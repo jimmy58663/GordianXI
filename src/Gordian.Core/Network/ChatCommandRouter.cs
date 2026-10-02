@@ -172,7 +172,7 @@ namespace Gordian.Core.Network
                     "emote" or "em" => ParseEmote(args, world),
 
                     // Standard Emotes
-                    "cheer" or "clap" or "wave" or "bow" or "point" or "salute" or "kneel" or "laugh" or "cry" or "no" or "yes" or "surprised" or "blush" or "sit" or "farewell" or "joy" or "comfort" or "panic" or "disgusted" or "angry" or "shocked" => ParseEmoteDirect(verb, args, world),
+                    _ when TryGetEmote(verb, out _, out _) => ParseEmoteDirect(verb, args, world),
 
                     // Inspection & Telemetry
                     "pos" or "where" or "loc" => new ChatCommandResult { Kind = ChatCommandResultKind.InspectPos },
@@ -512,33 +512,7 @@ namespace Gordian.Core.Network
 
         private static ChatCommandResult ParseEmoteDirect(string emoteName, string targetStr, WorldState? world)
         {
-            EmoteId emote = emoteName switch
-            {
-                "cheer" => EmoteId.Cheer,
-                "clap" => EmoteId.Clap,
-                "wave" => EmoteId.Wave,
-                "bow" => EmoteId.Bow,
-                "point" => EmoteId.Point,
-                "salute" => EmoteId.Salute,
-                "kneel" => EmoteId.Kneel,
-                "laugh" => EmoteId.Laugh,
-                "cry" => EmoteId.Cry,
-                "no" => EmoteId.No,
-                "yes" => EmoteId.Yes,
-                "surprised" => EmoteId.Surprised,
-                "blush" => EmoteId.Blush,
-                "sit" => EmoteId.Sit,
-                "farewell" => EmoteId.Farewell,
-                "joy" => EmoteId.Joy,
-                "comfort" => EmoteId.Comfort,
-                "panic" => EmoteId.Panic,
-                "disgusted" => EmoteId.Disgusted,
-                "angry" => EmoteId.Angry,
-                "shocked" => EmoteId.Shocked,
-                _ => EmoteId.None
-            };
-
-            if (emote == EmoteId.None)
+            if (!TryGetEmote(emoteName, out EmoteId emote, out ushort emoteParam))
             {
                 return new ChatCommandResult
                 {
@@ -570,11 +544,70 @@ namespace Gordian.Core.Network
             {
                 Kind = ChatCommandResultKind.Emote,
                 Emote = emote,
-                ActionParam = (byte)emote,
+                ActionParam = emoteParam,
                 TargetServerId = targetId,
                 TargetIndex = targetIndex,
                 TargetName = targetName
             };
+        }
+
+        /// <summary>
+        /// The emote a command name plays (<c>/clap</c> → <see cref="EmoteId.Clap"/>) and the C2S 0x05D <c>Param</c> it is
+        /// sent with. Only the emotes every character has; the ones that need an unlock or a note (dances, bell, job emote,
+        /// aim) are not routed yet. Param values referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets/tree/main/world/client/0x005D).
+        /// </summary>
+        private static bool TryGetEmote(string name, out EmoteId emote, out ushort param)
+        {
+            param = 0;
+            EmoteId? found = name switch
+            {
+                "point" => EmoteId.Point,
+                "bow" => EmoteId.Bow,
+                "salute" => EmoteId.Salute,
+                "kneel" => EmoteId.Kneel,
+                "laugh" => EmoteId.Laugh,
+                "cry" => EmoteId.Cry,
+                "no" => EmoteId.No,
+                "yes" => EmoteId.Yes,
+                "wave" => EmoteId.Wave,
+                "goodbye" or "farewell" => EmoteId.Goodbye,
+                "welcome" => EmoteId.Welcome,
+                "joy" => EmoteId.Joy,
+                "cheer" => EmoteId.Cheer,
+                "clap" => EmoteId.Clap,
+                "praise" => EmoteId.Praise,
+                "smile" => EmoteId.Smile,
+                "poke" => EmoteId.Poke,
+                "slap" => EmoteId.Slap,
+                "stagger" => EmoteId.Stagger,
+                "sigh" => EmoteId.Sigh,
+                "comfort" => EmoteId.Comfort,
+                "surprised" => EmoteId.Surprised,
+                "amazed" => EmoteId.Amazed,
+                "stare" => EmoteId.Stare,
+                "blush" => EmoteId.Blush,
+                "angry" => EmoteId.Angry,
+                "disgusted" => EmoteId.Disgusted,
+                "muted" => EmoteId.Muted,
+                "doze" => EmoteId.Doze,
+                "panic" => EmoteId.Panic,
+                "grin" => EmoteId.Grin,
+                "dance" => EmoteId.Dance,
+                "think" => EmoteId.Think,
+                "fume" => EmoteId.Fume,
+                "doubt" => EmoteId.Doubt,
+                "sulk" => EmoteId.Sulk,
+                "psych" => EmoteId.Psych,
+                "huh" => EmoteId.Huh,
+                "shocked" => EmoteId.Shocked,
+                "hurray" => EmoteId.Hurray,
+                "toss" => EmoteId.Toss,
+                _ => null
+            };
+            emote = found.GetValueOrDefault();
+            if (emote == EmoteId.Hurray) param = 1;
+            return found.HasValue;
         }
 
         private static ChatCommandResult ParseTargetCommand(string args, WorldState? world)
