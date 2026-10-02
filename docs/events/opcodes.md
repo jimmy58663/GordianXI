@@ -125,8 +125,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x66 | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 14,143 | Plays a routine from the actor's player-model event motion package ([#193](https://github.com/jimmy58663/GordianXI/issues/193)). |
 | 0x67 | | 5 | runs | 108 | Turns on the event message mode and hides the HUD and compass. |
 | 0x68 | | 1 | runs | 122 | Turns the event message mode off and shows the HUD again. |
-| 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds). |
-| 0x6A | | 7 | stepped | 191 | Moves the volume of sound categories to a level over a time. |
+| 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds) ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x6A | | 7 | stepped | 191 | Moves the volume of sound categories to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x6B | | 9 | partial | 1,145 | Like 0x5E for a named actor. |
 | 0x6C | `CodeTRANSPAR` | 9 | stepped | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x6D |  | 7 | stepped | 2 | No-op in the current client. All three census hits are 0x9D table data, not code (see [0x9D](#0x9d)). |
@@ -174,7 +174,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x97 |  | 5 | stepped | 165 | Saves the zone's wind values and sets new ones. |
 | 0x98 |  | 1 | stepped | 15 | Waits while the zone is still reading extra data (a room). |
 | 0x99 |  | 5 | runs | 5,220 | Yields one frame while an actor plays an action, then goes on. |
-| 0x9A |  | 1 | stepped | 2,058 | Waits until the music server has read the current song. |
+| 0x9A |  | 1 | stepped | 2,058 | Waits until the music server has read the current song ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x9B |  | 1 | stepped | 130 | Waits while the event entity plays an action. |
 | 0x9C |  | 3 | runs | 71 | Stores the client language (2 = English). |
 | 0x9D |  | by sub | partial | 1,850 | Script tables inside the byte code: read, write, share and jump through them, plus string copies and compares. |
