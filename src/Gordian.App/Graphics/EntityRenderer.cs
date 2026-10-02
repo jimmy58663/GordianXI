@@ -637,7 +637,9 @@ namespace Gordian.App.Graphics
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
                 target.X = HeadLook.TargetYaw(heading, position, otherPosition);
-                if (HeadHeight(entity.ServerId) is float own && HeadHeight(other.ServerId) is float theirs)
+                // A target without a drawn head (an invisible marker, such as the flash in the sky of Port Jeuno event 324,
+                // placed 50 yalms up) is looked at where the event put it, not snapped to the floor.
+                if (HeadHeight(entity.ServerId) is float own && (HeadHeight(other.ServerId) ?? -otherPosition.Y) is float theirs)
                 {
                     float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
                     target.Y = HeadLook.TargetPitch(own, theirs, distance);
