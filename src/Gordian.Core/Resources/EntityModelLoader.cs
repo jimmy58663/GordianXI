@@ -715,7 +715,9 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Loads an NPC, Monster, or Trust entity model from its numeric ModelId.
+        /// Loads an NPC, Monster, or Trust entity model from its numeric ModelId. A fixed humanoid NPC (Apururu, Curilla)
+        /// bundles gear meshes in one DAT, so its own occludeTypes hide its hair and skin under the hat and sleeves, as on
+        /// an assembled PC (#181). Monster DATs declare nothing that hides a piece.
         /// </summary>
         public static EntityModel? LoadMonsterModel(uint modelId, Func<int, byte[]?> datByFileId)
         {
@@ -728,7 +730,7 @@ namespace Gordian.Core.Resources
                 return null;
             }
 
-            return AssembleModel(dat, null, $"Monster_{modelId}", primarySource: DecodedTexture.FileLabel(fileId));
+            return AssembleModel(dat, null, $"Monster_{modelId}", gearOcclusion: new GearOcclusion(), primarySource: DecodedTexture.FileLabel(fileId));
         }
     }
 }

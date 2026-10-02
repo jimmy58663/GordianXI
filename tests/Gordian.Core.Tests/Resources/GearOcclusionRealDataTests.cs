@@ -83,6 +83,31 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void FixedNpcModel_HidesItsOwnHairUnderItsHat()
+        {
+            // Apururu (fixed model 164, Windurst Waters intro, #181): one DAT with a hat (occludeType 0x04) and a face
+            // mesh whose hair pieces are displayTypes 1 and 3. The hat hides the hair; the face (4) stays.
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+
+            int fileId = CharacterEquipmentResolver.GetMonsterFileId(164);
+            var dat = rm.LoadDatBytesByFileId(fileId);
+            Assert.NotNull(dat);
+            var meshes = EntityModelLoader.ParseDatContainer(dat!, "Apururu").Meshes;
+            Assert.Contains(meshes, m => m.OccludeType == 0x04);
+            Assert.Contains(meshes.SelectMany(m => m.Pieces), p => p.DisplayType is 1 or 3);
+
+            var unoccluded = EntityModelLoader.AssembleModel(dat!, name: "unoccluded");
+            var model = EntityModelLoader.LoadMonsterModel(164, rm.LoadDatBytesByFileId);
+            Assert.NotNull(model);
+
+            int Count(EntityModel m) => m.AnimatedMeshGroups.Sum(g => g.Indices.Length) / 3;
+            _output.WriteLine($"model 164: {Count(unoccluded)} triangles without occlusion, {Count(model!)} with");
+            Assert.True(Count(model!) < Count(unoccluded));
+        }
+
+        [Fact]
         public void HumeMale_StowedRangedWeapon_AddsNoGeometry()
         {
             if (!Directory.Exists(GameDirectory)) return;
