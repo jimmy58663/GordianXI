@@ -185,6 +185,12 @@ namespace Gordian.Core.Resources.Graphics
         public bool IsSpriteSheet { get; set; }
 
         /// <summary>
+        /// The Section 0x25 weighted mesh this layer's particles blend (linked data type 0x1D); its MeshGroups then hold
+        /// the first morph target, and each particle's draw blends the targets with its own weights.
+        /// </summary>
+        public WeightedMesh? WeightedMesh { get; set; }
+
+        /// <summary>
         /// True if the drawn sprite-sheet card is selected by the current moon phase.
         /// </summary>
         public bool IsMoonPhaseSpriteSheet { get; set; }

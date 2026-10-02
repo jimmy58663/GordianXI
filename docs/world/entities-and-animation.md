@@ -33,7 +33,7 @@
   - Scope from a scan of model ids 1-3192 (file id = model + 1300 / + 50295 / + 96907): 648 models carry drawable generators, 379 of them auto-running (idle) ones, e.g. elementals 8-15, Home Points 51/55/57, and portals.
   - [ ] Effect routines are not played from the network yet: S2C `0x038` (`bind` on Home Point use, sent by a LandSandBoat module) and the particles of `0x028` action routines (their motion does play, see Phase 5D.1). (A cross-zone Home Point warp currently leaves the player stuck in an event: #122.) Target-side generators (the `bind` flash on the player's joints) ride the effect's own actor until actions bind a target.
   - [ ] Particles always move with their actor; generators that leave particles behind (`FollowGenerator` off) and the follow-actor updater `0x11` are not modelled yet. The mapping from actor facing to particle axes is only checked on the rotationally symmetric Home Point.
-  - [ ] Actor-attached weather effects (`weat/clod/tobi` birds in zone DATs) are a separate mechanism: zone weather generators attached as target-actor/source-facing that draw a weighted mesh (`0x1D`/`0x25`, not decoded yet): #121.
+  - [ ] Actor-attached weather effects (`weat/clod/tobi` birds in zone DATs) are a separate mechanism: zone weather generators attached as target-actor/source-facing that draw a weighted mesh (`0x1D`/`0x25`, decoded and drawn since #204 for unattached generators; the attached ones wait): #121.
 
 ## Skeletal animation (Phase 5D)
 

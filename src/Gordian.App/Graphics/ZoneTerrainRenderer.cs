@@ -126,6 +126,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor);
         private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
+        private ScenePostProcess? _postProcess;
+
+        /// <summary>
+        /// Draw cutscenes through <see cref="ScenePostProcess"/> (the scene routines' motion blur and cross-dissolve, #205);
+        /// off, they are skipped and the scene draws straight to the target.
+        /// </summary>
+        public bool EnablePostProcess { get; set; } = true;
         private bool _emittersWarm;
         private ResourceLayout _lightLayout = null!;
         private DeviceBuffer _lightTableBuffer = null!;
@@ -297,6 +304,13 @@ namespace Gordian.App.Graphics
             /// Largest vertex distance from the mesh origin, for culling scaled particle draws.
             /// </summary>
             public float BoundingRadius { get; init; }
+
+            /// <summary>
+            /// A weighted-mesh layer's morph targets: each particle's draw blends them into <see cref="VertexBuffer"/>
+            /// (dynamic) through <see cref="MorphVertices"/>. Null for fixed meshes.
+            /// </summary>
+            public WeightedMesh? Morph { get; init; }
+            public MeshVertex[]? MorphVertices { get; init; }
             public DeviceBuffer VertexBuffer { get; init; } = null!;
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public DeviceBuffer UniformBuffer { get; init; } = null!;
@@ -784,9 +798,11 @@ namespace Gordian.App.Graphics
                 var group = layer.MeshGroups[g];
                 if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
 
+                // A weighted mesh's vertices are rewritten for every particle it draws.
+                var morph = layer.WeightedMesh;
                 var vb = factory.CreateBuffer(new BufferDescription(
                     (uint)(group.Vertices.Length * 36),
-                    BufferUsage.VertexBuffer));
+                    morph != null ? BufferUsage.VertexBuffer | BufferUsage.Dynamic : BufferUsage.VertexBuffer));
                 _gd.UpdateBuffer(vb, 0, group.Vertices);
 
                 var ushortIndices = new ushort[group.Indices.Length];
@@ -807,6 +823,8 @@ namespace Gordian.App.Graphics
 
                 float radiusSquared = 0.0f;
                 foreach (var vertex in group.Vertices) radiusSquared = MathF.Max(radiusSquared, vertex.Position.LengthSquared());
+                // Morph weights can reach past a target (51328's uw starts at 1.5 / -0.5): cull on twice the farthest one.
+                if (morph != null) radiusSquared = MathF.Pow(2.0f * morph.BoundingRadius(), 2.0f);
 
                 target.Add(new GpuWeatherSkySubmesh
                 {
@@ -824,6 +842,8 @@ namespace Gordian.App.Graphics
                     CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
                     Textures = textures,
                     BoundingRadius = MathF.Sqrt(radiusSquared),
+                    Morph = morph,
+                    MorphVertices = morph != null ? new MeshVertex[group.Vertices.Length] : null,
                     VertexBuffer = vb,
                     IndexBuffer = ib,
                     UniformBuffer = ub,
@@ -881,8 +901,19 @@ namespace Gordian.App.Graphics
             var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
 
             // 3. Record Render Commands
+            // A cutscene (the event holds the camera or plays a shot) draws the scene offscreen for its blur and
+            // cross-dissolve (#205): both need the frame before.
+            var finalTarget = targetFramebuffer ?? _gd.SwapchainFramebuffer;
+            var presentation = EventPresentation;
+            var blur = presentation?.Blur ?? default;
+            var dissolve = presentation?.CrossDissolve ?? default;
+            bool postProcess = EnablePostProcess && presentation != null &&
+                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _));
+            if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
+            else _postProcess?.Invalidate();
+
             _commandList.Begin();
-            _commandList.SetFramebuffer(targetFramebuffer ?? _gd.SwapchainFramebuffer);
+            _commandList.SetFramebuffer(postProcess ? _postProcess!.BeginScene(finalTarget) : finalTarget);
 
             // Update Scene Uniform Buffer within command stream
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
@@ -1245,6 +1276,12 @@ namespace Gordian.App.Graphics
                 _pendingLensFlares.Clear();
             }
 
+            if (postProcess)
+            {
+                _postProcess!.Composite(_commandList, finalTarget, blur, dissolve, Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f);
+                draws += 2;
+            }
+
             _commandList.End();
 
             // 4. Submit & Present
@@ -1549,6 +1586,12 @@ namespace Gordian.App.Graphics
 
                 float radius = skyMesh.BoundingRadius * MathF.Max(MathF.Abs(particle.Scale.X), MathF.Max(MathF.Abs(particle.Scale.Y), MathF.Abs(particle.Scale.Z)));
                 Matrix4x4 oriented = local * facing;
+                if (skyMesh.Morph is { } morph && skyMesh.MorphVertices is { } morphVertices)
+                {
+                    // The command list orders this write before the particle's draw, as it does the uniform buffer's.
+                    morph.Blend(particle.MeshWeights ?? FirstMorphTarget, morphVertices);
+                    _commandList.UpdateBuffer(skyMesh.VertexBuffer, 0, morphVertices);
+                }
                 Vector3 position = ToDisplay(particle.WorldPosition);
                 var subOffsets = particle.SubOffsets;
                 int drawCount = subOffsets?.Length ?? 1;
@@ -1571,6 +1614,9 @@ namespace Gordian.App.Graphics
             }
             return drawn;
         }
+
+        /// <summary>The weights of a weighted-mesh particle no weight updater has set: its first morph target.</summary>
+        private static readonly float[] FirstMorphTarget = [1.0f];
 
         /// <summary>
         /// Converts a raw DAT-space linear transform to display space (the (-x, -y, z) flip on both sides).
@@ -2287,6 +2333,7 @@ namespace Gordian.App.Graphics
 
             _entityRenderer?.Dispose();
             _skyDomeRenderer?.Dispose();
+            _postProcess?.Dispose();
             _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();

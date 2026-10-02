@@ -52,6 +52,15 @@ namespace Gordian.Core.Events
         Vector3 Origin = default,
         float Heading = 0f);
 
+    /// <summary>
+    /// The motion blur of the cutscene scene routines (op 0x0E): <see cref="Amount"/> of the previous frame kept each
+    /// frame (0 = off), tinted by <see cref="Tint"/> and zoomed by <see cref="Zoom"/>.
+    /// </summary>
+    public readonly record struct SceneBlur(float Amount, Vector3 Tint, float Zoom)
+    {
+        public bool IsActive => Amount > 0.001f;
+    }
+
     public sealed class EventPresentation
     {
         private sealed class Shot
@@ -78,12 +87,29 @@ namespace Gordian.Core.Events
         private readonly List<Fade> _sceneFades = new();
         private readonly List<Fade> _interfaceFades = new();
         private readonly List<Fade> _flashFades = new();
+        private readonly List<Fade> _blurTints = new();
+        private readonly List<Fade> _blurAmounts = new();
+        private readonly List<Dissolve> _dissolves = new();
+        private int _dissolveSequence;
         private readonly List<SceneEffectEvent> _effects = new();
         private readonly HashSet<int> _effectTasks = new();
         private long _effectSequence;
         private Vector3 _sceneBase = Vector3.One;
         private Vector3 _interfaceBase = Vector3.One;
         private Vector3 _flashBase = Vector3.Zero;
+        private Vector3 _blurTintBase = Vector3.One;
+        private Vector3 _blurAmountBase = NoBlur;
+
+        /// <summary>The blur channel's resting value: nothing of the previous frame kept, no zoom.</summary>
+        private static readonly Vector3 NoBlur = new(0f, 1f, 0f);
+
+        private sealed class Dissolve
+        {
+            public int TaskId;
+            public int Sequence;
+            public double Start;
+            public double Duration;
+        }
         private volatile bool _cameraHeld;
 
         /// <summary>The time in seconds commands are scheduled and sampled against (replaceable for tests).</summary>
@@ -151,6 +177,13 @@ namespace Gordian.Core.Events
                         case SceneCommandKind.ScreenFlash:
                             Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
                             break;
+                        case SceneCommandKind.Blur:
+                            Insert(_blurTints, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _blurTintBase);
+                            Insert(_blurAmounts, new Fade { TaskId = taskId, Target = BlurAmountOf(command.Color, command.Factor), Start = start, Duration = duration }, _blurAmountBase);
+                            break;
+                        case SceneCommandKind.CrossDissolve when duration > 0:
+                            _dissolves.Add(new Dissolve { TaskId = taskId, Sequence = ++_dissolveSequence, Start = start, Duration = duration });
+                            break;
                     }
                 }
             }
@@ -180,9 +213,14 @@ namespace Gordian.Core.Events
                 _sceneFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 _interfaceFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 _flashFades.RemoveAll(f => f.TaskId == taskId && f.Start > now);
+                _blurTints.RemoveAll(f => f.TaskId == taskId && f.Start > now);
+                _blurAmounts.RemoveAll(f => f.TaskId == taskId && f.Start > now);
+                _dissolves.RemoveAll(d => d.TaskId == taskId && d.Start > now);
                 Recompute(_sceneFades, _sceneBase);
                 Recompute(_interfaceFades, _interfaceBase);
                 Recompute(_flashFades, _flashBase);
+                Recompute(_blurTints, _blurTintBase);
+                Recompute(_blurAmounts, _blurAmountBase);
                 if (_effectTasks.Remove(taskId)) AddEffect(new SceneEffectEvent(0, SceneEffectEventKind.Stop, taskId));
             }
         }
@@ -228,9 +266,14 @@ namespace Gordian.Core.Events
                 _sceneFades.Clear();
                 _interfaceFades.Clear();
                 _flashFades.Clear();
+                _blurTints.Clear();
+                _blurAmounts.Clear();
+                _dissolves.Clear();
                 _sceneBase = Vector3.One;
                 _interfaceBase = Vector3.One;
                 _flashBase = Vector3.Zero;
+                _blurTintBase = Vector3.One;
+                _blurAmountBase = NoBlur;
                 _effectTasks.Clear();
                 AddEffect(new SceneEffectEvent(0, SceneEffectEventKind.Reset, -1));
             }
@@ -276,6 +319,51 @@ namespace Gordian.Core.Events
         {
             lock (_lock) return Evaluate(_flashFades, ref _flashBase, now);
         }
+
+        /// <summary>
+        /// The motion blur now (op 0x0E, <c>blon</c> / <c>blof</c>): how much of the previous frame each frame keeps (0 =
+        /// off, 1 = all), its tint (1 = as drawn) and its zoom (1 = none, below 1 the trail spreads outward).
+        /// </summary>
+        public SceneBlur Blur => BlurAt(Clock());
+
+        public SceneBlur BlurAt(double now)
+        {
+            lock (_lock)
+            {
+                var tint = Evaluate(_blurTints, ref _blurTintBase, now);
+                var amount = Evaluate(_blurAmounts, ref _blurAmountBase, now);
+                return new SceneBlur(Math.Clamp(amount.X, 0f, 1f), tint, amount.Y);
+            }
+        }
+
+        /// <summary>
+        /// The cross-dissolve now (op 0x10, <c>ovl1</c> / <c>ovl2</c>): which one (a new number when one starts, so the
+        /// renderer keeps the frame before it) and how much of that frame still shows, 1 at its start to 0 at its end;
+        /// (0, 0) when none runs.
+        /// </summary>
+        public (int Sequence, float Opacity) CrossDissolve => CrossDissolveAt(Clock());
+
+        public (int Sequence, float Opacity) CrossDissolveAt(double now)
+        {
+            lock (_lock)
+            {
+                _dissolves.RemoveAll(d => now >= d.Start + d.Duration);
+                Dissolve? running = null;
+                foreach (var dissolve in _dissolves)
+                {
+                    if (dissolve.Start <= now && (running == null || dissolve.Start >= running.Start)) running = dissolve;
+                }
+                if (running == null) return (0, 0f);
+                return (running.Sequence, 1f - (float)((now - running.Start) / running.Duration));
+            }
+        }
+
+        /// <summary>
+        /// The blur channel of an op 0x0E command: X the share of the previous frame kept (its A byte, 0x80 = all, as the
+        /// fade colours' 0x80 = full), Y the zoom (its float).
+        /// </summary>
+        public static Vector3 BlurAmountOf(uint bgra, float factor) =>
+            new(((bgra >> 24) & 0xFF) / 128f, float.IsFinite(factor) && factor > 0f ? factor : 1f, 0f);
 
         /// <summary>How visible the 2D interface is now, 0-1 (the <c>fao?</c> / <c>fai?</c> fades).</summary>
         public float InterfaceOpacity => InterfaceOpacityAt(Clock());

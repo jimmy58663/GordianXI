@@ -51,11 +51,11 @@ Two files hold the tasks most scripts share. Frame counts are 60 Hz frames (rout
 | `fdos` / `fdis` | despite the `fd` prefix, interface fades (0x51) out and back over 60 frames | 30904 | 0x45 (654 each) | played as interface fades | same |
 | `fdol` / `fdil` | interface fade to black / to white (FF FF FF) over 300 frames | 30904 | not used by any script | would play as interface fades | same |
 | `fdof` / `fdif` / `fdop` / `fdip` | named by 654 script uses each (with `fdos` / `fdis`), but not in the file | none | 0x45 | task lasts 0 frames ("no such routine" debug line) | retail DAT and scripts, 2026-10-01 |
-| `ovl1` / `ovl2` | cross-dissolve between shots (op 0x10), 60 / 120 frames | 30904 | 0x45 (2,255 / 317) | not played (no previous frame kept) | same |
-| `blon` / `blof` | blur on / off (op 0x0E: colour and factor), 15 frames | 30904 (also 30812, 30905, 57139, 70973) | 0x45 (2,308 / 1,304) | not played | same |
+| `ovl1` / `ovl2` | cross-dissolve between shots (op 0x10), 60 / 120 frames | 30904 (30812 has `olp1` / `olp2`, 60 / 90) | 0x45 (2,255 / 317) | played: the frame before is held and fades out (`ScenePostProcess`, #205) | same |
+| `blon` / `blof` | blur on / off (op 0x0E: A0 A0 A0 30 / 0.98, then 80 80 80 00 / 1.0), 15 frames | 30904 (also 30812, 30905, 57139, 70973) | 0x45 (2,308 / 1,304) | played as the feedback motion blur (*inferred*, #205) | same |
 | `c00i`-`c0bi` | twelve-direction orbit shots, 60 frames; Routes `c00i`-`c0bi` and `c00c`-`c0bc` with flag bit 0 (placed at the task's first actor). `c05i` plays Route `c05c` | 30904 | 0x45 (`c00i` 59, `c05i` 9) | played (`CameraRoute.IsActorRelative`) | same |
-| `ati0` / `ati1` / `ato0` / `ato1` | short camera moves on Routes of the same names, with a blur | 30904 | 0x45 (1-2 uses) | camera played, blur not | same |
-| `0dkn` / `1dkn` | blur pulse and two other commands (0x02, 0x1E) | 30904 | 0x45 (23 for `0dkn`) | 0x02 / 0x1E played when the file has the generator; blur not played | same |
+| `ati0` / `ati1` / `ato0` / `ato1` | short camera moves on Routes of the same names, with a blur | 30904 | 0x45 (1-2 uses) | played | same |
+| `0dkn` / `1dkn` | blur pulse (0x0E to 2D / 0.92 at once, back over 40-50 frames) and two other commands (0x02, 0x1E) | 30904 | 0x45 (23 for `0dkn`) | played (0x02 / 0x1E when the file has the generator) | same |
 | `fan1`-`fan5`, `hrp1` / `hrp2`, `s021`-`s038`, `6109` / `6121` / `8160` | single op 0x60 command, 0 frames (meaning not known) | 30904 | 0x45 (`fan1` 22, `hrp1` 1) | not played; task ends at once | same |
 
 **30905** (`p` 201, ROM/62/111.DAT): 9 routines, no Routes.
@@ -73,13 +73,13 @@ Two files hold the tasks most scripts share. Frame counts are 60 Hz frames (rout
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|
 | `bl00` | spawn the black card `bk00` (never expires): the eyes closed, from the scene's start | 51402 (`p` 219) | 0x9F on the player | played: the screen goes black | retail DAT |
-| `open` | 0x3F `bk00` -> `bk01` (black, 150 frames, fades out), spawn `md00` and the eye-shaped mask `mb00`: the eyes opening on Joachim's legs (recording about 1:48-1:50) | 51402 | 0x9F | played as a full-screen fade; the eye-shaped mask is a weighted mesh, not drawn ([#204](https://github.com/jimmy58663/GordianXI/issues/204)) | retail DAT; recording |
-| `clos` | spawn `bk02` (fades to black over 160 frames), 0x3F `mb00` -> `mb02` (the eye closing), then `bk00` again at 152 | 51402 | 0x9F | played without the mask | retail DAT |
+| `open` | 0x3F `bk00` -> `bk01` (black, 150 frames, fades out), spawn `md00` and the eye-shaped mask `mb00`: the eyes opening on Joachim's legs (recording about 1:48-1:50) | 51402 | 0x9F | played: the eye opens (weighted mesh `mb`, #204); the black cards stay opaque longer than retail ([#208](https://github.com/jimmy58663/GordianXI/issues/208)) | retail DAT; recording |
+| `clos` | spawn `bk02` (fades to black over 160 frames), 0x3F `mb00` -> `mb02` (the eye closing), then `bk00` again at 152 | 51402 | 0x9F | played | retail DAT |
 | `kill` | 0x1E `bk00`: the black card goes | 51402 | 0x9F | played | retail DAT |
 | `mai1` | at 242 starts `strt`, at 322 starts `loop` repeating (0x73): the magenta cloud swelling in the sky (recording about 1:13-1:28) | 51327 (`p` 144) | 0x9F on the invisible marker 0x010F608F, which 0x59 sub 5 keeps about 50 yalms up | played at the marker (it was drawn on the street, under the floor, until 0x59 sub 5 ran) | retail DAT; recording |
 | `mai2` | starts `cas1` (scene colours, not played) and `kie0`, stops `loop` at 370, starts `edxx`, then `tama` repeating: the white burst, the rings and the beam (about 1:28-1:38) | 51327 | 0x9F | played except `cas1`'s colours | retail DAT; recording |
 | `stop` | 0x05 plays clip `ban2` on the actor, 0x5F stops `loop`, and `tama` after 160 frames | 51327 | 0x9F | routine stops played; the clip is not | retail DAT |
-| `fall` | dozens of generators about 229 above the director (light glows, a falling beam), the black card `bl00` in front of the camera, two blur commands (0x0E) and a 0x72 flash (44 30 3A, 6 frames, back over 20) | 51328 (`p` 145) | 0x9F on the director, twice | played except the blur and `wa01` (weighted mesh) | retail DAT |
+| `fall` | dozens of generators about 229 above the director (light glows, a falling beam), the black card `bl00` in front of the camera, two blur commands (0x0E) and a 0x72 flash (44 30 3A, 6 frames, back over 20) | 51328 (`p` 145) | 0x9F on the director, twice | played (the blur since #205, `wa01`'s weighted mesh `uw` since #204) | retail DAT |
 | `s002` / `kil2` | spawn the sparkles `tub5` / `tub6` (auto-running, in front of the camera, 0.5 out) / kill them: they float through the scene from 15.6 s to 48.4 s | 70443 (0xCD `p` 8) | 0xCD on the player | played: an auto-running generator of a scene file emits from its spawn until it is killed | retail DAT; script trace |
 | `se00`, `0pro`, `kpro`, `0rak`, `krak`, `ke00`, `0dkn` | spawn and kill the file's seven generators, all sounds (link type 0x3D: `1080`, `8238`, `4053`, `2088`, `6041`, `7124`, `7a24`) on the player and the marker | 57129 (0x45 `p` 488) | 0x45 | nothing to draw; the sounds wait for [#167](https://github.com/jimmy58663/GordianXI/issues/167) | retail DAT |
 
@@ -197,6 +197,6 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 ## Not done
 
 - 0xA1 (0x62's stop by its place; never used in retail, base disputed) and what file 5012 + n holds ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
-- Scene routine ops 0x0E (blur) and 0x10 (cross-dissolve) ([#205](https://github.com/jimmy58663/GordianXI/issues/205)), 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x22 / 0x7F and 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known; [#206](https://github.com/jimmy58663/GordianXI/issues/206)); generators drawing weighted meshes ([#204](https://github.com/jimmy58663/GordianXI/issues/204)).
+- Scene routine ops 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x22 / 0x7F and 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known; [#206](https://github.com/jimmy58663/GordianXI/issues/206)).
 - Motion packages above 175 and package -1 ([#193](https://github.com/jimmy58663/GordianXI/issues/193)).
 - Emote ids from 39 on and the dances; robe-body emote waist parts.

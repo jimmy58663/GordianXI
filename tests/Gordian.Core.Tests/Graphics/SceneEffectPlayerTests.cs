@@ -50,11 +50,13 @@ namespace Gordian.Core.Tests.Graphics
             Run(player, 600);
             Assert.Equal(new[] { "bk00" }, Live(player)); // bk00 never expires: the screen stays black
 
-            // open: 0x3F replaces the black card with bk01 (150 frames), md00 starts with it.
+            // open: 0x3F replaces the black card with bk01 (150 frames), md00 and the eye-shaped mask mb00 start with it.
             Assert.True(player.Start(2, "open"));
             Run(player, 20);
-            Assert.Equal(new[] { "bk01", "md00" }, Live(player));
+            Assert.Equal(new[] { "bk01", "mb00", "md00" }, Live(player));
             Run(player, 200);
+            Assert.Equal(new[] { "mb00" }, Live(player)); // the open eye holds until clos replaces it
+            Run(player, 400);
             Assert.Empty(Live(player));
             Assert.True(player.IsIdle);
 
@@ -114,6 +116,39 @@ namespace Gordian.Core.Tests.Graphics
             Assert.True(player.Start(27, "kil2"));
             Run(player, 5);
             Assert.Empty(Live(player));
+        }
+
+        [Fact]
+        public void BlinkMask_IsBornClosed_OpensOverItsWeightCurves_AndClosReplacesIt()
+        {
+            // open spawns mb00 (weighted mesh mb, 600-frame life): weight 0 (the open lids) 0 -> 0.854 at 0.229 -> 0.7,
+            // weight 1 (closed) 0.96 -> 0.24 (#204).
+            if (Open(51402) is not var (player, effects)) return;
+            Assert.All(effects.Layers.Where(l => l.Name.StartsWith("mb")), l => Assert.NotNull(l.WeightedMesh));
+            Assert.True(player.Start(1, "bl00"));
+            Run(player, 10);
+            Assert.True(player.Start(2, "open"));
+            player.Update(1, ActorFrame, CameraFrame);
+            ZoneParticle Mask(string name) => player.Instance.Emitters.Single(e => e.Layer.Name == name).Emitter.Particles.Single();
+
+            // Born with its weights: closed from its first drawn frame.
+            var weights = Mask("mb00").MeshWeights;
+            Assert.NotNull(weights);
+            Assert.InRange(weights[0], -0.01f, 0.01f);
+            Assert.InRange(weights[1], 0.9f, 0.96f);
+
+            Run(player, 200);
+            weights = Mask("mb00").MeshWeights!;
+            Assert.Equal(0.7f, weights[0], 2);
+            Assert.Equal(0.24f, weights[1], 2);
+
+            // clos swaps in mb02, which closes the lids again (weight 0 0.7 -> 0, weight 1 0.24 -> 1).
+            Assert.True(player.Start(3, "clos"));
+            Run(player, 155);
+            Assert.DoesNotContain("mb00", Live(player));
+            weights = Mask("mb02").MeshWeights!;
+            Assert.InRange(weights[0], 0f, 0.05f);
+            Assert.InRange(weights[1], 0.9f, 1f);
         }
 
         [Fact]

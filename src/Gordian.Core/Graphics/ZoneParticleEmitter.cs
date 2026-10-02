@@ -202,6 +202,15 @@ namespace Gordian.Core.Graphics
         public int SpriteIndex { get; internal set; }
 
         /// <summary>
+        /// A weighted-mesh particle's morph target weights (updaters 0x1E-0x22, 0x6E), unset ones 0; null until a weight
+        /// updater runs, and then the mesh draws its first target.
+        /// </summary>
+        public float[]? MeshWeights { get; private set; }
+
+        internal void SetMeshWeight(int target, float weight) =>
+            (MeshWeights ??= new float[WeightedMesh.MaxWeights])[target] = weight;
+
+        /// <summary>
         /// Point-light parameters (opcode 0x58, animated by 0x49 / 0x5B-0x5E): range in yalms, theta (the light's power),
         /// and their multipliers.
         /// </summary>
@@ -735,6 +744,13 @@ namespace Gordian.Core.Graphics
             {
                 if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, ChildFollow.None);
             }
+
+            // A weighted-mesh particle is drawn the frame it is born, before its updaters run: it takes its birth weights
+            // now, or 324's blink would open the eye for a frame before closing it.
+            foreach (var op in Def.Updaters)
+            {
+                if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E) ApplyUpdater(p, op, 0f, new ZoneParticleFrame(_cameraRawPosition, 0f, _daylightColor));
+            }
             return p;
         }
 
@@ -1033,6 +1049,13 @@ namespace Gordian.Core.Graphics
                 case 0x1C: Progress(p, slot, null, u => p.TexCoordTranslate = p.TexCoordTranslate with { X = u }); break;
                 case 0x1D: Progress(p, slot, null, w => p.TexCoordTranslate = p.TexCoordTranslate with { Y = w }); break;
 
+                // Weighted-mesh morph weights 0-4 (Port Jeuno 324's blink opens the eye with 0x1E / 0x1F, #204).
+                case 0x1E: Progress(p, slot, null, w => p.SetMeshWeight(0, w)); break;
+                case 0x1F: Progress(p, slot, null, w => p.SetMeshWeight(1, w)); break;
+                case 0x20: Progress(p, slot, null, w => p.SetMeshWeight(2, w)); break;
+                case 0x21: Progress(p, slot, null, w => p.SetMeshWeight(3, w)); break;
+                case 0x22: Progress(p, slot, null, w => p.SetMeshWeight(4, w)); break;
+
                 case 0x25: // ChildGeneratorBasicUpdater: the child emits from its own base (or the parent via 0x45)
                     if (p.ChildStreams.TryGetValue(slot, out var basicStream)) AdvanceChildStream(p, basicStream, frames, ChildFollow.None);
                     break;
@@ -1116,6 +1139,14 @@ namespace Gordian.Core.Graphics
                     float distance = Vector3.Distance(frame.CameraRawPosition, p.WorldPosition) +
                                      1.15f * MathF.Abs(p.Scale.X);
                     MultiplyAlpha(p, DoubleRangeWeight(distance, op.Float(0), op.Float(1), op.Float(2), op.Float(3)));
+                    break;
+                }
+
+                case 0x6E: // DoubleRangeWeightedMeshUpdater: the first target inside the near..far band, the second outside
+                {
+                    float weight = DoubleRangeWeight(Vector3.Distance(frame.CameraRawPosition, p.WorldPosition), op.Float(0), op.Float(1), op.Float(2), op.Float(3));
+                    p.SetMeshWeight(0, weight);
+                    p.SetMeshWeight(1, 1f - weight);
                     break;
                 }
 

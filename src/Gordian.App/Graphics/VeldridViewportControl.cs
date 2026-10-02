@@ -1011,6 +1011,18 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// Toggles the cutscene post-process (the scene routines' blur and cross-dissolve, #205) on/off.
+        /// </summary>
+        public void TogglePostProcess()
+        {
+            if (_renderer != null)
+            {
+                _renderer.EnablePostProcess = !_renderer.EnablePostProcess;
+                GordianLog.Info("Graphics", $"Cutscene post-process (blur, cross-dissolve) {(_renderer.EnablePostProcess ? "enabled" : "disabled")}.");
+            }
+        }
+
         // Right-click-drag camera look and wheel zoom are NOT handled here. On Windows this
         // control's rendering surface is a real native Win32 child window (see
         // Win32ChildWindowHelper), so the OS delivers its mouse messages directly to that child
