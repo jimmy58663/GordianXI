@@ -17,8 +17,11 @@ namespace Gordian.Core.Animation
     /// <item><c>eye3</c>: the eyelid joints (Elvaan male 33 and 42) close over the eyeball and open again in 4-11
     /// frames (about 0.17 s).</item>
     /// </list>
-    /// Retail flaps the mouth while an event has the actor talk (<c>NpcSpeechFrame</c> set by opcodes 0x1E / 0x4A / 0x79,
-    /// cleared by 0x7B; <see cref="World.EventLook.SpeechFrame"/>). How often retail blinks is not measured.
+    /// The mouth plays <c>mou4</c> once (three flaps over 2 s) each time the actor speaks an event line
+    /// (<see cref="World.WorldEntity.SpokenLines"/>), then stops: the maintainer's in-game test (2026-10-02) found a mouth
+    /// looping for as long as retail's <c>NpcSpeechFrame</c> stays set (0x1E / 0x4A / 0x79 until 0x7B) far too much, with
+    /// listeners flapping through other actors' lines; in retail the mouth moves a few times as the line is spoken. How
+    /// often retail blinks is not measured.
     /// The clips are layered on the evaluated pose (each joint turns by the clip's local rotation on top of the body
     /// motion), as <see cref="HeadLook"/> is.
     /// </summary>
@@ -38,6 +41,7 @@ namespace Gordian.Core.Animation
 
         private readonly Random _random;
         private float _mouthTime = -1f;
+        private int _spokenLines = -1;
         private float _blinkTime = -1f;
         private float _untilBlink;
 
@@ -54,15 +58,25 @@ namespace Gordian.Core.Animation
         public float BlinkTime => _blinkTime;
 
         /// <summary>
-        /// Advances the face by <paramref name="deltaSeconds"/>: the mouth runs while <paramref name="talking"/>, and a blink
-        /// starts when its wait runs out unless <paramref name="canBlink"/> is false (a dead actor's death motion closes
-        /// its eyes itself).
+        /// Advances the face by <paramref name="deltaSeconds"/>: the mouth plays its clip once from the start whenever
+        /// <paramref name="spokenLines"/> (the entity's count of spoken lines) changes, and a blink starts when its wait runs
+        /// out unless <paramref name="canBlink"/> is false (a dead actor's death motion closes its eyes itself). The first
+        /// call only takes the count.
         /// </summary>
-        public void Advance(float deltaSeconds, bool talking, bool canBlink, EntityModel model)
+        public void Advance(float deltaSeconds, int spokenLines, bool canBlink, EntityModel model)
         {
             float dt = Math.Max(0f, deltaSeconds);
 
-            _mouthTime = talking && model.Animations.ContainsKey(MouthClip) ? Math.Max(0f, _mouthTime) + dt : -1f;
+            if (_mouthTime >= 0f)
+            {
+                _mouthTime += dt;
+                if (!model.Animations.TryGetValue(MouthClip, out var mouth) || _mouthTime >= mouth.DurationSeconds) _mouthTime = -1f;
+            }
+            if (spokenLines != _spokenLines)
+            {
+                if (_spokenLines >= 0 && model.Animations.ContainsKey(MouthClip)) _mouthTime = 0f;
+                _spokenLines = spokenLines;
+            }
 
             if (_blinkTime >= 0f)
             {
@@ -84,7 +98,7 @@ namespace Gordian.Core.Animation
         public void Apply(EntityModel model, in SkeletonPoseEvaluator.EvaluatedPose pose)
         {
             if (model.Skeleton is not { } skeleton) return;
-            if (_mouthTime >= 0f && model.Animations.TryGetValue(MouthClip, out var mouth)) Layer(skeleton, pose, mouth, _mouthTime, loop: true);
+            if (_mouthTime >= 0f && model.Animations.TryGetValue(MouthClip, out var mouth)) Layer(skeleton, pose, mouth, _mouthTime, loop: false);
             if (_blinkTime >= 0f && model.Animations.TryGetValue(BlinkClip, out var blink)) Layer(skeleton, pose, blink, _blinkTime, loop: false);
         }
 

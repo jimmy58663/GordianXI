@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
 
@@ -669,6 +670,17 @@ namespace Gordian.Core.World
             get => _eventLook;
             set => _eventLook = value;
         }
+
+        private int _spokenLines;
+
+        /// <summary>
+        /// How many event message lines the entity has spoken: each one moves its mouth once (the renderer watches the count
+        /// change; see <see cref="FaceMotion"/>).
+        /// </summary>
+        public int SpokenLines => Volatile.Read(ref _spokenLines);
+
+        /// <summary>Counts a line the entity speaks (an event message with it as the speaker).</summary>
+        public void Speak() => Interlocked.Increment(ref _spokenLines);
 
         /// <summary>
         /// Where a running event (cutscene) has placed the entity, or null when the event leaves it alone. While set,

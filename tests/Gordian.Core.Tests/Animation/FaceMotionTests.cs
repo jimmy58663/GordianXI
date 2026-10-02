@@ -84,18 +84,34 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void Mouth_RunsWhileTalking_AndStopsAtOnce()
+        public void Mouth_PlaysOncePerSpokenLine_ThenStops()
         {
             var model = Model();
+            float duration = model.Animations[FaceMotion.MouthClip].DurationSeconds;
             var face = new FaceMotion(new Random(1));
-            face.Advance(0.5f, talking: false, canBlink: false, model);
+            face.Advance(0.5f, spokenLines: 3, canBlink: false, model); // the first call only takes the count
             Assert.Equal(-1f, face.MouthTime);
-            face.Advance(0.5f, talking: true, canBlink: false, model);
-            Assert.Equal(0.5f, face.MouthTime, 4);
-            face.Advance(0.25f, talking: true, canBlink: false, model);
-            Assert.Equal(0.75f, face.MouthTime, 4);
-            face.Advance(0.1f, talking: false, canBlink: false, model);
+            face.Advance(0.5f, spokenLines: 4, canBlink: false, model);
+            Assert.Equal(0f, face.MouthTime);
+            face.Advance(duration / 2, spokenLines: 4, canBlink: false, model);
+            Assert.Equal(duration / 2, face.MouthTime, 4);
+            face.Advance(duration, spokenLines: 4, canBlink: false, model);
+            Assert.Equal(-1f, face.MouthTime); // one play, no loop
+            face.Advance(10f, spokenLines: 4, canBlink: false, model);
             Assert.Equal(-1f, face.MouthTime);
+        }
+
+        [Fact]
+        public void Mouth_ANewLineMidPlay_StartsAgain()
+        {
+            var model = Model();
+            float duration = model.Animations[FaceMotion.MouthClip].DurationSeconds;
+            var face = new FaceMotion(new Random(1));
+            face.Advance(0f, spokenLines: 0, canBlink: false, model);
+            face.Advance(0f, spokenLines: 1, canBlink: false, model);
+            face.Advance(duration * 0.75f, spokenLines: 1, canBlink: false, model);
+            face.Advance(0.01f, spokenLines: 2, canBlink: false, model);
+            Assert.Equal(0f, face.MouthTime);
         }
 
         [Fact]
@@ -106,11 +122,11 @@ namespace Gordian.Core.Tests.Animation
             float waited = 0f;
             while (face.BlinkTime < 0f && waited < FaceMotion.MaxBlinkInterval + 1f)
             {
-                face.Advance(0.05f, talking: false, canBlink: true, model);
+                face.Advance(0.05f, spokenLines: 0, canBlink: true, model);
                 waited += 0.05f;
             }
             Assert.InRange(waited, FaceMotion.MinBlinkInterval, FaceMotion.MaxBlinkInterval + 0.05f);
-            face.Advance(model.Animations[FaceMotion.BlinkClip].DurationSeconds, talking: false, canBlink: true, model);
+            face.Advance(model.Animations[FaceMotion.BlinkClip].DurationSeconds, spokenLines: 0, canBlink: true, model);
             Assert.Equal(-1f, face.BlinkTime);
         }
 
@@ -119,7 +135,7 @@ namespace Gordian.Core.Tests.Animation
         {
             var model = Model();
             var face = new FaceMotion(new Random(7));
-            for (int i = 0; i < 400; i++) face.Advance(0.05f, talking: false, canBlink: false, model);
+            for (int i = 0; i < 400; i++) face.Advance(0.05f, spokenLines: 0, canBlink: false, model);
             Assert.Equal(-1f, face.BlinkTime);
         }
 
@@ -128,7 +144,7 @@ namespace Gordian.Core.Tests.Animation
         {
             var model = new EntityModel { Skeleton = Skeleton() };
             var face = new FaceMotion(new Random(7));
-            for (int i = 0; i < 400; i++) face.Advance(0.05f, talking: true, canBlink: true, model);
+            for (int i = 0; i < 400; i++) face.Advance(0.05f, spokenLines: i, canBlink: true, model);
             Assert.Equal(-1f, face.MouthTime);
             Assert.Equal(-1f, face.BlinkTime);
         }
