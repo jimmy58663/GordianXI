@@ -47,9 +47,9 @@ namespace Gordian.Core.Tests.Animation
         public void AxisStep_MovesAtTheHeadTurnSpeed_AndStopsOnTheAxis()
         {
             var target = new Vector2(0f, HeadLook.MaxPitch);
-            var oneSecond = HeadLook.AxisStep(Vector2.Zero, target, 0, 1f);
-            Assert.Equal(HeadLook.DefaultAxisTurnSpeed * HeadLook.RadiansPerStep, oneSecond.Y, 4);
-            Assert.Equal(0f, oneSecond.X);
+            var tenth = HeadLook.AxisStep(Vector2.Zero, target, 0, 0.1f);
+            Assert.Equal(HeadLook.DefaultAxisTurnSpeed * 0.1f * HeadLook.RadiansPerStep, tenth.Y, 4);
+            Assert.Equal(0f, tenth.X);
             Assert.Equal(200 * HeadLook.RadiansPerStep, HeadLook.AxisStep(Vector2.Zero, target, 200, 1f).Y, 4);
             Assert.Equal(target, HeadLook.AxisStep(Vector2.Zero, target, 1500, 1f));
             Assert.Equal(-0.1f, HeadLook.AxisStep(new Vector2(-0.1f, 0f), new Vector2(-0.1f, 0f), 50, 1f).X);
