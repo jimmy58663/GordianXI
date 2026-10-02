@@ -121,6 +121,9 @@ namespace Gordian.App.Graphics
         /// <summary>Each entity's current head turn (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
         private readonly Dictionary<uint, float> _headYaw = new();
 
+        /// <summary>Each humanoid entity's talking mouth and blink (<see cref="FaceMotion"/>).</summary>
+        private readonly Dictionary<uint, FaceMotion> _faces = new();
+
         /// <summary>The entities of this frame by server id, filled only while some entity has an event look.</summary>
         private readonly Dictionary<uint, WorldEntity> _lookTargets = new();
 
@@ -382,6 +385,7 @@ namespace Gordian.App.Graphics
                     }
                     _entityEnvironments.Remove(entity.ServerId);
                     _actorAnchors.Remove(entity.ServerId);
+                    _faces.Remove(entity.ServerId);
                     continue;
                 }
 
@@ -533,7 +537,8 @@ namespace Gordian.App.Graphics
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
                     float headYaw = HeadYaw(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headYaw, out var pose);
+                    var face = Face(entity, entityModel!, category, deltaSeconds);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headYaw, face, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
@@ -631,8 +636,26 @@ namespace Gordian.App.Graphics
             return next;
         }
 
-        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, float headYaw, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        /// <summary>
+        /// The entity's face this frame: the mouth runs while its event has it talk (<see cref="EventLook.SpeechFrame"/> set),
+        /// and it blinks unless dead. Null for a model without face clips (monsters).
+        /// </summary>
+        private FaceMotion? Face(WorldEntity entity, EntityModel model, AnimationCategory category, float deltaSeconds)
         {
+            if (!model.Animations.ContainsKey(FaceMotion.MouthClip) && !model.Animations.ContainsKey(FaceMotion.BlinkClip)) return null;
+            if (!_faces.TryGetValue(entity.ServerId, out var face))
+            {
+                face = new FaceMotion();
+                _faces[entity.ServerId] = face;
+            }
+            bool talking = entity.EventLook is { SpeechFrame: >= 0 };
+            face.Advance(deltaSeconds, talking, category != AnimationCategory.Death, model);
+            return face;
+        }
+
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, EntityModel model, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, float headYaw, FaceMotion? face, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        {
+            var skeleton = model.Skeleton!;
             bool loop = animState.LoopsCurrentClip;
             var overlay = animState.Overlay;
             if (animState.IsBlending && animState.PreviousClip != null)
@@ -653,7 +676,9 @@ namespace Gordian.App.Graphics
             {
                 pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides, overlay);
             }
-            // An event's head look (0x1E / 0x4A / 0x79) turns the head joint and what hangs from it.
+            // The talking mouth and the blink move the face joints, then an event's head look (0x1E / 0x4A / 0x79) turns
+            // the head joint and what hangs from it.
+            face?.Apply(model, pose);
             HeadLook.Apply(skeleton, pose, HeadLook.HeadJoint(skeleton), headYaw);
             int count = pose.Rotations.Length;
 
