@@ -1080,6 +1080,13 @@ namespace Gordian.Core.Events
                     _host.SetEntityKeepsHeight(EntityServerId, (Code8(1) & 1) != 0);
                     _pc += 2;
                     return;
+                case 0x92:
+                    // Render.Flags3 bit 16 of the actor at +2 from the byte at +1 (XiEvents OpCodes/0x0092): no name plate.
+                    // Port Jeuno 324 sets it on every NPC it places and on Joachim, not on the player, and retail draws only
+                    // the player's plate there (#191).
+                    if (TaskActor(Code32(2)) is var nameless && nameless != uint.MaxValue) _host.SetEntityHidesName(nameless, (Code8(1) & 1) != 0);
+                    _pc += 6;
+                    return;
                 case 0x5E:
                     // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the
                     // idle motion named by the operand); the idle name is not used, the entity's own idle plays.

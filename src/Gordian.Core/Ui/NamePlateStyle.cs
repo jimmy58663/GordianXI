@@ -70,7 +70,8 @@ namespace Gordian.Core.Ui
     public static class NamePlateStyle
     {
         /// <summary>
-        /// Whether the client draws a name over the entity. Hidden and invisible entities, NPCs flagged to hide their
+        /// Whether the client draws a name over the entity. Hidden and invisible entities, entities a running event hides
+        /// the name of (opcode 0x92, <see cref="WorldEntity.HidesEventName"/>), NPCs flagged to hide their
         /// name, and NPCs whose model is one the client never names (Home Point crystals and other model ids 50-59,
         /// nation and beastmen flags 814-817, invisible models 1847-1862, special coffers 2425-2429 and Confluxes
         /// 2490-2494, from the client's 0x00E sub-kind 0 handling in XiPackets) have none.
@@ -78,6 +79,7 @@ namespace Gordian.Core.Ui
         public static bool ShowsName(WorldEntity entity, NamePlateFlags flags)
         {
             if (!entity.IsSpawned || (entity.IsHidden && !entity.IsInEvent) || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
+            if (entity.HidesEventName) return false;
             if (entity is PlayerEntity) return true;
             if ((flags & NamePlateFlags.NameHidden) != 0) return false;
             return !ModelHidesName(entity.Appearance.ModelId);

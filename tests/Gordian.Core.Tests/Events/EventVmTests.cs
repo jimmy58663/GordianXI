@@ -127,6 +127,8 @@ namespace Gordian.Core.Tests.Events
 
         public List<(uint Id, bool Keep)> KeepsHeight { get; } = new();
         public void SetEntityKeepsHeight(uint serverId, bool keep) => KeepsHeight.Add((serverId, keep));
+        public List<(uint Id, bool Hide)> HidesName { get; } = new();
+        public void SetEntityHidesName(uint serverId, bool hide) => HidesName.Add((serverId, hide));
         public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
         public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
     }
