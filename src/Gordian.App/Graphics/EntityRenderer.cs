@@ -637,9 +637,7 @@ namespace Gordian.App.Graphics
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
                 target.X = HeadLook.TargetYaw(heading, position, otherPosition);
-                // A target without a drawn head (an invisible marker, such as the flash in the sky of Port Jeuno event 324,
-                // placed 50 yalms up) is looked at where the event put it, not snapped to the floor.
-                if (HeadHeight(entity.ServerId) is float own && (HeadHeight(other.ServerId) ?? -otherPosition.Y) is float theirs)
+                if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
                 {
                     float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
                     target.Y = HeadLook.TargetPitch(own, theirs, distance);
@@ -650,6 +648,27 @@ namespace Gordian.App.Graphics
             else _headTurn[entity.ServerId] = next;
             return next;
         }
+
+        /// <summary>
+        /// The height to look at on a target (display space, Y up): its head where the event placed it. Entities are drawn
+        /// on the floor below their event place, so the head's height above the drawn root is added to the placed height:
+        /// Port Jeuno event 324 has the player look at the marker 0x010F608F (model 52), placed 50 yalms up for the flash
+        /// in the sky, and looking at its drawn head on the floor kept the player's head level (in-game test, 2026-10-02).
+        /// Only a place well above the drawn root counts (<see cref="AirborneLookLift"/>): the scripts place standing actors
+        /// at heights that need not be the floor's (0 throughout that scene), and the drawn head is right for them. A target
+        /// with no drawn head is looked at at its placed height.
+        /// </summary>
+        private float? LookHeight(WorldEntity target, Vector3 position)
+        {
+            float placed = -position.Y;
+            if (HeadHeight(target.ServerId) is not float head) return placed;
+            if (target.EventPose == null || !_actorAnchors.TryGetValue(target.ServerId, out var anchor)) return head;
+            float lift = placed - anchor.ModelToWorld.Translation.Y;
+            return lift > AirborneLookLift ? head + lift : head;
+        }
+
+        /// <summary>How far above its drawn root a target's event place must be for a look to aim at the place (yalms).</summary>
+        private const float AirborneLookLift = 2f;
 
         /// <summary>
         /// The height of an entity's head joint as last drawn (display space, Y up), or null before its first pose or for a
