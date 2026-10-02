@@ -430,6 +430,7 @@ namespace Gordian.Core.Events
                     }
                     entity.EventPose = null;
                     entity.EventLook = null;
+                    entity.EventHeadTurnSpeed = 0;
                     entity.IsEventHidden = false;
                 }
             }
@@ -913,6 +914,22 @@ namespace Gordian.Core.Events
             if (targetServerId == 0) targetServerId = own;
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
             entity.EventLook = targetServerId == uint.MaxValue || targetServerId == serverId ? null : new EventLook(targetServerId, speechFrame);
+            _staged.Add(serverId);
+        }
+
+        void IEventVmHost.SetEntityLookAxis(uint serverId, int axisX, int axisY)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventLook = EventLook.Fixed(axisX, axisY);
+            _staged.Add(serverId);
+        }
+
+        void IEventVmHost.SetEntityHeadTurnSpeed(uint serverId, int speed)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventHeadTurnSpeed = speed;
             _staged.Add(serverId);
         }
 

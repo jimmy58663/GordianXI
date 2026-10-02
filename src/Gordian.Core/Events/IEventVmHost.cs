@@ -161,6 +161,22 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>
+        /// Opcode 0x79 sub 2: an entity (server id; 0 = the local player) holds its head on a fixed look axis, the two work
+        /// values retail stores as <c>LookAxisX</c> / <c>LookAxisY</c> with look mode 2; 0x7B or another look ends it.
+        /// </summary>
+        void SetEntityLookAxis(uint serverId, int axisX, int axisY)
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0x59 sub 2 / 3: the speed an entity (server id; 0 = the local player) turns its head at (retail
+        /// <c>TurnSpeedHead</c>, a work value).
+        /// </summary>
+        void SetEntityHeadTurnSpeed(uint serverId, int speed)
+        {
+        }
+
         /// <summary>Opcode 0x46: the event takes the camera from the player (true) or gives it back.</summary>
         void SetEventCamera(bool held)
         {

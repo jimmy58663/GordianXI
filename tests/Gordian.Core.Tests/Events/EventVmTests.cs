@@ -121,6 +121,12 @@ namespace Gordian.Core.Tests.Events
 
         public List<(uint Id, uint Target, int SpeechFrame)> Looks { get; } = new();
         public void SetEntityLook(uint serverId, uint targetServerId, int speechFrame) => Looks.Add((serverId, targetServerId, speechFrame));
+
+        public List<(uint Id, int AxisX, int AxisY)> LookAxes { get; } = new();
+        public void SetEntityLookAxis(uint serverId, int axisX, int axisY) => LookAxes.Add((serverId, axisX, axisY));
+
+        public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
+        public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
     }
 
     public class EventVmTests

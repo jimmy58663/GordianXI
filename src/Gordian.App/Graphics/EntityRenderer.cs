@@ -619,11 +619,20 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The head turn and tilt to draw this frame: eased toward the entity's event look target (the bearing, and the
-        /// height of the target's head against its own, both clamped), or back to straight ahead when it looks at nobody.
+        /// height of the target's head against its own, both clamped), moved toward a fixed look axis (0x79 sub 2), or back
+        /// to straight ahead when it looks at nobody.
         /// </summary>
         private Vector2 HeadTurn(WorldEntity entity, Vector3 position, float heading, float deltaSeconds)
         {
             var target = Vector2.Zero;
+            _headTurn.TryGetValue(entity.ServerId, out var current);
+            if (entity.EventLook is { Axis: { } axis })
+            {
+                // A fixed look axis (0x79 sub 2): the head moves toward it at the event's head turn speed.
+                var held = HeadLook.AxisStep(current, HeadLook.AxisAngles(axis), entity.EventHeadTurnSpeed, deltaSeconds);
+                _headTurn[entity.ServerId] = held;
+                return held;
+            }
             if (entity.EventLook is { } look && _lookTargets.TryGetValue(look.TargetServerId, out var other))
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
@@ -634,7 +643,6 @@ namespace Gordian.App.Graphics
                     target.Y = HeadLook.TargetPitch(own, theirs, distance);
                 }
             }
-            _headTurn.TryGetValue(entity.ServerId, out var current);
             var next = new Vector2(HeadLook.Ease(current.X, target.X, deltaSeconds), HeadLook.Ease(current.Y, target.Y, deltaSeconds));
             if (target == Vector2.Zero && MathF.Abs(next.X) < 1e-3f && MathF.Abs(next.Y) < 1e-3f) _headTurn.Remove(entity.ServerId);
             else _headTurn[entity.ServerId] = next;

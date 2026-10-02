@@ -33,6 +33,29 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void AxisAngles_XTurnsAndYTilts_InEventSteps_Clamped()
+        {
+            var small = HeadLook.AxisAngles(new LookAxis(256, -256)); // a sixteenth of a turn each way
+            Assert.Equal(MathF.Tau / 16, small.X, 4);
+            Assert.Equal(-MathF.Tau / 16, small.Y, 4);
+            var quarter = HeadLook.AxisAngles(new LookAxis(-1024, 1024)); // Port Jeuno 324's (0, 1024), and Joachim's 1024
+            Assert.Equal(-HeadLook.MaxYaw, quarter.X, 4);
+            Assert.Equal(HeadLook.MaxPitch, quarter.Y, 4);
+        }
+
+        [Fact]
+        public void AxisStep_MovesAtTheHeadTurnSpeed_AndStopsOnTheAxis()
+        {
+            var target = new Vector2(0f, HeadLook.MaxPitch);
+            var oneSecond = HeadLook.AxisStep(Vector2.Zero, target, 0, 1f);
+            Assert.Equal(HeadLook.DefaultAxisTurnSpeed * HeadLook.RadiansPerStep, oneSecond.Y, 4);
+            Assert.Equal(0f, oneSecond.X);
+            Assert.Equal(200 * HeadLook.RadiansPerStep, HeadLook.AxisStep(Vector2.Zero, target, 200, 1f).Y, 4);
+            Assert.Equal(target, HeadLook.AxisStep(Vector2.Zero, target, 1500, 1f));
+            Assert.Equal(-0.1f, HeadLook.AxisStep(new Vector2(-0.1f, 0f), new Vector2(-0.1f, 0f), 50, 1f).X);
+        }
+
+        [Fact]
         public void TargetYaw_IsTheBearingLessTheHeading_ClampedAndWrapped()
         {
             var from = Vector3.Zero;
