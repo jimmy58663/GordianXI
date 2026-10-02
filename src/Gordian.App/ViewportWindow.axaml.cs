@@ -226,6 +226,14 @@ namespace Gordian.App
                 return;
             }
 
+            // Ctrl+F8 toggles the cutscene post-process (blur, cross-dissolve) on/off
+            if (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            {
+                _viewportControl?.TogglePostProcess();
+                e.Handled = true;
+                return;
+            }
+
             // Ctrl+F9 toggles base sea-level ocean water plane on/off
             if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) != 0)
             {
@@ -256,7 +264,8 @@ namespace Gordian.App
             // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle, TOD cycle);
             // don't also feed these into the character's InputState.
             if ((e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0) ||
-                e.Key == Key.F11 || e.Key == Key.F10 || e.Key == Key.F9)
+                e.Key == Key.F11 || e.Key == Key.F10 || e.Key == Key.F9 ||
+                (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0))
             {
                 return;
             }
