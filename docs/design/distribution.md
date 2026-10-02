@@ -42,6 +42,7 @@ Both come from the same attributes, so the reference and the editor hints cannot
 **Open questions**
 - Cloudflare Pages vs Workers static assets: Cloudflare has been steering new static sites to Workers. Check the current recommendation and free-tier limits when setting this up; the deploy step is either `cloudflare/wrangler-action` (runs Wrangler, an npm tool, on the CI runner only) or the Cloudflare REST API.
 - Publish on merge to `main` only, or also versioned docs per client release?
+- Publish the reference registries ([docs/README.md](../README.md#reference-registries): event opcodes, packets, DAT files, flags) as a protocol reference section for other client, server and tool authors? They are written to stand alone, cite their sources, and mark findings beyond the public references.
 - The Cloudflare API token is stored as a GitHub Actions secret, limited to the one Pages/Workers project.
 
 ## Client auto-updater
