@@ -76,7 +76,9 @@ namespace Gordian.Core.Animation
         /// quarter turn the value names. 50 steps per second (4.4 degrees) fits that; the scripts that set a speed use 20 to
         /// 1500, mostly 100 to 250.
         /// </summary>
-        public const int DefaultAxisTurnSpeed = 50;
+        // TEST BUILD (#188): 600 steps per second (about 0.9 s to the 45-degree limit) so the in-game test shows which way
+        // the head goes; set back to 50 after the test.
+        public const int DefaultAxisTurnSpeed = 600;
 
         /// <summary>
         /// The head turn (x) and tilt (y, positive = up) of a fixed look axis (0x79 sub 2), clamped like a look at a target.
