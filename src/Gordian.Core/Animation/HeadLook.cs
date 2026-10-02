@@ -12,7 +12,9 @@ namespace Gordian.Core.Animation
     /// San d'Oria intro shows (Ceraule's head turns to the player as they walk up, 2026-10-01). The head is the joint of
     /// skeleton reference 5: on every race skeleton and the fixed NPC models checked (Curilla 69, Trion 64) it is the joint
     /// the face mesh is bound to (Hume male 52, Hume female 30, Elvaan male 30, Elvaan female 57, Tarutaru 7, Mithra and
-    /// Galka 40), with reference 3 the neck below it. How far and how fast retail turns the head is not measured.
+    /// Galka 40), with reference 3 the neck below it. The head also tilts toward the target's head: the maintainer's retail
+    /// recording of the Windurst Waters intro as a Galka shows Ajido-Marujido and Apururu looking up at the player
+    /// (2026-10-02). How far and how fast retail turns and tilts the head is not measured.
     /// </summary>
     public static class HeadLook
     {
@@ -21,6 +23,13 @@ namespace Gordian.Core.Animation
 
         /// <summary>The largest turn of the head from the body's heading (60 degrees; retail's limit is not measured).</summary>
         public const float MaxYaw = MathF.PI / 3f;
+
+        /// <summary>
+        /// The largest tilt of the head up or down toward the target's head (45 degrees; not measured). The maintainer's
+        /// retail recording of the Windurst Waters intro as a Galka (2026-10-02, 2:04) shows Ajido-Marujido tilting his head
+        /// well back to look up at the player's face from about a yalm and a half away.
+        /// </summary>
+        public const float MaxPitch = MathF.PI / 4f;
 
         /// <summary>How fast the head eases toward its angle (per second, exponential; the viewport's turn ease uses 8).</summary>
         public const float EaseRate = 8f;
@@ -45,6 +54,17 @@ namespace Gordian.Core.Animation
             return Math.Clamp(delta, -MaxYaw, MaxYaw);
         }
 
+        /// <summary>
+        /// The head's tilt (radians, positive = up) for a head at height <paramref name="fromHeight"/> looking at a head at
+        /// <paramref name="toHeight"/> <paramref name="horizontalDistance"/> away, clamped to <see cref="MaxPitch"/>.
+        /// </summary>
+        public static float TargetPitch(float fromHeight, float toHeight, float horizontalDistance)
+        {
+            float rise = toHeight - fromHeight;
+            if (MathF.Abs(rise) < 1e-4f) return 0f;
+            return Math.Clamp(MathF.Atan2(rise, Math.Max(horizontalDistance, 0.05f)), -MaxPitch, MaxPitch);
+        }
+
         /// <summary>Eases the current turn toward <paramref name="target"/> over <paramref name="deltaSeconds"/>.</summary>
         public static float Ease(float current, float target, float deltaSeconds) =>
             current + (target - current) * (1f - MathF.Exp(-EaseRate * Math.Max(0f, deltaSeconds)));
@@ -57,14 +77,21 @@ namespace Gordian.Core.Animation
         public static Quaternion ModelRotation(float yaw) => Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw);
 
         /// <summary>
-        /// Turns the head joint and every joint below it (face, hair, helmet) by <paramref name="yaw"/> about the head
-        /// joint, in place, on a pose already evaluated in model space.
+        /// The model-space rotation of a turn by <paramref name="yaw"/> and a tilt by <paramref name="pitch"/> (positive =
+        /// up). The model faces +X with Y down, so tilting up turns +X toward -Y: RotZ(-pitch), taken in the turned frame.
         /// </summary>
-        public static void Apply(Skeleton skeleton, in SkeletonPoseEvaluator.EvaluatedPose pose, int head, float yaw)
+        public static Quaternion ModelRotation(float yaw, float pitch) =>
+            ModelRotation(yaw) * Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -pitch);
+
+        /// <summary>
+        /// Turns the head joint and every joint below it (face, hair, helmet) by <paramref name="yaw"/> and tilts them by
+        /// <paramref name="pitch"/> about the head joint, in place, on a pose already evaluated in model space.
+        /// </summary>
+        public static void Apply(Skeleton skeleton, in SkeletonPoseEvaluator.EvaluatedPose pose, int head, float yaw, float pitch = 0f)
         {
             int n = Math.Min(skeleton.Count, pose.Rotations.Length);
-            if (head < 0 || head >= n || MathF.Abs(yaw) < 1e-4f) return;
-            var turn = ModelRotation(yaw);
+            if (head < 0 || head >= n || (MathF.Abs(yaw) < 1e-4f && MathF.Abs(pitch) < 1e-4f)) return;
+            var turn = ModelRotation(yaw, pitch);
             Vector3 pivot = pose.Translations[head];
             for (int j = 0; j < n; j++)
             {

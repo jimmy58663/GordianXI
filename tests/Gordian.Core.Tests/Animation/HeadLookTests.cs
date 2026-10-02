@@ -46,6 +46,37 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void ModelRotation_PositivePitch_RaisesTheFace()
+        {
+            // A point in front of the head (+X in model space). Display space is Y up (EntityRenderer).
+            var face = new Vector3(0.1f, 0f, 0f);
+            const float heading = 0.8f;
+            var level = Vector3.Transform(face, Flip * HeadingRotation(heading));
+            var up = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0f, 0.5f)), Flip * HeadingRotation(heading));
+            var down = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0f, -0.5f)), Flip * HeadingRotation(heading));
+            Assert.True(up.Y > level.Y + 0.04f);
+            Assert.True(down.Y < level.Y - 0.04f);
+            // The tilt stays in the facing direction: no sideways swing.
+            var flatLevel = new Vector2(level.X, level.Z);
+            var flatUp = new Vector2(up.X, up.Z);
+            Assert.True(Vector2.Dot(Vector2.Normalize(flatLevel), Vector2.Normalize(flatUp)) > 0.9999f);
+            // With a turn, the tilt is taken about the turned head's side axis.
+            var turnedLevel = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0.6f)), Flip * HeadingRotation(heading));
+            var turnedUp = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0.6f, 0.5f)), Flip * HeadingRotation(heading));
+            Assert.True(Vector2.Dot(Vector2.Normalize(new Vector2(turnedLevel.X, turnedLevel.Z)), Vector2.Normalize(new Vector2(turnedUp.X, turnedUp.Z))) > 0.9999f);
+        }
+
+        [Fact]
+        public void TargetPitch_LooksUpAtATallerHead_Clamped()
+        {
+            // A Tarutaru head (~0.9) looking at a Galka head (~2.4) a yalm and a half away.
+            Assert.Equal(MathF.Atan2(1.5f, 1.5f), HeadLook.TargetPitch(0.9f, 2.4f, 1.5f), 4);
+            Assert.True(HeadLook.TargetPitch(2.4f, 0.9f, 3f) < 0f);
+            Assert.Equal(HeadLook.MaxPitch, HeadLook.TargetPitch(0.9f, 2.4f, 0.1f), 4);
+            Assert.Equal(0f, HeadLook.TargetPitch(1.5f, 1.5f, 2f));
+        }
+
+        [Fact]
         public void Apply_TurnsTheHeadAndWhatHangsFromIt_Only()
         {
             // root 0 -> spine 1 -> head 2 -> face 3; arm 4 under the spine.
