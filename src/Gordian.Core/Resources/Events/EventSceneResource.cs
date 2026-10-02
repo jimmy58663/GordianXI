@@ -135,7 +135,7 @@ namespace Gordian.Core.Resources.Events
     /// <summary>What a scene routine command does, as far as the event presentation plays it.</summary>
     public enum SceneCommandKind : byte
     {
-        /// <summary>Anything not played (markers, blur 0x0E, cross-dissolve 0x10, sound 0x60, motion clips 0x05, scene colours 0x29 / 0x46).</summary>
+        /// <summary>Anything not played (markers, sound 0x60, motion clips 0x05, scene colours 0x29 / 0x46).</summary>
         Other,
 
         /// <summary>Op 0x04: plays the camera route <see cref="SceneCommand.Reference"/> over the command's duration.</summary>
@@ -152,6 +152,16 @@ namespace Gordian.Core.Resources.Events
         /// the <c>who?</c> fades to white, <c>whi?</c> back to none, Port Jeuno 324's <c>fall</c> flash).
         /// </summary>
         ScreenFlash,
+
+        /// <summary>
+        /// Op 0x0E: moves the motion blur toward <see cref="SceneCommand.Color"/> (B, G, R: the trail's tint, 0x80 = as
+        /// drawn; A: how much of the previous frame stays, 0x80 = all) and <see cref="SceneCommand.Factor"/> (the
+        /// previous frame's zoom, 1 = none): <c>blon</c> / <c>blof</c>, the <c>?dkn</c> pulses.
+        /// </summary>
+        Blur,
+
+        /// <summary>Op 0x10: dissolves from the frame before it into the scene over its duration (<c>ovl1</c> / <c>ovl2</c>).</summary>
+        CrossDissolve,
 
         /// <summary>Op 0x02: starts the generator <see cref="SceneCommand.Reference"/> emitting for the command's duration.</summary>
         SpawnGenerator,
@@ -175,9 +185,9 @@ namespace Gordian.Core.Resources.Events
     /// <summary>
     /// One command of a scene routine, starting <see cref="StartFrame"/> 60 Hz frames into it and lasting
     /// <see cref="Duration"/> frames. <see cref="Color"/> is B, G, R, A from the low byte, 0x80 = unchanged.
-    /// <see cref="Reference2"/> is the second FourCC of op 0x3F.
+    /// <see cref="Reference2"/> is the second FourCC of op 0x3F, <see cref="Factor"/> the float of op 0x0E.
     /// </summary>
-    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "")
+    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "", float Factor = 1f)
     {
         /// <summary>Whether the command runs a particle generator or a routine (what <see cref="Gordian.Core.Graphics.SceneEffectPlayer"/> plays).</summary>
         public bool IsEffect => Kind is SceneCommandKind.SpawnGenerator or SceneCommandKind.KillGenerator or SceneCommandKind.ReplaceGenerator
@@ -196,8 +206,16 @@ namespace Gordian.Core.Resources.Events
     /// carries a colour at +8 that the fade routines move between (0x00 0x00 0x00 in <c>fdo?</c>, 0x80 0x80 0x80 in
     /// <c>fdi?</c>, 0x80 = the scene as drawn), and the opening shot <c>s00s</c> starts black and fades in with it; op 0x51
     /// has the same layout in the <c>fao?</c> / <c>fai?</c> routines, which the Windurst Woods intro alternates on a black
-    /// screen as its narration lines come and go, so it is read as the interface fade. Op 0x0E (<c>blon</c> / <c>blof</c>:
-    /// a colour and a factor) and 0x10 (<c>ovl?</c>: a cross-dissolve between shots) are not played.
+    /// screen as its narration lines come and go, so it is read as the interface fade.
+    /// </para>
+    /// <para>
+    /// Post-process commands (#205, read from 30904, 30812 and 51328): op 0x0E carries B, G, R, A at +8 and a float at
+    /// +12, moved to over its duration like the fades: <c>blon</c> goes to A0 A0 A0 30 / 0.98 in 15 frames and
+    /// <c>blof</c> back to 80 80 80 00 / 1.0, the <c>?dkn</c> pulses jump to 80 80 80 2D / 0.92 and ease back, Port
+    /// Jeuno 324's <c>fall</c> goes to 80 80 80 20 / 1.0 and back. It is read as the feedback motion blur: A how much of
+    /// the previous frame is kept (0 = off), B G R its tint, the float its zoom. Op 0x10 (<c>ovl1</c> / <c>ovl2</c>,
+    /// 60 / 120 frames; <c>olp1</c> / <c>olp2</c> in 30812) carries only its duration: a cross-dissolve from the frame
+    /// before it.
     /// </para>
     /// <para>
     /// Effect commands (#192, read from Port Jeuno event 324's files 51402, 51327 and 51328): op 0x72 has 0x0F's layout
@@ -237,6 +255,7 @@ namespace Gordian.Core.Resources.Events
                 string reference = string.Empty;
                 string reference2 = string.Empty;
                 uint color = 0;
+                float factor = 1f;
                 if (op == 0x04 && size >= 12 && p + 12 <= payload.Length)
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
@@ -247,13 +266,23 @@ namespace Gordian.Core.Resources.Events
                     color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
                     kind = op switch { 0x0F => SceneCommandKind.SceneFade, 0x51 => SceneCommandKind.InterfaceFade, _ => SceneCommandKind.ScreenFlash };
                 }
+                else if (op == 0x0E && size >= 16 && p + 16 <= payload.Length)
+                {
+                    color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
+                    factor = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(p + 12));
+                    kind = SceneCommandKind.Blur;
+                }
+                else if (op == 0x10)
+                {
+                    kind = SceneCommandKind.CrossDissolve;
+                }
                 else if (EffectKind(op) is { } effect && size >= 12 && p + 12 <= payload.Length)
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
                     if (op == 0x3F && size >= 20 && p + 20 <= payload.Length) reference2 = ReadFourCc(payload.Slice(p + 16, 4));
                     if (reference.Length > 0) kind = effect;
                 }
-                commands.Add(new SceneCommand(op, kind, start, duration, reference, color, reference2));
+                commands.Add(new SceneCommand(op, kind, start, duration, reference, color, reference2, factor));
                 p += size;
             }
             return new SceneRoutine { Name = name, TotalFrames = total > 0 ? total : clock, Commands = commands };

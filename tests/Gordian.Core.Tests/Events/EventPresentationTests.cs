@@ -306,6 +306,65 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>
+        /// Op 0x0E moves the blur like a fade (the A byte the share kept, B G R the tint, the float the zoom) and op 0x10
+        /// starts a cross-dissolve from the frame before it (#205).
+        /// </summary>
+        [Fact]
+        public void BlurAndCrossDissolve_AreScheduledLikeTheFades()
+        {
+            static byte[] Blur(uint bgra, float zoom)
+            {
+                var data = new byte[12];
+                BinaryPrimitives.WriteUInt32LittleEndian(data, bgra);
+                BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(4), zoom);
+                return data;
+            }
+            var dat = SceneDat(
+                (0x07, "blon", RoutinePayload(15, Command(0x0E, 5, 15, 15, Blur(0x30A0A0A0, 0.98f)))),
+                (0x07, "blof", RoutinePayload(15, Command(0x0E, 5, 15, 15, Blur(0x00808080, 1.0f)))),
+                (0x07, "ovl1", RoutinePayload(60, Command(0x10, 2, 60, 60, Array.Empty<byte>()))));
+            var resource = EventSceneResource.Parse(dat);
+            var command = Assert.Single(resource.Routines["blon"].Commands);
+            Assert.Equal((SceneCommandKind.Blur, 0x30A0A0A0u, 0.98f), (command.Kind, command.Color, command.Factor));
+            Assert.Equal(SceneCommandKind.CrossDissolve, Assert.Single(resource.Routines["ovl1"].Commands).Kind);
+
+            double now = 10;
+            var presentation = new EventPresentation { Clock = () => now };
+            Assert.False(presentation.Blur.IsActive);
+            Assert.Equal((0, 0f), presentation.CrossDissolve);
+
+            presentation.Play(1, resource, resource.Routines["blon"], Vector3.Zero);
+            now += 7.5 / 60;
+            var half = presentation.Blur;
+            Assert.Equal(0.1875f, half.Amount, 3); // half-way to 0x30 / 0x80
+            Assert.Equal(0.99f, half.Zoom, 3);
+            now += 1;
+            var on = presentation.Blur;
+            Assert.Equal((0.375f, 1.25f, 0.98f), (on.Amount, on.Tint.X, on.Zoom));
+
+            presentation.Play(2, resource, resource.Routines["blof"], Vector3.Zero);
+            now += 1;
+            Assert.False(presentation.Blur.IsActive);
+            Assert.Equal(Vector3.One, presentation.Blur.Tint);
+
+            presentation.Play(3, resource, resource.Routines["ovl1"], Vector3.Zero);
+            var (sequence, opacity) = presentation.CrossDissolve;
+            Assert.True(sequence > 0);
+            Assert.Equal(1f, opacity);
+            now += 0.5;
+            Assert.Equal((sequence, 0.5f), (presentation.CrossDissolve.Sequence, MathF.Round(presentation.CrossDissolve.Opacity, 3)));
+            presentation.Play(4, resource, resource.Routines["ovl1"], Vector3.Zero);
+            Assert.True(presentation.CrossDissolve.Sequence > sequence); // a new dissolve holds a new frame
+            now += 2;
+            Assert.Equal((0, 0f), presentation.CrossDissolve);
+
+            presentation.Play(5, resource, resource.Routines["blon"], Vector3.Zero);
+            presentation.Reset();
+            now += 1;
+            Assert.False(presentation.Blur.IsActive);
+        }
+
+        /// <summary>
         /// The Port Bastok intro's shots (scene resource p = 136, file 30840) and the shared fades (p = 200, file 30904)
         /// from the installed game: each shot routine plays the Route of its number, and the fades carry the colours the
         /// presentation reads.
@@ -352,6 +411,14 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(Vector3.One, EventPresentation.ColorOf(Assert.Single(fdi2.Commands, c => c.Kind == SceneCommandKind.SceneFade).Color));
             Assert.True(common.TryGetRoutine("fao1", out var fao1));
             Assert.Single(fao1.Commands, c => c.Kind == SceneCommandKind.InterfaceFade);
+
+            // The blur and cross-dissolve routines (#205).
+            var blurOn = Assert.Single(common.Routines["blon"].Commands, c => c.Kind == SceneCommandKind.Blur);
+            Assert.Equal((15, 0x30A0A0A0u), (blurOn.Duration, blurOn.Color));
+            Assert.Equal(0.98f, blurOn.Factor, 3);
+            Assert.Equal(0x00808080u, Assert.Single(common.Routines["blof"].Commands, c => c.Kind == SceneCommandKind.Blur).Color);
+            Assert.Equal(60, Assert.Single(common.Routines["ovl1"].Commands, c => c.Kind == SceneCommandKind.CrossDissolve).Duration);
+            Assert.Equal(120, Assert.Single(common.Routines["ovl2"].Commands, c => c.Kind == SceneCommandKind.CrossDissolve).Duration);
         }
     }
 }

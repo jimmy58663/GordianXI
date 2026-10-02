@@ -126,6 +126,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor);
         private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
+        private ScenePostProcess? _postProcess;
+
+        /// <summary>
+        /// Draw cutscenes through <see cref="ScenePostProcess"/> (the scene routines' motion blur and cross-dissolve, #205);
+        /// off, they are skipped and the scene draws straight to the target.
+        /// </summary>
+        public bool EnablePostProcess { get; set; } = true;
         private bool _emittersWarm;
         private ResourceLayout _lightLayout = null!;
         private DeviceBuffer _lightTableBuffer = null!;
@@ -894,8 +901,19 @@ namespace Gordian.App.Graphics
             var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
 
             // 3. Record Render Commands
+            // A cutscene (the event holds the camera or plays a shot) draws the scene offscreen for its blur and
+            // cross-dissolve (#205): both need the frame before.
+            var finalTarget = targetFramebuffer ?? _gd.SwapchainFramebuffer;
+            var presentation = EventPresentation;
+            var blur = presentation?.Blur ?? default;
+            var dissolve = presentation?.CrossDissolve ?? default;
+            bool postProcess = EnablePostProcess && presentation != null &&
+                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _));
+            if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
+            else _postProcess?.Invalidate();
+
             _commandList.Begin();
-            _commandList.SetFramebuffer(targetFramebuffer ?? _gd.SwapchainFramebuffer);
+            _commandList.SetFramebuffer(postProcess ? _postProcess!.BeginScene(finalTarget) : finalTarget);
 
             // Update Scene Uniform Buffer within command stream
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
@@ -1256,6 +1274,12 @@ namespace Gordian.App.Graphics
                     draws++;
                 }
                 _pendingLensFlares.Clear();
+            }
+
+            if (postProcess)
+            {
+                _postProcess!.Composite(_commandList, finalTarget, blur, dissolve, Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f);
+                draws += 2;
             }
 
             _commandList.End();
@@ -2309,6 +2333,7 @@ namespace Gordian.App.Graphics
 
             _entityRenderer?.Dispose();
             _skyDomeRenderer?.Dispose();
+            _postProcess?.Dispose();
             _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();
