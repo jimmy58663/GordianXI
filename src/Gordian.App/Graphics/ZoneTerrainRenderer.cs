@@ -1788,8 +1788,9 @@ namespace Gordian.App.Graphics
             Vector3 daylight = StrongestLight(environment);
             int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
             int moonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
-            // Camera space in raw DAT axes: the eye at the origin looking down +Z; drawn through the display flip and the
-            // camera's basis (the billboard basis the effect pass uses) at the eye.
+            // Camera space in raw DAT axes: the eye at the origin looking down +Z, -Y up. The effect pass hands the frame
+            // display-space positions (-x, -y, z), so the camera's basis (the billboard basis) at the eye takes them to the
+            // world as they are: raw -Y rises on screen (the 70443 sparkles drift up, #192).
             _cameraToWorld = CreateBillboardBasis(camera.Right, camera.Up, camera.Forward) * Matrix4x4.CreateTranslation(camera.Position);
             var cameraFrame = new ZoneParticleFrame(Vector3.Zero, dayFraction, daylight, Vector3.UnitZ, dayOfWeek, moonPhase);
             _idleSceneEffects.Clear();
@@ -1866,7 +1867,7 @@ namespace Gordian.App.Graphics
                     float sortDistance = distance;
                     if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
                     {
-                        frame = DisplayFlip * _cameraToWorld;
+                        frame = _cameraToWorld;
                         sortDistance = 0.0f;
                     }
                     else
