@@ -183,6 +183,63 @@ namespace Gordian.Core.Network.LandSandBoat
         }
 
         /// <summary>
+        /// <summary>Size of one character slot of the xi_view 0x20 list (lpkt_chr_info_sub2) and where the slots start.</summary>
+        private const int CharacterSlotSize = 140, CharacterSlotsOffset = 32;
+
+        /// <summary>
+        /// The characters of an xi_view 0x20 list (lpkt_chr_info2: the header, a u32 count at 28, then 140-byte slots with
+        /// ffxi_id at +0 and the 16-byte name at +12), skipping the free slots LandSandBoat fills with a single space.
+        /// Packet structure referenced from LandSandBoat (https://github.com/LandSandBoat/server, src/login/login_packets.h)
+        /// and XiPackets (https://github.com/atom0s/XiPackets, lobby/S2C_0x0020_ResponseChrInfo2.md).
+        /// </summary>
+        public static List<(uint Id, string Name)> ParseCharacterSlots(ReadOnlySpan<byte> packet)
+        {
+            var slots = new List<(uint Id, string Name)>();
+            if (packet.Length < CharacterSlotsOffset) return slots;
+            int count = (int)Math.Min(16u, BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(28, 4)));
+            for (int i = 0; i < count; i++)
+            {
+                int at = CharacterSlotsOffset + i * CharacterSlotSize;
+                if (at + 28 > packet.Length) break;
+                uint id = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(at, 4));
+                string name = Encoding.ASCII.GetString(packet.Slice(at + 12, 16)).TrimEnd('\0', ' ');
+                if (id == 0 || string.IsNullOrWhiteSpace(name)) continue;
+                slots.Add((id, name));
+            }
+            return slots;
+        }
+
+        /// <summary>
+        /// The character to log in as, id and name from the same slot: the one named <paramref name="name"/> (any case),
+        /// else the one with <paramref name="id"/>, else the first. With no slots the requested values are passed through.
+        /// </summary>
+        public static (uint Id, string Name) ChooseCharacter(IReadOnlyList<(uint Id, string Name)> slots, string? name, uint id)
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                foreach (var slot in slots)
+                {
+                    if (string.Equals(slot.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) return slot;
+                }
+            }
+            if (id != 0)
+            {
+                foreach (var slot in slots)
+                {
+                    if (slot.Id == id) return slot;
+                }
+            }
+            if (slots.Count > 0)
+            {
+                if (!string.IsNullOrWhiteSpace(name) || id != 0)
+                {
+                    GordianLog.Warning("LSB_LOGIN", $"Character '{name}' (ID {id}) is not on this account; logging in as '{slots[0].Name}'.");
+                }
+                return slots[0];
+            }
+            return (id, name?.Trim() ?? string.Empty);
+        }
+
         /// <summary>
         /// Connects to LandSandBoat xi_data (port 54230, plain TCP) and xi_view (port 54001, plain TCP),
         /// requests character information, selects the target character, registers the Blowfish session key,
@@ -343,8 +400,7 @@ namespace Gordian.Core.Network.LandSandBoat
             // Step 4b: Check for 0x20 Character Info response on xi_view (contains in-game character names)
             // Note: In LandSandBoat, xi_view sends lpkt_chr_info2 which is up to 2272 bytes (16 slots * 140 bytes + 32 header).
             // We must completely drain this packet from viewStream so subsequent reads (e.g. 0x0B) receive clean data.
-            string? viewCharName = null;
-            uint viewCharId = 0;
+            var slots = new List<(uint Id, string Name)>();
             try
             {
                 using var cts20 = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -368,12 +424,7 @@ namespace Gordian.Core.Network.LandSandBoat
 
                 if (viewBytes >= 60 && viewChrBuffer[8] == 0x20)
                 {
-                    viewCharId = BinaryPrimitives.ReadUInt32LittleEndian(viewChrBuffer.AsSpan(32, 4));
-                    string parsedViewName = Encoding.ASCII.GetString(viewChrBuffer, 44, 16).TrimEnd('\0', ' ');
-                    if (!string.IsNullOrWhiteSpace(parsedViewName))
-                    {
-                        viewCharName = parsedViewName;
-                    }
+                    slots = ParseCharacterSlots(viewChrBuffer.AsSpan(0, viewBytes));
                 }
             }
             catch (OperationCanceledException)
@@ -381,29 +432,17 @@ namespace Gordian.Core.Network.LandSandBoat
                 // Optional 0x20 read timed out
             }
 
-            if (characters.Count == 0 && viewCharId == 0)
+            if (characters.Count == 0 && slots.Count == 0)
             {
                 throw new InvalidOperationException("No characters found on this LandSandBoat account. Please create a character first.");
             }
 
-            // Determine target character ID
-            uint selectedCharId = targetCharacterId;
-            if (selectedCharId == 0)
+            // The id and name must name the same character: xi_view looks the pair up (chars.charid AND charname) and
+            // drops the connection on a mismatch ("tried to select a character id with a mismatched character name").
+            var (selectedCharId, selectedCharName) = ChooseCharacter(slots, targetCharacterName, targetCharacterId);
+            if (selectedCharId == 0 && characters.Count > 0)
             {
-                if (viewCharId != 0)
-                {
-                    selectedCharId = viewCharId;
-                }
-                else if (characters.Count > 0)
-                {
-                    selectedCharId = characters[0].CharacterId;
-                }
-            }
-
-            string selectedCharName = targetCharacterName ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(selectedCharName) && !string.IsNullOrWhiteSpace(viewCharName))
-            {
-                selectedCharName = viewCharName;
+                selectedCharId = characters[0].CharacterId;
             }
 
             // Step 5: Notify xi_view of Character Selection (0x07, 64 bytes)

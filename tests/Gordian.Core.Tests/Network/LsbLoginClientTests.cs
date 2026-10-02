@@ -171,5 +171,44 @@ namespace Gordian.Core.Tests.Network
                 await client.AuthenticateAsync("127.0.0.1", 54231, "user", "pass", ct: cts.Token);
             });
         }
+
+        /// <summary>An xi_view 0x20 list: header, count at 28, 140-byte slots (ffxi_id at +0, name at +12).</summary>
+        private static byte[] CharacterList(params (uint Id, string Name)[] slots)
+        {
+            var packet = new byte[32 + 16 * 140];
+            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)packet.Length);
+            packet[8] = 0x20;
+            BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(28, 4), (uint)slots.Length);
+            for (int i = 0; i < slots.Length; i++)
+            {
+                int at = 32 + i * 140;
+                BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(at, 4), slots[i].Id);
+                Encoding.ASCII.GetBytes(slots[i].Name).CopyTo(packet.AsSpan(at + 12, 16));
+            }
+            return packet;
+        }
+
+        [Fact]
+        public void ParseCharacterSlots_ReadsEverySlot_SkippingFreeOnes()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlots(CharacterList((21828, "Knot"), (21900, "BLM"), (0, " ")));
+            Assert.Equal(new[] { (21828u, "Knot"), (21900u, "BLM") }, slots.ToArray());
+        }
+
+        /// <summary>
+        /// The maintainer's second character on account 1000 (2026-10-01): the profile names "BLM", but the id came from the
+        /// list's first slot (Knot), and LandSandBoat's xi_view dropped the "mismatched character name" selection.
+        /// </summary>
+        [Fact]
+        public void ChooseCharacter_TakesTheIdOfTheNamedCharacter()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlots(CharacterList((21828, "Knot"), (21900, "BLM")));
+            Assert.Equal((21900u, "BLM"), LsbLoginClient.ChooseCharacter(slots, "BLM", 0));
+            Assert.Equal((21900u, "BLM"), LsbLoginClient.ChooseCharacter(slots, "blm", 21828)); // the name wins over a stale id
+            Assert.Equal((21900u, "BLM"), LsbLoginClient.ChooseCharacter(slots, null, 21900));
+            Assert.Equal((21828u, "Knot"), LsbLoginClient.ChooseCharacter(slots, null, 0));
+            Assert.Equal((21828u, "Knot"), LsbLoginClient.ChooseCharacter(slots, "Nobody", 0));
+            Assert.Equal((5u, "Solo"), LsbLoginClient.ChooseCharacter(System.Array.Empty<(uint, string)>(), "Solo", 5));
+        }
     }
 }
