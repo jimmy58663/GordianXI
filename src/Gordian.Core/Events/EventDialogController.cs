@@ -429,6 +429,7 @@ namespace Gordian.Core.Events
                         entity.RenderHeadingRadians = entity.HeadingRadians;
                     }
                     entity.EventPose = null;
+                    entity.EventLook = null;
                     entity.IsEventHidden = false;
                 }
             }
@@ -893,6 +894,16 @@ namespace Gordian.Core.Events
                 _world?.UpdateWeather((ushort)_savedWeather);
                 _savedWeather = -1;
             }
+        }
+
+        void IEventVmHost.SetEntityLook(uint serverId, uint targetServerId, int speechFrame)
+        {
+            uint own = _player?.ServerId ?? 0;
+            if (serverId == 0) serverId = own;
+            if (targetServerId == 0) targetServerId = own;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventLook = targetServerId == uint.MaxValue || targetServerId == serverId ? null : new EventLook(targetServerId, speechFrame);
+            _staged.Add(serverId);
         }
 
         void IEventVmHost.SetEntityHidden(uint serverId, bool hidden)

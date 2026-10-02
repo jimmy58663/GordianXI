@@ -660,7 +660,15 @@ namespace Gordian.Core.World
         public bool IsDrawn => !IsEventHidden && (!IsHidden || IsInEvent);
 
         private volatile EventPose? _eventPose;
+        private volatile EventLook? _eventLook;
         private volatile bool _isEventHidden;
+
+        /// <summary>Whom a running event has the entity look at (its head turns), or null. Cleared when the event ends.</summary>
+        public EventLook? EventLook
+        {
+            get => _eventLook;
+            set => _eventLook = value;
+        }
 
         /// <summary>
         /// Where a running event (cutscene) has placed the entity, or null when the event leaves it alone. While set,

@@ -118,6 +118,12 @@ namespace Gordian.App.Graphics
         /// <summary>Where each event-posed entity is drawn (render thread only; see <see cref="EventPoseSmoother"/>).</summary>
         private readonly Dictionary<uint, EventPoseSmoother> _eventPoses = new();
 
+        /// <summary>Each entity's current head turn (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
+        private readonly Dictionary<uint, float> _headYaw = new();
+
+        /// <summary>The entities of this frame by server id, filled only while some entity has an event look.</summary>
+        private readonly Dictionary<uint, WorldEntity> _lookTargets = new();
+
         /// <summary>
         /// The skeleton reference that marks the overhead point: a straight offset up from the root joint, authored per
         /// skeleton (Goblin 1.8, Island Rarab 1.7, Raven 2.8, Marine Dhalmel 6.05; Hume 2.0, Tarutaru 1.3, Galka 2.6
@@ -358,6 +364,14 @@ namespace Gordian.App.Graphics
             var frustum = camera.Frustum;
             var outdoorLights = ActorLighting.From(environment);
 
+            _lookTargets.Clear();
+            foreach (var entity in entities)
+            {
+                if (entity.EventLook == null) continue;
+                foreach (var other in entities) _lookTargets[other.ServerId] = other;
+                break;
+            }
+
             foreach (var entity in entities)
             {
                 if (!entity.IsSpawned)
@@ -518,7 +532,8 @@ namespace Gordian.App.Graphics
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
                     var palette = _jointPaletteByEntity.GetOrAdd(entity.ServerId, _ => CreateJointPalette());
-                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, out var pose);
+                    float headYaw = HeadYaw(entity, eventPose?.Position ?? entity.Position, headingRad, deltaSeconds);
+                    UpdateJointPalette(cl, palette.Buffer, entityModel!.Skeleton!, entity.Animation, weaponsInHands ? entityModel.ParentOverrides : null, headYaw, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = entityModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                 }
@@ -598,7 +613,25 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>Uploads an entity's current pose.</summary>
-        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, out SkeletonPoseEvaluator.EvaluatedPose pose)
+        /// <summary>
+        /// The head turn to draw this frame: eased toward the entity's event look target (clamped), or back to straight
+        /// ahead when it looks at nobody.
+        /// </summary>
+        private float HeadYaw(WorldEntity entity, Vector3 position, float heading, float deltaSeconds)
+        {
+            float target = 0f;
+            if (entity.EventLook is { } look && _lookTargets.TryGetValue(look.TargetServerId, out var other))
+            {
+                target = HeadLook.TargetYaw(heading, position, other.EventPose?.Position ?? other.Position);
+            }
+            _headYaw.TryGetValue(entity.ServerId, out float current);
+            float next = HeadLook.Ease(current, target, deltaSeconds);
+            if (target == 0f && MathF.Abs(next) < 1e-3f) _headYaw.Remove(entity.ServerId);
+            else _headYaw[entity.ServerId] = next;
+            return next;
+        }
+
+        private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, Skeleton skeleton, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, float headYaw, out SkeletonPoseEvaluator.EvaluatedPose pose)
         {
             bool loop = animState.LoopsCurrentClip;
             var overlay = animState.Overlay;
@@ -620,6 +653,8 @@ namespace Gordian.App.Graphics
             {
                 pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides, overlay);
             }
+            // An event's head look (0x1E / 0x4A / 0x79) turns the head joint and what hangs from it.
+            HeadLook.Apply(skeleton, pose, HeadLook.HeadJoint(skeleton), headYaw);
             int count = pose.Rotations.Length;
 
             if (count > ZoneShaders.MaxPaletteJoints)

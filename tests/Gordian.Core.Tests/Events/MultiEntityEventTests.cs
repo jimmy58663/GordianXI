@@ -389,6 +389,7 @@ namespace Gordian.Core.Tests.Events
                 {
                     Assert.False(entity.IsEventHidden);
                     Assert.Null(entity.EventPose);
+                    Assert.Null(entity.EventLook);
                 }
             }
             finally

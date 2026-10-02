@@ -153,6 +153,14 @@ namespace Gordian.Core.Events
         /// <summary>Whether the zone of <see cref="OpenEventZone"/> is still loading (0x34 / 0x35 wait for it).</summary>
         bool IsEventZoneLoading => false;
 
+        /// <summary>
+        /// Opcodes 0x1E / 0x4A / 0x79 (lookatone): an entity (server id; 0 = the local player) looks at another, with
+        /// retail's speech frame; <paramref name="targetServerId"/> <see cref="uint.MaxValue"/> ends the look (0x7B).
+        /// </summary>
+        void SetEntityLook(uint serverId, uint targetServerId, int speechFrame)
+        {
+        }
+
         /// <summary>Opcode 0x46: the event takes the camera from the player (true) or gives it back.</summary>
         void SetEventCamera(bool held)
         {

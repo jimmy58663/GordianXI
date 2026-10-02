@@ -153,6 +153,24 @@ namespace Gordian.Core.Tests.Events
             Assert.Single(host.Printed);
         }
 
+        [Fact]
+        public void LookOpcodes_SetAndClearTheLook()
+        {
+            const uint Other = 0x010E6064;
+            // 79 00 self other ; 79 01 other self ref0 ; 79 02 self ref0 ref0 (look axis: not done) ; 7B self ; 00
+            var code = new byte[] { 0x79, 0x00 }.Concat(U32(0x7FFFFFF8)).Concat(U32(Other))
+                .Concat(new byte[] { 0x79, 0x01 }).Concat(U32(Other)).Concat(U32(0x7FFFFFF8)).Concat(Ref(0))
+                .Concat(new byte[] { 0x79, 0x02 }).Concat(U32(0x7FFFFFF8)).Concat(Ref(0)).Concat(Ref(0))
+                .Concat(new byte[] { 0x7B }).Concat(U32(0x7FFFFFF8))
+                .Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.Entities[Other] = (System.Numerics.Vector3.Zero, 0f, 0f);
+            var vm = Make(code, host, new uint[] { 3, 9 });
+            vm.Tick(Frame);
+            Assert.Single(host.Printed); // every length right
+            Assert.Equal(new[] { (Npc, Other, 6), (Other, Npc, 3), (Npc, uint.MaxValue, -1) }, host.Looks.ToArray());
+        }
+
         [Theory]
         [InlineData(0x34)]
         [InlineData(0x35)]
