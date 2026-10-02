@@ -915,6 +915,11 @@ namespace Gordian.Core.Events
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
             entity.EventLook = targetServerId == uint.MaxValue || targetServerId == serverId ? null : new EventLook(targetServerId, speechFrame);
             _staged.Add(serverId);
+            if (entity.EventLook != null)
+            {
+                var at = _world.TryGetByServerId(targetServerId, out var target) ? (target.EventPose?.Position ?? target.Position).ToString() : "not in the zone";
+                GordianLog.Debug("EVENT", $"Look: 0x{serverId:X8} at 0x{targetServerId:X8} {at}.");
+            }
         }
 
         void IEventVmHost.SetEntityLookAxis(uint serverId, int axisX, int axisY)
@@ -923,6 +928,7 @@ namespace Gordian.Core.Events
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
             entity.EventLook = EventLook.Fixed(axisX, axisY);
             _staged.Add(serverId);
+            GordianLog.Debug("EVENT", $"Look axis: 0x{serverId:X8} ({axisX}, {axisY}).");
         }
 
         void IEventVmHost.SetEntityHeadTurnSpeed(uint serverId, int speed)
