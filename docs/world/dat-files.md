@@ -68,7 +68,7 @@ All loaded by path (`ItemNameResolver`, `ResourceManager.TryGetItem`), decoded b
 | 28672-32767 Weapons 2 | `ROM/286/74` | 55788 |
 | 65535 Gil | `ROM/174/48` | 91 |
 
-`ItemNameResolver` maps the first eight rows and names 65535 "Gil" without a file. `ResourceManager.GetItemTablePathForId` maps the gil row but not General 2 (8704-10239) or Weapons 2 (28672-32767).
+`ItemNameResolver` maps the first eight rows and names 65535 "Gil" without a file. `ResourceManager.GetItemTablePathForId` maps the gil row but not General 2 (8704-10239) or Weapons 2 (28672-32767) ([#203](https://github.com/jimmy58663/GordianXI/issues/203)).
 
 ### String tables (`d_msg`)
 

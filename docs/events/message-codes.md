@@ -62,7 +62,7 @@ Lengths: the decoder's list (XiEvents OpCodes/0x0024, the query handler's skip l
 | `7F 99` | not known | 7 | 2 bytes | not checked | corpus |
 | `7F FB` / `7F FC` | entity name wrap markers | - | skipped | dropped | decoder notes |
 
-**Beyond xi-tools and XiEvents:** the three-byte codes `7F 81`, `7F 94`-`7F 96`, `7F A0`-`7F AC`, `7F B4` / `7F B5`, and the reading of `7F 92` as a plural selector and `7F A0`-`7F AC` as date fields, all from the corpus contexts above (not checked against retail screens).
+Fixes tracked in [#202](https://github.com/jimmy58663/GordianXI/issues/202). **Beyond xi-tools and XiEvents:** the three-byte codes `7F 81`, `7F 94`-`7F 96`, `7F A0`-`7F AC`, `7F B4` / `7F B5`, and the reading of `7F 92` as a plural selector and `7F A0`-`7F AC` as date fields, all from the corpus contexts above (not checked against retail screens).
 
 ## 0x01 tags
 

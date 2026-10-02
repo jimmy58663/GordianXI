@@ -42,9 +42,9 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x13 | | 5 | runs | 1,084 | Stores a random number from 0 to the second work value. |
 | 0x14 | | 5 | runs | 2,037 | Multiplies the first work value by the second. |
 | 0x15 | | 5 | runs | 3,496 | Divides the first work value by the second (0 when either is 0). |
-| 0x16 | | 7 | partial | 671 | Stores -r sin(angle) of a radius and a 4096-step angle; GordianXI stores 0. |
-| 0x17 | | 7 | partial | 1,239 | Stores r cos(angle) of a radius and a 4096-step angle; GordianXI stores 0. |
-| 0x18 | | 7 | partial | 63 | Stores the angle (atan2) of a vector; GordianXI stores 0. |
+| 0x16 | | 7 | partial | 671 | Stores -r sin(angle) of a radius and a 4096-step angle; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x17 | | 7 | partial | 1,239 | Stores r cos(angle) of a radius and a 4096-step angle; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x18 | | 7 | partial | 63 | Stores the angle (atan2) of a vector; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x19 | | 5 | runs | 22 | Exchanges two work values. |
 | 0x1A | | 3 | runs | 10,304 | Calls: pushes the return position on the 8-deep jump stack and jumps. |
 | 0x1B | | 1 | runs | 4,980 | Returns from the last call; with nothing to return to it frees the running stack. |
@@ -71,7 +71,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x30 | | 1 | stepped | 848 | Clears the client's "continue after control release" flag. |
 | 0x31 | `CodeSMOVE` | by sub | stepped | 308 | A floor-following walk in three axes with a time operand. |
 | 0x32 | | 3 | runs | 19,170 | Sets the entity's walk speed in tenths of a yalm per second. |
-| 0x33 | | 2 | ignored | 1,627 | Sets or clears `Render.Flags0` bit 21 of the event's own entity. |
+| 0x33 | | 2 | ignored | 1,627 | Sets or clears `Render.Flags0` bit 21 of the event's own entity. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x34 | | 3 | runs | 1,297 | Removes every actor and opens another zone for the scene ([#175](https://github.com/jimmy58663/GordianXI/issues/175)). |
 | 0x35 | | 3 | runs | 882 | Like 0x34 without closing the current zone; the intros use it to return to their own zone. |
 | 0x36 | | 7 | runs | 883 | Places the event's entity at x, y, height. |
@@ -96,8 +96,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x49 | | 7 | runs | 52 | Prints a dialog message with no speaker prefix, an actor's name bound for the text. |
 | 0x4A | `CodeDTURA` | 9 | partial | 8,753 | Turns one actor toward another and has it look at it. |
 | 0x4B | | 7 | partial | 2,253 | Sets an actor's heading. |
-| 0x4C | | 1 | stepped | 884 | Opens the event's entity as a door (event status 8). |
-| 0x4D | | 1 | stepped | 777 | Closes the event's entity as a door (event status 9). |
+| 0x4C | | 1 | stepped | 884 | Opens the event's entity as a door (event status 8). [#200](https://github.com/jimmy58663/GordianXI/issues/200). |
+| 0x4D | | 1 | stepped | 777 | Closes the event's entity as a door (event status 9). [#200](https://github.com/jimmy58663/GordianXI/issues/200). |
 | 0x4E | | 6 | runs | 4,334 | Sets or clears the event hide flag of a named actor. |
 | 0x4F | | 3 | stepped | 77 | Sets the event's entity event status to a value plus 18. |
 | 0x50 | `CodeENDSCHEDULOR` | 13 | runs | 140 | Stops an actor's motion routine. |
@@ -109,7 +109,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x56 | | 5 | stepped | 6 | Reads an actor operand, does nothing with it and yields a frame. |
 | 0x57 | | 3 | runs | 90 | Adds the frames since the last tick to a work value. |
 | 0x58 | | 1 | runs | 5 | Yields one frame. |
-| 0x59 | | by sub | partial | 5,279 | Sets turn speeds, the walk speed or a render flag of an actor, or waits for its emote. |
+| 0x59 | | by sub | partial | 5,279 | Sets turn speeds, the walk speed or a render flag of an actor, or waits for its emote. [#197](https://github.com/jimmy58663/GordianXI/issues/197), [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x5A | `CodeMOVE2` | by sub | runs | 758 | Like 0x1F, but moves in all three axes without following the floor. |
 | 0x5B | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 21,066 | Loads an event motion DAT onto an actor and plays one of its routines. |
 | 0x5C | | by sub | stepped | 2,888 | Sets the music of a music slot, or its volume ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
@@ -118,7 +118,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
 | 0x60 | | by sub | stepped | 50 | Sets `Render.Flags1` bit 30 (subs 0/1) or starts a zone scheduler action (sub 2). |
 | 0x61 | | 2 | stepped | 327 | Sets or clears `Render.Flags2` bit 0 of the event's own entity. |
-| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | stepped | 1,701 | Like 0x45, from scheduler file 5012 + n. |
+| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | stepped | 1,701 | Like 0x45, from scheduler file 5012 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x63 | | 3 | stepped | 0 | Plays an emote id on the event's entity and waits while one plays. |
 | 0x64 | | 11 | stepped | 176 | Stores the 2D distance between two points held in work values. |
 | 0x65 | `CodeGETDISTANCEAA` | 11 | stepped | 13 | Stores the 3D distance between two actors, in thousandths of a yalm. |
@@ -128,12 +128,12 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds). |
 | 0x6A | | 7 | stepped | 191 | Moves the volume of sound categories to a level over a time. |
 | 0x6B | | 9 | partial | 1,145 | Like 0x5E for a named actor. |
-| 0x6C | `CodeTRANSPAR` | 9 | stepped | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. |
+| 0x6C | `CodeTRANSPAR` | 9 | stepped | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x6D |  | 7 | stepped | 2 | No-op in the current client. All three census hits are 0x9D table data, not code (see [0x9D](#0x9d)). |
 | 0x6E | `CodeEMOT` | 7 | runs | 5,216 | An actor plays an emote; it waits while that actor still plays an action. |
 | 0x6F |  | 1 | runs | 23,520 | Sleeps for 16 frames unless a wait is already running on the stack. |
 | 0x70 |  | 1 | runs | 8,350 | Waits while the event's own entity is still turning. |
-| 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. |
+| 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0x72 | `CodeGETWEATER` | by sub | stepped | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
 | 0x73 | `CodeMAGICSCHEDULOR` | 11 | stepped | 947 | Starts a spell-casting task (tag `main`) from one actor toward another. |
 | 0x74 |  | 2 | stepped | 12 | Sets or clears bit 31 of the event entity's `Render.Flags1`. |
@@ -141,7 +141,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x76 |  | 5 | runs | 4,173 | Waits while the named actor is still turning. |
 | 0x77 |  | 5 | runs | 1,181 | Stops the clock at an hour and / or sets the weather for the event; 255 leaves either alone. |
 | 0x78 |  | 1 | runs | 1,240 | Restarts the clock and gives the zone its own weather back. |
-| 0x79 |  | by sub | runs | 3,925 | One actor looks at another (subs 0 / 1), or holds its head on a fixed axis (sub 2, [#188](https://github.com/jimmy58663/GordianXI/issues/188)). |
+| 0x79 |  | by sub | runs | 3,925 | One actor looks at another (subs 0 / 1), or holds its head on a fixed axis (sub 2, [#188](https://github.com/jimmy58663/GordianXI/issues/188)). Unknown sub spins: [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0x7A |  | by sub | stepped | 594 | Request-stack control on another entity: clear its whole VM or one slot, borrow or return its event data, copy or reset a request. |
 | 0x7B |  | 5 | runs | 3,113 | An actor stops looking and talking. |
 | 0x7C |  | 6 | ignored | 1,576 | Sets or clears `Render.Flags2` bit 17 of an actor. |
@@ -149,7 +149,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x7E | `CodeCHOCOBO` | by sub | stepped | 547 | Puts an actor on or off a chocobo or mount (event status, render flags, chocobo colours, mount id). |
 | 0x7F | `CodeQUERYWAIT2` | 1 | runs | 6 | Waits for the open query like 0x25, but a cancel stores 255 and does not end the event. |
 | 0x80 | `CodeLOADWAIT` | 5 | ignored | 7,553 | Waits until an actor's model and action resources have loaded. |
-| 0x81 |  | 6 | stepped | 2,179 | Turns an actor's eye blinking on or off. |
+| 0x81 |  | 6 | stepped | 2,179 | Turns an actor's eye blinking on or off. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x82 |  | 7 | partial | 9 | Branches on whether the event entity stands inside a named zone rectangle. |
 | 0x83 |  | 3 | runs | 230 | Stores the current game time in a work value. |
 | 0x84 |  | 1 | stepped | 134 | Sets `Render.Flags3` bit 0 of the event entity. |
@@ -164,11 +164,11 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x8D |  | 5 | stepped | 85 | Opens the map window on a map and sub-map without markers. |
 | 0x8E |  | 1 | stepped | 27 | Sets the event entity's event status to 45. |
 | 0x8F |  | 1 | stepped | 23 | Sets the event entity's event status to 46. |
-| 0x90 |  | 1 | stepped | 23 | Sets render flags on the event entity (`Flags0` bit 17, `Flags1` bit 12). |
+| 0x90 |  | 1 | stepped | 23 | Sets render flags on the event entity (`Flags0` bit 17, `Flags1` bit 12). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x91 |  | 3 | stepped | 7 | Sets the event entity's base walk speed. |
-| 0x92 |  | 6 | stepped | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor. |
+| 0x92 |  | 6 | stepped | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x93 |  | 3 | stepped | 5,479 | Opens the item information window on an item id, or closes it for 0. |
-| 0x94 |  | 6 | stepped | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor. |
+| 0x94 |  | 6 | stepped | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x95 |  | 3 | stepped | 378 | Marks the event entity as an event NPC and clears its attachments. |
 | 0x96 |  | 1 | stepped | 167 | Ends that event NPC state and clears the attachments again. |
 | 0x97 |  | 5 | stepped | 165 | Saves the zone's wind values and sets new ones. |
@@ -180,8 +180,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x9D |  | by sub | partial | 1,850 | Script tables inside the byte code: read, write, share and jump through them, plus string copies and compares. |
 | 0x9E |  | 2 | stepped | 21 | Says whether a room load during the event should report the sub-region to the server. |
 | 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | stepped | 1,883 | Starts a scene task like 0x45, from file 51183 + n ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
-| 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). |
-| 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 0 | Stops a scene task like 0x52. |
+| 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 0 | Stops a scene task like 0x52. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | stepped | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA4 |  | 2 | stepped | 442 | Sets or clears `Render.Flags3` bit 26 of the event entity. |
@@ -191,14 +191,14 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xA8 |  | 6 | stepped | 56 | Resets an NPC map marker to an empty entry, opening the map first if needed. |
 | 0xA9 |  | 3 | stepped | 6 | Stops the clock at a time derived from a work value (minute 30). |
 | 0xAA |  | 17 | stepped | 190 | Splits a game time value into Vana'diel year, month, day, weekday, hour, minute and moon phase. |
-| 0xAB |  | by sub | stepped | 2,130 | Sets or clears single render flags on the event entity (or an actor), and a few global flags. |
+| 0xAB |  | by sub | stepped | 2,130 | Sets or clears single render flags on the event entity (or an actor), and a few global flags. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0xAC |  | by sub | stepped | 687 | Sets the event entity's server or event status, or render flags 6 / 7 on an actor (asking for it with C2S 0x016 when absent). |
 | 0xAD |  | 12 | stepped | 420 | Scheduler actions (tag `main`) from one actor toward another; the kind is the low nibble of the sub byte. |
 | 0xAE |  | by sub | stepped | 115 | Assorted: a weather change, an actor's name colour, its mouth clip set, actor-to-actor links, its environment area. |
 | 0xAF |  | 8 | stepped | 0 | Stores the camera's eye (sub 0) or look-at point (sub 1). |
 | 0xB0 |  | 12 | runs | 42 | Prints a message with a speaker and a listener actor. |
 | 0xB1 |  | 4 | stepped | 28 | Stores bits of a client-wide flag value (always 128 in practice). |
-| 0xB2 |  | by sub | stepped | 1 | Delivery box: wait a number of frames, or ask to open it. The one census hit is table data. |
+| 0xB2 |  | by sub | stepped | 1 | Delivery box: wait a number of frames, or ask to open it. The one census hit is table data. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0xB3 |  | by sub | stepped | 14 | Ranking boards (fishing and others): request a list, wait, read entries. |
 | 0xB4 |  | by sub | stepped | 1,575 | Strings and small windows: copy text into work strings, target window, cast bar and event timer windows, chocobo race windows, map window update. |
 | 0xB5 |  | 4 | stepped | 1,339 | Renames the event entity from a work string. |
@@ -207,35 +207,35 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xB8 |  | 27 | stepped | 36 | Adds a named marker on a map and shows it, opening the map if needed. |
 | 0xB9 |  | 8 | stepped | 9 | Renames a map marker from the event read buffer. |
 | 0xBA |  | 13 | runs | 3,560 | Places another actor of the event: position and heading. |
-| 0xBB |  | 17 | stepped | 478 | Starts a scene task like 0x45, from file 56685 + n. |
-| 0xBC |  | 15 | stepped | 55 | Waits for a 0xBB task. |
-| 0xBD |  | 15 | stepped | 1 | Stops a 0xBB task. |
+| 0xBB |  | 17 | stepped | 478 | Starts a scene task like 0x45, from file 56685 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBC |  | 15 | stepped | 55 | Waits for a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBD |  | 15 | stepped | 1 | Stops a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xBE |  | 3 | runs | 0 | Stores the server id of the entity that queued the running request. |
 | 0xBF |  | by sub | stepped | 60 | Chocobo racing: reads race, chocobo, section or result parameters. |
-| 0xC0 |  | 3 | stepped | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value. |
+| 0xC0 |  | 3 | stepped | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0xC1 |  | 5 | stepped | 1 | Once an actor's resources have loaded, ends its last action and releases a loaded resource set. |
-| 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. |
+| 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0xC3 |  | 7 | stepped | 54 | Copies a work string and a value into one of eight 20-byte slots. |
 | 0xC4 |  | 12 | stepped | 206 | The 0x73 spell-casting task with three more kinds chosen by the sub byte. |
-| 0xC5 |  | 17 | stepped | 708 | Starts a scene task like 0x45, from file 67355 + n. |
-| 0xC6 |  | 15 | stepped | 47 | Waits for a 0xC5 task. |
-| 0xC7 |  | 15 | stepped | 4 | Stops a 0xC5 task. |
+| 0xC5 |  | 17 | stepped | 708 | Starts a scene task like 0x45, from file 67355 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC6 |  | 15 | stepped | 47 | Waits for a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC7 |  | 15 | stepped | 4 | Stops a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xC8 |  | 7 | stepped | 29 | Opens the map window with given parameters (the intro map tutorial, [#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
 | 0xC9 |  | 1 | stepped | 16 | Restarts the clock (unlike 0x78 it leaves the weather). |
 | 0xCA |  | ? | no length | 0 | No handler in the current client. |
 | 0xCB |  | ? | no length | 8 | No handler in the current client; all eight census hits are 0x9D table data. |
 | 0xCC |  | by sub | stepped | 2,689 | Item information windows, the zone search menu and the event item window. |
-| 0xCD |  | 17 | stepped | 1,039 | Starts a scene task like 0x45, from file 70435 + n. |
-| 0xCE |  | 15 | stepped | 71 | Waits for a 0xCD task. |
-| 0xCF |  | 15 | stepped | 1 | Stops a 0xCD task. |
-| 0xD0 |  | 17 | stepped | 453 | Starts a scene task like 0x45, from file 70691 + n. |
-| 0xD1 |  | 15 | stepped | 0 | Waits for a 0xD0 task. |
-| 0xD2 |  | 15 | stepped | 0 | Stops a 0xD0 task. |
+| 0xCD |  | 17 | stepped | 1,039 | Starts a scene task like 0x45, from file 70435 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCE |  | 15 | stepped | 71 | Waits for a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCF |  | 15 | stepped | 1 | Stops a 0xCD task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD0 |  | 17 | stepped | 453 | Starts a scene task like 0x45, from file 70691 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD1 |  | 15 | stepped | 0 | Waits for a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD2 |  | 15 | stepped | 0 | Stops a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD3 |  | 6 | stepped | 89 | Clears an actor's queued motions. |
 | 0xD4 |  | by sub | partial | 655 | The query with the zone map behind it (home point lists) and the map marker data for it ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
-| 0xD5 |  | 17 | stepped | 73 | Starts a scene task like 0x45, from file 102449 + n. |
-| 0xD6 |  | 15 | stepped | 4 | Waits for a 0xD5 task. |
-| 0xD7 |  | 15 | stepped | 1 | Stops a 0xD5 task. |
+| 0xD5 |  | 17 | stepped | 73 | Starts a scene task like 0x45, from file 102449 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD6 |  | 15 | stepped | 4 | Waits for a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD7 |  | 15 | stepped | 1 | Stops a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD8 |  | by sub | stepped | 46 | Sets another entity's event roll, heading or pitch, or copies them from its last position. |
 | 0xD9 |  | 2 | stepped | 24 | Sets a sound-effect related flag (thought to lift the limit on sounds playing at once). |
 
@@ -265,7 +265,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x16, 0x17, 0x18
 
 - Layout: `16 out:work angle:work r:work` stores -r sin(angle); `17` the same with r cos(angle). The angle is in 4096 steps per turn (XiEvents OpCodes/0x0016, 0x0017). `18 out:work a:work b:work` stores atan2(-a, b) scaled by 4096 / pi (XiEvents OpCodes/0x0018).
-- GordianXI writes 0 into `out` and steps over (`EventVm.Step`, "not needed for dialog"). Since cutscene staging runs ([#86](https://github.com/jimmy58663/GordianXI/issues/86)), a script that places or walks an actor at an offset computed with them puts it at radius 0. No issue covers this yet.
+- GordianXI writes 0 into `out` and steps over (`EventVm.Step`, "not needed for dialog"). Since cutscene staging runs ([#86](https://github.com/jimmy58663/GordianXI/issues/86)), a script that places or walks an actor at an offset computed with them puts it at radius 0. Tracked in [#197](https://github.com/jimmy58663/GordianXI/issues/197).
 
 ### 0x19
 
@@ -285,7 +285,7 @@ When a change makes an opcode run, update its row and detail section in the same
 |---|---|---|---|---|
 | 0x00 | 8 | 24,548 | store the goal in the running stack (retail also cancels a turn) | runs |
 | 0x01 | 2 | 24,545 | step toward the goal at the walk speed, face the way, yield; at the goal snap to it and go on | runs |
-| 0x17 | - | 411 | not a sub-case: inline string data after `1F 17` ([vm.md](vm.md#event-files), corpus walk) | logged, steps 2 |
+| 0x17 | - | 411 | not a sub-case: inline string data after `1F 17` ([vm.md](vm.md#event-files), corpus walk) | logged, steps 2 [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x80, 0x81 | - | 59, 2 | no retail sub-case (retail neither moves on nor yields) | logged, steps 2 |
 
 - GordianXI (`EventVm.ExecMove`): the distance is horizontal; the walk speed is 0x32's, else the entity's own, else 4.0. An entity whose place is unknown is put at the goal at once. The renderer draws the entity on the floor below its event position.
@@ -500,7 +500,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x62 `CodeLOADEVENTSCHEDULER`
 
 - Same layout as 0x45; the scene file is 5012 + p, with no 300 / 600 shift (XiEvents OpCodes/0x0062).
-- GordianXI steps over it: 1,701 events lose these tasks. What file 5012 + p holds is not checked. No issue covers this yet.
+- GordianXI steps over it: 1,701 events lose these tasks. What file 5012 + p holds is not checked. Tracked in [#199](https://github.com/jimmy58663/GordianXI/issues/199).
 
 ### 0x64, 0x65 `CodeGETDISTANCEAA`
 
@@ -516,7 +516,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x6C `CodeTRANSPAR`
 
 - Layout: `6C actor:u32 alpha:work frames:work`. On the first call retail reads the actor's colour, takes the target alpha and the frame count (0 taken as 1); on each later call it steps the alpha toward the target and yields; when the time has run out it applies the target alpha and goes on. An actor that is missing or has no model is stepped over (XiEvents OpCodes/0x006C).
-- GordianXI steps over it. Besides the missing fade, every 0x6C with a nonzero time is a wait the script does not make here, so the events that use it (the most used opcode GordianXI does not run) run ahead of retail by the fade times. No issue covers this yet.
+- GordianXI steps over it. Besides the missing fade, every 0x6C with a nonzero time is a wait the script does not make here, so the events that use it (the most used opcode GordianXI does not run) run ahead of retail by the fade times. Tracked in [#197](https://github.com/jimmy58663/GordianXI/issues/197).
 
 ### 0x6E `CodeEMOT`
 
@@ -695,13 +695,13 @@ When a change makes an opcode run, update its row and detail section in the same
 
 | Start | Wait | Stop | File base | Events (start) |
 |---|---|---|---|---|
-| 0x62 | 0xA0 | (0xA1?) | 5012 | see 0x62 |
+| 0x62 | 0xA0 | (0xA1?) | 5012 | see 0x62 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x9F | 0xA2 | 0xA3 | 51183 | 1,883 |
-| 0xBB | 0xBC | 0xBD | 56685 | 478 |
-| 0xC5 | 0xC6 | 0xC7 | 67355 | 708 |
-| 0xCD | 0xCE | 0xCF | 70435 | 1,039 |
-| 0xD0 | 0xD1 | 0xD2 | 70691 | 453 |
-| 0xD5 | 0xD6 | 0xD7 | 102449 | 73 |
+| 0xBB | 0xBC | 0xBD | 56685 | 478 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xC5 | 0xC6 | 0xC7 | 67355 | 708 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xCD | 0xCE | 0xCF | 70435 | 1,039 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD0 | 0xD1 | 0xD2 | 70691 | 453 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xD5 | 0xD6 | 0xD7 | 102449 | 73 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x7D (player only, tag `main`) | | | 5112 | 57 |
 
 - All are stepped. In Port Jeuno event 324 the 0x9F tasks carry the eyelid opening and the flash in the sky; running them as `EventScene` tasks is drafted for [#192](https://github.com/jimmy58663/GordianXI/issues/192).
