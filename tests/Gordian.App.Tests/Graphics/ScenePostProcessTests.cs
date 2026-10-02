@@ -34,7 +34,7 @@ namespace Gordian.App.Tests.Graphics
             private readonly VeldridDeviceManager _devMgr;
             private readonly Veldrid.GraphicsDevice _gd;
             private readonly Veldrid.Framebuffer _fb;
-            private readonly Veldrid.Texture _color, _depth, _staging;
+            private readonly Veldrid.Texture _color, _depth, _staging, _depthStaging;
             private readonly Veldrid.CommandList _cl;
             private readonly Gordian.Core.Resources.ResourceManager _rm;
             private readonly Gordian.Core.Graphics.ZoneEnvironmentSettings _env;
@@ -62,6 +62,7 @@ namespace Gordian.App.Tests.Graphics
                 _depth = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
                 _fb = _gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(_depth, _color));
                 _staging = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, format, Veldrid.TextureUsage.Staging));
+                _depthStaging = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.Staging));
                 _cl = _gd.ResourceFactory.CreateCommandList();
                 Presentation = new EventPresentation { Clock = () => Now };
                 Renderer.EventPresentation = Presentation;
@@ -89,10 +90,21 @@ namespace Gordian.App.Tests.Graphics
                 return pixels;
             }
 
+            /// <summary>The target's depth buffer (what the name plates test against).</summary>
+            public float[] CaptureDepth()
+            {
+                _cl.Begin(); _cl.CopyTexture(_depth, _depthStaging); _cl.End(); _gd.SubmitCommands(_cl); _gd.WaitForIdle();
+                var map = _gd.Map(_depthStaging, Veldrid.MapMode.Read);
+                var depth = new float[Width * Height];
+                for (int y = 0; y < Height; y++) System.Runtime.InteropServices.Marshal.Copy(map.Data + (int)(y * map.RowPitch), depth, y * Width, Width);
+                _gd.Unmap(_depthStaging);
+                return depth;
+            }
+
             public void Dispose()
             {
                 Renderer.Dispose();
-                _cl.Dispose(); _fb.Dispose(); _color.Dispose(); _depth.Dispose(); _staging.Dispose();
+                _cl.Dispose(); _fb.Dispose(); _color.Dispose(); _depth.Dispose(); _staging.Dispose(); _depthStaging.Dispose();
                 _devMgr.Dispose();
                 DestroyWindow(_hwnd);
             }
@@ -139,6 +151,39 @@ namespace Gordian.App.Tests.Graphics
             double diff = Difference(direct, post);
             _out.WriteLine($"pass-through difference {diff:F3}");
             Assert.True(diff < 0.5, $"the pass-through should not change the scene, mean difference {diff:F3}");
+        }
+
+        /// <summary>
+        /// The name plates draw after the scene and test the target's depth buffer: with the scene drawn offscreen, that
+        /// buffer must still hold this frame's scene. It held a stale frame from before the cutscene, which cut or hid
+        /// plates (in-game test, 2026-10-02).
+        /// </summary>
+        [Fact]
+        public void HeldCamera_LeavesTheScenesDepthInTheTarget()
+        {
+            using var h = Open(out _);
+            if (h == null) return;
+            h.Look(180f);
+            h.Renderer.EnablePostProcess = false;
+            h.Run(2);
+            var direct = h.CaptureDepth();
+            // The last frame drawn straight to the target looks the other way, so a stale buffer cannot pass.
+            h.Look(0f);
+            h.Run(2);
+            h.Renderer.EnablePostProcess = true;
+            h.Presentation.SetCameraHeld(true);
+            h.Look(180f);
+            h.Run(2);
+            var post = h.CaptureDepth();
+            int differ = 0, near = 0;
+            for (int i = 0; i < direct.Length; i++)
+            {
+                if (MathF.Abs(direct[i] - post[i]) > 1e-5f) differ++;
+                if (direct[i] < 1f) near++;
+            }
+            _out.WriteLine($"depth: {near} pixels with scene depth, {differ} differ");
+            Assert.True(near > 5000, "the view should have geometry");
+            Assert.Equal(0, differ);
         }
 
         [Fact]

@@ -86,6 +86,7 @@ void main()
         private Texture? _sceneColor;
         private Texture? _depth;
         private Framebuffer? _sceneFramebuffer;
+        private Texture? _sceneDepth;
         private readonly Texture?[] _history = new Texture?[2];
         private readonly Framebuffer?[] _historyFramebuffers = new Framebuffer?[2];
         private Texture? _dissolveFrame;
@@ -129,12 +130,22 @@ void main()
 
         /// <summary>
         /// The offscreen framebuffer to draw this frame's scene into, sized and formatted like <paramref name="target"/>.
-        /// A frame drawn without it leaves no history: a blur or dissolve that starts after it starts from that frame.
+        /// Its depth attachment is the target's own, so what draws on the target afterwards and tests the scene's depth
+        /// (the name plates, cut by walls and models in front) sees this frame's scene, not a stale one. A frame drawn
+        /// without it leaves no history: a blur or dissolve that starts after it starts from that frame.
         /// </summary>
         public Framebuffer BeginScene(Framebuffer target)
         {
             var color = target.ColorTargets[0].Target;
             EnsureTargets(target.Width, target.Height, color.Format);
+            var depth = target.DepthTarget?.Target ?? _depth!;
+            if (!ReferenceEquals(depth, _sceneDepth))
+            {
+                // The swapchain's depth texture is replaced on a resize.
+                _sceneFramebuffer?.Dispose();
+                _sceneFramebuffer = _gd.ResourceFactory.CreateFramebuffer(new FramebufferDescription(depth, _sceneColor!));
+                _sceneDepth = depth;
+            }
             return _sceneFramebuffer!;
         }
 
@@ -200,7 +211,6 @@ void main()
             var usage = TextureUsage.RenderTarget | TextureUsage.Sampled;
             _sceneColor = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, format, usage));
             _depth = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, PixelFormat.R32_Float, TextureUsage.DepthStencil));
-            _sceneFramebuffer = factory.CreateFramebuffer(new FramebufferDescription(_depth, _sceneColor));
             for (int i = 0; i < 2; i++)
             {
                 _history[i] = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, format, usage));
@@ -238,6 +248,7 @@ void main()
             _depth?.Dispose();
             _dissolveFrame?.Dispose();
             _sceneFramebuffer = null;
+            _sceneDepth = null;
             _sceneColor = null;
             _depth = null;
             _dissolveFrame = null;
