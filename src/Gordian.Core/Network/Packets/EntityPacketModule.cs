@@ -425,6 +425,8 @@ namespace Gordian.Core.Network.Packets
                 entity.TransportTravelSeconds = travel;
             }
 
+            if (npcPacket.TryGetDoorObjectId(out string doorId)) entity.TransportId = doorId;
+
             if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))
             {
                 entity.Appearance.GrapIdTable = grapTable;

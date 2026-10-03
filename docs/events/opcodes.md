@@ -96,7 +96,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x49 | | 7 | runs | 52 | Prints a dialog message with no speaker prefix, an actor's name bound for the text. |
 | 0x4A | `CodeDTURA` | 9 | partial | 8,753 | Turns one actor toward another and has it look at it. |
 | 0x4B | | 7 | partial | 2,253 | Sets an actor's heading. |
-| 0x4C | | 1 | runs | 884 | Opens the event's entity as a door (event status 8, `WorldEntity.EventStatus`, [#200](https://github.com/jimmy58663/GordianXI/issues/200)); doors are drawn static ([#15](https://github.com/jimmy58663/GordianXI/issues/15)). |
+| 0x4C | | 1 | runs | 884 | Opens the event's entity as a door (event status 8, `WorldEntity.EventStatus`, [#200](https://github.com/jimmy58663/GordianXI/issues/200)); the door opens through `DoorAnimator` ([#15](https://github.com/jimmy58663/GordianXI/issues/15)). |
 | 0x4D | | 1 | runs | 777 | Closes the event's entity as a door (event status 9, [#200](https://github.com/jimmy58663/GordianXI/issues/200)). |
 | 0x4E | | 6 | runs | 4,334 | Sets or clears the event hide flag of a named actor. |
 | 0x4F | | 3 | stepped | 77 | Sets the event's entity event status to a value plus 18. |
@@ -318,7 +318,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x2D `CodeMAPSCHEDULOR`
 
 - Layout: `2D actor:u32 target:u32 routine:u32`; 0x51 stops it and 0x54 waits for it, same operands (XiEvents OpCodes/0x002D, 0x0051, 0x0054: `XiZone::SetAction`, `KillAction`, `IsMovingAction`). Retail runs it only when both actors' models are loaded (`Render.Flags0` bit 9).
-- GordianXI steps over all three. They need the zone scheduler runtime that S2C 0x039 also needs ([#109](https://github.com/jimmy58663/GordianXI/issues/109)); doors are [#15](https://github.com/jimmy58663/GordianXI/issues/15).
+- GordianXI steps over all three. They need the zone scheduler runtime that S2C 0x039 also needs ([#109](https://github.com/jimmy58663/GordianXI/issues/109)); doors' own open / close routines run from their status ([#15](https://github.com/jimmy58663/GordianXI/issues/15)).
 
 ### 0x31 `CodeSMOVE`
 
@@ -409,7 +409,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x4C, 0x4D, 0x4F
 
 - 0x4C sets the event entity's event status to 8 (open), 0x4D to 9 (close), `4F n:work` to n + 18, each only when `Render.Flags0` bit 2 is clear (XiEvents OpCodes/0x004C, 0x004D, 0x004F).
-- GordianXI ([#200](https://github.com/jimmy58663/GordianXI/issues/200)): 0x4C / 0x4D set `WorldEntity.EventStatus` to 8 / 9 on the event's own entity while its `EventRenderFlags.Flags0Bit2` (0xAB sub 3) is clear; the status is cleared when the event ends, with the other event state (retail's `StatusEvent` reset at the event's end is *inference*). Nothing draws it yet: doors are drawn static, and their animation from the server's status 8 / 9 and from `EventStatus` is [#15](https://github.com/jimmy58663/GordianXI/issues/15). 0x4F is stepped over.
+- GordianXI ([#200](https://github.com/jimmy58663/GordianXI/issues/200)): 0x4C / 0x4D set `WorldEntity.EventStatus` to 8 / 9 on the event's own entity while its `EventRenderFlags.Flags0Bit2` (0xAB sub 3) is clear; the status is cleared when the event ends, with the other event state (retail's `StatusEvent` reset at the event's end is *inference*). `DoorAnimator` plays the door's `open` / `clos` routines from it, and `ZoneDoors` blocks the doorway while it is not open ([#15](https://github.com/jimmy58663/GordianXI/issues/15), [collision-and-physics.md](../world/collision-and-physics.md)). 0x4F is stepped over.
 
 ### 0x53 `CodeWAITSCHEDULOR`, 0x54 `CodeWAITMAPSCHEDULOR`, 0x55 `CodeWAITLOADSCHEDULER_Main`
 

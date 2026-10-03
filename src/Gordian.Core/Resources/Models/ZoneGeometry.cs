@@ -72,10 +72,48 @@ namespace Gordian.Core.Resources.Models
         public bool IsMovingPlatformPart => BlockId.Length > 0 && BlockId[0] == '@';
 
         /// <summary>
+        /// True for a leaf of a zone door (BlockID starting <c>_</c>, the door's Section 0x36 id).
+        /// </summary>
+        public bool IsDoorPart => BlockId.Length > 0 && BlockId[0] == '_';
+
+        /// <summary>
         /// True for a placement drawn by the Section 0x05 generator its BlockID names (any FourCC not starting with
         /// <c>_</c> (doors) or <c>@</c> (elevators)); see xi-tools docs/zone/format.md, "Generator-bound objects".
         /// </summary>
         public bool IsGeneratorBound => BlockId.Length > 0 && BlockId[0] != '@' && BlockId[0] != '_';
+    }
+
+    /// <summary>
+    /// One leaf of a zone door: a placement with the door's BlockID and its submeshes (world space, authored pose).
+    /// <see cref="Part"/> is the leaf's index in the door's routines: the placements of a door in ZoneDef order. Most
+    /// two-leaf doors use the same mesh twice (1,098 of 1,146 in the retail zones), so the order is the only link
+    /// (*inference*, to confirm in-game by which way the leaves swing).
+    /// </summary>
+    public sealed record DoorLeaf(int Part, ZonePlacement Placement, List<MeshGroup> Submeshes);
+
+    /// <summary>
+    /// A zone door's routines: <c>open</c> / <c>clos</c> animate it, <c>into</c> / <c>intc</c> are its poses at load
+    /// (open / closed). Any of them may be missing.
+    /// </summary>
+    public sealed class ZoneDoorRoutines
+    {
+        public Graphics.DoorRoutine? Open { get; set; }
+        public Graphics.DoorRoutine? Close { get; set; }
+        public Graphics.DoorRoutine? InitOpen { get; set; }
+        public Graphics.DoorRoutine? InitClose { get; set; }
+
+        /// <summary>Stores a routine by its section name; false for names that are not door routines.</summary>
+        public bool Set(string name, Graphics.DoorRoutine routine)
+        {
+            switch (name)
+            {
+                case "open": Open = routine; return true;
+                case "clos": Close = routine; return true;
+                case "into": InitOpen = routine; return true;
+                case "intc": InitClose = routine; return true;
+                default: return false;
+            }
+        }
     }
 
     /// <summary>
@@ -105,6 +143,15 @@ namespace Gordian.Core.Resources.Models
         /// pose. They are drawn offset by the platform's live height instead of with the static scenery.
         /// </summary>
         public Dictionary<string, List<MeshGroup>> MovingPlatformGroups { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The leaves of the zone's doors (placements whose BlockID starts with <c>_</c>), keyed by door id, in world space
+        /// at their authored pose. They are drawn with their door's live pose instead of with the static scenery.
+        /// </summary>
+        public Dictionary<string, List<DoorLeaf>> DoorLeaves { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The routines of the zone's doors (<c>&lt;zone code&gt;/door/&lt;door id&gt;/</c>), keyed by door id.</summary>
+        public Dictionary<string, ZoneDoorRoutines> DoorRoutines { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none.
