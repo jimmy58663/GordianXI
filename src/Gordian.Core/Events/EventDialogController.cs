@@ -484,6 +484,7 @@ namespace Gordian.Core.Events
                     entity.KeepsEventHeight = false;
                     entity.HidesEventName = false;
                     entity.EventRenderFlags = EventRenderFlags.None;
+                    entity.EventStatus = 0;
                 }
             }
             _staged.Clear();
@@ -1065,6 +1066,23 @@ namespace Gordian.Core.Events
                 return;
             }
             entity.EventRenderFlags = set ? entity.EventRenderFlags | flag : entity.EventRenderFlags & ~flag;
+            _staged.Add(serverId);
+        }
+
+        bool IEventVmHost.TryGetEntityRenderFlags(uint serverId, out EventRenderFlags flags)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            flags = EventRenderFlags.None;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return false;
+            flags = entity.EventRenderFlags;
+            return true;
+        }
+
+        void IEventVmHost.SetEntityEventStatus(uint serverId, byte status)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return; // retail skips a missing entity too
+            entity.EventStatus = status;
             _staged.Add(serverId);
         }
 

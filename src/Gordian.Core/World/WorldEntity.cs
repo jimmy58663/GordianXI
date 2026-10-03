@@ -794,6 +794,19 @@ namespace Gordian.Core.World
         private volatile EventRenderFlags _eventRenderFlags;
 
         /// <summary>
+        /// The status a running event gave the entity in place of its server status (<see cref="AnimationState"/>), or 0
+        /// for none: 8 opens a door, 9 closes it (opcodes 0x4C / 0x4D, retail <c>StatusEvent</c>). Cleared when the event
+        /// ends. Event VM opcodes referenced from XiEvents (https://github.com/atom0s/XiEvents, OpCodes/0x004C, 0x004D).
+        /// </summary>
+        public byte EventStatus
+        {
+            get => _eventStatus;
+            set => _eventStatus = value;
+        }
+
+        private volatile byte _eventStatus;
+
+        /// <summary>
         /// Hidden by a running event: the scripts' hide flag (opcodes 0x22 / 0x4E, retail <c>Render.Flags0</c> bit 17) or
         /// the cutscene's NO_PCS / NO_NPCS flags for entities outside the event. Cleared when the event ends.
         /// </summary>

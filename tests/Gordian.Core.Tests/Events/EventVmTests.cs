@@ -132,6 +132,15 @@ namespace Gordian.Core.Tests.Events
         public void SetEntityHidesName(uint serverId, bool hide) => HidesName.Add((serverId, hide));
         public List<(uint Id, EventRenderFlags Flag, bool Set)> RenderFlags { get; } = new();
         public void SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set) => RenderFlags.Add((serverId, flag, set));
+        public bool TryGetEntityRenderFlags(uint serverId, out EventRenderFlags flags)
+        {
+            flags = EventRenderFlags.None;
+            foreach (var (id, flag, set) in RenderFlags)
+                if (id == serverId) flags = set ? flags | flag : flags & ~flag;
+            return true;
+        }
+        public List<(uint Id, byte Status)> EventStatuses { get; } = new();
+        public void SetEntityEventStatus(uint serverId, byte status) => EventStatuses.Add((serverId, status));
         public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
         public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
         public List<(uint Id, int Speed)> TurnSpeeds { get; } = new();

@@ -331,6 +331,19 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void DoorOpcodes_SetTheEventStatus_UnlessFlags0Bit2IsSet()
+        {
+            // 4C ; 4D ; AB 03 (Render.Flags0 bit 2) ; 4C (ignored) ; AB 04 ; 4D ; 48 ref0 ; 00 (#200)
+            var code = new byte[] { 0x4C, 0x4D, 0xAB, 0x03, 0x4C, 0xAB, 0x04, 0x4D }.Concat(Print(0)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            var vm = Make(code, host, new uint[] { 9 });
+            vm.Tick(Frame);
+            Assert.Single(host.Printed);
+            Assert.Equal(new[] { (Npc, (byte)8), (Npc, (byte)9), (Npc, (byte)9) }, host.EventStatuses.ToArray());
+            Assert.Empty(host.Skipped);
+        }
+
+        [Fact]
         public void LookOpcodes_SetAndClearTheLook()
         {
             const uint Other = 0x010E6064;

@@ -189,7 +189,7 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 4 | event | |
 | 5 | chocobo | |
 | 6 | fishing | |
-| 8 / 9 | open_door / close_door | doors are drawn static |
+| 8 / 9 | open_door / close_door | doors are drawn static (#15); events set them as `WorldEntity.EventStatus` (0x4C / 0x4D, #200) |
 | 10 / 11 | elevator_up / elevator_down | `MovingPlatforms.AnimationUp` / `AnimationDown` pick the leg direction |
 | 33 | healing | |
 | 44 | synth | |
