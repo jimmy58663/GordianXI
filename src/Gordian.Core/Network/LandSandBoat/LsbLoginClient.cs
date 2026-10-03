@@ -31,6 +31,11 @@ namespace Gordian.Core.Network.LandSandBoat
     }
 
     /// <summary>
+    /// One character of the xi_view 0x20 list: its 1-based slot (raw list position, free slots counted), id and name.
+    /// </summary>
+    public readonly record struct LsbCharacterSlot(int Slot, uint Id, string Name);
+
+    /// <summary>
     /// Information about an available character returned by the LandSandBoat data server.
     /// </summary>
     public sealed class LsbCharacterInfo
@@ -189,12 +194,14 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>
         /// The characters of an xi_view 0x20 list (lpkt_chr_info2: the header, a u32 count at 28, then 140-byte slots with
         /// ffxi_id at +0 and the 16-byte name at +12), skipping the free slots LandSandBoat fills with a single space.
+        /// Each entry keeps its raw 1-based slot number (its position in the list, free slots included), so a character
+        /// stays in "slot 3" even when slot 2 is empty.
         /// Packet structure referenced from LandSandBoat (https://github.com/LandSandBoat/server, src/login/login_packets.h)
         /// and XiPackets (https://github.com/atom0s/XiPackets, lobby/S2C_0x0020_ResponseChrInfo2.md).
         /// </summary>
-        public static List<(uint Id, string Name)> ParseCharacterSlots(ReadOnlySpan<byte> packet)
+        public static List<LsbCharacterSlot> ParseCharacterSlotList(ReadOnlySpan<byte> packet)
         {
-            var slots = new List<(uint Id, string Name)>();
+            var slots = new List<LsbCharacterSlot>();
             if (packet.Length < CharacterSlotsOffset) return slots;
             int count = (int)Math.Min(16u, BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(28, 4)));
             for (int i = 0; i < count; i++)
@@ -202,31 +209,51 @@ namespace Gordian.Core.Network.LandSandBoat
                 int at = CharacterSlotsOffset + i * CharacterSlotSize;
                 if (at + 28 > packet.Length) break;
                 uint id = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(at, 4));
-                string name = Encoding.ASCII.GetString(packet.Slice(at + 12, 16)).TrimEnd('\0', ' ');
+                string name = Encoding.ASCII.GetString(packet.Slice(at + 12, 16)).TrimEnd(' ', ' ');
                 if (id == 0 || string.IsNullOrWhiteSpace(name)) continue;
-                slots.Add((id, name));
+                slots.Add(new LsbCharacterSlot(i + 1, id, name));
             }
             return slots;
         }
 
+        /// <summary>The characters of an xi_view 0x20 list as (id, name), free slots skipped; see <see cref="ParseCharacterSlotList"/>.</summary>
+        public static List<(uint Id, string Name)> ParseCharacterSlots(ReadOnlySpan<byte> packet)
+        {
+            var result = new List<(uint Id, string Name)>();
+            foreach (var slot in ParseCharacterSlotList(packet)) result.Add((slot.Id, slot.Name));
+            return result;
+        }
+
         /// <summary>
         /// The character to log in as, id and name from the same slot: the one named <paramref name="name"/> (any case),
-        /// else the one with <paramref name="id"/>, else the first. With no slots the requested values are passed through.
+        /// else the one in slot <paramref name="slot"/> (1-16, the raw list position), else the one with
+        /// <paramref name="id"/>, else the first. With no slots the requested values are passed through.
+        /// A <paramref name="slot"/> that is out of range or names a free slot throws instead of picking another character,
+        /// because the user asked for that slot explicitly.
         /// </summary>
-        public static (uint Id, string Name) ChooseCharacter(IReadOnlyList<(uint Id, string Name)> slots, string? name, uint id)
+        public static LsbCharacterSlot ChooseCharacter(IReadOnlyList<LsbCharacterSlot> slots, string? name, uint id, int slot = 0)
         {
             if (!string.IsNullOrWhiteSpace(name))
             {
-                foreach (var slot in slots)
+                foreach (var candidate in slots)
                 {
-                    if (string.Equals(slot.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) return slot;
+                    if (string.Equals(candidate.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) return candidate;
                 }
+            }
+            if (slot != 0)
+            {
+                foreach (var candidate in slots)
+                {
+                    if (candidate.Slot == slot) return candidate;
+                }
+                throw new InvalidOperationException(
+                    $"Character slot {slot} is empty or not on this account (characters: {string.Join(", ", slots.Select(c => $"{c.Slot}={c.Name}"))}).");
             }
             if (id != 0)
             {
-                foreach (var slot in slots)
+                foreach (var candidate in slots)
                 {
-                    if (slot.Id == id) return slot;
+                    if (candidate.Id == id) return candidate;
                 }
             }
             if (slots.Count > 0)
@@ -237,7 +264,16 @@ namespace Gordian.Core.Network.LandSandBoat
                 }
                 return slots[0];
             }
-            return (id, name?.Trim() ?? string.Empty);
+            return new LsbCharacterSlot(0, id, name?.Trim() ?? string.Empty);
+        }
+
+        /// <summary>Tuple form of <see cref="ChooseCharacter(IReadOnlyList{LsbCharacterSlot}, string?, uint, int)"/> without a slot.</summary>
+        public static (uint Id, string Name) ChooseCharacter(IReadOnlyList<(uint Id, string Name)> slots, string? name, uint id)
+        {
+            var list = new List<LsbCharacterSlot>(slots.Count);
+            for (int i = 0; i < slots.Count; i++) list.Add(new LsbCharacterSlot(i + 1, slots[i].Id, slots[i].Name));
+            var chosen = ChooseCharacter(list, name, id);
+            return (chosen.Id, chosen.Name);
         }
 
         /// <summary>
@@ -254,7 +290,8 @@ namespace Gordian.Core.Network.LandSandBoat
             string? targetCharacterName = null,
             uint targetCharacterId = 0,
             byte[]? customBlowfishKey = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            int targetCharacterSlot = 0)
         {
             ArgumentNullException.ThrowIfNull(host);
             ArgumentNullException.ThrowIfNull(sessionHash);
@@ -400,7 +437,7 @@ namespace Gordian.Core.Network.LandSandBoat
             // Step 4b: Check for 0x20 Character Info response on xi_view (contains in-game character names)
             // Note: In LandSandBoat, xi_view sends lpkt_chr_info2 which is up to 2272 bytes (16 slots * 140 bytes + 32 header).
             // We must completely drain this packet from viewStream so subsequent reads (e.g. 0x0B) receive clean data.
-            var slots = new List<(uint Id, string Name)>();
+            var slots = new List<LsbCharacterSlot>();
             try
             {
                 using var cts20 = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -424,7 +461,7 @@ namespace Gordian.Core.Network.LandSandBoat
 
                 if (viewBytes >= 60 && viewChrBuffer[8] == 0x20)
                 {
-                    slots = ParseCharacterSlots(viewChrBuffer.AsSpan(0, viewBytes));
+                    slots = ParseCharacterSlotList(viewChrBuffer.AsSpan(0, viewBytes));
                 }
             }
             catch (OperationCanceledException)
@@ -439,7 +476,10 @@ namespace Gordian.Core.Network.LandSandBoat
 
             // The id and name must name the same character: xi_view looks the pair up (chars.charid AND charname) and
             // drops the connection on a mismatch ("tried to select a character id with a mismatched character name").
-            var (selectedCharId, selectedCharName) = ChooseCharacter(slots, targetCharacterName, targetCharacterId);
+            var chosen = ChooseCharacter(slots, targetCharacterName, targetCharacterId, targetCharacterSlot);
+            uint selectedCharId = chosen.Id;
+            string selectedCharName = chosen.Name;
+            GordianLog.Info("LSB_LOGIN", $"Character choice: requested name='{targetCharacterName}' slot={targetCharacterSlot} id={targetCharacterId} -> slot {chosen.Slot} '{chosen.Name}' (ID {chosen.Id}) of {slots.Count} character(s).");
             if (selectedCharId == 0 && characters.Count > 0)
             {
                 selectedCharId = characters[0].CharacterId;
@@ -579,7 +619,8 @@ namespace Gordian.Core.Network.LandSandBoat
             string? targetCharacterName = null,
             uint targetCharacterId = 0,
             byte[]? customBlowfishKey = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            int targetCharacterSlot = 0)
         {
             return SelectCharacterAsync(
                 host,
@@ -590,7 +631,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 targetCharacterName,
                 targetCharacterId,
                 customBlowfishKey,
-                ct);
+                ct,
+                targetCharacterSlot);
         }
 
         /// <summary>
@@ -608,7 +650,8 @@ namespace Gordian.Core.Network.LandSandBoat
             int viewPort = DefaultViewPort,
             string? targetCharacterName = null,
             uint targetCharacterId = 0,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            int targetCharacterSlot = 0)
         {
             const int maxAttempts = 2;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
@@ -633,7 +676,8 @@ namespace Gordian.Core.Network.LandSandBoat
                         targetCharacterName,
                         targetCharacterId,
                         null,
-                        ct
+                        ct,
+                        targetCharacterSlot
                     ).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)

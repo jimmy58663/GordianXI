@@ -95,6 +95,33 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void ProfileItemViewModel_OnlyTheProfileOfTheLoggedInCharacterIsOnline()
+        {
+            var knot = new ProfileItemViewModel(new AccountProfile { ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" }, _testRegistry);
+            var blm = new ProfileItemViewModel(new AccountProfile { ProfileName = "BLM", Username = "acct1000", CharacterSlot = 2 }, _testRegistry);
+
+            var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            _testRegistry.RegisterSession(new CharacterSession("BLM", 21900, "acct1000", net) { ProfileName = "BLM" });
+
+            knot.RefreshOnlineStatus();
+            blm.RefreshOnlineStatus();
+
+            Assert.False(knot.IsOnline);
+            Assert.True(blm.IsOnline);
+            Assert.Equal("Char: slot 2", blm.CharacterSubtitle);
+
+            // Terminating one profile leaves the account's other characters alone.
+            var net2 = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net2) { ProfileName = "Knot" });
+            knot.RefreshOnlineStatus();
+            Assert.True(knot.IsOnline);
+            blm.Terminate();
+            knot.RefreshOnlineStatus();
+            Assert.False(blm.IsOnline);
+            Assert.True(knot.IsOnline);
+        }
+
+        [Fact]
         public void EditProfileCommand_PopulatesFormAndUpdatesOnSave()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
