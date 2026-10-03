@@ -115,7 +115,25 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(baseFileId + 8, EventSceneResource.GetBandFileId((byte)start, 8));
             Assert.InRange(ticks, 12, 14);
             if (stop != null) Assert.Equal(host.SceneTasks[1].Id, Assert.Single(host.StoppedTasks));
-            else Assert.Empty(host.StoppedTasks); // 0xA1 stays stepped
+            else Assert.Empty(host.StoppedTasks); // the 0x62 band has no stop of its own (0xA1 stops 0x45 tasks)
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
+        public void A1_StopsAMainSceneTaskLike0x52_NotThe0x62BandsTask()
+        {
+            // 62 main on p = ref0 ; 45 main on p = ref0 ; A1 stop main ; 00
+            // (#199: XiEvents OpCodes/0x00A1 calls 0x52's helper with base 30704, so p 350 is remapped to 56991)
+            var code = new byte[] { 0x62 }.Concat(Start(0, "main").Skip(1)).Concat(Start(0, "main"))
+                .Concat(TaskOp(0xA1, 0, "main")).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.RoutineFrames["main"] = 300;
+            var vm = Make(code, host, new uint[] { 350 });
+
+            for (int i = 0; i < 5 && !vm.IsFinished; i++) vm.Tick(Frame);
+
+            Assert.Equal(new[] { 5362, 56991 }, host.SceneTasks.Select(t => t.FileId));
+            Assert.Equal(host.SceneTasks[1].Id, Assert.Single(host.StoppedTasks));
             Assert.True(vm.IsFinished);
         }
 

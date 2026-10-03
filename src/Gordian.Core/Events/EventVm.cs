@@ -1169,6 +1169,9 @@ namespace Gordian.Core.Events
                     ExecStartTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x52:
+                case 0xA1:
+                    // 0xA1 sits in the 0x62 family's stop place but calls 0x52's helper with 0x52's base 30704 (XiEvents
+                    // OpCodes/0x00A1), so it stops a main scene task, remapped like 0x52. No retail script uses it.
                     ExecEndTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
                 case 0x55:
@@ -1181,7 +1184,6 @@ namespace Gordian.Core.Events
                     ExecStartTask(EventSceneResource.GetBandFileId(op, GetWork(1)));
                     return;
                 case 0xA3 or 0xBD or 0xC7 or 0xCF or 0xD2 or 0xD7:
-                    // 0xA1 (0x62's stop by its place) is never used in retail and XiEvents gives it 0x52's base: stepped.
                     ExecEndTask(EventSceneResource.GetBandFileId(op, GetWork(1)));
                     return;
                 case 0xA2 or 0xA0 or 0xBC or 0xC6 or 0xCE or 0xD1 or 0xD6:

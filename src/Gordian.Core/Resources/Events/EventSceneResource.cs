@@ -361,9 +361,14 @@ namespace Gordian.Core.Resources.Events
         /// <summary>
         /// The first file of the scene range a scheduler opcode other than 0x45 / 0x52 / 0x55 loads from (start, wait,
         /// stop): 0x62 / 0xA0 5012, 0x9F / 0xA2 / 0xA3 51183, 0xBB-0xBD 56685, 0xC5-0xC7 67355, 0xCD-0xCF 70435,
-        /// 0xD0-0xD2 70691, 0xD5-0xD7 102449; -1 for any other opcode. Bases referenced from XiEvents
-        /// (https://github.com/atom0s/XiEvents, OpCodes/0x0062, 0x009F, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5 and their
-        /// wait / stop partners).
+        /// 0xD0-0xD2 70691, 0xD5-0xD7 102449; -1 for any other opcode (0xA1, in the 0x62 family's stop place, uses 0x52's
+        /// base and <see cref="GetFileId"/>). Bases referenced from XiEvents (https://github.com/atom0s/XiEvents,
+        /// OpCodes/0x0062, 0x009F, 0x00A1, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5 and their wait / stop partners).
+        /// <para>
+        /// Files 5013-5109 (the 0x62 band) are each one self-contained effect package: one folder named for the effect
+        /// (<c>wp00</c> / <c>wp01</c> warp, <c>kira</c>, <c>kone</c>...) with its routines, generators, keyframes,
+        /// meshes, textures and sounds (retail DATs, 2026-10-03).
+        /// </para>
         /// </summary>
         public static int GetBandBase(byte opcode) => opcode switch
         {
