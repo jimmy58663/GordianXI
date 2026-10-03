@@ -1153,6 +1153,28 @@ namespace Gordian.Core.Events
 
         void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);
 
+        /// <summary>
+        /// How many 60 Hz frames a zone's routine runs (the longest of that name in the zone DAT's on-demand routines), for
+        /// 0x2D's 0x54 wait; set by the app from the resource manager's loaded zones. Null, or 0, when it is not known.
+        /// </summary>
+        public static Func<ushort, string, int>? ZoneRoutineFrames { get; set; }
+
+        int IEventVmHost.StartZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            if (_world == null || string.IsNullOrEmpty(routine)) return 0;
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false);
+            int frames = ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;
+            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} in zone {_world.SceneZoneId}: {frames} frames.");
+            return frames;
+        }
+
+        void IEventVmHost.StopZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            if (_world == null) return;
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true);
+            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
+        }
+
         void IEventVmHost.SetEventCamera(bool held) => Presentation.SetCameraHeld(held);
 
         int IEventVmHost.PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)

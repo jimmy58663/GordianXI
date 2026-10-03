@@ -174,13 +174,19 @@ namespace Gordian.Core.World
         /// Requests stay queued until that zone is loaded (the server sends them right after the zone-in), and a zone
         /// change drops them.
         /// </summary>
-        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId)
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId) => PostMapScheduler(routine, casterServerId, targetServerId, stop: false);
+
+        /// <summary>
+        /// Queues a zone routine start, or with <paramref name="stop"/> its end (an event's 0x51, CodeENDMAPSCHEDULOR), for
+        /// the viewport that draws the current zone (<see cref="PostMapScheduler(string, uint, uint)"/>).
+        /// </summary>
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop)
         {
             if (string.IsNullOrEmpty(routine)) return;
             lock (_syncRoot)
             {
                 if (_mapSchedulers.Count >= MaxPendingMapSchedulers) _mapSchedulers.RemoveAt(0);
-                _mapSchedulers.Add(new MapSchedulerRequest(_currentZoneId, routine, casterServerId, targetServerId));
+                _mapSchedulers.Add(new MapSchedulerRequest(_currentZoneId, routine, casterServerId, targetServerId, stop));
             }
         }
 
@@ -588,5 +594,9 @@ namespace Gordian.Core.World
     /// A zone routine the server asked to play (S2C 0x039 map scheduler): the routine's FourCC, the zone it was sent in,
     /// and the caster and target server ids (0 when the server names no entity, as LandSandBoat's zone-in schedulers do).
     /// </summary>
-    public readonly record struct MapSchedulerRequest(ushort ZoneId, string Routine, uint CasterServerId, uint TargetServerId);
+    /// <summary>
+    /// A zone routine the server (S2C 0x039) or an event (0x2D / 0x60 sub 2; 0x51 with <paramref name="Stop"/>) asked the
+    /// viewport to play or end, with the two actors it names (0 = none / the player).
+    /// </summary>
+    public readonly record struct MapSchedulerRequest(ushort ZoneId, string Routine, uint CasterServerId, uint TargetServerId, bool Stop = false);
 }

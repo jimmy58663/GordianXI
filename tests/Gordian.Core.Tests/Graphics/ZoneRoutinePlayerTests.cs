@@ -106,6 +106,26 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void Stop_EndsTheNamedRoutine_AndLeavesWhatItStarted()
+        {
+            // An event's 0x51 (CodeENDMAPSCHEDULOR, #226) ends the routine; its particles and the routines it started go on.
+            var (player, emitters) = Portal();
+            Assert.True(player.Play("1pa2"));
+            Run(player, emitters, 310);
+            Assert.True(player.IsPlaying("s103"));
+            Assert.False(player.IsPlaying("1pa2")); // over after its 300 frames
+            Assert.True(player.Play("1pa2"));
+            Run(player, emitters, 5);
+            Assert.True(player.IsPlaying("1pa2"));
+            Assert.True(player.Stop("1pa2"));
+            Run(player, emitters, 1);
+            Assert.False(player.IsPlaying("1pa2"));
+            Assert.True(player.IsPlaying("s103"));
+            Assert.NotEmpty(emitters["g0a1"].Particles); // the stop kills nothing
+            Assert.False(player.Stop("nope"));
+        }
+
+        [Fact]
         public void ZeroFrameRoutine_StartedRepeating_RunsOnce()
         {
             var library = new ZoneRoutinePlayerTestsLibrary().Build();
@@ -180,6 +200,79 @@ namespace Gordian.Core.Tests.Graphics
             Assert.True(player.Play("1pak"));
             player.Update(1f, t => emitters.GetValueOrDefault(t));
             Assert.Equal(0, player.RunningCount);
+        }
+
+        [Fact]
+        public void Alzadaal_NeverExpiringPortalMeshesWaitForTheirRoutines()
+        {
+            // #225: the portals' idle glows g0b1 / g0c1 (1pa1), stage meshes tw31-tw34 (s104's 0x3F) and the second
+            // portal's ooo1 / r801-r808 (2pb1) were static layers drawn from zone load; now idle emitters.
+            if (LoadZone(72) is not { } zone) return;
+            foreach (string name in new[] { "g0b1", "g0c1", "ooo1", "r801", "r808", "tw31", "tw34" })
+            {
+                var layers = zone.EffectLayers.Where(l => l.Name == name).ToList();
+                Assert.NotEmpty(layers);
+                Assert.All(layers, l =>
+                {
+                    Assert.NotNull(l.Emitter);
+                    Assert.Null(l.Emitter!.Schedule);
+                    Assert.Equal(0, l.Emitter.Definition.Setup!.MaxLifeSpan);
+                });
+            }
+            // The stage meshes tw31-tw34 are left behind by the pillars tw21-tw24 (children), not static layers.
+            Assert.All(zone.EffectLayers.Where(l => l.Name == "tw31"), l => Assert.True(l.Emitter!.ChildOnly));
+            // 1pa1 draws the glows at once and 1pak removes them.
+            var player = new ZoneRoutinePlayer(zone.MapRoutines);
+            var emitters = zone.EffectLayers.Where(l => l.Emitter != null).ToDictionary(l => l.Emitter!, l => new ZoneParticleEmitter(l.Emitter!));
+            void Step(int frames)
+            {
+                for (int i = 0; i < frames; i++)
+                {
+                    player.Update(1f, t => emitters.GetValueOrDefault(t));
+                    foreach (var (template, emitter) in emitters) emitter.Update(1f, new ZoneParticleFrame(template.RawBasePosition, 0.5f, Vector3.One));
+                }
+            }
+            int Glows() => emitters.Count(e => e.Key.Definition.DatId is "g0b1" or "g0c1" && e.Value.Particles.Count > 0);
+            Step(120);
+            Assert.Equal(0, Glows());
+            Assert.True(player.Play("1pa1"));
+            Step(2);
+            Assert.True(Glows() >= 2, $"1pa1 should light the glows, {Glows()} lit");
+            Step(600);
+            Assert.True(Glows() >= 2); // never expire
+            Assert.True(player.Play("1pak"));
+            Step(2);
+            Assert.Equal(0, Glows());
+        }
+
+        [Fact]
+        public void TimedRoutines_CarryTheirClockWindows_AndDoNotLoop()
+        {
+            // Windurst Walls (239) cyo/c101: 10:30-11:51, 93,600 / 10,800 ms, spawning cyo1 (and c102 at 21:00-21:39).
+            // Port Windurst's ducks (mode/kamo, 12:00-13:30) are not checked: the kamo generator attaches to a zone actor
+            // and is not drawn yet.
+            if (LoadZone(239) is not { } walls) return;
+            var cyo1 = walls.EffectLayers.Where(l => l.Name == "cyo1" && l.Emitter?.Schedule != null).ToList();
+            Assert.NotEmpty(cyo1);
+            var timers = cyo1.SelectMany(l => l.Emitter!.Schedule!).Select(s => s.Timer).Where(t => t != null).Distinct().ToList();
+            Assert.Contains(timers, t => t!.Windows.Any(w => w.ToString() == "10:30-11:51" && w.MaxIntervalMs == 93600 && w.MinIntervalMs == 10800));
+            Assert.Contains(timers, t => t!.Windows.Any(w => w.ToString() == "21:00-21:39"));
+            Assert.All(cyo1, l => Assert.Equal(0, l.Emitter!.ScheduleLoopFrames));
+        }
+
+        [Fact]
+        public void Manaclipper_NamiGeneratorsTakeOnlyTheirOwnFoldersSchedule()
+        {
+            // s_pa/effe/nami and s_pa/door/_030/nami hold yk** generators of the same names (#81): each gets one folder's
+            // lop0 / lop1 / lop2 starts, not both.
+            if (LoadZone(3) is not { } zone) return;
+            var nami = zone.EffectLayers.Where(l => l.Name.StartsWith("yk", StringComparison.OrdinalIgnoreCase) && l.Emitter?.Schedule != null).ToList();
+            Assert.NotEmpty(nami);
+            foreach (var layer in nami)
+            {
+                var starts = layer.Emitter!.Schedule!.Select(s => (s.StartFrame, s.Duration)).ToList();
+                Assert.Equal(starts.Distinct().Count(), starts.Count);
+            }
         }
 
         [Fact]

@@ -10,7 +10,14 @@ namespace Gordian.Core.Resources.Graphics
     /// One Section 0x07 "spawn generator" command: the generator starts emitting <see cref="StartFrame"/> frames into the
     /// routine and emits for <see cref="Duration"/> frames (its emission window).
     /// </summary>
-    public readonly record struct EffectRoutineSpawn(string GeneratorId, int StartFrame, int Duration);
+    public readonly record struct EffectRoutineSpawn(string GeneratorId, int StartFrame, int Duration)
+    {
+        /// <summary>
+        /// For a start scheduled by a routine with op 0x52: the routine's replay timer (the generator starts
+        /// <see cref="StartFrame"/> frames after each replay); null for a start of a looping routine.
+        /// </summary>
+        public RoutineReplayTimer? Timer { get; init; }
+    }
 
     /// <summary>
     /// One Section 0x07 command that starts another routine of the same directory (or a parent's): op 0x03 runs it once,
@@ -42,9 +49,13 @@ namespace Gordian.Core.Resources.Graphics
         public bool LoopsOnComplete { get; init; }
 
         /// <summary>
-        /// Whether the routine holds op 0x52 (a replay the client times itself: birds, butterflies, lightning strikes).
+        /// The routine's op 0x52 commands (a replay the client times itself inside a Vana'diel clock window: birds,
+        /// butterflies, lightning strikes, daily triggers), in command order; empty for every other routine.
         /// </summary>
-        public bool HasTimedReplay { get; init; }
+        public IReadOnlyList<TimedReplayWindow> TimedReplays { get; init; } = Array.Empty<TimedReplayWindow>();
+
+        /// <summary>Whether the routine holds op 0x52 (<see cref="TimedReplays"/>).</summary>
+        public bool HasTimedReplay => TimedReplays.Count > 0;
 
         /// <summary>
         /// Whether the client starts the routine itself when the zone loads (it loops on completion or replays on a timer);
@@ -60,7 +71,8 @@ namespace Gordian.Core.Resources.Graphics
     /// section start, including its 16-byte header) and +0x1C the total length. Each command is { u8 op, u16 size in
     /// dwords (low 5 bits), u8, u16 delay, u16 duration, 4-char reference, ... }; a command runs at the sum of the
     /// delays before it (its own delay is the wait after it). Op 0x02 spawns a generator; op 0x00 ends the list.
-    /// Ops 0x03 / 0x73 start another routine (<see cref="EffectRoutine.Starts"/>) and op 0x52 marks a timed replay.
+    /// Ops 0x03 / 0x73 start another routine (<see cref="EffectRoutine.Starts"/>) and op 0x52 is a timed replay
+    /// (<see cref="EffectRoutine.TimedReplays"/>, <see cref="TimedReplayWindow"/> for its operands).
     /// Other commands advance the clock but are otherwise ignored. The walk has no command cap: retail routines run to
     /// 266 commands (Pso'Xja's barriers), and every routine's list ends on op 0x00 within its section, so the payload
     /// length bounds it (a zero-size command still advances one dword).
@@ -95,7 +107,7 @@ namespace Gordian.Core.Resources.Graphics
 
             var spawns = new List<EffectRoutineSpawn>();
             var starts = new List<EffectRoutineStart>();
-            bool timedReplay = false;
+            List<TimedReplayWindow>? timedReplays = null;
             int clock = 0;
             int p = commandsOffset;
             while (p + 8 <= payload.Length)
@@ -119,7 +131,21 @@ namespace Gordian.Core.Resources.Graphics
                 }
                 else if (op == OpTimedReplay)
                 {
-                    timedReplay = true;
+                    // 24 bytes: delay, duration, then start, end, longest and shortest interval (TimedReplayWindow).
+                    timedReplays ??= new List<TimedReplayWindow>();
+                    if (sizeDwords >= 6 && p + 24 <= payload.Length)
+                    {
+                        timedReplays.Add(new TimedReplayWindow(
+                            BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(p + 8)),
+                            BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(p + 12)),
+                            BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(p + 16)),
+                            BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(p + 20))));
+                    }
+                    else
+                    {
+                        // A short or truncated command: a window that is always open, replayed at the routine's length.
+                        timedReplays.Add(new TimedReplayWindow(0, TimedReplayWindow.MillisecondsPerDay, 0, 0));
+                    }
                 }
 
                 p += Math.Max(1, sizeDwords) * 4;
@@ -134,7 +160,7 @@ namespace Gordian.Core.Resources.Graphics
                 Spawns = spawns,
                 Starts = starts,
                 LoopsOnComplete = loopsOnComplete,
-                HasTimedReplay = timedReplay
+                TimedReplays = timedReplays ?? (IReadOnlyList<TimedReplayWindow>)Array.Empty<TimedReplayWindow>()
             };
         }
 

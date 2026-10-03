@@ -1987,14 +1987,17 @@ namespace Gordian.App.Graphics
             // Lightning strikes and other short weather routines start their generators at random.
             _weatherRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f, _effectWeather,
                 template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null);
-            // Routines the server names (S2C 0x039 map schedulers: Alzadaal's Runic Portals) play on the zone's emitters (#210).
+            // Routines the server names (S2C 0x039 map schedulers: Alzadaal's Runic Portals) or an event starts (0x2D /
+            // 0x60 sub 2) and ends (0x51) play on the zone's emitters (#210, #226).
             if (World != null && _emitters.Count > 0)
             {
                 _mapSchedulerRequests.Clear();
                 World.TakeMapSchedulers(_mapRoutineZoneId, _mapSchedulerRequests);
                 foreach (var request in _mapSchedulerRequests)
                 {
-                    if (_mapRoutines?.Play(request.Routine) != true) GordianLog.Debug("Graphics", $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
+                    bool known = request.Stop ? _mapRoutines?.Stop(request.Routine) == true : _mapRoutines?.Play(request.Routine) == true;
+                    if (!known) GordianLog.Debug("Graphics", $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
+                    else GordianLog.Debug("Graphics", $"Zone routine '{request.Routine}' {(request.Stop ? "stopped" : "started")} (actors {request.CasterServerId:X8} / {request.TargetServerId:X8}); {_mapRoutines!.RunningCount} running in zone {_mapRoutineZoneId}.");
                 }
             }
             _mapRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f,
