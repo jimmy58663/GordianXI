@@ -42,9 +42,9 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x13 | | 5 | runs | 1,084 | Stores a random number from 0 to the second work value. |
 | 0x14 | | 5 | runs | 2,037 | Multiplies the first work value by the second. |
 | 0x15 | | 5 | runs | 3,496 | Divides the first work value by the second (0 when either is 0). |
-| 0x16 | | 7 | partial | 671 | Stores -r sin(angle) of a radius and a 4096-step angle; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
-| 0x17 | | 7 | partial | 1,239 | Stores r cos(angle) of a radius and a 4096-step angle; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
-| 0x18 | | 7 | partial | 63 | Stores the angle (atan2) of a vector; GordianXI stores 0. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x16 | | 7 | runs | 671 | Stores -r sin(angle) of a radius and a 4096-step angle. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x17 | | 7 | runs | 1,239 | Stores r cos(angle) of a radius and a 4096-step angle. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x18 | | 7 | runs | 63 | Stores the angle (atan2) of a vector, 8192 steps to a turn; every corpus hit is table data. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x19 | | 5 | runs | 22 | Exchanges two work values. |
 | 0x1A | | 3 | runs | 10,304 | Calls: pushes the return position on the 8-deep jump stack and jumps. |
 | 0x1B | | 1 | runs | 4,980 | Returns from the last call; with nothing to return to it frees the running stack. |
@@ -78,8 +78,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x37 | | 9 | runs | 12,635 | Places the event's entity and sets its heading. |
 | 0x38 | | 3 | partial | 5,425 | Sets the low word of the event mode mask (`CliEventModeLocal`); GordianXI records it only. |
 | 0x39 | | 3 | runs | 1,065 | Sets the event's entity heading (4096 steps per turn). |
-| 0x3A | | 7 | stepped | 588 | Reads an actor's heading into a work value. |
-| 0x3B | | 11 | stepped | 783 | Reads an actor's position into three work values. |
+| 0x3A | | 7 | runs | 588 | Reads an actor's heading into a work value. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x3B | | 11 | runs | 783 | Reads an actor's position into three work values. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x3C | | 7 | runs | 3,082 | Sets bit n of a run of work values, when n is inside the run. |
 | 0x3D | | 7 | runs | 7,788 | Clears bit n of a run of work values, when n is inside the run. |
 | 0x3E | | 7 | runs | 2,842 | Tests bit n of a run of work values and jumps when it is clear. |
@@ -128,7 +128,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds) ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x6A | | 7 | stepped | 191 | Moves the volume of sound categories to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x6B | | 9 | partial | 1,145 | Like 0x5E for a named actor. |
-| 0x6C | `CodeTRANSPAR` | 9 | stepped | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x6C | `CodeTRANSPAR` | 9 | runs | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x6D |  | 7 | stepped | 2 | No-op in the current client. All three census hits are 0x9D table data, not code (see [0x9D](#0x9d)). |
 | 0x6E | `CodeEMOT` | 7 | runs | 5,216 | An actor plays an emote; it waits while that actor still plays an action. |
 | 0x6F |  | 1 | runs | 23,520 | Sleeps for 16 frames unless a wait is already running on the stack. |
@@ -265,7 +265,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x16, 0x17, 0x18
 
 - Layout: `16 out:work angle:work r:work` stores -r sin(angle); `17` the same with r cos(angle). The angle is in 4096 steps per turn (XiEvents OpCodes/0x0016, 0x0017). `18 out:work a:work b:work` stores atan2(-a, b) scaled by 4096 / pi (XiEvents OpCodes/0x0018).
-- GordianXI writes 0 into `out` and steps over (`EventVm.Step`, "not needed for dialog"). Since cutscene staging runs ([#86](https://github.com/jimmy58663/GordianXI/issues/86)), a script that places or walks an actor at an offset computed with them puts it at radius 0. Tracked in [#197](https://github.com/jimmy58663/GordianXI/issues/197).
+- GordianXI (`EventVm.Step`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the same, cut toward zero into the work value. Retail's angle step is 0.0015339355 = 6.283 / 4096 (the rounded 2π of 0x47), not 2π / 4096, so a half turn's cosine falls just short of -1: r = 1500 gives -1499, as here. The scripts use 0x16 / 0x17 in a shared routine that adds `r cos(a)` to x and `-r sin(a)` to the second position axis (Southern San d'Oria event 23 runs it).
+- 0x18 keeps XiEvents' scale: 4096 / pi per radian is 8192 steps to a turn, twice the 4096 of 0x16 / 0x17 / 0x3A. **Beyond XiEvents:** no retail script runs 0x18. All 63 census entries that contain it are table data walked as code (their operands are table words such as `0x1880`), so the scale has no effect on any retail event (corpus probe, 2026-10-03).
 
 ### 0x19
 
@@ -350,13 +351,15 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x3A
 
 - Layout: `3A actor:u32 out:work`. Stores the actor's heading in 4096 steps per turn (0 when the actor resolves to no entity) (XiEvents OpCodes/0x003A).
-- GordianXI steps over it, so `out` keeps its old value.
+- GordianXI (`EventVm.Step`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the named actor's event heading when it takes part in the event, else its world heading, scaled as the 0x7F03 fact. An actor code that names nobody leaves `out` unchanged; an actor not in the zone stores 0.
 - **Differs from XiEvents and xi-tools:** both describe a single-byte yaw; the pseudo code scales by 4096 / 2 pi, the same unit as 0x39.
 
 ### 0x3B
 
 - Layout: `3B actor:u32 x:work y:work height:work`. Stores the actor's position in thousandths of a yalm: its event position when it takes part in an event, else its world position (XiEvents OpCodes/0x003B).
-- GordianXI steps over it, so the three work values keep their old values. `EventVm.ResolveKey` already answers the entity facts 0x7F00-0x7F03 (own event position) and 0x7F80+ (the player), which cover some of the same reads.
+- GordianXI (`EventVm.Step`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the named actor's event position when it takes part in the event, else its world position, in the scripts' order (x, the other ground axis, height; the axes 0x36 / 0x37 take). An actor code that names nobody leaves the work values unchanged; an actor not in the zone stores zeros.
+- Scripts read their own position with 0x3B / 0x3A and add 0x16 / 0x17 offsets to it. In Lower Jeuno event 70 all seven NPCs do this (`3B F8FFFF7F` / `3A F8FFFF7F`, the VM itself). With the two opcodes stepped, the NPCs stood at the origin of Ru'Lude Gardens, where the scene plays, and none showed on camera (in-game test, 2026-10-03).
+- Over the corpus, 1,110 of the 2,914 reads name the VM itself and 1,744 another actor. For those, XiEvents' pseudo code reads the running VM's own event position when the actor is in an event (open question below); GordianXI reads the named actor's.
 
 ### 0x43
 
@@ -421,19 +424,21 @@ When a change makes an opcode run, update its row and detail section in the same
 
 | sub | bytes | events using | meaning | GordianXI |
 |---|---|---|---|---|
-| 0x00 | 4 | 9 | body turn speed of the event's own entity | stepped |
-| 0x01 | 8 | 107 | body turn speed of a named actor | stepped |
+| 0x00 | 4 | 9 | body turn speed of the event's own entity | runs: `SetEntityTurnSpeed` (provisional unit) |
+| 0x01 | 8 | 107 | body turn speed of a named actor | runs |
 | 0x02 | 4 | 10 | head turn speed of the event's own entity | runs: `SetEntityHeadTurnSpeed` |
 | 0x03 | 8 | 53 | head turn speed of a named actor | runs |
-| 0x04 | 8 | 4,308 | walk speed (operand times 0.1) | stepped |
+| 0x04 | 8 | 4,308 | walk speed (operand times 0.1) of the VM's own walks | runs |
 | 0x05 | 7 | 755 | `Render.Flags0` bit 21 of a named actor (literal byte at +6) | runs: `SetEntityKeepsHeight` (Port Jeuno 324 keeps its sky marker 0x010F608F up, #192) |
-| 0x06 | 6 | 24 | yield while the actor's emote action plays | stepped |
+| 0x06 | 6 | 24 | yield while the actor's emote action plays | runs (`EventScene.IsEntityActionPlaying` on the `emot` tag of 0x6E) |
 | 0x07 | 4 | 0 | a movement flag (0 or 1) of the event's own entity | stepped |
 | 0x08 | 8 | 1 | the same flag of a named actor | stepped |
 | 0x80 | ? | 102 | no retail sub-case | no length: ends the request |
 
 - Layout: `59 sub value:work` (subs 0, 2, 7), `59 sub actor:u32 value:work` (1, 3, 4, 8), `59 05 actor:u32 flag:u8`, `59 06 actor:u32` (XiEvents OpCodes/0x0059; xi-tools `docs/events/typed_opcodes.md`).
-- Sub 4 is the most used. In XiEvents' pseudo code it sets the walk speed of the running VM's own entity, guarded by the named actor having a model; whether retail means the named actor's speed is open. Not running it, walks use 0x32's speed or the entity's own. The head turn speed: [#188](https://github.com/jimmy58663/GordianXI/issues/188), [world/entities-and-animation.md](../world/entities-and-animation.md).
+- Sub 4 is the most used. In XiEvents' pseudo code it sets the walk speed (`MainSpeed`) of the running VM, as 0x32 does, and the named actor only has to have a model. GordianXI does the same ([#197](https://github.com/jimmy58663/GordianXI/issues/197)). **Beyond XiEvents:** the scripts confirm the reading. Of the 4,684 sub 4 uses, 2,399 name the VM itself (0x7FFFFFF8) and 281 its own server id, and those that name another actor are still followed by a walk of the VM's own entity. Wajaom Woodlands actor 0x01033243 names three actors in turn (0x010332CD, 0x010332A6, 0x010332C4), each sub 4 followed by `1F 00` / `1F 01` and `00` (corpus probe, 2026-10-03).
+- Subs 0 / 1 set retail's `TurnSpeed`. Its unit is not known; GordianXI reads it as 4096ths of a turn per 60 Hz frame (provisional). The scripts set 5 to 900, mostly 50 to 100, which at that unit turn a quarter turn in 10 to 20 frames, close to the turn ease used when no speed is set. With a speed, the event turn is timed at that rate (0x70 / 0x76 wait for it), and the renderer turns the body at that constant rate (`EventPoseSmoother`). Cleared when the event ends. See [reference/calibrations.md](../reference/calibrations.md).
+- The head turn speed: [#188](https://github.com/jimmy58663/GordianXI/issues/188), [world/entities-and-animation.md](../world/entities-and-animation.md).
 
 ### 0x5A `CodeMOVE2`
 
@@ -516,7 +521,10 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x6C `CodeTRANSPAR`
 
 - Layout: `6C actor:u32 alpha:work frames:work`. On the first call retail reads the actor's colour, takes the target alpha and the frame count (0 taken as 1); on each later call it steps the alpha toward the target and yields; when the time has run out it applies the target alpha and goes on. An actor that is missing or has no model is stepped over (XiEvents OpCodes/0x006C).
-- GordianXI steps over it. Besides the missing fade, every 0x6C with a nonzero time is a wait the script does not make here, so the events that use it (the most used opcode GordianXI does not run) run ahead of retail by the fade times. Tracked in [#197](https://github.com/jimmy58663/GordianXI/issues/197).
+- GordianXI (`EventVm.ExecTransparency`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the same, with the alpha kept on the entity (`WorldEntity.EventAlpha`, 0x80 = opaque, back to opaque when the event ends). The fade state is kept per VM, as retail keeps it in the VM's `ExtData`. An actor counts as missing when it is not in the zone. The renderer draws an entity under 0x80 after the others: first a depth-only pass, then a blended pass at alpha / 0x80 (`EntityRenderer`). An entity at 0 is not drawn. Values above 0x80 draw opaque.
+- The alpha is half scale, like the other model colours: the scripts' targets are 0 (8,961 uses) and 128 (7,095), then 64, 127, 80 and 100. The frame count is 1 in 14,832 uses, which sets the alpha within one frame (corpus probe, 2026-10-03).
+- **Differs from XiEvents:** the decompiled pseudo code writes the target alpha on every step and never uses the stepped `NowAlpha` it computes; the final write subtracts the alpha byte instead of adding it. GordianXI reads both as decompiler slips: it writes the stepped alpha, so the fade is gradual, and it sets the target at the end.
+- Test scenes: Southern San d'Oria `!cs 686` fades NPC 0x010E60F5 in to about 0x48 and back out; `!cs 945` (Femitte's mithra dancer) sets 16 bystanders to 0x60 at once.
 
 ### 0x6E `CodeEMOT`
 
@@ -798,12 +806,11 @@ When a change makes an opcode run, update its row and detail section in the same
 
 ## Open questions
 
-- 0x18 scale: 4096 / pi per radian gives 8192 steps per turn, where 0x16 / 0x17 / 0x3A use 4096. XiEvents typo or retail?
 - 0x12 range of retail rand() (GordianXI uses Random.Next, up to 2^31-1).
 - 0x31 time operand: as transcribed, the walk stops moving but keeps yielding once the time runs out.
 - 0x38 low or high byte (XiEvents example vs xi-tools correction).
-- 0x3A / 0x3B read the running VM's own event position, not the actor's, when the actor is in an event (XiEvents as transcribed).
-- 0x59 sub 4 sets whose walk speed.
+- 0x3A / 0x3B read the running VM's own event position, not the actor's, when the actor is in an event (XiEvents as transcribed). GordianXI reads the named actor's; the two agree when the script names itself.
+- 0x59 subs 0 / 1: the unit of `TurnSpeed` (read as 4096ths of a turn per frame).
 - 0x5A axis cross-over.
 - What scheduler file 5012 + p (0x62) holds.
 - 0x57 rounding (GordianXI rounds the frame delay, retail's conversion not checked).

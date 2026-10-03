@@ -622,6 +622,30 @@ namespace Gordian.Core.Tests.Resources
         }
 
         /// <summary>
+        /// #197: a model that stores every part twice (the Tarutaru of Lower Jeuno event 70, models 1443-1445) still joins
+        /// them, from the last copy of each part, rather than leaving the stem on the first part in the file (the waist).
+        /// </summary>
+        [Fact]
+        public void BodyRegionParts_StoredTwice_StillJoin()
+        {
+            var model = new EntityModel();
+            var clips = new List<AnimationClip>
+            {
+                RegionClip("run2", 11, 20, 21), RegionClip("run0", 11, 0, 1),
+                RegionClip("run0", 11, 0, 1), RegionClip("run1", 11, 5, 6, 7), RegionClip("run2", 11, 20, 21),
+            };
+            foreach (var clip in clips)
+            {
+                model.Animations[clip.Name] = clip;
+                model.Animations.TryAdd(clip.Name[..^1], clip);
+            }
+            EntityModelLoader.MergeBodyRegionParts(model, clips);
+
+            Assert.Equal(new[] { 0, 1, 5, 6, 7, 20, 21 }, model.Animations["run"].Tracks.Keys.OrderBy(k => k).ToArray());
+            Assert.Same(clips[4].Tracks[20], model.Animations["run"].Tracks[20]);
+        }
+
+        /// <summary>
         /// The retail models of #163: Curilla (model 69) and Prince Trion (model 64) walk and stand with every joint
         /// animated (99), not the legs or waist part alone. Skipped without the game install.
         /// </summary>

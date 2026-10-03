@@ -202,6 +202,29 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>
+        /// Opcode 0x59 sub 0 / 1: the speed an entity (server id; 0 = the local player) turns its body at (retail
+        /// <c>TurnSpeed</c>, a work value; read as 4096ths of a turn per 60 Hz frame, provisional).
+        /// </summary>
+        void SetEntityTurnSpeed(uint serverId, int speed)
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0x6C: the entity's current colour alpha (0x80 = opaque). False when the entity has no model to fade, and
+        /// the opcode then goes on at once.
+        /// </summary>
+        bool TryGetEntityAlpha(uint serverId, out int alpha)
+        {
+            alpha = WorldEntity.OpaqueEventAlpha;
+            return false;
+        }
+
+        /// <summary>Opcode 0x6C: sets the entity's colour alpha (0 = invisible, 0x80 = opaque).</summary>
+        void SetEntityAlpha(uint serverId, int alpha)
+        {
+        }
+
         /// <summary>Opcode 0x46: the event takes the camera from the player (true) or gives it back.</summary>
         void SetEventCamera(bool held)
         {

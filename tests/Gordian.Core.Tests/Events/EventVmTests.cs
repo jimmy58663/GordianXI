@@ -134,6 +134,24 @@ namespace Gordian.Core.Tests.Events
         public void SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set) => RenderFlags.Add((serverId, flag, set));
         public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
         public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
+        public List<(uint Id, int Speed)> TurnSpeeds { get; } = new();
+        public void SetEntityTurnSpeed(uint serverId, int speed) => TurnSpeeds.Add((serverId, speed));
+
+        /// <summary>Each entity's colour alpha (0x80 = opaque); the entities that exist start opaque.</summary>
+        public Dictionary<uint, int> Alphas { get; } = new();
+        public List<(uint Id, int Alpha)> AlphaChanges { get; } = new();
+
+        public bool TryGetEntityAlpha(uint serverId, out int alpha)
+        {
+            alpha = Alphas.TryGetValue(serverId, out int known) ? known : WorldEntity.OpaqueEventAlpha;
+            return EntityExists(serverId) || Alphas.ContainsKey(serverId);
+        }
+
+        public void SetEntityAlpha(uint serverId, int alpha)
+        {
+            Alphas[serverId] = alpha;
+            AlphaChanges.Add((serverId, alpha));
+        }
     }
 
     public class EventVmTests

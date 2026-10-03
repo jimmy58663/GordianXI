@@ -25,7 +25,7 @@ namespace Gordian.App.Graphics
         public Vector4 EyePosition;
         public Vector4 WeatherParams; // X = UVOffset.X, Y = UVOffset.Y, Z = Time, W = IsCelestial (1.0 = bypass fog)
         public Vector4 SkyTextureFactor; // Weather-sky generator color (texture factor), read only by the weather-sky shaders
-        public Vector4 SkyLayerParams; // Weather-sky: X = fog enabled, Y = fog toward black (additive layers); actors: Z = target flash
+        public Vector4 SkyLayerParams; // Weather-sky: X = fog enabled, Y = fog toward black (additive layers); actors: Z = target flash, W = event transparency (1 - alpha)
         public Vector4 MoonColor; // Moonlight color; the moon shines opposite SunDirection
     }
 
@@ -594,7 +594,8 @@ void main()
         float fogFactor = clamp((dist - fogStart) / max(0.001, fogEnd - fogStart), 0.0, 1.0);
         finalRgb = mix(litColor, FogColor.rgb, fogFactor);
     }
-    fsout_Color = vec4(finalRgb, 1.0);
+    // SkyLayerParams.w: how see-through an event made the actor (0x6C fade; terrain and opaque actors leave it 0).
+    fsout_Color = vec4(finalRgb, 1.0 - SkyLayerParams.w);
 }
 ";
 

@@ -585,17 +585,22 @@ namespace Gordian.Core.Resources
         /// </summary>
         public static List<AnimationClip> JoinBodyRegionParts(IEnumerable<AnimationClip> clips)
         {
-            var byStem = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
+            // One clip per part name, the last in file order as the model's own entries keep it: some fixed models store
+            // every part twice (the Tarutaru of Lower Jeuno event 70, models 1443-1445, carry two of each idl0-idl2,
+            // wlk0-wlk2 and run0-run2), and the copies overlapping each other kept the parts from joining, so `run` was the
+            // first part in the file, the waist alone on Makki-Chebukki (#197).
+            var byStem = new Dictionary<string, Dictionary<string, AnimationClip>>(StringComparer.OrdinalIgnoreCase);
             foreach (var clip in clips)
             {
                 string stem = StripBodyRegionSuffix(clip.Name);
                 if (stem == clip.Name) continue;
-                if (!byStem.TryGetValue(stem, out var list)) byStem[stem] = list = new List<AnimationClip>();
-                list.Add(clip);
+                if (!byStem.TryGetValue(stem, out var named)) byStem[stem] = named = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+                named[clip.Name] = clip;
             }
             var joinedClips = new List<AnimationClip>();
-            foreach (var (stem, parts) in byStem)
+            foreach (var (stem, named) in byStem)
             {
+                var parts = new List<AnimationClip>(named.Values);
                 if (parts.Count < 2) continue;
                 var tracks = new Dictionary<int, BoneAnimationTrack>();
                 bool disjoint = true;

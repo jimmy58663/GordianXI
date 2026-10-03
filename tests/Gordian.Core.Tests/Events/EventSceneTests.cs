@@ -307,6 +307,142 @@ namespace Gordian.Core.Tests.Events
             Assert.InRange(frames, 30, 34);
         }
 
+        /// <summary>
+        /// 0x59 sub 0 (#197): with a body turn speed of 512 steps a frame the half turn takes 4 frames, not the ease's 31,
+        /// and the speed reaches the host for the drawing.
+        /// </summary>
+        [Fact]
+        public void Opcode59Sub0_TurnsAtTheSetSpeed()
+        {
+            var block = Block(Director, new uint[] { 512, 2048, 900 }, Code(0x59, 0x00, Ref(0), 0x39, Ref(1), 0x76, Id(Director), 0x48, Ref(2), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, 0f, 0f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 200) scene.Tick(Frame);
+            Assert.InRange(frames, 4, 6);
+            Assert.Equal((Director, 512), Assert.Single(host.TurnSpeeds));
+        }
+
+        /// <summary>0x59 sub 1 (#197): the turn speed of another actor of the event times that actor's own turns.</summary>
+        [Fact]
+        public void Opcode59Sub1_SetsAnotherActorsTurnSpeed()
+        {
+            var director = Block(Director, new uint[] { 1024 }, Code(0x59, 0x01, Id(Actor), Ref(0), 0x00));
+            var actor = Block(Actor, Array.Empty<uint>(), Code(0x00));
+            var (scene, host) = Scene(director, actor);
+            scene.Tick(Frame);
+            Assert.Equal((Actor, 1024), Assert.Single(host.TurnSpeeds));
+        }
+
+        /// <summary>
+        /// 0x59 sub 4 (#197): the walk speed of the VM's own walks, in tenths of a yalm per second, whichever actor the
+        /// opcode names (here another actor of the event).
+        /// </summary>
+        [Fact]
+        public void Opcode59Sub4_SetsTheWalkSpeedOfTheVmsOwnWalk()
+        {
+            // 59 04 actor speed=ref0 (2.0 yalms/s) ; 1F 00 x=ref1 y=ref2 h=ref2 ; 1F 01 ; 00
+            var director = Block(Director, new uint[] { 20, 10_000, 0 }, Code(0x59, 0x04, Id(Actor), Ref(0), 0x1F, 0x00, Ref(1), Ref(2), Ref(2), 0x1F, 0x01, 0x00));
+            var actor = Block(Actor, Array.Empty<uint>(), Code(0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, 0f, 4f);
+            host.Entities[Actor] = (new System.Numerics.Vector3(5, 0, 5), 0f, 4f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(director, EventId, scene, host, Director, 1);
+            _ = new EventVm(actor, EventId, scene, host, Actor, 2);
+            scene.Tick(Frame);
+            var walk = host.Poses.Last(p => p.Id == Director);
+            Assert.Equal(2f, walk.Speed, 3);
+            Assert.Equal(2f / 60f, walk.Position.X, 3);
+            Assert.DoesNotContain(host.Poses, p => p.Id == Actor && p.Speed > 0);
+        }
+
+        /// <summary>0x59 sub 6 (#197): waits while the actor plays an emote, then goes on.</summary>
+        [Fact]
+        public void Opcode59Sub6_WaitsForTheActorsEmote()
+        {
+            // 6E actor emote=ref0 ; 59 06 actor ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 13, 900 }, Code(0x6E, Id(Director), Ref(0), 0x59, 0x06, Id(Director), 0x48, Ref(1), 0x00));
+            var (scene, host) = Scene(block);
+            host.EmoteFrames = 10;
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 100) scene.Tick(Frame);
+            Assert.InRange(frames, 10, 12);
+        }
+
+        /// <summary>
+        /// 0x6C (#197): fades the actor's alpha from opaque (0x80) to 0 over 4 frames, stepping it every frame and holding the
+        /// script until the time is out: the first call starts the fade and steps once in the same frame.
+        /// </summary>
+        [Fact]
+        public void Opcode6C_FadesTheActorAndWaits()
+        {
+            var block = Block(Director, new uint[] { 0, 4, 900 }, Code(0x6C, Id(Director), Ref(0), Ref(1), 0x48, Ref(2), 0x00));
+            var (scene, host) = Scene(block);
+            for (int i = 0; i < 4; i++) scene.Tick(Frame);
+            Assert.Empty(host.Printed);
+            Assert.Equal(new[] { 96, 64, 32, 0 }, host.AlphaChanges.Select(c => c.Alpha));
+            scene.Tick(Frame);
+            Assert.Single(host.Printed);
+            Assert.Equal(0, host.Alphas[Director]);
+        }
+
+        /// <summary>0x6C on an actor that is not in the zone goes on at once without a fade.</summary>
+        [Fact]
+        public void Opcode6C_PassesForAMissingActor()
+        {
+            var block = Block(Director, new uint[] { 0, 60, 900 }, Code(0x6C, Id(0x010E6099), Ref(0), Ref(1), 0x48, Ref(2), 0x00));
+            var (scene, host) = Scene(block);
+            scene.Tick(Frame);
+            Assert.Single(host.Printed);
+            Assert.Empty(host.AlphaChanges);
+        }
+
+        /// <summary>
+        /// 0x16 / 0x17 / 0x18 (#197): -r sin, r cos of a 4096-step angle, and atan2(-a, b) at 4096 / π per radian, cut toward
+        /// zero. Retail's angle unit is 6.283 / 4096, so a half turn's cosine falls just short of -1 and r = 1500 gives -1499.
+        /// </summary>
+        [Fact]
+        public void Opcodes16To18_StoreTheTrigonometry()
+        {
+            // 16 L0 = -1500 sin(0) ; 17 L1 = 1500 cos(0) ; 17 L2 = 1500 cos(2048) ; 18 L3 = atan2(-0, -1000) ; 18 L4 = atan2(-1000, 0) ; 00
+            var block = Block(Director, new uint[] { 0, 1500, 2048, 1000, unchecked((uint)-1000) }, Code(
+                0x16, 0x00, 0x00, Ref(0), Ref(1),
+                0x17, 0x01, 0x00, Ref(0), Ref(1),
+                0x17, 0x02, 0x00, Ref(2), Ref(1),
+                0x18, 0x03, 0x00, Ref(0), Ref(4),
+                0x18, 0x04, 0x00, Ref(3), Ref(0),
+                0x00));
+            var host = new RecordingHost();
+            var scene = new EventScene(new EventWorkZone());
+            var vm = new EventVm(block, EventId, scene, host, Director, 1);
+            scene.Tick(Frame);
+            Assert.Equal(new[] { 0, 1500, -1499, 4096, -2048 }, vm.Locals.Take(5));
+        }
+
+        /// <summary>
+        /// 0x3B / 0x3A (#197): an actor's event position (x, y, height in thousandths) and heading (4096 to a turn), which the
+        /// scripts offset with 0x16 / 0x17. Stepped over, they left zeros and Lower Jeuno event 70 stood every NPC at the
+        /// zone's origin.
+        /// </summary>
+        [Fact]
+        public void Opcodes3BAnd3A_ReadTheActorsEventPose()
+        {
+            // 37 x y h heading (the actor placed) ; 3B actor L0 L1 L2 ; 3A actor L3 ; 00
+            var actor = Block(Actor, new uint[] { 12_500, 3_000, unchecked((uint)-40_250), 1024 }, Code(0x37, Ref(0), Ref(1), Ref(2), Ref(3), 0x00));
+            var director = Block(Director, Array.Empty<uint>(), Code(0x3B, Id(Actor), 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x3A, Id(Actor), 0x03, 0x00, 0x00));
+            var host = new RecordingHost();
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(actor, EventId, scene, host, Actor, 2);
+            var vm = new EventVm(director, EventId, scene, host, Director, 1);
+            scene.Tick(Frame); // the actor places itself first
+            scene.Tick(Frame);
+            Assert.Equal(new[] { 12_500, 3_000, -40_250, 1024 }, vm.Locals.Take(4));
+        }
+
         [Fact]
         public void Opcode76_PassesWhenTheActorIsNotTurning()
         {

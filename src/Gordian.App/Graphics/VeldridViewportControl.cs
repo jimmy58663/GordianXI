@@ -710,8 +710,7 @@ namespace Gordian.App.Graphics
                                 deltaSeconds,
                                 _deviceManager.CurrentWidth,
                                 _deviceManager.CurrentHeight,
-                                // An event's other zone (0x34 / 0x35) is shown without any entity: retail deletes the actors.
-                                (_activeSession?.World ?? WorldState)?.EventZoneId is > 0 ? Array.Empty<WorldEntity>() : WorldState?.Entities,
+                                (_activeSession?.World ?? WorldState)?.EventZoneId is > 0 ? SceneZoneEntities(WorldState) : WorldState?.Entities,
                                 ResourceManager,
                                 localPlayerServerId,
                                 isLocalPlayerEngaged,
@@ -777,6 +776,25 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Tier 2: Stock FFXI 2D UI render pass, drawn in screen space over the finished 3D scene.
         /// </summary>
+        /// <summary>This frame's entities while an event shows another zone (render thread only).</summary>
+        private readonly System.Collections.Generic.List<WorldEntity> _sceneZoneEntities = new();
+
+        /// <summary>
+        /// The entities drawn while an event shows another zone (0x34 / 0x35): only those the event has placed. Retail deletes
+        /// every actor when it opens the zone and the scene places its own again (Lower Jeuno event 70 stands seven NPCs in
+        /// Ru'Lude Gardens, #197); the Windurst intros place none and show only camera shots.
+        /// </summary>
+        private System.Collections.Generic.List<WorldEntity> SceneZoneEntities(WorldState? world)
+        {
+            _sceneZoneEntities.Clear();
+            if (world == null) return _sceneZoneEntities;
+            foreach (var entity in world.Entities)
+            {
+                if (entity.EventPose != null) _sceneZoneEntities.Add(entity);
+            }
+            return _sceneZoneEntities;
+        }
+
         private void RenderTier2_StockUi()
         {
             var gd = _deviceManager.Device;

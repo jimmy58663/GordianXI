@@ -684,6 +684,33 @@ namespace Gordian.Core.World
             set => _eventHeadTurnSpeed = value;
         }
 
+        private volatile int _eventTurnSpeed;
+
+        /// <summary>
+        /// The body turn speed a running event set (opcode 0x59 sub 0 / 1, retail <c>TurnSpeed</c>), in 4096ths of a turn per
+        /// 60 Hz frame (provisional, #197), or 0 for the default turn ease. Cleared when the event ends.
+        /// </summary>
+        public int EventTurnSpeed
+        {
+            get => _eventTurnSpeed;
+            set => _eventTurnSpeed = value;
+        }
+
+        /// <summary>The colour alpha of an entity drawn as is (retail colours are half scale: 0x80 = 1.0).</summary>
+        public const int OpaqueEventAlpha = 0x80;
+
+        private volatile int _eventAlpha = OpaqueEventAlpha;
+
+        /// <summary>
+        /// The alpha a running event fades the entity to (opcode 0x6C, CodeTRANSPAR: retail's actor colour alpha, 0 =
+        /// invisible, <see cref="OpaqueEventAlpha"/> and above = opaque). Back to opaque when the event ends.
+        /// </summary>
+        public int EventAlpha
+        {
+            get => _eventAlpha;
+            set => _eventAlpha = value;
+        }
+
         private int _spokenLines;
 
         /// <summary>

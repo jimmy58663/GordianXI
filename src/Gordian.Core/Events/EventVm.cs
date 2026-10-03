@@ -164,20 +164,36 @@ namespace Gordian.Core.Events
         private const float TurnEaseRate = 8f, TurnDoneRadians = 0.05f;
 
         /// <summary>
+        /// The body turn speed 0x59 sub 0 / 1 set for this entity (retail <c>TurnSpeed</c>), or 0 for the turn ease. Read as
+        /// 4096ths of a turn per 60 Hz frame (provisional, #197): the scripts set 5 to 900, mostly 50 to 100, which at this
+        /// unit turn a quarter turn in 10 to 20 frames, about what the ease takes.
+        /// </summary>
+        private int _turnSpeed;
+
+        /// <summary>
         /// Turns the entity's event heading. An explicit turn (<paramref name="turn"/>, not a placement) keeps the entity
-        /// turning for the time the ease takes, which 0x76 / 0x70 wait for (retail's <c>Render.Flags3</c> bit 1, TurnCancel).
+        /// turning for the time the ease (or the turn speed 0x59 set) takes, which 0x76 / 0x70 wait for (retail's
+        /// <c>Render.Flags3</c> bit 1, TurnCancel).
         /// </summary>
         private void SetEventHeading(float heading, bool turn = true)
         {
             if (turn && _positionKnown)
             {
                 float delta = MathF.Abs(MathF.IEEERemainder(heading - _eventDir, 2f * MathF.PI));
-                float seconds = delta > TurnDoneRadians ? MathF.Log(delta / TurnDoneRadians) / TurnEaseRate : 0f;
-                Scene.StartTurn(EntityServerId, seconds * 60f);
+                float frames = _turnSpeed > 0
+                    ? delta / (_turnSpeed * (2f * MathF.PI / 4096f))
+                    : (delta > TurnDoneRadians ? MathF.Log(delta / TurnDoneRadians) / TurnEaseRate : 0f) * 60f;
+                Scene.StartTurn(EntityServerId, frames);
             }
             _eventDir = heading;
             _poseDirty = true;
         }
+
+        /// <summary>
+        /// Radians per step of the angles 0x16 / 0x17 read: retail's 0.0015339355 is 6.283 / 4096 (the same rounded 2π as
+        /// 0x47's heading), not 2π / 4096.
+        /// </summary>
+        private const double ScriptAngleRadians = 6.283 / 4096.0;
 
         /// <summary>A script heading (4096 steps per turn) in wire-convention radians, within [0, 2π).</summary>
         private static float ScriptHeading(int value)
@@ -187,17 +203,21 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>Where the named actor stands: its event position when it takes part in the event, else the world's.</summary>
-        private bool TryGetActorPosition(int lookup, out Vector3 position)
+        private bool TryGetActorPosition(int lookup, out Vector3 position) => TryGetActorPose(lookup, out position, out _);
+
+        /// <summary>Where the named actor stands and which way it faces: its event pose when it takes part in the event, else the world's.</summary>
+        private bool TryGetActorPose(int lookup, out Vector3 position, out float heading)
         {
             var (serverId, _) = ResolveActor(lookup);
             position = default;
+            heading = 0f;
             if (serverId == uint.MaxValue) return false;
             if (Scene.FindActor(serverId) is { } actor)
             {
-                position = actor.EventPosition.Position;
+                (position, heading) = actor.EventPosition;
                 return true;
             }
-            return _host.TryGetEntityPose(serverId == 0 ? Scene.PlayerServerId : serverId, out position, out _, out _);
+            return _host.TryGetEntityPose(serverId == 0 ? Scene.PlayerServerId : serverId, out position, out heading, out _);
         }
 
         /// <summary>
@@ -244,6 +264,59 @@ namespace Gordian.Core.Events
                 return;
             }
             _pc += length;
+        }
+
+        /// <summary>0x59 sub 0 / 1: an entity's body turn speed, for its event turns here and for its drawing.</summary>
+        private void SetTurnSpeed(uint serverId, int speed)
+        {
+            if (Scene.FindActor(serverId) is { } actor) actor._turnSpeed = speed;
+            _host.SetEntityTurnSpeed(serverId, speed);
+        }
+
+        // The fade of 0x6C, kept per VM as retail keeps it in the VM's ExtData (FadeFlag, NowAlpha, EndAlpha, OfsAlpha,
+        // AlphaTime).
+        private bool _fading;
+        private float _fadeAlpha, _fadeStep, _fadeFrames;
+        private int _fadeEnd;
+
+        /// <summary>
+        /// 0x6C (CodeTRANSPAR), XiEvents OpCodes/0x006C: <c>6C actor:u32 alpha:work frames:work</c> fades the actor's colour
+        /// alpha (0x80 = opaque) to <c>alpha</c> over <c>frames</c> 60 Hz frames (0 taken as 1). The first call takes the
+        /// actor's alpha and runs the opcode again at once; each later call takes the frame delay off the time left, steps the
+        /// alpha and yields, and once the time is below zero sets the target and goes on. An actor that is missing or has no
+        /// model goes on at once. The decompiled pseudo code writes the target alpha on every step and leaves the stepped value
+        /// unused; read here as the stepped value, so the fade is gradual.
+        /// </summary>
+        private void ExecTransparency()
+        {
+            uint actor = TaskActor(Code32(1));
+            if (actor == uint.MaxValue || !_host.TryGetEntityAlpha(actor, out int alpha))
+            {
+                _fading = false;
+                _pc += 9;
+                return;
+            }
+            if (!_fading)
+            {
+                _fadeEnd = GetWork(5);
+                _fadeFrames = GetWork(7);
+                if (_fadeFrames == 0f) _fadeFrames = 1f;
+                _fadeAlpha = alpha;
+                _fadeStep = (_fadeEnd - _fadeAlpha) / _fadeFrames;
+                _fading = true;
+                return;
+            }
+            _fadeFrames -= _frameDelay;
+            if (_fadeFrames < 0f)
+            {
+                _host.SetEntityAlpha(actor, _fadeEnd);
+                _fading = false;
+                _pc += 9;
+                return;
+            }
+            _fadeAlpha += _frameDelay * _fadeStep;
+            _host.SetEntityAlpha(actor, (int)MathF.Round(_fadeAlpha));
+            _retFlag = true;
         }
 
         /// <summary>
@@ -745,9 +818,19 @@ namespace Gordian.Core.Events
                     return;
                 }
                 case 0x16:
+                    // -r sin(angle) and r cos(angle), the angle in 4096 steps to a turn (XiEvents OpCodes/0x0016, 0x0017):
+                    // the scripts' offset of a radius along a heading. The result is cut toward zero into the work value.
+                    SetWork(1, (int)(-GetWork(5) * Math.Sin(GetWork(3) * ScriptAngleRadians)));
+                    _pc += 7;
+                    return;
                 case 0x17:
+                    SetWork(1, (int)(GetWork(5) * Math.Cos(GetWork(3) * ScriptAngleRadians)));
+                    _pc += 7;
+                    return;
                 case 0x18:
-                    SetWork(1, 0); // trigonometry of cutscene motion; not needed for dialog
+                    // atan2(-a, b) scaled by 4096 / pi (XiEvents OpCodes/0x0018): 8192 steps to a turn, not the 4096 of
+                    // 0x16 / 0x17, kept as written; no retail script runs it (every corpus hit is table data).
+                    SetWork(1, (int)(Math.Atan2(-GetWork(3), GetWork(5)) * 4096.0 / Math.PI));
                     _pc += 7;
                     return;
                 case 0x19:
@@ -960,6 +1043,32 @@ namespace Gordian.Core.Events
                     _mainSpeed = GetWork(1) * 0.1f;
                     _pc += 3;
                     return;
+                case 0x3A:
+                {
+                    // The actor's heading in 4096 steps to a turn, as the 0x7F03 fact (XiEvents OpCodes/0x003A); 0 for an
+                    // actor that is not in the zone, unchanged for a code that names nobody.
+                    if (ResolveActor(Code32(1)).ServerId != uint.MaxValue)
+                    {
+                        SetWork(5, TryGetActorPose(Code32(1), out _, out float heading) ? (int)(heading * 4096f / (2f * MathF.PI)) : 0);
+                    }
+                    _pc += 7;
+                    return;
+                }
+                case 0x3B:
+                {
+                    // The actor's position in thousandths of a yalm, the scripts' order x, y, height (XiEvents
+                    // OpCodes/0x003B): the event position of an actor in the event, else its world position; the scripts
+                    // add 0x16 / 0x17 offsets to it to stand actors around one another (Lower Jeuno event 70).
+                    if (ResolveActor(Code32(1)).ServerId != uint.MaxValue)
+                    {
+                        TryGetActorPose(Code32(1), out var at, out _);
+                        SetWork(5, (int)(at.X * 1000f));
+                        SetWork(7, (int)(at.Z * 1000f));
+                        SetWork(9, (int)(at.Y * 1000f));
+                    }
+                    _pc += 11;
+                    return;
+                }
                 case 0x39:
                     SetEventHeading(ScriptHeading(GetWork(1)));
                     _pc += 3;
@@ -1107,10 +1216,40 @@ namespace Gordian.Core.Events
                     }
                     _pc += 13;
                     return;
+                case 0x59 when Code8(1) == 0:
+                    // The body turn speed of the event's own entity from the work value at +2 (XiEvents OpCodes/0x0059,
+                    // TurnSpeed); sub 1 is the same for the actor at +2 from the work value at +6.
+                    SetTurnSpeed(EntityServerId, GetWork(2));
+                    _pc += 4;
+                    return;
+                case 0x59 when Code8(1) == 1:
+                    if (TaskActor(Code32(2)) is var bodyTurner && bodyTurner != uint.MaxValue) SetTurnSpeed(bodyTurner, GetWork(6));
+                    _pc += 8;
+                    return;
+                case 0x59 when Code8(1) == 4:
+                    // The walk speed of this VM's own walks (0x1F / 0x5A), the work value at +6 in tenths of a yalm per
+                    // second, as 0x32 (XiEvents OpCodes/0x0059: retail sets the running VM's MainSpeed and only checks that
+                    // the actor at +2 has a model). The scripts agree: each sub 4 is followed by a walk of the VM's own
+                    // entity, also when it names another actor (Wajaom Woodlands actor 0x01033243 names three in turn).
+                    if (TaskActor(Code32(2)) != uint.MaxValue) _mainSpeed = GetWork(6) * 0.1f;
+                    _pc += 8;
+                    return;
+                case 0x59 when Code8(1) == 6:
+                    // Waits while the actor at +2 plays an emote (XiEvents OpCodes/0x0059: IsMovingAction on its emote).
+                    if (TaskActor(Code32(2)) is var emoter && emoter != uint.MaxValue && Scene.IsEntityActionPlaying(emoter, EmoteTag))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _pc += 6;
+                    return;
+                case 0x6C:
+                    ExecTransparency();
+                    return;
                 case 0x59 when Code8(1) is 2 or 3:
                     // The head turn speed (XiEvents OpCodes/0x0059: sub 2 sets TurnSpeedHead of the event's own entity from
-                    // the work value at +2, sub 3 of the actor at +2 from the work value at +6). Sub 5 is below; the other
-                    // subs (body turn speed, walk speed, action waits) are stepped over.
+                    // the work value at +2, sub 3 of the actor at +2 from the work value at +6). Sub 5 is below; subs 7 / 8
+                    // (a movement flag) are stepped over.
                     if (Code8(1) == 2) _host.SetEntityHeadTurnSpeed(EntityServerId, GetWork(2));
                     else if (TaskActor(Code32(2)) is var turner && turner != uint.MaxValue) _host.SetEntityHeadTurnSpeed(turner, GetWork(6));
                     _pc += Code8(1) == 2 ? 4 : 8;
