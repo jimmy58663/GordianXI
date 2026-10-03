@@ -493,7 +493,13 @@ namespace Gordian.App.Graphics
                     // Doors, elevators and ships carry a door ID that drives zone geometry rather than a model of their own,
                     // and model-less NPCs are invisible event triggers; the legacy client draws nothing for either.
                     // Only entities that reference a model we failed to load get a debug proxy.
-                    if (!HasOwnModelReference(entity)) continue;
+                    if (!HasOwnModelReference(entity))
+                    {
+                        // A door is still a target: retail points the cursor at its middle, where the server places the
+                        // door entity (the centre of its doorway's 0x36 box; Metalworks retail screenshot, 2026-10-03).
+                        if (entity.Type == EntityType.Door && TargetServerId != 0 && entity.ServerId == TargetServerId) TargetAnchor = pos;
+                        continue;
+                    }
 
                     gpuModel = entity.Type switch
                     {

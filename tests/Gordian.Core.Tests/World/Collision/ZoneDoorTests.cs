@@ -248,6 +248,14 @@ namespace Gordian.Core.Tests.World.Collision
         }
 
         [Fact]
+        public void Doors_AreTargetable_TransportsAreNot()
+        {
+            // LSB names its doors ("Door:House"); retail targets them like NPCs, the cursor at the door's middle.
+            Assert.True(Gordian.Core.Input.TargetCycling.IsTargetable(new WorldEntity(1, 1, EntityType.Door) { Name = "Door:House", IsSpawned = true }));
+            Assert.False(Gordian.Core.Input.TargetCycling.IsTargetable(new WorldEntity(2, 2, EntityType.Elevator) { Name = "_6l0", IsSpawned = true }));
+        }
+
+        [Fact]
         public void OrderDoorParts_PutsTheLeftLeafFirst()
         {
             static DoorLeaf Leaf(int part, string mesh) => new(part, new ZonePlacement(mesh, Vector3.Zero, Vector3.Zero, Vector3.One, 1f, BlockId: "_6le"), new List<MeshGroup>());
