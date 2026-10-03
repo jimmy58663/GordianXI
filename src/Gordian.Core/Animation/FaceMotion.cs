@@ -45,12 +45,13 @@ namespace Gordian.Core.Animation
         public const int FlapsPerClip = 3;
 
         /// <summary>
-        /// The characters of a line per mouth flap: the least-squares fit (17.8, through the origin) of the flaps counted by
-        /// eye in retail (2026-10-03, #198) on Joachim's six lines in Port Jeuno 324 and Deraquien's two (12 for his 220
-        /// characters), rounded to 18. Every count comes out as seen but two, one short each (34 characters: 2, counted 3;
-        /// 98: 5, counted 6), within the counting's margin.
+        /// The characters of a line per mouth flap: the least-squares fit, through the origin, of the flaps counted by eye
+        /// in retail (2026-10-03, #198) on Joachim's six lines in Port Jeuno 324 and Deraquien's two (12 for his 220
+        /// characters). Every count comes out as seen but one (34 characters: 2, counted 3), which no rate from length
+        /// alone can match together with 97 characters = 5 flaps; 97 = 5 and 98 = 6 put the rate at 17.6-17.8. 18 missed
+        /// 98 = 6 as well.
         /// </summary>
-        public const float CharactersPerFlap = 18f;
+        public const float CharactersPerFlap = 17.8f;
 
         /// <summary>How many times the mouth flaps for a line of <paramref name="characters"/> shown characters (at least one).</summary>
         public static int FlapsFor(int characters) => Math.Max(1, (int)MathF.Round(characters / CharactersPerFlap, MidpointRounding.AwayFromZero));

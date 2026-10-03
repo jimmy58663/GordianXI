@@ -105,7 +105,7 @@ namespace Gordian.Core.Tests.Animation
         [InlineData(10, 1)]   // Deraquien: "Intruders!"
         [InlineData(45, 3)]   // Joachim, Port Jeuno 324
         [InlineData(97, 5)]
-        [InlineData(98, 5)]   // counted 6
+        [InlineData(98, 6)]
         [InlineData(141, 8)]
         [InlineData(220, 12)] // Deraquien's long line
         [InlineData(0, 1)]
