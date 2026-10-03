@@ -57,5 +57,24 @@ namespace Gordian.Core.Tests.World.Collision
             var under = new PlayerEntity(7, 7) { Position = new Vector3(10, 5.0f, 0) };
             Assert.Equal(5.0f, EntityGrounding.GetDisplayHeight(under, mesh), 3);
         }
+
+        /// <summary>
+        /// An event actor standing at the foot of a ledge stays on the ground (Port Jeuno 324's Buntz beside a ledge 1.2
+        /// yalms high was drawn on top of it); one whose walk runs below a floor with none under it is drawn on that floor
+        /// (the Southern San d'Oria knights).
+        /// </summary>
+        [Fact]
+        public void EventPose_PrefersTheNearFloor_ThenOneAbove()
+        {
+            var triangles = Floor(-20, -20, 20, 0, 0.0f).ToList();
+            triangles.AddRange(Floor(-20, 0, 20, 20, -1.2f)); // a ledge from z = 0 on
+            var ledge = new ZoneCollisionMesh(triangles);
+            var foot = new Vector3(0, 0.0f, -0.1f);
+            Assert.True(EntityGrounding.GetDisplayHeight(foot, ledge, EntityGrounding.EventStepUpHeight) < -1.0f); // the wide search alone: on the ledge
+            Assert.Equal(0.0f, EntityGrounding.GetEventDisplayHeight(foot, ledge), 3);
+
+            var raised = new ZoneCollisionMesh(Floor(-20, -20, 20, 20, -2.0f).ToList());
+            Assert.Equal(-2.0f, EntityGrounding.GetEventDisplayHeight(new Vector3(0, -1.0f, 0), raised), 3);
+        }
     }
 }

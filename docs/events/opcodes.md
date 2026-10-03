@@ -122,7 +122,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x63 | | 3 | stepped | 0 | Plays an emote id on the event's entity and waits while one plays. |
 | 0x64 | | 11 | stepped | 176 | Stores the 2D distance between two points held in work values. |
 | 0x65 | `CodeGETDISTANCEAA` | 11 | stepped | 13 | Stores the 3D distance between two actors, in thousandths of a yalm. |
-| 0x66 | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 14,143 | Plays a routine from the actor's player-model event motion package ([#193](https://github.com/jimmy58663/GordianXI/issues/193)). |
+| 0x66 | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 14,143 | Plays a routine from the actor's player-model event motion package. |
 | 0x67 | | 5 | runs | 108 | Turns on the event message mode and hides the HUD and compass. |
 | 0x68 | | 1 | runs | 122 | Turns the event message mode off and shows the HUD again. |
 | 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds) ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
@@ -448,7 +448,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x5B `CodeLOADEXTSCHEDULERMain`, 0x66 `CodeLOADEXTSCHEDULERMain`
 
 - Layout: `5B|66 res:work actor:u32 target:u32 routine:u32` (15 bytes). Retail loads the motion resource onto the actor (0x5B: an event motion DAT; 0x66: the player-model package), yields until it has been read, ends the actor's last action and starts the routine, then yields one frame. It needs both actors in an event with their models loaded (XiEvents OpCodes/0x005B, 0x0066).
-- GordianXI: `ExecEntityMotion` with `EventMotionSource.Bank` / `Package`, then yields a frame; routine 0 and `xxxx` start nothing. File ids and packages: [vm.md](vm.md#cutscene-schedulers). Package -1: [#193](https://github.com/jimmy58663/GordianXI/issues/193).
+- GordianXI: `ExecEntityMotion` with `EventMotionSource.Bank` / `Package`, then yields a frame; routine 0 and `xxxx` start nothing. File ids and packages: [vm.md](vm.md#cutscene-schedulers). The race sets 9-69 and the "package -1" of [#193](https://github.com/jimmy58663/GordianXI/issues/193): [schedulers-and-motions.md](schedulers-and-motions.md#motion-resources).
 - **Beyond XiEvents:** XiEvents lists a 17-byte form of both. That form is reached only through 0x5F subs 5 and 6 (one more work value at +15, which retail hands to the actor); a top-level 0x5B or 0x66 is always 15 bytes (xi-tools `docs/events/opcodes.md`: no 17-byte instance in 67k and 82k decodes; the corpus walk agrees).
 
 ### 0x5C, 0x5D
