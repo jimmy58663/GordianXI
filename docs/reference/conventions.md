@@ -46,6 +46,7 @@ Notes:
 | Event position | thousandths of a yalm | operands of 0x36 / 0x37 / 0xBA / 0x1F / 0x5A / 0x47, facts 0x7F00-0x7F02 | `EventVm` (`work · 0.001`), XiEvents OpCodes/0x0036 |
 | Knockback push | yalms per 60 Hz tick | the level is bits 2-4 of an S2C 0x028 result's `scale` (`ActionPlaybackQueue.KnockbackLevelOf`; bits 0-1 are the hit distortion) | `KnockbackSettings` (table from LandSandBoat `enums/action/knockback.h`) |
 | HP | percent byte | `Hpp` (0x00D / 0x00E payload 26, 0x037 flags0 bits 16-23) | `WorldEntity.Hpp` |
+| Texture and particle colour | 0x80 = opaque / neutral (half scale): DXT3 alpha peaks at 0x88, paletted at 0x80; particle mesh colours 0x80 = neutral, doubled for zone DATs only | Section 0x20 textures, 0x1F / 0x25 vertex colours | `TextureDecoder` doubles paletted alpha (`DecodedTexture.AlphaDoubled`), which the particle shader halves back ([particles](../rendering/particles.md#particle-alpha-scale-208)) |
 | UI colour | 0x80 = 1.0 (half scale) | UI part colours, linkshell colours, scene fades (scene routine op 0x0F) | `StockUiRenderer`, see [ui/stock-ui.md](../ui/stock-ui.md) |
 | UI layout | 512 x 448 layout pixels, drawn 1:1 at UI scale 1 | menu DAT frames | `StockUiLayout` |
 | Camera field of view | Route focal length f → vertical FOV `2 · atan2(192, f)` (350 = 57.5 degrees) | scene DAT Section 0x06 | `CameraRoute` (layout from xi-tools `docs/events/scene_dat_writer.md`; see [ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6)) |

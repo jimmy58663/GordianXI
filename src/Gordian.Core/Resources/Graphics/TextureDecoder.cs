@@ -29,6 +29,14 @@ namespace Gordian.Core.Resources.Graphics
         public int Height { get; }
         public byte[] RgbaPixels { get; }
 
+        /// <summary>
+        /// True when <see cref="TextureDecoder"/> doubled the alpha of a paletted (8 / 16 bpp) texture (0x80 -> 0xFF,
+        /// clamped). FFXI authors texture alpha at half scale (0x80 = opaque) in paletted and DXT3 textures alike (DXT3
+        /// peaks at 0x88), but only paletted alpha is doubled here, for the terrain and model shaders. The particle shader
+        /// expects half-scale texels, so it halves these again (#208).
+        /// </summary>
+        public bool AlphaDoubled { get; init; }
+
         public DecodedTexture(string name, int width, int height, byte[] rgbaPixels)
         {
             Name = name;
@@ -136,7 +144,7 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     for (int x = 0; x < width; x++)
                     {
-                        if (p >= data.Length) return new DecodedTexture(name, width, height, rgba);
+                        if (p >= data.Length) return new DecodedTexture(name, width, height, rgba) { AlphaDoubled = true };
                         byte idx = data[p++];
                         uint c = palette[idx];
                         int o = ((height - 1 - y) * width + x) * 4;
@@ -146,6 +154,7 @@ namespace Gordian.Core.Resources.Graphics
                         rgba[o + 3] = (byte)Math.Min(255, ((c >> 24) & 0xFF) * 2);
                     }
                 }
+                return new DecodedTexture(name, width, height, rgba) { AlphaDoubled = true };
             }
 
             return new DecodedTexture(name, width, height, rgba);

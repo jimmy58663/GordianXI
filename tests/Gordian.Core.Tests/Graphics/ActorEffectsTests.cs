@@ -40,6 +40,20 @@ namespace Gordian.Core.Tests.Graphics
             Assert.Equal("act0", Assert.Single(bind.Spawns).Template.Definition.DatId);
         }
 
+        /// <summary>
+        /// A model or scene DAT's particle mesh colours are used as authored (0x40 alpha stays 0x40); only zone DATs double
+        /// them (#208: Port Jeuno 324's blink cards measured about 2 x their colour alpha in retail).
+        /// </summary>
+        [Fact]
+        public void Load_KeepsAuthoredMeshColours()
+        {
+            var effects = ActorEffectLoader.Load(BuildModelDat())!;
+
+            var vertex = effects.Layers.SelectMany(l => l.MeshGroups).First(g => g.TextureName.Length > 0).Vertices[0];
+            Assert.Equal(0x40u, vertex.ColorRgba >> 24);
+            Assert.Equal(0x30u, vertex.ColorRgba & 0xFF);
+        }
+
         [Fact]
         public void ZoneParse_StillSkipsActorAttachedGenerators()
         {
