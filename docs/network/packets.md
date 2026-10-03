@@ -8,10 +8,10 @@ This pass was made on 2026-10-01. It lists every opcode in XiPackets `world/serv
 
 | Direction | XiPackets opcodes | GordianXI handles | Used | Unused | Not handled |
 |---|---|---|---|---|---|
-| S2C | 168 | 92 decoders (90 XiPackets opcodes, plus `0x015` and `0x0EE`) | 51 `decoded` | 41 `decoded, unused` | 78 `dropped` |
+| S2C | 168 | 93 decoders (91 XiPackets opcodes, plus `0x015` and `0x0EE`) | 52 `decoded` | 41 `decoded, unused` | 77 `dropped` |
 | C2S | 153 | 80 builders' opcodes, all in XiPackets | 36 `built` | 44 `built, unused` | 73 `not built` |
 
-Of the 78 dropped S2C opcodes, 18 have no LSB definition, and LSB names or declares 3 more without ever sending them (`0x072`, `0x081`, `0x0AB`), so 57 can arrive from an LSB server. Of the 73 C2S opcodes we do not build, 23 have no LSB handler.
+Of the 77 dropped S2C opcodes, 18 have no LSB definition, and LSB names or declares 3 more without ever sending them (`0x072`, `0x081`, `0x0AB`), so 56 can arrive from an LSB server. Of the 73 C2S opcodes we do not build, 23 have no LSB handler.
 
 The audit of 2026-09-28 counted 169 S2C and 154 C2S XiPackets packets; that count included the `README.md` in each folder. The folders hold 168 and 153 packets.
 
@@ -103,7 +103,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x036` | `TALKNUM` | 16 | `decoded` | `S2C_0x036_TalkNum` | Event dialog text. |
 | `0x037` | `SERVERSTATUS` | 96 | `decoded` | `S2C_0x037_CharStatus` | LSB `packets/char_status.cpp`, outside `s2c/`. Status icons, speed, name plate. `dead_counter1` (payload 56) is 1/60 s ticks plus 6 minutes [#100](https://github.com/jimmy58663/GordianXI/issues/100); FreezeFlag, `dead_counter2` and GmLevel not read [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
 | `0x038` | `SCHEDULOR` | 20 | `dropped` |  | Actor scheduler (despawn fades, Home Point `bind`). [#109](https://github.com/jimmy58663/GordianXI/issues/109) Logged unhandled 2026-10-01. |
-| `0x039` | `MAPSCHEDULOR` | 20 | `dropped` |  | Map scheduler. [#109](https://github.com/jimmy58663/GordianXI/issues/109) Logged unhandled in September 2026. |
+| `0x039` | `MAPSCHEDULOR` | 20 | `decoded` | `S2C_0x039_MapSchedulor` | Map scheduler: plays the zone routine named by the FourCC at payload +0x08 (`WorldState.PostMapScheduler` → `ZoneRoutinePlayer`, [#210](https://github.com/jimmy58663/GordianXI/issues/210)); the caster / target ids are kept but not used. **Beyond XiPackets:** the routine is a Section 0x07 routine of the zone DAT, found by name anywhere outside the weather and door directories (LSB sends `1pa1` / `1pb1` / `2pb1` with both actors 0 after each Alzadaal zone-in); see [particles.md](../rendering/particles.md#how-zone-routines-start-210). The event opcodes 0x2D / 0x51 / 0x54 still step over ([#109](https://github.com/jimmy58663/GordianXI/issues/109)). |
 | `0x03A` | `MAGICSCHEDULOR` | 20 | `dropped` |  | Magic scheduler. [#109](https://github.com/jimmy58663/GordianXI/issues/109) |
 | `0x03B` | `EVENTMES` | 12 | `dropped` |  | [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x03C` | `SHOP_LIST` | var | `decoded` | `S2C_0x03C_ShopList` | NPC shop list: 12-byte entries; flags 0x89 on the last packet. |

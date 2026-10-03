@@ -164,6 +164,12 @@ namespace Gordian.Core.Resources.Models
         public List<Gordian.Core.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();
 
         /// <summary>
+        /// The zone's routines outside the weather and door directories with the emitters they start, which the client
+        /// plays when a trigger names them (S2C 0x039 map schedulers, <see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>).
+        /// </summary>
+        public Gordian.Core.Graphics.ZoneRoutineLibrary MapRoutines { get; } = new();
+
+        /// <summary>
         /// For an actor's effect DAT (<c>actorEffects</c> parse), its Section 0x07 routines by name, each with the effect
         /// layers it starts; the client plays them on the actor (e.g. the Home Point's <c>bind</c>).
         /// </summary>

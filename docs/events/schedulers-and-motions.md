@@ -21,7 +21,7 @@ Every member reads the same operands: `op p:work actor:u32 target:u32 routine:Fo
 | 70691 band | effect tasks (`s000`, `gnh1`, `star`...) | `70691 + p` | 0xD0, 0xD1 wait, 0xD2 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 2,523 uses | XiEvents OpCodes/0x00D0-0x00D2 |
 | 102449 band | effect tasks (`s001`, `kl01`, `tama`...) | `102449 + p` | 0xD5, 0xD6 wait, 0xD7 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 269 uses | XiEvents OpCodes/0x00D5-0x00D7 |
 | zone schedulers | zone-wide tasks | not mapped | 0x2D / 0x51 / 0x54 | stepped over | XiEvents OpCodes/0x002D, 0x0051, 0x0054 |
-| server schedulers | actor, map and magic animation scripts sent by the server | not mapped | S2C 0x038 / 0x039 / 0x03A | not decoded, [#109](https://github.com/jimmy58663/GordianXI/issues/109) | XiPackets |
+| server schedulers | actor, map and magic animation scripts sent by the server | 0x039: the zone DAT's own routines | S2C 0x038 / 0x039 / 0x03A | 0x039 plays the named zone routine (`ZoneRoutinePlayer`, [#210](https://github.com/jimmy58663/GordianXI/issues/210), [particles.md](../rendering/particles.md#how-zone-routines-start-210)); 0x038 / 0x03A not decoded, [#109](https://github.com/jimmy58663/GordianXI/issues/109) | XiPackets, LandSandBoat |
 
 **Beyond XiEvents:** the use counts, and that 0xD5-0xD7 (base 102449) belong to the family; the task names per band were read from the retail scripts.
 

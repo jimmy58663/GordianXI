@@ -402,16 +402,26 @@ namespace Gordian.Core.Graphics
         }
 
         /// <summary>
-        /// Advances the looping routine clock and (re)arms the generator at each scheduled start.
+        /// Advances the looping routine clock and (re)arms the generator at each scheduled start. A routine of 0 frames
+        /// never loops: its starts run once, when the zone loads (#210: looped every frame, Alzadaal's portal pillars piled up).
         /// </summary>
         private void AdvanceSchedule(float frames)
         {
             var schedule = Template.Schedule;
             if (schedule == null || schedule.Count == 0) return;
 
-            float loop = Math.Max(1, Template.ScheduleLoopFrames);
             float previous = _routineClock;
             _routineClock += frames;
+            if (Template.ScheduleLoopFrames <= 0)
+            {
+                foreach (var spawn in schedule)
+                {
+                    if (spawn.StartFrame > previous && spawn.StartFrame <= _routineClock) Arm(spawn.Duration);
+                }
+                return;
+            }
+
+            float loop = Template.ScheduleLoopFrames;
             for (int cycle = (int)MathF.Floor(Math.Max(previous, 0f) / loop); cycle <= (int)MathF.Floor(_routineClock / loop); cycle++)
             {
                 foreach (var spawn in schedule)
