@@ -299,6 +299,20 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void RenderFlags_0xABSub4_WaitsForTheAction()
+        {
+            // 6E self ref0 ; AB 04 ; 48 ref1 ; 00: sub 4 clears its flag only once the entity's action has ended (#198).
+            var code = Emote(0).Concat(new byte[] { 0xAB, 0x04 }).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost { EmoteFrames = 3 };
+            var vm = Make(code, host, new uint[] { 6, 9 });
+            vm.Tick(Frame);
+            Assert.Empty(host.RenderFlags);
+            for (int i = 0; i < 10 && host.Printed.Count == 0; i++) vm.Tick(Frame);
+            Assert.Equal((Npc, EventRenderFlags.Flags0Bit2, false), Assert.Single(host.RenderFlags));
+            Assert.Single(host.Printed);
+        }
+
+        [Fact]
         public void LookOpcodes_SetAndClearTheLook()
         {
             const uint Other = 0x010E6064;

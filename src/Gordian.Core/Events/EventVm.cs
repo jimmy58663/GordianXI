@@ -202,14 +202,20 @@ namespace Gordian.Core.Events
 
         /// <summary>
         /// 0xAB, XiEvents OpCodes/0x00AB: sub-cases that set or clear one render flag of the event's own entity (0x1B / 0x1C
-        /// of the actor at +2), kept on the entity without a known effect. Sub 4 clears its flag without retail's wait for
-        /// the entity to be in an event status or idle. The client-wide subs (0x09 / 0x0A, 0x0F / 0x10, the respawn value
+        /// of the actor at +2), kept on the entity without a known effect. Sub 4 first waits while the entity plays an event
+        /// action (retail yields while <c>AnimationPlay</c> is set unless the entity is in an event status, which GordianXI
+        /// does not model). The client-wide subs (0x09 / 0x0A, 0x0F / 0x10, the respawn value
         /// 0x11, the per-entity helpers 0x14-0x18) are stepped over; an unknown sub-case ends the request, as retail stalls
         /// on it.
         /// </summary>
         private void ExecRenderFlags()
         {
             byte sub = Code8(1);
+            if (sub == 0x04 && Scene.IsEntityActing(EntityServerId))
+            {
+                _retFlag = true;
+                return;
+            }
             (EventRenderFlags Flag, bool Set) change = sub switch
             {
                 0x01 or 0x02 => (EventRenderFlags.Flags0Bit1, sub == 0x01),

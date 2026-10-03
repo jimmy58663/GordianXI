@@ -184,7 +184,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 |---|---|---|---|---|---|
 | 0 | 0x1 | 0xB6 when a look sub-case changes the race | | look must be rebuilt (*inference*) | 0xB6 not run |
 | 1 | 0x2 | 0xAB sub 1 sets, sub 2 clears (own) | | unknown | kept as `EventRenderFlags.Flags0Bit1` (#198), nothing reads it |
-| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | kept as `EventRenderFlags.Flags0Bit2` (#198), nothing reads it; sub 4 does not wait. 0x4C / 0x4D / 0x4F / 0x8E / 0x8F are not run |
+| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | kept as `EventRenderFlags.Flags0Bit2` (#198), nothing reads it; sub 4 waits while the entity plays an event action. 0x4C / 0x4D / 0x4F / 0x8E / 0x8F are not run |
 | 3 | 0x8 | 0xAB sub 5 sets, sub 6 clears | | unknown | kept as `EventRenderFlags.Flags0Bit3` (#198), nothing reads it |
 | 6 | 0x40 | 0xAB sub 0x0B sets, 0x0C clears | | unknown | kept as `EventRenderFlags.Flags0Bit6` (#198), nothing reads it |
 | 7 | 0x80 | | 0x27-0x2A requests (both entities), 0x1E / 0x4A / 0x4B / 0x3A / 0x3B / 0x65 (use the event position when set, else the world position), 0x80, 0xC1, 0x5B | the entity takes part in the event (has an event object) (*inference*) | `EventScene.FindActor` / `WorldEntity.IsInEvent`: `EventVm.TryGetActorPosition` takes the event position of a participant, else the world's |
@@ -217,7 +217,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 1 | 0x2 | 0xAB sub 8 sets, sub 7 clears | | kept as `EventRenderFlags.Flags2Bit1` (#198), nothing reads it |
 | 4 | 0x10 | 0xB6 sub 0x13 sets / 0x12 clears (own); 0x15 sets / 0x14 clears (actor) | | not run |
 | 14 | 0x4000 | (no opcode file sets it) | placement floor snap, as Flags0 bit 20 | |
-| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently |
+| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps the talking mouth (*inference*, #198) |
 | 24 | 0x1000000 | 0xAB sub 0x12 sets, 0x13 clears | | kept as `EventRenderFlags.Flags2Bit24` (#198), nothing reads it |
 
 ### Render.Flags3
@@ -229,7 +229,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 3 | 0x8 | 0x86 (actor with a ready model) | | unknown | not run |
 | 8-9 | 0x300 | lookatone (0x1E, 0x4A, 0x79 sub 0 / 1) sets a look mode; 0x79 sub 2 sets mode 2; 0x7B clears both bits; XiEventInit adjusts the word | | look mode | `WorldEntity.EventLook` (target or fixed axis) and `HeadLook`; 0x7B clears it |
 | 11 | 0x800 | 0xA5 | | unknown | not run |
-| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it |
+| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown; set by cutscene-only story actors and summons on themselves at an event's start (674 entries are only `C0 value`; [events/opcodes.md](../events/opcodes.md#0xc0)) | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it |
 | 16 | 0x10000 | 0x92 (`op value actor`) | | no name plate (*inference*, #191: Port Jeuno 324 sets it on every NPC it places and on Joachim but not on the player, and the maintainer's retail recording shows only the player's plate; the Southern San d'Oria intro never sets it and shows every plate). 8,288 of the 8,349 retail events that use 0x92 set it and 412 clear it; most leave it to the event's end | `WorldEntity.HidesEventName` → `NamePlateStyle.ShowsName`; cleared when the event ends. **Beyond XiEvents:** the name plate reading |
 | 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | kept as `EventRenderFlags.Flags3Bit17` (#198), nothing reads it |
 | 19 | 0x80000 | 0x95 sets (sets the entity up as an event NPC), 0x96 clears | | event-based NPC | not run |
