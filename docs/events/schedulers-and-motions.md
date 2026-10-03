@@ -12,8 +12,8 @@ Every member reads the same operands: `op p:work actor:u32 target:u32 routine:Fo
 
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|
-| main scene tasks | camera shots, fades, overlays of a cutscene | `30704 + remap(p)` | 0x45 start, 0x55 wait, 0x52 stop | run: `EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask`, `EventSceneResource.GetFileId`; 161,392 uses, 782 files, 290 zones | XiEvents OpCodes/0x0045, 0x0052, 0x0055 |
-| 5012 band | short tasks, mostly `main` (files 5013, 5014), `kone` / `kon1` (5034) | `5012 + p` | 0x62 start, 0xA0 wait; XiEvents gives 0xA1 (stop) the 30704 base, not 5012 | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 0xA1 stepped (`EventOpcodeTable`); 4,597 uses, 91 files, 245 zones | XiEvents OpCodes/0x0062, 0x00A0, 0x00A1 |
+| main scene tasks | camera shots, fades, overlays of a cutscene | `30704 + remap(p)` | 0x45 start, 0x55 wait, 0x52 stop (also 0xA1, never used in retail) | run: `EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask`, `EventSceneResource.GetFileId`; 161,392 uses, 782 files, 290 zones | XiEvents OpCodes/0x0045, 0x0052, 0x0055, 0x00A1 |
+| 5012 band | effect packages, one per file (below): mostly `main` (warp files 5013, 5014), `kone` / `kon1` (5034) | `5012 + p` (5013-5109 used) | 0x62 start, 0xA0 wait; no stop of its own (0xA1 stops 0x45 tasks) | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 4,597 uses, 91 files, 245 zones | XiEvents OpCodes/0x0062, 0x00A0 |
 | 51183 band | effect tasks: `main`, `kill`, `str0`, `stop`; the eyelid opening `bl00` / `open` / `clos` / `kill` (51402) and the sky flash `mai1` / `mai2` / `stop` (51327) of Port Jeuno event 324 | `51183 + p` | 0x9F start, 0xA2 wait, 0xA3 stop | run: `EventSceneResource.GetSecondFileId`, effects by `SceneEffectPlayer` ([#192](https://github.com/jimmy58663/GordianXI/issues/192)); 5,348 uses, 245 files, 222 zones | XiEvents OpCodes/0x009F, 0x00A2, 0x00A3 |
 | 56685 band | effect tasks (`in00`, `mai1`, `stp1`...) | `56685 + p` | 0xBB, 0xBC wait, 0xBD stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 4,115 uses | XiEvents OpCodes/0x00BB-0x00BD |
 | 67355 band | effect tasks (`s000`, `kil0`, `b000`...) | `67355 + p` | 0xC5, 0xC6 wait, 0xC7 stop | run (`EventSceneResource.GetBandFileId`, #192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)); 2,597 uses | XiEvents OpCodes/0x00C5-0x00C7 |
@@ -29,12 +29,28 @@ Every member reads the same operands: `op p:work actor:u32 target:u32 routine:Fo
 
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|
-| `p` 0-299 | retail scene resources | 30704-31003 | 0x45 / 0x52 / 0x55 | `EventSceneResource.GetFileId`; 86,565 uses | XiEvents OpCodes/0x0045 (`FUNC_DatIdHelper`), xi-tools docs/events/camera_scene_ids.md |
+| `p` 0-299 | retail scene resources | 30704-31003 | 0x45 / 0x52 / 0x55 / 0xA1 | `EventSceneResource.GetFileId`; 86,565 uses | XiEvents OpCodes/0x0045 (`FUNC_DatIdHelper`), xi-tools docs/events/camera_scene_ids.md |
 | `p` 300-599 | scene resources | `56641 + p` = 56941-57240 | same | same; 39,059 uses | same |
 | `p` 600 and up | scene resources | `70347 + p` = 70947 and up | same | same; 35,660 uses | same |
 | `p` from a work value | resolved at run time | - | same | resolved by `GetWork`; 108 uses | - |
 
 **Differs from xi-tools:** camera_scene_ids.md marks the 600+ band as crashing the client. That is about custom files registered there: retail scripts use the band 35,660 times.
+
+### The 5012 band (0x62 / 0xA0)
+
+Each file 5013-5109 is one self-contained effect package, not a cutscene's scene file: a single folder (Section 0x01) named for the effect, holding one to five routines (0x07), the generators they spawn (0x05), keyframes (0x19), particle meshes (0x1F / 0x21), textures (0x20), sound pointers (0x3D) and sometimes point lists (0x3E), clips (0x2B) or a weighted mesh (0x25). None has camera Routes (0x06). Files 5013-5061 are ROM/16/75 onward (ROM/92/124-126, ROM/95/83-86 and ROM/98/11-26 for later ids), 5066-5109 ROM2/23/90-ROM2/24/5. Read from the retail install on 2026-10-03 for [#199](https://github.com/jimmy58663/GordianXI/issues/199); uses are 0x62 / 0xA0 operands with a literal `p` (83 more come from a work value).
+
+| name / id | what it is | where it lives | used by | GordianXI | source |
+|---|---|---|---|---|---|
+| `wp00` / `wp01` | the warp effect: `main` spawns seven generators over 150 / 170 frames, with commands 0x29 / 0x2E / 0x0A not yet known | 5013 / 5014 (`p` 1 / 2; ROM/16/75-76); 5055 (`wp03`, `p` 43) is a copy | 0x62 (1,127 / 1,059 uses, plus 79 0xA0 waits): battlefield entry and exit (events 32000-32004) and events in many other zones | played (generators; the unknown commands are stepped, [#206](https://github.com/jimmy58663/GordianXI/issues/206)) | retail DATs; LandSandBoat scripts/globals/battlefield.lua for the event ids |
+| `kira` | three generators at once, 60 frames | 5015 (`p` 3) | 0x62 (252) | played | retail DAT |
+| `kone` | `kone` / `kon2` spawn nine generators over 600 frames; `kon1` / `kon3` kill `g0s1` and spawn `g008` | 5034 (`p` 22) | 0x62 (`kone` 462, `kon1` 342), in Southern San d'Oria 689, Bastok Mines 205, Windurst Walls 456, Ru'Lude Gardens 10016 and Tavnazian Safehold | played | retail DAT |
+| `jobc` | `main`: eleven generators over 313 frames with Moogle meshes (`mog1`-`mog5`) | 5038 (`p` 26) | 0x62 (174), same events as `kone` | played | retail DAT |
+| `kb01`-`kb07`, `kb0f` | one package per file, `main` | 5047-5054 (`p` 35-42) | 0x62 (about 50 each) in zones 100-107 | played | retail DAT |
+| `cry1`-`cry3` | a routine and a sound only, no generators | 5095-5097 (`p` 83-85) | 0x62 (1 each, zone 179) | nothing drawn; the sound waits for [#167](https://github.com/jimmy58663/GordianXI/issues/167) | retail DAT |
+| other packages | single effects named by folder (`mbar`, `uran`, `kaka`, `sdra`, `zaid`, `kerb`, `k_wa`, `sibi`, `gene`, `cris`, `sins`, `ring`...) | the rest of 5016-5109 | 0x62 (1-158 uses each) | played | retail DATs |
+
+**Beyond XiEvents:** what the files hold (XiEvents names only the base, 5012). Scene commands these packages use besides 0x02 / 0x03 / 0x1E: 0x01 at frame 0 of every routine read, 0x07, 0x0A, 0x0B, 0x1F, 0x29, 0x2A, 0x2D, 0x2E; all are stepped (`SceneCommandKind.Other`).
 
 ## Shared scene resources
 
@@ -197,7 +213,6 @@ Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its
 
 ## Not done
 
-- 0xA1 (0x62's stop by its place; never used in retail, base disputed) and what file 5012 + n holds ([#199](https://github.com/jimmy58663/GordianXI/issues/199)).
 - Scene routine ops 0x60 (sound, [#167](https://github.com/jimmy58663/GordianXI/issues/167)), 0x05 (motion clip on the actor), 0x22 / 0x7F and 0x29 / 0x43 / 0x46 / 0x48 / 0x54 (colours and values, meaning not known; [#206](https://github.com/jimmy58663/GordianXI/issues/206)).
 - Motion packages above 175.
 - Emote ids from 39 on and the dances; robe-body emote waist parts.

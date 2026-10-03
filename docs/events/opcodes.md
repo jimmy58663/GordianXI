@@ -118,7 +118,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
 | 0x60 | | by sub | stepped | 50 | Sets `Render.Flags1` bit 30 (subs 0/1) or starts a zone scheduler action (sub 2). |
 | 0x61 | | 2 | stepped | 327 | Sets or clears `Render.Flags2` bit 0 of the event's own entity. |
-| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | runs | 1,701 | Like 0x45, from scheduler file 5012 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | runs | 1,701 | Like 0x45, from scheduler file 5012 + n: one effect package per file (warps `wp00` / `wp01`...). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x63 | | 3 | stepped | 0 | Plays an emote id on the event's entity and waits while one plays. |
 | 0x64 | | 11 | stepped | 176 | Stores the 2D distance between two points held in work values. |
 | 0x65 | `CodeGETDISTANCEAA` | 11 | stepped | 13 | Stores the 3D distance between two actors, in thousandths of a yalm. |
@@ -181,7 +181,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x9E |  | 2 | stepped | 21 | Says whether a room load during the event should report the sub-region to the server. |
 | 0x9F | `CodeLOADEVENTSCHEDULER2` | 17 | runs | 1,883 | Starts a scene task like 0x45, from file 51183 + n: effect routines ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA0 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 27 | Waits for a scene task like 0x55, file base 5012 (the 0x62 tasks). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | stepped | 0 | Stops a scene task like 0x52. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xA1 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 0 | Stops a scene task exactly like 0x52 (base 30704, remapped), not a 0x62 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xA2 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 18 | Waits for a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA4 |  | 2 | stepped | 442 | Sets or clears `Render.Flags3` bit 26 of the event entity. |
@@ -505,7 +505,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x62 `CodeLOADEVENTSCHEDULER`
 
 - Same layout as 0x45; the scene file is 5012 + p, with no 300 / 600 shift (XiEvents OpCodes/0x0062).
-- GordianXI steps over it: 1,701 events lose these tasks. What file 5012 + p holds is not checked. Tracked in [#199](https://github.com/jimmy58663/GordianXI/issues/199).
+- Runs as an `EventScene` task on file `5012 + p` (#192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)). Each file 5013-5109 is a self-contained effect package (routines, generators, meshes, textures, sounds), such as the warp `wp00` / `wp01` of battlefield entry and exit; the files are listed in [schedulers-and-motions.md](schedulers-and-motions.md#the-5012-band-0x62--0xa0).
 
 ### 0x64, 0x65 `CodeGETDISTANCEAA`
 
@@ -716,17 +716,17 @@ When a change makes an opcode run, update its row and detail section in the same
 
 | Start | Wait | Stop | File base | Events (start) |
 |---|---|---|---|---|
-| 0x62 | 0xA0 | (0xA1?) | 5012 | see 0x62 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0x62 | 0xA0 | none (0xA1 stops 0x45 tasks) | 5012 | 1,701 |
 | 0x9F | 0xA2 | 0xA3 | 51183 | 1,883 |
-| 0xBB | 0xBC | 0xBD | 56685 | 478 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xC5 | 0xC6 | 0xC7 | 67355 | 708 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xCD | 0xCE | 0xCF | 70435 | 1,039 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD0 | 0xD1 | 0xD2 | 70691 | 453 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xD5 | 0xD6 | 0xD7 | 102449 | 73 [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
+| 0xBB | 0xBC | 0xBD | 56685 | 478 |
+| 0xC5 | 0xC6 | 0xC7 | 67355 | 708 |
+| 0xCD | 0xCE | 0xCF | 70435 | 1,039 |
+| 0xD0 | 0xD1 | 0xD2 | 70691 | 453 |
+| 0xD5 | 0xD6 | 0xD7 | 102449 | 73 |
 | 0x7D (player only, tag `main`) | | | 5112 | 57 |
 
-- Every family but 0xA1 runs (#192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)): `EventSceneResource.GetBandBase` gives the base per opcode. 0xA1 is never used in retail and its base is disputed (below), so it stays stepped. 0x9F / 0xA2 / 0xA3 run as `EventScene` tasks on file `51183 + p` (`EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask` with `EventSceneResource.GetSecondFileId`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)): in Port Jeuno event 324 they carry the eyelid opening (51402) and the flash in the sky (51327). Their routines' effect commands are played as described in [vm.md](vm.md#cutscene-schedulers). In the same scene 0xCD starts `s002` of file 70443 (`p` 8) on the player at 15.6 s, the sparkles floating in front of the camera, and `kil2` ends them at 48.4 s.
-- **Differs from XiEvents:** XiEvents gives 0xA1 the base 30704 (0x52's), which would make it a copy of 0x52, while its wait partner 0xA0 uses 0x62's 5012. 0xA1 never occurs in the retail scripts, so this is not settled.
+- Every family runs (#192, [#199](https://github.com/jimmy58663/GordianXI/issues/199)): `EventSceneResource.GetBandBase` gives the base per opcode. 0xA1 runs as 0x52 (below). 0x9F / 0xA2 / 0xA3 run as `EventScene` tasks on file `51183 + p` (`EventVm.ExecStartTask` / `ExecWaitTask` / `ExecEndTask` with `EventSceneResource.GetSecondFileId`, [#192](https://github.com/jimmy58663/GordianXI/issues/192)): in Port Jeuno event 324 they carry the eyelid opening (51402) and the flash in the sky (51327). Their routines' effect commands are played as described in [vm.md](vm.md#cutscene-schedulers). In the same scene 0xCD starts `s002` of file 70443 (`p` 8) on the player at 15.6 s, the sparkles floating in front of the camera, and `kil2` ends them at 48.4 s.
+- 0xA1: XiEvents gives it the base 30704 (0x52's), and the 30704 check in the shared helper then applies the 300 / 600 remapping, so it is a copy of 0x52 although it sits in the 0x62 family's stop place (0xA0 uses 5012). GordianXI follows XiEvents. 0xA1 never occurs in the retail scripts, so the reading cannot be checked against a scene, and the 0x62 tasks have no stop opcode.
 
 ### 0xA6
 
@@ -812,11 +812,9 @@ When a change makes an opcode run, update its row and detail section in the same
 - 0x3A / 0x3B read the running VM's own event position, not the actor's, when the actor is in an event (XiEvents as transcribed). GordianXI reads the named actor's; the two agree when the script names itself.
 - 0x59 subs 0 / 1: the unit of `TurnSpeed` (read as 4096ths of a turn per frame).
 - 0x5A axis cross-over.
-- What scheduler file 5012 + p (0x62) holds.
 - 0x57 rounding (GordianXI rounds the frame delay, retail's conversion not checked).
 - Whether the 0x80 / 0x81 "sub-cases" of 0x1F / 0x31 / 0x47 / 0x59 / 0x5A / 0x5F are inline data like `1F 17` (retail would stall on them).
 - 0x83: retail's game time value and its epoch, and whether 0xAA's date split of GordianXI's Unix seconds would match retail.
-- 0xA1's file base: XiEvents says 30704, which looks like a copy of 0x52; no retail use to check.
 - 0xB0: whose mouth moves in retail, the speaker at +2 or the listener at +6.
 - 0x9D sub 0x00: does retail really apply a bound read at +8, or is that XiEvents copying 0x0A?
 - 0xB2 sub 0 reads its frame count at +1, its own sub byte, in XiEvents; probably +2.
