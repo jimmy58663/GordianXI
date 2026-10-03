@@ -176,23 +176,23 @@ For NPCs and mobs LandSandBoat writes `m_flags` (`data/enums/entity_flags.yaml`)
 
 ## Retail render flags (client memory, set by the event VM)
 
-These are not wire fields. They are the retail client's per-entity `Render.Flags0`-`Flags7` words, which the event opcodes set and test (XiEvents OpCodes and "Event VM Functions.md"). GordianXI has no such words; the "GordianXI" column says what stands in for a bit, if anything. "Own" is the event's own entity, "actor" an entity named by an operand.
+These are not wire fields. They are the retail client's per-entity `Render.Flags0`-`Flags7` words, which the event opcodes set and test (XiEvents OpCodes and "Event VM Functions.md"). GordianXI has no such words: a bit with a known effect has its own `WorldEntity` property, and the bits the event opcodes set without a known effect are kept together in `WorldEntity.EventRenderFlags` (`World/EventRenderFlags.cs`, #198), all cleared when the event ends. The "GordianXI" column says what stands in for a bit, if anything. "Own" is the event's own entity, "actor" an entity named by an operand.
 
 ### Render.Flags0
 
 | Bit | Mask | Set / cleared by | Tested by | Reading | GordianXI |
 |---|---|---|---|---|---|
 | 0 | 0x1 | 0xB6 when a look sub-case changes the race | | look must be rebuilt (*inference*) | 0xB6 not run |
-| 1 | 0x2 | 0xAB sub 1 sets, sub 2 clears (own) | | unknown | not run |
-| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | not run |
-| 3 | 0x8 | 0xAB sub 5 sets, sub 6 clears | | unknown | not run |
-| 6 | 0x40 | 0xAB sub 0x0B sets, 0x0C clears | | unknown | not run |
+| 1 | 0x2 | 0xAB sub 1 sets, sub 2 clears (own) | | unknown | kept as `EventRenderFlags.Flags0Bit1` (#198), nothing reads it |
+| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | kept as `EventRenderFlags.Flags0Bit2` (#198), nothing reads it; sub 4 waits while the entity plays an event action. 0x4C / 0x4D / 0x4F / 0x8E / 0x8F are not run |
+| 3 | 0x8 | 0xAB sub 5 sets, sub 6 clears | | unknown | kept as `EventRenderFlags.Flags0Bit3` (#198), nothing reads it |
+| 6 | 0x40 | 0xAB sub 0x0B sets, 0x0C clears | | unknown | kept as `EventRenderFlags.Flags0Bit6` (#198), nothing reads it |
 | 7 | 0x80 | | 0x27-0x2A requests (both entities), 0x1E / 0x4A / 0x4B / 0x3A / 0x3B / 0x65 (use the event position when set, else the world position), 0x80, 0xC1, 0x5B | the entity takes part in the event (has an event object) (*inference*) | `EventScene.FindActor` / `WorldEntity.IsInEvent`: `EventVm.TryGetActorPosition` takes the event position of a participant, else the world's |
 | 8 | 0x100 | set on each entity InitEvent2 finds for the event | | joined the event | the scene's participant list (`EventScene`) |
 | 9 | 0x200 | | most actor opcodes: 0x23, 0x2C, 0x2D, 0x45, 0x46 (player), 0x50-0x55, 0x5B, 0x5E, 0x6B, 0x6C, 0x6E, 0x73, 0x76, 0x79, 0x7B-0x7E, 0x80, 0x81, 0x86, 0x95, 0x99, 0xAD, 0xB6, 0xC1, 0xD3; InitEvent2 fails without it | the actor's model is ready (the reading in [world/entities-and-animation.md](../world/entities-and-animation.md)) | no flag; how each opcode treats a model not yet loaded is not checked |
 | 10 | 0x400 | | 0x7E sub 2, with an attachment present | mount or chocobo attached (*inference*) | not run |
 | 14, 15 | 0x4000, 0x8000 | | InitEvent2 skips its locked-status checks when either is set | unknown | |
-| 17 | 0x20000 | 0x22 (own), 0x4E (actor), 0x90 (own, also Flags1 bit 12) | the renderer | event hide | `WorldEntity.IsEventHidden` from 0x22 / 0x4E (`IsDrawn`); 0x90 is not run |
+| 17 | 0x20000 | 0x22 (own), 0x4E (actor), 0x90 (own, also Flags1 bit 12) | the renderer | event hide | `WorldEntity.IsEventHidden` from 0x22 / 0x4E / 0x90 (`IsDrawn`) |
 | 19 | 0x80000 | 0x2F (`op value actor`) | | unknown; the scripts pair it with the 0x4E hide | stepped over without a diagnostic (`EventVm`) |
 | 20 | 0x100000 | | 0x36, 0x37, 0x1F, 0x31, 0xBA: the placement is put on the floor (VCalibrate) only while bits 20 and 21 and Flags2 bit 14 are all clear | keep the scripted height (*inference*) | |
 | 21 | 0x200000 | 0x33 (own), 0x59 sub 5 (actor) | same as bit 20 | keep the scripted height (*inference*) | 0x33 and 0x59 sub 5 run: `WorldEntity.KeepsEventHeight` (held until the entity arrives, cleared at the event's end), and `EntityRenderer` then draws the event pose at its placed height (#192, Port Jeuno 324's sky marker). **Beyond XiEvents:** this is the switch between floor-snapped and floating event placements; without the bit GordianXI draws event poses on the floor below (`EntityGrounding.GetDisplayHeight`, up to `EventStepUpHeight`); only the head look reads the placed height of a target more than 2 yalms above its drawn place (`EntityRenderer`, see [world/entities-and-animation.md](../world/entities-and-animation.md)). Which scripts set the bit is not checked |
@@ -202,7 +202,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 
 | Bit | Mask | Set / cleared by | Tested by | Reading | GordianXI |
 |---|---|---|---|---|---|
-| 12 | 0x1000 | 0x90 | InitEvent2 asks the server for the entity again (C2S 0x016) while set | entity data must be re-requested (*inference*) | not run; GordianXI requests missing participants at the start (`EventDialogController`) |
+| 12 | 0x1000 | 0x90 | InitEvent2 asks the server for the entity again (C2S 0x016) while set | entity data must be re-requested (*inference*) | not kept (0x90 runs only its hide part); GordianXI requests missing participants at the start (`EventDialogController`) |
 | 17 | 0x20000 | the event walks 0x1F, 0x31, 0x5A when they move the entity; cleared before each request runs | | moved by the event this tick (*inference*) | |
 | 25 | | | entity facts 0x7F0B / 0x7F8B return it (XiEvents writes the word as `Flags01`; which word is meant is not clear) | unknown | `IEventVmHost.GetEntityValue`; value not checked |
 | 29 | 0x20000000 | 0x5F subs 0 / 1 (the sub-case is the value) | | unknown | not run |
@@ -214,11 +214,11 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | Bit | Mask | Set / cleared by | Tested by | GordianXI |
 |---|---|---|---|---|
 | 0 | 0x1 | 0x61 | | not run |
-| 1 | 0x2 | 0xAB sub 8 sets, sub 7 clears | | not run |
+| 1 | 0x2 | 0xAB sub 8 sets, sub 7 clears | | kept as `EventRenderFlags.Flags2Bit1` (#198), nothing reads it |
 | 4 | 0x10 | 0xB6 sub 0x13 sets / 0x12 clears (own); 0x15 sets / 0x14 clears (actor) | | not run |
 | 14 | 0x4000 | (no opcode file sets it) | placement floor snap, as Flags0 bit 20 | |
-| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently |
-| 24 | 0x1000000 | 0xAB sub 0x12 sets, 0x13 clears | | not run |
+| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps a face switch (*inference*, #198, #217) |
+| 24 | 0x1000000 | 0xAB sub 0x12 sets, 0x13 clears | | kept as `EventRenderFlags.Flags2Bit24` (#198), nothing reads it |
 
 ### Render.Flags3
 
@@ -229,9 +229,9 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 3 | 0x8 | 0x86 (actor with a ready model) | | unknown | not run |
 | 8-9 | 0x300 | lookatone (0x1E, 0x4A, 0x79 sub 0 / 1) sets a look mode; 0x79 sub 2 sets mode 2; 0x7B clears both bits; XiEventInit adjusts the word | | look mode | `WorldEntity.EventLook` (target or fixed axis) and `HeadLook`; 0x7B clears it |
 | 11 | 0x800 | 0xA5 | | unknown | not run |
-| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown | not run |
+| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown; set by cutscene-only story actors and summons on themselves at an event's start (674 entries are only `C0 value`; [events/opcodes.md](../events/opcodes.md#0xc0)) | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it; #217 |
 | 16 | 0x10000 | 0x92 (`op value actor`) | | no name plate (*inference*, #191: Port Jeuno 324 sets it on every NPC it places and on Joachim but not on the player, and the maintainer's retail recording shows only the player's plate; the Southern San d'Oria intro never sets it and shows every plate). 8,288 of the 8,349 retail events that use 0x92 set it and 412 clear it; most leave it to the event's end | `WorldEntity.HidesEventName` → `NamePlateStyle.ShowsName`; cleared when the event ends. **Beyond XiEvents:** the name plate reading |
-| 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate | not run |
+| 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | kept as `EventRenderFlags.Flags3Bit17` (#198), nothing reads it; #217 |
 | 19 | 0x80000 | 0x95 sets (sets the entity up as an event NPC), 0x96 clears | | event-based NPC | not run |
 | 20-21 | 0x300000 | 0x95 (a 2-bit parameter) | | unknown | not run |
 | 26 | 0x4000000 | 0xA4 | | unknown | not run |
@@ -240,14 +240,14 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 
 | Word | Bit | Set / cleared by | GordianXI |
 |---|---|---|---|
-| Flags4 | 1 | 0xAB sub 0x0D sets, 0x0E clears | not run |
+| Flags4 | 1 | 0xAB sub 0x0D sets, 0x0E clears | kept as `EventRenderFlags.Flags4Bit1` (#198), nothing reads it |
 | Flags4 | 17 | 0xB6 look sub-cases set it after changing a look field | not run |
 | Flags5 | (unspecified) | 0x95's attachment clean-up | not run |
 | Flags6 | 31 | 0xAC sub 2 sets, sub 3 clears; while clear and the actor is missing, the client asks for it (C2S 0x016) and yields | not run |
 | Flags7 | 0-1 | 0xAC sub 4 ORs in a work value's low 2 bits | not run |
-| Flags7 | 19 | 0xAB subs 0x19 sets / 0x1A clears (own), 0x1B sets / 0x1C clears (actor) | not run |
+| Flags7 | 19 | 0xAB subs 0x19 sets / 0x1A clears (own), 0x1B sets / 0x1C clears (actor) | kept as `EventRenderFlags.Flags7Bit19` (#198), nothing reads it |
 
-Not a render flag but in the same family: 0x81 (`op value actor`) sets or clears the actor's blink switch (`is_blinkeye` on its skeleton actor). GordianXI blinks every humanoid at random intervals and does not run 0x81 (`FaceMotion`).
+Not a render flag but in the same family: 0x81 (`op value actor`) sets or clears the actor's blink switch (`is_blinkeye` on its skeleton actor; any non-zero value turns it on). GordianXI keeps a zero as `EventRenderFlags.NoBlink` and `EntityRenderer` then starts no blink until 0x81 turns it on or the event ends (#198). Whether retail keeps the switch after the event is open ([events/opcodes.md](../events/opcodes.md#0x81)). Open: [#217](https://github.com/jimmy58663/GordianXI/issues/217).
 
 ## Event opcodes that only change these bits
 
@@ -256,27 +256,27 @@ Every opcode below changes only render-flag bits (or the blink switch) in retail
 | Opcode | Retail effect | GordianXI |
 |---|---|---|
 | 0x2F | Flags0 bit 19 on an actor | silent |
-| 0x33 | Flags0 bit 21 on the own entity (no floor snap) | silent |
+| 0x33 | Flags0 bit 21 on the own entity (no floor snap) | runs: `WorldEntity.KeepsEventHeight` (#192) |
 | 0x4C / 0x4D | door status 8 / 9 unless Flags0 bit 2 is set | diagnostic (doors are drawn static) |
 | 0x4F | event status unless Flags0 bit 2 is set | diagnostic |
-| 0x59 sub 5 | Flags0 bit 21 on an actor | diagnostic (subs 2 / 3 run: head turn speed) |
+| 0x59 sub 5 | Flags0 bit 21 on an actor | runs: `WorldEntity.KeepsEventHeight` (#192; subs 2 / 3 run too: head turn speed) |
 | 0x5F subs 0 / 1 | Flags1 bit 29 | diagnostic |
 | 0x60 subs 0 / 1 | Flags1 bit 30 | diagnostic |
 | 0x61 | Flags2 bit 0 | diagnostic |
 | 0x74 | Flags1 bit 31 | diagnostic |
 | 0x7C | Flags2 bit 17 on an actor | silent |
-| 0x81 | blink on / off | diagnostic |
+| 0x81 | blink on / off | runs: `EventRenderFlags.NoBlink` pauses `FaceMotion`'s blink |
 | 0x84 | Flags3 bit 0 | diagnostic |
 | 0x86 | Flags3 bit 3 on an actor | diagnostic |
 | 0x8E / 0x8F | event status 45 / 46 unless Flags0 bit 2 is set | diagnostic |
-| 0x90 | event hide (Flags0 bit 17) and Flags1 bit 12 on the own entity | diagnostic. **Gap:** the hide part matters to drawing, as 0x22 does |
+| 0x90 | event hide (Flags0 bit 17) and Flags1 bit 12 on the own entity | runs the hide, as 0x22 01 (`IsEventHidden`); bit 12 not kept |
 | 0x92 | Flags3 bit 16 on an actor: no name plate (#191) | runs: `WorldEntity.HidesEventName` (Northern San d'Oria event 878: seven NPC blocks only toggle it, [ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6)) |
-| 0x94 | Flags3 bit 17 on an actor | diagnostic |
+| 0x94 | Flags3 bit 17 on an actor | runs: kept, effect unknown |
 | 0x95 / 0x96 | event NPC setup / tear-down (Flags3 bits 19-21, attachments) | diagnostic |
 | 0xA4 / 0xA5 | Flags3 bit 26 / bit 11 | diagnostic |
-| 0xAB | many sub-cases over Flags0, Flags2, Flags4, Flags7 (tables above) | diagnostic |
+| 0xAB | many sub-cases over Flags0, Flags2, Flags4, Flags7 (tables above) | partial: the entity bits are kept (effect unknown); the client-wide subs are stepped silently |
 | 0xAC subs 2-4 | Flags6 bit 31, Flags7 bits 0-1 (subs 0 / 1 set server and event status) | diagnostic |
-| 0xC0 | Flags3 bit 12 | diagnostic |
+| 0xC0 | Flags3 bit 12 | runs: kept, effect unknown |
 
 ## Other GordianXI flag words
 

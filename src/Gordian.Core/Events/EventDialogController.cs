@@ -1,6 +1,7 @@
 // src/Gordian.Core/Events/EventDialogController.cs
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
@@ -131,6 +132,16 @@ namespace Gordian.Core.Events
         private readonly Dictionary<uint, bool> _pendingHidden = new();
         private readonly Dictionary<uint, bool> _pendingKeepHeight = new();
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
+        private readonly Dictionary<uint, (EventRenderFlags Set, EventRenderFlags Clear)> _pendingRenderFlags = new();
+
+        /// <summary>The speaker of the line the player has not closed yet (retail's <c>MouthIndex</c>), or null.</summary>
+        private WorldEntity? _talker;
+
+        /// <summary>
+        /// How far (yalms) an event may have placed an entity from its server position and still turn it back smoothly at
+        /// the event's end; farther, it is put back at once (a staged actor returning from across the scene).
+        /// </summary>
+        public const float EventReturnSnapDistance = 1.5f;
 
         /// <summary>The running event's cutscene flags, for entities that arrive after its start.</summary>
         private CutsceneFlags _flags;
@@ -254,6 +265,7 @@ namespace Gordian.Core.Events
             SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
+            if (wasWaiting && !scene.IsWaitingForConfirm) StopTalker();
             if (scene.IsFinished) FinishEvent(scene);
             else if (wasWaiting != scene.IsWaitingForConfirm) Changed?.Invoke();
         }
@@ -403,6 +415,11 @@ namespace Gordian.Core.Events
                         entity.HidesEventName = hidesName;
                         _staged.Add(entity.ServerId);
                     }
+                    if (_pendingRenderFlags.Remove(entity.ServerId, out var renderFlags))
+                    {
+                        entity.EventRenderFlags = (entity.EventRenderFlags | renderFlags.Set) & ~renderFlags.Clear;
+                        _staged.Add(entity.ServerId);
+                    }
                     continue;
                 }
                 bool isPlayer = entity.Type == EntityType.Player;
@@ -426,6 +443,7 @@ namespace Gordian.Core.Events
             _pendingHidden.Clear();
             _pendingKeepHeight.Clear();
             _pendingHidesName.Clear();
+            _pendingRenderFlags.Clear();
             _sorted.Clear();
             _flags = 0;
             UnlockEnvironment();
@@ -449,9 +467,11 @@ namespace Gordian.Core.Events
                 foreach (uint id in _staged)
                 {
                     if (!world.TryGetByServerId(id, out var entity)) continue;
-                    if (entity.EventPose != null && id != (_player?.ServerId ?? 0))
+                    if (entity.EventPose is { } pose && id != (_player?.ServerId ?? 0)
+                        && Vector2.Distance(new Vector2(pose.Position.X, pose.Position.Z), new Vector2(entity.TargetPosition.X, entity.TargetPosition.Z)) > EventReturnSnapDistance)
                     {
-                        // Back where the server has it at once, not walked there from the event's spot.
+                        // Back where the server has it at once, not walked there from the event's spot. An actor the event
+                        // only turned (Deraquien facing the player) turns back smoothly instead (EntityRenderer), as in retail.
                         entity.SnapToTargetPending = true;
                         entity.RenderHeadingRadians = entity.HeadingRadians;
                     }
@@ -461,6 +481,7 @@ namespace Gordian.Core.Events
                     entity.IsEventHidden = false;
                     entity.KeepsEventHeight = false;
                     entity.HidesEventName = false;
+                    entity.EventRenderFlags = EventRenderFlags.None;
                 }
             }
             _staged.Clear();
@@ -734,8 +755,16 @@ namespace Gordian.Core.Events
                 return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
-            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker) talker.Speak();
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
+            _talker = null;
+            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker)
+            {
+                // The mouth flaps by the line's length (retail EventMessDecodePutMoute, XiEvents OpCodes/0x001D).
+                int shownCharacters = 0;
+                foreach (string line in lines) shownCharacters += line.Length;
+                talker.Speak(FaceMotion.FlapsFor(shownCharacters));
+                _talker = talker;
+            }
             if (_cutsceneHud)
             {
                 // The event message mode shows the line on the screen, not in the log.
@@ -989,6 +1018,26 @@ namespace Gordian.Core.Events
                 return;
             }
             entity.HidesEventName = hide;
+            _staged.Add(serverId);
+        }
+
+        /// <summary>The player closed the open line: its speaker's mouth stops (retail 0x23, SpeakStop).</summary>
+        private void StopTalker()
+        {
+            _talker?.StopSpeaking();
+            _talker = null;
+        }
+
+        void IEventVmHost.SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity))
+            {
+                _pendingRenderFlags.TryGetValue(serverId, out var pending);
+                _pendingRenderFlags[serverId] = set ? (pending.Set | flag, pending.Clear & ~flag) : (pending.Set & ~flag, pending.Clear | flag);
+                return;
+            }
+            entity.EventRenderFlags = set ? entity.EventRenderFlags | flag : entity.EventRenderFlags & ~flag;
             _staged.Add(serverId);
         }
 

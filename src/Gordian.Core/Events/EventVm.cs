@@ -201,6 +201,52 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>
+        /// 0xAB, XiEvents OpCodes/0x00AB: sub-cases that set or clear one render flag of the event's own entity (0x1B / 0x1C
+        /// of the actor at +2), kept on the entity without a known effect. Sub 4 first waits while the entity plays an event
+        /// action (retail yields while <c>AnimationPlay</c> is set unless the entity is in an event status, which GordianXI
+        /// does not model). The client-wide subs (0x09 / 0x0A, 0x0F / 0x10, the respawn value
+        /// 0x11, the per-entity helpers 0x14-0x18) are stepped over; an unknown sub-case ends the request, as retail stalls
+        /// on it.
+        /// </summary>
+        private void ExecRenderFlags()
+        {
+            byte sub = Code8(1);
+            if (sub == 0x04 && Scene.IsEntityActing(EntityServerId))
+            {
+                _retFlag = true;
+                return;
+            }
+            (EventRenderFlags Flag, bool Set) change = sub switch
+            {
+                0x01 or 0x02 => (EventRenderFlags.Flags0Bit1, sub == 0x01),
+                0x03 or 0x04 => (EventRenderFlags.Flags0Bit2, sub == 0x03),
+                0x05 or 0x06 => (EventRenderFlags.Flags0Bit3, sub == 0x05),
+                0x07 or 0x08 => (EventRenderFlags.Flags2Bit1, sub == 0x08),
+                0x0B or 0x0C => (EventRenderFlags.Flags0Bit6, sub == 0x0B),
+                0x0D or 0x0E => (EventRenderFlags.Flags4Bit1, sub == 0x0D),
+                0x12 or 0x13 => (EventRenderFlags.Flags2Bit24, sub == 0x12),
+                0x19 or 0x1A or 0x1B or 0x1C => (EventRenderFlags.Flags7Bit19, sub is 0x19 or 0x1B),
+                _ => (EventRenderFlags.None, false),
+            };
+            if (change.Flag != EventRenderFlags.None)
+            {
+                uint target = sub is 0x1B or 0x1C ? TaskActor(Code32(2)) : EntityServerId;
+                if (target != uint.MaxValue) _host.SetEntityRenderFlag(target, change.Flag, change.Set);
+            }
+            else if (sub is not (0x00 or 0x09 or 0x0A or 0x0F or 0x10 or 0x11 or (>= 0x14 and <= 0x18)))
+            {
+                _host.OnSkippedOpcode(0xAB, _pc);
+            }
+            int length = EventOpcodeTable.GetLength(_code, _pc);
+            if (length <= 0)
+            {
+                EndRequest();
+                return;
+            }
+            _pc += length;
+        }
+
+        /// <summary>
         /// 0x1F (CodeMOVE) and 0x5A (CodeMOVE2), XiEvents OpCodes/0x001F and 0x005A. Sub-case 0 stores the goal (x, y,
         /// height operands) in the running stack; sub-case 1 walks the event position toward it at the walk speed, turning
         /// the entity to face its way, yielding each frame until it arrives. 0x1F walks on the ground (the height moves toward the
@@ -1086,6 +1132,33 @@ namespace Gordian.Core.Events
                     // the player's plate there (#191).
                     if (TaskActor(Code32(2)) is var nameless && nameless != uint.MaxValue) _host.SetEntityHidesName(nameless, (Code8(1) & 1) != 0);
                     _pc += 6;
+                    return;
+                case 0x94:
+                    // Render.Flags3 bit 17 of the actor at +2 from the byte at +1 (XiEvents OpCodes/0x0094). Kept, effect unknown:
+                    // Port Jeuno 324 sets it on the player too, whose name plate stays.
+                    if (TaskActor(Code32(2)) is var flagged && flagged != uint.MaxValue) _host.SetEntityRenderFlag(flagged, EventRenderFlags.Flags3Bit17, (Code8(1) & 1) != 0);
+                    _pc += 6;
+                    return;
+                case 0xC0:
+                    // Render.Flags3 bit 12 of the event's own entity from a work value's low bit (XiEvents OpCodes/0x00C0). Kept,
+                    // effect unknown.
+                    _host.SetEntityRenderFlag(EntityServerId, EventRenderFlags.Flags3Bit12, (GetWork(1) & 1) != 0);
+                    _pc += 3;
+                    return;
+                case 0x81:
+                    // The blink switch of the actor at +2: any non-zero byte at +1 turns it on, zero off (XiEvents OpCodes/0x0081).
+                    if (TaskActor(Code32(2)) is var blinker && blinker != uint.MaxValue) _host.SetEntityRenderFlag(blinker, EventRenderFlags.NoBlink, Code8(1) == 0);
+                    _pc += 6;
+                    return;
+                case 0x90:
+                    // Sets the event hide flag of the event's own entity, and Render.Flags1 bit 12, which makes retail ask the
+                    // server for the entity again when the next event starts (XiEvents OpCodes/0x0090; not needed here, the
+                    // controller asks for missing participants itself).
+                    _host.SetEntityHidden(EntityServerId, true);
+                    _pc++;
+                    return;
+                case 0xAB:
+                    ExecRenderFlags();
                     return;
                 case 0x5E:
                     // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the

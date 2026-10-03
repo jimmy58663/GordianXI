@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Gordian.Core.Events;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Events
@@ -150,6 +151,67 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void RenderFlags_0x94_0xC0_0x81ForActorsAndItself()
+        {
+            // 94 01 player ; 94 00 actor ; C0 ref0 (= 1) ; 81 00 actor (blink off) ; 81 01 actor (any non-zero: on) ; 00 (#198)
+            const uint actor = 0x010F3038;
+            var code = new byte[] { 0x94, 0x01 }.Concat(U32(0x7FFFFFF0))
+                .Concat(new byte[] { 0x94, 0x00 }).Concat(U32(actor))
+                .Concat(new byte[] { 0xC0 }).Concat(Ref(0))
+                .Concat(new byte[] { 0x81, 0x00 }).Concat(U32(actor))
+                .Concat(new byte[] { 0x81, 0x11 }).Concat(U32(actor))
+                .Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.Entities[actor] = (default, 0f, 0f);
+            var vm = Make(code, host, new uint[] { 1 });
+            for (int i = 0; i < 5 && !vm.IsFinished; i++) vm.Tick(Frame);
+            Assert.Equal(new[]
+            {
+                (0u, EventRenderFlags.Flags3Bit17, true),
+                (actor, EventRenderFlags.Flags3Bit17, false),
+                (Npc, EventRenderFlags.Flags3Bit12, true),
+                (actor, EventRenderFlags.NoBlink, true),
+                (actor, EventRenderFlags.NoBlink, false),
+            }, host.RenderFlags);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
+        public void Hide_0x90HidesItself()
+        {
+            // 90 ; 00: the event hide flag of the event's own entity, as 0x22 01 (#198)
+            var host = new RecordingHost();
+            var vm = Make(new byte[] { 0x90, 0x00 }, host, Array.Empty<uint>());
+            vm.Tick(Frame);
+            Assert.True(host.Hidden[Npc]);
+            Assert.True(vm.IsFinished);
+            Assert.Empty(host.Skipped);
+        }
+
+        [Fact]
+        public void RenderFlags_0xABSubCases()
+        {
+            // AB 03 ; AB 08 ; AB 11 ref0 ; AB 1B actor ; AB 0A ; AB 04 ; AB 1A ; 00 (#198)
+            const uint actor = 0x010F3038;
+            var code = new byte[] { 0xAB, 0x03, 0xAB, 0x08, 0xAB, 0x11, 0x00, 0x80, 0xAB, 0x1B }.Concat(U32(actor))
+                .Concat(new byte[] { 0xAB, 0x0A, 0xAB, 0x04, 0xAB, 0x1A, 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.Entities[actor] = (default, 0f, 0f);
+            var vm = Make(code, host, Array.Empty<uint>());
+            for (int i = 0; i < 5 && !vm.IsFinished; i++) vm.Tick(Frame);
+            Assert.Equal(new[]
+            {
+                (Npc, EventRenderFlags.Flags0Bit2, true),
+                (Npc, EventRenderFlags.Flags2Bit1, true),
+                (actor, EventRenderFlags.Flags7Bit19, true),
+                (Npc, EventRenderFlags.Flags0Bit2, false),
+                (Npc, EventRenderFlags.Flags7Bit19, false),
+            }, host.RenderFlags);
+            Assert.Empty(host.Skipped);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
         public void MissingRoutine_EndsAtOnce_SoTheWaitDoesNotHold()
         {
             var code = Start(0, "zzzz").Concat(TaskOp(0x55, 0, "zzzz")).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
@@ -233,6 +295,20 @@ namespace Gordian.Core.Tests.Events
             vm.Tick(Frame);
             Assert.Empty(host.Printed);
             vm.Tick(Frame);
+            Assert.Single(host.Printed);
+        }
+
+        [Fact]
+        public void RenderFlags_0xABSub4_WaitsForTheAction()
+        {
+            // 6E self ref0 ; AB 04 ; 48 ref1 ; 00: sub 4 clears its flag only once the entity's action has ended (#198).
+            var code = Emote(0).Concat(new byte[] { 0xAB, 0x04 }).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost { EmoteFrames = 3 };
+            var vm = Make(code, host, new uint[] { 6, 9 });
+            vm.Tick(Frame);
+            Assert.Empty(host.RenderFlags);
+            for (int i = 0; i < 10 && host.Printed.Count == 0; i++) vm.Tick(Frame);
+            Assert.Equal((Npc, EventRenderFlags.Flags0Bit2, false), Assert.Single(host.RenderFlags));
             Assert.Single(host.Printed);
         }
 

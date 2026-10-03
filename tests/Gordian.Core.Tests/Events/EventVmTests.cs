@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Events;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Events
@@ -129,6 +130,8 @@ namespace Gordian.Core.Tests.Events
         public void SetEntityKeepsHeight(uint serverId, bool keep) => KeepsHeight.Add((serverId, keep));
         public List<(uint Id, bool Hide)> HidesName { get; } = new();
         public void SetEntityHidesName(uint serverId, bool hide) => HidesName.Add((serverId, hide));
+        public List<(uint Id, EventRenderFlags Flag, bool Set)> RenderFlags { get; } = new();
+        public void SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set) => RenderFlags.Add((serverId, flag, set));
         public List<(uint Id, int Speed)> HeadTurnSpeeds { get; } = new();
         public void SetEntityHeadTurnSpeed(uint serverId, int speed) => HeadTurnSpeeds.Add((serverId, speed));
     }

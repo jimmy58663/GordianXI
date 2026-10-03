@@ -17,11 +17,13 @@ namespace Gordian.Core.Animation
     /// <item><c>eye3</c>: the eyelid joints (Elvaan male 33 and 42) close over the eyeball and open again in 4-11
     /// frames (about 0.17 s).</item>
     /// </list>
-    /// The mouth plays <c>mou4</c> once (three flaps over 2 s) each time the actor speaks an event line
-    /// (<see cref="World.WorldEntity.SpokenLines"/>), then stops: the maintainer's in-game test (2026-10-02) found a mouth
-    /// looping for as long as retail's <c>NpcSpeechFrame</c> stays set (0x1E / 0x4A / 0x79 until 0x7B) far too much, with
-    /// listeners flapping through other actors' lines; in retail the mouth moves a few times as the line is spoken. How
-    /// often retail blinks is not measured.
+    /// Each event line the actor speaks (<see cref="World.WorldEntity.SpokenLines"/>) flaps the mouth a number of times
+    /// set by the line's length (<see cref="FlapsFor"/>, <c>mou4</c> looped one flap at a time), and the player's Confirm
+    /// stops it at once (<see cref="World.WorldEntity.SpeechStops"/>; retail 0x23 calls <c>SpeakStop</c>, XiEvents
+    /// OpCodes/0x0023). Counted against retail (2026-10-03, #198): Joachim's lines in Port Jeuno 324 flap 3 / 3 / 6 / 6 /
+    /// 8 / 5 times for 45 / 34 / 98 / 107 / ~141 / 97 characters, Deraquien's "Intruders!" once, and his 220-character
+    /// line flaps 12 times and stops by itself. Looping for as long as retail's <c>NpcSpeechFrame</c> stays set was far too
+    /// much (in-game test, 2026-10-02). How often retail blinks is not measured.
     /// The clips are layered on the evaluated pose (each joint turns by the clip's local rotation on top of the body
     /// motion), as <see cref="HeadLook"/> is.
     /// </summary>
@@ -39,9 +41,26 @@ namespace Gordian.Core.Animation
         /// <summary>The longest wait between blinks, in seconds (not measured against retail).</summary>
         public const float MaxBlinkInterval = 6f;
 
+        /// <summary>The flaps in one play of <see cref="MouthClip"/>.</summary>
+        public const int FlapsPerClip = 3;
+
+        /// <summary>
+        /// The characters of a line per mouth flap: the least-squares fit, through the origin, of the flaps counted by eye
+        /// in retail (2026-10-03, #198) on Joachim's six lines in Port Jeuno 324 and Deraquien's two (12 for his 220
+        /// characters). Every count comes out as seen but one (34 characters: 2, counted 3), which no rate from length
+        /// alone can match together with 97 characters = 5 flaps; 97 = 5 and 98 = 6 put the rate at 17.6-17.8. 18 missed
+        /// 98 = 6 as well.
+        /// </summary>
+        public const float CharactersPerFlap = 17.8f;
+
+        /// <summary>How many times the mouth flaps for a line of <paramref name="characters"/> shown characters (at least one).</summary>
+        public static int FlapsFor(int characters) => Math.Max(1, (int)MathF.Round(characters / CharactersPerFlap, MidpointRounding.AwayFromZero));
+
         private readonly Random _random;
         private float _mouthTime = -1f;
         private int _spokenLines = -1;
+        private int _speechStops = -1;
+        private float _mouthEnd;
         private float _blinkTime = -1f;
         private float _untilBlink;
 
@@ -60,22 +79,33 @@ namespace Gordian.Core.Animation
         /// <summary>
         /// Advances the face by <paramref name="deltaSeconds"/>: the mouth plays its clip once from the start whenever
         /// <paramref name="spokenLines"/> (the entity's count of spoken lines) changes, and a blink starts when its wait runs
-        /// out unless <paramref name="canBlink"/> is false (a dead actor's death motion closes its eyes itself). The first
-        /// call only takes the count.
+        /// out unless <paramref name="canBlink"/> is false (a dead actor's death motion closes its eyes itself). A new line
+        /// flaps the mouth <paramref name="lineFlaps"/> times; a change of <paramref name="speechStops"/> (the player closed
+        /// the line) stops it. The first call only takes the counts.
         /// </summary>
-        public void Advance(float deltaSeconds, int spokenLines, bool canBlink, EntityModel model)
+        public void Advance(float deltaSeconds, int spokenLines, bool canBlink, EntityModel model, int lineFlaps = FlapsPerClip, int speechStops = 0)
         {
             float dt = Math.Max(0f, deltaSeconds);
+            bool hasMouth = model.Animations.TryGetValue(MouthClip, out var mouth);
 
             if (_mouthTime >= 0f)
             {
                 _mouthTime += dt;
-                if (!model.Animations.TryGetValue(MouthClip, out var mouth) || _mouthTime >= mouth.DurationSeconds) _mouthTime = -1f;
+                if (!hasMouth || _mouthTime >= _mouthEnd) _mouthTime = -1f;
             }
             if (spokenLines != _spokenLines)
             {
-                if (_spokenLines >= 0 && model.Animations.ContainsKey(MouthClip)) _mouthTime = 0f;
+                if (_spokenLines >= 0 && hasMouth)
+                {
+                    _mouthTime = 0f;
+                    _mouthEnd = Math.Max(0, lineFlaps) * mouth!.DurationSeconds / FlapsPerClip;
+                }
                 _spokenLines = spokenLines;
+            }
+            if (speechStops != _speechStops)
+            {
+                if (_speechStops >= 0) _mouthTime = -1f;
+                _speechStops = speechStops;
             }
 
             if (_blinkTime >= 0f)
@@ -98,7 +128,7 @@ namespace Gordian.Core.Animation
         public void Apply(EntityModel model, in SkeletonPoseEvaluator.EvaluatedPose pose)
         {
             if (model.Skeleton is not { } skeleton) return;
-            if (_mouthTime >= 0f && model.Animations.TryGetValue(MouthClip, out var mouth)) Layer(skeleton, pose, mouth, _mouthTime, loop: false);
+            if (_mouthTime >= 0f && model.Animations.TryGetValue(MouthClip, out var mouth)) Layer(skeleton, pose, mouth, _mouthTime, loop: true);
             if (_blinkTime >= 0f && model.Animations.TryGetValue(BlinkClip, out var blink)) Layer(skeleton, pose, blink, _blinkTime, loop: false);
         }
 
