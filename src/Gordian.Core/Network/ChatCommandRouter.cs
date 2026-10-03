@@ -62,6 +62,24 @@ namespace Gordian.Core.Network
         TreasureLot,
         /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
         TreasurePass,
+        /// <summary><c>/heal [on|off]</c>: rests (C2S 0x0E8); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
+        Heal,
+        /// <summary><c>/sit [on|off]</c>: sits down or stands up (C2S 0x0EA); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
+        Sit,
+        /// <summary><c>/sitchair [n] [on|off]</c>: sits in chair <see cref="ChatCommandResult.ActionParam"/> (C2S 0x113).</summary>
+        SitChair,
+        /// <summary><c>/random</c>: rolls the dice (C2S 0x0A2).</summary>
+        Random,
+        /// <summary><c>/nominate</c> / <c>/propose</c>: makes a proposal (C2S 0x0A0); <see cref="ChatCommandResult.Message"/> is the text and <see cref="ChatCommandResult.ActionParam"/> the <see cref="ProposalKind"/>.</summary>
+        Propose,
+        /// <summary><c>/vote &lt;n&gt; [proposer]</c>: votes in a proposal (C2S 0x0A1); <see cref="ChatCommandResult.ActionParam"/> is the option.</summary>
+        Vote,
+        /// <summary><c>/widescan</c>: asks for the wide scan list (C2S 0x0F4).</summary>
+        WideScan,
+        /// <summary><c>/track [target|off]</c>: tracks an entity of the wide scan (C2S 0x0F5) or stops (0x0F6).</summary>
+        TrackTarget,
+        /// <summary><c>/conquest</c> (<c>/cq</c>): requests the conquest overview (C2S 0x05A, answered by S2C 0x05E).</summary>
+        ConquestRequest,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -80,6 +98,8 @@ namespace Gordian.Core.Network
         public ushort TargetIndex { get; init; }
         public string TargetName { get; init; } = string.Empty;
         public ushort ActionParam { get; init; }
+        /// <summary>The mode of <c>/heal</c>, <c>/sit</c> and <c>/sitchair</c>: toggle, on or off.</summary>
+        public RestMode Rest { get; init; }
         public EmoteId Emote { get; init; }
         public float MoveX { get; init; }
         public float MoveY { get; init; }
@@ -188,6 +208,18 @@ namespace Gordian.Core.Network
                     "collision" or "col" or "noclip" => new ChatCommandResult { Kind = ChatCommandResultKind.CollisionToggle, Message = args },
                     "anchor" => new ChatCommandResult { Kind = ChatCommandResultKind.AnchorToggle, Message = args },
 
+                    // Resting, sitting, dice, votes and wide scan
+                    "heal" => ParseRest(ChatCommandResultKind.Heal, "heal", args),
+                    "sit" => ParseRest(ChatCommandResultKind.Sit, "sit", args),
+                    "sitchair" => ParseSitChair(args),
+                    "random" or "rand" => new ChatCommandResult { Kind = ChatCommandResultKind.Random, Message = args },
+                    "nominate" or "propose" => ParsePropose(args, defaultSpeechKind),
+                    "vote" => ParseVote(args),
+                    "widescan" or "wide" => new ChatCommandResult { Kind = ChatCommandResultKind.WideScan },
+                    "track" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = args },
+                    "conquest" or "cq" => new ChatCommandResult { Kind = ChatCommandResultKind.ConquestRequest },
+                    "untrack" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = "off" },
+
                     // Treasure pool
                     "lot" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasureLot, Message = args },
                     "pass" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasurePass, Message = args },
@@ -219,6 +251,94 @@ namespace Gordian.Core.Network
                 Kind = ChatCommandResultKind.SendChat,
                 SpeechKind = defaultSpeechKind,
                 Message = trimmed
+            };
+        }
+
+        private static bool TryParseRestMode(string word, out RestMode mode)
+        {
+            switch (word.ToLowerInvariant())
+            {
+                case "": mode = RestMode.Toggle; return true;
+                case "on": mode = RestMode.On; return true;
+                case "off": mode = RestMode.Off; return true;
+                default: mode = RestMode.Toggle; return false;
+            }
+        }
+
+        /// <summary><c>/heal</c> and <c>/sit</c>: no argument toggles, <c>on</c> and <c>off</c> force the state.</summary>
+        private static ChatCommandResult ParseRest(ChatCommandResultKind kind, string verb, string args)
+        {
+            if (!TryParseRestMode(args.Trim(), out var mode))
+            {
+                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = $"Usage: /{verb} [on|off]" };
+            }
+            return new ChatCommandResult { Kind = kind, Rest = mode };
+        }
+
+        /// <summary><c>/sitchair [n] [on|off]</c>: chair 0 (the default) is the plain chair, 1 to 11 the unlockable ones.</summary>
+        private static ChatCommandResult ParseSitChair(string args)
+        {
+            const string Usage = "Usage: /sitchair [chair 0-20] [on|off]";
+            ushort chair = 0;
+            var mode = RestMode.Toggle;
+            foreach (string part in args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (ushort.TryParse(part, out ushort number) && number <= 20) chair = number;
+                else if (TryParseRestMode(part, out var parsed) && parsed != RestMode.Toggle) mode = parsed;
+                else return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = Usage };
+            }
+            return new ChatCommandResult { Kind = ChatCommandResultKind.SitChair, ActionParam = chair, Rest = mode };
+        }
+
+        /// <summary>
+        /// <c>/nominate [say|party|shout|linkshell|linkshell2] "question" "option 1" "option 2" ...</c>: a leading scope word
+        /// picks the channel; without one the current chat mode is used. No text cancels your own live proposal.
+        /// </summary>
+        private static ChatCommandResult ParsePropose(string args, ChatSendKind defaultSpeechKind)
+        {
+            var kind = defaultSpeechKind switch
+            {
+                ChatSendKind.Party => ProposalKind.Party,
+                ChatSendKind.Shout or ChatSendKind.Yell => ProposalKind.Shout,
+                ChatSendKind.Linkshell1 => ProposalKind.Linkshell1,
+                ChatSendKind.Linkshell2 => ProposalKind.Linkshell2,
+                _ => ProposalKind.Say
+            };
+
+            string text = args;
+            int space = args.IndexOf(' ');
+            string first = (space >= 0 ? args[..space] : args).ToLowerInvariant();
+            ProposalKind? scope = first switch
+            {
+                "say" or "s" => ProposalKind.Say,
+                "party" or "p" => ProposalKind.Party,
+                "shout" or "sh" => ProposalKind.Shout,
+                "linkshell" or "l" or "l1" or "ls" or "ls1" => ProposalKind.Linkshell1,
+                "linkshell2" or "l2" or "ls2" => ProposalKind.Linkshell2,
+                _ => null
+            };
+            if (scope.HasValue)
+            {
+                kind = scope.Value;
+                text = space >= 0 ? args[(space + 1)..].Trim() : string.Empty;
+            }
+
+            return new ChatCommandResult { Kind = ChatCommandResultKind.Propose, ActionParam = (ushort)kind, Message = text };
+        }
+
+        /// <summary><c>/vote &lt;option 1-8&gt; [proposer]</c>; without a proposer the last one seen is used.</summary>
+        private static ChatCommandResult ParseVote(string args)
+        {
+            var parts = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 0 || !byte.TryParse(parts[0], out byte option) || option is < 1 or > 8)
+            {
+                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /vote <option 1-8> [proposer]" };
+            }
+            return new ChatCommandResult
+            {
+                Kind = ChatCommandResultKind.Vote,
+                ActionParam = option,
+                TargetName = parts.Length > 1 ? parts[1] : string.Empty
             };
         }
 

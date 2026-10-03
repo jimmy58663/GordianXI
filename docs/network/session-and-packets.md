@@ -83,11 +83,11 @@ Missing packets, grouped by feature:
 - ~~[#104](https://github.com/jimmy58663/GordianXI/issues/104)~~: every `0x01A` action kind can be sent, and S2C `0x02F` / C2S `0x063` (dig) are done, see below. Death menus (Home Point, Raise, Tractor) are [#103](https://github.com/jimmy58663/GordianXI/issues/103).
 - ~~[#105](https://github.com/jimmy58663/GordianXI/issues/105)~~: S2C `0x063` is decoded, see below. Monstrosity (types `0x03`/`0x04`) is left for post-MVP.
 - ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is [#143](https://github.com/jimmy58663/GordianXI/issues/143).
-- [#107](https://github.com/jimmy58663/GordianXI/issues/107): `0x067`/`0x068` char and pet sync.
+- ~~[#107](https://github.com/jimmy58663/GordianXI/issues/107)~~: `0x067`/`0x068` char, entity and pet sync are decoded, see below.
 - ~~[#108](https://github.com/jimmy58663/GordianXI/issues/108)~~: `0x051` `GRAP_LIST` is decoded (#153): payload 0-17 is the nine-entry grap id table (race/face, head, body, hands, legs, feet, main, sub, ranged), which becomes the local player's appearance. `0x04F` `EQUIP_CLEAR` (4 bytes of padding) empties every slot in `InventoryState` (`ClearEquipment`); the 0x050s that follow re-equip what is still worn. LSB sends it at login and from `resyncEquipment` after an item transaction.
 - [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`.
 - [#110](https://github.com/jimmy58663/GordianXI/issues/110): message and event-parameter packets, including the `0x05A` emote echo.
-- [#111](https://github.com/jimmy58663/GordianXI/issues/111): `/heal`, `/sit`, `/random`, widescan.
+- ~~[#111](https://github.com/jimmy58663/GordianXI/issues/111)~~: `/heal`, `/sit`, `/sitchair`, `/random`, votes, wide scan and the emote list are done, see below.
 - [#112](https://github.com/jimmy58663/GordianXI/issues/112): synthesis and guild-shop requests.
 - [#113](https://github.com/jimmy58663/GordianXI/issues/113): delivery box, blacklist, linkshell equip.
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
@@ -156,3 +156,36 @@ Not checked against a retail capture. Verify with `dotnet test tests/Gordian.Cor
 - A zone change empties the pool.
 
 Not done: the stock Treasure Pool window ([#143](https://github.com/jimmy58663/GordianXI/issues/143)), and the pool's 5 minute expiry countdown (`StartTime` is kept on the slot). Verify with `dotnet test tests/Gordian.Core.Tests --filter TreasurePacketTests`.
+
+### S2C 0x067 / 0x068 entity sync
+
+`EntitySyncPacket` (`EntitySyncPackets.cs`) decodes both opcodes; `S2C_0x067_EntityUpdate1` and `S2C_0x068_EntityUpdate2` wrap it and `EntityPacketModule` applies it ([#107](https://github.com/jimmy58663/GordianXI/issues/107)). The first payload word is `Mode:6 | Length:10`. Layouts from XiPackets `world/server/0x0067` / `0x0068`; what LandSandBoat sends from `packets/char_sync.cpp`, `entity_set_name.cpp` and `pet_sync.cpp`. Payload offsets (packet offset - 4):
+
+| Mode | Sender (LSB) | Fields | Applied to |
+|---|---|---|---|
+| 2 player | 0x067, `CCharSyncPacket` | 2 u16 index, 4 u32 id, 8 u16 fellow index, 12 u32 `NameFlags` (bit 1 Campaign, bit 2 Level Sync icon), 16 u32 `NameIcon`, 20 / 24 u32 custom properties (chocobo look), 28 u32 Mog House owner, 32 Mog House open, 33 main job level, 34 Level Sync cap (LSB `m_LevelRestriction`), 35 Mog expansion; u16 at 15 is the mount's sub-power | the local player: `LocalPlayerState.CharSync` / `IsLevelSynced`; any player: `WorldEntity.SyncNameFlags` |
+| 3 NPC | 0x067, `CEntitySetNamePacket` | 8 u16 owner index (a Trust's summoner), 12 u32 `NameFlags`, name at 20 (LSB) or 16 (XiPackets) | the entity: `Name` (underscores to spaces), `OwnerTargetIndex`, `Type` becomes `Trust` when an owner is given |
+| 4 pet | 0x068, `CPetSyncPacket` | 8 u16 second index, 10 HP%, 11 MP%, 12 TP, 16 u32 target id, name at 20 | `LocalPetState` (`CharacterSession.Pet`), the pet entity's `OwnerTargetIndex` and `Hpp`, the local `PlayerEntity.PetActorIndex` |
+
+**Differs from XiPackets:** for mode 4 LSB puts the owner (the local player) in the index and id at 2 / 4 and the pet's index at 8; XiPackets labels 2 / 4 the pet and 8 `ActIndexOwner`. The decoder takes the owner as whichever id is the local player's, so both orders work. A pet index of 0 (LSB sends it with `Length` 0x18) means the pet is gone. LSB writes a mode 3 name at packet 0x18, XiPackets documents 0x14; both are read, the XiPackets one first. The mount word at packet 0x13 and the Level Sync cap at 0x26 are not XiPackets fields (the client does not read 0x26). `LocalPetState` is cleared on a zone change. Level sync, mount and Mog House data are stored but nothing reads them yet; no pet window exists, so the pet's name, HP% and TP are visible only in the logs and `CharacterSession.Pet`. Verify with `dotnet test tests/Gordian.Core.Tests --filter EntitySyncPacketTests`.
+
+### Everyday commands (#111)
+
+`PlayerCommandPacketModule` (`PlayerCommandPackets.cs`, `PlayerCommandPacketModule.cs`) sends the packets below and decodes their answers into `PlayerCommandState` (`CharacterSession.Commands`: `Emotes`, `WideScan`, `Votes`). Every size is LandSandBoat's `ValidatedPacketHandler` size (the struct rounded up to 4); layouts from XiPackets `world/client/` and `world/server/`, behaviour from LandSandBoat `c2s/`.
+
+| Command | Packet | Answer |
+|---|---|---|
+| `/heal [on\|off]` | C2S 0x0E8 `Mode` 0 toggle, 1 on, 2 off | S2C 0x037 / 0x063: the Healing status, `LocalPlayerState.ServerStatus` 33 (resting) |
+| `/sit [on\|off]` | C2S 0x0EA, same modes; cancels healing | `ServerStatus` 47 (sit) |
+| `/sitchair [n] [on\|off]` | C2S 0x113 `Mode`, `ChairId` 0-20 | `ServerStatus` 63 + n |
+| `/random` | C2S 0x0A2 | S2C 0x009 message 88, data `string2 NAME string3 N`, to you and everyone near: "NAME rolls N." |
+| `/nominate [scope] "question" "option" ...` (`/propose`) | C2S 0x0A0 `Kind`, raw text | S2C 0x078 to the scope (party, linkshell, say, shout): `VoteState`, question and options in the log |
+| `/vote <n> [proposer]` | C2S 0x0A1 option, proposer name (the last one seen by default) | S2C 0x079: a live tally to you and the proposer, the final results (with the text) to the proposer and every voter |
+| `/widescan` | C2S 0x0F4 (`SendFlg` 1) | S2C 0x0F6 start, 0x0F4 per entity, 0x0F6 end; the list prints to the log, nearest first |
+| `/track [index\|name\|off]`, `/untrack` | C2S 0x0F5 index / 0x0F6 | S2C 0x0F5 positions (`WideScanState.Track`) |
+| `/conquest` (`/cq`) | C2S 0x05A | S2C 0x05E: conquest points and Imperial Standing |
+| (Main Menu, Communication) | C2S 0x119 | S2C 0x11A: `EmoteListState` (not requested yet: no menu) |
+| others' `/jump` | S2C 0x11E | `WorldEntity.JumpCount`; no jump animation yet |
+| synthesis end | C2S 0x059 `effectpara` | LSB ignores it; nothing sends it until synthesis animates ([#112](https://github.com/jimmy58663/GordianXI/issues/112)) |
+
+Findings. LSB's `0x11d_jump.cpp` drops `/jump` unless the packet's `ActIndex` is the character's own; the client had sent 0, so no jump was ever relayed to others. `/jump` now sends the local entity's index. LSB answers wide scan only for Ranger and Beastmaster (`charutils::getWideScanRange`: Ranger 150 / 200 / 250 / 300 / 350 yalms at level 1 / 20 / 40 / 60 / 80, Beastmaster 50 / 150 / 200 / 250 / 300 at the same levels; every job 150 with `ALL_JOBS_WIDESCAN`), fills neither the name nor, for NPCs, the level of an entry, and sends position differences in the world's x and z (y is height). `/heal` is refused while engaged, dead, crafting, in an event or under an abnormal status. The proposal text is split by LSB on spaces with double quotes honoured (first token the question, then at most 8 options); `Str` is capped at 127 bytes. The log wording of the vote and wide scan lines is ours (the retail client builds those windows itself); the dice line is LSB's `msg_std.h` text. None of the sit, rest, jump or pet states are drawn: the animation classifier has no sit, rest or jump clip. Verify with `dotnet test tests/Gordian.Core.Tests --filter PlayerCommandPacketTests`.
