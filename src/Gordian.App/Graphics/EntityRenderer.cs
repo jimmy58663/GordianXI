@@ -688,7 +688,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The entity's face this frame: the mouth moves once for each line it speaks (<see cref="WorldEntity.SpokenLines"/>),
-        /// and it blinks unless dead. Null for a model without face clips (monsters).
+        /// and it blinks unless dead or a running event turned its blink off (0x81). Null for a model without face clips (monsters).
         /// </summary>
         private FaceMotion? Face(WorldEntity entity, EntityModel model, AnimationCategory category, float deltaSeconds)
         {
@@ -698,7 +698,8 @@ namespace Gordian.App.Graphics
                 face = new FaceMotion();
                 _faces[entity.ServerId] = face;
             }
-            face.Advance(deltaSeconds, entity.SpokenLines, category != AnimationCategory.Death, model);
+            bool canBlink = category != AnimationCategory.Death && (entity.EventRenderFlags & EventRenderFlags.NoBlink) == 0;
+            face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model);
             return face;
         }
 

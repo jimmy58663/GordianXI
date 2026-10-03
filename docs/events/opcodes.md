@@ -149,7 +149,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x7E | `CodeCHOCOBO` | by sub | stepped | 547 | Puts an actor on or off a chocobo or mount (event status, render flags, chocobo colours, mount id). |
 | 0x7F | `CodeQUERYWAIT2` | 1 | runs | 6 | Waits for the open query like 0x25, but a cancel stores 255 and does not end the event. |
 | 0x80 | `CodeLOADWAIT` | 5 | ignored | 7,553 | Waits until an actor's model and action resources have loaded. |
-| 0x81 |  | 6 | stepped | 2,179 | Turns an actor's eye blinking on or off. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0x81 |  | 6 | runs | 2,179 | Turns an actor's eye blinking on or off (`EventRenderFlags.NoBlink`, [#198](https://github.com/jimmy58663/GordianXI/issues/198)). |
 | 0x82 |  | 7 | partial | 9 | Branches on whether the event entity stands inside a named zone rectangle. |
 | 0x83 |  | 3 | runs | 230 | Stores the current game time in a work value. |
 | 0x84 |  | 1 | stepped | 134 | Sets `Render.Flags3` bit 0 of the event entity. |
@@ -164,11 +164,11 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x8D |  | 5 | stepped | 85 | Opens the map window on a map and sub-map without markers. |
 | 0x8E |  | 1 | stepped | 27 | Sets the event entity's event status to 45. |
 | 0x8F |  | 1 | stepped | 23 | Sets the event entity's event status to 46. |
-| 0x90 |  | 1 | stepped | 23 | Sets render flags on the event entity (`Flags0` bit 17, `Flags1` bit 12). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0x90 |  | 1 | runs | 23 | Sets render flags on the event entity (`Flags0` bit 17, `Flags1` bit 12): hides it, as 0x22 01 ([#198](https://github.com/jimmy58663/GordianXI/issues/198)). |
 | 0x91 |  | 3 | stepped | 7 | Sets the event entity's base walk speed. |
 | 0x92 |  | 6 | runs | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor: no name plate for the event (#191; `WorldEntity.HidesEventName`). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x93 |  | 3 | stepped | 5,479 | Opens the item information window on an item id, or closes it for 0. |
-| 0x94 |  | 6 | stepped | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0x94 |  | 6 | runs | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor; kept on the entity, effect unknown ([#198](https://github.com/jimmy58663/GordianXI/issues/198)). |
 | 0x95 |  | 3 | stepped | 378 | Marks the event entity as an event NPC and clears its attachments. |
 | 0x96 |  | 1 | stepped | 167 | Ends that event NPC state and clears the attachments again. |
 | 0x97 |  | 5 | stepped | 165 | Saves the zone's wind values and sets new ones. |
@@ -191,7 +191,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xA8 |  | 6 | stepped | 56 | Resets an NPC map marker to an empty entry, opening the map first if needed. |
 | 0xA9 |  | 3 | stepped | 6 | Stops the clock at a time derived from a work value (minute 30). |
 | 0xAA |  | 17 | stepped | 190 | Splits a game time value into Vana'diel year, month, day, weekday, hour, minute and moon phase. |
-| 0xAB |  | by sub | stepped | 2,130 | Sets or clears single render flags on the event entity (or an actor), and a few global flags. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0xAB |  | by sub | partial | 2,130 | Sets or clears single render flags on the event entity (or an actor), and a few global flags. The entity flags are kept, the global ones stepped ([#198](https://github.com/jimmy58663/GordianXI/issues/198)). |
 | 0xAC |  | by sub | stepped | 687 | Sets the event entity's server or event status, or render flags 6 / 7 on an actor (asking for it with C2S 0x016 when absent). |
 | 0xAD |  | 12 | stepped | 420 | Scheduler actions (tag `main`) from one actor toward another; the kind is the low nibble of the sub byte. |
 | 0xAE |  | by sub | stepped | 115 | Assorted: a weather change, an actor's name colour, its mouth clip set, actor-to-actor links, its environment area. |
@@ -212,7 +212,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xBD |  | 15 | runs | 1 | Stops a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xBE |  | 3 | runs | 0 | Stores the server id of the entity that queued the running request. |
 | 0xBF |  | by sub | stepped | 60 | Chocobo racing: reads race, chocobo, section or result parameters. |
-| 0xC0 |  | 3 | stepped | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0xC0 |  | 3 | runs | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value; kept on the entity, effect unknown ([#198](https://github.com/jimmy58663/GordianXI/issues/198)). |
 | 0xC1 |  | 5 | stepped | 1 | Once an actor's resources have loaded, ends its last action and releases a loaded resource set. |
 | 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
 | 0xC3 |  | 7 | stepped | 54 | Copies a work string and a value into one of eight 20-byte slots. |
@@ -629,7 +629,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x81
 
 - Layout: `81 on actor:u32`. Sets the actor model's blink flag from the byte at +1 (XiEvents OpCodes/0x0081).
-- Stepped. GordianXI blinks every humanoid every 2-6 s anyway (`FaceMotion`, [world/entities-and-animation.md](../world/entities-and-animation.md)), so an actor the script stops blinking still blinks.
+- Retail: any non-zero byte turns the blink on, zero off; an actor without a ready model is passed over. GordianXI keeps the switch as `EventRenderFlags.NoBlink` on the entity (`IEventVmHost.SetEntityRenderFlag`, held until the entity arrives), and `EntityRenderer` then starts no new blink (`FaceMotion`, [world/entities-and-animation.md](../world/entities-and-animation.md)). The flag is cleared when the event ends ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Beyond XiEvents:** census of the operand byte (2026-10-03): 0 in 3,146 uses, 1 in 1,873, other values in about 30 uses (table data walked as code). Some actors turn it off in one event and on in a later one (Port Jeuno actor 0x010F3038: events 18 off, 21 on, 22 off, 23 on), which suggests retail keeps the switch past the event's end. GordianXI clears it at the end, so an NPC never stays without a blink; whether retail does is open.
 - **Differs from xi-tools:** xi-tools `docs/events/opcodes.md` reads it as a value in the actor's warp data and calls that unverified; XiEvents' pseudo code writes the model's blink flag.
 
 ### 0x82
@@ -645,6 +646,18 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `87 sub`, `88 sub`. Subs 0 and 2 queue C2S 0x01B (world pass) with a mode (0x87: 0 / 2, 0x88: 1 / 3) and yield; sub 1 yields until the server's answer clears the wait flag (XiEvents OpCodes/0x0087, 0x0088).
 - Stepped. Most census hits are table data (25 of 37 and 20 of 32 uses); about 3 events use each as code.
+
+### 0x90
+
+- Layout: `90`. Sets the event hide flag (`Render.Flags0` bit 17, as 0x22 01) and `Render.Flags1` bit 12 of the event's own entity (XiEvents OpCodes/0x0090). Bit 12 makes retail's InitEvent2 ask the server for the entity again (C2S 0x016).
+- GordianXI hides the entity (`IEventVmHost.SetEntityHidden`, `WorldEntity.IsEventHidden`) and does not keep bit 12: `EventDialogController` asks for missing participants itself ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Beyond the census:** 17 of the 23 events are one shared script: event 65 of an actor block in zones 48, 50, 80, 87, 94 and 230-241 runs `20 90 4E` at offset 3212 (control lock, hide itself, then 0x4E on an actor). The other uses in zones 222 and 241 sit among `80` table bytes.
+
+### 0x94
+
+- Layout: `94 on actor:u32`. Sets `Render.Flags3` bit 17 of the actor from bit 0 of the byte at +1 (XiEvents OpCodes/0x0094).
+- GordianXI keeps the bit as `EventRenderFlags.Flags3Bit17` on the entity until the event ends; nothing reads it ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Beyond XiEvents:** census (2026-10-03): 14,815 uses set it and 140 clear it; 2,233 of the sets name the player. Most scripts set it next to 0x92 at the event's start (Port Jeuno 324 on every actor it places). It is not the name plate (the player's plate stays in 324's retail recording). What it changes is open.
 
 ### 0x99
 
@@ -716,8 +729,8 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `AB sub` (2), except 0x11 and 0x14-0x18 `AB sub value:work` (4) and 0x1B / 0x1C `AB sub actor:u32` (6). Subs 0x01-0x0E and 0x12-0x13 set or clear one render-flag bit of the event entity; 0x04 waits until the entity is in an event state or idle; 0x09 / 0x0A and 0x0F / 0x10 toggle client-wide flags; 0x11 stores a value that respawns every entity when it is not -1; 0x19 / 0x1A set `Render.Flags7` bit 19 of the event entity, 0x1B / 0x1C of an actor (XiEvents OpCodes/0x00AB).
 - Census: 0x11 1,080 events, 0x0A 635, 0x09 396, 0x03 337, 0x04 301, other subs 63 or fewer, 0x1B 3.
-- Stepped.
-- **Gap in `EventOpcodeTable`:** the table stops at 0x12. XiEvents has 0x13 = 2, 0x14-0x18 = 4, 0x19 / 0x1A = 2 and 0x1B / 0x1C = 6; without them the three events that use 0x1B end at that opcode.
+- Partial ([#198](https://github.com/jimmy58663/GordianXI/issues/198)): the entity sub-cases (0x01-0x08, 0x0B-0x0E, 0x12, 0x13, 0x19-0x1C) set or clear their bit in `WorldEntity.EventRenderFlags` (`EventVm.ExecRenderFlags`), cleared when the event ends; nothing reads them yet. Sub 4 clears its bit at once, without retail's wait for the entity to be in an event status or idle. The client-wide subs (0x09 / 0x0A, 0x0F / 0x10), the respawn value 0x11 and the helpers 0x14-0x18 are stepped without a diagnostic; any other sub is logged and ends the request (retail stalls on it).
+- `EventOpcodeTable` has every XiEvents length (0x13 = 2, 0x14-0x18 = 4, 0x19 / 0x1A = 2, 0x1B / 0x1C = 6, added in [#198](https://github.com/jimmy58663/GordianXI/issues/198)); before, the three events that use 0x1B ended at that opcode.
 
 ### 0xB0
 
@@ -749,6 +762,12 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0xBE
 
 - Layout: `BE dest:work`. Stores the server id of the entity that queued the running request (`RequestStack.Who`; the event's own entity for its first stack), XiEvents OpCodes/0x00BE.
+
+### 0xC0
+
+- Layout: `C0 on:work`. Sets `Render.Flags3` bit 12 of the event's own entity from bit 0 of the work value (XiEvents OpCodes/0x00C0).
+- GordianXI keeps the bit as `EventRenderFlags.Flags3Bit12` until the event ends; nothing reads it ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Beyond XiEvents:** every use in the census (2026-10-03) takes an immediate-data operand (`NN 80`); in the first 40 uses read (zones 50, 54, 61, 67) it is the event's first opcode. What the bit changes is open.
 
 ### 0xC2
 

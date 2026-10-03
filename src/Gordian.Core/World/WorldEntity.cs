@@ -732,6 +732,18 @@ namespace Gordian.Core.World
         private volatile bool _hidesEventName;
 
         /// <summary>
+        /// The other render-flag bits a running event set on the entity, and its blink switch (opcodes 0x81, 0x94, 0xAB,
+        /// 0xC0; see <see cref="World.EventRenderFlags"/>). Cleared when the event ends.
+        /// </summary>
+        public EventRenderFlags EventRenderFlags
+        {
+            get => _eventRenderFlags;
+            set => _eventRenderFlags = value;
+        }
+
+        private volatile EventRenderFlags _eventRenderFlags;
+
+        /// <summary>
         /// Hidden by a running event: the scripts' hide flag (opcodes 0x22 / 0x4E, retail <c>Render.Flags0</c> bit 17) or
         /// the cutscene's NO_PCS / NO_NPCS flags for entities outside the event. Cleared when the event ends.
         /// </summary>

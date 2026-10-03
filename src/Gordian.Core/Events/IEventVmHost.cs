@@ -1,5 +1,6 @@
 // src/Gordian.Core/Events/IEventVmHost.cs
 using System.Numerics;
+using Gordian.Core.World;
 
 namespace Gordian.Core.Events
 {
@@ -120,7 +121,15 @@ namespace Gordian.Core.Events
         {
         }
 
-        /// <summary>Sets an entity's event hide flag (opcodes 0x22 / 0x4E).</summary>
+        /// <summary>
+        /// Sets (true) or clears one of an entity's other event render flags or its blink switch (opcodes 0x81, 0x94,
+        /// 0xAB, 0xC0; XiEvents OpCodes/0x0081, 0x0094, 0x00AB, 0x00C0).
+        /// </summary>
+        void SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set)
+        {
+        }
+
+        /// <summary>Sets an entity's event hide flag (opcodes 0x22 / 0x4E / 0x90).</summary>
         void SetEntityHidden(uint serverId, bool hidden)
         {
         }

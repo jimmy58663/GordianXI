@@ -131,6 +131,7 @@ namespace Gordian.Core.Events
         private readonly Dictionary<uint, bool> _pendingHidden = new();
         private readonly Dictionary<uint, bool> _pendingKeepHeight = new();
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
+        private readonly Dictionary<uint, (EventRenderFlags Set, EventRenderFlags Clear)> _pendingRenderFlags = new();
 
         /// <summary>The running event's cutscene flags, for entities that arrive after its start.</summary>
         private CutsceneFlags _flags;
@@ -403,6 +404,11 @@ namespace Gordian.Core.Events
                         entity.HidesEventName = hidesName;
                         _staged.Add(entity.ServerId);
                     }
+                    if (_pendingRenderFlags.Remove(entity.ServerId, out var renderFlags))
+                    {
+                        entity.EventRenderFlags = (entity.EventRenderFlags | renderFlags.Set) & ~renderFlags.Clear;
+                        _staged.Add(entity.ServerId);
+                    }
                     continue;
                 }
                 bool isPlayer = entity.Type == EntityType.Player;
@@ -426,6 +432,7 @@ namespace Gordian.Core.Events
             _pendingHidden.Clear();
             _pendingKeepHeight.Clear();
             _pendingHidesName.Clear();
+            _pendingRenderFlags.Clear();
             _sorted.Clear();
             _flags = 0;
             UnlockEnvironment();
@@ -461,6 +468,7 @@ namespace Gordian.Core.Events
                     entity.IsEventHidden = false;
                     entity.KeepsEventHeight = false;
                     entity.HidesEventName = false;
+                    entity.EventRenderFlags = EventRenderFlags.None;
                 }
             }
             _staged.Clear();
@@ -989,6 +997,19 @@ namespace Gordian.Core.Events
                 return;
             }
             entity.HidesEventName = hide;
+            _staged.Add(serverId);
+        }
+
+        void IEventVmHost.SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity))
+            {
+                _pendingRenderFlags.TryGetValue(serverId, out var pending);
+                _pendingRenderFlags[serverId] = set ? (pending.Set | flag, pending.Clear & ~flag) : (pending.Set & ~flag, pending.Clear | flag);
+                return;
+            }
+            entity.EventRenderFlags = set ? entity.EventRenderFlags | flag : entity.EventRenderFlags & ~flag;
             _staged.Add(serverId);
         }
 
