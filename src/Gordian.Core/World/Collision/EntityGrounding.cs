@@ -39,6 +39,22 @@ namespace Gordian.Core.World.Collision
         /// <summary>How far above an event position its floor may be (event walks move their height in a line between floors).</summary>
         public const float EventStepUpHeight = 2.5f;
 
+        /// <summary>
+        /// Where an event draws an entity it does not keep at its placed height: the floor within a step of the event
+        /// position, as for any character, else a floor up to <see cref="EventStepUpHeight"/> above it (a walk whose height
+        /// runs below a floor it is crossing). Trying the near floor first keeps an actor standing at the foot of a ledge on
+        /// the ground: Port Jeuno 324's Buntz stands at his server spot, beside a ledge 1.2 yalms high, and the wide search
+        /// alone drew him on top of it.
+        /// </summary>
+        public static float GetEventDisplayHeight(Vector3 position, ZoneCollisionMesh? collision)
+        {
+            if (collision == null) return position.Y;
+            if (collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
+                    PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out var near))
+                return near.Height;
+            return GetDisplayHeight(position, collision, EventStepUpHeight);
+        }
+
         /// <summary>As <see cref="GetDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with the floor allowed up to <paramref name="stepUp"/> above.</summary>
         public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision, float stepUp) =>
             collision != null && collision.TryGetSteppedGround(position, stepUp,
