@@ -166,7 +166,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x8F |  | 1 | stepped | 23 | Sets the event entity's event status to 46. |
 | 0x90 |  | 1 | stepped | 23 | Sets render flags on the event entity (`Flags0` bit 17, `Flags1` bit 12). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x91 |  | 3 | stepped | 7 | Sets the event entity's base walk speed. |
-| 0x92 |  | 6 | stepped | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
+| 0x92 |  | 6 | runs | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor: no name plate for the event (#191; `WorldEntity.HidesEventName`). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x93 |  | 3 | stepped | 5,479 | Opens the item information window on an item id, or closes it for 0. |
 | 0x94 |  | 6 | stepped | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor. [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x95 |  | 3 | stepped | 378 | Marks the event entity as an event NPC and clears its attachments. |

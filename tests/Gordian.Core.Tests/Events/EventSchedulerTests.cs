@@ -133,6 +133,23 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void HideName_0x92ForAnActorAndItself()
+        {
+            // 92 01 actor (Port Jeuno 324 hides Joachim's name) ; 92 01 self (each NPC it places) ; 92 00 actor ; 00 (#191)
+            const uint joachim = 0x010F6093;
+            var code = new byte[] { 0x92, 0x01 }.Concat(U32(joachim))
+                .Concat(new byte[] { 0x92, 0x01 }).Concat(U32(0x7FFFFFF8))
+                .Concat(new byte[] { 0x92, 0x00 }).Concat(U32(joachim))
+                .Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.Entities[joachim] = (default, 0f, 0f);
+            var vm = Make(code, host, Array.Empty<uint>());
+            for (int i = 0; i < 5 && !vm.IsFinished; i++) vm.Tick(Frame);
+            Assert.Equal(new[] { (joachim, true), (Npc, true), (joachim, false) }, host.HidesName);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
         public void MissingRoutine_EndsAtOnce_SoTheWaitDoesNotHold()
         {
             var code = Start(0, "zzzz").Concat(TaskOp(0x55, 0, "zzzz")).Concat(Print(1)).Concat(new byte[] { 0x00 }).ToArray();

@@ -128,5 +128,20 @@ namespace Gordian.Core.Tests.Ui
             var player = new PlayerEntity(1, 1) { Name = "Tarudrake" };
             Assert.True(NamePlateStyle.ShowsName(player, NamePlateFlags.NameHidden));
         }
+
+        /// <summary>An event's 0x92 hides an NPC's or a player's plate until it clears the flag or ends (#191).</summary>
+        [Fact]
+        public void ShowsName_NotWhileAnEventHidesIt()
+        {
+            var joachim = new WorldEntity(4, 4, EntityType.Npc) { Name = "Joachim" };
+            joachim.Appearance.ModelId = 1000;
+            joachim.HidesEventName = true;
+            Assert.False(NamePlateStyle.ShowsName(joachim, NamePlateFlags.None));
+            joachim.HidesEventName = false;
+            Assert.True(NamePlateStyle.ShowsName(joachim, NamePlateFlags.None));
+
+            var player = new PlayerEntity(1, 1) { Name = "Gemini", HidesEventName = true };
+            Assert.False(NamePlateStyle.ShowsName(player, NamePlateFlags.None));
+        }
     }
 }

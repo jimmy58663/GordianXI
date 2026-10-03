@@ -125,6 +125,27 @@ namespace Gordian.Core.Tests.Events
             Assert.Contains(run.Host.Looks, l => l.Id == PlayerId && l.Target == uint.MaxValue);
         }
 
+        /// <summary>
+        /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
+        /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
+        /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.
+        /// </summary>
+        [Fact]
+        public void PortJeunoAbysseaIntro_HidesEveryNameButThePlayers()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 246, 324);
+            var hidden = run.Host.HidesName.Where(h => h.Hide).Select(h => h.Id).ToHashSet();
+            Assert.Contains(0x010F6093u, hidden);
+            Assert.DoesNotContain(PlayerId, hidden);
+            Assert.All(run.Scene.Actors.Where(a => a.CarriesEvent && a.EntityServerId is not PlayerId and not 0x010F6090 and not 0x010F608E and not 0x010F608F and not 0x010F6093),
+                a => Assert.Contains(a.EntityServerId, hidden));
+            Assert.DoesNotContain(run.Host.HidesName, h => !h.Hide);
+
+            Assert.Empty(RunScene(rm, 230, 503).Host.HidesName);
+        }
+
         private int RequestOps(Run run, uint actor) =>
             new byte[] { 0x27, 0x28, 0x29, 0x2A }.Sum(o => run.Opcodes[actor].GetValueOrDefault(o));
 

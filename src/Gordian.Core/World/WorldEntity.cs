@@ -720,6 +720,18 @@ namespace Gordian.Core.World
         private volatile bool _keepsEventHeight;
 
         /// <summary>
+        /// A running event hides the entity's name plate (retail <c>Render.Flags3</c> bit 16, set by opcode 0x92: Port
+        /// Jeuno 324 sets it on every NPC it places, #191). Cleared when the event ends.
+        /// </summary>
+        public bool HidesEventName
+        {
+            get => _hidesEventName;
+            set => _hidesEventName = value;
+        }
+
+        private volatile bool _hidesEventName;
+
+        /// <summary>
         /// Hidden by a running event: the scripts' hide flag (opcodes 0x22 / 0x4E, retail <c>Render.Flags0</c> bit 17) or
         /// the cutscene's NO_PCS / NO_NPCS flags for entities outside the event. Cleared when the event ends.
         /// </summary>
