@@ -170,6 +170,9 @@ namespace Gordian.App.Graphics
         public float PointLightStrength { get; set; } = 0.75f;
         private readonly Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
+        private ZoneRoutinePlayer? _mapRoutines;
+        private ushort _mapRoutineZoneId;
+        private readonly List<MapSchedulerRequest> _mapSchedulerRequests = new();
         private Vector3 _viewerFloorProbe = new(float.NaN);
         private bool _viewerInSubEnvironment;
         private const float EmitterWarmupFrames = 1200.0f;
@@ -786,6 +789,8 @@ namespace Gordian.App.Graphics
                 emitter.ChildResolver = template => emittersByTemplate.TryGetValue(template, out var child) ? child : null;
             }
             _weatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
+            _mapRoutines = zone.MapRoutines.RoutineCount > 0 ? new ZoneRoutinePlayer(zone.MapRoutines) : null;
+            _mapRoutineZoneId = (ushort)zone.ZoneId;
             _pointLights.Clear();
             foreach (var (layer, emitter) in _emitters)
             {
@@ -1982,6 +1987,18 @@ namespace Gordian.App.Graphics
             // Lightning strikes and other short weather routines start their generators at random.
             _weatherRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f, _effectWeather,
                 template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null);
+            // Routines the server names (S2C 0x039 map schedulers: Alzadaal's Runic Portals) play on the zone's emitters (#210).
+            if (World != null && _emitters.Count > 0)
+            {
+                _mapSchedulerRequests.Clear();
+                World.TakeMapSchedulers(_mapRoutineZoneId, _mapSchedulerRequests);
+                foreach (var request in _mapSchedulerRequests)
+                {
+                    if (_mapRoutines?.Play(request.Routine) != true) GordianLog.Debug("Graphics", $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
+                }
+            }
+            _mapRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f,
+                template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null);
             foreach (var (emitterLayer, emitter) in _emitters)
             {
                 // Weather emitters run only under their weather; a weather change starts them afresh.
@@ -2414,6 +2431,7 @@ namespace Gordian.App.Graphics
             _emitters.Clear();
             _emittersByTemplate.Clear();
             _weatherRoutines = null;
+            _mapRoutines = null;
             _actorEffects.Clear();
         }
 

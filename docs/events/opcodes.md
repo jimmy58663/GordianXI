@@ -318,7 +318,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x2D `CodeMAPSCHEDULOR`
 
 - Layout: `2D actor:u32 target:u32 routine:u32`; 0x51 stops it and 0x54 waits for it, same operands (XiEvents OpCodes/0x002D, 0x0051, 0x0054: `XiZone::SetAction`, `KillAction`, `IsMovingAction`). Retail runs it only when both actors' models are loaded (`Render.Flags0` bit 9).
-- GordianXI steps over all three. They need the zone scheduler runtime that S2C 0x039 also needs ([#109](https://github.com/jimmy58663/GordianXI/issues/109)); doors' own open / close routines run from their status ([#15](https://github.com/jimmy58663/GordianXI/issues/15)).
+- GordianXI steps over all three. S2C 0x039 now plays zone routines through `ZoneRoutinePlayer` ([#210](https://github.com/jimmy58663/GordianXI/issues/210)); these opcodes are not wired to it yet ([#109](https://github.com/jimmy58663/GordianXI/issues/109)); doors' own open / close routines run from their status ([#15](https://github.com/jimmy58663/GordianXI/issues/15)).
 
 ### 0x31 `CodeSMOVE`
 

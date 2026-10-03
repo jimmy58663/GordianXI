@@ -127,6 +127,34 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void ZeroFrameRoutine_StartsItsGeneratorOnce_NeverEveryFrame()
+        {
+            // #210: Alzadaal's s104 (0 frames) re-armed its pillars every frame when looped at "at least 1 frame".
+            var def = Surf(life: 60, framesPerEmission: 10, autoRun: false);
+            var schedule = new[] { new EffectRoutineSpawn("tw21", 0, 0) };
+            var emitter = new ZoneParticleEmitter(Template(def, schedule, loop: 0));
+
+            emitter.Update(1f, Frame);
+            Assert.Single(emitter.Particles);
+
+            for (int i = 0; i < 100; i++) emitter.Update(1f, Frame);
+            Assert.Empty(emitter.Particles); // the one pillar expired and nothing re-armed it
+        }
+
+        [Fact]
+        public void IdleGenerator_WaitsForItsTrigger()
+        {
+            // A generator only on-demand routines start: no schedule, emits nothing until a routine triggers it.
+            var emitter = new ZoneParticleEmitter(Template(Surf(life: 50, framesPerEmission: 10, autoRun: false)));
+            emitter.Update(200f, Frame);
+            Assert.Empty(emitter.Particles);
+
+            emitter.Trigger(0, 0);
+            emitter.Update(1f, Frame);
+            Assert.Single(emitter.Particles);
+        }
+
+        [Fact]
         public void DrawDistanceUpdater_FadesByDistanceToTheParticle()
         {
             var def = Surf(life: 1000, framesPerEmission: 10000);

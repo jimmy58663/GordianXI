@@ -62,6 +62,18 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x076_GroupEffects.PacketId, HandleGroupEffects);
             dispatcher.Register(S2C_0x077_EntityVis.PacketId, HandleEntityVis);
             dispatcher.Register(S2C_0x0DF_GroupAttr.PacketId, HandleGroupAttr);
+            dispatcher.Register(S2C_0x039_MapSchedulor.PacketId, HandleMapSchedulor);
+        }
+
+        /// <summary>
+        /// S2C 0x039: queues the zone routine for the viewport (<see cref="WorldState.PostMapScheduler"/>, #210).
+        /// </summary>
+        private void HandleMapSchedulor(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var scheduler = new S2C_0x039_MapSchedulor(payload);
+            if (!scheduler.IsValid) return;
+            GordianLog.Debug("ENTITY", $"Map scheduler '{scheduler.Routine}' (caster {scheduler.CasterServerId}, target {scheduler.TargetServerId}).");
+            _world.PostMapScheduler(scheduler.Routine, scheduler.CasterServerId, scheduler.TargetServerId);
         }
 
         /// <summary>
