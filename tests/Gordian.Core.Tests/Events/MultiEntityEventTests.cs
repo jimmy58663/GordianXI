@@ -149,6 +149,25 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>
+        /// Upper Jeuno 10221 (Rhapsodies 2-4 "Numbering Days", LandSandBoat <c>2_04_Numbering_Days.lua</c>) plays
+        /// <c>orz0</c> on the player from the second race sets table (#228): package 140 + 10 · skeleton slot, chosen by a
+        /// branch per race with a literal package (Tarutaru: race 5, slot 4, package 180 = file 87865). Before #228 the
+        /// package was not located and the gesture fell back to the player's own motions, which have no <c>orz0</c>.
+        /// </summary>
+        [Fact]
+        public void UpperJeunoNumberingDays_ThePlayerDespairsFromItsRacePackage()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 244, 10221, host => host.EntityValues[7] = 5);
+            var orz = Assert.Single(run.Host.Motions, m => m.Id == PlayerId && m.Routine == "orz0");
+            Assert.Equal((EventMotionSource.Package, 180), (orz.Source, orz.Resource));
+            Assert.Equal(new[] { 87865 }, Gordian.Core.Animation.EventMotionBank.PackageFiles(180));
+            var bank = Gordian.Core.Animation.EventMotionBank.Parse(rm.LoadDatBytesByFileId(87865)!, 87865);
+            Assert.True(bank!.GetRoutineFrames("orz0") > 0);
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.
