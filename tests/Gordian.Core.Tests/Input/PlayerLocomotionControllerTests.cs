@@ -442,6 +442,61 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Update_WhenEngagedButNotLockedOn_DoesNotTurnTowardTarget()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            localEnt.Direction = 0;
+            actionService.SetTarget(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+
+            Assert.True(actionService.Combat.IsEngaged);
+            Assert.False(actionService.IsLockedOn);
+            Assert.False(actionService.Combat.IsLockedOn);
+
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(0, localEnt.Direction);
+        }
+
+        [Fact]
+        public void Update_WhenEngagedAndMoving_HeadingFollowsInputNotTarget()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            actionService.SetTarget(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            localEnt.Direction = 0;
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(LocomotionDirection.Forward, localEnt.LocomotionDirection);
+            Assert.True(localEnt.Position.Z < 1f, "Free movement runs along the camera-relative heading, not toward the target at +Z");
+        }
+
+        [Fact]
+        public void Update_WhenEngagedThenLockedOn_FacesTarget()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            localEnt.Direction = 0;
+            actionService.SetTarget(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            actionService.SetLockOn(true);
+
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(192, localEnt.Direction);
+
+            actionService.Combat.Disengage();
+            Assert.True(actionService.IsLockedOn, "Disengaging does not change the player's lock-on choice");
+        }
+
+        [Fact]
         public void Update_WhenLockedOn_StrafingMovesPerpendicularToTargetWithoutChangingFacing()
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();

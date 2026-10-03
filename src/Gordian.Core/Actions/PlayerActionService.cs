@@ -519,7 +519,6 @@ namespace Gordian.Core.Actions
                 {
                     SetTarget(tgtEnt);
                 }
-                SetLockOn(true);
                 return switchTarget
                     ? PlayerActionResult.Ok($"Switched target to {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack)
                     : PlayerActionResult.Ok($"Engaged in combat with {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack);

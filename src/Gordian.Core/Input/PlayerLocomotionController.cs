@@ -553,15 +553,7 @@ namespace Gordian.Core.Input
             else if (_camera.Mode == CameraMode.ThirdPersonOrbital)
             {
                 // Smooth camera tracking to keep locked-on target in view
-                WorldEntity? lockTgt = null;
-                if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
-                {
-                    lockTgt = _actionService.CurrentTarget;
-                    if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
-                    {
-                        _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
-                    }
-                }
+                WorldEntity? lockTgt = GetLockOnTarget();
 
                 if (lockTgt != null && lockTgt.IsSpawned)
                 {
@@ -683,15 +675,7 @@ namespace Gordian.Core.Input
             // When locked onto a target, the character continuously faces the target directly.
             // Locomotion moves the character forward/backward or strafes left/right relative to the target line,
             // assigning LocomotionDirection accordingly without rotating character away from target.
-            WorldEntity? lockTgt = null;
-            if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
-            {
-                lockTgt = _actionService.CurrentTarget;
-                if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
-                {
-                    _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
-                }
-            }
+            WorldEntity? lockTgt = GetLockOnTarget();
 
             if (lockTgt != null && lockTgt.IsSpawned)
             {
@@ -1210,6 +1194,23 @@ namespace Gordian.Core.Input
             deg %= 360.0f;
             if (deg < 0) deg += 360.0f;
             return deg;
+        }
+
+        /// <summary>
+        /// The one place that decides whether the character and camera are tied to the target (#137). PROVISIONAL: only
+        /// an explicit player lock-on (<see cref="PlayerActionService.IsLockedOn"/>) does; being engaged on its own
+        /// leaves movement and heading free, because the legacy client does not turn you on engage. Not yet confirmed
+        /// against a retail capture (docs/input/console-and-input.md, "Engage versus lock-on").
+        /// </summary>
+        private WorldEntity? GetLockOnTarget()
+        {
+            if (_actionService == null || !_actionService.IsLockedOn) return null;
+            var target = _actionService.CurrentTarget;
+            if (target == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
+            {
+                _world.TryGetByServerId(_actionService.Combat.TargetServerId, out target);
+            }
+            return target;
         }
     }
 }
