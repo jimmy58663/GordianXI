@@ -79,6 +79,8 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(255, texture.RgbaPixels[1]);
             Assert.Equal(0, texture.RgbaPixels[2]);
             Assert.Equal(255, texture.RgbaPixels[3]);
+            // Flagged so the particle shader can halve it back to the half-scale alpha it expects (#208).
+            Assert.True(texture.AlphaDoubled);
         }
 
         [Fact]
@@ -116,6 +118,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(0, texture.RgbaPixels[1]);   // G
             Assert.Equal(0, texture.RgbaPixels[2]);   // B
             Assert.Equal(255, texture.RgbaPixels[3]); // A
+            Assert.False(texture.AlphaDoubled); // DXT alpha is kept as stored
         }
     }
 }

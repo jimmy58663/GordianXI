@@ -1691,12 +1691,11 @@ namespace Gordian.App.Graphics
                 currentPipeline = pipeline;
             }
 
+            var decodedTexture = GpuTextureCache.Resolve(skyMesh.TextureName, skyMesh.Textures ?? _activeDecodedTextures);
             var layerUniform = sceneUniform;
             layerUniform.World = world;
-            // SunDirection.w (unused by the lighting) carries the generator's ignore-texture-alpha flag: the fragment
-            // shader then samples the texture alpha as opaque (0x80 = 0.5), as the client does for e.g. Bibiki Bay's
-            // cave-mouth gradients, whose rock atlas alpha would otherwise cut the gradient into tiles.
-            layerUniform.SunDirection.W = layer.IgnoreTextureAlpha ? 1.0f : 0.0f;
+            // SunDirection.w (unused by the lighting) carries the texture alpha mode (ParticleTextureAlphaMode).
+            layerUniform.SunDirection.W = ParticleTextureAlphaMode(layer.IgnoreTextureAlpha, decodedTexture);
             layerUniform.WeatherParams = new Vector4(uvOrFlareCenter.X, uvOrFlareCenter.Y, blendOutput, layerType);
             layerUniform.SkyTextureFactor = textureFactor;
             // Additive layers fog toward black so distant haze never glows (xim computeLightingParams).
@@ -1708,7 +1707,9 @@ namespace Gordian.App.Graphics
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
-                : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, skyMesh.Textures ?? _activeDecodedTextures);
+                : decodedTexture != null
+                    ? _textureCache.GetOrCreateResourceSet(decodedTexture)
+                    : _textureCache.GetOrCreateResourceSet(skyMesh.TextureName, skyMesh.Textures ?? _activeDecodedTextures);
 
             if (layer.IsLensFlare)
             {
@@ -1724,6 +1725,17 @@ namespace Gordian.App.Graphics
             _commandList.DrawIndexed(skyMesh.IndexCount, 1, 0, 0, 0);
             return true;
         }
+
+        /// <summary>
+        /// The particle fragment shader's texture alpha mode (<c>SunDirection.w</c>). The stages expect half-scale texture
+        /// alpha (0x80 = opaque), as authored. 1: the generator's ignore-texture-alpha flag, the texel counts as opaque
+        /// (0.5), as the client does for e.g. Bibiki Bay's cave-mouth gradients, whose rock atlas alpha would otherwise cut
+        /// the gradient into tiles. 2: a paletted texture, whose alpha <see cref="TextureDecoder"/> doubled (0x80 -> 0xFF)
+        /// for the terrain and model shaders, halved back; with it doubled, Port Jeuno 324's blink cards (paletted
+        /// <c>nb</c>) stayed opaque for most of their fade (#208). 0: the texel alpha as sampled (DXT3, peaking at 0x88).
+        /// </summary>
+        internal static float ParticleTextureAlphaMode(bool ignoreTextureAlpha, DecodedTexture? texture) =>
+            ignoreTextureAlpha ? 1.0f : texture is { AlphaDoubled: true } ? 2.0f : 0.0f;
 
         private static Vector3 ToDisplay(Vector3 raw) => new(-raw.X, -raw.Y, raw.Z);
 
