@@ -478,6 +478,8 @@ namespace Gordian.Core.Events
                     entity.EventPose = null;
                     entity.EventLook = null;
                     entity.EventHeadTurnSpeed = 0;
+                    entity.EventTurnSpeed = 0;
+                    entity.EventAlpha = WorldEntity.OpaqueEventAlpha;
                     entity.IsEventHidden = false;
                     entity.KeepsEventHeight = false;
                     entity.HidesEventName = false;
@@ -994,6 +996,31 @@ namespace Gordian.Core.Events
             if (serverId == 0) serverId = _player?.ServerId ?? 0;
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
             entity.EventHeadTurnSpeed = speed;
+            _staged.Add(serverId);
+        }
+
+        void IEventVmHost.SetEntityTurnSpeed(uint serverId, int speed)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventTurnSpeed = speed;
+            _staged.Add(serverId);
+        }
+
+        bool IEventVmHost.TryGetEntityAlpha(uint serverId, out int alpha)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            alpha = WorldEntity.OpaqueEventAlpha;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return false;
+            alpha = entity.EventAlpha;
+            return true;
+        }
+
+        void IEventVmHost.SetEntityAlpha(uint serverId, int alpha)
+        {
+            if (serverId == 0) serverId = _player?.ServerId ?? 0;
+            if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
+            entity.EventAlpha = Math.Clamp(alpha, 0, 255);
             _staged.Add(serverId);
         }
 

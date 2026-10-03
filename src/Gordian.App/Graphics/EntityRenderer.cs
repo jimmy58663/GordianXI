@@ -46,6 +46,13 @@ namespace Gordian.App.Graphics
         private readonly ResourceSet _entityResourceSet;
         private readonly Pipeline _pipeline;
         private readonly Pipeline _skinnedPipeline;
+        private readonly Pipeline _depthPipeline;
+        private readonly Pipeline _skinnedDepthPipeline;
+        private readonly Pipeline _fadePipeline;
+        private readonly Pipeline _skinnedFadePipeline;
+
+        /// <summary>This frame's entities, the faded ones last (<see cref="IsFaded"/>).</summary>
+        private readonly List<WorldEntity> _drawOrder = new();
         private readonly GpuTextureCache _textureCache;
 
         // FFXI Entity DAT -> Screen transform: 180-degree turn about X axis: diag(1, -1, -1, 1).
@@ -244,26 +251,10 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
 
-            var pipelineDesc = new GraphicsPipelineDescription
-            {
-                BlendState = BlendStateDescription.SingleOverrideBlend,
-                DepthStencilState = new DepthStencilStateDescription(
-                    depthTestEnabled: true,
-                    depthWriteEnabled: true,
-                    comparisonKind: ComparisonKind.LessEqual),
-                RasterizerState = new RasterizerStateDescription(
-                    cullMode: FaceCullMode.None,
-                    fillMode: PolygonFillMode.Solid,
-                    frontFace: FrontFace.Clockwise,
-                    depthClipEnabled: true,
-                    scissorTestEnabled: false),
-                PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout },
-                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, shaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
-            };
-
-            _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+            var layouts = new[] { _sceneLayout, _textureLayout };
+            _pipeline = CreatePipeline(layouts, vertexLayout, shaders, BlendStateDescription.SingleOverrideBlend, depthWrite: true);
+            _depthPipeline = CreatePipeline(layouts, vertexLayout, shaders, DepthOnlyBlend, depthWrite: true);
+            _fadePipeline = CreatePipeline(layouts, vertexLayout, shaders, BlendStateDescription.SingleAlphaBlend, depthWrite: false);
 
             var skinnedVsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
@@ -281,12 +272,25 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 64),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 72));
 
-            var skinnedPipelineDesc = new GraphicsPipelineDescription
+            var skinnedLayouts = new[] { _sceneLayout, _textureLayout, _jointPaletteLayout };
+            _skinnedPipeline = CreatePipeline(skinnedLayouts, skinnedVertexLayout, skinnedShaders, BlendStateDescription.SingleOverrideBlend, depthWrite: true);
+            _skinnedDepthPipeline = CreatePipeline(skinnedLayouts, skinnedVertexLayout, skinnedShaders, DepthOnlyBlend, depthWrite: true);
+            _skinnedFadePipeline = CreatePipeline(skinnedLayouts, skinnedVertexLayout, skinnedShaders, BlendStateDescription.SingleAlphaBlend, depthWrite: false);
+
+            BuildFallbackProxies();
+        }
+
+        /// <summary>Writes no colour: the depth pass of a faded entity (see <see cref="IsFaded"/>).</summary>
+        private static readonly BlendStateDescription DepthOnlyBlend = new(RgbaFloat.Black,
+            new BlendAttachmentDescription(true, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add));
+
+        private Pipeline CreatePipeline(ResourceLayout[] layouts, VertexLayoutDescription vertexLayout, Shader[] shaders, BlendStateDescription blend, bool depthWrite) =>
+            _gd.ResourceFactory.CreateGraphicsPipeline(new GraphicsPipelineDescription
             {
-                BlendState = BlendStateDescription.SingleOverrideBlend,
+                BlendState = blend,
                 DepthStencilState = new DepthStencilStateDescription(
                     depthTestEnabled: true,
-                    depthWriteEnabled: true,
+                    depthWriteEnabled: depthWrite,
                     comparisonKind: ComparisonKind.LessEqual),
                 RasterizerState = new RasterizerStateDescription(
                     cullMode: FaceCullMode.None,
@@ -295,15 +299,17 @@ namespace Gordian.App.Graphics
                     depthClipEnabled: true,
                     scissorTestEnabled: false),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
-                ResourceLayouts = new[] { _sceneLayout, _textureLayout, _jointPaletteLayout },
-                ShaderSet = new ShaderSetDescription(new[] { skinnedVertexLayout }, skinnedShaders),
+                ResourceLayouts = layouts,
+                ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, shaders),
                 Outputs = _gd.SwapchainFramebuffer.OutputDescription
-            };
+            });
 
-            _skinnedPipeline = factory.CreateGraphicsPipeline(skinnedPipelineDesc);
-
-            BuildFallbackProxies();
-        }
+        /// <summary>
+        /// Whether an event has faded the entity (0x6C, <see cref="WorldEntity.EventAlpha"/> under opaque). A faded entity is
+        /// drawn after the others, first into depth only and then blended over what is behind it, so it shows as one see-through
+        /// body rather than its inner layers.
+        /// </summary>
+        private static bool IsFaded(WorldEntity entity) => entity.EventAlpha < WorldEntity.OpaqueEventAlpha;
 
         /// <summary>
         /// Renders all active, spawned entities in the world into the active command list.
@@ -375,7 +381,17 @@ namespace Gordian.App.Graphics
                 break;
             }
 
+            _drawOrder.Clear();
             foreach (var entity in entities)
+            {
+                if (!IsFaded(entity)) _drawOrder.Add(entity);
+            }
+            foreach (var entity in entities)
+            {
+                if (IsFaded(entity)) _drawOrder.Add(entity);
+            }
+
+            foreach (var entity in _drawOrder)
             {
                 if (!entity.IsSpawned)
                 {
@@ -400,7 +416,7 @@ namespace Gordian.App.Graphics
                         smoother = new EventPoseSmoother(eventPose.Position, eventPose.Heading);
                         _eventPoses[entity.ServerId] = smoother;
                     }
-                    smoother.Advance(eventPose, deltaSeconds);
+                    smoother.Advance(eventPose, deltaSeconds, entity.EventTurnSpeed);
                     eventPose = eventPose with { Position = smoother.Position, Heading = smoother.Heading };
                     if (entity.ServerId != localPlayerServerId) entity.Position = eventPose.Position;
                     entity.RenderHeadingRadians = eventPose.Heading;
@@ -459,6 +475,11 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
+                // An event faded it out completely (0x6C to alpha 0): nothing to draw.
+                int eventAlpha = entity.EventAlpha;
+                if (eventAlpha <= 0) continue;
+                bool faded = eventAlpha < WorldEntity.OpaqueEventAlpha;
+
                 // Resolve or build GPU model
                 GpuEntityModel? gpuModel = null;
                 EntityModel? entityModel = null;
@@ -505,7 +526,9 @@ namespace Gordian.App.Graphics
                     WeatherParams = Vector4.Zero,
                 };
                 bool isTarget = TargetServerId != 0 && entity.ServerId == TargetServerId;
-                if (isTarget) uniform.SkyLayerParams = new Vector4(0.0f, 0.0f, TargetFlashAmount, 0.0f);
+                // Z: the target flash; W: how see-through an event made the entity (1 - its alpha, 0x80 = opaque).
+                uniform.SkyLayerParams = new Vector4(0.0f, 0.0f, isTarget ? TargetFlashAmount : 0.0f,
+                    faded ? 1.0f - eventAlpha / (float)WorldEntity.OpaqueEventAlpha : 0.0f);
 
                 // Actors take the 0x2F model lights of the environment they stand in: a floor linked to a
                 // sub-environment (a cave or interior) uses that environment's, anywhere else the zone's weather.
@@ -523,7 +546,8 @@ namespace Gordian.App.Graphics
                 var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
                 bool isSkinned = skinnedModel != null;
 
-                cl.SetPipeline(isSkinned ? _skinnedPipeline : _pipeline);
+                cl.SetPipeline(faded ? (isSkinned ? _skinnedDepthPipeline : _depthPipeline) : (isSkinned ? _skinnedPipeline : _pipeline));
+                ResourceSet? paletteSet = null;
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
 
                 if (skinnedModel != null)
@@ -554,29 +578,44 @@ namespace Gordian.App.Graphics
                     UpdateJointPalette(cl, palette.Buffer, skinnedModel, entity.Animation, weaponsInHands ? skinnedModel.ParentOverrides : null, headTurn, face, out var pose);
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = skinnedModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
+                    paletteSet = palette.Set;
                 }
 
                 var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) : maxBox.Y - pos.Y, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
 
-                for (int m = 0; m < gpuModel.Submeshes.Count; m++)
+                draws += DrawSubmeshes(cl, gpuModel);
+                if (faded)
                 {
-                    var submesh = gpuModel.Submeshes[m];
-                    // The model's own texture of that name, uploaded by its source (never by name: #163).
-                    var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
-
-                    cl.SetGraphicsResourceSet(1, texSet);
-                    cl.SetVertexBuffer(0, submesh.VertexBuffer);
-                    cl.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                    cl.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
-                    draws++;
+                    // The depth pass above; now the colour, blended, only where the body is nearest.
+                    cl.SetPipeline(isSkinned ? _skinnedFadePipeline : _fadePipeline);
+                    cl.SetGraphicsResourceSet(0, _entityResourceSet);
+                    if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
+                    draws += DrawSubmeshes(cl, gpuModel);
                 }
             }
 
             DrawCalls = draws;
             VisibleEntities = visible;
             CulledEntities = culled;
+        }
+
+        /// <summary>Draws every submesh of a model with the bound pipeline; returns the draw calls made.</summary>
+        private int DrawSubmeshes(CommandList cl, GpuEntityModel gpuModel)
+        {
+            for (int m = 0; m < gpuModel.Submeshes.Count; m++)
+            {
+                var submesh = gpuModel.Submeshes[m];
+                // The model's own texture of that name, uploaded by its source (never by name: #163).
+                var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
+
+                cl.SetGraphicsResourceSet(1, texSet);
+                cl.SetVertexBuffer(0, submesh.VertexBuffer);
+                cl.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                cl.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+            }
+            return gpuModel.Submeshes.Count;
         }
 
         private JointPaletteEntry CreateJointPalette()
@@ -999,6 +1038,10 @@ namespace Gordian.App.Graphics
             _entityResourceSet?.Dispose();
             _pipeline?.Dispose();
             _skinnedPipeline?.Dispose();
+            _depthPipeline?.Dispose();
+            _skinnedDepthPipeline?.Dispose();
+            _fadePipeline?.Dispose();
+            _skinnedFadePipeline?.Dispose();
             _textureCache?.Dispose();
         }
     }

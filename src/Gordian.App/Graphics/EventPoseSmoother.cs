@@ -31,7 +31,11 @@ namespace Gordian.App.Graphics
 
         public float Heading { get; private set; }
 
-        public void Advance(EventPose pose, float deltaSeconds)
+        /// <summary>
+        /// Moves the drawing toward <paramref name="pose"/>. A <paramref name="turnSpeed"/> the event set (0x59 sub 0 / 1,
+        /// 4096ths of a turn per 60 Hz frame, provisional) turns at that constant rate instead of the ease.
+        /// </summary>
+        public void Advance(EventPose pose, float deltaSeconds, int turnSpeed = 0)
         {
             float dt = Math.Max(0f, deltaSeconds);
             if (pose.Speed > 0) _walkSpeed = pose.Speed;
@@ -53,7 +57,15 @@ namespace Gordian.App.Graphics
             float turn = pose.Heading - Heading;
             while (turn > MathF.PI) turn -= 2f * MathF.PI;
             while (turn < -MathF.PI) turn += 2f * MathF.PI;
-            Heading += turn * Math.Min(1f, dt * TurnRate);
+            if (turnSpeed > 0)
+            {
+                float step = turnSpeed * (2f * MathF.PI / 4096f) * 60f * dt;
+                Heading += Math.Clamp(turn, -step, step);
+            }
+            else
+            {
+                Heading += turn * Math.Min(1f, dt * TurnRate);
+            }
         }
     }
 }

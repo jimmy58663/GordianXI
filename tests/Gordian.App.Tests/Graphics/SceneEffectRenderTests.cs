@@ -167,5 +167,83 @@ namespace Gordian.App.Tests.Graphics
                 DestroyWindow(hwnd);
             }
         }
+
+        /// <summary>
+        /// An event fade (0x6C, #197): an NPC at half alpha (0x40) over Bibiki Bay's bright sea shows about halfway between
+        /// the opaque body and the background, and at alpha 0 it is not drawn at all.
+        /// </summary>
+        [Fact]
+        public void FadedEntity_BlendsOverTheBackground()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
+            var npc = new Gordian.Core.World.WorldEntity(0x01000001, 1, Gordian.Core.World.EntityType.Npc) { Hpp = 100, KeepsEventHeight = true };
+            for (uint model = 1; model < 400 && npc.Appearance.ModelId == 0; model++)
+            {
+                npc.Appearance.ModelId = model;
+                if (!rm.TryLoadEntityModel(npc, out var loaded) || loaded?.Skeleton is not { Count: > 0 }) npc.Appearance.ModelId = 0;
+            }
+            if (npc.Appearance.ModelId == 0) return;
+            // Two yalms in front of the camera, a little below the eye: internal Y is the height, drawn at display -Y.
+            npc.EventPose = new Gordian.Core.World.EventPose(new Vector3(0, -9f, 4f), 0f, 0f);
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            devMgr.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device!;
+            try
+            {
+                var renderer = new ZoneTerrainRenderer(gd);
+                renderer.LoadZone(zone, textures);
+                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                camera.SetEventView(new Vector3(0, 10, 0), new Vector3(0, 10, 10), 1.0f, 0f, 640f / 480f);
+                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                env.WeatherId = "fine";
+                renderer.SkyDomeRenderer?.UpdateDome(env);
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var fb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+                var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, Veldrid.TextureUsage.Staging));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                var entities = new[] { npc };
+                int[] Frame(int alpha)
+                {
+                    npc.EventAlpha = alpha;
+                    for (int i = 0; i < 3; i++) renderer.Render(camera, env, 0f, 640, 480, entities: entities, resourceManager: rm, present: false, targetFramebuffer: fb);
+                    cl.Begin(); cl.CopyTexture(rtColor, staging); cl.End(); gd.SubmitCommands(cl); gd.WaitForIdle();
+                    var map = gd.Map(staging, Veldrid.MapMode.Read);
+                    var sums = new int[640 * 480];
+                    var row = new byte[640 * 4];
+                    for (int y = 0; y < 480; y++)
+                    {
+                        System.Runtime.InteropServices.Marshal.Copy(map.Data + (int)(y * map.RowPitch), row, 0, row.Length);
+                        for (int x = 0; x < 640; x++) sums[y * 640 + x] = row[x * 4] + row[x * 4 + 1] + row[x * 4 + 2];
+                    }
+                    gd.Unmap(staging);
+                    return sums;
+                }
+                int[] opaque = Frame(Gordian.Core.World.WorldEntity.OpaqueEventAlpha), half = Frame(0x40), none = Frame(0);
+                long bodyDifference = 0, halfDifference = 0;
+                int bodyPixels = 0;
+                for (int i = 0; i < opaque.Length; i++)
+                {
+                    if (Math.Abs(opaque[i] - none[i]) < 60) continue; // the background, or body close to it in colour
+                    bodyPixels++;
+                    bodyDifference += Math.Abs(opaque[i] - none[i]);
+                    halfDifference += Math.Abs(half[i] - none[i]);
+                }
+                _out.WriteLine($"model {npc.Appearance.ModelId}: {bodyPixels} body pixels, half alpha keeps {halfDifference / (double)Math.Max(1, bodyDifference):P0} of the body's contrast");
+                Assert.True(bodyPixels > 500, $"the NPC should cover part of the screen, got {bodyPixels} pixels");
+                Assert.InRange(halfDifference / (double)bodyDifference, 0.3, 0.7);
+                renderer.Dispose();
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
     }
 }
