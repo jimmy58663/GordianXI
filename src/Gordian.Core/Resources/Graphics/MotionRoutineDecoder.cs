@@ -16,7 +16,8 @@ namespace Gordian.Core.Resources.Graphics
     /// u16 duration, 4-char reference, ... }, a command running at the sum of the delays before it. The ops read here:
     /// <list type="bullet">
     /// <item>0x05 play a Section 0x2B clip: +0x10 f32 speed, +0x18 u16 blend-in ticks, +0x1C u16 blend-out ticks, +0x1E u16
-    /// loop count; the reference ends in <c>?</c> where the body-region digit goes.</item>
+    /// loop count (0 = loop until replaced: xi-tools docs/anim/schedule.md <c>maxLoops</c>; seen on the event gestures' last
+    /// clips and the PC <c>corp</c>, #193); the reference ends in <c>?</c> where the body-region digit goes.</item>
     /// <item>0x03 / 0x3B (this DAT or the shared <c>ROM/0/0</c>), 0x57 / 0x3C (the actor's own routines) link another
     /// routine; 0x3B and 0x3C wait for it to end. A link to <c>dada</c> or <c>mdam</c> is the moment the result shows.</item>
     /// <item>0x21 / 0x25 procedural flinch: +0x18 f32 duration in ticks.</item>
@@ -77,7 +78,7 @@ namespace Gordian.Core.Resources.Graphics
                             op, start, duration, ReadId(command.Slice(8, 4)),
                             BlendInTicks: BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x18)),
                             BlendOutTicks: BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x1C)),
-                            Loops: Math.Max(1, (int)BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x1E))),
+                            Loops: (int)BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x1E)),
                             Speed: ReadPositiveFloat(command.Slice(0x10), 1.0f),
                             PoseIndex: -1,
                             ReactionTicks: 0));

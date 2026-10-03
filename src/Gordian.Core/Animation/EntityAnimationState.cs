@@ -86,7 +86,7 @@ namespace Gordian.Core.Animation
             get
             {
                 if (IsPlayingTransition) return false;
-                if (ActiveRoutine != null) return _segmentIndex >= 0 && ActiveRoutine.Segments[_segmentIndex].Loops > 1;
+                if (ActiveRoutine != null) return _segmentIndex >= 0 && ActiveRoutine.Segments[_segmentIndex].Loops != 1;
                 return Current != AnimationCategory.Death;
             }
         }
@@ -143,6 +143,12 @@ namespace Gordian.Core.Animation
 
         /// <summary>The bank the playing action's routine comes from (its clips are looked up there first), or null.</summary>
         private EventMotionBank? _actionBank;
+
+        /// <summary>
+        /// Whether the playing action is an event gesture whose last clip loops until replaced (<see cref="MotionRoutine.HoldsLastClip"/>):
+        /// it does not end with its routine but keeps the pose until the next motion, a stop or reset, a move or the event's end (#193).
+        /// </summary>
+        private bool _holdsLastClip;
 
         private AnimationClip? _overlayClip;
         private AnimationClip? _overlayReference;
@@ -398,6 +404,7 @@ namespace Gordian.Core.Animation
             _queuedActions.Clear();
             ActiveRoutine = null;
             _actionRequest = null;
+            _holdsLastClip = false;
             _weaponMotion = WeaponMotion.None;
             _overlayClip = null;
         }
@@ -436,8 +443,8 @@ namespace Gordian.Core.Animation
                     continue;
                 }
 
-                // A sustained action (a chant) gives way at once to whatever comes next (its release, a swing).
-                if (ActiveRoutine is { IsSustained: true } && _queuedActions.Count == 0 && _lastModel != null)
+                // A sustained action (a chant) or a held event pose gives way at once to whatever comes next (its release, a swing).
+                if ((ActiveRoutine is { IsSustained: true } || _holdsLastClip) && _queuedActions.Count == 0 && _lastModel != null)
                 {
                     EndAction(_lastModel, blend: true);
                 }
@@ -458,14 +465,18 @@ namespace Gordian.Core.Animation
                 var request = _queuedActions[0];
                 _queuedActions.RemoveAt(0);
 
-                if (Seconds(request.ReceivedTimestamp, now) > StaleActionSeconds)
+                // An event gesture is never stale: the renderer advances only entities on screen, and a gesture given while
+                // the camera looked away (Joachim's kneel during Port Jeuno 324's blink, #193) still shows when it comes back.
+                bool isEventMotion = request.Motion == ActionMotion.EventMotion;
+                float waited = Seconds(request.ReceivedTimestamp, now);
+                if (!isEventMotion && waited > StaleActionSeconds)
                 {
                     request.DeliverHits();
                     continue;
                 }
 
                 EventMotionBank? bank = null;
-                var (routine, allowsLocomotion) = request.Motion == ActionMotion.EventMotion
+                var (routine, allowsLocomotion) = isEventMotion
                     ? (ResolveEventMotion(model, request.Routine, out bank), false)
                     : ResolveRoutine(model, request, isMoving);
                 if (routine == null || routine.Segments.Count == 0)
@@ -477,10 +488,19 @@ namespace Gordian.Core.Animation
                 }
 
                 StartAction(model, request, routine, allowsLocomotion, WeaponMotion.None, now, bank);
+                if (isEventMotion && waited > CatchUpSeconds)
+                {
+                    // It plays from where it would be by now: a kneel given off screen is already held, a short gesture over.
+                    AdvanceAction(waited, model);
+                    if (ActiveRoutine == null) continue;
+                }
                 return true;
             }
             return false;
         }
+
+        /// <summary>An event gesture that waited longer than this to start (its entity was off screen) starts partway through.</summary>
+        private const float CatchUpSeconds = 0.1f;
 
         private bool TryStartWeaponMotion(EntityModel model, bool drawing, long now)
         {
@@ -495,6 +515,7 @@ namespace Gordian.Core.Animation
             EventMotionBank? bank = null)
         {
             _actionBank = bank;
+            _holdsLastClip = request?.Motion == ActionMotion.EventMotion && routine.HoldsLastClip;
             IsPlayingTransition = false;
             TransitionClip = null;
             ActiveRoutine = routine;
@@ -551,14 +572,14 @@ namespace Gordian.Core.Animation
 
             var segment = routine.Segments[Math.Max(0, _segmentIndex)];
             float clipSeconds = (_actionTicks - segment.StartTick) / RoutineTicksPerSecond * segment.Speed;
-            if (segment.Loops <= 1 && CurrentClip != null)
+            if (segment.Loops == 1 && CurrentClip != null)
             {
                 clipSeconds = Math.Min(clipSeconds, CurrentClip.DurationSeconds); // play once, hold the last frame
             }
             ElapsedSeconds = Math.Max(0f, clipSeconds);
             AdvanceBlend(dt);
 
-            if (_actionTicks >= RoutineEndTick(routine))
+            if (!_holdsLastClip && _actionTicks >= RoutineEndTick(routine))
             {
                 EndAction(model, blend: true);
             }
@@ -580,6 +601,7 @@ namespace Gordian.Core.Animation
             ActiveRoutine = null;
             _actionRequest = null;
             _actionBank = null;
+            _holdsLastClip = false;
             _segmentIndex = -1;
             _weaponMotion = WeaponMotion.None;
             request?.DeliverHits();
