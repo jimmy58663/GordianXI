@@ -209,7 +209,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 int at = CharacterSlotsOffset + i * CharacterSlotSize;
                 if (at + 28 > packet.Length) break;
                 uint id = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(at, 4));
-                string name = Encoding.ASCII.GetString(packet.Slice(at + 12, 16)).TrimEnd(' ', ' ');
+                string name = Encoding.ASCII.GetString(packet.Slice(at + 12, 16)).TrimEnd('\0', ' ');
                 if (id == 0 || string.IsNullOrWhiteSpace(name)) continue;
                 slots.Add(new LsbCharacterSlot(i + 1, id, name));
             }
