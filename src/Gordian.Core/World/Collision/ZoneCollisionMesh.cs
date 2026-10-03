@@ -131,6 +131,11 @@ namespace Gordian.Core.World.Collision
         public IReadOnlyList<MovingPlatform> MovingPlatforms { get; internal set; } = Array.Empty<MovingPlatform>();
 
         /// <summary>
+        /// The zone's doorways, solid while their door is closed (see <see cref="ZoneDoors"/>).
+        /// </summary>
+        public IReadOnlyList<DoorBlocker> Doors { get; internal set; } = Array.Empty<DoorBlocker>();
+
+        /// <summary>
         /// The level walkable floors (|normal.Y| above 0.7) whose centroid lies in the XZ rectangle: height, area, XZ centroid.
         /// </summary>
         public IEnumerable<(float Height, float Area, Vector2 Centroid)> FloorsNear(Vector2 min, Vector2 max)

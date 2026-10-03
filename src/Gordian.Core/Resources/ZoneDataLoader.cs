@@ -155,6 +155,41 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
+        /// Puts a door's leaves in their routine part order: ZoneDef order, except that a pair named as left and right
+        /// leaves of one mesh (<c>plgdoor2l</c> / <c>plgdoor2r</c>) puts the left leaf first. Checked on the retail zones
+        /// (2026-10-03) by grouping identical doors (same meshes, leaf rotations and routines, whose leaves must swing
+        /// alike): ZoneDef order keeps 53 of 55 groups consistent, and the left-first exception fixes Metalworks'
+        /// side-by-side doors _6le / _6lf, whose ZoneDef order lists the right leaf first in one of them (*inference*).
+        /// </summary>
+        internal static void OrderDoorParts(List<DoorLeaf> leaves)
+        {
+            if (leaves.Count != 2) return;
+            string first = leaves[0].Placement.MeshId, second = leaves[1].Placement.MeshId;
+            if (first.Length < 2 || first.Length != second.Length || !first.AsSpan(0, first.Length - 1).SequenceEqual(second.AsSpan(0, second.Length - 1))) return;
+            if (char.ToLowerInvariant(first[^1]) != 'r' || char.ToLowerInvariant(second[^1]) != 'l') return;
+            var (right, left) = (leaves[0], leaves[1]);
+            leaves[0] = left with { Part = right.Part };
+            leaves[1] = right with { Part = left.Part };
+        }
+
+        /// <summary>
+        /// Whether the open directories are <c>&lt;zone code&gt;/door/&lt;door id&gt;</c> (xi-tools docs/zone/doors.md),
+        /// and the door id.
+        /// </summary>
+        private static bool IsDoorDirectory(Stack<string> dirStack, out string doorId)
+        {
+            doorId = string.Empty;
+            if (dirStack.Count < 2) return false;
+            using var top = dirStack.GetEnumerator();
+            top.MoveNext();
+            string id = top.Current;
+            top.MoveNext();
+            if (!string.Equals(top.Current, "door", StringComparison.OrdinalIgnoreCase) || id.Length == 0 || id[0] != '_') return false;
+            doorId = id;
+            return true;
+        }
+
+        /// <summary>
         /// Calculates the canonical FFXI ROM File ID for a zone's 3D model container DAT.
         /// </summary>
         public static int GetZoneModelFileId(int zoneId)
@@ -277,6 +312,7 @@ namespace Gordian.Core.Resources
             var weightedMeshes = new Dictionary<string, WeightedMesh>(StringComparer.OrdinalIgnoreCase);
             var zoneRoutines = new List<(string? ParentDir, string? Weather, EffectRoutine Routine)>();
             var zoneMeshSections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var interactions = new List<ZoneInteraction>();
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
@@ -465,6 +501,13 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.EffectRoutine:
                     {
+                        // A door's routines live in <zone code>/door/<door id>/ (open, clos, into, intc).
+                        if (IsDoorDirectory(dirStack, out string doorId) && DoorRoutineDecoder.Decode(payload) is { } doorRoutine)
+                        {
+                            if (!zone.DoorRoutines.TryGetValue(doorId, out var doorRoutines)) zone.DoorRoutines[doorId] = doorRoutines = new ZoneDoorRoutines();
+                            doorRoutines.Set(header.DatId, doorRoutine);
+                        }
+
                         // Ambient routines schedule their directory's generators (weather ones only under their weather).
                         var routine = EffectRoutineDecoder.Decode(payload, header.DatId);
                         if (routine != null && routine.Spawns.Count > 0)
@@ -492,6 +535,12 @@ namespace Gordian.Core.Resources
                     case DatSectionType.ZoneDef:
                     {
                         zoneDefHeader ??= header;
+                        break;
+                    }
+
+                    case DatSectionType.ZoneInteractions:
+                    {
+                        if (interactions.Count == 0) interactions.AddRange(ZoneInteractionDecoder.Decode(payload));
                         break;
                     }
 
@@ -842,23 +891,45 @@ namespace Gordian.Core.Resources
                 zone.Placements.AddRange(placements);
                 zone.PointLightIds.AddRange(ZoneDefDecoder.ParsePointLightTable(zdPayload));
                 zone.Collision = ZoneCollisionDecoder.Decode(zdPayload);
+                var doorLeafCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
                 for (int p = 0; p < placements.Count; p++)
                 {
                     var placement = placements[p];
                     if (ZoneDefDecoder.IsSkyMesh(placement.MeshId)) continue;
 
+                    // A door's leaves are its parts in ZoneDef order, counted whether or not their mesh resolves.
+                    int doorPart = 0;
+                    if (placement.IsDoorPart)
+                    {
+                        doorLeafCounts.TryGetValue(placement.BlockId, out doorPart);
+                        doorLeafCounts[placement.BlockId] = doorPart + 1;
+                    }
+
                     var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(placement.MeshId, templates, realMeshNames);
                     if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
 
                     var trsMatrix = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+
+                    // Door leaves move with their door; the renderer draws them at its live pose.
+                    List<MeshGroup>? doorLeaf = null;
+                    if (placement.IsDoorPart)
+                    {
+                        if (!zone.DoorLeaves.TryGetValue(placement.BlockId, out var leaves)) zone.DoorLeaves[placement.BlockId] = leaves = new List<DoorLeaf>();
+                        doorLeaf = new List<MeshGroup>();
+                        leaves.Add(new DoorLeaf(doorPart, placement, doorLeaf));
+                    }
 
                     for (int s = 0; s < templateSubmeshes.Count; s++)
                     {
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
                         instantiated.PointLightSlots = placement.PointLightSlots ?? Array.Empty<int>();
-                        if (placement.IsMovingPlatformPart)
+                        if (doorLeaf != null)
+                        {
+                            doorLeaf.Add(instantiated);
+                        }
+                        else if (placement.IsMovingPlatformPart)
                         {
                             // Elevator parts move with their platform; the renderer draws them at its live height.
                             if (!zone.MovingPlatformGroups.TryGetValue(placement.BlockId, out var parts))
@@ -883,9 +954,15 @@ namespace Gordian.Core.Resources
                     }
                 }
 
+                foreach (var (doorId, leaves) in zone.DoorLeaves)
+                {
+                    if (doorLeafCounts.TryGetValue(doorId, out int counted) && counted == leaves.Count) OrderDoorParts(leaves);
+                }
+
                 if (zone.Collision != null)
                 {
                     zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision);
+                    zone.Collision.Doors = ZoneDoors.CreateBlockers(interactions);
                 }
             }
 

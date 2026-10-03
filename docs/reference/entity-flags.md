@@ -184,7 +184,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 |---|---|---|---|---|---|
 | 0 | 0x1 | 0xB6 when a look sub-case changes the race | | look must be rebuilt (*inference*) | 0xB6 not run |
 | 1 | 0x2 | 0xAB sub 1 sets, sub 2 clears (own) | | unknown | kept as `EventRenderFlags.Flags0Bit1` (#198), nothing reads it |
-| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | kept as `EventRenderFlags.Flags0Bit2` (#198), nothing reads it; sub 4 waits while the entity plays an event action. 0x4C / 0x4D / 0x4F / 0x8E / 0x8F are not run |
+| 2 | 0x4 | 0xAB sub 3 sets, sub 4 clears (own; sub 4 waits until the entity is in an event status or not animating) | 0x4C / 0x4D (door open / close status) and 0x4F, 0x8E, 0x8F (event status 45 / 46) act only while clear; 0x7E chocobo cases; XiEventInit sets up the event status only while clear | the event status is locked (*inference*) | kept as `EventRenderFlags.Flags0Bit2` (#198); 0x4C / 0x4D set the door status only while it is clear (#200); sub 4 waits while the entity plays an event action. 0x4F / 0x8E / 0x8F are not run |
 | 3 | 0x8 | 0xAB sub 5 sets, sub 6 clears | | unknown | kept as `EventRenderFlags.Flags0Bit3` (#198), nothing reads it |
 | 6 | 0x40 | 0xAB sub 0x0B sets, 0x0C clears | | unknown | kept as `EventRenderFlags.Flags0Bit6` (#198), nothing reads it |
 | 7 | 0x80 | | 0x27-0x2A requests (both entities), 0x1E / 0x4A / 0x4B / 0x3A / 0x3B / 0x65 (use the event position when set, else the world position), 0x80, 0xC1, 0x5B | the entity takes part in the event (has an event object) (*inference*) | `EventScene.FindActor` / `WorldEntity.IsInEvent`: `EventVm.TryGetActorPosition` takes the event position of a participant, else the world's |
@@ -257,7 +257,7 @@ Every opcode below changes only render-flag bits (or the blink switch) in retail
 |---|---|---|
 | 0x2F | Flags0 bit 19 on an actor | silent |
 | 0x33 | Flags0 bit 21 on the own entity (no floor snap) | runs: `WorldEntity.KeepsEventHeight` (#192) |
-| 0x4C / 0x4D | door status 8 / 9 unless Flags0 bit 2 is set | diagnostic (doors are drawn static) |
+| 0x4C / 0x4D | door status 8 / 9 unless Flags0 bit 2 is set | runs: `WorldEntity.EventStatus` (#200), which opens and closes the door (#15) |
 | 0x4F | event status unless Flags0 bit 2 is set | diagnostic |
 | 0x59 sub 5 | Flags0 bit 21 on an actor | runs: `WorldEntity.KeepsEventHeight` (#192; subs 0-4 and 6 run too: turn speeds, walk speed, emote wait, [#197](https://github.com/jimmy58663/GordianXI/issues/197)) |
 | 0x5F subs 0 / 1 | Flags1 bit 29 | diagnostic |

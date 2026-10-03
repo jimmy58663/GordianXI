@@ -1301,6 +1301,14 @@ namespace Gordian.Core.Events
                 case 0xAB:
                     ExecRenderFlags();
                     return;
+                case 0x4C:
+                case 0x4D:
+                    // Open (8) or close (9) the event's own entity as a door, unless its Render.Flags0 bit 2 (0xAB sub 3)
+                    // is set (XiEvents OpCodes/0x004C, 0x004D: StatusEvent).
+                    if (_host.TryGetEntityRenderFlags(EntityServerId, out var doorFlags) && (doorFlags & EventRenderFlags.Flags0Bit2) == 0)
+                        _host.SetEntityEventStatus(EntityServerId, op == 0x4C ? (byte)8 : (byte)9);
+                    _pc++;
+                    return;
                 case 0x5E:
                     // Stop the event entity's action and return it to idle (XiEvents OpCodes/0x005E: KillLastAction, then the
                     // idle motion named by the operand); the idle name is not used, the entity's own idle plays.

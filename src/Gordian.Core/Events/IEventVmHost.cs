@@ -129,6 +129,21 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>The event render flags an entity has now; false when it is not in the zone.</summary>
+        bool TryGetEntityRenderFlags(uint serverId, out EventRenderFlags flags)
+        {
+            flags = EventRenderFlags.None;
+            return false;
+        }
+
+        /// <summary>
+        /// Sets an entity's event status, which stands in for its server status while the event runs (opcodes 0x4C / 0x4D:
+        /// 8 opens a door, 9 closes it; XiEvents OpCodes/0x004C, 0x004D).
+        /// </summary>
+        void SetEntityEventStatus(uint serverId, byte status)
+        {
+        }
+
         /// <summary>Sets an entity's event hide flag (opcodes 0x22 / 0x4E / 0x90).</summary>
         void SetEntityHidden(uint serverId, bool hidden)
         {
