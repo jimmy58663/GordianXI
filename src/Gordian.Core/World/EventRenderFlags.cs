@@ -42,10 +42,8 @@ namespace Gordian.Core.World
         Flags3Bit12 = 1 << 6,
 
         /// <summary>
-        /// <c>Render.Flags3</c> bit 17: 0x94 (an actor). Read as "the mouth moves until the line is confirmed"
-        /// (<see cref="WorldEntity.IsTalking"/>; inference, #198): Deraquien's talk event sets it on him and retail moves
-        /// his mouth until Enter, while the Windurst Waters intro never sets it and retail flaps Ajido-Marujido's mouth a
-        /// few times. Not the name plate (Port Jeuno 324 sets it on the player, whose plate stays).
+        /// <c>Render.Flags3</c> bit 17: 0x94 (an actor). Effect unknown; not the name plate (Port Jeuno 324 sets it on the
+        /// player, whose plate stays).
         /// </summary>
         Flags3Bit17 = 1 << 7,
 

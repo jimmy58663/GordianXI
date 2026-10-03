@@ -696,19 +696,6 @@ namespace Gordian.Core.World
         public void Speak() => Interlocked.Increment(ref _spokenLines);
 
         /// <summary>
-        /// The entity's line is open and its mouth keeps moving until the player confirms it: set for a speaker with
-        /// <see cref="World.EventRenderFlags.Flags3Bit17"/> (opcode 0x94) whose line waits for Confirm (see
-        /// <see cref="FaceMotion"/>). Cleared when the line closes or the event ends.
-        /// </summary>
-        public bool IsTalking
-        {
-            get => _isTalking;
-            set => _isTalking = value;
-        }
-
-        private volatile bool _isTalking;
-
-        /// <summary>
         /// Where a running event (cutscene) has placed the entity, or null when the event leaves it alone. While set,
         /// the renderer draws the entity here instead of its server position (retail copies an event entity's
         /// <c>EventPos</c> / <c>EventDir</c> over its position: XiAtelBuff::CopyAllPosEvent). Cleared when the event ends.
