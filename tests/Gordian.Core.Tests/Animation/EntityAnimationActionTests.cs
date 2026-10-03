@@ -90,6 +90,87 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(0, state.GetRoutineFrames("tlk0"));
         }
 
+        /// <summary>
+        /// A gesture whose last clip loops until replaced (loop count 0, #193: package 9's <c>sha0</c> kneels down with
+        /// <c>sm0</c> and holds the kneel <c>sm1</c>) keeps the pose past its routine's length, until the next gesture
+        /// (<c>sha1</c> gets up) or a stop; the event still waits only one pass.
+        /// </summary>
+        [Fact]
+        public void EventMotion_LoopingLastClip_HoldsThePoseUntilTheNextGesture()
+        {
+            var model = Model([]);
+            var kneel = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(216,
+                MotionRoutineDecoderTests.PlayClip("sm0?", 104, 104, 30, 0, 1),
+                MotionRoutineDecoderTests.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
+            var getUp = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(108,
+                MotionRoutineDecoderTests.PlayClip("sm2?", 108, 108, 30, 0, 1)), "sha1")!;
+            var bank = new EventMotionBank(32721, [Clip("sm00", 1.7f), Clip("sm10", 1.8f), Clip("sm20", 1.8f)], [kneel, getUp]);
+            Assert.True(bank.Routines["sha0"].HoldsLastClip);
+            Assert.Equal(216, bank.GetRoutineFrames("sha0"));
+
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.AddEventMotionBank(bank);
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha0"));
+            Run(state, model, AnimationCategory.Idle, 600);
+            Assert.Equal("sha0", state.ActiveRoutine!.Name);
+            Assert.Equal("sm10", state.CurrentClip!.Name);
+            Assert.True(state.LoopsCurrentClip);
+
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha1"));
+            Run(state, model, AnimationCategory.Idle, 120);
+            Assert.False(state.IsPlayingAction);
+            Assert.Equal("idl", state.CurrentClip!.Name);
+
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha0"));
+            Run(state, model, AnimationCategory.Idle, 600);
+            state.EnqueueAction(Request(ActionMotion.EventMotionStop)); // the event's end, or a 0x5E / 0x6B reset
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.False(state.IsPlayingAction);
+        }
+
+        /// <summary>
+        /// A gesture given while the entity was off screen (not advanced) is not dropped as stale: it starts where it would
+        /// be by now (#193: Joachim's kneel arrives during Port Jeuno 324's blink and must already be held when he is shown),
+        /// and a short one that would be over has ended.
+        /// </summary>
+        [Fact]
+        public void EventMotion_GivenOffScreen_CatchesUpInsteadOfBeingDropped()
+        {
+            var model = Model([]);
+            var kneel = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(216,
+                MotionRoutineDecoderTests.PlayClip("sm0?", 104, 104, 30, 0, 1),
+                MotionRoutineDecoderTests.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
+            var talk = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(52,
+                MotionRoutineDecoderTests.PlayClip("tl2?", 52, 52, 30, 0, 1)), "tlk1")!;
+            var bank = new EventMotionBank(32721, [Clip("sm00", 1.7f), Clip("sm10", 1.8f), Clip("tl20", 0.8f)], [kneel, talk]);
+            long fiveSecondsAgo = Stopwatch.GetTimestamp() - 5 * Stopwatch.Frequency;
+
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.AddEventMotionBank(bank);
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha0", received: fiveSecondsAgo));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("sha0", state.ActiveRoutine!.Name);
+            Assert.Equal("sm10", state.CurrentClip!.Name);
+
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "tlk1", received: fiveSecondsAgo));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.False(state.IsPlayingAction);
+        }
+
+        /// <summary>Outside an event, an action whose last clip loops until replaced still ends with its routine.</summary>
+        [Fact]
+        public void Action_LoopingLastClip_EndsWithItsRoutine()
+        {
+            var model = Model([("cor", 0.1f)], ("corp", MotionRoutineDecoderTests.Routine(2, MotionRoutineDecoderTests.PlayClip("cor?", 2, 2, 0, 0, 0))));
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.EnqueueAction(Request(ActionMotion.Routine, routine: "corp"));
+            Run(state, model, AnimationCategory.Idle, 10);
+            Assert.False(state.IsPlayingAction);
+        }
+
         [Fact]
         public void Swing_PlaysRoutineClip_LandsHitAtHitTick_ThenBlendsBackToStance()
         {

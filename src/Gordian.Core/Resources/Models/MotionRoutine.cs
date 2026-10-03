@@ -14,7 +14,10 @@ namespace Gordian.Core.Resources.Models
     /// <param name="DurationTicks">The op's duration field: how long the step owns the body.</param>
     /// <param name="BlendInTicks">Cross-fade from the previous pose into this clip.</param>
     /// <param name="BlendOutTicks">Cross-fade from this clip back to the stance when the routine ends.</param>
-    /// <param name="Loops">How many times the clip repeats (1 = once; the looping cast chants use 17-63).</param>
+    /// <param name="Loops">
+    /// How many times the clip repeats, then holds its last frame (1 = once; the looping cast chants use 17-63), or 0 to
+    /// loop until the next motion replaces it (the held kneel of <c>sha0</c>, the corpse <c>corp</c>, #193).
+    /// </param>
     /// <param name="Speed">Playback rate (1 = authored speed).</param>
     public readonly record struct MotionSegment(
         string ClipName,
@@ -66,6 +69,13 @@ namespace Gordian.Core.Resources.Models
         /// so the routine lasts until something replaces it.
         /// </summary>
         public bool IsSustained => Segments.Count > 0 && Segments[^1].Loops >= MotionRoutineDecoder.SustainedLoopCount;
+
+        /// <summary>
+        /// Whether the last clip loops until the next motion replaces it (op 0x05 loop count 0): the event gestures that
+        /// end in a pose (<c>sha0</c> kneels, <c>tlk0</c> keeps talking, <c>corp</c> lies down) hold it until the script
+        /// plays the next one.
+        /// </summary>
+        public bool HoldsLastClip => Segments.Count > 0 && Segments[^1].Loops == 0;
 
         public override string ToString() => $"MotionRoutine [{Name}] {Segments.Count} clip(s), {TotalTicks} ticks";
     }
