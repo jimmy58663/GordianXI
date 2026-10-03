@@ -1393,6 +1393,11 @@ namespace Gordian.Core.Events
                         case 2:
                             if (TaskActor(Code32(2)) is var looker && looker != uint.MaxValue) _host.SetEntityLookAxis(looker, GetWork(6), GetWork(8));
                             break;
+                        default:
+                            // Retail does not advance on an unknown sub and would spin until the step guard; end it now.
+                            _host.OnSkippedOpcode(0x79, _pc);
+                            EndRequest();
+                            return;
                     }
                     _pc += EventOpcodeTable.GetLength(_code, _pc);
                     return;
