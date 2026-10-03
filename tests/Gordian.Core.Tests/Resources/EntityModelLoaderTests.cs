@@ -819,15 +819,16 @@ namespace Gordian.Core.Tests.Resources
         }
 
         /// <summary>
-        /// #76, retail CPU-skin check: Moblin model 1735 (ROM/258/91) carries a bow bound to joints 104 and 107, which its
+        /// #76, retail CPU-skin check: Qiqirn model 1735 (ROM/258/91) carries a bow bound to joints 104 and 107, which its
         /// idle, walk, run and battle stance hold at scale 0; samurai model 1182 (ROM/151/126) hides a second blade the
         /// same way. Skinned with the decoded scale every vertex bound only to such joints collapses onto its joint; at
-        /// scale 1 (the old decoder) the part has its full size (the bow lay at the Moblin's feet). Skipped without the
+        /// scale 1 (the old decoder) the part has its full size (the bow lay at the Qiqirn's feet). The Trust Najelith (3033) hides her bow and arrow the same way. Skipped without the
         /// game install.
         /// </summary>
         [Theory]
         [InlineData(1735u)]
         [InlineData(1182u)]
+        [InlineData(3033u)]
         public void ZeroScaleStance_HidesThePart(uint modelId)
         {
             const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
