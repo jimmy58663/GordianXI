@@ -1495,5 +1495,49 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Equal(80.0f, h.Pc.Position.X);
         }
+
+        [Fact]
+        public void MapSchedulor_QueuesTheZoneRoutineForTheViewport()
+        {
+            // LandSandBoat's Alzadaal zone-in: entityVisualPacket('1pa1') with no entity (both actors 0).
+            var world = new WorldState { CurrentZoneId = 72 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (_, _) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] payload = new byte[16];
+            Encoding.ASCII.GetBytes("1pa1").CopyTo(payload, 8);
+            dispatcher.Dispatch(new PacketHeader(0x039, 20, 1), payload);
+
+            var decoded = new S2C_0x039_MapSchedulor(payload);
+            Assert.True(decoded.IsValid);
+            Assert.Equal("1pa1", decoded.Routine);
+            Assert.Equal(0u, decoded.CasterServerId);
+
+            var taken = new List<MapSchedulerRequest>();
+            world.TakeMapSchedulers(72, taken);
+            Assert.Equal(new[] { new MapSchedulerRequest(72, "1pa1", 0, 0) }, taken);
+            taken.Clear();
+            world.TakeMapSchedulers(72, taken);
+            Assert.Empty(taken); // taken once
+        }
+
+        [Fact]
+        public void MapSchedulers_WaitForTheirZone_AndAZoneChangeDropsThem()
+        {
+            var world = new WorldState { CurrentZoneId = 72 };
+            world.PostMapScheduler("1pb1", 0, 0);
+            var taken = new List<MapSchedulerRequest>();
+
+            world.TakeMapSchedulers(4, taken); // the viewport still shows another zone: kept for 72
+            Assert.Empty(taken);
+            world.TakeMapSchedulers(72, taken);
+            Assert.Single(taken);
+
+            world.PostMapScheduler("2pb1", 0, 0);
+            world.CurrentZoneId = 4;
+            taken.Clear();
+            world.TakeMapSchedulers(72, taken);
+            Assert.Empty(taken);
+        }
     }
 }

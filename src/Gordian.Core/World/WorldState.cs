@@ -80,6 +80,7 @@ namespace Gordian.Core.World
                         _currentZoneId = value;
                         _collision = null;
                         _eventZoneId = 0;
+                        _mapSchedulers.Clear();
                         changed = true;
                     }
                 }
@@ -161,6 +162,45 @@ namespace Gordian.Core.World
         {
             get => (ushort)_displayedZoneId;
             set => _displayedZoneId = value;
+        }
+
+        private readonly List<MapSchedulerRequest> _mapSchedulers = new();
+
+        /// <summary>Most map schedulers kept for a zone the viewport has not loaded yet.</summary>
+        public const int MaxPendingMapSchedulers = 64;
+
+        /// <summary>
+        /// Queues a zone routine the server asked to play (S2C 0x039) for the viewport that draws the current zone.
+        /// Requests stay queued until that zone is loaded (the server sends them right after the zone-in), and a zone
+        /// change drops them.
+        /// </summary>
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            if (string.IsNullOrEmpty(routine)) return;
+            lock (_syncRoot)
+            {
+                if (_mapSchedulers.Count >= MaxPendingMapSchedulers) _mapSchedulers.RemoveAt(0);
+                _mapSchedulers.Add(new MapSchedulerRequest(_currentZoneId, routine, casterServerId, targetServerId));
+            }
+        }
+
+        /// <summary>
+        /// Moves the queued map schedulers of <paramref name="zoneId"/> into <paramref name="into"/>, in arrival order, and
+        /// drops those of any other zone than the current one.
+        /// </summary>
+        public void TakeMapSchedulers(ushort zoneId, List<MapSchedulerRequest> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_syncRoot)
+            {
+                if (_mapSchedulers.Count == 0) return;
+                for (int i = 0; i < _mapSchedulers.Count; i++)
+                {
+                    if (_mapSchedulers[i].ZoneId == zoneId) into.Add(_mapSchedulers[i]);
+                }
+                ushort current = _currentZoneId;
+                _mapSchedulers.RemoveAll(r => r.ZoneId == zoneId || r.ZoneId != current);
+            }
         }
 
         /// <summary>The time of day in hours [0, 24): the event's stopped clock, else Vana'diel time now.</summary>
@@ -543,4 +583,10 @@ namespace Gordian.Core.World
             return testWorld.BenchmarkDeadReckoning(iterations, elapsed, updateSpatialGrid: true);
         }
     }
+
+    /// <summary>
+    /// A zone routine the server asked to play (S2C 0x039 map scheduler): the routine's FourCC, the zone it was sent in,
+    /// and the caster and target server ids (0 when the server names no entity, as LandSandBoat's zone-in schedulers do).
+    /// </summary>
+    public readonly record struct MapSchedulerRequest(ushort ZoneId, string Routine, uint CasterServerId, uint TargetServerId);
 }

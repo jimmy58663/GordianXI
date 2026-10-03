@@ -1401,5 +1401,57 @@ namespace Gordian.Core.Network.Packets
         }
     }
 
+    /// <summary>
+    /// S2C 0x039 (GP_SERV_COMMAND_MAPSCHEDULOR): plays one of the zone's own routines (Section 0x07 of the zone DAT) by
+    /// its FourCC, e.g. the Alzadaal Undersea Ruins Runic Portals' <c>1pa1</c> / <c>1pb1</c> / <c>2pb1</c>, which
+    /// LandSandBoat sends after every zone-in. Payload (after the 4-byte header): caster server id (+0x00), target server
+    /// id (+0x04), the routine FourCC (+0x08), caster and target indexes (+0x0C, +0x0E); LandSandBoat sends 0 for both
+    /// actors when it names none.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0039)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x039_mapschedulor.h).
+    /// </summary>
+    public readonly ref struct S2C_0x039_MapSchedulor
+    {
+        public const ushort PacketId = 0x039;
+
+        public uint CasterServerId { get; }
+        public uint TargetServerId { get; }
+        /// <summary>The routine's FourCC as text (up to four printable characters).</summary>
+        public string Routine { get; }
+        public ushort CasterIndex { get; }
+        public ushort TargetIndex { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x039_MapSchedulor(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 16)
+            {
+                CasterServerId = TargetServerId = 0;
+                Routine = string.Empty;
+                CasterIndex = TargetIndex = 0;
+                IsValid = false;
+                return;
+            }
+
+            CasterServerId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(0, 4));
+            TargetServerId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            Routine = ReadFourCc(payload.Slice(8, 4));
+            CasterIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
+            TargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
+            IsValid = Routine.Length > 0;
+        }
+
+        private static string ReadFourCc(ReadOnlySpan<byte> span)
+        {
+            int end = span.IndexOf((byte)0);
+            if (end < 0) end = span.Length;
+            foreach (byte b in span.Slice(0, end))
+            {
+                if (b < 0x20 || b > 0x7E) return string.Empty;
+            }
+            return Encoding.ASCII.GetString(span.Slice(0, end));
+        }
+    }
+
     #endregion
 }

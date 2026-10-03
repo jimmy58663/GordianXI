@@ -102,8 +102,9 @@ namespace Gordian.Core.Tests.Resources
             byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
             byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
                 BuildSyntheticWaterGeneratorPayload("kwa1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 500), "kwa1");
+            // Bibiki Bay's umi2/s000 loops on completion (op 0x01 in its third list): the client starts it on zone load.
             byte[] routineSection = BuildChunk(DatSectionType.EffectRoutine,
-                EffectRoutineDecoderTests.BuildRoutinePayload(2669, ("kwa1", 985, 498), ("kwa2", 1684, 598)), "s000");
+                EffectRoutineDecoderTests.WithLoopOnComplete(EffectRoutineDecoderTests.BuildRoutinePayload(2669, ("kwa1", 985, 498), ("kwa2", 1684, 598))), "s000");
 
             var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection, routineSection), zoneId: 4);
 
@@ -111,6 +112,27 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(effect.Emitter);
             Assert.Equal(new[] { new EffectRoutineSpawn("kwa1", 0, 498) }, effect.Emitter.Schedule);
             Assert.Equal(2669, effect.Emitter.ScheduleLoopFrames);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_OnDemandRoutineLeavesItsGeneratorIdleForTheMapScheduler()
+        {
+            // The same routine without the loop flag (Alzadaal's portal 1pa2, #210): it waits for a map scheduler.
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("kwa1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 500), "kwa1");
+            byte[] routineSection = BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineDecoderTests.BuildRoutinePayload(2669, ("kwa1", 985, 498)), "1pa2");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection, routineSection), zoneId: 72);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.NotNull(effect.Emitter);
+            Assert.Null(effect.Emitter.Schedule);
+            var (_, routine) = Assert.Single(zone.MapRoutines.Find("1pa2"));
+            Assert.Equal(2669, routine.TotalFrames);
+            Assert.True(zone.MapRoutines.TryResolveGenerator(string.Empty, "kwa1", out var template));
+            Assert.Same(effect.Emitter, template);
         }
 
         [Fact]
