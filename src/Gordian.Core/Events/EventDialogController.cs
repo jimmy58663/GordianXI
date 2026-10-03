@@ -1,6 +1,7 @@
 // src/Gordian.Core/Events/EventDialogController.cs
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
@@ -133,6 +134,15 @@ namespace Gordian.Core.Events
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
         private readonly Dictionary<uint, (EventRenderFlags Set, EventRenderFlags Clear)> _pendingRenderFlags = new();
 
+        /// <summary>The speaker whose open line keeps its mouth moving (<see cref="WorldEntity.IsTalking"/>), or null.</summary>
+        private WorldEntity? _talker;
+
+        /// <summary>
+        /// How far (yalms) an event may have placed an entity from its server position and still turn it back smoothly at
+        /// the event's end; farther, it is put back at once (a staged actor returning from across the scene).
+        /// </summary>
+        public const float EventReturnSnapDistance = 1.5f;
+
         /// <summary>The running event's cutscene flags, for entities that arrive after its start.</summary>
         private CutsceneFlags _flags;
 
@@ -255,6 +265,7 @@ namespace Gordian.Core.Events
             SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
+            if (_talker != null && !scene.IsWaitingForConfirm) StopTalking();
             if (scene.IsFinished) FinishEvent(scene);
             else if (wasWaiting != scene.IsWaitingForConfirm) Changed?.Invoke();
         }
@@ -428,6 +439,7 @@ namespace Gordian.Core.Events
         {
             _cutsceneHud = false;
             _eventText = null;
+            StopTalking();
             _pendingPoses.Clear();
             _pendingHidden.Clear();
             _pendingKeepHeight.Clear();
@@ -456,9 +468,11 @@ namespace Gordian.Core.Events
                 foreach (uint id in _staged)
                 {
                     if (!world.TryGetByServerId(id, out var entity)) continue;
-                    if (entity.EventPose != null && id != (_player?.ServerId ?? 0))
+                    if (entity.EventPose is { } pose && id != (_player?.ServerId ?? 0)
+                        && Vector2.Distance(new Vector2(pose.Position.X, pose.Position.Z), new Vector2(entity.TargetPosition.X, entity.TargetPosition.Z)) > EventReturnSnapDistance)
                     {
-                        // Back where the server has it at once, not walked there from the event's spot.
+                        // Back where the server has it at once, not walked there from the event's spot. An actor the event
+                        // only turned (Deraquien facing the player) turns back smoothly instead (EntityRenderer), as in retail.
                         entity.SnapToTargetPending = true;
                         entity.RenderHeadingRadians = entity.HeadingRadians;
                     }
@@ -742,7 +756,17 @@ namespace Gordian.Core.Events
                 return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
-            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker) talker.Speak();
+            StopTalking();
+            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker)
+            {
+                talker.Speak();
+                // An actor with Render.Flags3 bit 17 (0x94) keeps moving its mouth until the player confirms the line.
+                if (decoded.HasPrompt && (talker.EventRenderFlags & EventRenderFlags.Flags3Bit17) != 0)
+                {
+                    talker.IsTalking = true;
+                    _talker = talker;
+                }
+            }
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
             if (_cutsceneHud)
             {
@@ -998,6 +1022,14 @@ namespace Gordian.Core.Events
             }
             entity.HidesEventName = hide;
             _staged.Add(serverId);
+        }
+
+        /// <summary>Ends the open line's talking mouth, if any.</summary>
+        private void StopTalking()
+        {
+            if (_talker == null) return;
+            _talker.IsTalking = false;
+            _talker = null;
         }
 
         void IEventVmHost.SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set)

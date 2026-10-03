@@ -60,6 +60,7 @@ Dates in the evidence column are the dates the docs give.
 | Value | Where | Status | Evidence or what would settle it | Doc |
 |---|---|---|---|---|
 | event turn ease 8 per second (about 95% in 0.4 s) | `EventPoseSmoother.TurnRate`, `EventVm.TurnEaseRate` | guessed | "retail's turn rate is not measured". Settle: frame-count a scripted turn in a retail recording | [entities](../world/entities-and-animation.md) |
+| 1.5 yalms: an event placement farther than this from the server position is put back at once at the event's end, a nearer one turns back smoothly | `EventDialogController.EventReturnSnapDistance` | guessed | #198; the turn back uses the event turn ease above | [entities](../world/entities-and-animation.md) |
 | a turn ends under 0.05 rad (0x76 / 0x70 waits `ln(angle / 0.05) / 8` s) | `EventVm.TurnDoneRadians` | guessed | as above | [ui](../ui/stock-ui.md#dialog-text-chunk-6) |
 | catch-up 1.25 x walk speed; a jump beyond half a second of walking (at least 1.5 yalms) is a placement | `EventPoseSmoother.CatchUp`, `EventPoseSmoother` | guessed | | [entities](../world/entities-and-animation.md) |
 | 4.0 yalms/s event walk when nothing gives a speed | `EventVm.DefaultWalkSpeed` | guessed | the usual default is the entity's base speed / 10 | [ui](../ui/stock-ui.md#dialog-text-chunk-6) |

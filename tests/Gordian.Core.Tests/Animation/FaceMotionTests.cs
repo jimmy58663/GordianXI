@@ -102,6 +102,24 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void Mouth_LoopsWhileTalking_AndStopsWhenTheLineCloses()
+        {
+            // A 0x94 actor's open line (#198): the mouth keeps moving past the clip's end until the player confirms.
+            var model = Model();
+            var face = new FaceMotion(new Random(1));
+            float duration = model.Animations[FaceMotion.MouthClip].DurationSeconds;
+            face.Advance(0f, spokenLines: 0, canBlink: false, model);
+            face.Advance(0f, spokenLines: 1, canBlink: false, model, talking: true);
+            for (int i = 0; i < 5; i++)
+            {
+                face.Advance(duration * 0.7f, spokenLines: 1, canBlink: false, model, talking: true);
+                Assert.True(face.MouthTime >= 0f && face.MouthTime < duration);
+            }
+            face.Advance(0.01f, spokenLines: 1, canBlink: false, model, talking: false);
+            Assert.Equal(-1f, face.MouthTime);
+        }
+
+        [Fact]
         public void Mouth_ANewLineMidPlay_StartsAgain()
         {
             var model = Model();

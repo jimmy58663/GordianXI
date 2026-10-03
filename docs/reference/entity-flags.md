@@ -231,7 +231,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 11 | 0x800 | 0xA5 | | unknown | not run |
 | 12 | 0x1000 | 0xC0 (value from a work value) | | unknown; set by cutscene-only story actors and summons on themselves at an event's start (674 entries are only `C0 value`; [events/opcodes.md](../events/opcodes.md#0xc0)) | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it |
 | 16 | 0x10000 | 0x92 (`op value actor`) | | no name plate (*inference*, #191: Port Jeuno 324 sets it on every NPC it places and on Joachim but not on the player, and the maintainer's retail recording shows only the player's plate; the Southern San d'Oria intro never sets it and shows every plate). 8,288 of the 8,349 retail events that use 0x92 set it and 412 clear it; most leave it to the event's end | `WorldEntity.HidesEventName` → `NamePlateStyle.ShowsName`; cleared when the event ends. **Beyond XiEvents:** the name plate reading |
-| 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | kept as `EventRenderFlags.Flags3Bit17` (#198), nothing reads it |
+| 17 | 0x20000 | 0x94 (`op value actor`) | | the mouth moves until the line is confirmed (*inference*, #198: Deraquien's talk event sets it and retail moves his mouth until Enter; the Windurst Waters intro does not and retail flaps a few times). Not the plate: Port Jeuno 324 sets it on the player too, whose plate stays. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | `EventRenderFlags.Flags3Bit17` → `WorldEntity.IsTalking` while the actor's prompted line is open (`FaceMotion` loops the mouth). **Beyond XiEvents:** the reading |
 | 19 | 0x80000 | 0x95 sets (sets the entity up as an event NPC), 0x96 clears | | event-based NPC | not run |
 | 20-21 | 0x300000 | 0x95 (a 2-bit parameter) | | unknown | not run |
 | 26 | 0x4000000 | 0xA4 | | unknown | not run |
@@ -271,7 +271,7 @@ Every opcode below changes only render-flag bits (or the blink switch) in retail
 | 0x8E / 0x8F | event status 45 / 46 unless Flags0 bit 2 is set | diagnostic |
 | 0x90 | event hide (Flags0 bit 17) and Flags1 bit 12 on the own entity | runs the hide, as 0x22 01 (`IsEventHidden`); bit 12 not kept |
 | 0x92 | Flags3 bit 16 on an actor: no name plate (#191) | runs: `WorldEntity.HidesEventName` (Northern San d'Oria event 878: seven NPC blocks only toggle it, [ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6)) |
-| 0x94 | Flags3 bit 17 on an actor | runs: kept, effect unknown |
+| 0x94 | Flags3 bit 17 on an actor | runs: the mouth keeps moving while the actor's line waits for Confirm |
 | 0x95 / 0x96 | event NPC setup / tear-down (Flags3 bits 19-21, attachments) | diagnostic |
 | 0xA4 / 0xA5 | Flags3 bit 26 / bit 11 | diagnostic |
 | 0xAB | many sub-cases over Flags0, Flags2, Flags4, Flags7 (tables above) | partial: the entity bits are kept (effect unknown); the client-wide subs are stepped silently |

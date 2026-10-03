@@ -408,8 +408,17 @@ namespace Gordian.App.Graphics
                 // For remote entities, smoothly interpolate render position towards target network position
                 else if (entity.ServerId != localPlayerServerId)
                 {
-                    _eventPoses.Remove(entity.ServerId);
+                    // After an event that only turned the entity (Deraquien facing the player), it turns back to its server
+                    // heading at the event turn's ease, as retail blends it; one the event moved away is put back at once.
+                    bool putBack = entity.SnapToTargetPending;
                     entity.InterpolatePosition(deltaSeconds);
+                    if (_eventPoses.TryGetValue(entity.ServerId, out var returning))
+                    {
+                        returning.Advance(new EventPose(entity.Position, entity.HeadingRadians, 0f), deltaSeconds);
+                        float left = MathF.Abs(MathF.IEEERemainder(entity.HeadingRadians - returning.Heading, MathF.Tau));
+                        if (putBack || left < 0.01f) _eventPoses.Remove(entity.ServerId);
+                        else entity.RenderHeadingRadians = returning.Heading;
+                    }
                 }
                 else
                 {
@@ -699,7 +708,7 @@ namespace Gordian.App.Graphics
                 _faces[entity.ServerId] = face;
             }
             bool canBlink = category != AnimationCategory.Death && (entity.EventRenderFlags & EventRenderFlags.NoBlink) == 0;
-            face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model);
+            face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model, entity.IsTalking);
             return face;
         }
 
