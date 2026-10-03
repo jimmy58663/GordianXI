@@ -833,7 +833,8 @@ namespace Gordian.Core.World
         public bool IgnoresWorldCollision { get; set; }
 
         /// <summary>
-        /// For an elevator or ship: the FourCC of the zone object it moves (its door id), empty otherwise.
+        /// For an elevator, ship or door: the FourCC of the zone object it moves (its door id, e.g. <c>_6l0</c> for a door),
+        /// empty otherwise.
         /// </summary>
         public string TransportId { get; set; } = string.Empty;
 

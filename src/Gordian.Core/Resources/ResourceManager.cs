@@ -455,6 +455,7 @@ namespace Gordian.Core.Resources
                     {
                         var placements = ZoneDefDecoder.ParseZonePlacements(payload, nodeCount);
                         collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision);
+                        collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeFromDat(datBytes));
                     }
                     break;
                 }

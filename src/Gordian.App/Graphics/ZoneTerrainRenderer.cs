@@ -37,6 +37,11 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<string, ActorLighting> _subEnvironmentActorLights = new(StringComparer.OrdinalIgnoreCase);
         private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
 
+        // Door leaves, drawn at their door's live pose.
+        private readonly List<GpuSubmesh> _doorSubmeshes = new();
+        private DoorAnimator? _doorAnimator;
+        private static readonly double TimestampSeconds = 1.0 / System.Diagnostics.Stopwatch.Frequency;
+
         /// <summary>
         /// The displayed session's world, whose elevator entities drive the zone's moving platforms.
         /// </summary>
@@ -270,6 +275,15 @@ namespace Gordian.App.Graphics
             /// The moving platform (elevator) this part belongs to; empty for static scenery.
             /// </summary>
             public string PlatformId { get; init; } = string.Empty;
+
+            /// <summary>The door this leaf belongs to; empty for anything else.</summary>
+            public string DoorId { get; init; } = string.Empty;
+
+            /// <summary>The leaf's part index in its door's routines.</summary>
+            public int DoorPart { get; init; }
+
+            /// <summary>The leaf's placement: its origin is the hinge its door's routines turn it about.</summary>
+            public ZonePlacement DoorPlacement { get; init; }
 
             public void Dispose()
             {
@@ -666,16 +680,24 @@ namespace Gordian.App.Graphics
             var factory = _gd.ResourceFactory;
             int vertCount = 0;
 
-            var allGroups = new List<(MeshGroup Group, string PlatformId)>(zone.MeshGroups.Count);
-            foreach (var group in zone.MeshGroups) allGroups.Add((group, string.Empty));
+            var allGroups = new List<(MeshGroup Group, string PlatformId, string DoorId, DoorLeaf? Leaf)>(zone.MeshGroups.Count);
+            foreach (var group in zone.MeshGroups) allGroups.Add((group, string.Empty, string.Empty, null));
             foreach (var (platformId, parts) in zone.MovingPlatformGroups)
             {
-                foreach (var part in parts) allGroups.Add((part, platformId));
+                foreach (var part in parts) allGroups.Add((part, platformId, string.Empty, null));
             }
+            foreach (var (doorId, leaves) in zone.DoorLeaves)
+            {
+                foreach (var leaf in leaves)
+                {
+                    foreach (var part in leaf.Submeshes) allGroups.Add((part, string.Empty, doorId, leaf));
+                }
+            }
+            _doorAnimator = zone.DoorRoutines.Count > 0 ? new DoorAnimator(zone.DoorRoutines) : null;
 
             for (int i = 0; i < allGroups.Count; i++)
             {
-                var (group, platformId) = allGroups[i];
+                var (group, platformId, doorId, leaf) = allGroups[i];
                 if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
 
                 var vb = factory.CreateBuffer(new BufferDescription(
@@ -703,9 +725,12 @@ namespace Gordian.App.Graphics
                     lightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, lightRefs));
                 }
 
-                (platformId.Length > 0 ? _platformSubmeshes : _zoneSubmeshes).Add(new GpuSubmesh
+                (doorId.Length > 0 ? _doorSubmeshes : platformId.Length > 0 ? _platformSubmeshes : _zoneSubmeshes).Add(new GpuSubmesh
                 {
                     PlatformId = platformId,
+                    DoorId = doorId,
+                    DoorPart = leaf?.Part ?? 0,
+                    DoorPlacement = leaf?.Placement ?? default,
                     LightRefsBuffer = lightRefs,
                     LightSet = lightSet,
                     Name = group.Name,
@@ -1068,6 +1093,7 @@ namespace Gordian.App.Graphics
             }
 
             DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
+            DrawDoors(sceneUniform, frustum, ref draws, ref visible, ref culled);
 
             // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
             // render the adaptive ground plane centered under the player so character stands on solid ground.
@@ -2276,6 +2302,69 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// Draws the door leaves at their door's live pose (<see cref="DoorAnimator"/>, driven by the door entities'
+        /// status): a per-draw world transform in the scene uniform of the leaf's environment, restored afterwards.
+        /// </summary>
+        private void DrawDoors(ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+        {
+            if (_doorSubmeshes.Count == 0) return;
+            double now = System.Diagnostics.Stopwatch.GetTimestamp() * TimestampSeconds;
+            if (World != null) _doorAnimator?.Update(World, now);
+
+            foreach (var submesh in _doorSubmeshes)
+            {
+                var pose = _doorAnimator?.GetPose(submesh.DoorId, submesh.DoorPart, now) ?? DoorLeafPose.Shut;
+                // The leaf moves in internal space; its vertices are in display space (-X, -Y, Z), a flip that is its own inverse.
+                var world = pose == DoorLeafPose.Shut
+                    ? Matrix4x4.Identity
+                    : DisplayFlip * DoorAnimator.LeafTransform(submesh.DoorPlacement, pose) * DisplayFlip;
+                TransformBounds(submesh.MinBounds, submesh.MaxBounds, world, out var min, out var max);
+                if (!frustum.IntersectsBox(min, max))
+                {
+                    culled++;
+                    continue;
+                }
+
+                bool sub = submesh.EnvironmentId.Length > 0 && _subEnvironmentScenes.TryGetValue(submesh.EnvironmentId, out _);
+                var buffer = sub ? _subEnvironmentScenes[submesh.EnvironmentId].Buffer : _sceneUniformBuffer;
+                var baseUniform = sub && _subEnvironmentUniforms.TryGetValue(submesh.EnvironmentId, out var subUniform) ? subUniform : sceneUniform;
+                var moved = baseUniform;
+                moved.World = world;
+                _commandList.UpdateBuffer(buffer, 0, ref moved);
+
+                _commandList.SetPipeline(ForSubmesh(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline, submesh.NoCull));
+                _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
+                _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, _activeDecodedTextures));
+                _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
+                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.UpdateBuffer(buffer, 0, ref baseUniform);
+                draws++;
+                visible++;
+            }
+        }
+
+        /// <summary>The axis-aligned bounds of a box after a transform (its eight corners).</summary>
+        private static void TransformBounds(Vector3 min, Vector3 max, in Matrix4x4 transform, out Vector3 outMin, out Vector3 outMax)
+        {
+            if (transform.IsIdentity)
+            {
+                outMin = min;
+                outMax = max;
+                return;
+            }
+            outMin = new Vector3(float.MaxValue);
+            outMax = new Vector3(float.MinValue);
+            for (int corner = 0; corner < 8; corner++)
+            {
+                var point = Vector3.Transform(new Vector3((corner & 1) != 0 ? max.X : min.X, (corner & 2) != 0 ? max.Y : min.Y, (corner & 4) != 0 ? max.Z : min.Z), transform);
+                outMin = Vector3.Min(outMin, point);
+                outMax = Vector3.Max(outMax, point);
+            }
+        }
+
         private ResourceSet SceneSetFor(GpuSubmesh submesh) =>
             submesh.EnvironmentId.Length > 0 && _subEnvironmentScenes.TryGetValue(submesh.EnvironmentId, out var scene)
                 ? scene.Set
@@ -2290,6 +2379,9 @@ namespace Gordian.App.Graphics
             _zoneSubmeshes.Clear();
             foreach (var submesh in _platformSubmeshes) submesh.Dispose();
             _platformSubmeshes.Clear();
+            foreach (var submesh in _doorSubmeshes) submesh.Dispose();
+            _doorSubmeshes.Clear();
+            _doorAnimator = null;
             _textureCache?.Clear();
             TotalVertices = 0;
         }

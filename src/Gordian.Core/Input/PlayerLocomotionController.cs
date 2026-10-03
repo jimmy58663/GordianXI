@@ -96,6 +96,7 @@ namespace Gordian.Core.Input
         private bool _airborne;
         private float _fallSpeed;
         private PlatformHeight[] _platforms = Array.Empty<PlatformHeight>();
+        private DoorBlocker[] _closedDoors = Array.Empty<DoorBlocker>();
 
         /// <summary>
         /// Test hook: the Earth seconds since the Vana'diel epoch used to place moving platforms (defaults to now).
@@ -661,6 +662,7 @@ namespace Gordian.Core.Input
             var previousPlatforms = _platforms;
             double platformClock = PlatformClock?.Invoke() ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
             _platforms = MovingPlatforms.Evaluate(_world.Collision, _world, platformClock);
+            _closedDoors = ZoneDoors.EvaluateClosed(_world.Collision, _world);
             LogPlatformJumps(previousPlatforms, platformClock);
             RideMovingPlatform(localEnt);
 
@@ -960,6 +962,9 @@ namespace Gordian.Core.Input
             if (collision != null && (layers & CollisionLayers.Walls) != 0 && target != start)
             {
                 target = collision.ResolveWalls(start, target, BodyRadius, StepUpHeight, BodyHeight);
+
+                // Closed doors fill their doorway (the collision soup has none of their leaves).
+                target = ZoneDoors.Resolve(_closedDoors, start, target, BodyRadius, StepUpHeight, BodyHeight);
 
                 // The shaft doors keep the player out of an elevator shaft unless its platform is at the player's level.
                 if (MovingPlatforms.EntersEmptyShaft(_platforms, start, target, StepUpHeight)) target = start;

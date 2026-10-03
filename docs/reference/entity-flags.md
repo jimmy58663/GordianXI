@@ -257,7 +257,7 @@ Every opcode below changes only render-flag bits (or the blink switch) in retail
 |---|---|---|
 | 0x2F | Flags0 bit 19 on an actor | silent |
 | 0x33 | Flags0 bit 21 on the own entity (no floor snap) | runs: `WorldEntity.KeepsEventHeight` (#192) |
-| 0x4C / 0x4D | door status 8 / 9 unless Flags0 bit 2 is set | runs: `WorldEntity.EventStatus` (#200); doors are drawn static (#15) |
+| 0x4C / 0x4D | door status 8 / 9 unless Flags0 bit 2 is set | runs: `WorldEntity.EventStatus` (#200), which opens and closes the door (#15) |
 | 0x4F | event status unless Flags0 bit 2 is set | diagnostic |
 | 0x59 sub 5 | Flags0 bit 21 on an actor | runs: `WorldEntity.KeepsEventHeight` (#192; subs 0-4 and 6 run too: turn speeds, walk speed, emote wait, [#197](https://github.com/jimmy58663/GordianXI/issues/197)) |
 | 0x5F subs 0 / 1 | Flags1 bit 29 | diagnostic |

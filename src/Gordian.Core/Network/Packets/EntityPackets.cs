@@ -610,7 +610,29 @@ namespace Gordian.Core.Network.Packets
             legStartSeconds = 0;
             travelSeconds = 0;
             if (SubKind is not (EntitySubKind.Elevator or EntitySubKind.Ship) || _payload.Length < 0x38) return false;
+            if (!TryReadObjectId(out objectId)) return false;
+            legStartSeconds = BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x34, 4));
+            travelSeconds = SubKind == EntitySubKind.Elevator && _payload.Length >= 0x3C
+                ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x38, 4))
+                : 0;
+            return true;
+        }
 
+        /// <summary>
+        /// For a door (SubKind 2), the FourCC of the zone door it opens (<c>DoorId</c>, e.g. <c>_6l0</c>): the door's
+        /// Section 0x36 record and the BlockID of its leaves. Packet structure referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets, world/server/0x000E, SubKind 2).
+        /// </summary>
+        public bool TryGetDoorObjectId(out string objectId)
+        {
+            objectId = string.Empty;
+            return SubKind == EntitySubKind.Door && _payload.Length >= 0x34 && TryReadObjectId(out objectId);
+        }
+
+        /// <summary>The printable FourCC at payload 0x30 (a door, elevator or ship's zone object id).</summary>
+        private bool TryReadObjectId(out string objectId)
+        {
+            objectId = string.Empty;
             var id = _payload.Slice(0x30, 4);
             int length = id.IndexOf((byte)0);
             if (length < 0) length = 4;
@@ -621,10 +643,6 @@ namespace Gordian.Core.Network.Packets
             }
 
             objectId = System.Text.Encoding.ASCII.GetString(id.Slice(0, length));
-            legStartSeconds = BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x34, 4));
-            travelSeconds = SubKind == EntitySubKind.Elevator && _payload.Length >= 0x3C
-                ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x38, 4))
-                : 0;
             return true;
         }
 
