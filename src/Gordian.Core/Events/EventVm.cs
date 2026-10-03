@@ -203,17 +203,21 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>Where the named actor stands: its event position when it takes part in the event, else the world's.</summary>
-        private bool TryGetActorPosition(int lookup, out Vector3 position)
+        private bool TryGetActorPosition(int lookup, out Vector3 position) => TryGetActorPose(lookup, out position, out _);
+
+        /// <summary>Where the named actor stands and which way it faces: its event pose when it takes part in the event, else the world's.</summary>
+        private bool TryGetActorPose(int lookup, out Vector3 position, out float heading)
         {
             var (serverId, _) = ResolveActor(lookup);
             position = default;
+            heading = 0f;
             if (serverId == uint.MaxValue) return false;
             if (Scene.FindActor(serverId) is { } actor)
             {
-                position = actor.EventPosition.Position;
+                (position, heading) = actor.EventPosition;
                 return true;
             }
-            return _host.TryGetEntityPose(serverId == 0 ? Scene.PlayerServerId : serverId, out position, out _, out _);
+            return _host.TryGetEntityPose(serverId == 0 ? Scene.PlayerServerId : serverId, out position, out heading, out _);
         }
 
         /// <summary>
@@ -1039,6 +1043,32 @@ namespace Gordian.Core.Events
                     _mainSpeed = GetWork(1) * 0.1f;
                     _pc += 3;
                     return;
+                case 0x3A:
+                {
+                    // The actor's heading in 4096 steps to a turn, as the 0x7F03 fact (XiEvents OpCodes/0x003A); 0 for an
+                    // actor that is not in the zone, unchanged for a code that names nobody.
+                    if (ResolveActor(Code32(1)).ServerId != uint.MaxValue)
+                    {
+                        SetWork(5, TryGetActorPose(Code32(1), out _, out float heading) ? (int)(heading * 4096f / (2f * MathF.PI)) : 0);
+                    }
+                    _pc += 7;
+                    return;
+                }
+                case 0x3B:
+                {
+                    // The actor's position in thousandths of a yalm, the scripts' order x, y, height (XiEvents
+                    // OpCodes/0x003B): the event position of an actor in the event, else its world position; the scripts
+                    // add 0x16 / 0x17 offsets to it to stand actors around one another (Lower Jeuno event 70).
+                    if (ResolveActor(Code32(1)).ServerId != uint.MaxValue)
+                    {
+                        TryGetActorPose(Code32(1), out var at, out _);
+                        SetWork(5, (int)(at.X * 1000f));
+                        SetWork(7, (int)(at.Z * 1000f));
+                        SetWork(9, (int)(at.Y * 1000f));
+                    }
+                    _pc += 11;
+                    return;
+                }
                 case 0x39:
                     SetEventHeading(ScriptHeading(GetWork(1)));
                     _pc += 3;

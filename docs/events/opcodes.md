@@ -78,8 +78,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x37 | | 9 | runs | 12,635 | Places the event's entity and sets its heading. |
 | 0x38 | | 3 | partial | 5,425 | Sets the low word of the event mode mask (`CliEventModeLocal`); GordianXI records it only. |
 | 0x39 | | 3 | runs | 1,065 | Sets the event's entity heading (4096 steps per turn). |
-| 0x3A | | 7 | stepped | 588 | Reads an actor's heading into a work value. |
-| 0x3B | | 11 | stepped | 783 | Reads an actor's position into three work values. |
+| 0x3A | | 7 | runs | 588 | Reads an actor's heading into a work value. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
+| 0x3B | | 11 | runs | 783 | Reads an actor's position into three work values. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x3C | | 7 | runs | 3,082 | Sets bit n of a run of work values, when n is inside the run. |
 | 0x3D | | 7 | runs | 7,788 | Clears bit n of a run of work values, when n is inside the run. |
 | 0x3E | | 7 | runs | 2,842 | Tests bit n of a run of work values and jumps when it is clear. |
@@ -351,13 +351,15 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x3A
 
 - Layout: `3A actor:u32 out:work`. Stores the actor's heading in 4096 steps per turn (0 when the actor resolves to no entity) (XiEvents OpCodes/0x003A).
-- GordianXI steps over it, so `out` keeps its old value.
+- GordianXI (`EventVm.Step`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the named actor's event heading when it takes part in the event, else its world heading, scaled as the 0x7F03 fact. An actor code that names nobody leaves `out` unchanged; an actor not in the zone stores 0.
 - **Differs from XiEvents and xi-tools:** both describe a single-byte yaw; the pseudo code scales by 4096 / 2 pi, the same unit as 0x39.
 
 ### 0x3B
 
 - Layout: `3B actor:u32 x:work y:work height:work`. Stores the actor's position in thousandths of a yalm: its event position when it takes part in an event, else its world position (XiEvents OpCodes/0x003B).
-- GordianXI steps over it, so the three work values keep their old values. `EventVm.ResolveKey` already answers the entity facts 0x7F00-0x7F03 (own event position) and 0x7F80+ (the player), which cover some of the same reads.
+- GordianXI (`EventVm.Step`, [#197](https://github.com/jimmy58663/GordianXI/issues/197)): the named actor's event position when it takes part in the event, else its world position, in the scripts' order (x, the other ground axis, height; the axes 0x36 / 0x37 take). An actor code that names nobody leaves the work values unchanged; an actor not in the zone stores zeros.
+- Scripts read their own position with 0x3B / 0x3A and add 0x16 / 0x17 offsets to it. In Lower Jeuno event 70 all seven NPCs do this (`3B F8FFFF7F` / `3A F8FFFF7F`, the VM itself). With the two opcodes stepped, the NPCs stood at the origin of Ru'Lude Gardens, where the scene plays, and none showed on camera (in-game test, 2026-10-03).
+- Over the corpus, 1,110 of the 2,914 reads name the VM itself and 1,744 another actor. For those, XiEvents' pseudo code reads the running VM's own event position when the actor is in an event (open question below); GordianXI reads the named actor's.
 
 ### 0x43
 
@@ -807,7 +809,7 @@ When a change makes an opcode run, update its row and detail section in the same
 - 0x12 range of retail rand() (GordianXI uses Random.Next, up to 2^31-1).
 - 0x31 time operand: as transcribed, the walk stops moving but keeps yielding once the time runs out.
 - 0x38 low or high byte (XiEvents example vs xi-tools correction).
-- 0x3A / 0x3B read the running VM's own event position, not the actor's, when the actor is in an event (XiEvents as transcribed).
+- 0x3A / 0x3B read the running VM's own event position, not the actor's, when the actor is in an event (XiEvents as transcribed). GordianXI reads the named actor's; the two agree when the script names itself.
 - 0x59 subs 0 / 1: the unit of `TurnSpeed` (read as 4096ths of a turn per frame).
 - 0x5A axis cross-over.
 - What scheduler file 5012 + p (0x62) holds.

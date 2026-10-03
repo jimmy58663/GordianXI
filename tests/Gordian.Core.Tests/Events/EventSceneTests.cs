@@ -423,6 +423,26 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal(new[] { 0, 1500, -1499, 4096, -2048 }, vm.Locals.Take(5));
         }
 
+        /// <summary>
+        /// 0x3B / 0x3A (#197): an actor's event position (x, y, height in thousandths) and heading (4096 to a turn), which the
+        /// scripts offset with 0x16 / 0x17. Stepped over, they left zeros and Lower Jeuno event 70 stood every NPC at the
+        /// zone's origin.
+        /// </summary>
+        [Fact]
+        public void Opcodes3BAnd3A_ReadTheActorsEventPose()
+        {
+            // 37 x y h heading (the actor placed) ; 3B actor L0 L1 L2 ; 3A actor L3 ; 00
+            var actor = Block(Actor, new uint[] { 12_500, 3_000, unchecked((uint)-40_250), 1024 }, Code(0x37, Ref(0), Ref(1), Ref(2), Ref(3), 0x00));
+            var director = Block(Director, Array.Empty<uint>(), Code(0x3B, Id(Actor), 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x3A, Id(Actor), 0x03, 0x00, 0x00));
+            var host = new RecordingHost();
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(actor, EventId, scene, host, Actor, 2);
+            var vm = new EventVm(director, EventId, scene, host, Director, 1);
+            scene.Tick(Frame); // the actor places itself first
+            scene.Tick(Frame);
+            Assert.Equal(new[] { 12_500, 3_000, -40_250, 1024 }, vm.Locals.Take(4));
+        }
+
         [Fact]
         public void Opcode76_PassesWhenTheActorIsNotTurning()
         {
