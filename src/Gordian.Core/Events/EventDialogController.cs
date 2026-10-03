@@ -134,6 +134,9 @@ namespace Gordian.Core.Events
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
         private readonly Dictionary<uint, (EventRenderFlags Set, EventRenderFlags Clear)> _pendingRenderFlags = new();
 
+        /// <summary>The speaker of the line the player has not closed yet (retail's <c>MouthIndex</c>), or null.</summary>
+        private WorldEntity? _talker;
+
         /// <summary>
         /// How far (yalms) an event may have placed an entity from its server position and still turn it back smoothly at
         /// the event's end; farther, it is put back at once (a staged actor returning from across the scene).
@@ -262,6 +265,7 @@ namespace Gordian.Core.Events
             SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
+            if (wasWaiting && !scene.IsWaitingForConfirm) StopTalker();
             if (scene.IsFinished) FinishEvent(scene);
             else if (wasWaiting != scene.IsWaitingForConfirm) Changed?.Invoke();
         }
@@ -751,8 +755,16 @@ namespace Gordian.Core.Events
                 return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
-            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker) talker.Speak();
             var lines = EventMessageFormatter.FormatLines(decoded, EventContext(name));
+            _talker = null;
+            if (speaker == EventSpeaker.Entity && SpeakingEntity(speakerServerId, speakerIndex) is { } talker)
+            {
+                // The mouth flaps by the line's length (retail EventMessDecodePutMoute, XiEvents OpCodes/0x001D).
+                int shownCharacters = 0;
+                foreach (string line in lines) shownCharacters += line.Length;
+                talker.Speak(FaceMotion.FlapsFor(shownCharacters));
+                _talker = talker;
+            }
             if (_cutsceneHud)
             {
                 // The event message mode shows the line on the screen, not in the log.
@@ -1007,6 +1019,13 @@ namespace Gordian.Core.Events
             }
             entity.HidesEventName = hide;
             _staged.Add(serverId);
+        }
+
+        /// <summary>The player closed the open line: its speaker's mouth stops (retail 0x23, SpeakStop).</summary>
+        private void StopTalker()
+        {
+            _talker?.StopSpeaking();
+            _talker = null;
         }
 
         void IEventVmHost.SetEntityRenderFlag(uint serverId, EventRenderFlags flag, bool set)

@@ -692,8 +692,31 @@ namespace Gordian.Core.World
         /// </summary>
         public int SpokenLines => Volatile.Read(ref _spokenLines);
 
-        /// <summary>Counts a line the entity speaks (an event message with it as the speaker).</summary>
-        public void Speak() => Interlocked.Increment(ref _spokenLines);
+        /// <summary>
+        /// Counts a line the entity speaks (an event message with it as the speaker) and how many times its mouth flaps for
+        /// it (<see cref="FaceMotion.FlapsFor"/>).
+        /// </summary>
+        public void Speak(int flaps = FaceMotion.FlapsPerClip)
+        {
+            Volatile.Write(ref _lineFlaps, flaps);
+            Interlocked.Increment(ref _spokenLines);
+        }
+
+        private int _lineFlaps = FaceMotion.FlapsPerClip;
+
+        /// <summary>How many times the mouth flaps for the entity's last line.</summary>
+        public int LineFlaps => Volatile.Read(ref _lineFlaps);
+
+        private int _speechStops;
+
+        /// <summary>How often the player has closed one of the entity's lines (each stops its mouth at once).</summary>
+        public int SpeechStops => Volatile.Read(ref _speechStops);
+
+        /// <summary>
+        /// The player closed the entity's line: its mouth stops (retail 0x23 sets the speaker's <c>MouthCounter</c> to 0 and
+        /// calls <c>XiSkeletonActor::SpeakStop</c>, XiEvents OpCodes/0x0023).
+        /// </summary>
+        public void StopSpeaking() => Interlocked.Increment(ref _speechStops);
 
         /// <summary>
         /// Where a running event (cutscene) has placed the entity, or null when the event leaves it alone. While set,

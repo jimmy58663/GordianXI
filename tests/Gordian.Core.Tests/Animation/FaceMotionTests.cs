@@ -101,6 +101,49 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(-1f, face.MouthTime);
         }
 
+        [Theory]
+        [InlineData(10, 1)]   // Deraquien: "Intruders!"
+        [InlineData(45, 3)]   // Joachim, Port Jeuno 324
+        [InlineData(97, 5)]
+        [InlineData(98, 6)]
+        [InlineData(141, 8)]
+        [InlineData(220, 12)] // Deraquien's long line
+        [InlineData(0, 1)]
+        public void FlapsFor_MatchesTheRetailCounts(int characters, int flaps)
+        {
+            // Flaps counted by eye in retail (2026-10-03, #198).
+            Assert.Equal(flaps, FaceMotion.FlapsFor(characters));
+        }
+
+        [Fact]
+        public void Mouth_FlapsTheLinesCount_ThenStops()
+        {
+            var model = Model();
+            float flap = model.Animations[FaceMotion.MouthClip].DurationSeconds / FaceMotion.FlapsPerClip;
+            var face = new FaceMotion(new Random(1));
+            face.Advance(0f, spokenLines: 0, canBlink: false, model);
+            face.Advance(0f, spokenLines: 1, canBlink: false, model, lineFlaps: 8);
+            face.Advance(flap * 7.5f, spokenLines: 1, canBlink: false, model, lineFlaps: 8);
+            Assert.True(face.MouthTime > 0f); // past one play of the clip: it loops
+            face.Advance(flap, spokenLines: 1, canBlink: false, model, lineFlaps: 8);
+            Assert.Equal(-1f, face.MouthTime);
+        }
+
+        [Fact]
+        public void Mouth_StopsWhenThePlayerClosesTheLine()
+        {
+            // Retail 0x23 calls SpeakStop on the speaker once the line is confirmed (XiEvents OpCodes/0x0023).
+            var model = Model();
+            float flap = model.Animations[FaceMotion.MouthClip].DurationSeconds / FaceMotion.FlapsPerClip;
+            var face = new FaceMotion(new Random(1));
+            face.Advance(0f, spokenLines: 0, canBlink: false, model, speechStops: 0);
+            face.Advance(0f, spokenLines: 1, canBlink: false, model, lineFlaps: 12, speechStops: 0);
+            face.Advance(flap, spokenLines: 1, canBlink: false, model, lineFlaps: 12, speechStops: 0);
+            Assert.True(face.MouthTime > 0f);
+            face.Advance(0.01f, spokenLines: 1, canBlink: false, model, lineFlaps: 12, speechStops: 1);
+            Assert.Equal(-1f, face.MouthTime);
+        }
+
         [Fact]
         public void Mouth_ANewLineMidPlay_StartsAgain()
         {

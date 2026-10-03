@@ -708,7 +708,7 @@ namespace Gordian.App.Graphics
                 _faces[entity.ServerId] = face;
             }
             bool canBlink = category != AnimationCategory.Death && (entity.EventRenderFlags & EventRenderFlags.NoBlink) == 0;
-            face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model);
+            face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model, entity.LineFlaps, entity.SpeechStops);
             return face;
         }
 
