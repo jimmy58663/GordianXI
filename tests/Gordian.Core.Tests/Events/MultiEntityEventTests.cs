@@ -46,11 +46,12 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>Runs an event to its end on every carrying entity, confirming each line and answering queries with option 1.</summary>
-        private Run RunScene(ResourceManager rm, int zoneId, ushort eventId)
+        private Run RunScene(ResourceManager rm, int zoneId, ushort eventId, Action<RecordingHost>? setup = null)
         {
             var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(zoneId))!)!;
             var dialog = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(zoneId))!)!;
             var host = new RecordingHost();
+            setup?.Invoke(host);
             // The schedulers run for the lengths the retail scene and motion DATs give (#165).
             var scenes = new Dictionary<int, EventSceneResource?>();
             var banks = new Dictionary<int, Gordian.Core.Animation.EventMotionBank?>();
@@ -123,6 +124,28 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal((PlayerId, 0, 1024), Assert.Single(run.Host.LookAxes));
             Assert.Empty(run.Host.HeadTurnSpeeds);
             Assert.Contains(run.Host.Looks, l => l.Id == PlayerId && l.Target == uint.MaxValue);
+        }
+
+        /// <summary>
+        /// Port Jeuno 324 (#209): the director ends the player's look at the flash marker 0x010F608F with 0x7B, and the
+        /// player's own script then plays <c>atp0</c> from the race package skeleton slot · 10 + 70 (Tarutaru: race 5,
+        /// slot 4, package 110), which is in the race sets table (file 61281), not the first two. It is the stand looking
+        /// up that retail holds through the front shot under the flash (about 1:17-1:21 in the maintainer's recording,
+        /// 2026-10-02).
+        /// </summary>
+        [Fact]
+        public void PortJeunoAbysseaIntro_ThePlayerLooksUpFromItsRacePackage()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 246, 324, host => host.EntityValues[7] = 5);
+            var looks = run.Host.Looks.Where(l => l.Id == PlayerId).Select(l => l.Target).ToList();
+            int marker = looks.IndexOf(0x010F608F);
+            Assert.True(marker >= 0);
+            Assert.Equal(uint.MaxValue, looks[marker + 1]);
+            var atp = Assert.Single(run.Host.Motions, m => m.Id == PlayerId && m.Routine == "atp0");
+            Assert.Equal((EventMotionSource.Package, 110), (atp.Source, atp.Resource));
+            Assert.Equal(new[] { 61281 }, Gordian.Core.Animation.EventMotionBank.PackageFiles(110));
         }
 
         /// <summary>
