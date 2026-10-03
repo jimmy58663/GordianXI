@@ -424,7 +424,7 @@ namespace Gordian.App.Graphics
                 // An event places its actors on the floor below their event position unless it keeps their height (0x33 / 0x59 sub 5).
                 Vector3 pos = eventPose != null
                     ? new Vector3(-eventPose.Position.X,
-                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetDisplayHeight(eventPose.Position, collision, EntityGrounding.EventStepUpHeight),
+                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetEventDisplayHeight(eventPose.Position, collision),
                         eventPose.Position.Z)
                     : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value
