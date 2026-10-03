@@ -217,7 +217,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 1 | 0x2 | 0xAB sub 8 sets, sub 7 clears | | kept as `EventRenderFlags.Flags2Bit1` (#198), nothing reads it |
 | 4 | 0x10 | 0xB6 sub 0x13 sets / 0x12 clears (own); 0x15 sets / 0x14 clears (actor) | | not run |
 | 14 | 0x4000 | (no opcode file sets it) | placement floor snap, as Flags0 bit 20 | |
-| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps the talking mouth (*inference*, #198) |
+| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps a face switch (*inference*, #198, #217) |
 | 24 | 0x1000000 | 0xAB sub 0x12 sets, 0x13 clears | | kept as `EventRenderFlags.Flags2Bit24` (#198), nothing reads it |
 
 ### Render.Flags3
@@ -229,9 +229,9 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 3 | 0x8 | 0x86 (actor with a ready model) | | unknown | not run |
 | 8-9 | 0x300 | lookatone (0x1E, 0x4A, 0x79 sub 0 / 1) sets a look mode; 0x79 sub 2 sets mode 2; 0x7B clears both bits; XiEventInit adjusts the word | | look mode | `WorldEntity.EventLook` (target or fixed axis) and `HeadLook`; 0x7B clears it |
 | 11 | 0x800 | 0xA5 | | unknown | not run |
-| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown; set by cutscene-only story actors and summons on themselves at an event's start (674 entries are only `C0 value`; [events/opcodes.md](../events/opcodes.md#0xc0)) | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it |
+| 12 | 0x1000 | 0xC0 (value from a work value) | | unknown; set by cutscene-only story actors and summons on themselves at an event's start (674 entries are only `C0 value`; [events/opcodes.md](../events/opcodes.md#0xc0)) | kept as `EventRenderFlags.Flags3Bit12` (#198), nothing reads it; #217 |
 | 16 | 0x10000 | 0x92 (`op value actor`) | | no name plate (*inference*, #191: Port Jeuno 324 sets it on every NPC it places and on Joachim but not on the player, and the maintainer's retail recording shows only the player's plate; the Southern San d'Oria intro never sets it and shows every plate). 8,288 of the 8,349 retail events that use 0x92 set it and 412 clear it; most leave it to the event's end | `WorldEntity.HidesEventName` → `NamePlateStyle.ShowsName`; cleared when the event ends. **Beyond XiEvents:** the name plate reading |
-| 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | kept as `EventRenderFlags.Flags3Bit17` (#198), nothing reads it |
+| 17 | 0x20000 | 0x94 (`op value actor`) | | unknown; Port Jeuno 324 sets it on the player too, whose plate stays, so it is not the plate. 14,815 retail uses set it, 140 clear it, mostly beside 0x92 at the event's start | kept as `EventRenderFlags.Flags3Bit17` (#198), nothing reads it; #217 |
 | 19 | 0x80000 | 0x95 sets (sets the entity up as an event NPC), 0x96 clears | | event-based NPC | not run |
 | 20-21 | 0x300000 | 0x95 (a 2-bit parameter) | | unknown | not run |
 | 26 | 0x4000000 | 0xA4 | | unknown | not run |
@@ -247,7 +247,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | Flags7 | 0-1 | 0xAC sub 4 ORs in a work value's low 2 bits | not run |
 | Flags7 | 19 | 0xAB subs 0x19 sets / 0x1A clears (own), 0x1B sets / 0x1C clears (actor) | kept as `EventRenderFlags.Flags7Bit19` (#198), nothing reads it |
 
-Not a render flag but in the same family: 0x81 (`op value actor`) sets or clears the actor's blink switch (`is_blinkeye` on its skeleton actor; any non-zero value turns it on). GordianXI keeps a zero as `EventRenderFlags.NoBlink` and `EntityRenderer` then starts no blink until 0x81 turns it on or the event ends (#198). Whether retail keeps the switch after the event is open ([events/opcodes.md](../events/opcodes.md#0x81)).
+Not a render flag but in the same family: 0x81 (`op value actor`) sets or clears the actor's blink switch (`is_blinkeye` on its skeleton actor; any non-zero value turns it on). GordianXI keeps a zero as `EventRenderFlags.NoBlink` and `EntityRenderer` then starts no blink until 0x81 turns it on or the event ends (#198). Whether retail keeps the switch after the event is open ([events/opcodes.md](../events/opcodes.md#0x81)). Open: [#217](https://github.com/jimmy58663/GordianXI/issues/217).
 
 ## Event opcodes that only change these bits
 
