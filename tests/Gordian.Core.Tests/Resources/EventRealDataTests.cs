@@ -102,6 +102,28 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void CompactZoneNames_AreTheTextTheRetailPartyWindowShows()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            var category = Gordian.Core.Resources.Models.DMsgCategory.ZoneNamesCompact;
+            Assert.True(rm.TryGetString(category, 230, out var ssandoria));
+            Assert.Equal("SSandOria", ssandoria);
+            Assert.True(rm.TryGetString(category, 231, out var nsandoria));
+            Assert.Equal("NSandOria", nsandoria);
+            Assert.True(rm.TryGetString(category, 232, out var psandoria));
+            Assert.Equal("PSandOria", psandoria);
+            Assert.True(rm.TryGetString(category, 233, out var chateau));
+            Assert.Equal("ChatdOrag", chateau);
+            for (int id = 230; id < 250; id++)
+            {
+                Assert.True(rm.TryGetString(category, id, out var text));
+                Assert.DoesNotContain(' ', text);
+                _output.WriteLine($"{id}: {text}");
+            }
+        }
+
+        [Fact]
         public void SouthernSandoria_EventScript_HoldsTheScriptedEvents()
         {
             var rm = Open();

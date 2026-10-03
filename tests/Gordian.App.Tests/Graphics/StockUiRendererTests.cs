@@ -759,6 +759,88 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// A member in another zone shows "(SSandOria)" on the second row instead of the HP/MP numbers and gauges (#146):
+        /// the row has no gauge pixels, the in-zone row does. Writes party_rows_zone.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersPartyRowForAMemberInAnotherZone()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null || !library.TryGetMenu("ptw2", out var menu)) return;
+
+            const uint width = 128, height = 80;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiPartyTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.2f, 0.19f, 0.18f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var placement = new StockUiPlacement(3, 8, 1, false);
+                renderer.DrawMenu(menu, placement, includeButtons: false);
+                StockUiPartyWindow.Draw(renderer, font, menu, placement, new[]
+                {
+                    new PartyRowVitals("Tarudrake", 9999, 100, 2794, 100, 1000, IsLeader: true),
+                    new PartyRowVitals("Cybin", 0, 0, 0, 0, 0, IsLeader: false, ZoneName: StockUiPartyWindow.ZoneRowText("SSandOria")),
+                }, showTp: false);
+                renderer.End(framebuffer, width, height);
+                Assert.True(renderer.LastQuadCount > 20);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "party_rows_zone.png"), pixels, (int)width, (int)height);
+                }
+
+                // Row 0 (in zone) has its pink HP gauge; row 1 (another zone) draws no gauge: nothing pink on its second line.
+                var button1 = menu.Buttons[1];
+                int rowX = (int)placement.X + button1.X, rowY = (int)placement.Y + button1.Y;
+                bool anyPink = false;
+                for (int x = rowX + 25; x < rowX + 90; x++)
+                {
+                    var px = Pixel(pixels, width, x, rowY + 7 + 3);
+                    if (px.R > 200 && px.G < 190) anyPink = true;
+                }
+                Assert.False(anyPink, "a member in another zone must not draw an HP gauge");
+                var button0 = menu.Buttons[0];
+                var hp = Pixel(pixels, width, (int)placement.X + button0.X + 25 + 40, (int)placement.Y + button0.Y + 7 + 4);
+                Assert.True(hp.R > 200 && hp.G < 190, $"HP gauge {hp}");
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        [Fact]
+        public void ZoneRowText_PutsTheCompactNameInParentheses()
+        {
+            Assert.Equal("(SSandOria)", StockUiPartyWindow.ZoneRowText("SSandOria"));
+        }
+
+        /// <summary>
         /// Renders the split log as the retail capture of 2026-09-27 shows it (two eight-line windows side by side,
         /// titled "Window 1:Say" and "Window 2", timestamps, the input line over Window 1's bottom with its mode tab)
         /// at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.

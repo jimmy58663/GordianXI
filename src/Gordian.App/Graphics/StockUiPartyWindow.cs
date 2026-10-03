@@ -11,9 +11,10 @@ namespace Gordian.App.Graphics
     /// One party (or alliance) window row's contents.
     /// </summary>
     /// <param name="HpPercent">0-100.</param>
+    /// <param name="ZoneName">Set for a member in another zone: the text in parentheses ("(SSandOria)") drawn in place of the HP/MP numbers and gauges.</param>
     /// <param name="StatusIds">Status effect ids in icon order, for the opt-in party status icons (null = none known).</param>
     public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader,
-        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null);
+        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null);
 
     /// <summary>
     /// Draws the party window rows (name, HP/MP numbers and gauges, leader marker) inside a "ptw0".."ptw6" frame.
@@ -38,6 +39,18 @@ namespace Gordian.App.Graphics
     public static class StockUiPartyWindow
     {
         public const float TextScale = 0.875f;
+
+        /// <summary>Left edge of the "(zone)" text on a party row's second line, from the row origin (layout pixels).</summary>
+        public const float ZoneTextX = 0;
+
+        /// <summary>The "(SSandOria)" row text for a zone's compact name (ROM/165/85).</summary>
+        public static string ZoneRowText(string compactName) => string.Concat("(", compactName, ")");
+
+        /// <summary>
+        /// A name on a row that shows a zone instead of vitals has no HP number beside it, so it may use the row's whole
+        /// width (up to the HP number's right edge at row x + 87).
+        /// </summary>
+        public static string FitZoneRowName(UiFont font, string name) => FitName(font, name, 87);
 
         private const string GaugeTexture = "gauge";
 
@@ -104,6 +117,15 @@ namespace Gordian.App.Graphics
                 float rx = placement.X + button.X * s;
                 float ry = placement.Y + button.Y * s;
 
+                if (row.ZoneName != null)
+                {
+                    // A member in another zone has no vitals: retail shows the name and "(zone)" on the second row.
+                    DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                    renderer.DrawText(font, FitZoneRowName(font, row.Name), rx, ry, textScale);
+                    renderer.DrawText(font, row.ZoneName, rx + ZoneTextX * s, ry + 10 * s, textScale);
+                    continue;
+                }
+
                 // Gauges first: the numbers overlap them.
                 DrawGauge(renderer, rx + 25 * s, ry + 7 * s, 64, withKnob: true, HpGaugeColor, row.HpPercent, s);
                 DrawGauge(renderer, rx + 48 * s, ry + 15 * s, MiddleWidth, withKnob: false, MpGaugeColor, row.MpPercent, s);
@@ -136,6 +158,15 @@ namespace Gordian.App.Graphics
                 var button = menu.Buttons[i];
                 float rx = placement.X + button.X * s;
                 float ry = placement.Y + button.Y * s;
+
+                if (row.ZoneName != null)
+                {
+                    // The 16-pixel row has no second line: the zone takes the gauge's place.
+                    DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                    renderer.DrawText(font, FitZoneRowName(font, row.Name), rx, ry, textScale);
+                    renderer.DrawText(font, row.ZoneName, rx + 25 * s, ry + 4 * s, textScale);
+                    continue;
+                }
 
                 DrawGauge(renderer, rx + 25 * s, ry + 7 * s, 64, withKnob: true, HpGaugeColor, row.HpPercent, s);
                 DrawLeaderBalls(renderer, row, placement.X, ry, s);

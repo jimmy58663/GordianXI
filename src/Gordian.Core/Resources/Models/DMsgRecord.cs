@@ -35,6 +35,8 @@ namespace Gordian.Core.Resources.Models
         ZoneNames,
         /// <summary>Short zone names by zone id (ROM/165/83.DAT: 230 = "S.San d'Oria").</summary>
         ZoneNamesShort,
+        /// <summary>Compact zone names by zone id (ROM/165/85.DAT: 230 = "SSandOria"), the text retail's party window shows in parentheses for a member in another zone (#146).</summary>
+        ZoneNamesCompact,
         Custom
     }
 

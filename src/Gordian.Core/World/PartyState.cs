@@ -36,7 +36,19 @@ namespace Gordian.Core.World
         public uint Tp { get; set; }
         public byte Hpp { get; set; }
         public byte Mpp { get; set; }
+
+        /// <summary>
+        /// The member's zone as the server last reported it: S2C 0x0DD / 0x0E2 carry it only for a member in a different
+        /// zone from yours (0 = same zone, the vitals are valid), S2C 0x0C8 carries it for every member.
+        /// </summary>
         public ushort ZoneId { get; set; }
+
+        /// <summary>
+        /// Whether the member is in a zone other than <paramref name="currentZoneId"/> (the local player's): a reported
+        /// zone that differs from yours (#146). Their vitals are not sent, so the party window shows the zone instead.
+        /// </summary>
+        public bool IsInOtherZone(ushort currentZoneId) => ZoneId != 0 && ZoneId != currentZoneId;
+
         public JobId MainJob { get; set; } = JobId.None;
         public byte MainJobLevel { get; set; }
         public JobId SubJob { get; set; } = JobId.None;
@@ -251,7 +263,13 @@ namespace Gordian.Core.World
                     existing.ServerId = member.ServerId != 0 ? member.ServerId : existing.ServerId;
                     existing.TargetIndex = member.TargetIndex != 0 ? member.TargetIndex : existing.TargetIndex;
                     if (!string.IsNullOrEmpty(member.Name)) existing.Name = member.Name;
-                    if (includeVitals)
+                    // A member list packet (0x0DD / 0x0E2) names the zone only for a member elsewhere and leaves HP, MP,
+                    // TP and percentages zeroed then: keep the last real vitals, and a zone of 0 means they are back in
+                    // our zone. A roster table (0x0C8, no vitals) lists everyone's zone, kept when non-zero.
+                    bool elsewhere = includeVitals && member.ZoneId != 0;
+                    if (includeVitals) existing.ZoneId = member.ZoneId;
+                    else if (member.ZoneId != 0) existing.ZoneId = member.ZoneId;
+                    if (includeVitals && !elsewhere)
                     {
                         existing.Hp = member.Hp;
                         existing.Mp = member.Mp;
@@ -259,7 +277,6 @@ namespace Gordian.Core.World
                         existing.Hpp = member.Hpp;
                         existing.Mpp = member.Mpp;
                     }
-                    existing.ZoneId = member.ZoneId != 0 ? member.ZoneId : existing.ZoneId;
                     if (member.MainJob != JobId.None) existing.MainJob = member.MainJob;
                     if (member.MainJobLevel > 0) existing.MainJobLevel = member.MainJobLevel;
                     if (member.SubJob != JobId.None) existing.SubJob = member.SubJob;
