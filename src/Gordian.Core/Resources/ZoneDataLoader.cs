@@ -499,7 +499,10 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.ParticleMesh:
                     {
-                        var meshes = ParticleMeshDecoder.Decode(payload, header.DatId);
+                        // Only a zone DAT's mesh colours are doubled: a model or scene DAT's are used as authored (0x80 =
+                        // neutral), as the client loads the shared effects DAT. Port Jeuno 324's blink cards measured about
+                        // 2 x their colour alpha in retail, which needs this and the paletted texture alpha halved (#208).
+                        var meshes = ParticleMeshDecoder.Decode(payload, header.DatId, zoneResource: !actorEffects);
                         if (meshes != null && meshes.Count > 0)
                         {
                             string? weather = ResolveCurrentWeather(dirStack);
@@ -514,7 +517,7 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.WeightedMesh:
                     {
-                        var mesh = WeightedMeshDecoder.Decode(payload, header.DatId);
+                        var mesh = WeightedMeshDecoder.Decode(payload, header.DatId, zoneResource: !actorEffects);
                         if (mesh != null)
                         {
                             string? weather = ResolveCurrentWeather(dirStack);

@@ -32,7 +32,8 @@ namespace Gordian.Core.Resources.Graphics
         /// <param name="datId">Section DatId, used to name the meshes.</param>
         /// <param name="zoneResource">
         /// True for meshes loaded from a zone DAT, whose diffuse colors are authored at half range and are doubled
-        /// (clamped to 0xFF), matching the client's zone-resource color scaling.
+        /// (clamped to 0xFF), matching the client's zone-resource color scaling. False for model and scene DATs, whose
+        /// colors are used as authored (xi-model-viewer: only zone resources get the doubling; #208).
         /// </param>
         public static List<MeshGroup>? Decode(ReadOnlySpan<byte> payload, string datId, bool zoneResource = true)
         {

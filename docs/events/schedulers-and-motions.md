@@ -89,7 +89,7 @@ Two files hold the tasks most scripts share. Frame counts are 60 Hz frames (rout
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|
 | `bl00` | spawn the black card `bk00` (never expires): the eyes closed, from the scene's start | 51402 (`p` 219) | 0x9F on the player | played: the screen goes black | retail DAT |
-| `open` | 0x3F `bk00` -> `bk01` (black, 150 frames, fades out), spawn `md00` and the eye-shaped mask `mb00`: the eyes opening on Joachim's legs (recording about 1:48-1:50) | 51402 | 0x9F | played: the eye opens (weighted mesh `mb`, #204); the black cards stay opaque longer than retail ([#208](https://github.com/jimmy58663/GordianXI/issues/208)) | retail DAT; recording |
+| `open` | 0x3F `bk00` -> `bk01` (black, 150 frames, fades out), spawn `md00` and the eye-shaped mask `mb00`: the eyes opening on Joachim's legs (recording about 1:48-1:50) | 51402 | 0x9F | played: the eye opens (weighted mesh `mb`, #204); the black cards' alpha fixed to retail's 2 x colour alpha, tested in-game ([#208](https://github.com/jimmy58663/GordianXI/issues/208)) | retail DAT; recording |
 | `clos` | spawn `bk02` (fades to black over 160 frames), 0x3F `mb00` -> `mb02` (the eye closing), then `bk00` again at 152 | 51402 | 0x9F | played | retail DAT |
 | `kill` | 0x1E `bk00`: the black card goes | 51402 | 0x9F | played | retail DAT |
 | `mai1` | at 242 starts `strt`, at 322 starts `loop` repeating (0x73): the magenta cloud swelling in the sky (recording about 1:13-1:28) | 51327 (`p` 144) | 0x9F on the invisible marker 0x010F608F, which 0x59 sub 5 keeps about 50 yalms up | played at the marker (it was drawn on the street, under the floor, until 0x59 sub 5 ran) | retail DAT; recording |
