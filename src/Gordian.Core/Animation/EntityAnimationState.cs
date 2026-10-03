@@ -465,14 +465,18 @@ namespace Gordian.Core.Animation
                 var request = _queuedActions[0];
                 _queuedActions.RemoveAt(0);
 
-                if (Seconds(request.ReceivedTimestamp, now) > StaleActionSeconds)
+                // An event gesture is never stale: the renderer advances only entities on screen, and a gesture given while
+                // the camera looked away (Joachim's kneel during Port Jeuno 324's blink, #193) still shows when it comes back.
+                bool isEventMotion = request.Motion == ActionMotion.EventMotion;
+                float waited = Seconds(request.ReceivedTimestamp, now);
+                if (!isEventMotion && waited > StaleActionSeconds)
                 {
                     request.DeliverHits();
                     continue;
                 }
 
                 EventMotionBank? bank = null;
-                var (routine, allowsLocomotion) = request.Motion == ActionMotion.EventMotion
+                var (routine, allowsLocomotion) = isEventMotion
                     ? (ResolveEventMotion(model, request.Routine, out bank), false)
                     : ResolveRoutine(model, request, isMoving);
                 if (routine == null || routine.Segments.Count == 0)
@@ -484,10 +488,19 @@ namespace Gordian.Core.Animation
                 }
 
                 StartAction(model, request, routine, allowsLocomotion, WeaponMotion.None, now, bank);
+                if (isEventMotion && waited > CatchUpSeconds)
+                {
+                    // It plays from where it would be by now: a kneel given off screen is already held, a short gesture over.
+                    AdvanceAction(waited, model);
+                    if (ActiveRoutine == null) continue;
+                }
                 return true;
             }
             return false;
         }
+
+        /// <summary>An event gesture that waited longer than this to start (its entity was off screen) starts partway through.</summary>
+        private const float CatchUpSeconds = 0.1f;
 
         private bool TryStartWeaponMotion(EntityModel model, bool drawing, long now)
         {

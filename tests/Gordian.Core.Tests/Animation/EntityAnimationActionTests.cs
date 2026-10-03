@@ -129,6 +129,36 @@ namespace Gordian.Core.Tests.Animation
             Assert.False(state.IsPlayingAction);
         }
 
+        /// <summary>
+        /// A gesture given while the entity was off screen (not advanced) is not dropped as stale: it starts where it would
+        /// be by now (#193: Joachim's kneel arrives during Port Jeuno 324's blink and must already be held when he is shown),
+        /// and a short one that would be over has ended.
+        /// </summary>
+        [Fact]
+        public void EventMotion_GivenOffScreen_CatchesUpInsteadOfBeingDropped()
+        {
+            var model = Model([]);
+            var kneel = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(216,
+                MotionRoutineDecoderTests.PlayClip("sm0?", 104, 104, 30, 0, 1),
+                MotionRoutineDecoderTests.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
+            var talk = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(52,
+                MotionRoutineDecoderTests.PlayClip("tl2?", 52, 52, 30, 0, 1)), "tlk1")!;
+            var bank = new EventMotionBank(32721, [Clip("sm00", 1.7f), Clip("sm10", 1.8f), Clip("tl20", 0.8f)], [kneel, talk]);
+            long fiveSecondsAgo = Stopwatch.GetTimestamp() - 5 * Stopwatch.Frequency;
+
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.AddEventMotionBank(bank);
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha0", received: fiveSecondsAgo));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("sha0", state.ActiveRoutine!.Name);
+            Assert.Equal("sm10", state.CurrentClip!.Name);
+
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "tlk1", received: fiveSecondsAgo));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.False(state.IsPlayingAction);
+        }
+
         /// <summary>Outside an event, an action whose last clip loops until replaced still ends with its routine.</summary>
         [Fact]
         public void Action_LoopingLastClip_EndsWithItsRoutine()
