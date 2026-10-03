@@ -275,5 +275,61 @@ namespace Gordian.Core.Tests.Resources
             // In combat, weapon mount adopts the hand position (0, 1.5f, 0)
             Assert.Equal(new Vector3(0, 1.5f, 0), combatPose.Translations[2]);
         }
+
+        /// <summary>
+        /// #76: a clip that scales a joint to zero collapses the geometry bound to it and to its children onto the joint
+        /// (retail's way of hiding a part); skinning only multiplies by the scale, so nothing becomes NaN, and normals keep
+        /// unit length. The rest of the body is untouched, and a blend toward the zero key shrinks the part partway.
+        /// </summary>
+        [Fact]
+        public void ZeroScaleKey_CollapsesTheJointsGeometry_WithoutNaN()
+        {
+            var joints = new[]
+            {
+                new SkeletonJoint(-1, Quaternion.Identity, Vector3.Zero),
+                new SkeletonJoint(0, Quaternion.Identity, new Vector3(0f, -1f, 0f)), // the part's mount
+                new SkeletonJoint(1, Quaternion.Identity, new Vector3(0.5f, 0f, 0f)), // a child of the mount
+                new SkeletonJoint(0, Quaternion.Identity, new Vector3(0f, 1f, 0f)),  // an unrelated joint
+            };
+            var skeleton = new Skeleton(joints);
+            var hidden = new BoneAnimationTrack
+            {
+                JointIndex = 1,
+                Rotations = new[] { Quaternion.Identity, Quaternion.Identity },
+                Translations = new[] { Vector3.Zero, Vector3.Zero },
+                Scales = new[] { Vector3.Zero, Vector3.Zero },
+            };
+            var clip = new AnimationClip { Name = "idl1", NumFrames = 2, KeyFrameDuration = 1f, Tracks = new Dictionary<int, BoneAnimationTrack> { [1] = hidden } };
+
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, 0f, true);
+            Assert.Equal(Vector3.Zero, pose.Scales[1]);
+            Assert.Equal(Vector3.Zero, pose.Scales[2]);
+            Assert.Equal(Vector3.One, pose.Scales[3]);
+            Assert.Equal(pose.Translations[1], pose.Translations[2]); // the child sits on the collapsed mount
+
+            var onMount = new SkinnedVertex { Position0 = new Vector3(0.3f, 0.2f, 0.1f), Normal0 = Vector3.UnitX, Joint0 = 1, Joint1 = -1 };
+            var onChild = new SkinnedVertex { Position0 = new Vector3(0.1f, 0.4f, 0f), Normal0 = Vector3.UnitZ, Joint0 = 2, Joint1 = -1 };
+            var blended = new SkinnedVertex
+            {
+                Position0 = new Vector3(0.2f, 0f, 0f), Position1 = new Vector3(0.2f, 0f, 0f),
+                Normal0 = Vector3.UnitY, Normal1 = Vector3.UnitY, Weight0 = 0.5f, Weight1 = 0.5f, Joint0 = 1, Joint1 = 3
+            };
+            var (p0, n0) = SkeletonPoseEvaluator.SkinVertex(onMount, pose);
+            var (p1, n1) = SkeletonPoseEvaluator.SkinVertex(onChild, pose);
+            var (p2, n2) = SkeletonPoseEvaluator.SkinVertex(blended, pose);
+            Assert.Equal(pose.Translations[1], p0);
+            Assert.Equal(pose.Translations[1], p1);
+            Assert.Equal(1f, n0.Length(), 4);
+            Assert.Equal(1f, n1.Length(), 4);
+            Assert.True(float.IsFinite(p2.X) && float.IsFinite(p2.Y) && float.IsFinite(p2.Z));
+            Assert.Equal(1f, n2.Length(), 4);
+            // The unrelated joint's half still counts: 0.5 * mount + 0.5 * other + its own offset.
+            Assert.Equal((0.5f * pose.Translations[1]) + (0.5f * pose.Translations[3]) + new Vector3(0.2f, 0f, 0f), p2);
+
+            // Blending from a unit-scale clip toward the hidden one shrinks the part partway (no division by zero).
+            var shown = new AnimationClip { Name = "idl0", NumFrames = 2, KeyFrameDuration = 1f, Tracks = new Dictionary<int, BoneAnimationTrack>() };
+            var mid = SkeletonPoseEvaluator.EvaluateBlendedPose(skeleton, shown, 0f, true, clip, 0f, true, 0.5f);
+            Assert.Equal(new Vector3(0.5f), mid.Scales[1]);
+        }
     }
 }

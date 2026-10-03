@@ -749,5 +749,116 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(model.Skeleton!.Count, model.Animations["wlk"].Tracks.Count);
             Assert.Equal(model.Skeleton.Count, model.Animations["idl"].Tracks.Count);
         }
-}
+
+        /// <summary>
+        /// #75: where a stem's parts overlap (alternative variants, not body regions) the stem plays part 0, whatever
+        /// the file order; a stem never replaces a clip of that exact name, and disjoint parts still join.
+        /// </summary>
+        [Fact]
+        public void Stems_NamePartZero_WhenThePartsOverlap()
+        {
+            var model = new EntityModel();
+            var realAt0 = RegionClip("at0", 20, 0, 1, 2);
+            var clips = new List<AnimationClip>
+            {
+                RegionClip("idl1", 16, 0, 1, 2), RegionClip("idl0", 16, 0, 1, 2), // ROM/97/61 (model 11) order
+                RegionClip("at00", 20, 0), RegionClip("at01", 20, 1), realAt0,
+                RegionClip("wlk2", 8, 9), RegionClip("wlk0", 8, 0, 1), RegionClip("wlk1", 8, 5),
+            };
+            EntityModelLoader.AddClipsWithStems(model, clips);
+            Assert.Same(clips[1], model.Animations["idl"]);
+            Assert.Same(clips[0], model.Animations["idl1"]);
+            Assert.Same(realAt0, model.Animations["at0"]);
+            Assert.Same(clips[6], model.Animations["wlk"]);
+
+            EntityModelLoader.MergeBodyRegionParts(model, clips);
+            Assert.Same(clips[1], model.Animations["idl"]);
+            Assert.Equal(new[] { 0, 1, 5, 9 }, model.Animations["wlk"].Tracks.Keys.OrderBy(k => k).ToArray());
+        }
+
+        /// <summary>
+        /// #75, retail: Trusts and notorious monsters whose idle is stored as body-region parts play every part. Shantotto
+        /// (3000: idl0 14 joints, idl1 69, idl2 10), Naji (3001), Alexander (1834: idl0 74, idl1 7) and a Doppelganger
+        /// (547) drive every part through the idle stance, not part 0 alone with the upper body in its bind pose.
+        /// Skipped without the game install.
+        /// </summary>
+        [Theory]
+        [InlineData(3000u)]
+        [InlineData(3001u)]
+        [InlineData(1834u)]
+        [InlineData(547u)]
+        public void SplitIdle_DrivesEveryPart(uint modelId)
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var raw = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(modelId))!);
+            var parts = raw.Animations.Where(a => a.Name is "idl0" or "idl1" or "idl2").ToList();
+            Assert.True(parts.Count >= 2, $"model {modelId} has {parts.Count} idle parts");
+            var union = parts.SelectMany(p => p.Tracks.Keys).ToHashSet();
+            Assert.Equal(parts.Sum(p => p.Tracks.Count), union.Count); // disjoint body regions
+
+            var model = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            Assert.True(union.SetEquals(model.Animations["idl"].Tracks.Keys));
+            var stance = Gordian.Core.Animation.NpcStanceResolver.ResolveTargetClip(model, Gordian.Core.Animation.AnimationCategory.Idle)!;
+            Assert.True(union.SetEquals(stance.Tracks.Keys));
+            if (modelId is 3000 or 3001) Assert.Equal(model.Skeleton!.Count, union.Count);
+        }
+
+        /// <summary>#75, retail: the elemental model 11 (ROM/97/61) stores two overlapping idles, idl1 first; it idles on part 0.</summary>
+        [Fact]
+        public void ElementalModel11_IdleIsPartZero()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var model = EntityModelLoader.LoadMonsterModel(11, rm.LoadDatBytesByFileId)!;
+            Assert.Same(model.Animations["idl0"], model.Animations["idl"]);
+        }
+
+        /// <summary>
+        /// #76, retail CPU-skin check: Moblin model 1735 (ROM/258/91) carries a bow bound to joints 104 and 107, which its
+        /// idle, walk, run and battle stance hold at scale 0; samurai model 1182 (ROM/151/126) hides a second blade the
+        /// same way. Skinned with the decoded scale every vertex bound only to such joints collapses onto its joint; at
+        /// scale 1 (the old decoder) the part has its full size (the bow lay at the Moblin's feet). Skipped without the
+        /// game install.
+        /// </summary>
+        [Theory]
+        [InlineData(1735u)]
+        [InlineData(1182u)]
+        public void ZeroScaleStance_HidesThePart(uint modelId)
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var raw = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(modelId))!);
+            var model = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            var pose = SkeletonPoseEvaluator.EvaluatePose(raw.Skeleton!, model.Animations["idl"], 0f, true);
+            var unit = new SkeletonPoseEvaluator.EvaluatedPose(pose.Rotations, pose.Translations,
+                Enumerable.Repeat(Vector3.One, pose.Scales.Length).ToArray());
+            bool Hidden(int j) => j >= 0 && j < pose.Scales.Length && pose.Scales[j].Length() <= 1e-4f;
+
+            int hiddenVertices = 0;
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            foreach (var mesh in raw.Meshes)
+            {
+                foreach (var v in mesh.Vertices)
+                {
+                    if (!Hidden(v.Joint0) || (v.Joint1 >= 0 && !Hidden(v.Joint1))) continue;
+                    hiddenVertices++;
+                    var (p, n) = SkeletonPoseEvaluator.SkinVertex(v, pose);
+                    Assert.True(float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z) && float.IsFinite(n.X));
+                    if (v.Joint1 < 0) Assert.True(Vector3.Distance(pose.Translations[v.Joint0], p) < 1e-3f);
+                    var (q, _) = SkeletonPoseEvaluator.SkinVertex(v, unit);
+                    min = Vector3.Min(min, q);
+                    max = Vector3.Max(max, q);
+                }
+            }
+            Assert.True(hiddenVertices > 20, $"model {modelId}: {hiddenVertices} hidden vertices");
+            Assert.True((max - min).Length() > 0.2f, $"at scale 1 the hidden part spans {(max - min).Length()}");
+        }
+    }
 }

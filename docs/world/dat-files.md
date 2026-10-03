@@ -47,7 +47,7 @@ Checked: every ROM path in XiEvents' zone list resolves to these ids in the reta
 | Per race and slot: a list of (base, count) groups, file = group base + offset within the group | Hume male face 7080 = `ROM/27/87`; head 7112 = `ROM/27/103`, later groups from 63323 = `ROM/229/98` | PC face and gear meshes (Face, Head, Body, Hands, Legs, Feet, Main, Sub, Ranged) | `CharacterEquipmentResolver.TryResolveGearFileId`, `EntityModelLoader.AssembleCharacter` | xi-model-viewer |
 | Child races: slot base + model id (64 per slot) | girl face 29592 = `ROM/61/36`; Mithra kitten face 30376 = `ROM/61/95` | NPC-only child outfits (no weapons) | `CharacterEquipmentResolver.ChildGearBases` | xi-model-viewer `characters.json`; [entities-and-animation.md](entities-and-animation.md#models-and-equipment-phase-5c) |
 | By path | `ROM/27/82` (Hume M, id 7072), `ROM/32/58`, `ROM/37/31`, `ROM/42/4`, `ROM/46/93` (both Tarutaru), `ROM/51/89`, `ROM/56/59`; children `ROM/61/58`, `ROM/61/85`, `ROM/61/110` | Race skeleton and lower-body locomotion clips; the upper-body pack is the next file, the waist pack three files on (folder carry at 128) | `GetBaseSkeletonPath`, `GetLocomotionPackPaths` | xi-model-viewer `pclists.js` |
-| By path, per race and weapon animation type (0x45 Info byte 3 of the main weapon) | `ROM/32/13` (Hume M hand-to-hand, id 9799); extra types in `ROM/98`, `ROM/99` | Battle motion pack: swings, draw / sheathe routines and clips | `GetBattlePackPath` | xi-model-viewer `characters.json`; [entities-and-animation.md](entities-and-animation.md#transient-combat-and-action-animation-phase-5d1) |
+| By path, per race and weapon animation type (0x45 Info byte 3 of the main weapon) | `ROM/32/13` (Hume M hand-to-hand, id 9799); extra types in `ROM/98`, `ROM/99` | Battle motion pack: swings, draw / sheathe routines and clips | `GetBattlePackPath` (by path only: a fallback that passed the pack's motion file number as a file id was removed, #203; 32013 is unmapped, 37013 is `ROM/95/48`, an unrelated file) | xi-model-viewer `characters.json`; [entities-and-animation.md](entities-and-animation.md#transient-combat-and-action-animation-phase-5d1) |
 | Motion file numbers 32040, 37013, 41114, 46075, 51037, 51071, 56041, 61008 (race order HM, HF, EM, EF, TM, TF, Mithra, Galka) | 32040 = `ROM/32/40`; waist part 32046 = `ROM/32/46` | Emotes: six files per race, routines `em00`-`em07`; slot n is file n / 8, routine n % 8 | `EmoteMotion` | xi-tools `_EMOTE_MOTION_FILE`; [entities-and-animation.md](entities-and-animation.md#transient-combat-and-action-animation-phase-5d1) (Emotes) |
 | 0 | `ROM/0/0` | Shared effects tree `syst/effe`: sprite sheets, textures and routines that zone and actor effects link to | `SharedEffectResources` (loaded by path) | xi-model-viewer `particle/system.js`; [sky-and-weather.md](../rendering/sky-and-weather.md#night-sky-stars-and-moon-chunk-3) |
 
@@ -55,21 +55,30 @@ The routines and clips inside the emote files were read from the retail DATs (20
 
 ### Item tables
 
-All loaded by path (`ItemNameResolver`, `ResourceManager.TryGetItem`), decoded by `ItemTableDecoder`. Source: xi-model-viewer and LandSandBoat (doc comments). Records and encoding: [world-state-and-resources.md](world-state-and-resources.md#dat-decoders).
+All loaded by path through one list, `ItemTables` (shared by `ItemNameResolver` and `ResourceManager.TryGetItem` since [#203](https://github.com/jimmy58663/GordianXI/issues/203)), decoded by `ItemTableDecoder`. Source: xi-model-viewer, LandSandBoat and, from 28672 on, xi-tools (`docs/reference/named-dats.md` and its item parser's table list). Records and encoding: [world-state-and-resources.md](world-state-and-resources.md#dat-decoders). Each table's first record was checked to hold its start id in the retail install (2026-10-03, `ItemTablesTests`; General 1's record 0 is item 0, which the decoder skips).
 
 | Item ids | Path | File id |
 |---|---|---|
 | 0-4095 General 1 | `ROM/118/106` | 73 |
 | 4096-8191 Consumables | `ROM/118/107` | 74 |
 | 8192-8703 Automaton | `ROM/118/110` | 77 |
-| 8704-10239 General 2 | `ROM/301/115` | 55671 |
+| 8704-10239 General 2 (8704 Bismuth Ingot ...) | `ROM/301/115` | 55671 |
 | 10240-16383 Armor 1 | `ROM/118/109` | 76 |
 | 16384-23039 Weapons 1 | `ROM/118/108` | 75 |
 | 23040-28671 Armor 2 | `ROM/286/73` | 55668 |
-| 28672-32767 Weapons 2 | `ROM/286/74` | 55788 |
+| 28672-29695 Moblin Maze Mongers (28672 Maze Tabula M01 ...) | `ROM/217/21` | 55667 |
+| 29696-30719 Monstrosity 1 | `ROM/288/80` | 55670 |
+| 30720-31743 General 7 (new in the 10 September 2026 update, all placeholders) | `ROM/387/14` | 55675 |
+| 61432-61439 General 3 | `ROM/314/89` | 95 |
+| 61440-61951 Monstrosity 2 | `ROM/288/67` | 55669 |
+| 62976-62995 General 4 | `ROM/320/26` | 55504 |
+| 63008-63023 General 5 | `ROM/332/49` | 55678 |
+| 63024-63263 General 6 | `ROM/332/48` | 55677 |
 | 65535 Gil | `ROM/174/48` | 91 |
 
-`ItemNameResolver` maps the first eight rows and names 65535 "Gil" without a file. `ResourceManager.GetItemTablePathForId` maps the gil row but not General 2 (8704-10239) or Weapons 2 (28672-32767) ([#203](https://github.com/jimmy58663/GordianXI/issues/203)).
+`ItemNameResolver` names 65535 "Gil" without reading the file. Ids 31744-61431, 61952-62975 and the other gaps have no item table (57344-61431 and 61952-62975 hold Records of Eminence objectives and categories, xi-tools). Monstrosity 1 records load, but `ItemTableDecoder` reads no names from them (not investigated).
+
+**Differs from the earlier GordianXI table:** it put 28672-32767 "Weapons 2" in `ROM/286/74`. That file (9,437,184 bytes, the old 0xC00 stride) holds ids 25600-28671, overlapping Armor 2; it is not an item table for 28672 on (checked 2026-10-03).
 
 ### String tables (`d_msg`)
 
@@ -130,7 +139,7 @@ Status: **decoded** = every field GordianXI needs is read; **partly** = some fie
 | `0x25` | WeightedMesh | Morphable mesh that generators draw: up to five morph targets (positions, 10:10:10 normals) blended by each particle's weights (the eye-shaped mask of Port Jeuno 324's blink, fish, birds, Alzadaal's tentacles) | `WeightedMeshDecoder` | decoded (alpha-discard flag 0x80 read, not applied). **Beyond xi-model-viewer:** it reads only the header; the target, normal and index layout was read from all 680 retail sections (#204) | [particles.md](../rendering/particles.md#weighted-meshes-0x25) |
 | `0x29` | Skeleton | Joint hierarchy, bind pose, joint references | `SkeletonDecoder` | decoded | [entities-and-animation.md](entities-and-animation.md#skeletal-animation-phase-5d) |
 | `0x2A` | SkeletonMesh | Skinned entity mesh, occlude type, render properties | `SkeletonMeshDecoder` | decoded | [entities-and-animation.md](entities-and-animation.md#models-and-equipment-phase-5c) |
-| `0x2B` | SkeletonAnimation | One clip: per-joint rotation, translation and scale keys | `SkeletonAnimationDecoder` | decoded (scale read, not used) | [entities-and-animation.md](entities-and-animation.md#skeletal-animation-phase-5d) |
+| `0x2B` | SkeletonAnimation | One clip: per-joint rotation, translation and scale keys | `SkeletonAnimationDecoder` | decoded; scale keys kept as stored, zero included (a zero scale hides the joint's geometry, [#76](https://github.com/jimmy58663/GordianXI/issues/76)). **Differs from xi-tools:** `docs/anim/format.md` calls scale effectively unused; 6,748 clips in 725 model DATs carry keys of 1e-4 or less | [entities-and-animation.md](entities-and-animation.md#skeletal-animation-phase-5d) |
 | `0x2E` | ZoneMesh | Static zone geometry in local space (encrypted, see below) | `ZoneMeshDecoder` | decoded | [viewport-and-terrain.md](../rendering/viewport-and-terrain.md#camera-and-zone-terrain-phase-5b) |
 | `0x2F` | Environment | Time-of-day lighting, fog, sky dome slices | `EnvironmentDecoder` | decoded | [lighting.md](../rendering/lighting.md#terrain-lighting-from-0x2f-chunk-1), [sky-and-weather.md](../rendering/sky-and-weather.md#sky-dome-and-dithering-chunk-2) |
 | `0x30` | UiMenu | Menu frame, buttons, navigation links, shape references | `UiMenuDecoder` | decoded | [stock-ui.md](../ui/stock-ui.md#data-layer-chunk-1) |
