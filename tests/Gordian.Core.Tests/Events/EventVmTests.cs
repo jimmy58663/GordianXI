@@ -367,6 +367,19 @@ namespace Gordian.Core.Tests.Events
         }
 
         [Fact]
+        public void LookOpcode_UnknownSub_EndsTheRequestAtOnce()
+        {
+            // 79 07 ... ; 48 ref0 ; 00: an unknown 0x79 sub has no length; it used to spin on the step guard (#201).
+            var code = new byte[] { 0x79, 0x07, 0xF8, 0xFF, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x80, 0x00 };
+            var host = new RecordingHost();
+            var vm = Make(code, host, references: new uint[] { 9 });
+            vm.Tick(Frame);
+            Assert.Equal((byte)0x79, Assert.Single(host.Skipped));
+            Assert.Empty(host.Printed);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
         public void EntityFacts_ComeFromTheHost()
         {
             // 03 local0 = 0x7F86 (player job) ; 44 exists(ref0) else -> end ; 03 zone[1] = local0 ; 00
@@ -433,6 +446,15 @@ namespace Gordian.Core.Tests.Events
         [InlineData(new byte[] { 0x9D, 0x0C }, 8)]
         [InlineData(new byte[] { 0x9D, 0x0D }, 10)]
         [InlineData(new byte[] { 0xD4, 0x00 }, 8)]
+        [InlineData(new byte[] { 0x71, 0x54 }, 10)] // #201: XiEvents lengths the table lacked
+        [InlineData(new byte[] { 0x71, 0x55 }, 4)]
+        [InlineData(new byte[] { 0xB2, 0x00 }, 4)]
+        [InlineData(new byte[] { 0xB2, 0x01 }, 2)]
+        [InlineData(new byte[] { 0xC2, 0x02 }, 6)]
+        [InlineData(new byte[] { 0xC2, 0x03 }, 2)]
+        [InlineData(new byte[] { 0xC2, 0x80 }, 2)]
+        [InlineData(new byte[] { 0xAB, 0x13 }, 2)]
+        [InlineData(new byte[] { 0xAB, 0x1B }, 6)]
         public void OpcodeTable_CorpusCorrectedLengths(byte[] code, int length) =>
             Assert.Equal(length, EventOpcodeTable.GetLength(code, 0));
 

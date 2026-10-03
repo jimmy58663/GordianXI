@@ -133,7 +133,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x6E | `CodeEMOT` | 7 | runs | 5,216 | An actor plays an emote; it waits while that actor still plays an action. |
 | 0x6F |  | 1 | runs | 23,520 | Sleeps for 16 frames unless a wait is already running on the stack. |
 | 0x70 |  | 1 | runs | 8,350 | Waits while the event's own entity is still turning. |
-| 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
+| 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. |
 | 0x72 | `CodeGETWEATER` | by sub | stepped | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
 | 0x73 | `CodeMAGICSCHEDULOR` | 11 | stepped | 947 | Starts a spell-casting task (tag `main`) from one actor toward another. |
 | 0x74 |  | 2 | stepped | 12 | Sets or clears bit 31 of the event entity's `Render.Flags1`. |
@@ -141,7 +141,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x76 |  | 5 | runs | 4,173 | Waits while the named actor is still turning. |
 | 0x77 |  | 5 | runs | 1,181 | Stops the clock at an hour and / or sets the weather for the event; 255 leaves either alone. |
 | 0x78 |  | 1 | runs | 1,240 | Restarts the clock and gives the zone its own weather back. |
-| 0x79 |  | by sub | runs | 3,925 | One actor looks at another (subs 0 / 1), or holds its head on a fixed axis (sub 2, [#188](https://github.com/jimmy58663/GordianXI/issues/188)). Unknown sub spins: [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
+| 0x79 |  | by sub | runs | 3,925 | One actor looks at another (subs 0 / 1), or holds its head on a fixed axis (sub 2, [#188](https://github.com/jimmy58663/GordianXI/issues/188)). An unknown sub ends the request ([#201](https://github.com/jimmy58663/GordianXI/issues/201)). |
 | 0x7A |  | by sub | stepped | 594 | Request-stack control on another entity: clear its whole VM or one slot, borrow or return its event data, copy or reset a request. |
 | 0x7B |  | 5 | runs | 3,113 | An actor stops looking and talking. |
 | 0x7C |  | 6 | ignored | 1,576 | Sets or clears `Render.Flags2` bit 17 of an actor. |
@@ -198,7 +198,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xAF |  | 8 | stepped | 0 | Stores the camera's eye (sub 0) or look-at point (sub 1). |
 | 0xB0 |  | 12 | runs | 42 | Prints a message with a speaker and a listener actor. |
 | 0xB1 |  | 4 | stepped | 28 | Stores bits of a client-wide flag value (always 128 in practice). |
-| 0xB2 |  | by sub | stepped | 1 | Delivery box: wait a number of frames, or ask to open it. The one census hit is table data. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
+| 0xB2 |  | by sub | stepped | 1 | Delivery box: wait a number of frames, or ask to open it. The one census hit is table data. |
 | 0xB3 |  | by sub | stepped | 14 | Ranking boards (fishing and others): request a list, wait, read entries. |
 | 0xB4 |  | by sub | stepped | 1,575 | Strings and small windows: copy text into work strings, target window, cast bar and event timer windows, chocobo race windows, map window update. |
 | 0xB5 |  | 4 | stepped | 1,339 | Renames the event entity from a work string. |
@@ -214,7 +214,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xBF |  | by sub | stepped | 60 | Chocobo racing: reads race, chocobo, section or result parameters. |
 | 0xC0 |  | 3 | runs | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value; kept on the entity, effect unknown ([#198](https://github.com/jimmy58663/GordianXI/issues/198)); [#217](https://github.com/jimmy58663/GordianXI/issues/217). |
 | 0xC1 |  | 5 | stepped | 1 | Once an actor's resources have loaded, ends its last action and releases a loaded resource set. |
-| 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. [#201](https://github.com/jimmy58663/GordianXI/issues/201). |
+| 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. |
 | 0xC3 |  | 7 | stepped | 54 | Copies a work string and a value into one of eight 20-byte slots. |
 | 0xC4 |  | 12 | stepped | 206 | The 0x73 spell-casting task with three more kinds chosen by the sub byte. |
 | 0xC5 |  | 17 | runs | 708 | Starts a scene task like 0x45, from file 67355 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
@@ -564,12 +564,12 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x40 | 4 | 3 | Open the linkshell concierge window | stepped |
 | 0x41 | 8 | 3 | Wait for its choice, store three values | stepped |
 | 0x50-0x53 | 4 / 2 / 4 / 2 | 1 each | Unknown menu: create, destroy, update, wait | stepped |
-| 0x54 | 10 | 1 | Unknown menu: size and place from four work values | no length (ends the request) |
-| 0x55 | 4 | 0 | Unknown menu call with one work value | no length (ends the request) |
+| 0x54 | 10 | 1 | Unknown menu: size and place from four work values | stepped |
+| 0x55 | 4 | 0 | Unknown menu call with one work value | stepped |
 
 - The open and wait subs come in pairs in the corpus (0x10 / 0x11 and 0x12 / 0x13 have equal counts).
 - Stepping means no input window opens and no 0x060 / 0x0D8 packet is sent, so the server never receives the player's input.
-- **Gap in `EventOpcodeTable`:** XiEvents gives 0x54 = 10 and 0x55 = 4 bytes; adding them would keep the one 0x54 event running.
+- `EventOpcodeTable` has XiEvents' 0x54 = 10 and 0x55 = 4 bytes ([#201](https://github.com/jimmy58663/GordianXI/issues/201), 2026-10-03); before, the one 0x54 event ended at that opcode. The corpus walk lands one more entry with them (207,658 of 209,144).
 
 ### 0x72 `CodeGETWEATER`
 
@@ -605,7 +605,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x02 | 10 | 143 | `actor x:work y:work`: look mode 2 with a fixed look axis | runs, provisional (`SetEntityLookAxis`) |
 
 - Evidence: the head turns in-game (2026-10-01); the sub 2 axis is read as a turn and a tilt from a 2026-10-02 scan of zones 0-299 and the maintainer's Port Jeuno recording ([#188](https://github.com/jimmy58663/GordianXI/issues/188), [world/entities-and-animation.md](../world/entities-and-animation.md)).
-- An unknown sub has no length, so `EventVm` adds 0 and spins until the step guard ends the request (retail does not advance either).
+- An unknown sub has no length and retail does not advance on it. `EventVm` reports it through `OnSkippedOpcode` and ends the request at once ([#201](https://github.com/jimmy58663/GordianXI/issues/201)); before, it added 0 and spun until the 2,000,000-step guard ended the request.
 
 ### 0x7A
 
@@ -749,7 +749,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0xB2
 
 - Layout per XiEvents' pseudo code: sub 0 waits a number of frames from a work value (4 bytes); sub 1 asks to open the delivery box and yields (2 bytes).
-- **`EventOpcodeTable` differs from XiEvents:** the table has the two lengths the other way round (0 = 2, 1 = 4). No real use exists in the retail scripts (the one census hit is table data), so it changes nothing today.
+- `EventOpcodeTable` follows XiEvents' code: 0 = 4, 1 = 2 (the two were swapped until [#201](https://github.com/jimmy58663/GordianXI/issues/201)). No real use exists in the retail scripts (the one census hit is table data), so it changes nothing today. Stepped.
 
 ### 0xB4
 
@@ -780,7 +780,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0xC2
 
 - Layout: `C2 01 dest:work` (4) stores a mask of party members whose Mog House can be visited; `C2 02 member:work dest:work` (6) says whether that member's house is open; any other sub steps 2 (XiEvents OpCodes/0x00C2).
-- Real subs in the census are 0x01 (16 events) and 0x02 (16); the 19 "0x80" events are table data. Stepped.
+- Real subs in the census are 0x01 (16 events) and 0x02 (16); the 19 "0x80" events are table data. Stepped. `EventOpcodeTable` steps any sub other than 0 / 1 / 2 by 2, as XiEvents' code does ([#201](https://github.com/jimmy58663/GordianXI/issues/201)); the census walk now continues past the table-data `C2 80`, so the opcodes after it (0xBD, 0xBE, 0xC3-0xC5) count a few more table bytes.
 
 ### 0xD4
 
