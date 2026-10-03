@@ -90,6 +90,44 @@ namespace Gordian.Core.Tests.Resources
             _output.WriteLine($"{script.Blocks.Count} blocks, {dialog.Count} messages, {entities.Count} entities");
         }
 
+        /// <summary>
+        /// Retail lines that use the codes fixed for #202 / #74 (corpus scan of 2026-10-03), formatted with the game's own
+        /// item and key item names: Phanauet Channel (zone 1) carries the shared system lines, Al Zahbi (48) the Mog Locker.
+        /// </summary>
+        [Fact]
+        public void RetailLines_FormatPluralsItemFormsDatesAndCase()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            var channel = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(1))!)!;
+            var alZahbi = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(48))!)!;
+            string Line(ZoneDialogTable table, int id, params int[] numbers)
+            {
+                var context = new Gordian.Core.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, value));
+                var lines = Gordian.Core.Events.EventMessageFormatter.FormatLines(table.GetMessage(id)!, context);
+                _output.WriteLine($"{id}: {string.Join(" | ", lines)}");
+                return string.Join(" | ", lines);
+            }
+
+            // 01 05 03 (a number) and 01 09 29 (item by count): plural and singular log names.
+            Assert.Equal("You obtain 12 fire crystals!", Line(channel, 6401, 4096, 12));
+            Assert.Equal("You obtain 1 fire crystal!", Line(channel, 6401, 4096, 1));
+            // 01 01 01 (the article) before 01 05 24 (item log name).
+            Assert.Equal("You have been rewarded a fire crystal as compensation.", Line(channel, 7059, 4096));
+            // 7F 80 01 before a plural item name at the start of a sentence.
+            Assert.Equal("Unable to proceed. | Fire crystals are not suitable for use as synergy ingredients.", Line(channel, 38, 4096));
+            // 7F 80 01 before a key item name.
+            Assert.Equal("Obtained key item: Blue acidity tester.", Line(channel, 6398, 3));
+            // 7F 92 n [singular/plural].
+            Assert.Equal("Objective: 1 arcana-type creature. | Equipment: Target item must be equipped.", Line(channel, 2327, 1));
+            Assert.Equal("Objective: 3 arcana-type creatures. | Equipment: Target item must be equipped.", Line(channel, 2327, 3));
+
+            // Date fields: seconds since 2002-01-01 00:00 JST.
+            int seconds = (int)(new System.DateTime(2026, 10, 3, 7, 4, 9) - new System.DateTime(2002, 1, 1)).TotalSeconds;
+            Assert.Equal("You will be able to use the Assist Channel until 10/3/2026 at 7:04 (JST).", Line(channel, 6380, seconds));
+            Assert.Equal("Your Mog Locker lease is valid until 2026/10/3 7:04:09, kupo.", Line(alZahbi, 7409, seconds));
+        }
+
         [Fact]
         public void ZoneNames_ComeFromTheZoneNameTable()
         {

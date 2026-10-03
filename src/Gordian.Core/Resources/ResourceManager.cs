@@ -282,6 +282,23 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
+        /// A key item's plural name by key item id ("traverser stones"; the record's "plural" field, which repeats the
+        /// name for key items without a plural), for the dialog tag kind 0x35.
+        /// </summary>
+        public bool TryGetKeyItemPlural(uint keyItemId, out string plural)
+        {
+            var table = GetDMsgTable(DMsgCategory.KeyItems);
+            if (table != null && table.TryGetById(keyItemId, out var record) &&
+                record.NamedFields.TryGetValue("plural", out var found) && !string.IsNullOrEmpty(found))
+            {
+                plural = found;
+                return true;
+            }
+
+            return TryGetKeyItemName(keyItemId, out plural);
+        }
+
+        /// <summary>
         /// Retrieves the authentic name of a spell by Spell ID.
         /// </summary>
         public bool TryGetSpellName(ushort spellId, out string spellName)
