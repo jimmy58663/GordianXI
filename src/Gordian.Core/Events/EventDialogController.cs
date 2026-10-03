@@ -1257,14 +1257,21 @@ namespace Gordian.Core.Events
             return bank;
         }
 
-        /// <summary>A 0x66 motion package: its DAT with the waist part when that one has routines, else the one without.</summary>
+        /// <summary>
+        /// A 0x66 motion package: the first of its DATs that has routines (<see cref="EventMotionBank.PackageFiles"/>: with
+        /// the waist part, else without it, for 0-69; the race sets table for 70-139).
+        /// </summary>
         private EventMotionBank? LoadMotionPackage(int package)
         {
-            if (package < 0 || package >= 176) return null;
-            var (withWaist, withoutWaist) = EventMotionBank.PackageFileIds(package);
-            var bank = LoadMotionBank(withWaist) ?? LoadMotionBank(withoutWaist);
-            if (bank == null) GordianLog.Debug("EVENT", $"Motion package {package} has no routines in files {withWaist} / {withoutWaist}.");
-            return bank;
+            var files = EventMotionBank.PackageFiles(package);
+            foreach (int fileId in files)
+            {
+                if (LoadMotionBank(fileId) is { } bank) return bank;
+            }
+            GordianLog.Debug("EVENT", files.Length == 0
+                ? $"Motion package {package} is not located."
+                : $"Motion package {package} has no routines in files {string.Join(" / ", files)}.");
+            return null;
         }
 
         void IEventVmHost.OnSkippedOpcode(byte opcode, int pc)

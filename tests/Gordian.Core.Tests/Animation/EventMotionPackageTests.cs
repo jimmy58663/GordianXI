@@ -1,7 +1,11 @@
 // tests/Gordian.Core.Tests/Animation/EventMotionPackageTests.cs
+using System;
 using System.IO;
+using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Tables;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation
@@ -13,9 +17,61 @@ namespace Gordian.Core.Tests.Animation
 
         private static EventMotionBank? Load(ResourceManager rm, int package)
         {
-            var (withWaist, withoutWaist) = EventMotionBank.PackageFileIds(package);
-            return (rm.LoadDatBytesByFileId(withWaist) is { } a ? EventMotionBank.Parse(a, withWaist) : null)
-                ?? (rm.LoadDatBytesByFileId(withoutWaist) is { } b ? EventMotionBank.Parse(b, withoutWaist) : null);
+            foreach (int fileId in EventMotionBank.PackageFiles(package))
+            {
+                if (rm.LoadDatBytesByFileId(fileId) is { } bytes && EventMotionBank.Parse(bytes, fileId) is { } bank) return bank;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Packages 0-69 are in the first two tables, 70-139 (ten per player race) in the race sets table at 61171 + n
+        /// (#209); the others are not located.
+        /// </summary>
+        [Fact]
+        public void PackageFiles_PicksTheTableByPackage()
+        {
+            Assert.Equal(new[] { 32378, 32721 }, EventMotionBank.PackageFiles(9));
+            Assert.Equal(new[] { 32498, 32781 }, EventMotionBank.PackageFiles(69));
+            Assert.Equal(new[] { 61241 }, EventMotionBank.PackageFiles(70));
+            Assert.Equal(new[] { 61281 }, EventMotionBank.PackageFiles(110));
+            Assert.Equal(new[] { 61310 }, EventMotionBank.PackageFiles(139));
+            Assert.Empty(EventMotionBank.PackageFiles(140));
+            Assert.Empty(EventMotionBank.PackageFiles(-1));
+        }
+
+        /// <summary>
+        /// Port Jeuno 324's look up (#209): every race's package (skeleton slot · 10 + 70) has <c>atp0</c>, one clip held
+        /// until the next motion that tilts the face up by about 28 degrees from the bind pose, where the idle holds it
+        /// level (the head joint in model space), as the player holds it in retail's front shot under the flash.
+        /// </summary>
+        [Theory]
+        [InlineData(70, CharacterRace.HumeMale)]
+        [InlineData(80, CharacterRace.HumeFemale)]
+        [InlineData(90, CharacterRace.ElvaanMale)]
+        [InlineData(100, CharacterRace.ElvaanFemale)]
+        [InlineData(110, CharacterRace.TaruMale)]
+        [InlineData(120, CharacterRace.Mithra)]
+        [InlineData(130, CharacterRace.Galka)]
+        public void RacePackage_LooksUpAndHolds(int package, CharacterRace race)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var bank = Load(rm, package);
+            Assert.NotNull(bank);
+            Assert.Equal(61171 + package, bank!.FileId);
+            var atp = bank.Routines["atp0"];
+            Assert.True(atp.HoldsLastClip);
+            var skeleton = EntityModelLoader.ParseDatContainer(rm.LoadDatBytes(CharacterEquipmentResolver.GetBaseSkeletonPath(race))!, "base").Skeleton!;
+            int head = HeadLook.HeadJoint(skeleton);
+            var clip = bank.Clips[atp.Segments[^1].ClipName];
+            var rest = SkeletonPoseEvaluator.ComputeBindPose(skeleton).Rotations[head];
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, clip.DurationSeconds / 2f, loop: true);
+            // The model faces +X with Y down: a face tilted up turns +X toward -Y.
+            var face = Vector3.Transform(Vector3.UnitX, pose.Rotations[head] * Quaternion.Inverse(rest));
+            float pitch = MathF.Atan2(-face.Y, MathF.Sqrt(face.X * face.X + face.Z * face.Z)) * 180f / MathF.PI;
+            Assert.InRange(pitch, 20f, 40f);
         }
 
         /// <summary>

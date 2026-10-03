@@ -59,12 +59,49 @@ namespace Gordian.Core.Animation
         /// xi-tools, which gives Cornelia's <c>kka0</c> as package 12). Located in the retail DATs (2026-10-01): file
         /// 32360 + 2n holds package n with the waist part (the gestures' parts 0 and 1 and their routines in one folder,
         /// part 2 in another; file 32361 + 2n is a twin, presumably for robe bodies as with the emotes), and file 32712 + n
-        /// holds it without the waist part; the first table ends where the second begins (176 packages). Some packages are
-        /// only in the second (29, the Royal Knights' talk: 32418 is empty, 32741 has it). Every package whose few
-        /// gestures pin it down (17, 22, 24, 25, 43, 51, 54, 57, 62, 63 over all zones' 0x66 uses) has them at both places.
-        /// The San d'Oria packages (20, 21, 29) are authored for the Elvaan skeleton.
+        /// holds it without the waist part. Some packages are only in the second (29, the Royal Knights' talk: 32418 is
+        /// empty, 32741 has it). Every package whose few gestures pin it down (17, 22, 24, 25, 43, 51, 54, 57, 62, 63 over
+        /// all zones' 0x66 uses) has them at both places. The San d'Oria packages (20, 21, 29) are authored for the Elvaan
+        /// skeleton. These two tables hold packages 0-69 only: from 70 on see <see cref="PackageFiles"/>.
         /// </summary>
         public static (int WithWaist, int WithoutWaist) PackageFileIds(int package) => (32360 + 2 * package, 32712 + package);
+
+        /// <summary>The first package of the race sets table (<see cref="RaceSetFileBase"/>).</summary>
+        public const int FirstRaceSetPackage = 70;
+
+        /// <summary>One past the last package located in the race sets table.</summary>
+        public const int RaceSetPackageEnd = 140;
+
+        /// <summary>
+        /// Packages 70-139 are file 61171 + n, ten per player race: 70-79 Hume male, 80-89 Hume female, 90-99 Elvaan male,
+        /// 100-109 Elvaan female, 110-119 Tarutaru, 120-129 Mithra, 130-139 Galka, the same kinds of gesture at the same
+        /// place in each ten (n0 <c>atp0</c> / <c>atp1</c> / <c>ec00</c>..., n1 <c>pas0</c> / <c>llz0</c>, n3 <c>dak0</c>-<c>dak3</c>, n4
+        /// <c>pia0</c>-<c>pia2</c> ...). Located in the retail DATs (2026-10-03, #209): of the 1,264 uses of a literal
+        /// package 70-139 in the event scripts of zones 0-299, 1,220 name a routine of that file and none one of 32360 + 2n
+        /// or 32712 + n, which hold other gestures there (32500, package 70 by the first table, has <c>afr0</c> / <c>ure0</c>);
+        /// the other 44 name routines found in none of the three.
+        /// Port Jeuno 324 gives the player <c>atp0</c> from package skeleton slot · 10 + 70 at the cut to the front shot
+        /// under the flash in the sky: a stand with the face tilted 28 degrees up, held, as the maintainer's retail recording
+        /// shows (about 1:17-1:21).
+        /// </summary>
+        public const int RaceSetFileBase = 61171;
+
+        /// <summary>
+        /// The DATs that may hold 0x66 motion package <paramref name="package"/> (XiEvents OpCodes/0x005B,
+        /// ReadTpcEventMotionRes), in the order to try them: for 0-69 the first and second tables
+        /// (<see cref="PackageFileIds"/>), for 70-139 the race sets table (<see cref="RaceSetFileBase"/>); none for the
+        /// others, which are not located (140 and up: 2,369 uses in the same scan).
+        /// </summary>
+        public static int[] PackageFiles(int package)
+        {
+            if (package < 0) return [];
+            if (package < FirstRaceSetPackage)
+            {
+                var (withWaist, withoutWaist) = PackageFileIds(package);
+                return [withWaist, withoutWaist];
+            }
+            return package < RaceSetPackageEnd ? [RaceSetFileBase + package] : [];
+        }
 
         /// <summary>How many 60 Hz frames a routine of the bank plays (one pass of a looping one), 0 when it has none.</summary>
         public int GetRoutineFrames(string name) =>
