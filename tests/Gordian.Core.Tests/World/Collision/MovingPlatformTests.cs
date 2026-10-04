@@ -1,5 +1,6 @@
 using System.Numerics;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using Xunit.Abstractions;
@@ -29,16 +30,18 @@ namespace Gordian.Core.Tests.World.Collision
             foreach (var platforms in new[] { headless!.MovingPlatforms, zone!.Collision!.MovingPlatforms })
             {
                 Assert.Equal(2, platforms.Count);
-                foreach (var p in platforms) _output.WriteLine($"{p.Id}: {p.Min}..{p.Max} authored={p.AuthoredHeight} upper={p.UpperHeight} lower={p.LowerHeight}");
+                foreach (var p in platforms) _output.WriteLine($"{p.Id}: {p.Min}..{p.Max} authored={p.AuthoredHeight} upper={p.UpperHeight} lower={p.LowerHeight} record={p.FromRecord}");
 
-                // Windower capture: the @6l0 lift carries riders between 1.962 and -9.983.
+                // Windower capture: the @6l0 lift carries riders between 1.962 and -9.983, the record's two stops
+                // (3856 / 798 on Y -13.1). Both shafts share the stops and run antiphase.
                 var lift = platforms.Single(p => p.Id == "@6l0");
-                Assert.InRange(lift.LowerHeight, 1.9f, 2.05f);
-                Assert.InRange(lift.UpperHeight, -10.05f, -9.95f);
+                Assert.True(lift.FromRecord);
+                Assert.Equal(1.962f, lift.LowerHeight, 3);
+                Assert.Equal(-9.983f, lift.UpperHeight, 3);
                 Assert.True(lift.Contains(-56.3f, -12.1f));
                 var other = platforms.Single(p => p.Id == "@6l1");
                 Assert.True(other.Contains(-56.0f, 12.0f));
-                Assert.InRange(other.UpperHeight - other.LowerHeight, -12.1f, -11.8f);
+                Assert.Equal((lift.UpperHeight, lift.LowerHeight), (other.UpperHeight, other.LowerHeight));
             }
 
             // Its parts are drawn separately from the static scenery.
@@ -46,7 +49,147 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.DoesNotContain(zone.MeshGroups, g => g.Name.StartsWith("liftall", StringComparison.OrdinalIgnoreCase));
         }
 
-        private static readonly MovingPlatform Lift = new("@6l0", new Vector2(-59, -15), new Vector2(-53, -9), -10.0f, -10.0f, 2.0f);
+        /// <summary>
+        /// Every zone with <c>@</c> records (a scan of all zone DATs, #66): each car takes both stops from its record,
+        /// from both loaders. Expected stops are s16 / 256 + record Y; the landings beside each shaft (collision floors)
+        /// sit within 0.25 yalms of them.
+        /// </summary>
+        [Theory]
+        [InlineData(141, "@3x0", -52.186f, -28.007f)] // Fort Ghelsba (lever lift)
+        [InlineData(143, "@3z0", -32.117f, 1.028f)]   // Palborough Mines (lever lift)
+        [InlineData(149, "@450", -9.168f, -1.969f)]   // Davoi (lever lift; the car is authored at -8.19, between its stops)
+        [InlineData(9, "@090", -0.334f, 32.147f)]     // Pso'Xja (11 lifts)
+        [InlineData(9, "@093", -0.348f, 48.141f)]
+        [InlineData(9, "@097", -0.066f, 15.898f)]     // a lift room the landing heuristic sent to 48.0
+        public void ZoneLifts_TakeTheirStopsFromTheRecord(int zoneId, string id, float upper, float lower)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+
+            var collisionOnly = new ResourceManager(GameDirectory);
+            collisionOnly.InitializeFileTable();
+            var headless = collisionOnly.TryLoadZoneCollision(zoneId)!;
+            var full = new ResourceManager(GameDirectory);
+            full.InitializeFileTable();
+            Assert.True(full.TryLoadZone(zoneId, out var zone, out _));
+
+            foreach (var platforms in new[] { headless.MovingPlatforms, zone!.Collision!.MovingPlatforms })
+            {
+                Assert.All(platforms, p => Assert.True(p.FromRecord, $"{p.Id} fell back to the landing heuristic"));
+                var lift = platforms.Single(p => p.Id == id);
+                _output.WriteLine($"{zoneId} {lift.Id}: authored={lift.AuthoredHeight:F3} upper={lift.UpperHeight:F3} lower={lift.LowerHeight:F3} rest={lift.RestHeight:F3}");
+                Assert.Equal(upper, lift.UpperHeight, 2);
+                Assert.Equal(lower, lift.LowerHeight, 2);
+            }
+            if (zoneId == 9) Assert.Equal(11, headless.MovingPlatforms.Count);
+        }
+
+        [Fact]
+        public void Create_TakesTheStopsFromTheLiftRecord_ElseTheLandings()
+        {
+            var empty = new ZoneCollisionMesh(Array.Empty<CollisionTriangle>());
+            var min = new Vector2(-59, -15);
+            var max = new Vector2(-53, -9);
+            var record = new ZoneInteraction("@6l0", new Vector3(-56f, -13.1f, -12f), 0f, new Vector3(5.15f, 31.475f, 5.15f), 3856, 798);
+            Assert.True(record.TryGetLiftFloors(out float floor0, out float floor1));
+            Assert.Equal(1.9625f, floor0, 3);
+            Assert.Equal(-9.983f, floor1, 3);
+
+            var lift = MovingPlatforms.Create("@6l0", min, max, -9.98f, empty, record)!;
+            Assert.True(lift.FromRecord);
+            Assert.Equal(-9.983f, lift.UpperHeight, 3);
+            Assert.Equal(1.9625f, lift.LowerHeight, 3);
+
+            // No record, a record with no travel, or a record that is not a lift: the landing heuristic (here no landings).
+            Assert.Null(MovingPlatforms.Create("@6l0", min, max, -9.98f, empty));
+            Assert.Null(MovingPlatforms.Create("@6l0", min, max, -9.98f, empty, record with { LiftFloor0 = 798 }));
+            Assert.Null(MovingPlatforms.Create("@6l0", min, max, -9.98f, empty, record with { Id = "_6l0" }));
+            Assert.False((record with { Center = new Vector3(0, float.NaN, 0) }).TryGetLiftFloors(out _, out _));
+        }
+
+        [Fact]
+        public void RestHeight_IsTheStopNearestTheAuthoredCar()
+        {
+            // Davoi's car is authored at -8.19, a yalm below its upper stop: with no elevator entity it rests at the stop.
+            var davoi = new MovingPlatform("@450", new Vector2(20.9f, -149.5f), new Vector2(27.8f, -142.9f), -8.19f, -9.17f, -1.97f, FromRecord: true);
+            Assert.Equal(-9.17f, davoi.RestHeight);
+            Assert.Equal(-9.17f, MovingPlatforms.HeightAt(davoi, null, 0.0));
+            Assert.Equal(-1.97f, (davoi with { AuthoredHeight = -2.5f }).RestHeight);
+            Assert.Equal(-9.17f + 8.19f, new PlatformHeight(davoi, davoi.RestHeight).Offset, 3); // the parts move to the stop
+        }
+
+        private static MovingPlatform RecordLift(string id, Vector2 min, Vector2 max, float authored, float floor0, float floor1) =>
+            new(id, min, max, authored, MathF.Min(floor0, floor1), MathF.Max(floor0, floor1), FromRecord: true, Floor0: floor0, Floor1: floor1);
+
+        private static WorldEntity ElevatorEntity(uint id, string fourCc, Vector3 position, byte animation, double legStart) =>
+            new(id, (ushort)id, EntityType.Elevator)
+            {
+                TransportId = fourCc,
+                Position = position,
+                AnimationState = animation,
+                TransportStartSeconds = (uint)legStart,
+                TransportTravelSeconds = 8,
+                IsSpawned = true,
+            };
+
+        [Fact]
+        public void LeverLift_Animation11GoesToFloor1_TheTop()
+        {
+            // Palborough Mines @3z0: floor 0 = 1.028 (bottom), floor 1 = -32.117 (top, internal -Y up). LSB spawns it with
+            // animation 11 and, its lever lifts being "reversed", at the top; Davoi's (-1.969 / -9.168) likewise.
+            var palborough = RecordLift("@3z0", new Vector2(176, 59.4f), new Vector2(182, 65), 0.85f, 1.028f, -32.117f);
+            var arrived = ElevatorEntity(1, "@3z0", new Vector3(179.03f, -19.22f, 62.61f), MovingPlatforms.AnimationDown, 0);
+            Assert.Equal(-32.117f, MovingPlatforms.HeightAt(palborough, arrived, 1000.0), 3);
+            arrived.AnimationState = MovingPlatforms.AnimationUp; // LSB's "up" on a reversed lift: it descends
+            Assert.Equal(1.028f, MovingPlatforms.HeightAt(palborough, arrived, 1000.0), 3);
+
+            var davoi = RecordLift("@450", new Vector2(20.9f, -149.5f), new Vector2(27.8f, -142.9f), -8.19f, -1.969f, -9.168f);
+            Assert.Equal(-9.168f, MovingPlatforms.HeightAt(davoi, ElevatorEntity(2, "@450", new Vector3(24.3f, -8.7f, -146.2f), MovingPlatforms.AnimationDown, 0), 1000.0), 3);
+        }
+
+        [Fact]
+        public void Metalworks_PairedByFourCc_PlaysAsBefore()
+        {
+            // Both shafts share the stops (floor 0 = 1.962 bottom, floor 1 = -9.983 top); LSB puts entity "@6l0" in the
+            // north shaft (z +12, car @6l1) and "@6l1" in the south one (z -12, car @6l0), always on opposite legs.
+            var south = RecordLift("@6l0", new Vector2(-59, -15), new Vector2(-53, -9), -9.98f, 1.962f, -9.983f);
+            var north = RecordLift("@6l1", new Vector2(-59, 9), new Vector2(-53, 15), 1.97f, 1.962f, -9.983f);
+            var world = new WorldState { Collision = new ZoneCollisionMesh(Array.Empty<CollisionTriangle>()) { MovingPlatforms = new[] { south, north } } };
+            world.UpsertEntity(ElevatorEntity(0x01000001, "@6l0", new Vector3(-56.0f, -13.1f, 12.0f), MovingPlatforms.AnimationUp, 1000));
+            world.UpsertEntity(ElevatorEntity(0x01000002, "@6l1", new Vector3(-56.0f, -13.1f, -12.0f), MovingPlatforms.AnimationDown, 1000));
+
+            // Before: the entity's own shaft went up on 10 (north up, south down). Now: car @6l0 (south) goes to floor 0
+            // on 10 and car @6l1 (north) to floor 1 on 11: the same heights.
+            var done = MovingPlatforms.Evaluate(world.Collision, world, 1010.0);
+            Assert.Equal(1.962f, done.Single(h => h.Platform.Id == "@6l0").Height, 3);
+            Assert.Equal(-9.983f, done.Single(h => h.Platform.Id == "@6l1").Height, 3);
+            var half = MovingPlatforms.Evaluate(world.Collision, world, 1000.0 + (11.945 / MovingPlatforms.LiftSpeed / 2));
+            Assert.Equal(half[0].Height, half[1].Height, 2); // crossing in the middle
+        }
+
+        [Fact]
+        public void EventPose_OnALift_StandsOnTheLift_NotTheShaftFloor()
+        {
+            // The lever question while riding Palborough Mines' lift at its bottom stop: the event places the rider on the
+            // floor under its event position, which was the pit far below the car (#66, also before #66).
+            var pit = new ZoneCollisionMesh(new[]
+            {
+                new CollisionTriangle(new Vector3(170, 5.0f, 50), new Vector3(190, 5.0f, 50), new Vector3(170, 5.0f, 70), -Vector3.UnitY, false, default, false),
+                new CollisionTriangle(new Vector3(190, 5.0f, 50), new Vector3(190, 5.0f, 70), new Vector3(170, 5.0f, 70), -Vector3.UnitY, false, default, false),
+            });
+            var lift = RecordLift("@3z0", new Vector2(176, 59.4f), new Vector2(182, 65), 0.85f, 1.028f, -32.117f);
+            var heights = new[] { new PlatformHeight(lift, 1.028f) };
+            var rider = new Vector3(179.6f, 1.028f, 63.6f);
+
+            Assert.Equal(5.0f, EntityGrounding.GetEventDisplayHeight(rider, pit), 3);           // without platforms: the pit
+            Assert.Equal(1.028f, EntityGrounding.GetEventDisplayHeight(rider, pit, heights), 3); // on the car
+            Assert.Equal(5.0f, EntityGrounding.GetEventDisplayHeight(rider with { X = 185f }, pit, heights), 3); // off the car
+
+            // A rider stays on the car it is riding while the car moves away from the event position's height.
+            var moved = new[] { new PlatformHeight(lift, -10.0f) };
+            Assert.Equal(-10.0f, EntityGrounding.GetEventDisplayHeight(rider, pit, moved, "@3z0"), 3);
+        }
+
+        private static readonly MovingPlatform Lift = new("@6l0",new Vector2(-59, -15), new Vector2(-53, -9), -10.0f, -10.0f, 2.0f);
 
         [Fact]
         public void HeightAt_FollowsTheElevatorLegAtConstantSpeed()
