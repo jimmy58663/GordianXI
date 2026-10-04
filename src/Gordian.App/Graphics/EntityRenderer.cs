@@ -350,7 +350,8 @@ namespace Gordian.App.Graphics
             ZoneCollisionMesh? collision = null,
             PlatformHeight[]? platforms = null,
             ZoneGeometry? zone = null,
-            IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null)
+            IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null,
+            string localPlayerRidingPlatformId = "")
         {
             if (_disposed || cl == null || entities == null) return;
 
@@ -449,7 +450,8 @@ namespace Gordian.App.Graphics
                 // An event places its actors on the floor below their event position unless it keeps their height (0x33 / 0x59 sub 5).
                 Vector3 pos = eventPose != null
                     ? new Vector3(-eventPose.Position.X,
-                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetEventDisplayHeight(eventPose.Position, collision),
+                        entity.KeepsEventHeight ? -eventPose.Position.Y : -EntityGrounding.GetEventDisplayHeight(eventPose.Position, collision,
+                            platforms ?? Array.Empty<PlatformHeight>(), entity.ServerId == localPlayerServerId ? localPlayerRidingPlatformId : entity.RidingPlatformId),
                         eventPose.Position.Z)
                     : (entity.ServerId == localPlayerServerId && localPlayerDisplayPos.HasValue)
                     ? localPlayerDisplayPos.Value

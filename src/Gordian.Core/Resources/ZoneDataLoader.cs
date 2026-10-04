@@ -228,13 +228,23 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Builds the zone's moving platforms (elevators) from the world-space parts of each <c>@</c> BlockID object: the
-        /// footprint is the parts' XZ bounds and the authored floor is the first part's placement height.
+        /// footprint is the parts' XZ bounds and the authored floor is the first part's placement height. The travel comes
+        /// from the Section 0x36 <c>@</c> record whose id is the BlockID (#66), the landing heuristic only without one.
         /// </summary>
         public static List<MovingPlatform> CreateMovingPlatforms(IReadOnlyList<ZonePlacement> placements,
                                                                 IReadOnlyDictionary<string, List<MeshGroup>> partsById,
-                                                                ZoneCollisionMesh collision)
+                                                                ZoneCollisionMesh collision,
+                                                                IReadOnlyList<ZoneInteraction>? interactions = null)
         {
             var platforms = new List<MovingPlatform>();
+            var lifts = new Dictionary<string, ZoneInteraction>(StringComparer.Ordinal);
+            if (interactions != null)
+            {
+                foreach (var interaction in interactions)
+                {
+                    if (interaction.IsLift) lifts.TryAdd(interaction.Id, interaction);
+                }
+            }
             foreach (var (id, parts) in partsById)
             {
                 if (parts.Count == 0) continue;
@@ -254,19 +264,26 @@ namespace Gordian.Core.Resources
                     max = Vector2.Max(max, new Vector2(-part.MinBounds.X, part.MaxBounds.Z));
                 }
 
-                var platform = MovingPlatforms.Create(id, min, max, authored.Value, collision);
+                ZoneInteraction? record = lifts.TryGetValue(id, out var lift) ? lift : null;
+                var platform = MovingPlatforms.Create(id, min, max, authored.Value, collision, record);
                 if (platform != null) platforms.Add(platform);
+                if (platform != null && !platform.FromRecord)
+                {
+                    GordianLog.Debug("RES", $"Moving platform {id} has no Section 0x36 lift record; its travel {platform.UpperHeight:F2} / {platform.LowerHeight:F2} is the landing heuristic's.");
+                }
             }
             return platforms;
         }
 
         /// <summary>
         /// Builds the moving platforms for a zone loaded for collision only: decrypts the zone's mesh sections (only when
-        /// the zone has <c>@</c> objects) to find the parts' footprints.
+        /// the zone has <c>@</c> objects) to find the parts' footprints. <paramref name="interactions"/> is the zone's
+        /// Section 0x36 table, whose <c>@</c> records give each car's travel.
         /// </summary>
         public static List<MovingPlatform> CreateMovingPlatforms(ReadOnlySpan<byte> datBytes, ReadOnlySpan<byte> table1,
                                                                 ReadOnlySpan<byte> table2, IReadOnlyList<ZonePlacement> placements,
-                                                                ZoneCollisionMesh collision)
+                                                                ZoneCollisionMesh collision,
+                                                                IReadOnlyList<ZoneInteraction>? interactions = null)
         {
             var wanted = new List<ZonePlacement>();
             foreach (var placement in placements) if (placement.IsMovingPlatformPart) wanted.Add(placement);
@@ -302,7 +319,7 @@ namespace Gordian.Core.Resources
                 if (!partsById.TryGetValue(placement.BlockId, out var parts)) partsById[placement.BlockId] = parts = new List<MeshGroup>();
                 foreach (var submesh in template) parts.Add(ZoneDefDecoder.InstantiateSubmesh(submesh, transform, placement.MeshId));
             }
-            return CreateMovingPlatforms(placements, partsById, collision);
+            return CreateMovingPlatforms(placements, partsById, collision, interactions);
         }
 
         /// <summary>
@@ -340,6 +357,7 @@ namespace Gordian.Core.Resources
             var onDemandRoutines = new List<(string Directory, Events.SceneRoutine Routine)>();
             var zoneMeshSections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var interactions = new List<ZoneInteraction>();
+            var allInteractions = new List<ZoneInteraction>();
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
@@ -586,7 +604,10 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.ZoneInteractions:
                     {
-                        if (interactions.Count == 0) interactions.AddRange(ZoneInteractionDecoder.Decode(payload));
+                        // Doors keep to the first table; lifts are read from every table (their records have their own).
+                        var decoded = ZoneInteractionDecoder.Decode(payload);
+                        if (interactions.Count == 0) interactions.AddRange(decoded);
+                        allInteractions.AddRange(decoded);
                         break;
                     }
 
@@ -1007,7 +1028,7 @@ namespace Gordian.Core.Resources
 
                 if (zone.Collision != null)
                 {
-                    zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision);
+                    zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision, allInteractions);
                     zone.Collision.Doors = ZoneDoors.CreateBlockers(interactions);
                 }
             }

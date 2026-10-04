@@ -287,6 +287,25 @@ namespace Gordian.Core.Resources
         /// A key item's plural name by key item id ("traverser stones"; the record's "plural" field, which repeats the
         /// name for key items without a plural), for the dialog tag kind 0x35.
         /// </summary>
+        /// <summary>
+        /// A weather's noun ("rain") or adjective ("rainy") by weather id, from the d_msg weather table (ROM/165/79, two
+        /// strings a row; the dialog's 0x01 kinds 0x18 / 0x17, #125). The adjective falls back to the noun when empty.
+        /// </summary>
+        public bool TryGetWeatherName(int weatherId, bool adjective, out string name)
+        {
+            var table = GetDMsgTable(DMsgCategory.WeatherNames);
+            if (table != null && weatherId >= 0 && weatherId < table.Count)
+            {
+                var subs = table.Records[weatherId].SubStrings;
+                int sub = adjective && subs.Count > 1 && !string.IsNullOrEmpty(subs[1]) ? 1 : 0;
+                name = subs.Count > sub ? subs[sub] : string.Empty;
+                return !string.IsNullOrEmpty(name);
+            }
+
+            name = string.Empty;
+            return false;
+        }
+
         public bool TryGetKeyItemPlural(uint keyItemId, out string plural)
         {
             var table = GetDMsgTable(DMsgCategory.KeyItems);
@@ -403,6 +422,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.ZoneNames => Path.Combine("ROM", "165", "84.DAT"),
             DMsgCategory.ZoneNamesShort => Path.Combine("ROM", "165", "83.DAT"),
             DMsgCategory.ZoneNamesCompact => Path.Combine("ROM", "165", "85.DAT"),
+            DMsgCategory.WeatherNames => Path.Combine("ROM", "165", "79.DAT"),
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
@@ -430,6 +450,7 @@ namespace Gordian.Core.Resources
 
             DMsgCategory.SpellHelp or DMsgCategory.AbilityHelp => new[] { "name", "help" },
             DMsgCategory.StatusNames => new[] { "name", "adjective" },
+            DMsgCategory.WeatherNames => new[] { "name", "adjective" },
             // EN key items: sub 0 the key item id, sub 1 a number 1-4 of unknown meaning (not the category, which is
             // the row's place between separator rows), subs 2-3 empty text, then name, plural and description.
             DMsgCategory.KeyItems => new[] { "id", "unk1", "unk2", "unk3", "name", "plural", "description" },
@@ -466,7 +487,9 @@ namespace Gordian.Core.Resources
                     if (collision != null)
                     {
                         var placements = ZoneDefDecoder.ParseZonePlacements(payload, nodeCount);
-                        collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision);
+                        // Lift records live in their own 0x36 tables; the door blockers keep to the first table.
+                        collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision,
+                                                                                         ZoneInteractionDecoder.DecodeAllFromDat(datBytes));
                         collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeFromDat(datBytes));
                     }
                     break;

@@ -59,11 +59,18 @@ namespace Gordian.Core.Tests.World.Collision
             }
             Entry(0, "_6l0", new Vector3(-96.27f, 0.59f, -18.39f), 4.712f, new Vector3(2.01f, 2.83f, 0.07f));
             Entry(1, "@6l0", new Vector3(-56f, -13.1f, -12f), 0f, new Vector3(6f, 20f, 6f));
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(0x30 + 0x40 + 0x34), 3856); // the lift's two stops
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(0x30 + 0x40 + 0x36), 798);
 
             var records = ZoneInteractionDecoder.Decode(payload);
             Assert.Equal(2, records.Count);
             Assert.True(records[0].IsDoor);
             Assert.False(records[1].IsDoor);
+            Assert.True(records[1].IsLift);
+            Assert.False(records[0].TryGetLiftFloors(out _, out _));
+            Assert.True(records[1].TryGetLiftFloors(out float floor0, out float floor1));
+            Assert.Equal(1.9625f, floor0, 3);
+            Assert.Equal(-9.983f, floor1, 3);
             Assert.Equal(new Vector3(2.01f, 2.83f, 0.07f), records[0].Size);
             var blocker = Assert.Single(ZoneDoors.CreateBlockers(records));
             Assert.Equal("_6l0", blocker.Id);
@@ -71,6 +78,49 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.Empty(ZoneInteractionDecoder.Decode(payload.AsSpan(0, 0x18))); // short
             payload[0] = (byte)'X';
             Assert.Empty(ZoneInteractionDecoder.Decode(payload)); // no magic
+        }
+
+        /// <summary>A one-entry RID payload.</summary>
+        private static byte[] RidPayload(string id, short floor0 = 0, short floor1 = 0)
+        {
+            byte[] payload = new byte[0x20 + 16 + 0x40];
+            Encoding.ASCII.GetBytes("RID").CopyTo(payload, 0);
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(0x10), 0x20);
+            BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(0x20), 1);
+            Encoding.ASCII.GetBytes(id).CopyTo(payload.AsSpan(0x30 + 0x24));
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(0x30 + 0x34), floor0);
+            BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(0x30 + 0x36), floor1);
+            return payload;
+        }
+
+        /// <summary>A DAT section: a 16-byte header (id, type | 16-byte units &lt;&lt; 7) and the padded payload.</summary>
+        private static byte[] Section(string datId, byte type, byte[] payload)
+        {
+            int size = 16 + ((payload.Length + 15) & ~15);
+            byte[] section = new byte[size];
+            Encoding.ASCII.GetBytes(datId).CopyTo(section, 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(section.AsSpan(4), (uint)type | ((uint)(size / 16) << 7));
+            payload.CopyTo(section, 16);
+            return section;
+        }
+
+        [Fact]
+        public void ZoneInteractionDecoder_ReadsLiftsFromEveryTable_DoorsFromTheFirst()
+        {
+            // Metalworks keeps its doors in the first 0x36 table and its lifts in another (e237); a bad table in between is skipped.
+            byte[] dat = Section("t_ba", 0x36, RidPayload("_6l0"))
+                .Concat(Section("bad", 0x36, new byte[] { (byte)'X', 0, 0, 0 }))
+                .Concat(Section("e237", 0x36, RidPayload("@6l0", 3856, 798)))
+                .ToArray();
+
+            Assert.Equal("_6l0", Assert.Single(ZoneInteractionDecoder.DecodeFromDat(dat)).Id);
+            var all = ZoneInteractionDecoder.DecodeAllFromDat(dat);
+            Assert.Equal(new[] { "_6l0", "@6l0" }, all.Select(r => r.Id));
+            Assert.Equal((short)3856, all[1].LiftFloor0);
+            Assert.Equal((short)798, all[1].LiftFloor1);
+
+            Assert.Empty(ZoneInteractionDecoder.DecodeAllFromDat(ReadOnlySpan<byte>.Empty));
+            Assert.Empty(ZoneInteractionDecoder.DecodeAllFromDat(new byte[] { 1, 2, 3 }));
         }
 
         [Fact]

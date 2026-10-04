@@ -2,22 +2,45 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.World.Collision
 {
     /// <summary>
     /// A moving platform (an elevator) of the zone: the ZoneDef placements whose BlockID FourCC starts with <c>@</c>.
-    /// The platform floor is authored at one landing; it travels vertically between <see cref="UpperHeight"/> and
-    /// <see cref="LowerHeight"/> (internal space, -Y up) over its XZ footprint.
+    /// It travels vertically between <see cref="UpperHeight"/> and <see cref="LowerHeight"/> (internal space, -Y up) over
+    /// its XZ footprint; its parts are moved so their placement origin sits at the current height (the stops of the
+    /// zone's Section 0x36 record are absolute heights, which Davoi's car, authored between its stops, confirms against
+    /// the landings beside its shaft).
     /// BlockID semantics referenced from xi-tools (docs/zone/format.md, https://github.com/vekien/xi-tools).
     /// </summary>
     /// <param name="Id">The BlockID FourCC, which the server's elevator entity names as its door id (e.g. <c>@6l0</c>).</param>
     /// <param name="Min">Footprint minimum (internal X, Z).</param>
     /// <param name="Max">Footprint maximum (internal X, Z).</param>
     /// <param name="AuthoredHeight">The floor height the platform's parts are authored at.</param>
-    public sealed record MovingPlatform(string Id, Vector2 Min, Vector2 Max, float AuthoredHeight, float UpperHeight, float LowerHeight)
+    /// <param name="FromRecord">Whether the travel came from the zone's Section 0x36 <c>@</c> record (otherwise the
+    /// landing heuristic).</param>
+    /// <param name="Floor0">The record's floor 0 (+0x34), the stop elevator animation 10 sends the car to.</param>
+    /// <param name="Floor1">The record's floor 1 (+0x36), the stop elevator animation 11 sends the car to.</param>
+    public sealed record MovingPlatform(string Id, Vector2 Min, Vector2 Max, float AuthoredHeight, float UpperHeight, float LowerHeight,
+                                        bool FromRecord = false, float Floor0 = 0.0f, float Floor1 = 0.0f)
     {
         public bool Contains(float x, float z) => x >= Min.X && x <= Max.X && z >= Min.Y && z <= Max.Y;
+
+        /// <summary>
+        /// Where elevator animation 10 sends the car: the record's floor 0 (for every retail lift the bottom stop), or the
+        /// upper stop for a car built by the landing heuristic. See <see cref="MovingPlatforms.HeightAt"/>.
+        /// </summary>
+        public float Animation10Height => FromRecord ? Floor0 : UpperHeight;
+
+        /// <summary>Where elevator animation 11 sends the car: the record's floor 1, or the lower stop without a record.</summary>
+        public float Animation11Height => FromRecord ? Floor1 : LowerHeight;
+
+        /// <summary>
+        /// Where the platform rests while no elevator entity moves it: the stop nearest its authored floor. Most cars are
+        /// authored at a stop; Davoi's is authored a yalm below its upper stop (-8.19 against the record's -9.17).
+        /// </summary>
+        public float RestHeight => MathF.Abs(AuthoredHeight - UpperHeight) <= MathF.Abs(AuthoredHeight - LowerHeight) ? UpperHeight : LowerHeight;
     }
 
     /// <summary>
@@ -32,7 +55,7 @@ namespace Gordian.Core.World.Collision
     /// <summary>
     /// Elevator motion as the legacy client plays it. LandSandBoat sends each elevator as an NPC with the elevator look,
     /// its platform's FourCC, the Earth second (since the Vana'diel epoch) its current leg started, and the leg's travel
-    /// time in seconds; the animation says up (10) or down (11). The client moves the platform itself at a constant speed
+    /// time in seconds; the animation (10 / 11) names the stop the leg goes to (see <see cref="HeightAt"/>). The client moves the platform itself at a constant speed
     /// (a Windower capture of Metalworks' lift shows ~2 yalms/s over its 8-second leg, no easing) and carries whoever
     /// stands on it. Packet layout referenced from LandSandBoat (https://github.com/LandSandBoat/server,
     /// packets/entity_update.cpp getTransportNPCName, transports/elevator_handler.cpp).
@@ -61,13 +84,31 @@ namespace Gordian.Core.World.Collision
         public const float LandingSearchMargin = 1.5f;
 
         /// <summary>
-        /// Builds a platform from its parts' footprint and authored floor, finding the other end of its travel as the
-        /// landing: the floor level with the most walkable area beside the footprint (not the pit under it), at least
-        /// <see cref="MinimumTravel"/> from the authored floor (stair treads beside a shaft are small; landings are not).
-        /// The client's own source for the travel distance is not decoded (its move routines carry only the duration);
-        /// this matches the Metalworks lifts to within 0.04 yalms. Null when there is no other landing.
+        /// Builds a platform from its parts' footprint and authored floor. Its travel comes from the zone's Section 0x36
+        /// <c>@</c> record of the same id when there is one (<see cref="ZoneInteraction.TryGetLiftFloors"/>, the two
+        /// stops the legacy client's lift actor uses; Metalworks' match a Windower capture exactly). A car without a
+        /// usable record falls back to <see cref="CreateFromLanding"/>. Null when neither gives a travel.
         /// </summary>
-        public static MovingPlatform? Create(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision)
+        public static MovingPlatform? Create(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision,
+                                             ZoneInteraction? record = null)
+        {
+            if (record is { } lift && lift.TryGetLiftFloors(out float floor0, out float floor1)
+                && MathF.Abs(floor0 - floor1) >= LevelTolerance)
+            {
+                return new MovingPlatform(id, min, max, authoredHeight, MathF.Min(floor0, floor1), MathF.Max(floor0, floor1),
+                                          FromRecord: true, Floor0: floor0, Floor1: floor1);
+            }
+            return CreateFromLanding(id, min, max, authoredHeight, collision);
+        }
+
+        /// <summary>
+        /// The fallback for a car with no Section 0x36 record: finds the other end of its travel as the landing, the floor
+        /// level with the most walkable area beside the footprint (not the pit under it), at least
+        /// <see cref="MinimumTravel"/> from the authored floor (stair treads beside a shaft are small; landings are not).
+        /// This matched the Metalworks lifts to within 0.04 yalms (2.0 / -10.0 against the records' 1.9625 / -9.983).
+        /// Null when there is no other landing.
+        /// </summary>
+        public static MovingPlatform? CreateFromLanding(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision)
         {
             var areaByLevel = new Dictionary<int, (float Height, float Area)>();
             foreach (var (height, area, centroid) in collision.FloorsNear(min - new Vector2(LandingSearchMargin), max + new Vector2(LandingSearchMargin)))
@@ -91,21 +132,27 @@ namespace Gordian.Core.World.Collision
 
         /// <summary>
         /// The floor height of <paramref name="platform"/> at <paramref name="earthSecondsSinceEpoch"/> as its elevator
-        /// entity describes it, or its authored height when the entity has no leg.
+        /// entity describes it, or its <see cref="MovingPlatform.RestHeight"/> when there is no entity or it has no leg.
+        /// Animation 10 sends the car to the record's floor 0 and 11 to its floor 1 (<see cref="MovingPlatform.Animation10Height"/>):
+        /// one rule for the timed and the lever lifts. LandSandBoat's elevator handler (transports/elevator_handler.cpp)
+        /// sends 10 for "up" on Metalworks' lifts but flags the lever lifts (Davoi, Palborough Mines, Fort Ghelsba) as
+        /// "reversed", sending 10 while they descend; every one of those records has its floor 0 at the bottom, and with the
+        /// lifts paired by FourCC (<see cref="PlatformOf"/>) Metalworks' antiphase shafts play exactly as before. The
+        /// reading is an inference from the server data, checked against retail side by side (#66).
         /// </summary>
         public static float HeightAt(MovingPlatform platform, WorldEntity? elevator, double earthSecondsSinceEpoch, double clockSkewSeconds = 0.0)
         {
-            if (elevator == null) return platform.AuthoredHeight;
-            bool up = elevator.AnimationState == AnimationUp;
-            if (!up && elevator.AnimationState != AnimationDown) return platform.AuthoredHeight;
+            if (elevator == null) return platform.RestHeight;
+            bool to10 = elevator.AnimationState == AnimationUp;
+            if (!to10 && elevator.AnimationState != AnimationDown) return platform.RestHeight;
 
             // The platform moves at the retail lift speed; the server's leg time (doors and wait included) caps it.
             float legSeconds = elevator.TransportTravelSeconds > 0 ? elevator.TransportTravelSeconds : DefaultTravelSeconds;
             float travel = MathF.Min(legSeconds, (platform.LowerHeight - platform.UpperHeight) / LiftSpeed);
             float progress = (float)Math.Clamp((earthSecondsSinceEpoch - LegStart(elevator, clockSkewSeconds)) / travel, 0.0, 1.0);
-            return up
-                ? float.Lerp(platform.LowerHeight, platform.UpperHeight, progress)
-                : float.Lerp(platform.UpperHeight, platform.LowerHeight, progress);
+            return to10
+                ? float.Lerp(platform.Animation11Height, platform.Animation10Height, progress)
+                : float.Lerp(platform.Animation10Height, platform.Animation11Height, progress);
         }
 
         /// <summary>
@@ -129,12 +176,20 @@ namespace Gordian.Core.World.Collision
             elevator.TransportObservedSeconds > 0.0 ? elevator.TransportObservedSeconds : elevator.TransportStartSeconds + clockSkewSeconds;
 
         /// <summary>
-        /// The platform an elevator entity moves: the one whose footprint holds (or lies nearest to) the entity, as the
-        /// legacy client pairs them; the FourCC only as a fallback. LandSandBoat's Metalworks data names each lift by the
-        /// other shaft's BlockID, and a Windower capture shows the lift beside the entity moving.
+        /// The platform an elevator entity moves: the one with a Section 0x36 record whose FourCC the entity carries, else
+        /// the one whose footprint holds (or lies nearest to) the entity. LandSandBoat's Metalworks data places each lift
+        /// entity in the other shaft (<c>@6l0</c> at z +12, its record and car at z -12); a Windower capture shows the car
+        /// beside the entity going up on animation 10. Paired by FourCC, animation 10 sends car <c>@6l0</c> to floor 0
+        /// (down) while the other entity's 11 sends the car beside it up: the same picture, since the two shafts always run
+        /// opposite legs. A car without a record keeps the footprint pairing and the old 10 = up reading.
         /// </summary>
         public static MovingPlatform? PlatformOf(IReadOnlyList<MovingPlatform> platforms, WorldEntity elevator)
         {
+            foreach (var platform in platforms)
+            {
+                if (platform.FromRecord && platform.Id == elevator.TransportId) return platform;
+            }
+
             var position = elevator.Position;
             MovingPlatform? nearest = null;
             float nearestDistance = float.MaxValue;

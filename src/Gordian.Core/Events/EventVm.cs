@@ -1130,6 +1130,9 @@ namespace Gordian.Core.Events
                     _host.UnlockEnvironment();
                     _pc++;
                     return;
+                case 0x72:
+                    ExecWeatherForecast();
+                    return;
                 case 0x34:
                 case 0x35:
                     ExecOpenZone();
@@ -1557,6 +1560,63 @@ namespace Gordian.Core.Events
             _zoneOpenFrames = -1f;
             _pc += 3;
         }
+
+        /// <summary>
+        /// 0x72 (XiEvents OpCodes/0x0072, <c>CodeGETWEATER</c>), the weather forecast. Sub 0 (<c>72 00 zone</c>) reads the
+        /// forecast file of the zone the work value names (7033 below zone 100, else 7037) and goes on by 4; when the file
+        /// cannot be read, or holds no forecast for that zone, it goes on by 10, past the <c>72 01</c> that always follows.
+        /// Sub 1 (<c>72 01 zone day</c>) writes the zone's forecast for the day (modulo 2,160) into zone work values 2-4:
+        /// normal, common and rare weather ids, 255 for an empty slot (the weather reporters compare them with 255), then
+        /// goes on by 6. Both yield, as retail's do. Retail reads the file asynchronously and sub 1 waits for it; here the
+        /// read is done by sub 0, so sub 1 never waits. Sub 1 without a file read for that zone writes nothing (retail would
+        /// read stale memory). Format: <see cref="WeatherForecastFile"/>.
+        /// </summary>
+        private void ExecWeatherForecast()
+        {
+            switch (Code8(1))
+            {
+                case 0:
+                {
+                    int zoneId = GetWork(2);
+                    int fileId = WeatherForecastFile.GetFileId(zoneId);
+                    var file = WeatherForecastFile.Parse(fileId, _host.LoadDat(fileId));
+                    bool readable = file != null && file.TryGetForecast(zoneId, 0, out _);
+                    _weatherFile = readable ? file : null;
+                    _pc += readable ? 4 : 10;
+                    _retFlag = true;
+                    return;
+                }
+                case 1:
+                {
+                    if (_weatherFile != null && _weatherFile.TryGetForecast(GetWork(2), GetWork(4), out var forecast))
+                    {
+                        _zone.Zone[2] = forecast.Normal;
+                        _zone.Zone[3] = forecast.Common;
+                        _zone.Zone[4] = forecast.Rare;
+                    }
+                    _weatherFile = null; // retail frees the file here
+                    _pc += 6;
+                    _retFlag = true;
+                    return;
+                }
+                default:
+                {
+                    // No other sub-case is known (the retail corpus has only 0 and 1); step over it by the table.
+                    int length = EventOpcodeTable.GetLength(_code, _pc);
+                    _host.OnSkippedOpcode(0x72, _pc);
+                    if (length <= 0)
+                    {
+                        EndRequest();
+                        return;
+                    }
+                    _pc += length;
+                    return;
+                }
+            }
+        }
+
+        /// <summary>The forecast file 0x72 sub 0 read, until sub 1 takes its forecast.</summary>
+        private WeatherForecastFile? _weatherFile;
 
         /// <summary>How long 0x34 / 0x35 wait for the zone to load before going on without it (15 s).</summary>
         private const float ZoneOpenTimeoutFrames = 900f;

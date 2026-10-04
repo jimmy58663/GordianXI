@@ -134,7 +134,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x6F |  | 1 | runs | 23,520 | Sleeps for 16 frames unless a wait is already running on the stack. |
 | 0x70 |  | 1 | runs | 8,350 | Waits while the event's own entity is still turning. |
 | 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. |
-| 0x72 | `CodeGETWEATER` | by sub | stepped | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
+| 0x72 | `CodeGETWEATER` | by sub | runs | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
 | 0x73 | `CodeMAGICSCHEDULOR` | 11 | stepped | 947 | Starts a spell-casting task (tag `main`) from one actor toward another. |
 | 0x74 |  | 2 | stepped | 12 | Sets or clears bit 31 of the event entity's `Render.Flags1`. |
 | 0x75 | `CodeLOADROOM` | by sub | stepped | 951 | Opens an indoor room of the zone and reports the player's sub-region to the server (C2S 0x0F2). |
@@ -577,7 +577,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x72 `CodeGETWEATER`
 
 - Layout: `72 00 zone:work` (4), `72 01 zone:work day:work` (6). Sub 0 asks for weather file 7033 (7037 for zone 100 and up); sub 1 yields until it is read, then writes three forecast values into zone work values 2-4 (XiEvents OpCodes/0x0072).
-- Both subs are stepped; the forecast is not decoded ([#125](https://github.com/jimmy58663/GordianXI/issues/125)).
+- Both subs run ([#125](https://github.com/jimmy58663/GordianXI/issues/125), 2026-10-03, `EventVm.ExecWeatherForecast`): sub 0 reads the file through the resource manager and goes on by 4, or by 10 when the file cannot be read or has no block for the zone; sub 1 writes the day's normal, common and rare weather ids (255 = none) into zone work values 2, 3 and 4. The file format and the zone-to-block tables are in [vm.md](vm.md#weather-forecast-0x72). Retail reads asynchronously and sub 1 waits; here sub 0 reads, so sub 1 never waits. Sub-cases other than 0 and 1 are stepped (none in the corpus outside table data).
+- **Beyond XiEvents / xi-tools:** the record layout (2,160 days x 3 bytes per 6,480-byte block, no header), the meaning of the three values, and the zones' blocks, derived by matching both files against LandSandBoat's weather table ([vm.md](vm.md#weather-forecast-0x72)).
 - **Beyond XiEvents / xi-tools:** XiEvents' sub 0 advances 10 bytes when the read cannot start, and xi-tools lists a 10-byte form it never found. Both subs occur 702 times in 234 events in the census: the scripts always write `72 00` then `72 01`, so the 10 is 4 + 6, sub 0 skipping its own `72 01`, not a third encoding.
 
 ### 0x73 `CodeMAGICSCHEDULOR`, 0xC4, 0xAD
