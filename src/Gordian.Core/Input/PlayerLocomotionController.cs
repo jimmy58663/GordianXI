@@ -564,7 +564,7 @@ namespace Gordian.Core.Input
             {
                 targetPos = targetEnt.Position;
             }
-            _camera.Update(targetPos, CameraPitch, CameraYaw, CameraDistance, _camera.AspectRatio);
+            _camera.Update(targetPos, CameraPitch, CameraYaw, LockOnZoomedDistance(dt), _camera.AspectRatio);
 
             if (cameraChanged)
             {
@@ -1207,13 +1207,52 @@ namespace Gordian.Core.Input
             return target;
         }
 
+        // Locked-on camera, measured from the maintainer's retail recording of 2026-10-03 (1438p, 10 fps frames t001-t287,
+        // where tNNN is (NNN - 1) / 10 s). Method: with the stock 60 degree vertical field of view (16:9, 91 degree
+        // horizontal) the character's screen offset from the view centre at each limit gives the angle between the view
+        // and the character, and the camera-to-character parallax (target 10 yalms away, camera about 3 yalms behind) adds
+        // about 6 degrees to get the camera's yaw against the character-to-target line.
+
         /// <summary>
-        /// While locked on, the camera may swing this far either side of the character-to-target direction
-        /// (degrees). PROVISIONAL (#137): the maintainer reports retail limits the arc and that the camera stays at the
-        /// limit; the recording keeps the target within about 10 degrees of screen centre, so the true value is not
-        /// measured. Chosen to be generous.
+        /// Furthest the locked-on camera may swing RIGHT of the character-to-target line (degrees). Retail recording
+        /// 2026-10-03, about 10.2-10.6 s: the camera sits at its right limit with the character at x = 175 of 640
+        /// (145 px left of centre, 24.9 degrees of view, about 32 degrees of yaw with parallax).
         /// </summary>
-        public const float LockOnCameraArcDegrees = 60.0f;
+        public const float LockOnCameraArcRightDegrees = 32.0f;
+
+        /// <summary>
+        /// Furthest the locked-on camera may swing LEFT of the line (degrees). Retail recording 2026-10-03, about
+        /// 11.8-12.6 s: left limit with the character at x = 460 of 640 (140 px right of centre, 24.2 degrees of view,
+        /// about 31 degrees of yaw). Left and right agree within the measuring error.
+        /// </summary>
+        public const float LockOnCameraArcLeftDegrees = 31.0f;
+
+        /// <summary>
+        /// Lowest the locked-on camera pitch may go (degrees above the horizon looking down; 0 = level). Retail recording
+        /// 2026-10-03, 17.8-18.0 s: the horizon sits on the view centre (262 of 540 rows), a level view.
+        /// </summary>
+        public const float LockOnCameraPitchMinDegrees = 0.0f;
+
+        /// <summary>
+        /// Highest the locked-on camera pitch may go (degrees looking down). Retail recording 2026-10-03, 16.7-17.3 s:
+        /// the distant horizon sits 120 of 540 rows above the view centre, atan(120 / 270 x tan 30 degrees) = 14.4 degrees
+        /// down. Estimated from the horizon of far hills, so good to a few degrees.
+        /// </summary>
+        public const float LockOnCameraPitchMaxDegrees = 14.5f;
+
+        /// <summary>
+        /// Locking on pulls the camera in to this share of its distance. Retail recording 2026-10-03, 4.2-4.5 s (engage):
+        /// the character's on-screen height grows from about 125 px to about 250-275 px of 1438, 2.0-2.2 times, so the
+        /// distance drops to about 0.48. One sample, so it is not known whether retail uses a share or a fixed distance.
+        /// </summary>
+        public const float LockOnZoomFactor = 0.48f;
+
+        /// <summary>
+        /// Time the lock-on zoom takes, eased (smoothstep). Retail recording 2026-10-03: nothing at 4.1-4.2 s, 40% done at
+        /// 4.3 s, 95% at 4.4 s, done at 4.5 s, so about 0.3 s; turning lock-on off was not recorded and eases back at the
+        /// same speed.
+        /// </summary>
+        public const float LockOnZoomSeconds = 0.3f;
 
         private float LockOnCameraDiff(float yawDeg, WorldEntity localEnt, WorldEntity target)
         {
@@ -1225,12 +1264,17 @@ namespace Gordian.Core.Input
 
         private bool _hasLockCameraDiff;
         private float _lockCameraDiff;
+        private float _lockCameraPitch;
+        private float _lockZoomBlend;
 
         /// <summary>
-        /// Holds the locked-on camera inside <see cref="LockOnCameraArcDegrees"/> of the target direction, whether the
-        /// player pushes it past the limit or the target drifts there as the player moves around it: the camera stays at
-        /// the limit (no ease, no return behind the player). A camera already outside the arc (locked on from behind) is
-        /// not moved by this, it just cannot go further out. Returns true when it moved the camera.
+        /// Holds the locked-on camera inside the measured yaw arc (<see cref="LockOnCameraArcRightDegrees"/> /
+        /// <see cref="LockOnCameraArcLeftDegrees"/>) and pitch range, whether the player pushes it past a limit or the
+        /// target drifts there as the player runs around it: the camera stays at the limit (no ease, no return behind the
+        /// player; retail recording 2026-10-03, 12-16 s: starting from the left limit the camera does not turn on its
+        /// own while the player runs left, the character crosses the screen until the right limit is reached and the
+        /// camera is then carried along there). A camera already outside the range (locked on from behind) is not moved
+        /// by this, it just cannot go further out. Returns true when it moved the camera.
         /// </summary>
         private bool ClampLockOnCamera()
         {
@@ -1244,16 +1288,45 @@ namespace Gordian.Core.Input
 
             float diff = LockOnCameraDiff(CameraYaw, me, target);
             bool moved = false;
-            if (_hasLockCameraDiff && MathF.Abs(diff) > LockOnCameraArcDegrees && MathF.Abs(diff) > MathF.Abs(_lockCameraDiff))
+            if (_hasLockCameraDiff)
             {
-                float allowed = MathF.Max(LockOnCameraArcDegrees, MathF.Abs(_lockCameraDiff));
-                CameraYaw = NormalizeDegrees(CameraYaw - diff + (MathF.Sign(diff) * allowed));
-                diff = MathF.Sign(diff) * allowed;
-                moved = true;
+                float limit = diff >= 0 ? LockOnCameraArcRightDegrees : LockOnCameraArcLeftDegrees;
+                if (MathF.Abs(diff) > limit && MathF.Abs(diff) > MathF.Abs(_lockCameraDiff))
+                {
+                    float oldMag = MathF.Abs(_lockCameraDiff);
+                    float allowed = MathF.Max(limit, oldMag);
+                    CameraYaw = NormalizeDegrees(CameraYaw - diff + (MathF.Sign(diff) * allowed));
+                    diff = MathF.Sign(diff) * allowed;
+                    moved = true;
+                }
+
+                float lo = MathF.Min(LockOnCameraPitchMinDegrees, _lockCameraPitch);
+                float hi = MathF.Max(LockOnCameraPitchMaxDegrees, _lockCameraPitch);
+                float pitch = Math.Clamp(CameraPitch, lo, hi);
+                if (pitch != CameraPitch)
+                {
+                    CameraPitch = pitch;
+                    moved = true;
+                }
             }
             _lockCameraDiff = diff;
+            _lockCameraPitch = CameraPitch;
             _hasLockCameraDiff = true;
             return moved;
+        }
+
+        /// <summary>
+        /// The camera distance to draw with: <see cref="CameraDistance"/> scaled toward <see cref="LockOnZoomFactor"/>
+        /// while locked on, eased over <see cref="LockOnZoomSeconds"/> (smoothstep) both ways. The user's own distance is
+        /// never changed, so it is back where it was when lock-on ends.
+        /// </summary>
+        private float LockOnZoomedDistance(float dt)
+        {
+            bool zoomed = _camera.Mode == CameraMode.ThirdPersonOrbital && (_actionService?.IsLockedOn ?? false);
+            float step = dt / LockOnZoomSeconds;
+            _lockZoomBlend = Math.Clamp(_lockZoomBlend + (zoomed ? step : -step), 0f, 1f);
+            float eased = _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend));
+            return CameraDistance * (1f + ((LockOnZoomFactor - 1f) * eased));
         }
     }
 }

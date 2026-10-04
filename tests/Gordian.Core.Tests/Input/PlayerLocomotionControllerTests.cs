@@ -502,22 +502,88 @@ namespace Gordian.Core.Tests.Input
             Assert.InRange(me.Direction, expected - 10, expected + 10);
         }
 
-        [Fact]
-        public void Update_LockedOn_CameraStopsAtTheArcLimitAndStaysThere()
+        private static float YawOffFromNorth(PlayerLocomotionController c) => ((c.CameraYaw - NorthYaw + 540f) % 360f) - 180f;
+
+        [Theory]
+        [InlineData(GordianKey.L)]
+        [InlineData(GordianKey.J)]
+        public void Update_LockedOn_CameraStopsAtTheMeasuredArcLimitAndStaysThere(GordianKey key)
         {
             var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
             controller.CameraYaw = NorthYaw;
             controller.Update(TimeSpan.FromMilliseconds(16));
 
-            input.SetKeyDown(GordianKey.L); // yaw right
+            input.SetKeyDown(key);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
             float atLimit = controller.CameraYaw;
-            float off = Math.Abs(((atLimit - NorthYaw + 540f) % 360f) - 180f);
-            Assert.Equal(PlayerLocomotionController.LockOnCameraArcDegrees, off, 1);
+            float off = YawOffFromNorth(controller);
+            float limit = off > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.Equal(limit, Math.Abs(off), 1);
 
-            input.SetKeyUp(GordianKey.L);
+            input.SetKeyUp(key);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
             Assert.Equal(atLimit, controller.CameraYaw, 3); // no ease, no snap back behind the player
+        }
+
+        [Fact]
+        public void Update_LockedOnAtTheLimit_RunningAroundTheTargetCarriesTheCameraAlongWithoutInput()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            input.SetKeyUp(GordianKey.L);
+            float before = YawOffFromNorth(controller);
+
+            // Run around the target with no camera input: the camera holds its world yaw while it can, then rides the limit.
+            input.SetKeyDown(GordianKey.Q);
+            input.SetKeyDown(GordianKey.A);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+
+            var target = mob.Position - me.Position;
+            float line = WorldEntity.HeadingOf(target.X, target.Z) * (180f / MathF.PI);
+            float diff = ((controller.CameraYaw - line + 540f) % 360f) - 180f;
+            float limit = diff > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.True(Math.Abs(diff) <= limit + 2f, $"camera {diff} degrees off the line, limit {limit} (was {before} off north)");
+        }
+
+        [Fact]
+        public void Update_LockedOn_CameraPitchIsHeldInsideTheMeasuredRange()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraPitch = 10f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(GordianKey.K); // pitch up (camera higher)
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnCameraPitchMaxDegrees, controller.CameraPitch, 2);
+            input.SetKeyUp(GordianKey.K);
+
+            input.SetKeyDown(GordianKey.I); // pitch down
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnCameraPitchMinDegrees, controller.CameraPitch, 2);
+        }
+
+        [Fact]
+        public void Update_LockingOn_ZoomsTheCameraInEasedAndOutAgainWhenReleased()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraDistance = 8f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8f, controller.Camera.Distance, 2);
+
+            actionService.SetLockOn(true);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            float partway = controller.Camera.Distance;
+            Assert.InRange(partway, 8f * PlayerLocomotionController.LockOnZoomFactor + 0.05f, 7.95f); // eased, not instant
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f * PlayerLocomotionController.LockOnZoomFactor, controller.Camera.Distance, 2);
+            Assert.Equal(8f, controller.CameraDistance); // the player's own distance is untouched
+
+            actionService.SetLockOn(false);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f, controller.Camera.Distance, 2);
         }
 
         [Fact]
@@ -530,7 +596,7 @@ namespace Gordian.Core.Tests.Input
             input.SetKeyDown(GordianKey.L);
             for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
             float off = Math.Abs(((controller.CameraYaw - NorthYaw + 540f) % 360f) - 180f);
-            Assert.True(off > PlayerLocomotionController.LockOnCameraArcDegrees + 20f);
+            Assert.True(off > PlayerLocomotionController.LockOnCameraArcRightDegrees + 20f);
         }
 
         [Fact]
