@@ -180,6 +180,9 @@ namespace Gordian.Core.Actions
         /// <summary>The everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, votes, wide scan); null in sessions without one.</summary>
         public PlayerCommandPacketModule? CommandModule { get; set; }
 
+        /// <summary>The login-time data module (<c>/jobmasterdisp</c>, Blue Mage and automaton changes); null in sessions without one.</summary>
+        public LoginDataPacketModule? LoginDataModule { get; set; }
+
         /// <summary>The configuration packet module (S2C 0x0B4, C2S 0x0DB / 0x0DC); null in sessions without one.</summary>
         public ConfigPacketModule? ConfigModule
         {
@@ -1305,6 +1308,8 @@ namespace Gordian.Core.Actions
                         return "Usage: /widescan - List monsters and NPCs around you (Rangers and Beastmasters).";
                     case "track" or "untrack":
                         return "Usage: /track [index|name|off] - Track a Wide Scan target (your target without an argument); /untrack stops.";
+                    case "jobmasterdisp":
+                        return "Usage: /jobmasterdisp on|off - Show or hide the job mastery mark next to your name.";
                     case "lockstyle":
                         return LockstyleUsage;
                     case "lockstyleset":
@@ -1360,6 +1365,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /nominate [scope] \"question\" \"option\" ... - Start a vote (/propose); /vote <n> [proposer] to answer");
             sb.AppendLine("  /widescan, /track [target|off] - Wide Scan (Ranger, Beastmaster) and tracking");
             sb.AppendLine("  /conquest                 - Conquest points and Imperial Standing (/cq)");
+            sb.AppendLine("  /jobmasterdisp on|off     - Show or hide the job mastery mark");
             sb.AppendLine("[Communication]");
             sb.AppendLine("  /say <msg>                - Send chat to Say (/s)");
             sb.AppendLine("  /party <msg>              - Send chat to Party (/p)");
@@ -1514,6 +1520,27 @@ namespace Gordian.Core.Actions
             }
             ushort actIndex = target.TargetIndex;
             return await SendCommandAsync(Kind, "track", $"Tracking {(target.Name.Length > 0 ? target.Name : "#" + actIndex)} requested.", m => m.SendTrackingStartAsync(actIndex)).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// <c>/jobmasterdisp on|off</c> (C2S 0x11B): shows or hides the job mastery mark. LandSandBoat saves it and, when it
+        /// changed, sends S2C 0x037 and 0x067 back.
+        /// </summary>
+        public async Task<PlayerActionResult> JobMasterDisplayAsync(bool on)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.JobMasterDisplay;
+            var module = LoginDataModule;
+            if (module == null) return PlayerActionResult.Fail("/jobmasterdisp is unavailable: no login data module.", Kind);
+            try
+            {
+                await module.SendMasteryDisplayAsync(on).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Job mastery display {(on ? "on" : "off")} requested.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/jobmasterdisp failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/jobmasterdisp failed: {ex.Message}", Kind);
+            }
         }
 
         /// <summary>How long <c>/conquest</c> waits for the S2C 0x05E that answers it.</summary>
@@ -1992,6 +2019,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.ConquestRequest:
                     return await ConquestAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.JobMasterDisplay:
+                    return await JobMasterDisplayAsync(cmd.Rest == RestMode.On).ConfigureAwait(false);
 
                 case ChatCommandResultKind.Lockstyle:
                     return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

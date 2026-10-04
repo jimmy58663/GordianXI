@@ -238,6 +238,85 @@ namespace Gordian.Core.Events
                 lock (_sync) _pendingStrings = strings;
             };
             world.ZoneChanged += _ => _zoneChanged = true;
+            chat.FormattedMessageResolver = ResolveFormattedChat;
+        }
+
+        /// <summary>
+        /// UnityMess (S2C 0x017 <c>Attr</c> 0x08 table 10): the English client's file 7039 (ROM/337/68), a dialog-format
+        /// table. Found by its text: message 495 is the Unity report a retail capture (2025-02-10) referenced.
+        /// </summary>
+        public const int UnityMessageFileId = 7039;
+
+        private ZoneDialogTable? _unityMessages;
+        private bool _unityMessagesLoaded;
+
+        /// <summary>
+        /// The log lines of an S2C 0x017 DAT message reference (<c>Attr</c> 0x08), or null when its table is not read
+        /// here. Tables read: 1 (EventMess, the current zone's dialog table) and 10 (UnityMess). Others are dropped.
+        /// </summary>
+        public IReadOnlyList<string>? ResolveFormattedChat(ChatMessage message)
+        {
+            if (message.Formatted is not { } reference) return null;
+            ZoneDialogTable? table = reference.Table switch
+            {
+                ChatFormattedTable.EventMess => Dialog(_world?.CurrentZoneId ?? 0),
+                ChatFormattedTable.UnityMess => UnityMessages(),
+                _ => null,
+            };
+            var decoded = table?.GetMessage(reference.MessageId);
+            if (decoded == null) return null;
+            return FormatChatReference(decoded, reference, message.Type, message.Sender, _playerName(), ResolveName,
+                PartyMemberName, EntityNameById);
+        }
+
+        /// <summary>
+        /// Formats a referenced DAT message with the packet's five parameters, in the chat kind's line format. A
+        /// leading Unity-leader tag (0x89) is the speaker: retail prints <c>{Yoran-Oran} Our field researchers...</c>
+        /// for Unity message 495 (Windower log of the 2025-02-10 capture), the name in the Unity braces.
+        /// </summary>
+        public static IReadOnlyList<string> FormatChatReference(EventMessage decoded, ChatFormattedMessage reference,
+            ChatMessageType type, string sender, string playerName, Func<byte, int, string?>? resolveName,
+            Func<int, string?>? partyMemberName = null, Func<uint, string?>? entityNameById = null)
+        {
+            int[] numbers = reference.ToParamArray();
+            string speaker = sender;
+            Func<byte, int, string?>? resolve = resolveName;
+            var segments = decoded.Segments;
+            if (segments.Count > 0 && segments[0] is { Kind: EventMessageSegmentKind.Name, Code: EventMessageFormatter.UnityLeaderKind } lead)
+            {
+                int index = lead.Values is { Count: > 0 } values ? values[0] : 0;
+                int leader = index >= 0 && index < numbers.Length ? numbers[index] : 0;
+                speaker = resolveName?.Invoke(EventMessageFormatter.UnityLeaderKind, leader) ?? string.Empty;
+                resolve = (kind, id) => kind == EventMessageFormatter.UnityLeaderKind ? string.Empty : resolveName?.Invoke(kind, id);
+            }
+
+            var context = new SimpleMessageContext(numbers, playerName, speaker, resolve, partyMemberName, entityNameById);
+            var lines = EventMessageFormatter.FormatLines(decoded, context);
+            var result = new List<string>(lines.Count);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                result.Add(i == 0 ? StockUiChat.FormatIncoming(type, speaker, lines[i]) : lines[i]);
+            }
+            return result;
+        }
+
+        private ZoneDialogTable? UnityMessages()
+        {
+            lock (_sync)
+            {
+                if (_unityMessagesLoaded) return _unityMessages;
+                _unityMessagesLoaded = true;
+                try
+                {
+                    var bytes = Loader?.Invoke(UnityMessageFileId);
+                    if (bytes != null) _unityMessages = ZoneDialogTable.Parse(bytes);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("EVENT", $"Failed to load the Unity messages (file {UnityMessageFileId}): {ex.Message}");
+                }
+                return _unityMessages;
+            }
         }
 
         /// <summary>The running event's new numbers (S2C 0x05C) and strings (0x05D), queued for the game tick.</summary>

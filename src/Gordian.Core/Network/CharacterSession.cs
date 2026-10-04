@@ -113,6 +113,9 @@ namespace Gordian.Core.Network
         /// <summary>Gets the local player's personal pet (S2C 0x068).</summary>
         public LocalPetState Pet => NetworkManager.Pet;
 
+        /// <summary>Gets the login-time data module (mounts, Maze Mongers, Alter Ego points, extended job data).</summary>
+        public LoginDataPacketModule LoginDataModule => NetworkManager.LoginDataModule;
+
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
         /// </summary>

@@ -1,5 +1,6 @@
 // src/Gordian.Core/Ui/StockUiChat.cs
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Actions;
 using Gordian.Core.Diagnostics;
@@ -144,13 +145,56 @@ namespace Gordian.Core.Ui
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
         }
 
-        /// <summary>Logs an incoming chat line unless the client-only chat filters drop its channel.</summary>
+        /// <summary>
+        /// The line retail prints above every system message of kinds 6 and 7 (one banner per packet, same channel).
+        /// Seen in the maintainer's retail Windower chat logs: LSB GM command replies (kind 6, e.g. "Key item 3 was
+        /// given to ...", Gemini 2026-10-03 17:09:09) and retail maintenance notices; kind 29 lines ("... now has
+        /// learned 25 of 835 spells.") have none.
+        /// </summary>
+        public const string SystemMessageBanner = "----== SystemMessage ==----";
+
+        /// <summary>
+        /// Formats an <c>Attr</c> 0x08 message (a DAT message reference) into its log lines, or null when its table
+        /// cannot be read. Set by the event dialog controller, which owns the message tables and formatter.
+        /// </summary>
+        public Func<ChatMessage, IReadOnlyList<string>?>? FormattedMessageResolver { get; set; }
+
+        /// <summary>True for the kinds retail heads with <see cref="SystemMessageBanner"/>.</summary>
+        public static bool HasSystemBanner(ChatMessageType type) => type is ChatMessageType.System1 or ChatMessageType.System2;
+
+        /// <summary>
+        /// Logs an incoming chat line unless the client-only chat filters drop its channel. System kinds 6 and 7 get
+        /// the retail banner line first; a DAT message reference (<c>Attr</c> 0x08) is formatted from its table, and
+        /// dropped (never shown as its raw value list) when the table is not available.
+        /// </summary>
         public void OnChatMessage(ChatMessage msg)
         {
             var channel = ChannelOf(msg.Type);
             if (IsClientFiltered(channel, ClientChatFilters())) return;
             if (channel == ChatLogChannel.Tell && !string.IsNullOrEmpty(msg.Sender)) Input.TellTarget = msg.Sender;
-            Log.Add(channel, FormatIncoming(msg.Type, msg.Sender, msg.Message));
+
+            IReadOnlyList<string>? lines = null;
+            if (msg.Formatted is { } reference)
+            {
+                lines = FormattedMessageResolver?.Invoke(msg);
+                if (lines == null || lines.Count == 0)
+                {
+                    GordianLog.Debug("CHAT_UI", $"[{msg.Type}] DAT message {reference.Table} #{reference.MessageId} not shown: its table is not read.");
+                    return;
+                }
+            }
+            else if ((msg.Attr & S2C_0x017_ChatStd.AttrFormatted) != 0)
+            {
+                return; // an unreadable reference: retail prints no value list either
+            }
+
+            if (HasSystemBanner(msg.Type)) Log.Add(channel, SystemMessageBanner);
+            if (lines == null)
+            {
+                Log.Add(channel, FormatIncoming(msg.Type, msg.Sender, msg.Message));
+                return;
+            }
+            foreach (string line in lines) Log.Add(channel, line);
         }
 
         /// <summary>
@@ -306,7 +350,8 @@ namespace Gordian.Core.Ui
 
         public static ChatLogChannel ChannelOf(ChatMessageType type) => type switch
         {
-            ChatMessageType.Say or ChatMessageType.NoSpeakerSay => ChatLogChannel.Say,
+            ChatMessageType.Say or ChatMessageType.NoSpeakerSay or ChatMessageType.SayCopy24
+                or ChatMessageType.SayCopy25 => ChatLogChannel.Say,
             ChatMessageType.Shout or ChatMessageType.NoSpeakerShout => ChatLogChannel.Shout,
             ChatMessageType.Yell => ChatLogChannel.Yell,
             ChatMessageType.Tell => ChatLogChannel.Tell,
@@ -351,8 +396,8 @@ namespace Gordian.Core.Ui
                 ChatMessageType.Linkshell or ChatMessageType.Linkshell3 => $"<{sender}> {message}",
                 ChatMessageType.Linkshell2 => $"[2]<{sender}> {message}",
                 ChatMessageType.Unity => $"{{{sender}}} {message}",
-                ChatMessageType.Say or ChatMessageType.Shout or ChatMessageType.Yell or ChatMessageType.JpAssist
-                    or ChatMessageType.NaAssist => $"{sender} : {message}",
+                ChatMessageType.Say or ChatMessageType.SayCopy24 or ChatMessageType.SayCopy25 or ChatMessageType.Shout
+                    or ChatMessageType.Yell or ChatMessageType.JpAssist or ChatMessageType.NaAssist => $"{sender} : {message}",
                 _ => message,
             };
         }

@@ -91,7 +91,7 @@ Missing packets, grouped by feature:
 - [#112](https://github.com/jimmy58663/GordianXI/issues/112): synthesis and guild-shop requests.
 - [#113](https://github.com/jimmy58663/GordianXI/issues/113): delivery box, blacklist, linkshell equip.
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
-- [#115](https://github.com/jimmy58663/GordianXI/issues/115): login-time data (mounts, Trust points, BLU/PUP).
+- ~~[#115](https://github.com/jimmy58663/GordianXI/issues/115)~~: login-time data (mounts, Maze Mongers, Trust points, BLU / PUP / Monstrosity) is decoded and its requests built, see below.
 - [#116](https://github.com/jimmy58663/GordianXI/issues/116): undecoded fields in handled packets (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others).
 - [#119](https://github.com/jimmy58663/GordianXI/issues/119): search (cache) server client.
 - [#117](https://github.com/jimmy58663/GordianXI/issues/117): the post-MVP backlog, including the packets LSB doesn't implement.
@@ -210,3 +210,28 @@ Findings. LSB sends 0x05C right before the 0x052 mode 1 that answers an event up
 | synthesis end | C2S 0x059 `effectpara` | LSB ignores it; nothing sends it until synthesis animates ([#112](https://github.com/jimmy58663/GordianXI/issues/112)) |
 
 Findings. LSB's `0x11d_jump.cpp` drops `/jump` unless the packet's `ActIndex` is the character's own; the client had sent 0, so no jump was ever relayed to others. `/jump` now sends the local entity's index. LSB answers wide scan only for Ranger and Beastmaster (`charutils::getWideScanRange`: Ranger 150 / 200 / 250 / 300 / 350 yalms at level 1 / 20 / 40 / 60 / 80, Beastmaster 50 / 150 / 200 / 250 / 300 at the same levels; every job 150 with `ALL_JOBS_WIDESCAN`), fills neither the name nor, for NPCs, the level of an entry, and sends position differences in the world's x and z (y is height). `/heal` is refused while engaged, dead, crafting, in an event or under an abnormal status. The proposal text is split by LSB on spaces with double quotes honoured (first token the question, then at most 8 options); `Str` is capped at 127 bytes. The log wording of the vote and wide scan lines is ours (the retail client builds those windows itself); the dice line is LSB's `msg_std.h` text. None of the sit, rest, jump or pet states are drawn: the animation classifier has no sit, rest or jump clip. Verify with `dotnet test tests/Gordian.Core.Tests --filter PlayerCommandPacketTests`.
+
+### Login-time data (#115)
+
+LandSandBoat sends S2C 0x08E, 0x044, 0x0AE and 0x0AD on every zone-in (`c2s/0x00c_gameok.cpp`); before #115 each was logged as `Unhandled Packet ID` on every login (82 x 0x08E, 81 x 0x0AE / 0x0AD and 4 x 0x044 for a Blue Mage in `gordian_system_2026100*.log`). `LoginDataPacketModule` (`LoginDataPackets.cs`, `LoginDataPacketModule.cs`) decodes them into state until their menus exist and builds the requests that change them. Payload offsets (packet offset - 4):
+
+| Packet | Layout | State |
+|---|---|---|
+| S2C 0x0AE mounts | 0 `MountDataTbl[8]`: bit n (byte n / 8, bit n % 8) = mount n in the mount names DAT order (NA file 55681: 0 Chocobo, 1 Raptor ... 0x23 Phuabo) | `ProgressionState.HasMount`, `GetUnlockedMounts`, `MountsUpdated` |
+| S2C 0x0AD Maze Mongers | 0 `Vouchers[8]` (bit n = item 28736 + n), 8 `Runes[64]` (bit n = item 28800 + n), 72 unused[56] | `ProgressionState.HasMazeVoucher` / `HasMazeRune`, `GetMazeVoucherItemIds` / `GetMazeRuneItemIds` |
+| S2C 0x08E Trust points | 0 u16 points, 4 `count[32]` upgrade levels, 36 u16 `next[32]` costs, both indexed by `AlterEgoCategory` (8 Max HP ... 16 CHR; LSB adds 17 combat and 18 magic skills) | `ProgressionState.AlterEgoPoints`, `GetAlterEgoUpgrade`, `GetAlterEgoNextCost` |
+| S2C 0x044 extended job | 0 job, 1 `IsSubJob`, then per job: BLU (16) 4 `SetSpells[20]` (spell id - 512, 0 empty); PUP (18) 4 head, 5 frame, 6 `Attachments[12]`, 20 u32 unlocked heads, 24 u32 unlocked frames, 52 u32 `UnlockedAttachments[8]`, 84 `Name[16]`, 100-118 u16 HP, max HP, MP, max MP, melee / ranged / magic skill and cap, 124-150 u16 STR, STR bonus ... CHR, CHR bonus, 152 elemental capacity bonus; Monstrosity (23) 4 u16 species, 8 u16 `EquippedInstincts[12]` | `LocalPlayerState.MainJobData` / `SubJobData` (`ExtendedJobData`: `BlueSpells`, `Automaton`, `Monstrosity`, `RawPayload`), `ExtendedJobUpdated` |
+
+The client keeps one 0x044 buffer for the main job and one for the support job and drops a packet whose job is not the one in that slot (XiPackets); `ApplyExtendedJob` does the same against the jobs from S2C 0x01B (accepting any job while those are unknown), and `MainJobData` / `SubJobData` return null after a job change until the new job's packet arrives. Monstrosity data always goes to the main job. LSB sends 0x044 only for BLU, PUP and Monstrosity; retail also sends one for other jobs (content unknown, kept in `RawPayload`).
+
+C2S requests (sizes are LSB's `ValidatedPacketHandler` sizes):
+
+| Packet | Builder / sender | Notes |
+|---|---|---|
+| 0x0C1 (8) | `BuildAlterEgoUpgrade`, `SendAlterEgoUpgradeAsync` | 4 u16 `Kind`. LSB requires the Mog House, the Cipher Bracelet key item and a level 99 main job, and today answers with an unchanged 0x08E |
+| 0x0D8 (40) | `BuildDungeonParam`, `SendDungeonParamAsync` | 4 u16 own `ActIndex`, 6 u16 `Param1`, 8 u8 `Param2` (both from the event script), 12 u32 own id, 16 `Data[24]` (unreversed). LSB only logs it |
+| 0x102 (164) | `BuildSetBlueSpell` / `BuildRemoveBlueSpell`, `BuildEquipAutomatonPart` / `BuildRemoveAutomatonAttachment` | 4 the id being set (0 to remove), 8 job (16 or 18), 9 sub-job flag, 12 the slot array (20 BLU slots or 14 automaton slots: head, frame, 12 attachments) holding the changed slot's id. Head / frame ids are item - 8192, attachments item - 8448. LSB removes only attachments and answers with 0x044 (and 0x0AC / 0x061 for BLU). The Monstrosity form is not built |
+| 0x11B (8) | `BuildMasteryDisplay`, `/jobmasterdisp on\|off` | 4 `Mode` 0 off, 1 on. LSB saves it and sends 0x037 / 0x067 when it changed |
+| 0x114 (4) | `BuildMapMarkers`, `SendMapMarkersRequestAsync` | header only; LSB answers with 0x063 type 6 (the teleport masks, already decoded) |
+
+**Beyond XiPackets:** the 0x044 data layouts above come from LSB (`s2c/0x044_extended_job_{blu,pup,mon}.h`); XiPackets documents only the job and sub-job bytes. In LSB the job-specific data starts at payload 4 (two padding bytes after `IsSubJob`), where XiPackets' `Data[154]` starts at 2. The bit order of the mount and maze tables (least significant bit first) follows LSB's `memcpy` of its bitsets; neither is checked against a retail capture. Not done: any menu that reads this data (mounts [#87](https://github.com/jimmy58663/GordianXI/issues/87), BLU set spells, the automaton, Trusts, Maze Tabula), the C2S 0x102 Monstrosity form and the S2C 0x063 Monstrosity types. Verify with `dotnet test tests/Gordian.Core.Tests --filter LoginDataPacketTests`; in game, a login should log `Mount data 0x0AE`, `Maze data 0x0AD`, `Alter Ego points 0x08E` and, on a Blue Mage or Puppetmaster, `Extended job 0x044` lines instead of `Unhandled Packet ID` for those opcodes.

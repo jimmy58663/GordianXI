@@ -28,6 +28,8 @@
     | `0x11D` party join requests | `PartyState.SnapshotJoinRequests()`: Status 0 adds, 1 removes |
     | `0x036` / `0x02A` zone dialog | `ProgressionState.LastDialogMessage` |
     | `0x0FA` Mog House operation | `ProgressionState.LastMyRoomOperation` |
+    | `0x0AE` / `0x0AD` / `0x08E` mounts, Maze Mongers, Trust points | `ProgressionState.HasMount`, `HasMazeVoucher` / `HasMazeRune`, `AlterEgoPoints` ([#115](https://github.com/jimmy58663/GordianXI/issues/115)) |
+    | `0x044` extended job (BLU, PUP, Monstrosity) | `LocalPlayerState.MainJobData` / `SubJobData` ([#115](https://github.com/jimmy58663/GordianXI/issues/115)) |
 
 ## DAT decoders
 

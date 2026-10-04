@@ -215,6 +215,132 @@ namespace Gordian.Core.World
         public event Action? UnityUpdated;
         public event Action? TeleportMasksUpdated;
 
+        /// <summary>The unlocked mounts changed (S2C 0x0AE).</summary>
+        public event Action? MountsUpdated;
+
+        /// <summary>The Moblin Maze Mongers vouchers or runes changed (S2C 0x0AD).</summary>
+        public event Action? MazeUnlocksUpdated;
+
+        /// <summary>The Alter Ego (Trust) points or upgrades changed (S2C 0x08E).</summary>
+        public event Action? AlterEgoPointsUpdated;
+
+        #endregion
+
+        #region Mounts, Moblin Maze Mongers, Alter Ego points (S2C 0x0AE / 0x0AD / 0x08E)
+
+        private readonly byte[] _mountTable = new byte[S2C_0x0AE_MountData.TableLength];
+        private readonly byte[] _mazeVouchers = new byte[S2C_0x0AD_Dungeon.VoucherBytes];
+        private readonly byte[] _mazeRunes = new byte[S2C_0x0AD_Dungeon.RuneBytes];
+        private readonly byte[] _alterEgoUpgrades = new byte[S2C_0x08E_AlterEgoPoints.CategorySlots];
+        private readonly ushort[] _alterEgoCosts = new ushort[S2C_0x08E_AlterEgoPoints.CategorySlots];
+
+        /// <summary>True once an S2C 0x0AE arrived.</summary>
+        public bool HasMountData { get; private set; }
+
+        /// <summary>The character's Alter Ego (Trust) points (S2C 0x08E).</summary>
+        public ushort AlterEgoPoints { get; private set; }
+
+        /// <summary>Stores the unlocked mount table of S2C 0x0AE.</summary>
+        public void UpdateMounts(in S2C_0x0AE_MountData mounts)
+        {
+            if (!mounts.IsValid) return;
+            lock (_lock)
+            {
+                mounts.MountTable.CopyTo(_mountTable);
+                HasMountData = true;
+            }
+            MountsUpdated?.Invoke();
+        }
+
+        /// <summary>True when mount <paramref name="mountIndex"/> (0 = Chocobo, the mount names DAT order) is unlocked.</summary>
+        public bool HasMount(int mountIndex)
+        {
+            lock (_lock) return LoginDataBits.Test(_mountTable, mountIndex);
+        }
+
+        /// <summary>The unlocked mount indices, lowest first.</summary>
+        public IReadOnlyList<int> GetUnlockedMounts() => CollectBits(_mountTable);
+
+        /// <summary>Stores the Moblin Maze Mongers vouchers and runes of S2C 0x0AD.</summary>
+        public void UpdateMazeUnlocks(in S2C_0x0AD_Dungeon dungeon)
+        {
+            if (!dungeon.IsValid) return;
+            lock (_lock)
+            {
+                dungeon.Vouchers.CopyTo(_mazeVouchers);
+                dungeon.Runes.CopyTo(_mazeRunes);
+            }
+            MazeUnlocksUpdated?.Invoke();
+        }
+
+        /// <summary>True when Maze Voucher <paramref name="index"/> (item 28736 + index) is unlocked.</summary>
+        public bool HasMazeVoucher(int index)
+        {
+            lock (_lock) return LoginDataBits.Test(_mazeVouchers, index);
+        }
+
+        /// <summary>True when Maze Rune <paramref name="index"/> (item 28800 + index) is unlocked.</summary>
+        public bool HasMazeRune(int index)
+        {
+            lock (_lock) return LoginDataBits.Test(_mazeRunes, index);
+        }
+
+        /// <summary>The unlocked Maze Voucher item ids.</summary>
+        public IReadOnlyList<ushort> GetMazeVoucherItemIds() => ToItemIds(CollectBits(_mazeVouchers), S2C_0x0AD_Dungeon.FirstVoucherItemId);
+
+        /// <summary>The unlocked Maze Rune item ids.</summary>
+        public IReadOnlyList<ushort> GetMazeRuneItemIds() => ToItemIds(CollectBits(_mazeRunes), S2C_0x0AD_Dungeon.FirstRuneItemId);
+
+        /// <summary>Stores the Alter Ego points and per-category upgrades of S2C 0x08E.</summary>
+        public void UpdateAlterEgoPoints(in S2C_0x08E_AlterEgoPoints points)
+        {
+            if (!points.IsValid) return;
+            lock (_lock)
+            {
+                AlterEgoPoints = points.Points;
+                for (int i = 0; i < S2C_0x08E_AlterEgoPoints.CategorySlots; i++)
+                {
+                    _alterEgoUpgrades[i] = points.GetUpgrade(i);
+                    _alterEgoCosts[i] = points.GetNextCost(i);
+                }
+            }
+            AlterEgoPointsUpdated?.Invoke();
+        }
+
+        /// <summary>The upgrade level of an Alter Ego category.</summary>
+        public byte GetAlterEgoUpgrade(AlterEgoCategory category)
+        {
+            int i = (int)category;
+            lock (_lock) return (uint)i < (uint)_alterEgoUpgrades.Length ? _alterEgoUpgrades[i] : (byte)0;
+        }
+
+        /// <summary>The points needed for the next upgrade of an Alter Ego category.</summary>
+        public ushort GetAlterEgoNextCost(AlterEgoCategory category)
+        {
+            int i = (int)category;
+            lock (_lock) return (uint)i < (uint)_alterEgoCosts.Length ? _alterEgoCosts[i] : (ushort)0;
+        }
+
+        private List<int> CollectBits(byte[] table)
+        {
+            var result = new List<int>();
+            lock (_lock)
+            {
+                for (int i = 0; i < table.Length * 8; i++)
+                {
+                    if (LoginDataBits.Test(table, i)) result.Add(i);
+                }
+            }
+            return result;
+        }
+
+        private static List<ushort> ToItemIds(List<int> bits, ushort firstItemId)
+        {
+            var ids = new List<ushort>(bits.Count);
+            foreach (int bit in bits) ids.Add((ushort)(firstItemId + bit));
+            return ids;
+        }
+
         #endregion
 
         #region State Mutators

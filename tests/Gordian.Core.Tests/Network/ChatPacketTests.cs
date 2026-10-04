@@ -30,7 +30,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(chat.IsValid);
             Assert.Equal(ChatMessageType.Say, chat.Kind);
             Assert.False(chat.IsGm);
-            Assert.Equal(240, chat.ZoneId);
+            Assert.Equal(240, chat.Data);
+            Assert.Equal(0, chat.ZoneId); // only Yell carries the zone (XiPackets)
             Assert.Equal("PlayerOne", chat.GetSenderName());
             Assert.Equal("Hello Vana'diel!", chat.GetMessage());
             Assert.False(chat.HasAutoTranslate());
@@ -55,7 +56,7 @@ namespace Gordian.Core.Tests.Network
             Assert.True(chat.IsValid);
             Assert.Equal(ChatMessageType.Shout, chat.Kind);
             Assert.True(chat.IsGm);
-            Assert.Equal(100, chat.ZoneId);
+            Assert.Equal(0, chat.ZoneId);
             Assert.Equal("GM_Guide", chat.GetSenderName());
             Assert.Equal("Server maintenance in 15 minutes.", chat.GetMessage());
         }
@@ -116,6 +117,134 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(string.Empty, chat.GetSenderName());
             Assert.Equal(string.Empty, chat.GetMessage());
             Assert.False(chat.HasAutoTranslate());
+        }
+
+        [Fact]
+        public void S2C_0x017_ChatStd_ReadsDataAsZoneOnlyForYellAndRanksOnlyForAssist()
+        {
+            byte[] payload = new byte[24];
+            payload[0] = (byte)ChatMessageType.Yell;
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2, 2), 0x0F02);
+            var yell = new S2C_0x017_ChatStd(payload);
+            Assert.Equal(0x0F02, yell.ZoneId);
+            Assert.Equal(0, yell.MasteryRank);
+            Assert.Equal(0, yell.MentorRank);
+
+            payload[0] = (byte)ChatMessageType.JpAssist;
+            var assist = new S2C_0x017_ChatStd(payload);
+            Assert.Equal(0, assist.ZoneId);
+            Assert.Equal(0x02, assist.MasteryRank);
+            Assert.Equal(0x0F, assist.MentorRank);
+
+            payload[0] = (byte)ChatMessageType.System1; // LSB fills Data with the zone for every kind
+            var system = new S2C_0x017_ChatStd(payload);
+            Assert.Equal(0, system.ZoneId);
+            Assert.Equal(0, system.MasteryRank);
+        }
+
+        [Theory]
+        [InlineData(0x11, ChatMessageType.StandardMessage17)]
+        [InlineData(0x17, ChatMessageType.StandardMessage23)]
+        [InlineData(0x18, ChatMessageType.SayCopy24)]
+        [InlineData(0x19, ChatMessageType.SayCopy25)]
+        [InlineData(0x20, ChatMessageType.StandardMessage32)]
+        public void ChatMessageType_NamesTheXiPacketsKinds(byte kind, ChatMessageType expected)
+        {
+            Assert.Equal(expected, (ChatMessageType)kind);
+            Assert.True(Enum.IsDefined(expected));
+        }
+
+        [Fact]
+        public void S2C_0x017_ChatStd_ClampsTheMessageTo150BytesWithoutANullTerminator()
+        {
+            byte[] payload = new byte[19 + 200];
+            payload[0] = (byte)ChatMessageType.Say;
+            payload.AsSpan(19).Fill((byte)'a');
+            var chat = new S2C_0x017_ChatStd(payload);
+            Assert.Equal(150, chat.RawMessageSpan.Length);
+            Assert.Equal(new string('a', 150), chat.GetMessage());
+        }
+
+        /// <summary>
+        /// A retail S2C 0x017 (Windower packetviewer capture, 2025-02-10 22:11:09, Takagai): Unity kind 0x21 with
+        /// Attr 0x08, no sender, the body naming UnityMess message 0x1EF. Retail printed it as
+        /// "{Yoran-Oran} Our field researchers have sent a report-ethy from ?-? in Reisenjima. ...".
+        /// </summary>
+        [Fact]
+        public void S2C_0x017_ChatStd_ReadsTheAttr08DatReferenceOfARetailCapture()
+        {
+            byte[] packet = Convert.FromHexString(
+                "172643FD210800000000000000000000" +
+                "0000000000000030612C303165662C30" +
+                "303030303030612C3030303030303264" +
+                "2C30303030303132332C303030303030" +
+                "30322C30303030303030322C");
+            Assert.Equal(76, packet.Length); // header size 0x13 words
+            var chat = new S2C_0x017_ChatStd(packet.AsSpan(4));
+
+            Assert.True(chat.IsValid);
+            Assert.Equal(ChatMessageType.Unity, chat.Kind);
+            Assert.True(chat.IsFormatted);
+            Assert.False(chat.IsGm);
+            Assert.Equal(string.Empty, chat.GetSenderName());
+            Assert.True(chat.TryGetFormattedMessage(out var reference));
+            Assert.Equal(ChatFormattedTable.UnityMess, reference.Table);
+            Assert.Equal(0x1EF, reference.MessageId);
+            Assert.Equal(new[] { 10, 0x2D, 291, 2, 2 }, reference.ToParamArray());
+        }
+
+        [Theory]
+        [InlineData("01,1A2B,", ChatFormattedTable.EventMess, 0x1A2B, 0)]
+        [InlineData("6,10,ff,", ChatFormattedTable.SystemMess, 0x10, 0xFF)]
+        [InlineData("0a,01ef,00000003", ChatFormattedTable.UnityMess, 0x1EF, 3)]
+        public void ChatFormattedMessage_ParsesTheHexValueList(string body, ChatFormattedTable table, int messageId, int param0)
+        {
+            Assert.True(ChatFormattedMessage.TryParse(Encoding.ASCII.GetBytes(body), out var reference));
+            Assert.Equal(table, reference.Table);
+            Assert.Equal(messageId, reference.MessageId);
+            Assert.Equal(param0, reference.Param0);
+            Assert.Equal(0, reference.Param4);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("hello")]
+        [InlineData("01,")]
+        [InlineData("01,zz,")]
+        public void ChatFormattedMessage_RejectsBodiesWithoutATableAndMessage(string body)
+        {
+            Assert.False(ChatFormattedMessage.TryParse(Encoding.ASCII.GetBytes(body), out _));
+        }
+
+        [Fact]
+        public void S2C_0x017_ChatStd_PlainTextIsNotAReference()
+        {
+            byte[] payload = new byte[40];
+            payload[0] = (byte)ChatMessageType.System1;
+            Encoding.ASCII.GetBytes("0a,01ef,").CopyTo(payload.AsSpan(19));
+            var chat = new S2C_0x017_ChatStd(payload);
+            Assert.False(chat.IsFormatted);
+            Assert.False(chat.TryGetFormattedMessage(out _));
+        }
+
+        [Fact]
+        public void ChatPacketModule_PassesTheAttr08ReferenceOn()
+        {
+            var dispatcher = new PacketDispatcher();
+            var module = new ChatPacketModule((data, reliable) => Task.CompletedTask);
+            module.Register(dispatcher);
+            ChatMessage? received = null;
+            module.ChatMessageReceived += msg => received = msg;
+
+            byte[] payload = new byte[40];
+            payload[0] = (byte)ChatMessageType.Unity;
+            payload[1] = S2C_0x017_ChatStd.AttrFormatted;
+            Encoding.ASCII.GetBytes("0a,01ef,0a,").CopyTo(payload.AsSpan(19));
+            dispatcher.Dispatch(new PacketHeader(0x017, payload.Length + 4, 1), payload);
+
+            Assert.NotNull(received);
+            Assert.Equal(S2C_0x017_ChatStd.AttrFormatted, received.Attr);
+            Assert.Equal(new ChatFormattedMessage(ChatFormattedTable.UnityMess, 0x1EF, 10, 0, 0, 0, 0), received.Formatted);
         }
 
         [Fact]
@@ -469,7 +598,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(ChatMessageType.Tell, receivedChat.Type);
             Assert.Equal("Sender", receivedChat.Sender);
             Assert.Equal("Testing!", receivedChat.Message);
-            Assert.Equal(241, receivedChat.ZoneId);
+            Assert.Equal(0, receivedChat.ZoneId); // Data is the zone only for Yell
 
             // 2. Dispatch 0x009
             byte[] sysPayload = new byte[25];
@@ -600,7 +729,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(ChatMessageType.Linkshell, receivedChat.Type);
             Assert.Equal("Linkmate", receivedChat.Sender);
             Assert.Equal("Good morning!", receivedChat.Message);
-            Assert.Equal(245, receivedChat.ZoneId);
+            Assert.Equal(0, receivedChat.ZoneId);
         }
     }
 }
