@@ -50,6 +50,7 @@ namespace Gordian.App.Audio
         private readonly System.Collections.Generic.List<FootstepEvent> _steps = new();
         private Vector3 _listenerPosition;
         private int _appliedMusicVolume = -1;
+        private int _eventVolumeVersion = -1;
         private int _appliedEffectsVolume = -1;
 
         private GameAudioService()
@@ -68,6 +69,7 @@ namespace Gordian.App.Audio
 
             _music = new MusicDirector(_engine.Mixer, id => _library?.OpenMusic(id));
             _emitters = new ZoneEmitterAudio(_engine.Mixer, id => _library?.GetEffectAsync(id) ?? Task.FromResult<PcmClip?>(null));
+            Gordian.Core.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || _music.IsSettled;
             _created = true;
         }
 
@@ -162,6 +164,7 @@ namespace Gordian.App.Audio
 
             WorldState world = session.World;
             ApplyVolumes(session.ActionService.UiSettings);
+            ApplyEventVolumes(world.EventSoundVolumes);
             UpdateListener(camera);
             ushort zone = world.CurrentZoneId;
             if (zone != _zoneId)
@@ -371,6 +374,27 @@ namespace Gordian.App.Audio
             {
                 _engine.Mixer.SetCategoryVolume(category, gain);
             }
+        }
+
+        /// <summary>
+        /// Applies an event's category volumes (opcodes 0x69 / 0x6A) as script fades on the buses: effect → Effects,
+        /// system → System, zone → Zone, master → all of them and the music (time in 1/60 s frames, provisional).
+        /// </summary>
+        private void ApplyEventVolumes(EventSoundVolumes volumes)
+        {
+            int version = volumes.Version;
+            if (version == _eventVolumeVersion)
+            {
+                return;
+            }
+
+            _eventVolumeVersion = version;
+            float seconds = volumes.FadeTime / 60f;
+            float master = volumes.Get(EventSoundCategory.Master);
+            _engine.Mixer.FadeCategory(AudioCategory.Effects, master * volumes.Get(EventSoundCategory.Effect), seconds);
+            _engine.Mixer.FadeCategory(AudioCategory.System, master * volumes.Get(EventSoundCategory.System), seconds);
+            _engine.Mixer.FadeCategory(AudioCategory.Zone, master * volumes.Get(EventSoundCategory.Zone), seconds);
+            _music.SetScriptMaster(master);
         }
 
         private void UpdateListener(ViewportCamera camera)

@@ -54,6 +54,14 @@ namespace Gordian.Core.Tests.Events
         public int GetEntityValue(uint serverId, int key) => EntityValues.TryGetValue(key, out int v) ? v : 0;
         public void OnSkippedOpcode(byte opcode, int pc) => Skipped.Add(opcode);
 
+        /// <summary>Music and sound volume calls (#167): "slot s=m", "music v/t", "sound mask=v/t".</summary>
+        public List<string> Sound { get; } = new();
+        public bool MusicReady { get; set; } = true;
+        public void SetMusicSlot(int slot, int musicNum) => Sound.Add($"slot {slot}={musicNum}");
+        public void SetMusicVolume(int volume, int time) => Sound.Add($"music {volume}/{time}");
+        public void SetSoundVolume(int mask, float volume, int time) => Sound.Add($"sound {mask}={volume:0.###}/{time}");
+        public bool IsMusicReady => MusicReady;
+
         /// <summary>Where the entities stand before the event (server id → position, heading, speed).</summary>
         public Dictionary<uint, (System.Numerics.Vector3 Position, float Heading, float Speed)> Entities { get; } = new();
         public List<(uint Id, System.Numerics.Vector3 Position, float Heading, float Speed)> Poses { get; } = new();

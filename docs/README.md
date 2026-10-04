@@ -19,7 +19,7 @@ All formats described here were researched clean-room from public sources (LandS
 | UI | [ui/stock-ui.md](ui/stock-ui.md) | Stock DAT 2D UI: decoders, renderer, HUD, menus, config pages, dump tooling |
 | Events | [events/vm.md](events/vm.md) | Event files, the event VM, request stacks, cutscene staging and schedulers, the event session |
 | Design | [design/character-lobby.md](design/character-lobby.md) | Phase 5G plan (MVP-blocking) |
-| Design | [design/audio.md](design/audio.md) | Phase 5H plan |
+| Design | [design/audio.md](design/audio.md) | Phase 5H: backend recommendation, `.bgw` / `.spw` formats, music slots, ambience, footsteps, zone sound generators, event music |
 | Design | [design/post-mvp.md](design/post-mvp.md) | Phases 6-10 |
 | Design | [design/distribution.md](design/distribution.md) | Docs site, client updater, addon registry, patch diffs (preliminary) |
 | Perf | [PERFORMANCE_TELEMETRY.md](PERFORMANCE_TELEMETRY.md) | Runtime performance counters |

@@ -165,6 +165,24 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>Opcode 0x5C subs 0-7 / 0x80-0x87: sets music slot <paramref name="slot"/> (0-7) to a track (#167).</summary>
+        void SetMusicSlot(int slot, int musicNum)
+        {
+        }
+
+        /// <summary>Opcodes 0x5D and 0x5C subs 0xA0 / 0xA1: eases the music to <paramref name="volume"/> (0-127) over <paramref name="time"/>.</summary>
+        void SetMusicVolume(int volume, int time)
+        {
+        }
+
+        /// <summary>Opcodes 0x69 (set, time 0) / 0x6A (ease): the volume (0-1) of the sound categories in <paramref name="mask"/>.</summary>
+        void SetSoundVolume(int mask, float volume, int time)
+        {
+        }
+
+        /// <summary>Opcode 0x9A: whether the music has finished loading the slot's track (the opcode waits until then).</summary>
+        bool IsMusicReady => true;
+
         /// <summary>Opcode 0x78: the clock runs again and the zone's weather returns.</summary>
         void UnlockEnvironment()
         {

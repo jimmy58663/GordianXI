@@ -41,6 +41,7 @@ namespace Gordian.App.Audio
         private int _currentHandle;
         private int _startToken;
         private int _loggedTrack = -1;
+        private int _loading;
         private int _pendingTrack;
         private double _pendingDelay;
         private int _overrideTrack = -1;
@@ -59,6 +60,22 @@ namespace Gordian.App.Audio
 
         /// <summary>The track playing (or about to), 0 for silence.</summary>
         public int CurrentTrack => _pendingDelay > 0 ? _pendingTrack : _currentTrack;
+
+        /// <summary>An event's master volume (opcodes 0x69 / 0x6A, mask 0x08), applied to the music bus with the music volume.</summary>
+        public float ScriptMaster { get; private set; } = 1f;
+
+        /// <summary>
+        /// Whether the music has settled on its track: no fade-out pending and the track loaded (or silence). Event opcode
+        /// 0x9A waits for this.
+        /// </summary>
+        public bool IsSettled => _pendingDelay <= 0 && System.Threading.Volatile.Read(ref _loading) == 0;
+
+        /// <summary>Sets the event master volume; the music bus is re-levelled on the next <see cref="Update"/>.</summary>
+        public void SetScriptMaster(float gain)
+        {
+            ScriptMaster = Math.Clamp(gain, 0f, 1f);
+            _volumeVersion = -1;
+        }
 
         /// <summary>The slot the last <see cref="Update"/> chose.</summary>
         public MusicSlot CurrentSlot { get; private set; }
@@ -135,7 +152,7 @@ namespace Gordian.App.Audio
             if (volumeVersion != _volumeVersion)
             {
                 _volumeVersion = volumeVersion;
-                _mixer.FadeCategory(AudioCategory.Music, music.Volume / (float)ZoneMusicState.MaxVolume, music.VolumeFadeTime / 60f);
+                _mixer.FadeCategory(AudioCategory.Music, ScriptMaster * music.Volume / ZoneMusicState.MaxVolume, music.VolumeFadeTime / 60f);
             }
 
             int wanted;
@@ -210,9 +227,19 @@ namespace Gordian.App.Audio
                 return;
             }
 
+            System.Threading.Interlocked.Increment(ref _loading);
             _runInBackground(() =>
             {
-                IPcmSource? source = _openMusic(track);
+                IPcmSource? source;
+                try
+                {
+                    source = _openMusic(track);
+                }
+                finally
+                {
+                    System.Threading.Interlocked.Decrement(ref _loading);
+                }
+
                 if (source is null || System.Threading.Volatile.Read(ref _startToken) != token)
                 {
                     return;

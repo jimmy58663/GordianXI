@@ -147,13 +147,34 @@ Playback (`ZoneEmitterAudio`, App): each auto-run source starts when the listene
 
 Provisional: the nearest-point reading of path sounds, the replay of one-shot files (retail re-emits on the generator's own timing), the flat-path height, and the unknown third 0x4C float and path `w`. Not done: generators that routines spawn on demand (doors, scheduler effects: not auto-run), sounds of actor-attached effects.
 
+## Event music and volumes (#167)
+
+Event opcodes 0x5C / 0x5D / 0x69 / 0x6A / 0x9A run in `EventVm.Sound.cs` (layouts: [events/opcodes.md](../events/opcodes.md#0x5c-0x5d)), through `IEventVmHost` methods with default bodies, so `EventVm.cs` only gained one `case` group:
+
+- 0x5C subs 0-7 / 0x80-0x87 set music slots in an event layer of `ZoneMusicState` that overrides the server's slots; 0x5C 0xA0 / 0xA1 and 0x5D set its music volume (0-127). When the event ends (`EventDialogController` finish or drop) the layer and the volume are dropped and the zone's music returns (the director crossfades back).
+- 0x69 / 0x6A set or ease the category volumes in `WorldState.EventSoundVolumes`; `GameAudioService` applies them as script fades: effects → Effects bus, system → System, zone → Zone, master → those three and the music. Reset when the event ends.
+- 0x9A yields until `MusicDirector.IsSettled` (no fade-out pending, no track loading). With no audio device it never waits, so a silent client cannot hang a scene.
+
+Provisional: the event time unit (read as 1/60 s frames like 0x060), the ignored 0x8n start volume, and the 1 s / 0.5 s restore fades at the event end.
+
+## Combat and action sounds (#41): findings, deferred
+
+Not implemented. What the retail data shows (probed in `ROM/0/0.DAT` and the Hume battle pack `ROM/32/13`):
+
+- Sound commands in effect routines are ops 0x0A (at the source) and 0x0B (at the target), 32 bytes: +0x08 the 0x3D section name (`5045`, `7129`...), +0x14 f32 60 in most (a range). xi-tools `docs/fx/effect_system.md` also lists 0x4A / 0x53 / 0x60 variants.
+- The battle pack carries no sound pointers; the hit sounds live in `ROM/0/0.DAT` (98 pointers, `se005xxx` combat sounds), in the hit routines `hit1/hi10`-`hi19`, which spawn generators (`g10s`...) whose linked data is a sound.
+- The motions link `dada` at the hit moment; `dada` runs `atpr`, `crtl` and `dam0`, which pick the hit routine (`hit3`, `hit5`, `hi14`...) and the damage reaction (`sb00`-`sb05`) through the conditional ops 0x64 / 0x67 / 0x69 / 0x6A / 0x6B on registers the action result sets.
+
+So combat sounds need the effect-routine conditional interpreter and the action-result registers (and the same routine player would draw the hit sparks), plus spell / ability effect DATs played from S2C 0x028, which nothing plays yet. That is effect-routine work rather than audio work; the audio side (`GameAudioService.PlayEffect` with a positional emitter) is ready for it.
+
 ## Phase 5H plan
 
 - [x] Zone effect audio: the auto-run sound generators with range, path and time-of-day volume (#39, above).
 - [ ] Select a cross-platform audio backend (#37: recommendation above, decision pending).
 - [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
-- [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
+- [ ] Combat and action sounds (#41: deferred, findings above).
+- [x] Event music and volume opcodes (#167, above).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [x] UI/menu sound cues (#43, above).
 - [x] Master/category volume mixing from the config sliders (#44, above).
