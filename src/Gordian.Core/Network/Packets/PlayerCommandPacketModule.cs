@@ -12,7 +12,8 @@ namespace Gordian.Core.Network.Packets
     /// Packet domain module for the everyday commands: <c>/heal</c> (C2S 0x0E8), <c>/sit</c> (0x0EA), <c>/sitchair</c>
     /// (0x113), <c>/random</c> (0x0A2), proposals and votes (0x0A0 / 0x0A1, answered by S2C 0x078 / 0x079), wide scan
     /// (0x0F4-0x0F6, answered by S2C 0x0F4-0x0F6), the emote list (0x119, answered by 0x11A), the synthesis effect end
-    /// (0x059) and other players' <c>/jump</c> (S2C 0x11E). Decoded data goes to <see cref="PlayerCommandState"/>.
+    /// (0x059), other players' <c>/jump</c> (S2C 0x11E), the emote echo of everyone in range (S2C 0x05A), system messages
+    /// (S2C 0x053) and bazaar messages (S2C 0x0CA, set with C2S 0x0DE). Decoded data goes to <see cref="PlayerCommandState"/>.
     /// </summary>
     public sealed class PlayerCommandPacketModule
     {
@@ -47,6 +48,9 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x0F6_TrackingState.PacketId, HandleTrackingState);
             dispatcher.Register(S2C_0x11A_EmoteList.PacketId, HandleEmoteList);
             dispatcher.Register(S2C_0x11E_Jump.PacketId, HandleJump);
+            dispatcher.Register(S2C_0x053_SystemMes.PacketId, HandleSystemMes);
+            dispatcher.Register(S2C_0x05A_MotionMes.PacketId, HandleMotionMes);
+            dispatcher.Register(S2C_0x0CA_InspectMessage.PacketId, HandleInspectMessage);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -59,6 +63,9 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x0F6_TrackingState.PacketId);
             dispatcher.Unregister(S2C_0x11A_EmoteList.PacketId);
             dispatcher.Unregister(S2C_0x11E_Jump.PacketId);
+            dispatcher.Unregister(S2C_0x053_SystemMes.PacketId);
+            dispatcher.Unregister(S2C_0x05A_MotionMes.PacketId);
+            dispatcher.Unregister(S2C_0x0CA_InspectMessage.PacketId);
         }
 
         #region Inbound
@@ -129,6 +136,31 @@ namespace Gordian.Core.Network.Packets
             }
         }
 
+        private void HandleSystemMes(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var msg = new S2C_0x053_SystemMes(payload);
+            if (!msg.IsValid) return;
+            GordianLog.Debug("SYSMES", $"System message 0x053: id={msg.MessageId} para={msg.Para} para2={msg.Para2}");
+            _state.ApplySystemMessage(new SystemMessageInfo(msg.MessageId, msg.Para, msg.Para2));
+        }
+
+        private void HandleMotionMes(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var motion = new S2C_0x05A_MotionMes(payload);
+            if (!motion.IsValid) return;
+            GordianLog.Debug("EMOTE", $"Emote 0x05A: caster=0x{motion.CasterId:X8} target=0x{motion.TargetId:X8} emote={motion.EmoteId} param={motion.Param} mode={motion.Mode}");
+            _state.ApplyEmote(new EmoteEcho(motion.CasterId, motion.CasterIndex, motion.TargetId, motion.TargetIndex, motion.EmoteId, motion.Param, motion.Mode));
+        }
+
+        private void HandleInspectMessage(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var inspect = new S2C_0x0CA_InspectMessage(payload);
+            if (!inspect.IsValid) return;
+            var info = new InspectMessageInfo(inspect.Name, inspect.Message, inspect.HasBazaar, inspect.IsSelf, inspect.Race, inspect.TitleId);
+            GordianLog.Debug("INSPECT", $"Inspect message 0x0CA: '{info.Name}' self={info.IsSelf} bazaar={info.HasBazaar} title={info.TitleId} message='{info.Message.Replace('\n', '|')}'");
+            _state.Inspect.Apply(info);
+        }
+
         #endregion
 
         #region Outbound
@@ -173,6 +205,12 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>Sends C2S 0x059: the synthesis effect finished (0) or was abandoned (1). Nothing sends it until synthesis plays animations (#112).</summary>
         public Task SendEffectEndAsync(uint effectPara = 0) => Send(0x059, PlayerCommandPacketBuilder.BuildEffectEnd(effectPara, NextSequence()));
+
+        /// <summary>
+        /// Sends C2S 0x0DE: sets the character's bazaar message (up to three 40-character lines). Nothing calls it yet: the
+        /// bazaar comment editor of the check window (#64) does not exist.
+        /// </summary>
+        public Task SendInspectMessageAsync(string message) => Send(0x0DE, PlayerCommandPacketBuilder.BuildInspectMessage(message, NextSequence()));
 
         private void LogOutbound(ushort packetId, ReadOnlySpan<byte> packet)
         {

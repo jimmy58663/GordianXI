@@ -358,6 +358,249 @@ namespace Gordian.Core.Network.Packets
         }
     }
 
+    /// <summary>Reads a NUL-terminated (or full-width) ASCII string field of a packet payload; empty when out of range.</summary>
+    internal static class PacketStrings
+    {
+        public static string Read(ReadOnlySpan<byte> payload, int offset, int length)
+        {
+            if (offset < 0 || length <= 0 || payload.Length < offset + length) return string.Empty;
+            var slice = payload.Slice(offset, length);
+            int nul = slice.IndexOf((byte)0);
+            if (nul >= 0) slice = slice.Slice(0, nul);
+            return slice.IsEmpty ? string.Empty : Encoding.ASCII.GetString(slice);
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x027 (GP_SERV_COMMAND_TALKNUMWORK2): a zone dialog message with eight more numbers and two strings than
+    /// 0x02A. Payload offsets (packet offset - 4): 0 u32 <c>UniqueNo</c>, 4 u16 <c>ActIndex</c>, 6 u16 <c>MesNum</c> (bit
+    /// 15: no entity name in front), 8 u16 <c>Type</c> (the chat mode; values of 8 and up mean 0), 10 <c>Flags</c> (1 and
+    /// 2 pick the speaker name: see XiPackets), 12 <c>Num1[4]</c>, 28 <c>String1[32]</c>, 60 <c>String2[16]</c>, 76
+    /// <c>Num2[8]</c>; 108 bytes. LandSandBoat sends it for the fishing lines (the message id + 0x8000, the item and the
+    /// count in Num1, the player's name in String1) and for its "message with name" helper (String1 the named entity).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0027)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x027_talknumwork2.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x027_TalkNumWork2
+    {
+        public const ushort PacketId = 0x027;
+        public const int MinPayloadLength = 28;
+        public const int PayloadLength = 108;
+
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+        public ushort MessageId { get; }
+        public bool HideName { get; }
+        public ushort Type { get; }
+        public byte Flags { get; }
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x027_TalkNumWork2(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < MinPayloadLength)
+            {
+                UniqueNo = 0;
+                ActIndex = 0;
+                MessageId = 0;
+                HideName = false;
+                Type = 0;
+                Flags = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            ushort mesNum = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            MessageId = (ushort)(mesNum & 0x7FFF);
+            HideName = (mesNum & 0x8000) != 0;
+            Type = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            Flags = payload[10];
+            IsValid = true;
+        }
+
+        /// <summary>Number parameter 0-11: <c>Num1[0..3]</c>, then <c>Num2[0..7]</c> (0 when the packet is short).</summary>
+        public int GetNumber(int index)
+        {
+            if (!IsValid || index < 0 || index >= 12) return 0;
+            int offset = index < 4 ? 12 + (index * 4) : 76 + ((index - 4) * 4);
+            return _payload.Length >= offset + 4 ? BinaryPrimitives.ReadInt32LittleEndian(_payload.Slice(offset, 4)) : 0;
+        }
+
+        /// <summary><c>String1</c>: a name (the fishing player, or the entity LandSandBoat names).</summary>
+        public string GetString1() => IsValid ? PacketStrings.Read(_payload, 28, 32) : string.Empty;
+
+        /// <summary><c>String2</c>: a speaker name override (XiPackets), empty from LandSandBoat.</summary>
+        public string GetString2() => IsValid ? PacketStrings.Read(_payload, 60, 16) : string.Empty;
+    }
+
+    /// <summary>
+    /// S2C 0x03B (GP_SERV_COMMAND_EVENTMES): a zone dialog message with no parameters. Payload: 0 u32 <c>UniqueNo</c>, 4
+    /// u16 <c>ActIndex</c>, 6 u16 <c>Number</c> (bit 15: show the entity's name). LandSandBoat declares it but never sends
+    /// it (its constructor is a TODO).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x003B)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x03b_eventmes.h).
+    /// </summary>
+    public readonly ref struct S2C_0x03B_EventMes
+    {
+        public const ushort PacketId = 0x03B;
+        public const int PayloadLength = 8;
+
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+        public ushort MessageId { get; }
+
+        /// <summary>Bit 15 of <c>Number</c>. XiPackets: "determines if the message should make use of the given entity's name".</summary>
+        public bool UsesName { get; }
+        public bool IsValid { get; }
+
+        public S2C_0x03B_EventMes(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < PayloadLength)
+            {
+                UniqueNo = 0;
+                ActIndex = 0;
+                MessageId = 0;
+                UsesName = false;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            ushort number = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            MessageId = (ushort)(number & 0x7FFF);
+            UsesName = (number & 0x8000) != 0;
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x043 (GP_SERV_COMMAND_TALKNUMNAME): a zone dialog message with a name. Payload: 0 u32 <c>UniqueNo</c>, 4 u16
+    /// <c>ActIndex</c>, 6 u16 <c>MesNum</c> (bit 15: no entity name in front), 8 <c>Type</c> (chat mode), 12
+    /// <c>sName[16]</c>; 28 bytes. LandSandBoat sends it with the player's name and the no-name bit.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0043)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x043_talknumname.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x043_TalkNumName
+    {
+        public const ushort PacketId = 0x043;
+        public const int MinPayloadLength = 12;
+
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+        public ushort MessageId { get; }
+        public bool HideName { get; }
+        public byte Type { get; }
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x043_TalkNumName(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            if (payload.Length < MinPayloadLength)
+            {
+                UniqueNo = 0;
+                ActIndex = 0;
+                MessageId = 0;
+                HideName = false;
+                Type = 0;
+                IsValid = false;
+                return;
+            }
+
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            ushort mesNum = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            MessageId = (ushort)(mesNum & 0x7FFF);
+            HideName = (mesNum & 0x8000) != 0;
+            Type = payload[8];
+            IsValid = true;
+        }
+
+        /// <summary><c>sName</c>: the name the message carries.</summary>
+        public string GetName() => IsValid ? PacketStrings.Read(_payload, 12, 16) : string.Empty;
+    }
+
+    /// <summary>
+    /// S2C 0x05C (GP_SERV_COMMAND_PENDINGNUM): new numeric parameters for the running event. Payload: <c>num[8]</c>
+    /// (32 bytes), which the client copies into the event work zone from index 2 (where 0x034 puts an event's numbers).
+    /// LandSandBoat sends it from <c>player:updateEvent(...)</c> with the values the script gives, before the 0x052 mode 1
+    /// that lets the script go on (seen in our logs: the home point menus, 2026-10-01).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x005C)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x05c_pendingnum.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x05C_PendingNum
+    {
+        public const ushort PacketId = 0x05C;
+        public const int ParameterCount = 8;
+        public const int PayloadLength = ParameterCount * 4;
+
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x05C_PendingNum(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            IsValid = payload.Length >= PayloadLength;
+        }
+
+        /// <summary>Parameter 0-7 (work zone index 2-9).</summary>
+        public int GetParameter(int index)
+        {
+            if (!IsValid || index < 0 || index >= ParameterCount) return 0;
+            return BinaryPrimitives.ReadInt32LittleEndian(_payload.Slice(index * 4, 4));
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x05D (PENDINGSTR in LandSandBoat): new string parameters for the running event. Payload: <c>num[9]</c> (36
+    /// bytes, which the client ignores per XiPackets), then four <c>string[16]</c> at 36, 52, 68 and 84; 100 bytes. The
+    /// client copies the strings into its event string buffer (what an event's 0x033 strings fill, read by the 0x1C n
+    /// dialog code). LandSandBoat sends it from <c>player:updateEventString(...)</c>.
+    /// <b>Beyond XiPackets:</b> it lists the packet as unknown; the name and its use are LandSandBoat's.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x005D)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x05d_pendingstr.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x05D_PendingStr
+    {
+        public const ushort PacketId = 0x05D;
+        public const int NumberCount = 9;
+        public const int StringCount = 4;
+        public const int StringOffset = NumberCount * 4;
+        public const int StringLength = 16;
+        public const int PayloadLength = StringOffset + (StringCount * StringLength);
+
+        public bool IsValid { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x05D_PendingStr(ReadOnlySpan<byte> payload)
+        {
+            _payload = payload;
+            IsValid = payload.Length >= PayloadLength;
+        }
+
+        /// <summary>Number 0-8 (unused by the client, per XiPackets).</summary>
+        public int GetNumber(int index)
+        {
+            if (!IsValid || index < 0 || index >= NumberCount) return 0;
+            return BinaryPrimitives.ReadInt32LittleEndian(_payload.Slice(index * 4, 4));
+        }
+
+        /// <summary>String parameter 0-3.</summary>
+        public string GetString(int index)
+        {
+            if (!IsValid || index < 0 || index >= StringCount) return string.Empty;
+            return PacketStrings.Read(_payload, StringOffset + (index * StringLength), StringLength);
+        }
+    }
+
     /// <summary>
     /// S2C 0x052 (GP_SERV_COMMAND_EVENTUCOFF): Event user control state release / unlock.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x052_eventucoff.h).

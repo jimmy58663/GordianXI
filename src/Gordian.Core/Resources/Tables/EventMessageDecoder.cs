@@ -24,7 +24,7 @@ namespace Gordian.Core.Resources.Tables
         Name,
         /// <summary>
         /// One of several alternatives picked by number parameter <see cref="EventMessageSegment.Argument"/>:
-        /// <see cref="EventMessageSegment.Code"/> 0x0C (0x0C n "[a/b/c]") picks alternative n, 0x92 (0x7F 0x92 n
+        /// <see cref="EventMessageSegment.Code"/> 0x0C (0x0C n "[a/b/c]") picks alternative n, 0x92 and 0x86 (0x7F 0x92 n
         /// "[a/b]") the first when the number is 1, else the second.
         /// </summary>
         Selector,
@@ -77,6 +77,20 @@ namespace Gordian.Core.Resources.Tables
         /// <see cref="EventMessageSegment.Alternatives"/>.
         /// </summary>
         GenderSelector,
+        /// <summary>
+        /// One of two words picked by the sex of message entity <see cref="EventMessageSegment.Argument"/> (0x7F 0x90
+        /// "[his/her]" the first entity, the emote's caster; 0x7F 0x91 the second, its target):
+        /// <see cref="EventMessageSegment.Alternatives"/>.
+        /// </summary>
+        EntityGenderSelector,
+        /// <summary>
+        /// The article of message entity <see cref="EventMessageSegment.Argument"/> (0x7F 0x88 n "[the /]"): the first
+        /// alternative for an entity whose name takes an article (a monster), the second for one that does not (a
+        /// player). <see cref="EventMessageSegment.Alternatives"/> holds the list.
+        /// </summary>
+        ArticleSelector,
+        /// <summary>The compass direction the first message entity faces (0x1D: the untargeted <c>/point</c> line).</summary>
+        Heading,
         /// <summary>A code this decoder knows the length of but not the meaning.</summary>
         Unknown,
     }
@@ -171,6 +185,11 @@ namespace Gordian.Core.Resources.Tables
     /// digits, in hexadecimal, in binary, with four digits; 0x7F 0xA0-0xAA n print a field of the date in parameter n.
     /// 0x7F codes are two bytes long except those taking an argument: 0x34-0x36, 0x80, 0x81, 0x84, 0x86-0x88, 0x8C,
     /// 0x8F, 0x92, 0x94-0x97, 0x99, 0xA0-0xAC, 0xB0, 0xB1, 0xB4, 0xB5 (three) and 0x38 (four).</item>
+    /// <item>The client's own tables (emotes ROM/27/70, system messages ROM/27/76) add codes about the message's entities:
+    /// 0x01 kinds 0x10 / 0x11 with no value name entity 0 / 1 (an emote's caster and target), 0x7F 0x88 n "[the /]" picks
+    /// entity n's article, 0x7F 0x90 / 0x91 "[his/her]" entity 0's / 1's sex, 0x7F 0x86 n "[a/b]" singular or plural by
+    /// number n, 0x12 n prints number n and 0x1D the heading (names from xi-tools' Shift-JIS code table; the meanings
+    /// were read from those tables, 2026-10-03).</item>
     /// <item>0xEF n is an icon; 0xFD ... 0xFD (six bytes) an auto-translate resource; everything else is Shift-JIS text.</item>
     /// </list>
     /// </summary>
@@ -283,6 +302,19 @@ namespace Gordian.Core.Resources.Tables
                     case 0x0C:
                         pending = new PendingSelector(EventMessageSegmentKind.Selector, 0x0C, ArgumentAt(raw, i + 1));
                         i += 2;
+                        break;
+                    case 0x12:
+                        // Number parameter n (xi-tools NUMBER): the system and emote tables (ROM/27/76: "Executing logout
+                        // in {12 00} seconds.", "The compass reads: X:{12 00} Y:{12 01}...") use it where zone tables use 0x0A.
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: ArgumentAt(raw, i + 1), Code: 0x12));
+                        i += 2;
+                        break;
+                    case 0x1D:
+                        // The heading (xi-tools HEADING, which gives it one argument byte). Its one use in the English
+                        // tables is the untargeted /point line of the emote table (ROM/27/70 message 1: "{caster} points
+                        // {1D}."), where the byte after it is the line's full stop, so it takes none here.
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Heading, Code: 0x1D));
+                        i++;
                         break;
                     case 0x18:
                     case 0x19:
@@ -410,9 +442,22 @@ namespace Gordian.Core.Resources.Tables
                     // "[his/her]": the player's sex picks (the retail recording shows a Mithra's lines with "her").
                     pending = new PendingSelector(EventMessageSegmentKind.GenderSelector, code, 0);
                     return i + 2;
+                case 0x86:
                 case 0x92:
+                    // 0x92 and 0x86 (xi-tools ABILITY_PLURAL_SELECT; the system table's "{12 00} {7F 86 00}[second/seconds]
+                    // until position reset.") both pick the singular when number n is 1.
                     pending = new PendingSelector(EventMessageSegmentKind.Selector, code, argument);
                     return i + 3;
+                case 0x88:
+                    // "[the /]" before an entity's name (xi-tools NPC_PROPER_SELECT): the emote lines' "waves to
+                    // {7F 88 01}[the /]{01 01 11}" and the system table's "You find ... on {7F 88 01}[the /]{01 01 11}.".
+                    pending = new PendingSelector(EventMessageSegmentKind.ArticleSelector, code, argument);
+                    return i + 3;
+                case 0x90:
+                case 0x91:
+                    // "[his/her]" by an entity's sex (xi-tools NPC0_GENDER / NPC1_GENDER): "claps {7F 90}[his/her] hands".
+                    pending = new PendingSelector(EventMessageSegmentKind.EntityGenderSelector, code, code - 0x90);
+                    return i + 2;
                 case 0x93:
                     segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Code: code));
                     return i + 2;
@@ -427,9 +472,7 @@ namespace Gordian.Core.Resources.Tables
                     return i + 3;
                 case 0x81:
                 case 0x84:
-                case 0x86:
                 case 0x87:
-                case 0x88:
                 case 0x8C:
                 case 0x8F:
                 case 0x97:

@@ -45,6 +45,11 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x034_EventNum.PacketId, HandleEventNum);
             dispatcher.Register(S2C_0x036_TalkNum.PacketId, HandleTalkNum);
             dispatcher.Register(S2C_0x02A_TalkNumWork.PacketId, HandleTalkNumWork);
+            dispatcher.Register(S2C_0x027_TalkNumWork2.PacketId, HandleTalkNumWork2);
+            dispatcher.Register(S2C_0x043_TalkNumName.PacketId, HandleTalkNumName);
+            dispatcher.Register(S2C_0x03B_EventMes.PacketId, HandleEventMes);
+            dispatcher.Register(S2C_0x05C_PendingNum.PacketId, HandlePendingNum);
+            dispatcher.Register(S2C_0x05D_PendingStr.PacketId, HandlePendingStr);
             dispatcher.Register(S2C_0x052_EventUcOff.PacketId, HandleEventUcOff);
             dispatcher.Register(S2C_0x055_ScenarioItem.PacketId, HandleScenarioItem);
             dispatcher.Register(S2C_0x056_Mission.PacketId, HandleMission);
@@ -71,6 +76,11 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x034_EventNum.PacketId);
             dispatcher.Unregister(S2C_0x036_TalkNum.PacketId);
             dispatcher.Unregister(S2C_0x02A_TalkNumWork.PacketId);
+            dispatcher.Unregister(S2C_0x027_TalkNumWork2.PacketId);
+            dispatcher.Unregister(S2C_0x043_TalkNumName.PacketId);
+            dispatcher.Unregister(S2C_0x03B_EventMes.PacketId);
+            dispatcher.Unregister(S2C_0x05C_PendingNum.PacketId);
+            dispatcher.Unregister(S2C_0x05D_PendingStr.PacketId);
             dispatcher.Unregister(S2C_0x052_EventUcOff.PacketId);
             dispatcher.Unregister(S2C_0x055_ScenarioItem.PacketId);
             dispatcher.Unregister(S2C_0x056_Mission.PacketId);
@@ -148,6 +158,95 @@ namespace Gordian.Core.Network.Packets
             string name = talk.GetName();
             GordianLog.Debug("DIALOG", $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Numbers={string.Join(",", numbers)}, Name='{name}'");
             _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type, numbers, name));
+        }
+
+        /// <summary>
+        /// S2C 0x027: a zone dialog message like 0x02A with twelve numbers (Num1 then Num2) and two strings. String1 is
+        /// passed as the speaker name only when the message shows one (bit 15 clear), as 0x02A's name is; both strings are
+        /// also the text's string parameters (0x1C 0 / 1: LandSandBoat's fishing lines put the player's name in String1).
+        /// </summary>
+        private void HandleTalkNumWork2(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var talk = new S2C_0x027_TalkNumWork2(payload);
+            if (!talk.IsValid) return;
+
+            var numbers = new int[12];
+            for (int i = 0; i < numbers.Length; i++) numbers[i] = talk.GetNumber(i);
+            string first = talk.GetString1();
+            string second = talk.GetString2();
+            // The speaker, as XiPackets 0x0027 gives the client's handler: String1 by default; with String2 or Flags bit 0,
+            // an NPC's / monster's own name (empty here: the dialog resolves it from the entity), else String2, else the
+            // player's name (also resolved from the entity). A no-name message is still headed by String2 with Flags bit 1.
+            bool hideName = talk.HideName;
+            string speaker = string.Empty;
+            if (!talk.HideName)
+            {
+                speaker = first;
+                if (second.Length > 0 || (talk.Flags & 1) != 0)
+                {
+                    speaker = (talk.UniqueNo & 0xFF000000) == 0 && second.Length > 0 ? second : string.Empty;
+                }
+            }
+            else if (second.Length > 0 && (talk.Flags & 2) != 0)
+            {
+                hideName = false;
+                speaker = second;
+            }
+            byte type = talk.Type < 8 ? (byte)talk.Type : (byte)0;
+            GordianLog.Debug("DIALOG", $"TalkNumWork2 message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flags={talk.Flags}, Numbers={string.Join(",", numbers)}, String1='{first}', String2='{second}'");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, hideName, type, numbers,
+                speaker, new[] { first, second }));
+        }
+
+        /// <summary>
+        /// S2C 0x043: a zone dialog message with a name. The name is the text's string parameter 0 (0x1C 0); the speaker of
+        /// a message that shows one is the entity's own name, as for 0x036. PROVISIONAL: whether retail heads such a line
+        /// with sName instead is not checked (LandSandBoat only sends the no-name form).
+        /// </summary>
+        private void HandleTalkNumName(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var talk = new S2C_0x043_TalkNumName(payload);
+            if (!talk.IsValid) return;
+
+            string name = talk.GetName();
+            GordianLog.Debug("DIALOG", $"TalkNumName message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Name='{name}'");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type,
+                Array.Empty<int>(), string.Empty, new[] { name }));
+        }
+
+        /// <summary>S2C 0x03B: a zone dialog message without parameters; bit 15 of its number asks for the entity's name.</summary>
+        private void HandleEventMes(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var mes = new S2C_0x03B_EventMes(payload);
+            if (!mes.IsValid) return;
+
+            GordianLog.Debug("DIALOG", $"EventMes message received: MessageId={mes.MessageId}, ActIndex={mes.ActIndex}, UsesName={mes.UsesName}");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(mes.MessageId, mes.UniqueNo, mes.ActIndex, !mes.UsesName, 0,
+                Array.Empty<int>(), string.Empty));
+        }
+
+        /// <summary>S2C 0x05C: the running event's eight numbers, which the event VM reads from work zone index 2.</summary>
+        private void HandlePendingNum(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var pending = new S2C_0x05C_PendingNum(payload);
+            if (!pending.IsValid) return;
+
+            Span<int> numbers = stackalloc int[S2C_0x05C_PendingNum.ParameterCount];
+            for (int i = 0; i < numbers.Length; i++) numbers[i] = pending.GetParameter(i);
+            GordianLog.Info("EVENT", $"Event numbers updated (0x05C): {numbers[0]}, {numbers[1]}, {numbers[2]}, {numbers[3]}, {numbers[4]}, {numbers[5]}, {numbers[6]}, {numbers[7]}");
+            _progressionState.UpdateEventNumbers(numbers);
+        }
+
+        /// <summary>S2C 0x05D: the running event's four strings (its numbers are ignored, as the client ignores them).</summary>
+        private void HandlePendingStr(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var pending = new S2C_0x05D_PendingStr(payload);
+            if (!pending.IsValid) return;
+
+            var strings = new string[S2C_0x05D_PendingStr.StringCount];
+            for (int i = 0; i < strings.Length; i++) strings[i] = pending.GetString(i);
+            GordianLog.Info("EVENT", $"Event strings updated (0x05D): '{string.Join("', '", strings)}'");
+            _progressionState.UpdateEventStrings(strings);
         }
 
         /// <summary>

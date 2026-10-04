@@ -18,7 +18,8 @@ namespace Gordian.Core.Events
     /// Dialog text for a session (Tier 2 chunk 6): runs the server's events (S2C 0x032/0x033/0x034) through the
     /// <see cref="EventVm"/> with the zone's scripts and dialog table, prints the lines to the chat log with the
     /// speaker's name, opens the query window for choices, answers the server (0x05B) and prints the direct zone
-    /// messages (S2C 0x036 / 0x02A).
+    /// messages (S2C 0x036 / 0x02A / 0x027 / 0x043 / 0x03B). S2C 0x05C / 0x05D replace the running event's numbers and
+    /// strings.
     /// <para>
     /// Packet handlers arrive on the network thread and only queue work; the event runs on the game tick
     /// (<see cref="Tick"/>, from the locomotion update), where the input is read too. While an event runs the
@@ -61,6 +62,12 @@ namespace Gordian.Core.Events
 
         private readonly object _sync = new();
         private readonly EventWorkZone _zone = new();
+
+        /// <summary>The zone's shared event work values (tests read the server parameters the event sees).</summary>
+        internal EventWorkZone WorkZone => _zone;
+
+        /// <summary>The running (or last started) event's information, string parameters included; tests only.</summary>
+        internal CutsceneEventInfo? CurrentEventInfo => _info;
         private ProgressionState? _progression;
         private ProgressionPacketModule? _module;
         private WorldState? _world;
@@ -222,7 +229,40 @@ namespace Gordian.Core.Events
             progression.EventUpdateAcknowledged += () => _receivePending = false;
             progression.EventCancelledByServer += () => _cancelRequested = true;
             progression.DialogMessageReceived += OnDialogMessage;
+            progression.EventNumbersUpdated += numbers =>
+            {
+                lock (_sync) _pendingNumbers = numbers;
+            };
+            progression.EventStringsUpdated += strings =>
+            {
+                lock (_sync) _pendingStrings = strings;
+            };
             world.ZoneChanged += _ => _zoneChanged = true;
+        }
+
+        /// <summary>The running event's new numbers (S2C 0x05C) and strings (0x05D), queued for the game tick.</summary>
+        private int[]? _pendingNumbers;
+        private string[]? _pendingStrings;
+
+        /// <summary>
+        /// Applies the event numbers and strings the server sent while the event waited (S2C 0x05C / 0x05D, sent before the
+        /// 0x052 that lets the script go on): the numbers go to the work zone from index 2, as 0x034's did (XiPackets 0x005C:
+        /// the client copies them into <c>PTR_Work_Zone</c> from index 2), the strings replace the event's 0x033 strings
+        /// that the 0x1C n codes read. The work zone takes the numbers even when no event runs, as retail's copy does.
+        /// </summary>
+        private void ApplyPendingParameters()
+        {
+            int[]? numbers;
+            string[]? strings;
+            lock (_sync)
+            {
+                numbers = _pendingNumbers;
+                strings = _pendingStrings;
+                _pendingNumbers = null;
+                _pendingStrings = null;
+            }
+            if (numbers != null) _zone.SetParameters(numbers);
+            if (strings != null && _info != null) _info = _info with { StringParams = strings };
         }
 
         /// <summary>Advances the running event; starts a queued one.</summary>
@@ -279,6 +319,8 @@ namespace Gordian.Core.Events
                     StartEvent(waiting);
                 }
             }
+            // After a start (whose 0x034 numbers a later 0x05C replaces) and before the script runs on.
+            ApplyPendingParameters();
             var scene = _scene;
             if (scene == null) return;
             SortArrivals(scene);
@@ -785,7 +827,10 @@ namespace Gordian.Core.Events
             string speaker = message.HideName ? string.Empty
                 : !string.IsNullOrEmpty(message.Name) ? message.Name
                 : EntityName(message.UniqueNo, message.ActIndex);
-            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName, PartyMemberName, EntityNameById);
+            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName, PartyMemberName, EntityNameById)
+            {
+                Strings = message.Strings,
+            };
             var lines = EventMessageFormatter.FormatLines(decoded, context);
             PrintLines(lines, speaker, message.HideName ? ChatLogChannel.Message : ChatLogChannel.Dialog);
         }

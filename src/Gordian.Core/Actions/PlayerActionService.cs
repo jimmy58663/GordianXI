@@ -309,6 +309,19 @@ namespace Gordian.Core.Actions
             _world.EntityUpdated += OnEntityUpdated;
             _world.EntityDespawned += OnEntityDespawned;
             _combatModule.State.EngagementChanged += OnEngagementChanged;
+            _combatModule.State.AssistTargetReceived += OnAssistTargetReceived;
+        }
+
+        /// <summary>
+        /// The server picked the character's target (S2C 0x058: the <c>/assist</c> answer, or a new battle target): the
+        /// cursor moves to it, as XiPackets describes the client's handler. PROVISIONAL: whether retail also locks on is
+        /// not checked (LandSandBoat's comments say "lock on to the new target"); the lock-on state is left as it is. An
+        /// id of 0 (no target) or an entity not in the zone changes nothing.
+        /// </summary>
+        private void OnAssistTargetReceived(uint serverId)
+        {
+            if (serverId == 0 || serverId == _localPlayer.ServerId) return;
+            if (_world.TryGetByServerId(serverId, out var entity) && entity != null) SetTarget(entity);
         }
 
         /// <summary>
@@ -982,7 +995,8 @@ namespace Gordian.Core.Actions
             try
             {
                 await _combatModule.RequestEmoteAsync(resolvedId, resolvedIdx, emote, param: param).ConfigureAwait(false);
-                return PlayerActionResult.Ok($"Emote: {emote}", ChatCommandResultKind.Emote);
+                // No line of our own: the server's echo (S2C 0x05A) prints "X waves." and plays the motion, as in retail.
+                return PlayerActionResult.Ok(string.Empty, ChatCommandResultKind.Emote);
             }
             catch (Exception ex)
             {

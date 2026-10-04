@@ -21,8 +21,10 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
-    /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A): the message id into the
-    /// zone's dialog table, the entity it is about, the numbers the text substitutes, and how to show it.
+    /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A / 0x027 / 0x043 / 0x03B): the
+    /// message id into the zone's dialog table, the entity it is about, the numbers the text substitutes, and how to show
+    /// it. <see cref="Strings"/> holds the strings the text's 0x1C n codes read (0x027's String1 / String2, 0x043's name),
+    /// null for the packets without any.
     /// </summary>
     public sealed record DialogMessageInfo(
         ushort MessageId,
@@ -31,7 +33,8 @@ namespace Gordian.Core.World
         bool HideName,
         byte Type,
         int[] Numbers,
-        string Name
+        string Name,
+        string[]? Strings = null
     );
 
     /// <summary>
@@ -189,6 +192,15 @@ namespace Gordian.Core.World
         /// <summary>The server answered a pending event update (S2C 0x052 mode 1): the event script may go on.</summary>
         public event Action? EventUpdateAcknowledged;
 
+        /// <summary>
+        /// New numbers for the running event (S2C 0x05C): the eight values the client copies into the event work zone from
+        /// index 2, where the event scripts read their parameters.
+        /// </summary>
+        public event Action<int[]>? EventNumbersUpdated;
+
+        /// <summary>New strings for the running event (S2C 0x05D): the four strings the 0x1C n dialog codes read.</summary>
+        public event Action<string[]>? EventStringsUpdated;
+
         /// <summary>The server cancelled the running event (S2C 0x052 mode 2).</summary>
         public event Action? EventCancelledByServer;
         public event Action? KeyItemsUpdated;
@@ -240,6 +252,33 @@ namespace Gordian.Core.World
         }
 
         public void AcknowledgeEventUpdate() => EventUpdateAcknowledged?.Invoke();
+
+        /// <summary>
+        /// Replaces the running event's numbers (S2C 0x05C) in <see cref="ActiveEvent"/> and raises
+        /// <see cref="EventNumbersUpdated"/>. Raised also when no event runs: the client copies them into the work zone
+        /// regardless (XiPackets 0x005C).
+        /// </summary>
+        public void UpdateEventNumbers(ReadOnlySpan<int> numbers)
+        {
+            var copy = numbers.ToArray();
+            lock (_lock)
+            {
+                if (ActiveEvent != null) ActiveEvent = ActiveEvent with { NumericParams = (int[])copy.Clone() };
+            }
+            EventNumbersUpdated?.Invoke(copy);
+        }
+
+        /// <summary>Replaces the running event's strings (S2C 0x05D) in <see cref="ActiveEvent"/> and raises <see cref="EventStringsUpdated"/>.</summary>
+        public void UpdateEventStrings(string[] strings)
+        {
+            ArgumentNullException.ThrowIfNull(strings);
+            var copy = (string[])strings.Clone();
+            lock (_lock)
+            {
+                if (ActiveEvent != null) ActiveEvent = ActiveEvent with { StringParams = (string[])copy.Clone() };
+            }
+            EventStringsUpdated?.Invoke(copy);
+        }
 
         public void CancelEventByServer() => EventCancelledByServer?.Invoke();
 
