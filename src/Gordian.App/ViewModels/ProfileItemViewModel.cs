@@ -24,8 +24,10 @@ namespace Gordian.App.ViewModels
 
         public string ProfileName => _profile.ProfileName;
         public string CharacterName => _profile.CharacterName;
-        public bool HasCharacterSubtitle => !string.IsNullOrWhiteSpace(_profile.CharacterName);
-        public string CharacterSubtitle => $"Char: {_profile.CharacterName}";
+        public bool HasCharacterSubtitle => !string.IsNullOrWhiteSpace(_profile.CharacterName) || _profile.CharacterSlot > 0;
+        public string CharacterSubtitle => !string.IsNullOrWhiteSpace(_profile.CharacterName)
+            ? $"Char: {_profile.CharacterName}"
+            : $"Char: slot {_profile.CharacterSlot}";
         public string Username => _profile.Username;
         public string CurrentTwoFactorCode => _profile.CurrentTwoFactorCode;
 
@@ -100,20 +102,17 @@ namespace Gordian.App.ViewModels
 
         public void Terminate()
         {
-            _sessionRegistry.TerminateSession(_profile.Username);
-            _sessionRegistry.TerminateSession(_profile.ProfileName);
-            if (!string.IsNullOrWhiteSpace(_profile.CharacterName))
+            // Only this profile's own session: terminating by account would also end the account's other characters.
+            if (_sessionRegistry.TryGetSessionForProfile(_profile.ProfileName, _profile.CharacterName, out var session) && session != null)
             {
-                _sessionRegistry.TerminateSession(_profile.CharacterName);
+                _sessionRegistry.UnregisterSession(session.SessionId);
             }
             RefreshOnlineStatus();
         }
 
         public void RefreshOnlineStatus()
         {
-            IsOnline = _sessionRegistry.IsAccountActive(_profile.Username) ||
-                       _sessionRegistry.IsCharacterActive(_profile.ProfileName) ||
-                       (!string.IsNullOrWhiteSpace(_profile.CharacterName) && _sessionRegistry.IsCharacterActive(_profile.CharacterName));
+            IsOnline = _sessionRegistry.IsProfileOnline(_profile.ProfileName, _profile.CharacterName);
         }
     }
 }

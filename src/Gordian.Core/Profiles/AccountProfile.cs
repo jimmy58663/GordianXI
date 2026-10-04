@@ -10,6 +10,14 @@ namespace Gordian.Core.Profiles
     {
         public string ProfileName { get; set; } = "Default Profile";
         public string CharacterName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the LandSandBoat character slot (1-16, the position in the xi_view 0x20 character list, as the
+        /// retail select screen shows it) to log in as. 0 (also what an older profile file without this field loads as)
+        /// means "not set": the character is picked by <see cref="CharacterName"/>. The name wins when both are set.
+        /// </summary>
+        public int CharacterSlot { get; set; }
+
         public string BootloaderPath { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
@@ -64,6 +72,7 @@ namespace Gordian.Core.Profiles
             {
                 ProfileName = newProfileName ?? ProfileName,
                 CharacterName = CharacterName,
+                CharacterSlot = CharacterSlot,
                 BootloaderPath = BootloaderPath,
                 Arguments = Arguments,
                 Username = Username,

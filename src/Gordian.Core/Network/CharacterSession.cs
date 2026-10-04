@@ -17,6 +17,13 @@ namespace Gordian.Core.Network
         public string CharacterName { get; }
         public uint CharacterId { get; }
         public string AccountUsername { get; }
+
+        /// <summary>
+        /// Gets or sets the name of the launch profile that started this session (empty for sessions that did not come
+        /// from a profile, such as the retail handoff). Online status keys on this, not on the account, so the other
+        /// profiles of an account do not show Online when one of its characters is.
+        /// </summary>
+        public string ProfileName { get; set; } = string.Empty;
         public SessionNetworkManager NetworkManager { get; }
         public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 

@@ -135,6 +135,14 @@ namespace Gordian.App.ViewModels
             UpdateCheckStateFromChildren();
         }
 
+        /// <summary>Inserts a child at the given position (clamped), keeping the order of its siblings.</summary>
+        public void InsertChild(int index, LaunchTreeNodeViewModel node)
+        {
+            node.Parent = this;
+            Children.Insert(Math.Clamp(index, 0, Children.Count), node);
+            UpdateCheckStateFromChildren();
+        }
+
         public void RemoveChild(LaunchTreeNodeViewModel node)
         {
             if (Children.Remove(node))
