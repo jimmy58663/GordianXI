@@ -174,6 +174,8 @@ Server weather numbers (S2C 0x00A login, S2C 0x057, event opcode 0x77) are held 
 
 Ids above 19 fall back to `fine`. The fallback is used only when a zone authors no directory for the exact weather.
 
+The client's English weather name table (`ROM/165/79`, `DMsgCategory.WeatherNames`, read for the forecast lines, [#125](https://github.com/jimmy58663/GordianXI/issues/125)) lists the same ids in order: 0 "fine patches", 1 "sunshine", 2 "clouds", 3 "fog", 4 "hot spells" ... 19 "darkness". **Differs from LandSandBoat / xi-tools:** they call id 0 none; the client's table names it fine weather, which fits GordianXI's `fine` directory for 0 (the Japanese table `ROM/165/65` has 40 rows, the 20 names followed by rows starting `fine`, `suny`). The weather forecast files ([events/vm.md](../events/vm.md#weather-forecast-0x72)) use ids 1-19 and 0xFF for an empty slot.
+
 ## Server animation status
 
 Two LandSandBoat enumerations are both called "status"; they travel in different bytes.

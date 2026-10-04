@@ -994,6 +994,19 @@ namespace Gordian.Core.Events
 
         void IEventVmHost.UnlockEnvironment() => UnlockEnvironment();
 
+        byte[]? IEventVmHost.LoadDat(int fileId)
+        {
+            try
+            {
+                return Loader?.Invoke(fileId);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("EVENT", $"Event DAT {fileId} could not be read: {ex.Message}");
+                return null;
+            }
+        }
+
         void IEventVmHost.OpenEventZone(int zoneId)
         {
             var world = _world;

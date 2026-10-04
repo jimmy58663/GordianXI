@@ -7,8 +7,8 @@ namespace Gordian.Core.Events
 {
     /// <summary>
     /// Resolves the names a dialog line's 0x01 tags ask for (<see cref="IEventMessageContext.ResolveName"/>) from the
-    /// game's own tables: items (the item DATs' name, log name and plural log name), key items (name and plural) and zone
-    /// names (d_msg ROM/165/84). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
+    /// game's own tables: items (the item DATs' name, log name and plural log name), key items (name and plural), zone
+    /// names (d_msg ROM/165/84) and weather names (d_msg ROM/165/79). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
     /// onto these.
     /// </summary>
     public static class EventMessageNames
@@ -30,6 +30,8 @@ namespace Gordian.Core.Events
                     return resources.TryGetKeyItemPlural((uint)id, out var keyItems) ? keyItems : null;
                 case EventMessageFormatter.ZoneKind:
                     return resources.TryGetString(DMsgCategory.ZoneNames, id, out var zone) ? zone : null;
+                case EventMessageFormatter.WeatherKind:
+                    return resources.TryGetString(DMsgCategory.WeatherNames, id, out var weather) ? weather : null;
                 default:
                     return null;
             }

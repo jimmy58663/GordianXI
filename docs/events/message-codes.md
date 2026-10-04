@@ -84,7 +84,7 @@ Item names (`ItemRecord`): `Name` "Fire Crystal", log name "fire crystal" / "chu
 | `01` (`01 01 01`, no value) | the article ("a" / "an") of the item tag after it ("You have been rewarded `01 01 01` <`24` item> as compensation.") | 16,869 | handled: "an" when the next item tag's text starts with a vowel, else "a" (the rule of retail's shop lines, `StockUiShop.DescribeCount`); "a" when no item tag follows | corpus; xi-tools mentions an article slot |
 | `03` / `04` | a number ("You obtain `01 05 03 p1` <`29` item>!"; `04` the count a plural item tag goes by) | 510 / 0 | handled: the parameter's number | xi-tools; corpus |
 | `12` | a name ("<`12`>, a hero's story!") | 727 | placeholder | corpus |
-| `17` / `18` | weather names in the forecast lines ("will be <`17`> with occasional <`18`>") | 2,499 / 4,943 | placeholder (no weather name table is loaded) | corpus |
+| `17` / `18` | weather names in the forecast lines ("will be <`17`> with occasional <`18`>"), by weather id | 2,499 / 4,943 | handled: d_msg weather names `ROM/165/79` (`DMsgCategory.WeatherNames`, [#125](https://github.com/jimmy58663/GordianXI/issues/125)); whether the two kinds differ in form is not known, both read the one table | corpus; Maleme's forecast lines (event 632) with [0x72](vm.md#weather-forecast-0x72) |
 | `20` | not known (mostly Japanese lines) | 2,308 | placeholder | corpus |
 | `23` `#` | item name ("Obtained: `7F 80 01` <`23`>.", "You cannot obtain the <`23`>.") | 93,799 | handled: the item's name ("Fire Crystal") | xi-tools; LandSandBoat ITEM_OBTAINED |
 | `24` `$`, `26`, `27`, `28` | item log name, singular (after `01 01 01`: "a fire crystal") | 16,867 / 0 / 1 / 1 | handled: log name | xi-tools |
@@ -100,6 +100,8 @@ Item names (`ItemRecord`): `Name` "Fire Crystal", log name "fire crystal" / "chu
 | `85` | picks from the next "[male/female]" list by a parameter (the raised chocobo's sex: "your chocobo is...a <`85`>[male/female]!") | 37 | placeholder, the list shown raw | corpus |
 | `81`, `82`, `83`, `86`, `87` | not known (`81` / `83` 8 bytes long, `82` 9) | 97 / 23 / 725 / 360 / 21 | placeholder | corpus |
 | others (`02`, `10`, `13`-`16`, `60`, `B3`) | single uses | under 10 each | placeholder | corpus |
+
+**Differs from xi-tools:** `docs/events/weather.md` names weather id 0 "None"; the client's weather name table (`ROM/165/79`) has "fine patches" in row 0 (LandSandBoat's `xi.weather` also calls 0 NONE). The forecast files never hold 0.
 
 **Beyond xi-tools:** `01 01 01` as the "a" / "an" of the next item tag; kind `35` as a key item's plural name; `84` as the chocobo name and `85` as a selector. From the corpus contexts, not checked against retail screens.
 
@@ -129,7 +131,7 @@ Done on branch `ui/202-74-dialog-codes` (2026-10-03, awaiting the in-game test):
 | `7F AB` / `7F AC` | print nothing | the Earth / Vana'diel date formats (Ballista, Kokba Hostel lines) |
 | date fields | local time; `A0` year, `A1` month, `A2` day (confirmed on the Mog Garden lease line 280:7538) | the city lease line's year/month/day order is confirmed in retail (Port Jeuno, 2026-10-03); check whether the Assist Channel line, which says "(JST)", stays in JST in retail; `A4`-`A8` not checked |
 | `11 n` (Trust name), `05 n`, `7F 81`, `7F B4`, `7F B5` | dropped | resolve from the spell table (`11`) and find the others' sources |
-| 0x01 kinds `12`, `17` / `18` (weather), `20`, `30`, `40`, `84` (chocobo name), `85` (selector), `81`-`87` | placeholders | find their tables |
+| 0x01 kinds `12`, `20`, `30`, `40`, `84` (chocobo name), `85` (selector), `81`-`87` | placeholders | find their tables |
 | `1C n` in 0x02A / 0x027 lines | empty | which packet string `1C` reads |
 
 ## Chunk 6 summary

@@ -171,6 +171,12 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>
+        /// Reads a DAT by file id through the resource manager (opcode 0x72: the weather forecast files 7033 / 7037). Null
+        /// when it cannot be read; the caller treats the bytes as untrusted.
+        /// </summary>
+        byte[]? LoadDat(int fileId) => null;
+
+        /// <summary>
         /// Opcode 0x45: plays routine <paramref name="routine"/> of the scene resource DAT <paramref name="fileId"/> as task
         /// <paramref name="taskId"/> on two actors (server ids; 0 = the local player): its camera shots and fades.
         /// Returns how many 60 Hz frames the task runs; 0 when the resource or routine is missing, so a wait on it ends at once.
