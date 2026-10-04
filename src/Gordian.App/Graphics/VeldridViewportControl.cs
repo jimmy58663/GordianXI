@@ -145,6 +145,8 @@ namespace Gordian.App.Graphics
 
                     _activeSession = value;
                     WorldState = value?.World;
+                    // A session still connecting starts black (#36); one already in the world shows at once.
+                    _loadingScreen.Reset(black: value != null && value.State != SessionState.ActiveInWorld);
 
                     if (_activeSession != null)
                     {
@@ -742,6 +744,12 @@ namespace Gordian.App.Graphics
                                 displayPlayerPos,
                                 present: false);
 
+                            // Zoning (#36): black while the session connects or zones and until its zone is on screen.
+                            StockUi.LoadingOpacity = _activeSession is { } loadingSession
+                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
+                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency)
+                                : 0f;
+
                             // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
                             RenderTier2_StockUi();
 
@@ -798,6 +806,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public StockUiHud StockUi { get; } = new();
 
+        private readonly Gordian.Core.Ui.ZoneLoadingScreen _loadingScreen = new();
         private volatile Gordian.Core.Ui.Lobby.LobbyController? _lobby;
         private LobbyFrameRenderer? _lobbyRenderer;
         private readonly Gordian.Core.Ui.Lobby.LobbyPreview _lobbyPreview = new();

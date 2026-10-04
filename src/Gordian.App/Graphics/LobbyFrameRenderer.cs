@@ -91,7 +91,15 @@ namespace Gordian.App.Graphics
             if (library != null)
             {
                 _foreground.Begin(library);
-                StockUiLobby.DrawForeground(_foreground, lobby, _font, width, height, Stopwatch.GetTimestamp(), _logFont);
+                long now = Stopwatch.GetTimestamp();
+                StockUiLobby.DrawForeground(_foreground, lobby, _font, width, height, now, _logFont);
+                if (lobby.Screen == LobbyScreen.Entering)
+                {
+                    // A character was chosen: the lobby fades to black, and the session's zone-in stays black (#36).
+                    double seconds = (now - lobby.EnteredTimestamp) / (double)Stopwatch.Frequency;
+                    float black = (float)Math.Clamp(seconds / Gordian.Core.Ui.ZoneLoadingScreen.FadeOutSeconds, 0, 1);
+                    _foreground.DrawScreenTint(width, height, new Vector3(1f - black));
+                }
                 if (brightness < 1f) _foreground.DrawScreenTint(width, height, new Vector3(Math.Clamp(brightness, 0f, 1f)));
                 _foreground.End(framebuffer, width, height);
             }

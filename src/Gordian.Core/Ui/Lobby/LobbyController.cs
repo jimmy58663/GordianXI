@@ -198,6 +198,9 @@ namespace Gordian.Core.Ui.Lobby
             }
         }
 
+        /// <summary>When the lobby entered <see cref="LobbyScreen.Entering"/> (Stopwatch ticks): the screen fades to black from then (#36).</summary>
+        public long EnteredTimestamp { get; private set; }
+
         /// <summary>Bumped on every change, so a renderer can tell when to rebuild what it caches.</summary>
         public int Version { get; private set; }
 
@@ -402,6 +405,7 @@ namespace Gordian.Core.Ui.Lobby
             lock (SyncRoot)
             {
                 Screen = LobbyScreen.Entering;
+                EnteredTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 Prompt = null;
                 CreationMenu = null;
                 Touch();

@@ -189,6 +189,71 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>A backend whose selection answers at once (the screen then enters the game).</summary>
+        private sealed class AnsweringBackend : ILobbyBackend
+        {
+            private readonly FakeBackend _inner = new();
+            public List<LobbyCharacter> List => _inner.List;
+            public IReadOnlyList<LobbyCharacter> Characters => _inner.Characters;
+            public bool IsConnected => true;
+            public Task<IReadOnlyList<LobbyCharacter>> RefreshCharactersAsync(CancellationToken ct = default) => _inner.RefreshCharactersAsync(ct);
+            public Task<IReadOnlyList<LobbyWorld>> GetWorldsAsync(CancellationToken ct = default) => _inner.GetWorldsAsync(ct);
+            public Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default) => Task.CompletedTask;
+            public Task CreateCharacterAsync(LobbyCharacter freeSlot, LobbyCharacterCreation creation, CancellationToken ct = default) => Task.CompletedTask;
+            public Task DeleteCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.CompletedTask;
+            public Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default) => Task.FromResult(new LsbSessionTicket());
+            public Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.FromResult(new LsbSessionTicket { CharacterName = character.Name });
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+
+        /// <summary>After a character is chosen the lobby fades to black (#36): the frame is black once the fade is over.</summary>
+        [Fact]
+        public void EnteringFadesTheLobbyToBlack()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.LoadLobby(rm);
+            if (library == null) return;
+            var backend = new AnsweringBackend();
+            backend.List.Add(Character(1, "Knot", 2, 5, 4, 75));
+            var lobby = new LobbyController(backend, library, LobbyTextTables.Load(rm.LoadDatBytes), showLicence: false);
+
+            const uint width = 640, height = 480;
+            IntPtr hwnd = CreateWindowExW(0, "static", "LobbyFadeTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
+                var preview = new LobbyPreview();
+
+                lobby.HandleInput(LobbyInput.Confirm);
+                lobby.HandleInput(LobbyInput.Confirm);
+                for (int i = 0; i < 200 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
+                Assert.Equal(LobbyScreen.Entering, lobby.Screen);
+                Thread.Sleep((int)(Gordian.Core.Ui.ZoneLoadingScreen.FadeOutSeconds * 1000) + 100);
+                frames.Render(lobby, preview, null, rm, framebuffer, width, height, 1 / 60f);
+                var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
+                int lit = 0;
+                for (int i = 0; i < pixels.Length; i += 4 * 97) if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 12) lit++;
+                Assert.Equal(0, lit);
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         [Fact]
         public void RendersTitleMenuCharacterListAndPreview()
         {
