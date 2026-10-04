@@ -53,8 +53,9 @@ namespace Gordian.Core.Resources.Tables
         CaseMode,
         /// <summary>
         /// A field of a date and time held in number parameter <see cref="EventMessageSegment.Argument"/> as seconds
-        /// since 2002-01-01 00:00 JST (0x7F 0xA0-0xAA n): <see cref="EventMessageSegment.Code"/> 0xA0 year, 0xA1 / 0xA6
-        /// month, 0xA2 / 0xA7 day, 0xA3 / 0xA8 hour, 0xA4 / 0xA9 minute, 0xA5 / 0xAA second (0xA6-0xAA two digits).
+        /// since 2001-12-31 15:00 UTC, shown in local time (0x7F 0xA0-0xAA n): <see cref="EventMessageSegment.Code"/> 0xA0
+        /// month, 0xA1 day, 0xA2 year (English client, checked against retail), 0xA3 / 0xA8 hour, 0xA4 / 0xA9 minute,
+        /// 0xA5 / 0xAA second, 0xA6 / 0xA7 month / day (0xA6-0xAA two digits).
         /// </summary>
         DateField,
         /// <summary>A text colour change (0x1F c).</summary>

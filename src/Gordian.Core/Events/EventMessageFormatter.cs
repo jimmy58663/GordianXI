@@ -41,6 +41,9 @@ namespace Gordian.Core.Events
 
         /// <summary>The name of the entity with this server id (a 0x18 n code reads the id from number n), or null.</summary>
         string? GetEntityNameById(uint serverId) => null;
+
+        /// <summary>The time zone the date codes (0x7F 0xA0-0xAA) are shown in: the machine's local zone, as retail does.</summary>
+        TimeZoneInfo TimeZone => TimeZoneInfo.Local;
     }
 
     /// <summary>
@@ -65,8 +68,8 @@ namespace Gordian.Core.Events
         /// <summary>The 0x01 kind with no value (01 01 01) that stands for the article of the item tag after it.</summary>
         public const byte ArticleKind = 0x01;
 
-        /// <summary>The Vana'diel epoch the date codes count from: 2002-01-01 00:00 JST (2001-12-31 15:00 UTC).</summary>
-        private static readonly DateTime DateEpochJst = new(2002, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        /// <summary>The Vana'diel epoch the date codes count from: 2001-12-31 15:00 UTC (2002-01-01 00:00 JST).</summary>
+        private static readonly DateTimeOffset VanadielEpochUtc = new(2001, 12, 31, 15, 0, 0, TimeSpan.Zero);
 
         /// <summary>Every line of the message (choices included, one per line).</summary>
         public static List<string> FormatLines(EventMessage message, IEventMessageContext context)
@@ -121,7 +124,7 @@ namespace Gordian.Core.Events
                         Substitute(FormatNumber(segment.Code, context.GetNumber(segment.Argument)));
                         break;
                     case EventMessageSegmentKind.DateField:
-                        Substitute(FormatDateField(segment.Code, context.GetNumber(segment.Argument)));
+                        Substitute(FormatDateField(segment.Code, context.GetNumber(segment.Argument), context.TimeZone));
                         break;
                     case EventMessageSegmentKind.Name:
                         Substitute(segment.Code == ArticleKind && segment.Values is not { Count: > 0 }
@@ -190,19 +193,22 @@ namespace Gordian.Core.Events
         };
 
         /// <summary>
-        /// One field of a date held as seconds since 2002-01-01 00:00 JST (the Vana'diel epoch: LandSandBoat sends the Mog
-        /// Locker lease end that way, which the lease lines print as "A0/A1/A2 A3:A9:AA"; the Assist Channel line reads
-        /// "A1/A2/A0 at A3:A9 (JST)"). 0xA0 year, 0xA1-0xA5 month, day, hour, minute, second; 0xA6-0xAA the same from
-        /// month on with two digits.
+        /// One field of a date held as seconds since the Vana'diel epoch, 2001-12-31 15:00 UTC (LandSandBoat sends the
+        /// Mog Locker lease end that way), shown in the player's local time zone <paramref name="zone"/> (local time when
+        /// null). Confirmed against retail on 2026-10-03: the lease line 6702 ("A0/A1/A2 A3:A9:AA") with 781790400 reads
+        /// "10/9/2026 20:00:00" on a US Pacific (UTC-7) machine. So in the English client 0xA0 is the month, 0xA1 the day
+        /// and 0xA2 the year, unpadded; 0xA3-0xA5 hour, minute, second unpadded; 0xA6-0xAA month, day, hour, minute,
+        /// second with two digits (0xA9 / 0xAA confirmed, 0xA6-0xA8 corpus reading only).
         /// </summary>
-        public static string FormatDateField(byte code, int seconds)
+        public static string FormatDateField(byte code, int seconds, TimeZoneInfo? zone = null)
         {
-            var date = DateEpochJst.AddSeconds(seconds);
+            var utc = VanadielEpochUtc.AddSeconds(seconds);
+            var date = TimeZoneInfo.ConvertTime(utc, zone ?? TimeZoneInfo.Local);
             return code switch
             {
-                0xA0 => date.Year.ToString(CultureInfo.InvariantCulture),
-                0xA1 => date.Month.ToString(CultureInfo.InvariantCulture),
-                0xA2 => date.Day.ToString(CultureInfo.InvariantCulture),
+                0xA0 => date.Month.ToString(CultureInfo.InvariantCulture),
+                0xA1 => date.Day.ToString(CultureInfo.InvariantCulture),
+                0xA2 => date.Year.ToString(CultureInfo.InvariantCulture),
                 0xA3 => date.Hour.ToString(CultureInfo.InvariantCulture),
                 0xA4 => date.Minute.ToString(CultureInfo.InvariantCulture),
                 0xA5 => date.Second.ToString(CultureInfo.InvariantCulture),
@@ -292,8 +298,9 @@ namespace Gordian.Core.Events
 
         public SimpleMessageContext(IReadOnlyList<int>? numbers = null, string playerName = "", string npcName = "",
             Func<byte, int, string?>? resolveName = null, Func<int, string?>? partyMemberName = null,
-            Func<uint, string?>? entityNameById = null)
+            Func<uint, string?>? entityNameById = null, TimeZoneInfo? timeZone = null)
         {
+            TimeZone = timeZone ?? TimeZoneInfo.Local;
             _numbers = numbers ?? Array.Empty<int>();
             PlayerName = playerName;
             NpcName = npcName;
@@ -303,6 +310,7 @@ namespace Gordian.Core.Events
         }
 
         public Func<byte, int, string?>? ResolveNameFunc { get; }
+        public TimeZoneInfo TimeZone { get; }
         public string PlayerName { get; }
         public string NpcName { get; }
         public int GetNumber(int index) => index >= 0 && index < _numbers.Count ? _numbers[index] : 0;

@@ -128,18 +128,37 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal("until 9:05 #0042 0xFF b101",
                 Assert.Single(EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(raw), new SimpleMessageContext(new[] { 9, 5, 42, 255, 5 }))));
 
-            // The Mog Locker lease line: {7F A0}/{7F A1}/{7F A2} {7F A3}:{7F A9}:{7F AA}, seconds since 2002-01-01 00:00 JST.
-            int seconds = (int)(new System.DateTime(2026, 10, 3, 7, 4, 9) - new System.DateTime(2002, 1, 1)).TotalSeconds;
+            // The Mog Locker lease line 6702: {7F A0}/{7F A1}/{7F A2} {7F A3}:{7F A9}:{7F AA}, seconds since 2001-12-31 15:00
+            // UTC, in local time. Retail (2026-10-03, US Pacific, UTC-7) shows 781790400 (2026-10-10 12:00 JST) as
+            // "10/9/2026 20:00:00".
             var lease = new byte[] { 0x7F, 0xA0, 0x00, (byte)'/', 0x7F, 0xA1, 0x00, (byte)'/', 0x7F, 0xA2, 0x00, (byte)' ',
                 0x7F, 0xA3, 0x00, (byte)':', 0x7F, 0xA9, 0x00, (byte)':', 0x7F, 0xAA, 0x00 };
-            Assert.Equal("2026/10/3 7:04:09",
-                Assert.Single(EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(lease), new SimpleMessageContext(new[] { seconds }))));
-            Assert.Equal("10", EventMessageFormatter.FormatDateField(0xA6, seconds));
-            Assert.Equal("03", EventMessageFormatter.FormatDateField(0xA7, seconds));
-            Assert.Equal("07", EventMessageFormatter.FormatDateField(0xA8, seconds));
-            Assert.Equal("4", EventMessageFormatter.FormatDateField(0xA4, seconds));
-            Assert.Equal("9", EventMessageFormatter.FormatDateField(0xA5, seconds));
+            Assert.Equal("10/9/2026 20:00:00",
+                Assert.Single(EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(lease), new SimpleMessageContext(new[] { 781790400 }, timeZone: Pacific))));
+            Assert.Equal("10/10/2026 12:00:00",
+                Assert.Single(EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(lease), new SimpleMessageContext(new[] { 781790400 }, timeZone: Japan))));
+
+            // 2026-10-03 07:04:09 JST: the unpadded and two-digit fields.
+            int seconds = (int)(new System.DateTime(2026, 10, 3, 7, 4, 9) - new System.DateTime(2002, 1, 1)).TotalSeconds;
+            Assert.Equal("10", EventMessageFormatter.FormatDateField(0xA0, seconds, Japan));
+            Assert.Equal("3", EventMessageFormatter.FormatDateField(0xA1, seconds, Japan));
+            Assert.Equal("2026", EventMessageFormatter.FormatDateField(0xA2, seconds, Japan));
+            Assert.Equal("7", EventMessageFormatter.FormatDateField(0xA3, seconds, Japan));
+            Assert.Equal("4", EventMessageFormatter.FormatDateField(0xA4, seconds, Japan));
+            Assert.Equal("9", EventMessageFormatter.FormatDateField(0xA5, seconds, Japan));
+            Assert.Equal("10", EventMessageFormatter.FormatDateField(0xA6, seconds, Japan));
+            Assert.Equal("03", EventMessageFormatter.FormatDateField(0xA7, seconds, Japan));
+            Assert.Equal("07", EventMessageFormatter.FormatDateField(0xA8, seconds, Japan));
+            Assert.Equal("04", EventMessageFormatter.FormatDateField(0xA9, seconds, Japan));
+            Assert.Equal("09", EventMessageFormatter.FormatDateField(0xAA, seconds, Japan));
+            // The same moment on the Pacific machine is the day before.
+            Assert.Equal("2", EventMessageFormatter.FormatDateField(0xA1, seconds, Pacific));
+            Assert.Equal("15", EventMessageFormatter.FormatDateField(0xA3, seconds, Pacific));
         }
+
+        /// <summary>Fixed-offset zones, so the tests do not depend on the machine's zone or its zone database.</summary>
+        internal static readonly System.TimeZoneInfo Pacific = System.TimeZoneInfo.CreateCustomTimeZone("Test UTC-7", System.TimeSpan.FromHours(-7), "UTC-7", "UTC-7");
+        internal static readonly System.TimeZoneInfo Japan = System.TimeZoneInfo.CreateCustomTimeZone("Test UTC+9", System.TimeSpan.FromHours(9), "UTC+9", "UTC+9");
 
         [Fact]
         public void FormatLines_EntityAndStringCodes()

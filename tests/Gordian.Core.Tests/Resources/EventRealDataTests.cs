@@ -103,7 +103,8 @@ namespace Gordian.Core.Tests.Resources
             var alZahbi = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(48))!)!;
             string Line(ZoneDialogTable table, int id, params int[] numbers)
             {
-                var context = new Gordian.Core.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, value));
+                var context = new Gordian.Core.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, value),
+                    timeZone: Gordian.Core.Tests.Events.EventMessageFormatterTests.Pacific);
                 var lines = Gordian.Core.Events.EventMessageFormatter.FormatLines(table.GetMessage(id)!, context);
                 _output.WriteLine($"{id}: {string.Join(" | ", lines)}");
                 return string.Join(" | ", lines);
@@ -123,9 +124,14 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal("Objective: 3 arcana-type creatures. | Equipment: Target item must be equipped.", Line(channel, 2327, 3));
 
             // Date fields: seconds since 2002-01-01 00:00 JST.
-            int seconds = (int)(new System.DateTime(2026, 10, 3, 7, 4, 9) - new System.DateTime(2002, 1, 1)).TotalSeconds;
-            Assert.Equal("You will be able to use the Assist Channel until 10/3/2026 at 7:04 (JST).", Line(channel, 6380, seconds));
-            Assert.Equal("Your Mog Locker lease is valid until 2026/10/3 7:04:09, kupo.", Line(alZahbi, 7409, seconds));
+            // Date fields, in local time (here a fixed UTC-7 zone). Retail on 2026-10-03 (US Pacific) shows the lease end
+            // 781790400 (2026-10-10 12:00 JST) as "10/9/2026 20:00:00"; Southern San d'Oria's lease line is 6702.
+            var sandoria = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(SouthernSandoria))!)!;
+            Assert.Equal("Your Mog Locker lease is valid until 10/9/2026 20:00:00, kupo.", Line(sandoria, 6702, 781790400));
+            Assert.Equal("Your Mog Locker lease is valid until 10/9/2026 20:00:00, kupo.", Line(alZahbi, 7409, 781790400));
+            // The Assist Channel line orders its codes A1/A2/A0 (day/year/month in the English client): not checked
+            // against retail.
+            Assert.Equal("You will be able to use the Assist Channel until 9/2026/10 at 20:00 (JST).", Line(channel, 6380, 781790400));
         }
 
         [Fact]
