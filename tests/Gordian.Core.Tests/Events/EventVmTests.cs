@@ -129,6 +129,20 @@ namespace Gordian.Core.Tests.Events
             return EmoteFrames;
         }
 
+        /// <summary>DATs by file id that <see cref="LoadDat"/> returns (0x72's forecast files); others read as missing.</summary>
+        public Dictionary<int, byte[]> Dats { get; } = new();
+        public List<int> LoadedDats { get; } = new();
+
+        /// <summary>When set, reads DATs instead of <see cref="Dats"/> (the retail install in the real-data tests).</summary>
+        public Func<int, byte[]?>? DatSource { get; set; }
+
+        public byte[]? LoadDat(int fileId)
+        {
+            LoadedDats.Add(fileId);
+            if (DatSource != null) return DatSource(fileId);
+            return Dats.TryGetValue(fileId, out var bytes) ? bytes : null;
+        }
+
         public List<int> OpenedZones { get; } = new();
         public bool IsEventZoneLoading { get; set; }
         public void OpenEventZone(int zoneId) => OpenedZones.Add(zoneId);

@@ -29,7 +29,7 @@ namespace Gordian.Core.Events
         /// The name of the thing a 0x01 block refers to: <paramref name="kind"/> is its type byte and
         /// <paramref name="id"/> the thing's id. The formatter asks only for '#' (0x23) item name, 0x24 item log name
         /// (singular), 0x25 item log name (plural), '3' (0x33) key item name, '5' (0x35) key item plural, '8' (0x38) zone
-        /// name; the other kinds are mapped onto these first. Null when unknown.
+        /// name, 0x17 weather adjective, 0x18 weather noun; the other kinds are mapped onto these first. Null when unknown.
         /// </summary>
         string? ResolveName(byte kind, int id);
 
@@ -80,6 +80,10 @@ namespace Gordian.Core.Events
         /// <summary>A key item's plural name ("traverser stones", 0x01 kind 0x35).</summary>
         public const byte KeyItemPluralKind = (byte)'5';
         public const byte ZoneKind = (byte)'8';
+        /// <summary>A weather's noun by weather id ("rain", "dust storms": 0x01 kind 0x18 of the forecast lines).</summary>
+        public const byte WeatherKind = 0x18;
+        /// <summary>A weather's adjective by weather id ("rainy", "windy": 0x01 kind 0x17, the forecast lines' "will be ...").</summary>
+        public const byte WeatherAdjectiveKind = 0x17;
 
         /// <summary>
         /// A Unity leader's name (0x01 kind 0x89; value 1-11 = Pieuje ... Sylvie, d_msg ROM/165/61 rows 419-429). Unity
@@ -264,7 +268,7 @@ namespace Gordian.Core.Events
         /// The text of a 0x01 tag. Item kinds 0x23-0x2A (xi-tools docs/dialog/format.md): 0x23 the item's name, 0x24 and
         /// 0x26-0x28 its singular log name, 0x25 its plural log name, 0x29 / 0x2A (two values: count parameter, item
         /// parameter) the singular or plural log name by the count; 0x03 / 0x04 a number; 0x33 / 0x36 a key item's name,
-        /// 0x35 its plural; 0x37 / 0x38 a zone's name. Others, and names the context cannot resolve, print as
+        /// 0x35 its plural; 0x37 / 0x38 a zone's name; 0x17 a weather's adjective, 0x18 its noun. Others, and names the context cannot resolve, print as
         /// &lt;kind id&gt;.
         /// </summary>
         private static string FormatName(EventMessageSegment segment, IEventMessageContext context)

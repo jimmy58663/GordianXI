@@ -113,9 +113,25 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal("Traverser stones and traverser stone in Southern San d'Oria",
                 Assert.Single(EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(raw), new SimpleMessageContext(new[] { 1, 230 }, resolveName: Item))));
 
-            // A kind that is not printable shows as hex: the weather tags 0x17 / 0x18.
+            // A kind that is not printable shows as hex when the name is not known: the weather tags 0x17 / 0x18.
             Assert.Equal("will be <17:4>", Assert.Single(EventMessageFormatter.FormatLines(
                 EventMessageDecoder.Decode(Ascii("will be ").Concat(Tag(0x17, 0)).ToArray()), new SimpleMessageContext(new[] { 4 }))));
+        }
+
+        [Fact]
+        public void FormatLines_WeatherTagsNameTheWeather()
+        {
+            // "will be " {01 05 17 p0} " with a chance of " {01 05 18 p1} (the weather reporters' forecast lines, #125).
+            var raw = Ascii("will be ").Concat(Tag(0x17, 0)).Concat(Ascii(" with a chance of ")).Concat(Tag(0x18, 1)).ToArray();
+            // Kind 0x17 is the adjective ("rainy"), 0x18 the noun ("winds"): Maleme's event 632 lines, checked in game.
+            string? Weather(byte kind, int id) => kind switch
+            {
+                EventMessageFormatter.WeatherKind => id switch { 6 => "rain", 10 => "winds", _ => null },
+                EventMessageFormatter.WeatherAdjectiveKind => id switch { 6 => "rainy", 10 => "windy", _ => null },
+                _ => null,
+            };
+            Assert.Equal("will be rainy with a chance of winds", Assert.Single(EventMessageFormatter.FormatLines(
+                EventMessageDecoder.Decode(raw), new SimpleMessageContext(new[] { 6, 10 }, resolveName: Weather))));
         }
 
         [Fact]
