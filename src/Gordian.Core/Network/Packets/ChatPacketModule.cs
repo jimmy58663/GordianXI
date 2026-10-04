@@ -11,7 +11,9 @@ namespace Gordian.Core.Network.Packets
     #region Chat Models
 
     /// <summary>
-    /// Represents an immutable decoded in-game chat message.
+    /// Represents an immutable decoded in-game chat message. <see cref="ZoneId"/> is set only for Yell and the ranks
+    /// only for the assist channels. <see cref="Formatted"/> is set when the packet's <c>Attr</c> 0x08 makes the
+    /// message a DAT message reference (<see cref="Message"/> then holds the raw value list, which retail never shows).
     /// </summary>
     public sealed record ChatMessage(
         ChatMessageType Type,
@@ -22,7 +24,9 @@ namespace Gordian.Core.Network.Packets
         byte MasteryRank,
         byte MentorRank,
         DateTime Timestamp,
-        bool HasAutoTranslate);
+        bool HasAutoTranslate,
+        byte Attr = 0,
+        ChatFormattedMessage? Formatted = null);
 
     /// <summary>
     /// Represents an immutable decoded general-purpose system message.
@@ -103,6 +107,13 @@ namespace Gordian.Core.Network.Packets
             var chat = new S2C_0x017_ChatStd(payload);
             if (!chat.IsValid) return;
 
+            ChatFormattedMessage? formatted = null;
+            if (chat.IsFormatted)
+            {
+                if (chat.TryGetFormattedMessage(out var reference)) formatted = reference;
+                else GordianLog.Warning("CHAT", $"[{chat.Kind}] Attr 0x08 message with an unreadable body: '{chat.GetMessage()}'");
+            }
+
             var model = new ChatMessage(
                 Type: chat.Kind,
                 Sender: chat.GetSenderName(),
@@ -112,10 +123,14 @@ namespace Gordian.Core.Network.Packets
                 MasteryRank: chat.MasteryRank,
                 MentorRank: chat.MentorRank,
                 Timestamp: DateTime.UtcNow,
-                HasAutoTranslate: chat.HasAutoTranslate()
+                HasAutoTranslate: chat.HasAutoTranslate(),
+                Attr: chat.Attr,
+                Formatted: formatted
             );
 
-            GordianLog.Debug("CHAT", $"[{model.Type}] {model.Sender}: {model.Message}");
+            GordianLog.Debug("CHAT", formatted is { } f
+                ? $"[{model.Type}] {model.Sender}: DAT message {f.Table} #{f.MessageId} ({f.Param0}, {f.Param1}, {f.Param2}, {f.Param3}, {f.Param4})"
+                : $"[{model.Type}] {model.Sender}: {model.Message}");
             ChatMessageReceived?.Invoke(model);
         }
 

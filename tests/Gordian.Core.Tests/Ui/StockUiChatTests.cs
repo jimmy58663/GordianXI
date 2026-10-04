@@ -243,6 +243,80 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(expected, StockUiChat.FormatIncoming(type, "Cybin", "hello"));
         }
 
+        private static ChatMessage Incoming(ChatMessageType type, string sender, string text, byte attr = 0,
+            ChatFormattedMessage? formatted = null) =>
+            new(type, sender, text, 0, false, 0, 0, DateTime.UtcNow, false, attr, formatted);
+
+        /// <summary>
+        /// Retail heads every kind 6 / 7 system message with a banner line (retail Windower log, Gemini 2026-10-03
+        /// 17:09:09: "----== SystemMessage ==----" then "Key item 3 was given to Gemini."), the sender not shown.
+        /// </summary>
+        [Theory]
+        [InlineData(ChatMessageType.System1)]
+        [InlineData(ChatMessageType.System2)]
+        public void Chat_HeadsSystemMessagesWithTheRetailBanner(ChatMessageType type)
+        {
+            var chat = new StockUiChat();
+            chat.OnChatMessage(Incoming(type, "Gemini", "Key item 3 was given to Gemini."));
+            chat.OnChatMessage(Incoming(type, "Gemini", "God Mode enabled."));
+            Assert.Equal(new[]
+            {
+                "----== SystemMessage ==----", "Key item 3 was given to Gemini.",
+                "----== SystemMessage ==----", "God Mode enabled.",
+            }, Texts(chat.Log, 1));
+        }
+
+        /// <summary>Kind 29 ("Basic system messages": "Cybin now has learned 25 of 835 spells.") has no banner in retail.</summary>
+        [Theory]
+        [InlineData(ChatMessageType.System3)]
+        [InlineData(ChatMessageType.StandardMessage17)]
+        [InlineData(ChatMessageType.StandardMessage32)]
+        [InlineData(ChatMessageType.Say)]
+        public void Chat_PrintsOtherKindsWithoutTheBanner(ChatMessageType type)
+        {
+            var chat = new StockUiChat();
+            chat.OnChatMessage(Incoming(type, string.Empty, "Cybin now has learned 25 of 835 spells."));
+            Assert.Equal(new[] { "Cybin now has learned 25 of 835 spells." }, Texts(chat.Log, 1));
+        }
+
+        [Theory]
+        [InlineData(ChatMessageType.SayCopy24)]
+        [InlineData(ChatMessageType.SayCopy25)]
+        public void Chat_PrintsTheSayCopiesAsSay(ChatMessageType type)
+        {
+            Assert.Equal(ChatLogChannel.Say, StockUiChat.ChannelOf(type));
+            Assert.Equal("Cybin : hello", StockUiChat.FormatIncoming(type, "Cybin", "hello"));
+        }
+
+        [Fact]
+        public void Chat_PrintsADatReferenceThroughTheResolver()
+        {
+            var reference = new ChatFormattedMessage(ChatFormattedTable.UnityMess, 0x1EF, 10, 0, 0, 0, 0);
+            ChatMessage? asked = null;
+            var chat = new StockUiChat
+            {
+                FormattedMessageResolver = msg =>
+                {
+                    asked = msg;
+                    return new[] { "{Yoran-Oran} Our field researchers..." };
+                },
+            };
+            chat.OnChatMessage(Incoming(ChatMessageType.Unity, string.Empty, "0a,01ef,0000000a,", S2C_0x017_ChatStd.AttrFormatted, reference));
+            Assert.Equal(reference, asked?.Formatted);
+            Assert.Equal(new[] { "{Yoran-Oran} Our field researchers..." }, Texts(chat.Log, 1));
+        }
+
+        /// <summary>A reference whose table is not read, or that cannot be parsed, is dropped: retail never prints the value list.</summary>
+        [Fact]
+        public void Chat_DropsADatReferenceItCannotFormat()
+        {
+            var chat = new StockUiChat { FormattedMessageResolver = _ => null };
+            var reference = new ChatFormattedMessage(ChatFormattedTable.TrustMess, 5, 0, 0, 0, 0, 0);
+            chat.OnChatMessage(Incoming(ChatMessageType.System1, string.Empty, "09,0005,", S2C_0x017_ChatStd.AttrFormatted, reference));
+            chat.OnChatMessage(Incoming(ChatMessageType.Say, "Cybin", "garbage", S2C_0x017_ChatStd.AttrFormatted));
+            Assert.Empty(Texts(chat.Log, 1));
+        }
+
         [Fact]
         public void Chat_AppliesTheClientChatFilters()
         {

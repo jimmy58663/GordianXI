@@ -37,6 +37,11 @@ namespace Gordian.Core.Resources.Models
         ZoneNamesShort,
         /// <summary>Compact zone names by zone id (ROM/165/85.DAT: 230 = "SSandOria"), the text retail's party window shows in parentheses for a member in another zone (#146).</summary>
         ZoneNamesCompact,
+        /// <summary>
+        /// A table of 526 short UI strings (ROM/165/61.DAT; found 2026-10-03): race and sex marks first (0 = "全種"),
+        /// the Unity leaders at rows 418-429 (418 = "No Unity", 419 = "Pieuje" ... 428 = "Yoran-Oran", 429 = "Sylvie").
+        /// </summary>
+        MiscStrings,
         Custom
     }
 
