@@ -40,6 +40,9 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly PlayerCommandState _commandState = new();
+        private readonly PlayerCommandPacketModule _commandModule;
+        private readonly LocalPetState _pet = new();
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
         private readonly Animation.ActionPlaybackQueue _actionPlayback;
@@ -94,6 +97,7 @@ namespace Gordian.Core.Network
             };
 
             _entityModule = new EntityPacketModule(_world, _localPlayer, _sendChunkCallback, LogPacket, _party);
+            _entityModule.Pet = _pet;
             _entityModule.Register(_dispatcher);
 
             _chatModule = new ChatPacketModule(_sendChunkCallback, LogPacket);
@@ -110,6 +114,9 @@ namespace Gordian.Core.Network
 
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
+
+            _commandModule = new PlayerCommandPacketModule(_commandState, _world, _sendChunkCallback, LogPacket);
+            _commandModule.Register(_dispatcher);
 
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
@@ -132,6 +139,7 @@ namespace Gordian.Core.Network
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
+            _actionService.CommandModule = _commandModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -216,6 +224,21 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>
+        /// Gets the state behind the everyday commands: the emote list, wide scan and proposals.
+        /// </summary>
+        public PlayerCommandState Commands => _commandState;
+
+        /// <summary>
+        /// Gets the everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, wide scan, votes).
+        /// </summary>
+        public PlayerCommandPacketModule CommandModule => _commandModule;
+
+        /// <summary>
+        /// Gets the local player's personal pet (S2C 0x068).
+        /// </summary>
+        public LocalPetState Pet => _pet;
 
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.

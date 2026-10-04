@@ -619,6 +619,26 @@ namespace Gordian.Core.World
         public byte Hpp { get; set; }
         public uint ClaimServerId { get; set; }
 
+        /// <summary>
+        /// The target index of the entity's owner: a pet's master or a Trust's summoner, from S2C 0x067 / 0x068
+        /// (<see cref="EntitySyncPacket"/>); 0 when it has none or none was reported.
+        /// </summary>
+        public ushort OwnerTargetIndex { get; set; }
+
+        /// <summary>The raw <c>NameFlags</c> of the last S2C 0x067 / 0x068 for this entity (Campaign, Pankration, Level Sync icon bits); 0 until one arrives.</summary>
+        public uint SyncNameFlags { get; set; }
+
+        private int _jumpCount;
+
+        /// <summary>
+        /// How many times the entity has jumped (S2C 0x11E for other players): the renderer can watch the count change
+        /// to play a jump; nothing plays it yet.
+        /// </summary>
+        public int JumpCount => Volatile.Read(ref _jumpCount);
+
+        /// <summary>Counts a jump of the entity.</summary>
+        public void NotifyJump() => Interlocked.Increment(ref _jumpCount);
+
         public EntityAppearance Appearance { get; } = new EntityAppearance();
         public EntityAnimationState Animation { get; } = new EntityAnimationState();
 

@@ -247,6 +247,37 @@ namespace Gordian.Core.World
         public byte SpeedBase { get; private set; } = 50;
         #endregion
 
+        #region Character Sync (S2C 0x067 mode 2)
+        private LocalCharSync _charSync;
+
+        /// <summary>The last char sync (S2C 0x067 mode 2) for this character; default until one arrives.</summary>
+        public LocalCharSync CharSync
+        {
+            get { lock (_lock) return _charSync; }
+        }
+
+        /// <summary>True while the character is under Level Sync (the level sync icon): <see cref="LocalCharSync.IsLevelSynced"/>.</summary>
+        public bool IsLevelSynced => CharSync.IsLevelSynced;
+
+        /// <summary>Raised after a char sync changed <see cref="CharSync"/>, on the network thread.</summary>
+        public event Action? CharSyncUpdated;
+
+        /// <summary>Applies a mode 2 <see cref="EntitySyncPacket"/> addressed to the local player.</summary>
+        public void ApplyCharSync(in EntitySyncPacket sync)
+        {
+            var next = new LocalCharSync(
+                sync.NameFlags, sync.NameIcon, sync.IsLevelSynced, sync.LevelRestriction, sync.MainJobLevel, sync.MountWord,
+                sync.CustomProperties, sync.CustomProperties2, sync.SecondIndex,
+                sync.UniqueNoMog, sync.MogHouseFlag != 0, sync.MogExpansionFlag != 0);
+            lock (_lock)
+            {
+                if (_charSync == next) return;
+                _charSync = next;
+            }
+            CharSyncUpdated?.Invoke();
+        }
+        #endregion
+
         #region Events
         public event Action? VitalsUpdated;
         public event Action? StatsUpdated;
@@ -603,4 +634,23 @@ namespace Gordian.Core.World
             }
         }
     }
+
+    /// <summary>
+    /// The local player's char sync data (S2C 0x067 mode 2, see <see cref="EntitySyncPacket"/>).
+    /// <see cref="LevelRestriction"/> is the Level Sync cap (0 when not synced) and <see cref="MainJobLevel"/> the main job
+    /// level the server reports with it; the displayed level stays in <see cref="LocalPlayerState.MainJobLevel"/>.
+    /// </summary>
+    public readonly record struct LocalCharSync(
+        uint NameFlags,
+        uint NameIcon,
+        bool IsLevelSynced,
+        byte LevelRestriction,
+        byte MainJobLevel,
+        ushort MountWord,
+        uint CustomProperties,
+        uint CustomProperties2,
+        ushort FellowIndex,
+        uint MogHouseOwnerId,
+        bool MogHouseOpen,
+        bool MogExpansionUnlocked);
 }
