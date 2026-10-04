@@ -415,6 +415,8 @@ namespace Gordian.App.Graphics
                 _renderer = null;
                 _stockUiRenderer?.Dispose();
                 _stockUiRenderer = null;
+                _lobbyRenderer?.Dispose();
+                _lobbyRenderer = null;
 
                 _deviceManager.Dispose();
 
@@ -544,6 +546,14 @@ namespace Gordian.App.Graphics
                 lastTicks = currentTicks;
 
                 var frameStart = Stopwatch.GetTimestamp();
+
+                // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
+                if (Lobby is { } lobby)
+                {
+                    RenderLobbyFrame(lobby, deltaSeconds);
+                    Thread.Sleep(1);
+                    continue;
+                }
 
                 CheckAndLoadPendingZone();
 
@@ -775,6 +785,40 @@ namespace Gordian.App.Graphics
         /// The stock FFXI 2D HUD (Tier 2): layout, visibility and resources.
         /// </summary>
         public StockUiHud StockUi { get; } = new();
+
+        private volatile Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+        private LobbyFrameRenderer? _lobbyRenderer;
+        private readonly Gordian.Core.Ui.Lobby.LobbyPreview _lobbyPreview = new();
+
+        /// <summary>The character lobby to draw instead of the session's scene, or null (#32).</summary>
+        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        {
+            get => _lobby;
+            set => _lobby = value;
+        }
+
+        /// <summary>The viewport's size in rendering-surface pixels (for the lobby's mouse hit tests).</summary>
+        public (uint Width, uint Height) SurfaceSize => (_deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
+
+        private void RenderLobbyFrame(Gordian.Core.Ui.Lobby.LobbyController lobby, float deltaSeconds)
+        {
+            lock (_renderLock)
+            {
+                var gd = _deviceManager.Device;
+                if (gd == null || !_deviceManager.IsInitialized) return;
+                try
+                {
+                    _lobbyRenderer ??= new LobbyFrameRenderer(gd, gd.SwapchainFramebuffer.OutputDescription);
+                    _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, gd.SwapchainFramebuffer,
+                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds);
+                    gd.SwapBuffers();
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Lobby frame render error: {ex.Message}");
+                }
+            }
+        }
 
         /// <summary>
         /// Tier 2: Stock FFXI 2D UI render pass, drawn in screen space over the finished 3D scene.

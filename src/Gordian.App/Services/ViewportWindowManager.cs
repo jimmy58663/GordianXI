@@ -115,6 +115,38 @@ namespace Gordian.App.Services
             return _primaryWindow;
         }
 
+        /// <summary>Shows a character lobby in the primary viewport window (opening it), in place of the session tabs.</summary>
+        public void ShowLobby(Gordian.Core.Ui.Lobby.LobbyController lobby)
+        {
+            ArgumentNullException.ThrowIfNull(lobby);
+            PostToUi(() =>
+            {
+                _primaryViewModel.Lobby = lobby;
+                ShowPrimaryWindow();
+            });
+        }
+
+        /// <summary>
+        /// Takes a lobby off the primary window; the window closes when no character tab is left to show.
+        /// </summary>
+        public void CloseLobby(Gordian.Core.Ui.Lobby.LobbyController lobby)
+        {
+            PostToUi(() =>
+            {
+                if (!ReferenceEquals(_primaryViewModel.Lobby, lobby)) return;
+                _primaryViewModel.Lobby = null;
+                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryWindow != null)
+                {
+                    try { _primaryWindow.Close(); }
+                    catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close the viewport after the lobby: {ex.Message}"); }
+                    _primaryWindow = null;
+                }
+            });
+        }
+
+        /// <summary>Whether a lobby is on show.</summary>
+        public bool IsLobbyOpen => _primaryViewModel.Lobby != null;
+
         private void OnSessionRegistered(object? sender, CharacterSession session)
         {
             PostToUi(() =>
@@ -148,7 +180,7 @@ namespace Gordian.App.Services
                 }
 
                 // If the primary viewport window has no remaining connected character tabs, close it cleanly
-                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryWindow != null)
+                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryViewModel.Lobby == null && _primaryWindow != null)
                 {
                     try
                     {

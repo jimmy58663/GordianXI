@@ -29,6 +29,14 @@ namespace Gordian.Core.Tests.Resources
             return UiResourceLibrary.Load(rm);
         }
 
+        private static UiResourceLibrary? LoadLobbyLibrary()
+        {
+            if (!Directory.Exists(GameDirectory)) return null;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            return UiResourceLibrary.LoadLobby(rm);
+        }
+
         [Fact]
         public void RetailMenus_DecodeWithAuthoredLayout()
         {
@@ -102,7 +110,8 @@ namespace Gordian.Core.Tests.Resources
         {
             string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
             if (string.IsNullOrEmpty(dumpDir)) return;
-            var ui = LoadLibrary();
+            // GORDIAN_UI_DUMP_LOBBY=1 loads the lobby DAT (ROM/119/50) ahead of the menu DATs, for the lobby menus.
+            var ui = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_LOBBY") == "1" ? LoadLobbyLibrary() : LoadLibrary();
             if (ui == null) return;
             Directory.CreateDirectory(dumpDir);
 
@@ -153,6 +162,19 @@ namespace Gordian.Core.Tests.Resources
                     }
                     File.WriteAllText(Path.Combine(dumpDir, $"menu_{menu.Name}.txt"), text.ToString());
                 }
+            }
+
+            // GORDIAN_UI_DUMP_SCREENS: ';'-separated screens of '+'-joined menus, each composited at its authored frame
+            // position on a 1024 x 768 canvas (the lobby's layout space) into screen_<first menu>.png.
+            foreach (string screen in (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP_SCREENS") ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var names = screen.Split('+', StringSplitOptions.RemoveEmptyEntries);
+                var canvasScreen = new SoftwareCanvas(1024, 768);
+                foreach (string name in names)
+                {
+                    if (ui.TryGetMenu(name, out var menu)) canvasScreen.DrawMenu(ui, menu, menu.Frame.X, menu.Frame.Y);
+                }
+                canvasScreen.Save(Path.Combine(dumpDir, $"screen_{names[0]}.png"));
             }
 
             // GORDIAN_UI_DUMP_TEXTURES: comma-separated texture names written as texture_<name>.png (all with "*").

@@ -285,6 +285,23 @@ namespace Gordian.App.ViewModels
 
         public ObservableCollection<ViewportCharacterTabViewModel> CharacterTabs { get; } = new();
 
+        private Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+
+        /// <summary>
+        /// The character lobby on show, if any: while set, the viewport draws the lobby and sends it the keyboard and mouse
+        /// instead of the active tab's session (one lobby at a time, as the retail client).
+        /// </summary>
+        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        {
+            get => _lobby;
+            set
+            {
+                if (SetProperty(ref _lobby, value)) OnPropertyChanged(nameof(IsLobbyOpen));
+            }
+        }
+
+        public bool IsLobbyOpen => _lobby != null;
+
         public ObservableCollection<ViewportCharacterTabViewModel> PipThumbnails { get; } = new();
 
         public ViewportCharacterTabViewModel? ActiveTab

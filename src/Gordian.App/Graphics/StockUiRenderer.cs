@@ -467,11 +467,12 @@ void main()
         /// <paramref name="frameHeight"/> does the same vertically (its bottom half moves). With
         /// <paramref name="opaqueBody"/> the background below <paramref name="opaqueTop"/> is drawn opaque (menus keep
         /// their translucent title band; 0 makes the whole body opaque). <paramref name="topBorderGap"/> breaks the
-        /// top border line for a title.
+        /// top border line for a title. <paramref name="border"/> false leaves out the client's border lines (the lobby's
+        /// screens and prompts, whose frames carry their own edges).
         /// </summary>
         public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null,
             Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false, float? frameHeight = null,
-            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null, UiImage? frameImage = null)
+            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null, UiImage? frameImage = null, bool border = true)
         {
             if (_library == null || placement.Hidden) return;
             var stretch = frameWidth is { } w ? UiStretch.Horizontal(menu.Frame.Width, w) : default;
@@ -520,7 +521,7 @@ void main()
                     if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch, opaqueTop);
                     hasBackground = true;
                 }
-                if (hasBackground) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
+                if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
                 foreach (var part in image.Parts)
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;

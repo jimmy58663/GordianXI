@@ -1253,6 +1253,15 @@ namespace Gordian.App.ViewModels
                             });
 
                             string otp = !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty;
+
+                            // No character on the profile: the character select screen, as the retail client always shows
+                            // (#32). A profile with a character name or slot keeps the direct fast path.
+                            if (UsesCharacterSelect(profile))
+                            {
+                                await OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort, otp).ConfigureAwait(false);
+                                continue;
+                            }
+
                             string? targetCharName = !string.IsNullOrWhiteSpace(profile.CharacterName)
                                 ? profile.CharacterName
                                 : null;
@@ -1269,79 +1278,7 @@ namespace Gordian.App.ViewModels
                                 targetCharacterSlot: profile.CharacterSlot
                             ).ConfigureAwait(false);
 
-                            GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
-
-                            // The profile resolves to a character only now (by slot, or a name that was not found), so
-                            // make sure that exact character is not already in the game from another profile.
-                            if (_sessionRegistry.IsCharacterIdActive(ticket.CharacterId))
-                            {
-                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                                {
-                                    StatusMessage = $"[{profile.ProfileName}] Character '{ticket.CharacterName}' (ID {ticket.CharacterId}) is already in the game. Skipped.";
-                                });
-                                continue;
-                            }
-
-                            string resolvedCharName = !string.IsNullOrWhiteSpace(ticket.CharacterName)
-                                ? ticket.CharacterName
-                                : (!string.IsNullOrWhiteSpace(profile.CharacterName) ? profile.CharacterName : profile.ProfileName);
-
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                            {
-                                StatusMessage = $"[{profile.ProfileName}] Character '{resolvedCharName}' selected (ID: {ticket.CharacterId}). Establishing game session to {ticket.ZoneIp}:{ticket.ZonePort}...";
-                            });
-
-                            // Create and register the character session in SessionRegistry
-                            var netManager = new SessionNetworkManager(ticket.ZoneIp, ticket.ZonePort)
-                            {
-                                CharacterId = ticket.CharacterId,
-                                CharacterName = resolvedCharName,
-                                AccountName = profile.Username,
-                                Ticket = ticket.SessionHash
-                            };
-
-                            // Initialize session Blowfish crypto key from LandSandBoat handshake
-                            netManager.Parser.InitializeSessionCrypto(ticket.BlowfishKey);
-
-                            var session = new CharacterSession(
-                                netManager.CharacterName,
-                                ticket.CharacterId,
-                                profile.Username,
-                                netManager
-                            )
-                            {
-                                ProfileName = profile.ProfileName
-                            };
-
-                            netManager.StateChanged += (s, state) =>
-                            {
-                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                                {
-                                    RefreshAllStatuses();
-                                    StatusMessage = state switch
-                                    {
-                                        SessionState.ConnectingToGameServer => $"[{session.CharacterName}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
-                                        SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
-                                        SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
-                                        SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
-                                        SessionState.Disconnected => $"[{session.CharacterName}] Session disconnected.",
-                                        _ => StatusMessage
-                                    };
-                                });
-                            };
-
-                            netManager.ZoneTransitionStarted += (targetIp, targetPort) =>
-                            {
-                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                                {
-                                    StatusMessage = $"[{session.CharacterName}] Crossing zoneline... Transitioning to map server {targetIp}:{targetPort}...";
-                                });
-                            };
-
-                            _sessionRegistry.RegisterSession(session);
-
-                            // Connect UDP socket and transmit 0x00A login handshake
-                            await netManager.ConnectAsync().ConfigureAwait(false);
+                            await StartLsbSessionAsync(profile, ticket).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1424,6 +1361,140 @@ namespace Gordian.App.ViewModels
                     });
                 }
             }
+        }
+
+        /// <summary>
+        /// Whether a profile opens the character select screen: one that names no character (no name, slot 0). Profiles
+        /// with a character keep logging straight in (the saved-profile fast path).
+        /// </summary>
+        public static bool UsesCharacterSelect(AccountProfile profile) =>
+            string.IsNullOrWhiteSpace(profile.CharacterName) && profile.CharacterSlot == 0;
+
+        /// <summary>
+        /// Logs in and opens the character lobby in the viewport (#32): one lobby at a time. The chosen character's
+        /// ticket starts the game session as the fast path does; leaving the lobby (Back) or losing it disconnects.
+        /// </summary>
+        private async Task OpenLobbyAsync(LsbLoginClient client, AccountProfile profile, string serverHost, int connectPort, int dataPort, int viewPort, string otp)
+        {
+            if (ViewportWindowManager.Default.IsLobbyOpen)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Another character select screen is open. Skipped.");
+                return;
+            }
+
+            var lobbySession = await client.LoginToLobbyAsync(serverHost, profile.Username, profile.Password, otp, connectPort, dataPort, viewPort).ConfigureAwait(false);
+            var resources = AppResourceManager.Instance;
+            var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
+            var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;
+            var lobby = new Gordian.Core.Ui.Lobby.LobbyController(lobbySession, library, text);
+
+            lobby.CharacterSelected += ticket => _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby)).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("SESSION", $"Connection error for profile '{profile.ProfileName}' after character select", ex);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}");
+                }
+                finally
+                {
+                    ViewportWindowManager.Default.CloseLobby(lobby);
+                    await lobbySession.DisposeAsync().ConfigureAwait(false);
+                }
+            });
+            lobby.Closed += reason =>
+            {
+                ViewportWindowManager.Default.CloseLobby(lobby);
+                _ = lobbySession.DisposeAsync().AsTask();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    StatusMessage = reason == null ? $"[{profile.ProfileName}] Left the character select screen." : $"[{profile.ProfileName}] Character select closed: {reason}");
+            };
+
+            GordianLog.Info("LSB_LOGIN", $"Profile '{profile.ProfileName}' has no character set: opening the character select screen ({lobbySession.Characters.Count} content ids).");
+            ViewportWindowManager.Default.ShowLobby(lobby);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
+        }
+
+        /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null)
+        {
+            GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
+
+            // The profile resolves to a character only now (by slot, or a name that was not found), so
+            // make sure that exact character is not already in the game from another profile.
+            if (_sessionRegistry.IsCharacterIdActive(ticket.CharacterId))
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    StatusMessage = $"[{profile.ProfileName}] Character '{ticket.CharacterName}' (ID {ticket.CharacterId}) is already in the game. Skipped.";
+                });
+                return;
+            }
+
+            string resolvedCharName = !string.IsNullOrWhiteSpace(ticket.CharacterName)
+                ? ticket.CharacterName
+                : (!string.IsNullOrWhiteSpace(profile.CharacterName) ? profile.CharacterName : profile.ProfileName);
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                StatusMessage = $"[{profile.ProfileName}] Character '{resolvedCharName}' selected (ID: {ticket.CharacterId}). Establishing game session to {ticket.ZoneIp}:{ticket.ZonePort}...";
+            });
+
+            // Create and register the character session in SessionRegistry
+            var netManager = new SessionNetworkManager(ticket.ZoneIp, ticket.ZonePort)
+            {
+                CharacterId = ticket.CharacterId,
+                CharacterName = resolvedCharName,
+                AccountName = profile.Username,
+                Ticket = ticket.SessionHash
+            };
+
+            // Initialize session Blowfish crypto key from LandSandBoat handshake
+            netManager.Parser.InitializeSessionCrypto(ticket.BlowfishKey);
+
+            var session = new CharacterSession(
+                netManager.CharacterName,
+                ticket.CharacterId,
+                profile.Username,
+                netManager
+            )
+            {
+                ProfileName = profile.ProfileName
+            };
+
+            netManager.StateChanged += (s, state) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    RefreshAllStatuses();
+                    StatusMessage = state switch
+                    {
+                        SessionState.ConnectingToGameServer => $"[{session.CharacterName}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
+                        SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
+                        SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
+                        SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
+                        SessionState.Disconnected => $"[{session.CharacterName}] Session disconnected.",
+                        _ => StatusMessage
+                    };
+                });
+            };
+
+            netManager.ZoneTransitionStarted += (targetIp, targetPort) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    StatusMessage = $"[{session.CharacterName}] Crossing zoneline... Transitioning to map server {targetIp}:{targetPort}...";
+                });
+            };
+
+            _sessionRegistry.RegisterSession(session);
+            registered?.Invoke();
+
+            // Connect UDP socket and transmit 0x00A login handshake
+            await netManager.ConnectAsync().ConfigureAwait(false);
         }
 
         private static bool IsLsbProfile(AccountProfile profile)
