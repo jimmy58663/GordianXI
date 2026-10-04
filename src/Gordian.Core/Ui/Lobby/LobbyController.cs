@@ -352,11 +352,41 @@ namespace Gordian.Core.Ui.Lobby
             UpdateHelp();
         }
 
-        /// <summary>Character deletion (#34) asks first; until it is built the list only plays characters.</summary>
+        /// <summary>
+        /// Character deletion (#34): the <c>ptc9dele</c> window (Delete / Cancel, the cursor on Cancel) with the character's
+        /// name and row 172 "The data will be lost forever. Proceed?", the help bar showing row 229 meanwhile. Delete
+        /// sends 0x14 (status row 28) and returns to the refreshed list, or to the title menu when no character is left.
+        /// LandSandBoat asks for no deletion code (it does not read 0x14's password field); with
+        /// <c>login.CHARACTER_DELETION</c> off it refuses with 332.
+        /// </summary>
         private void ConfirmDelete(LobbyCharacter character)
         {
+            var lines = new List<string> { character.Name };
+            string warning = Status(LobbyTextTables.DeleteConfirm);
+            lines.Add(warning.Length > 0 ? warning : "Delete this character?");
+            ShowChoice(DeletePromptMenu, lines, PromptSecondButton, delete =>
+            {
+                UpdateHelp();
+                if (delete) Delete(character);
+            });
+            string hint = Status(LobbyTextTables.DeleteCancelHint);
+            if (hint.Length > 0) HelpText = hint;
         }
 
+        private void Delete(LobbyCharacter character)
+        {
+            RunRequest(Status(LobbyTextTables.DeletingFromLobby), async ct =>
+            {
+                await _backend.DeleteCharacterAsync(character, ct).ConfigureAwait(false);
+                lock (SyncRoot)
+                {
+                    int next = FirstOccupiedSlot();
+                    if (next == 0) BackToMainMenu();
+                    else if (CharacterList != null) CharacterList.SelectedButtonId = next;
+                    Touch();
+                }
+            });
+        }
         private void Select(LobbyCharacter character)
         {
             RunRequest(Status(LobbyTextTables.NotifyingLobbyOfChoice), async ct =>

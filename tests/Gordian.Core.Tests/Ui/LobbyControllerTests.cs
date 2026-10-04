@@ -358,6 +358,81 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("Goodname", ticket?.CharacterName);
         }
 
+        private static LobbyController OpenDeleteList(FakeBackend backend)
+        {
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Down); // Delete Character
+            lobby.HandleInput(LobbyInput.Confirm);
+            return lobby;
+        }
+
+        [Fact]
+        public void Delete_AsksWithCancelFirstThenDeletesAndRefreshes()
+        {
+            var backend = Backend(Character(1, "Knot"), Character(2, "Blm"));
+            backend.OnDelete = c =>
+            {
+                backend.List[c.Slot - 1] = Free(c.Slot);
+                return Task.CompletedTask;
+            };
+            var lobby = OpenDeleteList(backend);
+            Assert.True(lobby.IsDeleteList);
+            Assert.Equal(LobbyScreen.CharacterList, lobby.Screen);
+
+            lobby.HandleInput(LobbyInput.Confirm); // Knot
+            Assert.NotNull(lobby.Prompt);
+            Assert.Equal(LobbyController.DeletePromptMenu, lobby.Prompt!.Menu.Name);
+            Assert.Equal(LobbyController.PromptSecondButton, lobby.Prompt.Menu.SelectedButtonId); // Cancel
+            Assert.Contains("Knot", lobby.Prompt.Lines);
+            lobby.HandleInput(LobbyInput.Confirm); // Cancel: nothing deleted
+            Assert.Null(lobby.Prompt);
+            Assert.DoesNotContain(backend.Calls, c => c.StartsWith("delete"));
+
+            lobby.HandleInput(LobbyInput.Confirm);
+            lobby.HandleInput(LobbyInput.Left); // to Delete
+            Assert.Equal(LobbyController.PromptFirstButton, lobby.Prompt!.Menu.SelectedButtonId);
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Contains("delete Knot", backend.Calls);
+            Assert.Equal(LobbyScreen.CharacterList, lobby.Screen);
+            Assert.Equal(2, lobby.CharacterList!.SelectedButtonId); // the remaining character
+            Assert.Null(lobby.CharacterInSlot(1));
+        }
+
+        [Fact]
+        public void Delete_TheLastCharacterReturnsToTheTitleMenu()
+        {
+            var backend = Backend(Character(1, "Knot"));
+            backend.OnDelete = c =>
+            {
+                backend.List[0] = Free(1);
+                return Task.CompletedTask;
+            };
+            var lobby = OpenDeleteList(backend);
+            lobby.HandleInput(LobbyInput.Confirm);
+            lobby.HandleInput(LobbyInput.Right);
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
+        }
+
+        [Fact]
+        public void Delete_RefusedByTheServerShowsTheError()
+        {
+            var backend = Backend(Character(1, "Knot"));
+            backend.OnDelete = _ => Task.FromException(LobbyRequestException.FromServer("character deletion", LobbyErrorCode.CouldNotConnectToLobbyServer));
+            var lobby = OpenDeleteList(backend);
+            lobby.HandleInput(LobbyInput.Confirm);
+            lobby.HandleInput(LobbyInput.Left);
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Contains(lobby.Prompt!.Lines, l => l.Contains("3332"));
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.Equal(LobbyScreen.CharacterList, lobby.Screen);
+            Assert.NotNull(lobby.CharacterInSlot(1));
+        }
+
         [Fact]
         public void Mouse_HoverMovesTheCursorAndClickActivates()
         {

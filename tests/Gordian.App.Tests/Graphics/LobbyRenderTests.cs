@@ -269,6 +269,22 @@ namespace Gordian.App.Tests.Graphics
                 lobby.HandleInput(LobbyInput.Up);
                 Frame("lobby_list_second.png");
 
+                // Delete Character: the same list, then the Delete / Cancel window with the warning sign.
+                lobby.HandleInput(LobbyInput.Cancel);
+                lobby.HandleInput(LobbyInput.Down);
+                lobby.HandleInput(LobbyInput.Down);
+                lobby.HandleInput(LobbyInput.Confirm);
+                Assert.True(lobby.IsDeleteList);
+                lobby.HandleInput(LobbyInput.Confirm);
+                Assert.Equal(LobbyController.DeletePromptMenu, lobby.Prompt?.Menu.Name);
+                Frame("lobby_delete_confirm.png");
+                lobby.HandleInput(LobbyInput.Cancel);
+                lobby.HandleInput(LobbyInput.Cancel);
+                lobby.HandleInput(LobbyInput.Up);
+                lobby.HandleInput(LobbyInput.Up);
+                lobby.HandleInput(LobbyInput.Confirm);
+                Assert.False(lobby.IsDeleteList);
+
                 lobby.HandleInput(LobbyInput.Confirm); // selecting: the status window stays up (the fake never answers)
                 Assert.NotNull(lobby.Prompt);
                 Frame("lobby_selecting.png");
