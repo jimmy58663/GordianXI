@@ -119,39 +119,30 @@ namespace Gordian.Core.Tests.Events
                 return Task.CompletedTask;
             });
             var chat = new StockUiChat();
-            var controller = new EventDialogController();
-            var previousLoader = EventDialogController.DatLoader;
-            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
-            try
-            {
-                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
-                    new StockUiMenuController(), () => "Cybin");
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
+                new StockUiMenuController(), () => "Cybin");
 
-                byte[] login = new byte[144];
-                BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), 0x00012345);
-                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
-                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(44, 2), NorthernSandoria);
-                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(60, 2), NorthernSandoria);
-                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(94, 2), NorthernSandoria);
-                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 878);
-                parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            byte[] login = new byte[144];
+            BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), 0x00012345);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(44, 2), NorthernSandoria);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(60, 2), NorthernSandoria);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(94, 2), NorthernSandoria);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 878);
+            parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
 
-                // None of the eight NPCs is in this world: a zone-in start waits for them (C2S 0x016) longer, then runs anyway.
-                int waited = 0;
-                for (; waited < 2000 && !controller.IsActive; waited++) controller.Tick(Frame);
-                Assert.True(controller.IsActive);
-                Assert.InRange(waited, 60 * EventDialogController.ZoneInEntityWaitSeconds - 2, 60 * EventDialogController.ZoneInEntityWaitSeconds + 2);
-                for (int i = 0; i < 100000 && controller.IsActive; i++)
-                {
-                    controller.Tick(Frame);
-                    parser.Progression.AcknowledgeEventUpdate(); // the server answers each update with 0x052 mode 1
-                }
-                Assert.False(controller.IsActive);
-            }
-            finally
+            // None of the eight NPCs is in this world: a zone-in start waits for them (C2S 0x016) longer, then runs anyway.
+            int waited = 0;
+            for (; waited < 2000 && !controller.IsActive; waited++) controller.Tick(Frame);
+            Assert.True(controller.IsActive);
+            Assert.InRange(waited, 60 * EventDialogController.ZoneInEntityWaitSeconds - 2, 60 * EventDialogController.ZoneInEntityWaitSeconds + 2);
+            for (int i = 0; i < 100000 && controller.IsActive; i++)
             {
-                EventDialogController.DatLoader = previousLoader;
+                controller.Tick(Frame);
+                parser.Progression.AcknowledgeEventUpdate(); // the server answers each update with 0x052 mode 1
             }
+            Assert.False(controller.IsActive);
 
             // The end: 0x05B mode 0 for the player's event 878 (header 4 bytes, UniqueNo +4, EndPara +8, EventPara +18).
             var end = Assert.Single(sent, p => (p[0] | (p[1] & 1) << 8) == 0x05B && BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(14, 2)) == 0);
