@@ -50,28 +50,23 @@ namespace Gordian.App.Graphics
         private const float WaitArrowGap = 2, WaitArrowTop = 3;
 
         /// <summary>
-        /// Log text colours by channel (half scale, 0x80 = 1.0). From retail captures (2026-09-27): say and system
-        /// messages white; server messages (welcome text) violet, about (200, 100, 255); your own tell pink, about
-        /// (255, 150, 255). The rest are approximations of the default Font Colors page, not yet captured.
+        /// A channel's default log colour (half scale, 0x80 = 1.0): its Font Colors row's retail default
+        /// (<see cref="StockUiFontColors"/>, read from a fresh character's cnf.dat), or the fixed colour of channels
+        /// without a row (system text white, server chat-type text violet).
         /// </summary>
-        public static UiColor ChannelColor(ChatLogChannel channel) => channel switch
+        public static UiColor ChannelColor(ChatLogChannel channel) => StockUiFontColors.ForChannel(channel) is { } id
+            ? StockUiFontColors.Get(id).Default.ToUiColor()
+            : StockUiFontColors.FixedColor(channel);
+
+        /// <summary>
+        /// A line's colour: its Font Colors row as the player has set it (<paramref name="settings"/>; the retail default
+        /// without one), or its channel's fixed colour.
+        /// </summary>
+        public static UiColor LineColor(ChatLogLine line, StockUiSettings? settings)
         {
-            ChatLogChannel.Shout => new UiColor(0x7F, 0x5C, 0x40, 0x7F),
-            ChatLogChannel.Yell => new UiColor(0x7F, 0x6C, 0x48, 0x7F),
-            ChatLogChannel.Tell => new UiColor(0x7F, 0x4B, 0x7F, 0x7F),
-            ChatLogChannel.Party => new UiColor(0x50, 0x70, 0x7F, 0x7F),
-            ChatLogChannel.Linkshell => new UiColor(0x58, 0x7F, 0x50, 0x7F),
-            ChatLogChannel.Linkshell2 => new UiColor(0x48, 0x7F, 0x68, 0x7F),
-            ChatLogChannel.Unity => new UiColor(0x7F, 0x74, 0x48, 0x7F),
-            ChatLogChannel.AssistJ or ChatLogChannel.AssistE => new UiColor(0x60, 0x7F, 0x7F, 0x7F),
-            ChatLogChannel.Emote => new UiColor(0x70, 0x70, 0x68, 0x7F),
-            ChatLogChannel.ServerMessage => new UiColor(0x64, 0x32, 0x7F, 0x7F),
-            ChatLogChannel.Notice => new UiColor(0x68, 0x70, 0x7F, 0x7F),
-            ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
-            // NPC dialog and zone messages: white until the Font Colors defaults are captured (#53).
-            ChatLogChannel.Dialog or ChatLogChannel.Message => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
-            _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
-        };
+            if (line.FontColor is not { } id) return StockUiFontColors.FixedColor(line.Channel);
+            return (settings?.GetFontColor(id) ?? StockUiFontColors.Get(id).Default).ToUiColor();
+        }
 
         /// <summary>
         /// Advances a window's slide: the offset decays at one row per <see cref="RowSlideSeconds"/>, and the rows of
@@ -153,7 +148,7 @@ namespace Gordian.App.Graphics
         public static void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition frame, StockUiLogFont logFont,
             UiFont? titleFallback, StockUiPlacement placement, float frameWidth, float frameHeight, int rows,
             IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false,
-            LogScrollState? scroll = null)
+            LogScrollState? scroll = null, StockUiSettings? settings = null)
         {
             float s = placement.Scale;
             var titles = StockUiTitleText.For(library);
@@ -170,11 +165,11 @@ namespace Gordian.App.Graphics
             // Collect wrapped rows from the newest line back until the window is full (and a little past it, for the
             // rows leaving the top while the content slides).
             int collect = rows + SlideExtraRows;
-            var visible = new List<(string Text, ChatLogChannel Channel, bool FirstRow)>(collect);
+            var visible = new List<(string Text, ChatLogLine Line, bool FirstRow)>(collect);
             for (int i = lines.Count - 1; i >= 0 && visible.Count < collect; i--)
             {
                 var wrapped = StockUiChatLog.GetWrappedRows(lines[i], logFont.GetAdvance, textWidth, timestampMode);
-                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < collect; r--) visible.Add((wrapped[r], lines[i].Channel, r == 0));
+                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < collect; r--) visible.Add((wrapped[r], lines[i], r == 0));
             }
 
             float slide = scrolledBack ? 0 : UpdateSlide(scroll, lines, logFont, textWidth, timestampMode, rows);
@@ -195,7 +190,7 @@ namespace Gordian.App.Graphics
                     x = logFont.Draw(renderer, text[..stamp], x, y, s, TimestampColor);
                     text = text[stamp..];
                 }
-                float end = logFont.Draw(renderer, text, x, y, s, ChannelColor(visible[k].Channel));
+                float end = logFont.Draw(renderer, text, x, y, s, LineColor(visible[k].Line, settings));
                 if (k == 0)
                 {
                     newestEnd = end;
@@ -250,7 +245,7 @@ namespace Gordian.App.Graphics
 
             float textX = placement.X + TextLeft * s;
             float rowY = placement.Y + (inline.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s;
-            logFont.Draw(renderer, text.AsSpan(start, end - start), textX, rowY, s, ChannelColor(ChatLogChannel.Say));
+            logFont.Draw(renderer, text.AsSpan(start, end - start), textX, rowY, s, StockUiFontColors.FixedColor(ChatLogChannel.Say));
 
             // Blink at 0.5 s on, 0.5 s off.
             if (Stopwatch.GetElapsedTime(0, timestamp).TotalMilliseconds % 1000 < 500)

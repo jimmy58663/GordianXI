@@ -683,6 +683,34 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.True(bright, "row text");
 
+                // Font Colors: the Chat list draws each row's sample in its colour (the tell row pink: red and blue
+                // over green), and the R/G/B editor fills its bars to the colour's channels.
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.FontColorCategoryMenu));
+                menus.Activate();                                              // Chat
+                Assert.Equal(StockUiConfigPages.FontColorListMenu, menus.Top!.Name);
+                pixels = Render(menus, "config_font_colors");
+                int tellIndex = menus.Top.FontColorRows.ToList().FindIndex(e => e.Id == StockUiFontColorId.Tell);
+                var tellRow = menus.Top.Menu.FindButton(tellIndex + 1)!;
+                bool pink = false;
+                for (int x = 28; x < 120 && !pink; x++)
+                {
+                    for (int y = 0; y < tellRow.Height && !pink; y++)
+                    {
+                        var p = Pixel(pixels, width, 16 + tellRow.X + x, 106 + tellRow.Y + y);
+                        pink = p.R > 200 && p.B > 200 && p.G < 160;
+                    }
+                }
+                Assert.True(pink, "tell sample in the tell colour");
+
+                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                menus.Activate();
+                Assert.Equal(StockUiConfigPages.FontColorEditPage, menus.Top!.Name);
+                pixels = Render(menus, "config_font_color_edit");
+                var redBar = menus.Top.Menu.FindButton(1)!;
+                var redFill = Pixel(pixels, width, 16 + redBar.X + redBar.Width / 2, 48 + redBar.Y + 5);
+                Assert.True(redFill.B > 150, $"R bar filled past half (tell red 0xA0) {redFill}");
+
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
             }
             finally

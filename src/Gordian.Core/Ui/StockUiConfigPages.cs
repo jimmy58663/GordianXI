@@ -86,6 +86,13 @@ namespace Gordian.Core.Ui
         public string Title { get; }
         public IReadOnlyList<StockUiConfigRow> Rows { get; }
 
+        /// <summary>
+        /// Where a slider's track lies inside its button (layout px from the button's left edge, its width, and the
+        /// fill's top and height): the whole 192 x 16 button on the settings pages (null), the 64 x 8 gauge strip
+        /// drawn from x 13 in each 82-wide bar of the colour editor (its label image: the letter, the strip, knobs).
+        /// </summary>
+        public (float Left, float Width, float FillTop, float FillHeight)? SliderTrack { get; init; }
+
         /// <summary>The option row (and choice) a button belongs to.</summary>
         public bool TryGetOption(int buttonId, out StockUiOptionRow row, out StockUiConfigChoice choice)
         {
@@ -154,6 +161,28 @@ namespace Gordian.Core.Ui
 
         /// <summary>Rows per page of the Chat Filters list (its 14 invisible row buttons).</summary>
         public const int ChatFilterRowsPerPage = 14;
+
+        /// <summary>
+        /// The Font Colors page: <c>conftxtc</c> (top right, the config list's corner: Chat, For Self, For Others,
+        /// System, Default; help 234-238), its lists <c>textcol1</c> (16,106, 366 x 206: eleven invisible 356 x 16
+        /// rows at an 18 px pitch, their links wrapping 11 to 1; help 488 "Select a text category.") and the R/G/B
+        /// editor <c>textcol3</c> (16,48, 366 x 56, right above the list: three 82-wide bars at x 210 with R, G, B
+        /// baked into the frame, then OK (button 4, help 490) and Cancel (5, help 491); help 489 "Set RGB color
+        /// values."). Menu names and help text from the English menu DAT (ROM/119/51) and ROM/165/75.
+        /// </summary>
+        public const string FontColorCategoryMenu = "conftxtc";
+        public const string FontColorListMenu = "textcol1";
+        public const string FontColorEditPage = "textcol3";
+        public const int FontColorListRows = 11;
+        public const int FontColorOkButton = 4, FontColorCancelButton = 5, FontColorDefaultButton = 5;
+
+        /// <summary>Which client-drawn list a DAT menu is.</summary>
+        public static StockUiListKind ListKindOf(string menuName)
+        {
+            if (menuName.Equals(ChatFiltersPage, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.ChatFilters;
+            if (menuName.Equals(FontColorListMenu, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.FontColors;
+            return StockUiListKind.None;
+        }
 
         private static StockUiConfigChoice On(int button) => new(button, 1, "ON");
         private static StockUiConfigChoice Off(int button) => new(button, 0, "OFF");
@@ -235,6 +264,16 @@ namespace Gordian.Core.Ui
                 new StockUiOptionRow("Third-Person Camera X Axis", StockUiSettingKey.ThirdPersonInvertX, new(9, 0, "Normal"), new(10, 1, "Inverted")),
                 new StockUiOptionRow("First-Person Camera Y Axis", StockUiSettingKey.FirstPersonInvertY, new(11, 0, "Normal"), new(12, 1, "Inverted")),
                 new StockUiOptionRow("First-Person Camera X Axis", StockUiSettingKey.FirstPersonInvertX, new(13, 0, "Normal"), new(14, 1, "Inverted"))));
+
+            // The colour editor: three bars over the colour being set (transient values, 0-255 in the 0x80 half scale).
+            Add(new StockUiConfigPage(FontColorEditPage, "Font Colors",
+                new StockUiSliderRow("R", StockUiSettingKey.FontColorEditRed, 1),
+                new StockUiSliderRow("G", StockUiSettingKey.FontColorEditGreen, 2),
+                new StockUiSliderRow("B", StockUiSettingKey.FontColorEditBlue, 3))
+            {
+                // Each bar's label ("frames" #37-#39): the letter at -1, the gauge strip at (13, 0) 64 x 8, knobs at 9 and 77.
+                SliderTrack = (13, 64, 1, 6),
+            });
 
             Add(new StockUiConfigPage(GlobalPage, "Global",
                 new StockUiOptionRow("Chat Language Filter", StockUiSettingKey.ChatLanguageFilter, On(1), Off(2)),

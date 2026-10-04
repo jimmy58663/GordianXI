@@ -542,7 +542,7 @@ namespace Gordian.App.Graphics
             log.CopyVisible(window, rows + 2, _logLines);
             StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
                 Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting,
-                _logScroll[Math.Clamp(window - 1, 0, 1)]);
+                _logScroll[Math.Clamp(window - 1, 0, 1)], Settings);
         }
 
         /// <summary>Each log window's slide of newly arrived rows (see StockUiChatWindow.LogScrollState).</summary>

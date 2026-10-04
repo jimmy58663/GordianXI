@@ -101,7 +101,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Missions WotG / Adoulin / RoV | `ROM/196/7` / `ROM/293/69` / `ROM/333/4` | 55723 / 55738 / 56281 |
 | Menu config rows / help / window titles (EN; JP is 120 ids lower) | `ROM/165/74` / `75` / `76` | 55650 / 55651 / 55652 |
 
-The three menu tables are research only: nothing reads them yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)). **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
+The three menu tables are research only: nothing reads them at run time yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)); the Font Colors rows (config rows 63-88, 197, 204-205) are typed in code word for word from ROM/165/74 (`StockUiFontColors`). **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
 
 ### Client message tables
 

@@ -52,6 +52,21 @@ namespace Gordian.Core.Ui
 
         /// <summary>The shop window's Sell: opens the inventory list for appraisal and sale.</summary>
         ShopSell,
+
+        /// <summary>A Font Colors category (<c>conftxtc</c>): opens its list; the Argument is a <see cref="StockUiFontColorCategory"/>.</summary>
+        FontColorList,
+
+        /// <summary>The Font Colors page's Default: every colour back to the retail default (after a yes/no prompt).</summary>
+        FontColorDefault,
+
+        /// <summary>A row of a Font Colors list: confirm opens the R/G/B editor on it.</summary>
+        FontColorRow,
+
+        /// <summary>The colour editor's OK: the edited colour becomes the row's.</summary>
+        FontColorApply,
+
+        /// <summary>The colour editor's Cancel.</summary>
+        FontColorCancel,
     }
 
     /// <summary>
@@ -134,7 +149,7 @@ namespace Gordian.Core.Ui
             // Gamepad is the key-assignment editor ("keypad"/"k1assign").
             [(ConfigMenu, 1)] = new("Gameplay", Opens: StockUiConfigPages.GameplayPage),
             [(ConfigMenu, 2)] = new("Chat Filters", Opens: StockUiConfigPages.ChatFiltersPage),
-            [(ConfigMenu, 3)] = new("Font Colors", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 3)] = new("Font Colors", Opens: StockUiConfigPages.FontColorCategoryMenu),
             [(ConfigMenu, 4)] = new("Windows", Opens: WindowsMenu),
             [(ConfigMenu, 10)] = new("Log", Command: StockUiMenuCommand.NotAvailable),
             [(ConfigMenu, 5)] = new("Misc.", Opens: StockUiConfigPages.MiscPage),
@@ -145,6 +160,16 @@ namespace Gordian.Core.Ui
             [(ConfigMenu, 8)] = new("Mouse/Cam.", Opens: StockUiConfigPages.MouseCameraPage),
             [(ConfigMenu, 9)] = new("Global", Opens: StockUiConfigPages.GlobalPage),
             [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.NotAvailable),
+
+            // Font Colors: the category lists (label sprites keytops3 #272 Chat, #273 For Self, windowps #432 For
+            // Others, keytops3 #277 System, #278 Default), then the colour editor's OK and Cancel.
+            [(StockUiConfigPages.FontColorCategoryMenu, 1)] = new("Chat", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.Chat),
+            [(StockUiConfigPages.FontColorCategoryMenu, 2)] = new("For Self", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.ForSelf),
+            [(StockUiConfigPages.FontColorCategoryMenu, 3)] = new("For Others", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.ForOthers),
+            [(StockUiConfigPages.FontColorCategoryMenu, 4)] = new("System", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.System),
+            [(StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorDefaultButton)] = new("Default", Command: StockUiMenuCommand.FontColorDefault),
+            [(StockUiConfigPages.FontColorEditPage, StockUiConfigPages.FontColorOkButton)] = new("OK", Command: StockUiMenuCommand.FontColorApply),
+            [(StockUiConfigPages.FontColorEditPage, StockUiConfigPages.FontColorCancelButton)] = new("Cancel", Command: StockUiMenuCommand.FontColorCancel),
 
             // Windows: which window's settings to edit.
             [(WindowsMenu, 1)] = new("Shared", Opens: StockUiConfigPages.WindowSettingsPage),
@@ -189,6 +214,12 @@ namespace Gordian.Core.Ui
                 && buttonId >= 1 && buttonId <= StockUiConfigPages.ChatFilterRowsPerPage)
             {
                 entry = new StockUiMenuEntry("Chat filter", Command: StockUiMenuCommand.ChatFilter, Argument: buttonId);
+                return true;
+            }
+            if (menuName.Equals(StockUiConfigPages.FontColorListMenu, StringComparison.OrdinalIgnoreCase)
+                && buttonId >= 1 && buttonId <= StockUiConfigPages.FontColorListRows)
+            {
+                entry = new StockUiMenuEntry("Font color", Command: StockUiMenuCommand.FontColorRow, Argument: buttonId);
                 return true;
             }
             return false;

@@ -36,6 +36,9 @@ namespace Gordian.Core.Ui
         /// <summary>Your character's name, for the echo of your own lines.</summary>
         public Func<string> CharacterName { get; set; } = () => string.Empty;
 
+        /// <summary>Your character's server id: combat lines about it take the Font Colors "For Self" rows.</summary>
+        public Func<uint> LocalPlayerId { get; set; } = () => 0;
+
         /// <summary>The config menu's client-only chat filter mask (Tell, Party, Linkshell, Linkshell 2, Unity).</summary>
         public Func<uint> ClientChatFilters { get; set; } = () => 0;
 
@@ -132,14 +135,20 @@ namespace Gordian.Core.Ui
                 Log.Add(ChatLogChannel.System, $"{invite.InviterName} invites you to join a party. Type /join to accept or /decline to decline.");
             combat.ActionExecuted += record =>
             {
-                foreach (var line in CombatLogFormatter.FormatAction(record, resolveEntityName)) Log.Add(ChatLogChannel.Combat, line);
+                // Each line takes its Font Colors row and Log page type from what it reports and whom (StockUiCombatLog).
+                uint me = LocalPlayerId();
+                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName))
+                {
+                    Log.Add(StockUiCombatLog.LineFor(line, me, DateTime.Now));
+                }
             };
             combat.BattleMessageReceived += record =>
             {
                 // A message may span lines (a monster check prints its level, then its defense and evasion).
+                uint me = LocalPlayerId();
                 foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName).Split('\n'))
                 {
-                    if (line.Length > 0) Log.Add(ChatLogChannel.Combat, line);
+                    if (line.Length > 0) Log.Add(StockUiCombatLog.LineFor(line, record.MessageId, record.TargetId, me, DateTime.Now));
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);

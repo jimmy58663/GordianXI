@@ -82,8 +82,9 @@ namespace Gordian.App.Graphics
                     // value is the same strip's rows 1-6 drawn opaque and tinted light blue from the bar's left edge,
                     // 12 tall inside the 16-tall bar (a retail capture, 2026-09-26; "framesus" #103 is the same
                     // strip with the tint (64, 96, 127), the capture's fill reads a little more lavender).
+                    var track = menu.ConfigPage?.SliderTrack ?? (0, button.Width, SliderFillTop, SliderFillHeight);
                     renderer.DrawTextureRect(SliderTexture, SliderFillSourceX, SliderFillSourceY, SliderFillSourceWidth, SliderFillSourceHeight,
-                        bx, by + SliderFillTop * s, button.Width * fraction * s, SliderFillHeight * s, SliderFillTint);
+                        bx + track.Left * s, by + track.FillTop * s, track.Width * fraction * s, track.FillHeight * s, SliderFillTint);
                 }
 
                 if (menu.IsMarked(button.ButtonId) && menu.Rows.Count == 0)
@@ -127,17 +128,38 @@ namespace Gordian.App.Graphics
                 renderer.SetClip(placement.X + ListClipInset * s, areaY, (frame.Width - ListClipInset) * s, areaH);
                 int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
                 int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+                bool colorRows = menu.ListKind == StockUiListKind.FontColors;
                 for (int i = from; i <= to; i++)
                 {
                     var row = menu.Rows[i];
                     float ry = areaY + (i - first) * pitch * s;
+                    float textY = ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f;
+                    if (colorRows)
+                    {
+                        // Font Colors rows: the sample text in the row's colour, no state ball (provisional: retail's
+                        // inset and font for the samples are not captured).
+                        renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
+                        continue;
+                    }
                     int stateImage = row.Marked ? StateOnImage : StateOffImage;
                     if (states != null && stateImage < states.Images.Count) renderer.DrawImage(states.Images[stateImage], areaX, ry, s);
-                    renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
+                    renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, textY, s,
                         i == selectedEntry ? SelectedGlyphTint : null);
                 }
                 renderer.ClearClip();
                 if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
+            }
+
+            if (font != null && menu.SampleText is { Length: > 0 } sample)
+            {
+                // The colour editor: the row being set, in the colour of its sliders, in the window's empty left part
+                // (provisional placement), cut with ".." when it does not fit before the bars' labels.
+                float sampleY = placement.Y + (frame.Height * s - font.LineHeight * s) * 0.5f;
+                float sampleWidth = SampleTextRight - SampleTextX;
+                string shown = sample;
+                while (shown.Length > 1 && font.MeasureWidth(shown) > sampleWidth) shown = shown[..^1];
+                if (shown.Length < sample.Length) shown = shown.TrimEnd() + "..";
+                renderer.DrawText(font, shown, placement.X + SampleTextX * s, sampleY, s, menu.SampleColor);
             }
 
             if (menu.Message is { Length: > 0 } message && font != null)
@@ -472,6 +494,12 @@ namespace Gordian.App.Graphics
         private const string StateGroup = "frames";
         private const int StateOnImage = 88, StateOffImage = 89;
         private const float ListRowTextInset = 34;
+
+        /// <summary>The Font Colors list's text inset (its rows start at the frame's edge; the cursor takes the first 22 px).</summary>
+        private const float FontColorRowTextInset = 28;
+
+        /// <summary>Where the colour editor's sample text sits: the frame's left part, before the "R G B" labels at x ~200.</summary>
+        private const float SampleTextX = 14, SampleTextRight = 172;
         private const float ListClipInset = 8;
 
         private const string DefaultCursorGroup = "anc_s";

@@ -42,20 +42,93 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>
+    /// The message types of the config menu's Log page (retail routes each to Window 1 or Window 2 when the log is
+    /// split), named after their rows in the config row table (ROM/165/74): the chat rows 36-47 and 196, For Self
+    /// 48-53, For Others 54-59 and System 60-62. Values are bit positions of <see cref="StockUiSettingKey.LogWindow2Types"/>.
+    /// </summary>
+    public enum ChatLogType : byte
+    {
+        Say,
+        Shout,
+        Yell,
+        Tell,
+        Party,
+        Linkshell,
+        Linkshell2,
+        AssistJ,
+        AssistE,
+        Unity,
+        Emote,
+        /// <summary>Messages ("Message").</summary>
+        Message,
+        NpcConversation,
+
+        /// <summary>HP/MP you recover.</summary>
+        SelfRecover,
+        /// <summary>HP/MP you lose.</summary>
+        SelfLose,
+        SelfBeneficial,
+        SelfDetrimental,
+        /// <summary>Effects you resist.</summary>
+        SelfResist,
+        /// <summary>Actions you evade.</summary>
+        SelfEvade,
+
+        OthersRecover,
+        OthersLose,
+        OthersBeneficial,
+        OthersDetrimental,
+        OthersResist,
+        OthersEvade,
+
+        StandardBattle,
+        CallsForHelp,
+        BasicSystem,
+    }
+
+    /// <summary>
     /// One logical log line. The renderer wraps it to the window width and caches the result on the line
     /// (render thread only).
     /// </summary>
     public sealed class ChatLogLine
     {
-        public ChatLogLine(ChatLogChannel channel, string text, DateTime timestamp)
+        public ChatLogLine(ChatLogChannel channel, string text, DateTime timestamp, StockUiFontColorId? fontColor = null, ChatLogType? type = null)
         {
             Channel = channel;
             Text = text ?? string.Empty;
             Timestamp = timestamp;
+            FontColor = fontColor ?? StockUiFontColors.ForChannel(channel);
+            Type = type ?? TypeOf(channel);
         }
 
         public ChatLogChannel Channel { get; }
         public string Text { get; }
+
+        /// <summary>The Font Colors row the line is drawn with; null for lines with a fixed colour (system text, notices).</summary>
+        public StockUiFontColorId? FontColor { get; }
+
+        /// <summary>The Log page's message type, which picks the window the line goes to when the log is split.</summary>
+        public ChatLogType Type { get; }
+
+        /// <summary>The Log page type of a channel's lines (combat lines are classified per line, see <see cref="StockUiCombatLog"/>).</summary>
+        public static ChatLogType TypeOf(ChatLogChannel channel) => channel switch
+        {
+            ChatLogChannel.Say => ChatLogType.Say,
+            ChatLogChannel.Shout => ChatLogType.Shout,
+            ChatLogChannel.Yell => ChatLogType.Yell,
+            ChatLogChannel.Tell => ChatLogType.Tell,
+            ChatLogChannel.Party => ChatLogType.Party,
+            ChatLogChannel.Linkshell => ChatLogType.Linkshell,
+            ChatLogChannel.Linkshell2 => ChatLogType.Linkshell2,
+            ChatLogChannel.Unity => ChatLogType.Unity,
+            ChatLogChannel.AssistJ => ChatLogType.AssistJ,
+            ChatLogChannel.AssistE => ChatLogType.AssistE,
+            ChatLogChannel.Emote => ChatLogType.Emote,
+            ChatLogChannel.Dialog => ChatLogType.NpcConversation,
+            ChatLogChannel.Message => ChatLogType.Message,
+            ChatLogChannel.Combat => ChatLogType.StandardBattle,
+            _ => ChatLogType.BasicSystem,
+        };
 
         /// <summary>Local time the line was logged (shown by the config menu's Timestamp option).</summary>
         public DateTime Timestamp { get; }

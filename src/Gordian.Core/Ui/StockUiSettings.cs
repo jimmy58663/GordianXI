@@ -21,6 +21,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Stored on the <see cref="StockUiLayout"/> (window skin, party status icons); routed there by the menu controller.</summary>
         Layout,
+
+        /// <summary>A working value of an open page (the Font Colors R/G/B sliders while a colour is edited); never saved.</summary>
+        Transient,
     }
 
     /// <summary>
@@ -114,6 +117,12 @@ namespace Gordian.Core.Ui
         /// flag), so it is set with <c>/lockon auto [on|off]</c>. Default on.
         /// </summary>
         AutoLockOnEngage,
+
+        // Font Colors (conftxtc -> textcol1 -> textcol3): the colour being edited, 0-255 per channel in the 0x80
+        // half scale. Transient: OK copies them into the row's colour (StockUiSettings.SetFontColor).
+        FontColorEditRed,
+        FontColorEditGreen,
+        FontColorEditBlue,
     }
 
     /// <summary>A setting's range, default and scope; <see cref="Step"/> is a slider's increment per key press.</summary>
@@ -219,7 +228,53 @@ namespace Gordian.Core.Ui
             Add(StockUiSettingKey.ClientChatFilters, 0, 0, int.MaxValue);
             Add(StockUiSettingKey.SystemMessageFilterLevel, 0, 0, 3, StockUiSettingScope.Server);
             Toggle(StockUiSettingKey.AutoLockOnEngage, true);
+            // Retail's step per key press is not captured; 4 reaches every default in the cnf.dat table but 0xFF / 0x3F / 0xAF.
+            Add(StockUiSettingKey.FontColorEditRed, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);
+            Add(StockUiSettingKey.FontColorEditGreen, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);
+            Add(StockUiSettingKey.FontColorEditBlue, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);
             return d;
+        }
+
+        /// <summary>The Font Colors sliders' step per key press (provisional).</summary>
+        public const int FontColorStep = 4;
+
+        private readonly Dictionary<StockUiFontColorId, StockUiRgb> _fontColors = new();
+
+        /// <summary>Raised after a Font Colors row changed (or all were reset): the id, or null for all.</summary>
+        public event Action<StockUiFontColorId?>? FontColorsChanged;
+
+        /// <summary>A Font Colors row's colour: the one set, else the retail default (<see cref="StockUiFontColors"/>).</summary>
+        public StockUiRgb GetFontColor(StockUiFontColorId id)
+        {
+            lock (_sync) return _fontColors.TryGetValue(id, out var rgb) ? rgb : StockUiFontColors.Get(id).Default;
+        }
+
+        /// <summary>True when the row's colour was set (saved or edited) rather than left at its default.</summary>
+        public bool HasFontColor(StockUiFontColorId id)
+        {
+            lock (_sync) return _fontColors.ContainsKey(id);
+        }
+
+        /// <summary>Sets a Font Colors row; true when it changed. Raises <see cref="FontColorsChanged"/>.</summary>
+        public bool SetFontColor(StockUiFontColorId id, StockUiRgb rgb)
+        {
+            lock (_sync)
+            {
+                if (GetFontColorLocked(id) == rgb && _fontColors.ContainsKey(id)) return false;
+                _fontColors[id] = rgb;
+            }
+            FontColorsChanged?.Invoke(id);
+            return true;
+        }
+
+        private StockUiRgb GetFontColorLocked(StockUiFontColorId id) =>
+            _fontColors.TryGetValue(id, out var rgb) ? rgb : StockUiFontColors.Get(id).Default;
+
+        /// <summary>The Font Colors page's Default: every row back to its retail default.</summary>
+        public void ResetFontColors()
+        {
+            lock (_sync) _fontColors.Clear();
+            FontColorsChanged?.Invoke(null);
         }
 
         /// <summary>Raised after a local edit of a client or server setting (not for values applied from the server).</summary>
@@ -302,6 +357,7 @@ namespace Gordian.Core.Ui
                 {
                     if (Definitions[key].Scope == StockUiSettingScope.Client) _values.Remove(key);
                 }
+                _fontColors.Clear();
             }
             Synchronized?.Invoke();
         }
@@ -312,6 +368,9 @@ namespace Gordian.Core.Ui
         private sealed class Document
         {
             public Dictionary<string, int> Values { get; set; } = new();
+
+            /// <summary>Font Colors rows set by the player, by row name, as "RRGGBB" in the 0x80 half scale.</summary>
+            public Dictionary<string, string>? FontColors { get; set; }
         }
 
         /// <summary>Directory holding one settings file per character.</summary>
@@ -336,6 +395,11 @@ namespace Gordian.Core.Ui
                 {
                     if (Definitions[key].Scope == StockUiSettingScope.Client) document.Values[key.ToString()] = value;
                 }
+                if (_fontColors.Count > 0)
+                {
+                    document.FontColors = new Dictionary<string, string>();
+                    foreach (var (id, rgb) in _fontColors) document.FontColors[id.ToString()] = rgb.ToString();
+                }
             }
             File.WriteAllText(path, JsonSerializer.Serialize(document, JsonOptions));
         }
@@ -356,6 +420,16 @@ namespace Gordian.Core.Ui
                             && definition.Scope == StockUiSettingScope.Client)
                         {
                             settings._values[key] = definition.Clamp(value);
+                        }
+                    }
+                    if (document.FontColors != null)
+                    {
+                        foreach (var (name, text) in document.FontColors)
+                        {
+                            if (Enum.TryParse<StockUiFontColorId>(name, ignoreCase: true, out var id) && StockUiRgb.TryParse(text, out var rgb))
+                            {
+                                settings._fontColors[id] = rgb;
+                            }
                         }
                     }
                 }
@@ -385,9 +459,8 @@ namespace Gordian.Core.Ui
             {
                 string path = StockUiSettings.GetSettingsPath(name);
                 var settings = StockUiSettings.LoadOrDefault(path);
-                settings.Changed += (k, _) =>
+                void Save()
                 {
-                    if (StockUiSettings.Definitions[k].Scope != StockUiSettingScope.Client) return;
                     try
                     {
                         settings.SaveToFile(path);
@@ -396,7 +469,12 @@ namespace Gordian.Core.Ui
                     {
                         GordianLog.Warning("UI", $"Could not save the UI settings '{path}': {ex.Message}");
                     }
+                }
+                settings.Changed += (k, _) =>
+                {
+                    if (StockUiSettings.Definitions[k].Scope == StockUiSettingScope.Client) Save();
                 };
+                settings.FontColorsChanged += _ => Save();
                 return settings;
             });
         }
