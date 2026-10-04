@@ -434,7 +434,7 @@ namespace Gordian.Core.Tests.Input
             actionService.SetTarget(target);
             actionService.SetLockOn(true);
 
-            controller.Update(TimeSpan.FromMilliseconds(16));
+            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
 
             // Heading towards (0, 0, 10) from (0, 0, 0) is North (wire Direction = 192)
             Assert.Equal(192, localEnt.Direction);
@@ -488,12 +488,96 @@ namespace Gordian.Core.Tests.Input
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             actionService.SetLockOn(true);
 
-            controller.Update(TimeSpan.FromMilliseconds(16));
+            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
 
             Assert.Equal(192, localEnt.Direction);
 
             actionService.Combat.Disengage();
             Assert.True(actionService.IsLockedOn, "Disengaging does not change the player's lock-on choice");
+        }
+
+        [Theory]
+        [InlineData(GordianKey.T)]
+        [InlineData(GordianKey.NumPadMultiply)]
+        public void Update_WhileEngaged_LockOnKeyTogglesLockAndFacing(GordianKey key)
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            localEnt.Direction = 0;
+            actionService.SetTarget(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(key);
+            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.True(actionService.IsLockedOn);
+            Assert.Equal(192, localEnt.Direction);
+
+            input.SetKeyDown(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(actionService.IsLockedOn);
+        }
+
+        [Fact]
+        public void Update_WhenAutoLockOnEngageIsOn_EngagingLocksOnButTurnsGradually()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            localEnt.Direction = 0;
+            actionService.SetTarget(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
+
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.True(actionService.IsLockedOn);
+
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.InRange(localEnt.Direction, 193, 255); // a step toward North (192) the short way round, not all of it at once
+
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(192, localEnt.Direction);
+        }
+
+        [Fact]
+        public void Engage_WithAutoLockOnEngageOff_DoesNotLockOn()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            actionService.SetTarget(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.False(actionService.IsLockedOn);
+        }
+
+        [Fact]
+        public void ToggleLockOn_EngagedByServerWithNothingSelected_LocksOntoTheFight()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.Null(actionService.CurrentTarget);
+
+            actionService.ToggleLockOn();
+
+            Assert.True(actionService.IsLockedOn);
+            Assert.Same(target, actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void FromJson_ProfileWithoutLockOnKeys_GetsTheDefaults()
+        {
+            var p = InputProfile.CreateCompact();
+            p.Bindings.Remove(InputAction.ToggleLockOn);
+            var loaded = InputProfile.FromJson(p.SaveToJson());
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.T), out var a) && a == InputAction.ToggleLockOn);
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadMultiply), out var b) && b == InputAction.ToggleLockOn);
         }
 
         [Fact]

@@ -682,12 +682,7 @@ namespace Gordian.Core.Input
                 float toTgtX = lockTgt.Position.X - localEnt.Position.X;
                 float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
                 float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
-                if (distSq > 0.0001f)
-                {
-                    float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
-                    localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
-                    localEnt.RenderHeadingRadians = toTargetRad;
-                }
+                if (distSq > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
 
                 float lockFwd = 0f;
                 if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
@@ -752,12 +747,7 @@ namespace Gordian.Core.Input
                     // Re-align facing to target after displacement
                     toTgtX = lockTgt.Position.X - localEnt.Position.X;
                     toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f)
-                    {
-                        float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
-                        localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
-                        localEnt.RenderHeadingRadians = toTargetRad;
-                    }
+                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
                 }
                 else
                 {
@@ -1089,6 +1079,18 @@ namespace Gordian.Core.Input
                 }
                 Gordian.Core.Diagnostics.GordianLog.Info("Elevator", $"Platform {_platforms[i].Platform.Id} jumped {previous[i].Height:F3} -> {_platforms[i].Height:F3} at clock {clock:F3}; {detail}");
             }
+        }
+
+        /// <summary>
+        /// Turns the locked-on character toward the target at <see cref="FacingTurnSpeedDegreesPerSec"/>, so locking on
+        /// (including the automatic lock when engaging) never snaps the heading in one frame (#137). PROVISIONAL: whether
+        /// retail's lock-on turns gradually or at once is unconfirmed.
+        /// </summary>
+        private void FaceTarget(WorldEntity localEnt, float toTgtX, float toTgtZ, float dt)
+        {
+            float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
+            TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
+            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
