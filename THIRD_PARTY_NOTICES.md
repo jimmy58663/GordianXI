@@ -68,7 +68,7 @@ SOFTWARE.
 ```
 
 ### Silk.NET
-* **Project:** [Silk.NET](https://github.com/dotnet/Silk.NET)
+* **Project:** [Silk.NET](https://github.com/dotnet/Silk.NET) (Silk.NET.SDL, Silk.NET.OpenAL 2.23.0, and the Silk.NET.OpenAL.Soft.Native 1.23.1 packaging of OpenAL Soft below)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2020-.NET Foundation and Contributors
 * **Notice:**
@@ -178,6 +178,25 @@ freely, subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
+### OpenAL Soft
+* **Project:** [OpenAL Soft](https://github.com/kcat/openal-soft) (https://openal-soft.org), shipped as the native library of the `Silk.NET.OpenAL.Soft.Native` 1.23.1 NuGet package: `runtimes/<rid>/native/soft_oal.dll` (Windows), `libopenal.so` (Linux), `libopenal.dylib` (macOS)
+* **License:** GNU Library / Lesser General Public License, version 2 or later (used under LGPL-2.1)
+* **Copyright:** Copyright (C) 1999-2023 the OpenAL Soft authors (Chris Robinson and contributors)
+* **How GordianXI uses it:** the unmodified library is loaded dynamically at run time (P/Invoke through Silk.NET) and is the audio output device only. GordianXI does not link it statically, modify it or include any of its source. Users may replace the library file beside the executable with any compatible build of OpenAL Soft (or another OpenAL implementation); GordianXI falls back to silent output if it cannot be loaded.
+* **Source:** the corresponding source for the shipped version is available from https://github.com/kcat/openal-soft (tag 1.23.1).
+* **Notice:**
+```text
+OpenAL Soft is free software; you can redistribute it and/or modify it under
+the terms of the GNU Library General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your option) any
+later version.
+
+This library is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Library General Public License for more details.
+
+The full licence text: https://github.com/kcat/openal-soft/blob/master/COPYING
+```
 ---
 
 ## 2. Reference Specifications & Clean-Room Interoperability Sources

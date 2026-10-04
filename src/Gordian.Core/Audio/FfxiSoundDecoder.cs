@@ -5,7 +5,7 @@ namespace Gordian.Core.Audio
 {
     /// <summary>
     /// Decodes the ATRAC3 coding (format 3) of retail sound files. Not implemented in GordianXI: ATRAC3 is Sony's MDCT
-    /// codec and is planned to come from FFmpeg's decoder (LGPL, dynamically linked), registered at startup through
+    /// codec; which decoder supplies it is still being decided (FFmpeg's, dynamically linked, is the candidate). It is registered at startup through
     /// <see cref="FfxiSoundDecoder.Atrac3"/>.
     /// </summary>
     public interface IAtrac3Decoder

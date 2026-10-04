@@ -9,9 +9,8 @@ namespace Gordian.App.Audio
     /// Owns the audio device and the mixing thread. The thread keeps about <see cref="TargetLatencyFrames"/> frames queued
     /// on the device, mixing <see cref="ChunkFrames"/> at a time, so a sound started from the game thread is heard within
     /// roughly 50 ms. When no device opens the engine still accepts every call and simply stays silent.
-    /// <para>No device backend is chosen yet (#37, the candidates are compared in <c>docs/design/audio.md</c>): until one
-    /// is, the engine runs on <see cref="NullAudioOutput"/> and everything above it (decode, mixing, track and cue choice)
-    /// works and is tested, silently.</para>
+    /// <para>The device is OpenAL Soft (<see cref="OpenAlAudioOutput"/>, #37); when it cannot open (no native library,
+    /// no device: CI, headless Linux) the engine falls back to <see cref="NullAudioOutput"/>.</para>
     /// </summary>
     public sealed class AudioEngine : IDisposable
     {
@@ -21,19 +20,29 @@ namespace Gordian.App.Audio
         /// <summary>Frames the thread keeps queued on the device (about 43 ms at 48 kHz).</summary>
         public const int TargetLatencyFrames = 2048;
 
-        private readonly IAudioOutput _output;
+        private IAudioOutput _output;
         private readonly Thread? _thread;
         private volatile bool _running;
+        private long _mixedFrames;
 
-        /// <summary>Opens <paramref name="output"/> (the silent <see cref="NullAudioOutput"/> until a backend is chosen) and starts mixing.</summary>
+        /// <summary>Frames mixed and handed to the device so far (diagnostics).</summary>
+        public long MixedFrames => Interlocked.Read(ref _mixedFrames);
+
+        /// <summary>Opens <paramref name="output"/> (OpenAL Soft by default, the silent <see cref="NullAudioOutput"/> when it fails) and starts mixing.</summary>
         public AudioEngine(IAudioOutput? output = null, int requestedRate = 48000)
         {
-            _output = output ?? new NullAudioOutput();
+            _output = output ?? new OpenAlAudioOutput();
             IsAvailable = _output.Open(requestedRate);
+            if (!IsAvailable && _output is not NullAudioOutput)
+            {
+                _output.Dispose();
+                _output = new NullAudioOutput();
+                _output.Open(requestedRate);
+            }
             Mixer = new AudioMixer(IsAvailable ? _output.SampleRate : requestedRate);
             if (!IsAvailable)
             {
-                GordianLog.Info("AUDIO", "No audio output device (backend not chosen yet, #37); sound is silent this session.");
+                GordianLog.Info("AUDIO", "No audio output device; falling back to silent output.");
                 return;
             }
 
@@ -59,6 +68,7 @@ namespace Gordian.App.Audio
                     {
                         Mixer.Mix(chunk);
                         _output.Queue(chunk);
+                        Interlocked.Add(ref _mixedFrames, ChunkFrames);
                         continue;
                     }
                 }

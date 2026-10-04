@@ -2,39 +2,34 @@
 
 > Phase 5H: the sound backend, the retail sound files, and what plays when. Status and open work: [ROADMAP.md](../../ROADMAP.md) and GitHub Issues.
 
-## Backend (#37): recommendation, not yet decided
+## Backend (#37): OpenAL Soft
 
-The maintainer makes the call; nothing backend-specific is in the code yet. Everything below the device is backend-neutral and already works silently on `NullAudioOutput`: decoding (#38), the mixing model, track, cue and footstep choice.
+**Decision (maintainer, 2026-10-04): OpenAL Soft through Silk.NET.OpenAL 2.23.0, with the native library from `Silk.NET.OpenAL.Soft.Native` 1.23.1.** OpenAL is the output device only: our managed `AudioMixer` makes the mix, and `OpenAlAudioOutput` streams it.
 
-Constraints (issue #37): ATRAC3 is unavoidable (81 of 224 tracks, 1,006 effects) and comes from FFmpeg as a decoder only; music is mostly 44.1 kHz, effects 48 kHz; loops restart at a loop point, not at 0; positional sound with near / far ranges around a listener; long tracks are streamed; Windows, Linux and macOS, no Windows-only APIs. We feed the backend decoded PCM in every case.
+Constraints it had to meet (issue #37): ATRAC3 comes from a separate decoder (still to be decided; the `IAtrac3Decoder` seam stays unregistered); 44.1 / 48 kHz sources; loops restart at a loop point; positional sound with near / far ranges; streaming of long tracks; Windows, Linux and macOS with no Windows-only APIs.
 
-| | OpenAL Soft (Silk.NET.OpenAL + `Silk.NET.OpenAL.Soft.Native`) | miniaudio (.NET binding) | SDL3 audio (SDL3-CS) | SDL2 audio (the Silk.NET.SDL 2.23 already shipped) |
-|---|---|---|---|---|
-| Licence | LGPL-2.1 native (dynamic link only; ship the .so/.dylib/.dll unmodified, notice + relink right), MIT bindings | public domain / MIT-0 native; binding licences vary (MIT for the maintained ones) | zlib native, MIT bindings | zlib native, MIT bindings; already in `THIRD_PARTY_NOTICES.md` |
-| Native shipping | Silk.NET's native package covers win-x64/x86/arm64, linux-x64/arm64, osx (universal) | single C file; few bindings ship natives for all three OSes, so we would likely build it in CI (Phase 9) | packages with natives for all three exist (e.g. ppy.SDL3-CS); a second SDL beside the gamepad's SDL2 unless the gamepad moves too | nothing new: the gamepad driver already loads it from `runtimes/<rid>/native` |
-| 3D / spatial | built in: listener and sources, distance models (linear clamped fits near / far), HRTF opt-in; only mono sources are spatialised (stereo effects need a downmix) | built in: spatializer per sound (attenuation models, pan, doppler), node graph for buses | none: ours (pan + distance gain, which retail's ADPCM voices need anyway) | none: ours |
-| Resampling 44.1 / 48 kHz | built in per source | built in | built in (`SDL_AudioStream`) | ours (linear, in `AudioMixer`) |
-| Seamless loop points | `AL_SOFT_loop_points` on static buffers; streamed music loops by our decoder refilling the queue | `ma_data_source_set_loop_point_in_pcm_frames`, or our source | ours (decoder loops) | ours (decoder loops, done: `FfxiSoundStream`) |
-| Streaming | buffer queue | custom `ma_data_source` (a callback into managed code) | push into an audio stream | push queue (`SDL_QueueAudio`) |
-| Latency | low (device period, configurable) | low | low | ~43 ms queue + device buffer in the prototype |
-| Taking our PCM | `alBufferData` from managed buffers | through a data-source callback from a native thread (needs care: no GC allocations, pinned delegates) | push from a managed thread | push from a managed thread |
-| Risk | LGPL obligations; one more native stack | binding upkeep and native builds are on us | SDL2/SDL3 duplication until the gamepad driver moves | SDL2 is in maintenance mode; SDL3 is the future |
+Why OpenAL Soft (the options compared were OpenAL Soft, miniaudio through a .NET binding, SDL3 through SDL3-CS, and the SDL2 already shipped):
 
-**Recommendation: a managed mixer over a push-style device, starting on SDL2 audio from the Silk.NET.SDL already shipped, and moving to SDL3 together with the gamepad driver.** Reasons:
+- Ready-made native builds for every target in one maintained package, from the Silk.NET family the project already uses.
+- A mature cross-platform output (WASAPI / PipeWire / PulseAudio / ALSA / Core Audio) with low latency, which takes our PCM from a managed thread (`alBufferData` + buffer queue), so no native thread calls into managed code.
+- Native 3D (HRTF, doppler, distance models) is available for a later opt-in without changing backend.
+- Cost: OpenAL Soft is LGPL. It stays an unmodified, dynamically loaded library that a user can replace (`THIRD_PARTY_NOTICES.md`).
 
-- Retail parity is easier when we own the mix: FFXI's positional sound is distance gain and panning, not HRTF; loop points, fades, the category buses the event VM scripts (0x69 / 0x6A) and the server music fade (0x060) are all ours either way. The mixer for this is written and tested (`AudioMixer`).
-- No new native dependency or licence for the device. Only FFmpeg (LGPL, dynamic) is added for ATRAC3, and it is needed whatever the device is.
-- The push model never calls managed code from a native audio thread.
-- A prototype `SdlAudioOutput` over the existing Silk.NET.SDL opened a 48 kHz stereo WASAPI device on the maintainer's machine (2026-10-04) before it was taken out pending this decision.
+**The default path is legacy parity.** Retail's positional sound is distance volume and stereo panning, so `AudioMixer` does that (and the loop points, fades, buses, event and server volume changes). OpenAL only receives the finished stereo mix: one listener-relative source at the origin, fed with 16-bit stereo buffers, which OpenAL never spatialises. OpenAL's 3D sources, HRTF and doppler are **not** used. They are a possible opt-in enhancement later (positional voices as mono OpenAL sources with `AL_LINEAR_DISTANCE_CLAMPED` for near / far, HRTF through `ALC_HRTF_SOFT`), behind a setting that defaults off.
 
-Choose **OpenAL Soft** instead if true 3D (HRTF, doppler, many hardware-style sources) is wanted later; the mixer's buses then map to per-source gains and its distance model to `AL_LINEAR_DISTANCE_CLAMPED`. **miniaudio** is the most capable single library but the weakest .NET packaging today.
+`OpenAlAudioOutput`:
 
+- Opens the default device with `ALC_FREQUENCY` 48000 (OpenAL Soft resamples to the hardware), one source, and 16 buffers.
+- `Queue` reclaims the processed buffers, fills a free one with the mixer's 512-frame chunk and queues it, and restarts the source after an underrun. When all 16 are in flight the chunk is dropped; the engine keeps about 2048 frames queued, so that does not happen in practice.
+- Loading tries Silk.NET's lookup (`ALContext.GetApi(true)` / `AL.GetApi(true)`), then the bundled `runtimes/<rid>/native` copy beside the app. If the library or a device cannot be opened (CI, headless Linux) it logs and `AudioEngine` falls back to `NullAudioOutput`: the game runs silent and no test needs a device.
+
+Native libraries copied to the output (from the package): `runtimes/win-x64|win-x86|win-arm64/native/soft_oal.dll`, `runtimes/linux-x64|linux-arm64|linux-arm/native/libopenal.so`, `runtimes/osx-x64|osx-arm64/native/libopenal.dylib`. Checked on Windows x64 (2026-10-04): Silk.NET's lookup found the library, the device opened at 48 kHz, and `music023.bgw` (ADPCM) played through it, the device pulling 4.05 s of audio in 4.0 s (`OpenAlAudioOutputTests.Smoke_PlaysAnAdpcmTrack`, opt-in with `GORDIAN_AUDIO_SMOKE=1` because it is audible). Linux and macOS are not yet checked on hardware.
 Layout (layer rules from AGENTS.md):
 
 - `Gordian.Core/Audio`: backend-neutral pieces with no device code. `IPcmSource` (a stream of interleaved 16-bit PCM that does its own looping), `PcmClip` (a decoded sound shared by voices), and the retail file decoders (#38).
 - `Gordian.App/Audio`:
   - `AudioMixer`: voices resampled (linear) to the output rate, gains (voice x fade x category x script fade x master), constant-power pan, distance falloff, 16-bit clip. Commands from the game thread are queued and applied by the mixing thread, so `Mix` neither locks nor allocates. Up to 96 voices; when full the quietest non-music voice is dropped.
-  - `IAudioOutput`: the device seam: open stereo S16 near 48 kHz (the device may pick its own rate; the mixer follows it), report queued frames, accept PCM. `NullAudioOutput` is the only implementation until #37 is decided: the game runs silent.
+  - `IAudioOutput`: the device seam: open stereo S16 near 48 kHz (the device may pick its own rate; the mixer follows it), report queued frames, accept PCM. `OpenAlAudioOutput` is the device; `NullAudioOutput` is the silent fallback.
   - `AudioEngine`: the output plus the mixing thread, which keeps 2048 frames (about 43 ms) queued and mixes 512 frames at a time.
 
 Buses (`AudioCategory`) follow the retail categories that the event VM's volume opcodes address by mask (XiEvents `OpCodes/0x0069`: 0x01 effects, 0x02 system, 0x04 zone, 0x08 master): **Music**, **Effects**, **System**, **Zone**, plus the master gain.
@@ -53,7 +48,7 @@ Header (`FfxiSoundHeader`), after the marker and the two fields above: `int32 id
 
 - **ADPCM** (`FfxiAdpcm`): a frame is a header byte (high nibble filter 0-4, low nibble range) plus packed 4-bit samples, low nibble first: `sample = (nibble << ((12 - range) & 31)) + ((h0*F0[f] + h1*F1[f]) >> 8)`, clamped, with F0 = {0, 240, 460, 392, 488}, F1 = {0, 0, -208, -220, -240}. The prediction uses an arithmetic shift (a truncating divide drifts); a filter of 5 or more is a silent block that keeps the history. Frame geometry is derived from the size (`(size - 0x30) / (blocks * channels)`), since a few effects declare 16 samples per block with smaller frames (`se018154`: 5-byte frames).
 - **PCM**: raw interleaved 16-bit little endian; the loop block is scaled by the `blockSize` byte (provisional, no looped PCM checked).
-- **ATRAC3** (format 3): not decoded by GordianXI. `FfxiSoundDecoder` hands it to a registered `IAtrac3Decoder` (planned: FFmpeg's decoder, LGPL, dynamically linked, decoder only, issue #37); none is registered yet, so about a third of the music (81 tracks) and 8.5 % of the effects play as silence and are logged once. For a clip the loop frame is taken as `loopStart x blockSize` (provisional, unchecked for ATRAC3).
+- **ATRAC3** (format 3): not decoded by GordianXI. `FfxiSoundDecoder` hands it to a registered `IAtrac3Decoder` (which decoder is still being decided; FFmpeg's, dynamically linked, is the candidate); none is registered yet, so about a third of the music (81 tracks) and 8.5 % of the effects play as silence and are logged once. For a clip the loop frame is taken as `loopStart x blockSize` (provisional, unchecked for ATRAC3).
 - **Encrypted** `.spw` (byte 7 not zero, `se039211`-`se039225`): skipped, as every public tool does.
 - Looping: after the last block playback jumps to `loopStart` and restores the ADPCM history it had when it first decoded that block (`FfxiSoundStream`).
 
@@ -195,7 +190,7 @@ So combat sounds need the effect-routine conditional interpreter and the action-
 ## Phase 5H plan
 
 - [x] Zone effect audio: the auto-run sound generators with range, path and time-of-day volume (#39, above).
-- [ ] Select a cross-platform audio backend (#37: recommendation above, decision pending).
+- [x] Cross-platform audio backend: OpenAL Soft as the output device (#37, above).
 - [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
 - [ ] Combat and action sounds (#41: deferred, findings above).
