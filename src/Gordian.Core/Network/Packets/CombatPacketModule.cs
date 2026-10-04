@@ -46,6 +46,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x029_BattleMessage.PacketId, HandleBattleMessage);
             dispatcher.Register(S2C_0x02D_BattleMessage2.PacketId, HandleBattleMessage2);
             dispatcher.Register(S2C_0x02F_Dig.PacketId, HandleDig);
+            dispatcher.Register(S2C_0x058_Assist.PacketId, HandleAssist);
             dispatcher.Register(S2C_0x030_Effect.PacketId, HandleEffect);
             dispatcher.Register(S2C_0x0AA_MagicData.PacketId, HandleMagicData);
             dispatcher.Register(S2C_0x0AC_CommandData.PacketId, HandleCommandData);
@@ -60,6 +61,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x029_BattleMessage.PacketId);
             dispatcher.Unregister(S2C_0x02D_BattleMessage2.PacketId);
             dispatcher.Unregister(S2C_0x02F_Dig.PacketId);
+            dispatcher.Unregister(S2C_0x058_Assist.PacketId);
             dispatcher.Unregister(S2C_0x030_Effect.PacketId);
             dispatcher.Unregister(S2C_0x0AA_MagicData.PacketId);
             dispatcher.Unregister(S2C_0x0AC_CommandData.PacketId);
@@ -90,6 +92,23 @@ namespace Gordian.Core.Network.Packets
 
             var record = action.ToRecord();
             _combatState.RecordAction(record);
+        }
+
+        /// <summary>
+        /// S2C 0x058: the server picked the character's target (the <c>/assist</c> answer, or a new battle target). Only a
+        /// packet about the local player is applied.
+        /// </summary>
+        private void HandleAssist(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var assist = new S2C_0x058_Assist(payload);
+            if (!assist.IsValid) return;
+            if (_localPlayerState.ServerId != 0 && assist.PlayerId != 0 && assist.PlayerId != _localPlayerState.ServerId)
+            {
+                GordianLog.Debug("COMBAT", $"Assist 0x058 for another character 0x{assist.PlayerId:X8} ignored.");
+                return;
+            }
+            GordianLog.Debug("COMBAT", $"Assist 0x058: target 0x{assist.TargetId:X8}.");
+            _combatState.ApplyAssistTarget(assist.TargetId);
         }
 
         private void HandleBattleMessage(PacketHeader header, ReadOnlySpan<byte> payload)

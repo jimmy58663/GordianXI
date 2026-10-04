@@ -102,6 +102,15 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 
 The three menu tables are research only: nothing reads them yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)). **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
 
+### Client message tables
+
+Both in the zone dialog table format (`ZoneDialogTable`) and read by `ClientMessageTables` through the file-id loader ([#110](https://github.com/jimmy58663/GordianXI/issues/110)); codes in [events/message-codes.md](../events/message-codes.md#client-message-tables-110).
+
+| File id | Path | Contents | Decoder | Source |
+|---|---|---|---|---|
+| 7031 (EN), 7030 (JP) | `ROM/27/76`, `ROM/27/75` | System messages: 326, ids = LandSandBoat `MsgStd` (2 "You could not enter the next area.", 88 the `/random` roll, 117 "Event skipped.") | `ClientMessageTables.SystemMessages`; printed for S2C 0x053 | XiPackets `world/server/0x0053` |
+| 7025 (EN), 7024 (JP) | `ROM/27/70`, `ROM/27/69` | Emote log lines: `2 * id` with a target, `2 * id + 1` without (16 / 17 `/wave`) | `ClientMessageTables.EmoteMessages`; printed for S2C 0x05A | **Beyond XiPackets:** found by searching the retail DATs (2026-10-03), checked against LandSandBoat's emote ids |
+
 ### UI and lobby
 
 | File id | Path | Contents | Decoder | Source |

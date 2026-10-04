@@ -471,5 +471,189 @@ namespace Gordian.Core.Network.Packets
             BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), effectPara);
             return packet;
         }
+
+        /// <summary>The bazaar message buffer of C2S 0x0DE / S2C 0x0CA: three lines of 40 characters and 3 unused bytes.</summary>
+        public const int InspectMessageBytes = 123;
+
+        /// <summary>Characters per line of the bazaar message.</summary>
+        public const int InspectMessageLineLength = 40;
+
+        /// <summary>
+        /// Builds C2S 0x0DE (GP_CLI_COMMAND_INSPECT_MESSAGE, 128 bytes): sets the character's bazaar message. The buffer is
+        /// three 40-character lines; retail fills every unused character with a space (XiPackets), so the lines are padded
+        /// here and the 3 bytes after them stay spaces too. LandSandBoat stores the first 120 characters.
+        /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/client/0x00DE</c>;
+        /// server side referenced from LandSandBoat (https://github.com/LandSandBoat/server), <c>c2s/0x0de_inspect_message.cpp</c>.
+        /// </summary>
+        public static byte[] BuildInspectMessage(string message, ushort sequenceId = 0)
+        {
+            ArgumentNullException.ThrowIfNull(message);
+            var packet = BuildWords(0x0DE, 32, sequenceId);
+            var buffer = packet.AsSpan(4, InspectMessageBytes);
+            buffer.Fill((byte)' ');
+            // A line break starts the next 40-character line, as the client's three-line editor does.
+            string[] lines = message.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+            for (int line = 0; line < lines.Length && line < 3; line++)
+            {
+                byte[] text = Encoding.ASCII.GetBytes(lines[line]);
+                int length = Math.Min(text.Length, line == 0 && lines.Length == 1 ? InspectMessageLineLength * 3 : InspectMessageLineLength);
+                text.AsSpan(0, length).CopyTo(buffer.Slice(line * InspectMessageLineLength));
+            }
+            return packet;
+        }
+    }
+
+    /// <summary>
+    /// How an emote plays (S2C 0x05A <c>Mode</c>, C2S 0x05D <c>Mode</c>): 0 the motion and the log line, 1 the line only,
+    /// 2 the motion only. Values referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x005A</c>,
+    /// and LandSandBoat's <c>EmoteMode</c> (<c>enums/emote.h</c>).
+    /// </summary>
+    public enum EmoteMode : byte
+    {
+        All = 0,
+        Text = 1,
+        Motion = 2
+    }
+
+    /// <summary>
+    /// S2C 0x053 (GP_SERV_COMMAND_SYSTEMMES): a system message from the client's system message table (English file id
+    /// 7031, <c>ROM/27/76</c>) with two number parameters. Payload: 0 u32 <c>para</c>, 4 u32 <c>para2</c>, 8 u16
+    /// <c>Number</c>, 10 padding; 12 bytes. LandSandBoat sends its <c>MsgStd</c> ids with it (blockaid, "Event skipped.",
+    /// "You could not enter the next area.", the compass reading of <c>/mapr</c>...).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0053)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x053_systemmes.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x053_SystemMes
+    {
+        public const ushort PacketId = 0x053;
+        public const int PayloadLength = 10;
+
+        public bool IsValid { get; }
+        public uint Para { get; }
+        public uint Para2 { get; }
+        public ushort MessageId { get; }
+
+        public S2C_0x053_SystemMes(ReadOnlySpan<byte> payload)
+        {
+            this = default;
+            if (payload.Length < PayloadLength) return;
+            Para = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            Para2 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            MessageId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x05A (GP_SERV_COMMAND_MOTIONMES): an emote, sent to everyone in range including the one who made it (the
+    /// echo of C2S 0x05D; LandSandBoat <c>c2s/0x05d_motion.cpp</c> pushes it with CHAR_INRANGE_SELF). Payload: 0 u32
+    /// <c>CasUniqueNo</c>, 4 u32 <c>TarUniqueNo</c> (0 without a target), 8 u16 <c>CasActIndex</c>, 10 u16
+    /// <c>TarActIndex</c>, 12 u16 <c>MesNum</c> (the emote id; a job emote is 74 + job id - 1), 14 u16 <c>Param</c> (the
+    /// nation for <c>/salute</c>, the weapon for <c>/hurray</c> and <c>/aim</c>, the note for <c>/bell</c>), 16 u16
+    /// unknown, 18 <c>Mode</c> (<see cref="EmoteMode"/>), 20 <c>FaithUniqueNo[5]</c>, 40 <c>FaithActIndex[5]</c> (the
+    /// caster's Trusts, for <c>/emotefaith</c>); 52 bytes.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x005A)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x05a_motionmes.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x05A_MotionMes
+    {
+        public const ushort PacketId = 0x05A;
+        public const int MinPayloadLength = 19;
+        public const int FaithCount = 5;
+
+        public bool IsValid { get; }
+        public uint CasterId { get; }
+        public uint TargetId { get; }
+        public ushort CasterIndex { get; }
+        public ushort TargetIndex { get; }
+        public ushort EmoteId { get; }
+        public ushort Param { get; }
+        public EmoteMode Mode { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x05A_MotionMes(ReadOnlySpan<byte> payload)
+        {
+            this = default;
+            _payload = payload;
+            if (payload.Length < MinPayloadLength) return;
+            CasterId = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            TargetId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            CasterIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            TargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(10, 2));
+            EmoteId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
+            Param = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(14, 2));
+            Mode = (EmoteMode)payload[18];
+            IsValid = true;
+        }
+
+        /// <summary>The server id of the caster's Trust <paramref name="index"/> (0-4), 0 for none or a short packet.</summary>
+        public uint GetFaithId(int index)
+        {
+            if (!IsValid || index < 0 || index >= FaithCount || _payload.Length < 20 + ((index + 1) * 4)) return 0;
+            return BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(20 + (index * 4), 4));
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x0CA (GP_SERV_COMMAND_INSPECT_MESSAGE): a checked character's bazaar message and title. Payload: 0
+    /// <c>sInspectMessage[123]</c> (three 40-character lines padded with spaces, no terminator), 123 a byte of
+    /// <c>BazaarFlag</c> (bit 0), <c>MyFlag</c> (bit 1, the checked character is you) and <c>Race</c> (bits 2-7), 124
+    /// <c>sName[16]</c>, 140 u32 <c>DesignationNo</c> (the title id, an index into the title table ROM/180/78); 144 bytes.
+    /// LandSandBoat sends it for a <c>/check</c> on a player and for your own character when you enter a zone.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00CA)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0ca_inspect_message.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x0CA_InspectMessage
+    {
+        public const ushort PacketId = 0x0CA;
+        public const int PayloadLength = 144;
+
+        public bool IsValid { get; }
+        public bool HasBazaar { get; }
+        public bool IsSelf { get; }
+        public byte Race { get; }
+        public uint TitleId { get; }
+
+        private readonly ReadOnlySpan<byte> _payload;
+
+        public S2C_0x0CA_InspectMessage(ReadOnlySpan<byte> payload)
+        {
+            this = default;
+            _payload = payload;
+            if (payload.Length < PayloadLength) return;
+            byte flags = payload[123];
+            HasBazaar = (flags & 0x01) != 0;
+            IsSelf = (flags & 0x02) != 0;
+            Race = (byte)(flags >> 2);
+            TitleId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(140, 4));
+            IsValid = true;
+        }
+
+        /// <summary>The checked character's name.</summary>
+        public string Name => IsValid ? PlayerCommandText.ReadString(_payload.Slice(124, 16)) : string.Empty;
+
+        /// <summary>
+        /// The bazaar message as its lines (up to three, trailing spaces trimmed, empty lines at the end dropped), joined
+        /// with '\n'. A NUL ends the text early (LandSandBoat copies the stored message without padding it).
+        /// </summary>
+        public string Message
+        {
+            get
+            {
+                if (!IsValid) return string.Empty;
+                var text = _payload.Slice(0, PlayerCommandPacketBuilder.InspectMessageBytes);
+                int nul = text.IndexOf((byte)0);
+                if (nul >= 0) text = text.Slice(0, nul);
+                var lines = new System.Collections.Generic.List<string>(3);
+                for (int start = 0; start < text.Length && lines.Count < 3; start += PlayerCommandPacketBuilder.InspectMessageLineLength)
+                {
+                    int length = Math.Min(PlayerCommandPacketBuilder.InspectMessageLineLength, text.Length - start);
+                    lines.Add(Encoding.ASCII.GetString(text.Slice(start, length)).TrimEnd(' '));
+                }
+                while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+                return string.Join('\n', lines);
+            }
+        }
     }
 }
