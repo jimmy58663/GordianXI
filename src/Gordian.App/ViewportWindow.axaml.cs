@@ -148,7 +148,7 @@ namespace Gordian.App
 
         /// <summary>
         /// The lobby's keys: the arrows and numeric keypad 8/2/4/6 move the cursor, Enter / keypad 5 confirm, Escape
-        /// cancels. Every key is the lobby's while it is open.
+        /// cancels, Backspace deletes a letter of a name being typed. Every key is the lobby's while it is open.
         /// </summary>
         private static void HandleLobbyKey(Gordian.Core.Ui.Lobby.LobbyController lobby, KeyEventArgs e)
         {
@@ -160,9 +160,13 @@ namespace Gordian.App
                 Key.Right or Key.NumPad6 => Gordian.Core.Ui.Lobby.LobbyInput.Right,
                 Key.Enter or Key.NumPad5 => Gordian.Core.Ui.Lobby.LobbyInput.Confirm,
                 Key.Escape => Gordian.Core.Ui.Lobby.LobbyInput.Cancel,
+                Key.Back => Gordian.Core.Ui.Lobby.LobbyInput.Backspace,
                 _ => null,
             };
-            if (input is { } action) lobby.HandleInput(action);
+            // Letter keys stay unhandled so their text input follows (the name step types it, OnGameTextInput); Avalonia
+            // drops the WM_CHAR text input after a handled key press on Windows.
+            if (input is not { } action) return;
+            lobby.HandleInput(action);
             e.Handled = true;
         }
 
@@ -383,6 +387,12 @@ namespace Gordian.App
         /// <summary>Typed text for the stock chat input line (shifted and layout-specific characters included).</summary>
         private void OnGameTextInput(object? sender, TextInputEventArgs e)
         {
+            if (ActiveLobby is { } lobby)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) lobby.HandleText(e.Text);
+                e.Handled = true;
+                return;
+            }
             var input = _viewModel?.ActiveTab?.Session?.Chat.Input;
             if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
             input.InsertText(e.Text);

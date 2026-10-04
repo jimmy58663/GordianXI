@@ -57,7 +57,9 @@ namespace Gordian.App.Graphics
                 _logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
             }
 
-            preview.Show(lobby.PreviewCharacter);
+            bool creating = lobby.Screen == LobbyScreen.Creation;
+            if (creating && !lobby.IsRenaming) preview.Show(lobby.PreviewCreation);
+            else preview.Show(lobby.PreviewCharacter ?? lobby.RenamingCharacter);
 
             _commands.Begin();
             _commands.SetFramebuffer(framebuffer);
@@ -76,7 +78,7 @@ namespace Gordian.App.Graphics
             if (entities != null && preview.Entity != null)
             {
                 var rect = StockUiLobby.Fit(width, height);
-                var (centerX, feetY, topY) = StockUiLobby.PreviewArea(rect);
+                var (centerX, feetY, topY) = StockUiLobby.PreviewArea(rect, creating && !lobby.IsRenaming);
                 var (eye, target, fov) = StockUiLobby.PreviewCamera(centerX, feetY, topY, width, height);
                 _camera.SetEventView(eye, target, fov, 0f, width / (float)height);
                 _commands.Begin();

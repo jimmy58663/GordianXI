@@ -87,10 +87,11 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The list screen's preview area (640-space x 0-296, feet at y 372 above the help bar): where the model stands, in screen pixels.</summary>
-        public static (float CenterX, float FeetY, float TopY) PreviewArea(LobbyRect rect)
+        public static (float CenterX, float FeetY, float TopY) PreviewArea(LobbyRect rect, bool creation = false)
         {
             float s = rect.Height / 480f;
-            return (rect.X + 150 * s, rect.Y + 372 * s, rect.Y + 160 * s);
+            // Creation keeps its windows at the top left, so the model stands in the middle.
+            return (rect.X + (creation ? 290 : 150) * s, rect.Y + 372 * s, rect.Y + 160 * s);
         }
 
         /// <summary>The backgrounds: the title art on the main menu, the list screen's backdrop elsewhere.</summary>
@@ -103,6 +104,8 @@ namespace Gordian.App.Graphics
             {
                 string background = lobby.IsLicencePending ? LicenceBackgroundMenu
                     : lobby.Screen == LobbyScreen.MainMenu ? LobbyController.TitleBackgroundMenu : LobbyController.ListBackgroundMenu;
+                // Creation keeps its windows where the backdrop's small logo is, so the logo is left out there.
+                bool creating = lobby.Screen == LobbyScreen.Creation;
                 if (library.TryGetMenu(background, out var menu))
                 {
                     // The backdrop's tiled "newtex" fill spans the whole window (no bars on wide or tall windows); the art
@@ -136,7 +139,7 @@ namespace Gordian.App.Graphics
                         if (shape.Kind != 0 || !library.TryGetImage(shape, out var art)) continue;
                         foreach (var part in art.Parts)
                         {
-                            if (!IsFill(part)) renderer.DrawPart(part, placement.X, placement.Y, placement.Scale);
+                            if (!IsFill(part) && !(creating && IsLogo(part))) renderer.DrawPart(part, placement.X, placement.Y, placement.Scale);
                         }
                     }
                 }
@@ -189,6 +192,9 @@ namespace Gordian.App.Graphics
             ColorTopLeft = Opaque(p.ColorBottomLeft), ColorTopRight = Opaque(p.ColorBottomRight), ColorBottomLeft = Opaque(p.ColorTopLeft), ColorBottomRight = Opaque(p.ColorTopRight),
         };
 
+        private static bool IsLogo(UiSpritePart part) =>
+            UiResourceLibrary.TrimResourceName(part.TextureName).Equals("titlwin", StringComparison.OrdinalIgnoreCase);
+
         private static bool IsFill(UiSpritePart part) =>
             UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
 
@@ -211,6 +217,9 @@ namespace Gordian.App.Graphics
                     case LobbyScreen.CharacterList:
                         if (lobby.CharacterList != null) DrawCharacterList(renderer, library, font, lobby, lobby.CharacterList, rect, timestamp, cursor: !promptOpen);
                         break;
+                    case LobbyScreen.Creation:
+                        DrawCreation(renderer, library, font, lobby, rect, timestamp, cursor: !promptOpen);
+                        break;
                 }
 
                 if (lobby.IsLicencePending && library.TryGetMenu(LobbyController.HelpBarMenu, out var licenceBar))
@@ -231,6 +240,9 @@ namespace Gordian.App.Graphics
                     renderer.DrawMenu(help, bar, includeButtons: false, border: false, frameWidth: width / placement.Scale);
                     // The bar (lobbywin #2) spans x -256..384, y 155..181 from the frame origin; text inset 16, centred on the bar.
                     float textScale = placement.Scale * 0.875f;
+                    // A line longer than the bar is drawn smaller to fit (retail's handling of long help lines is not captured).
+                    float room = (640 - 32) * placement.Scale, wide = font.MeasureWidth(lobby.HelpText) * textScale;
+                    if (wide > room) textScale *= room / wide;
                     renderer.DrawText(font, lobby.HelpText, placement.X + (-256 + 16) * placement.Scale,
                         placement.Y + 168 * placement.Scale - font.LineHeight * textScale * 0.5f, textScale);
                 }
@@ -333,6 +345,119 @@ namespace Gordian.App.Graphics
                     y += font.LineHeight * scale + 2 * ls;
                 }
             }
+        }
+
+        /// <summary>
+        /// Character creation: the step's window at the top left (labels from the in-game <c>windowps</c> set), the large
+        /// race caption (<c>race1</c>-<c>race8</c>) and, once chosen, the nation flag (<c>nation1</c>-<c>nation3</c>) at the
+        /// top right, the nation's title and description on the nation step, and the name / world fields with what is
+        /// typed and chosen.
+        /// </summary>
+        private static void DrawCreation(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, LobbyController lobby, LobbyRect rect,
+            long timestamp, bool cursor)
+        {
+            var creation = lobby.PreviewCreation;
+            var step = lobby.CreationStep;
+            bool showFlag = lobby.HasChosenNation || step == LobbyCreationStep.Nation;
+            if (!lobby.IsRenaming && !showFlag && library.TryGetMenu($"race{Math.Clamp((int)creation.Race, 1, 8)}", out var raceCaption))
+            {
+                renderer.DrawMenu(raceCaption, Place(raceCaption, rect), includeButtons: false, border: false);
+            }
+            if (showFlag && !lobby.IsRenaming && library.TryGetMenu($"nation{creation.Nation + 1}", out var flag))
+            {
+                renderer.DrawMenu(flag, Place(flag, rect), includeButtons: false, border: false);
+            }
+
+            if (step <= LobbyCreationStep.Nation && lobby.CreationMenu is { } choices)
+            {
+                DrawChoiceMenu(renderer, library, choices, rect, timestamp, cursor);
+                if (step == LobbyCreationStep.Nation && font != null) DrawNationText(renderer, font, lobby, creation.Nation, rect);
+                return;
+            }
+
+            // Name and world: the fields stack at the top left ("Name—" at y 32, "World—" at y 60), the world list below.
+            if (font != null && library.TryGetMenu(LobbyController.NameField, out var nameField))
+            {
+                var placement = Place(nameField, rect);
+                renderer.DrawMenu(nameField, placement, includeButtons: false, border: false);
+                float s = placement.Scale;
+                string name = lobby.NameText;
+                float tx = placement.X + 24 * s, ty = placement.Y + (26 * s - font.LineHeight * s) * 0.5f + 2 * s;
+                renderer.DrawText(font, name, tx, ty, s);
+                if (step == LobbyCreationStep.Name && (timestamp / (System.Diagnostics.Stopwatch.Frequency / 2)) % 2 == 0)
+                {
+                    // A 1-px caret after the letters typed before it.
+                    float caretX = tx + font.MeasureWidth(name.AsSpan(0, Math.Min(lobby.NameCaret, name.Length))) * s;
+                    renderer.DrawTextureRect("gauge", 1, 1, 1, 1, caretX, ty, Math.Max(1, s), font.LineHeight * s, new UiColor(0x80, 0x80, 0x80, 0x80));
+                }
+            }
+            if (step == LobbyCreationStep.World && font != null && library.TryGetMenu(LobbyController.WorldField, out var worldField))
+            {
+                var placement = Place(worldField, rect);
+                renderer.DrawMenu(worldField, placement, includeButtons: false, border: false);
+                int row = (lobby.CreationMenu?.SelectedButtonId ?? 0) - 1;
+                if (row >= 0 && row < lobby.Worlds.Count)
+                {
+                    float s = placement.Scale;
+                    renderer.DrawText(font, lobby.Worlds[row].Name, placement.X + 24 * s, placement.Y + (26 * s - font.LineHeight * s) * 0.5f + 2 * s, s);
+                }
+                if (lobby.CreationMenu is { } worlds) DrawWorldList(renderer, library, font, lobby, worlds, rect, timestamp, cursor);
+            }
+        }
+
+        /// <summary>A creation step's window: the frame, every choice's label (the selected one tinted) and the cursor; the page arrows are not drawn.</summary>
+        private static void DrawChoiceMenu(StockUiRenderer renderer, UiResourceLibrary library, LobbyMenu menu, LobbyRect rect, long timestamp, bool cursor)
+        {
+            var definition = menu.Definition;
+            var placement = Place(definition, rect);
+            renderer.DrawMenu(definition, placement, includeButtons: false, opaqueBody: true);
+            float s = placement.Scale;
+            foreach (var button in definition.Buttons)
+            {
+                if (button.X < 0 || button.X >= definition.Frame.Width) continue; // the red page arrows outside the window
+                if (!TryGetShape(library, button, 0, out var label)) continue;
+                float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
+                if (button.ButtonId == menu.SelectedButtonId) StockUiMenuWindow.DrawSelectedImage(renderer, label, bx, by, s);
+                else renderer.DrawImage(label, bx, by, s);
+            }
+            if (cursor && menu.SelectedButton is { } current) StockUiMenuWindow.DrawMenuCursor(renderer, library, definition.Frame, current, placement, timestamp);
+        }
+
+        /// <summary>The nation step's text: the nation's name and description from ROM/165/71, in the right half of the screen.</summary>
+        private static void DrawNationText(StockUiRenderer renderer, UiFont font, LobbyController lobby, int nation, LobbyRect rect)
+        {
+            var text = lobby.Text;
+            if (text == null) return;
+            int titleRow = nation switch { 1 => Gordian.Core.Resources.Tables.LobbyTextTables.BastokTitle, 2 => Gordian.Core.Resources.Tables.LobbyTextTables.WindurstTitle, _ => Gordian.Core.Resources.Tables.LobbyTextTables.SandoriaTitle };
+            float s = rect.Height / 480f, scale = s * 0.7f;
+            float x = rect.X + 380 * s, y = rect.Y + 96 * s;
+            renderer.DrawText(font, text.Status(titleRow), x, y, s);
+            y += font.LineHeight * s + 8 * s;
+            foreach (string line in text.Status(titleRow + 1).Split('\n'))
+            {
+                renderer.DrawText(font, line, x, y, scale);
+                y += font.LineHeight * scale + 2 * s;
+            }
+        }
+
+        /// <summary>The world list (<c>worldsel</c>): a row per world with its name, the selected row's bar (its kind-1 image) behind it.</summary>
+        private static void DrawWorldList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, LobbyController lobby, LobbyMenu menu,
+            LobbyRect rect, long timestamp, bool cursor)
+        {
+            var definition = menu.Definition;
+            var placement = Place(definition, rect);
+            renderer.DrawMenu(definition, placement, includeButtons: false, opaqueBody: true);
+            float s = placement.Scale;
+            var worlds = lobby.Worlds;
+            foreach (var button in definition.Buttons)
+            {
+                int index = button.ButtonId - 1;
+                if (index < 0 || index >= worlds.Count) continue;
+                float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
+                if (button.ButtonId == menu.SelectedButtonId && TryGetShape(library, button, 1, out var bar)) renderer.DrawImage(bar, bx, by, s);
+                renderer.DrawText(font, worlds[index].Name, bx + 8 * s, by + (button.Height * s - font.LineHeight * s) * 0.5f, s);
+            }
+            if (cursor && menu.SelectedButton is { } current) StockUiMenuWindow.DrawMenuCursor(renderer, library, definition.Frame, current, placement, timestamp);
         }
 
         private static readonly string[] JobAbbreviations =

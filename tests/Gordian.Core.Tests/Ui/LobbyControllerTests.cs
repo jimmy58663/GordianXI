@@ -214,6 +214,137 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("connection lost", reason);
         }
 
+        private static LobbyController OpenCreation(FakeBackend backend)
+        {
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
+            lobby.HandleInput(LobbyInput.Down); // Create Character
+            lobby.HandleInput(LobbyInput.Confirm);
+            return lobby;
+        }
+
+        [Fact]
+        public void Create_WalksTheStepsWithALivePreviewAndCreatesThenPlays()
+        {
+            var backend = Backend(Character(1, "Knot"), Free(2), Free(3));
+            backend.OnCreate = (slot, creation) =>
+            {
+                backend.List[slot.Slot - 1] = Character(slot.Slot, creation.Name) with { Race = creation.Race, Face = creation.CombinedFace };
+                return Task.CompletedTask;
+            };
+            var lobby = OpenCreation(backend);
+            LsbSessionTicket? ticket = null;
+            lobby.CharacterSelected += t => ticket = t;
+
+            Assert.Equal(LobbyScreen.Creation, lobby.Screen);
+            Assert.Equal(LobbyCreationStep.Race, lobby.CreationStep);
+            Assert.Equal(1, lobby.PreviewCreation.Race);
+            for (int i = 0; i < 6; i++) lobby.HandleInput(LobbyInput.Down);
+            Assert.Equal(7, lobby.PreviewCreation.Race); // Mithra under the cursor shows before it is chosen
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.Equal(LobbyCreationStep.Face, lobby.CreationStep);
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Confirm); // face 3 (index 2)
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Confirm); // hair B
+            lobby.HandleInput(LobbyInput.Left); // back to hair: the page arrow
+            Assert.Equal(LobbyCreationStep.Hair, lobby.CreationStep);
+            Assert.Equal(2, lobby.CreationMenu!.SelectedButtonId); // keeps the choice
+            lobby.HandleInput(LobbyInput.Right); // forward again with it
+            lobby.HandleInput(LobbyInput.Confirm); // size medium (the default)
+            lobby.HandleInput(LobbyInput.Up);
+            lobby.HandleInput(LobbyInput.Confirm); // job: up from Warrior wraps to Thief
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Down);
+            lobby.HandleInput(LobbyInput.Confirm); // Windurst
+            Assert.Equal(LobbyCreationStep.Name, lobby.CreationStep);
+            var look = lobby.PreviewCreation;
+            Assert.Equal((7, 2, 1, 1, 6, 2), (look.Race, look.Face, look.Hair, look.Size, look.MainJob, look.Nation));
+
+            lobby.HandleText("ab");
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.NotNull(lobby.Prompt); // too short: FFXI-3110
+            Assert.Contains(lobby.Prompt!.Lines, l => l.Contains("3110"));
+            lobby.HandleInput(LobbyInput.Confirm);
+            lobby.HandleText("CDE1f");
+            Assert.Equal("Abcdef", lobby.NameText); // letters only, retail case
+            lobby.HandleInput(LobbyInput.Backspace);
+            Assert.Equal("Abcde", lobby.NameText);
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Equal(LobbyCreationStep.World, lobby.CreationStep);
+            Assert.Equal("Gordian", Assert.Single(lobby.Worlds).Name);
+
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Contains("check Abcde Gordian", backend.Calls);
+            Assert.NotNull(lobby.Prompt); // Register "Abcde" and begin play?
+            Assert.Equal(LobbyController.PromptFirstButton, lobby.Prompt!.Menu.SelectedButtonId);
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Contains("create Abcde", backend.Calls);
+            Assert.Contains("select Abcde", backend.Calls);
+            Assert.Equal("Abcde", ticket?.CharacterName);
+            Assert.Equal(LobbyScreen.Entering, lobby.Screen);
+        }
+
+        [Fact]
+        public void Create_TakenNameGoesBackToTheNameStep()
+        {
+            var backend = Backend(Character(1, "Knot"), Free(2));
+            backend.OnCheckName = _ => Task.FromException(LobbyRequestException.FromServer("name check", LobbyErrorCode.CharacterNameUnavailable));
+            var lobby = OpenCreation(backend);
+            for (int i = 0; i < 6; i++) lobby.HandleInput(LobbyInput.Confirm); // race .. nation with the defaults
+            lobby.HandleText("knot");
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            lobby.HandleInput(LobbyInput.Confirm); // the world
+            WaitIdle(lobby);
+            Assert.Contains(lobby.Prompt!.Lines, l => l.Contains("3313"));
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.Equal(LobbyCreationStep.Name, lobby.CreationStep);
+            Assert.DoesNotContain(backend.Calls, c => c.StartsWith("create"));
+        }
+
+        [Fact]
+        public void Create_WithoutAFreeSlotSaysSo()
+        {
+            var lobby = OpenCreation(Backend(Character(1, "Knot")));
+            Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
+            Assert.NotNull(lobby.Prompt);
+        }
+
+        [Fact]
+        public void Create_CancelWalksBackToTheTitleMenu()
+        {
+            var lobby = OpenCreation(Backend(Free(1)));
+            lobby.HandleInput(LobbyInput.Confirm); // race -> face
+            lobby.HandleInput(LobbyInput.Cancel);
+            Assert.Equal(LobbyCreationStep.Race, lobby.CreationStep);
+            lobby.HandleInput(LobbyInput.Cancel);
+            Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
+        }
+
+        [Fact]
+        public void Rename_AsksForANewNameThenPlays()
+        {
+            var backend = Backend(Character(1, "Badname", rename: true));
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
+            LsbSessionTicket? ticket = null;
+            lobby.CharacterSelected += t => ticket = t;
+            lobby.HandleInput(LobbyInput.Confirm); // list
+            lobby.HandleInput(LobbyInput.Confirm); // the character: rename required
+            Assert.NotNull(lobby.Prompt);
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.Equal(LobbyCreationStep.Name, lobby.CreationStep);
+            Assert.True(lobby.IsRenaming);
+            lobby.HandleText("goodname");
+            lobby.HandleInput(LobbyInput.Confirm);
+            WaitIdle(lobby);
+            Assert.Contains("rename Badname Goodname", backend.Calls);
+            Assert.Equal("Goodname", ticket?.CharacterName);
+        }
+
         [Fact]
         public void Mouse_HoverMovesTheCursorAndClickActivates()
         {

@@ -19,6 +19,8 @@ namespace Gordian.Core.Ui.Lobby
         Right,
         Confirm,
         Cancel,
+        /// <summary>Deletes the last letter of a name being entered.</summary>
+        Backspace,
     }
 
     /// <summary>Which lobby screen is up.</summary>
@@ -86,7 +88,7 @@ namespace Gordian.Core.Ui.Lobby
     /// <see cref="SyncRoot"/>; the renderer reads under the same lock.
     /// </para>
     /// </summary>
-    public sealed class LobbyController
+    public sealed partial class LobbyController
     {
         // Lobby DAT menu names.
         public const string TitleBackgroundMenu = "loby1win";
@@ -225,6 +227,7 @@ namespace Gordian.Core.Ui.Lobby
                     {
                         case LobbyScreen.MainMenu: HandleMainMenu(input); break;
                         case LobbyScreen.CharacterList: HandleList(input); break;
+                        case LobbyScreen.Creation: HandleCreation(input); break;
                     }
                 }
                 Touch();
@@ -243,6 +246,7 @@ namespace Gordian.Core.Ui.Lobby
                     {
                         LobbyScreen.MainMenu => MainMenu,
                         LobbyScreen.CharacterList => CharacterList,
+                        LobbyScreen.Creation => CreationMenu,
                         _ => null,
                     };
                 }
@@ -254,6 +258,7 @@ namespace Gordian.Core.Ui.Lobby
         {
             if (Prompt != null && ReferenceEquals(menu, Prompt.Menu)) return buttonId is PromptFirstButton or PromptSecondButton && menu.Definition.FindButton(buttonId) != null;
             if (ReferenceEquals(menu, CharacterList)) return CharacterInSlot(buttonId) != null;
+            if (ReferenceEquals(menu, CreationMenu)) return IsCreationChoice(buttonId);
             return menu.Definition.FindButton(buttonId) != null;
         }
 
@@ -334,6 +339,7 @@ namespace Gordian.Core.Ui.Lobby
                 case LobbyInput.Confirm:
                     if (CharacterInSlot(list.SelectedButtonId) is not { } character) break;
                     if (_deleting) ConfirmDelete(character);
+                    else if (character.RenameRequired) StartRename(character);
                     else Select(character);
                     break;
             }
@@ -346,11 +352,6 @@ namespace Gordian.Core.Ui.Lobby
             UpdateHelp();
         }
 
-        /// <summary>Character creation (#33) starts here; until it is built the button does nothing.</summary>
-        private void StartCreation()
-        {
-        }
-
         /// <summary>Character deletion (#34) asks first; until it is built the list only plays characters.</summary>
         private void ConfirmDelete(LobbyCharacter character)
         {
@@ -361,21 +362,41 @@ namespace Gordian.Core.Ui.Lobby
             RunRequest(Status(LobbyTextTables.NotifyingLobbyOfChoice), async ct =>
             {
                 var ticket = await _backend.SelectCharacterAsync(character, ct).ConfigureAwait(false);
-                lock (SyncRoot)
+                Enter(ticket);
+            });
+        }
+
+        /// <summary>A character was selected: the lobby is done and the launcher starts the game with the ticket.</summary>
+        private void Enter(LsbSessionTicket ticket)
+        {
+            lock (SyncRoot)
+            {
+                Screen = LobbyScreen.Entering;
+                Prompt = null;
+                CreationMenu = null;
+                Touch();
+            }
+            CharacterSelected?.Invoke(ticket);
+        }
+
+        /// <summary>Replaces the status window's line while a request runs (a request with several steps).</summary>
+        private void SetStatus(string status)
+        {
+            lock (SyncRoot)
+            {
+                if (Prompt is { HasButtons: false } current)
                 {
-                    Screen = LobbyScreen.Entering;
-                    Prompt = null;
+                    Prompt = new LobbyPrompt(current.Menu, status.Length > 0 ? new[] { status } : Array.Empty<string>(), null);
                     Touch();
                 }
-                CharacterSelected?.Invoke(ticket);
-            });
+            }
         }
 
         /// <summary>
         /// Runs a lobby request with a status window up. A refusal shows the error (its DAT text and code) with an OK
         /// button; a lost connection closes the lobby after the message.
         /// </summary>
-        private void RunRequest(string status, Func<CancellationToken, Task> request)
+        private void RunRequest(string status, Func<CancellationToken, Task> request, Action? onError = null)
         {
             IsBusy = true;
             Prompt = new LobbyPrompt(Menu(StatusPromptMenu, 0), status.Length > 0 ? new[] { status } : Array.Empty<string>(), null);
@@ -398,7 +419,7 @@ namespace Gordian.Core.Ui.Lobby
                     lock (SyncRoot)
                     {
                         Prompt = null;
-                        ShowError(ex);
+                        ShowError(ex, onError);
                         IsBusy = false;
                         Touch();
                     }
@@ -406,7 +427,7 @@ namespace Gordian.Core.Ui.Lobby
             });
         }
 
-        private void ShowError(Exception ex)
+        private void ShowError(Exception ex, Action? onError = null)
         {
             int code = ex is LobbyRequestException { IsServerError: true } lobby ? lobby.ErrorCode : 0;
             IReadOnlyList<string> lines = code != 0 && _text != null
@@ -417,6 +438,7 @@ namespace Gordian.Core.Ui.Lobby
             ShowMessage(lines, () =>
             {
                 if (!connected) Close(ex.Message);
+                else onError?.Invoke();
             });
         }
 
@@ -556,6 +578,23 @@ namespace Gordian.Core.Ui.Lobby
                         });
                     }
                     break;
+                case RaceMenu:
+                case FaceMenu:
+                case HairMenu:
+                case SizeMenu:
+                case JobMenu:
+                case NationMenu:
+                case WorldList:
+                    int rows = name switch { RaceMenu or FaceMenu => 8, HairMenu => 2, SizeMenu or NationMenu => 3, JobMenu => 6, _ => 14 };
+                    for (int row = 1; row <= rows; row++)
+                    {
+                        buttons.Add(new UiMenuButton
+                        {
+                            ButtonId = (short)row, X = 16, Y = (short)(6 + 16 * (row - 1)), Width = 88, Height = 16,
+                            NavUp = (sbyte)(row == 1 ? rows : row - 1), NavDown = (sbyte)(row == rows ? 1 : row + 1), NavLeft = (sbyte)row, NavRight = (sbyte)row,
+                        });
+                    }
+                    break;
                 case OkPromptMenu:
                     buttons.Add(new UiMenuButton { ButtonId = 1, X = 104, Y = 86, Width = 118, Height = 22, NavUp = 1, NavDown = 1, NavLeft = 1, NavRight = 1 });
                     break;
@@ -584,6 +623,7 @@ namespace Gordian.Core.Ui.Lobby
                     _ => -1,
                 },
                 LobbyScreen.CharacterList => _deleting ? LobbyTextTables.HelpSelectCharacterToDelete : LobbyTextTables.HelpSelectCharacterToPlay,
+                LobbyScreen.Creation => CreationHelpLine(),
                 _ => -1,
             };
             HelpText = line >= 0 && !IsLicencePending ? Status(line) : string.Empty;

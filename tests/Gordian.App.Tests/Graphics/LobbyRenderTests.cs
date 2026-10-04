@@ -106,6 +106,81 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Character creation offscreen: the race window with the Mithra under the cursor (caption and model follow it),
+        /// the nation step with its flag and description, the name field with typed text, the world list and the
+        /// register prompt. Writes lobby_create_*.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersCreationSteps()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.LoadLobby(rm);
+            if (library == null) return;
+            var text = LobbyTextTables.Load(rm.LoadDatBytes);
+            var backend = new FakeBackend();
+            backend.List.Add(Character(1, "Knot", 2, 5, 4, 75));
+            backend.List.Add(Free(2));
+            var lobby = new LobbyController(backend, library, text, showLicence: false);
+
+            const uint width = 1280, height = 720;
+            IntPtr hwnd = CreateWindowExW(0, "static", "LobbyCreateTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
+                var entities = new EntityRenderer(gd);
+                var preview = new LobbyPreview();
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir)) Directory.CreateDirectory(dumpDir);
+                void Frame(string name)
+                {
+                    for (int i = 0; i < 3; i++) frames.Render(lobby, preview, entities, rm, framebuffer, width, height, 1 / 60f);
+                    var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
+                    if (!string.IsNullOrEmpty(dumpDir)) StockUiRendererTests.SavePng(Path.Combine(dumpDir, name), pixels, (int)width, (int)height);
+                }
+                void WaitIdle() { for (int i = 0; i < 200 && lobby.IsBusy; i++) Thread.Sleep(10); }
+
+                lobby.HandleInput(LobbyInput.Down);
+                lobby.HandleInput(LobbyInput.Confirm); // Create Character
+                for (int i = 0; i < 6; i++) lobby.HandleInput(LobbyInput.Down);
+                Frame("lobby_create_race.png");
+                Assert.NotNull(preview.Entity);
+                Assert.Equal((ushort)(7 << 8), preview.Entity!.Appearance.GrapIdTable[0]);
+
+                for (int i = 0; i < 5; i++) lobby.HandleInput(LobbyInput.Confirm); // race .. job
+                lobby.HandleInput(LobbyInput.Down);
+                Frame("lobby_create_nation.png");
+                lobby.HandleInput(LobbyInput.Confirm);
+                lobby.HandleText("Gordian");
+                Frame("lobby_create_name.png");
+                lobby.HandleInput(LobbyInput.Confirm);
+                WaitIdle();
+                Frame("lobby_create_world.png");
+                lobby.HandleInput(LobbyInput.Confirm);
+                WaitIdle();
+                Assert.NotNull(lobby.Prompt);
+                Frame("lobby_create_confirm.png");
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose();
+                entities.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         [Fact]
         public void RendersTitleMenuCharacterListAndPreview()
         {
