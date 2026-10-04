@@ -376,7 +376,7 @@ namespace Gordian.Core.Network.LandSandBoat
                     $"LandSandBoat character selection failed: server returned {reply.Length} bytes with code 0x{command:X2} (expected 72 bytes with 0x0B). Check LSB server console for details."));
             }
 
-            string zoneIp = next.ServerAddress.AsSpan().SequenceEqual(stackalloc byte[4]) ? _host : new IPAddress(next.ServerAddress).ToString();
+            string zoneIp = next.ServerAddress == 0 ? _host : new IPAddress(next.ServerAddress).ToString();
             int zonePort = next.ServerPort != 0 ? (int)next.ServerPort : LsbLoginClient.DefaultDataPort;
             string name = next.Name.Length > 0 ? next.Name : character.Name;
 

@@ -61,6 +61,7 @@ namespace Gordian.Core.Network.LandSandBoat
     /// <param name="Face">The combined face (0-15: face 1A..8B), as the world packets carry it in the model id's low byte.</param>
     /// <param name="Equipment">Model ids head, body, hands, legs, feet, main, sub with the slot in the top nibble
     /// (0x1000 head ... 0x7000 sub), as the world packets' GrapIDTbl[1..7].</param>
+    /// <param name="JobLevels">The job levels of <c>job_lev</c> (index = job id 1-15; slot 0 is unused).</param>
     public sealed record LobbyCharacter(
         int Slot,
         uint ContentId,
@@ -79,8 +80,8 @@ namespace Gordian.Core.Network.LandSandBoat
         byte Nation,
         byte Size,
         ushort ZoneId,
-        ushort[] Equipment,
-        byte[] JobLevels)
+        LobbyEquipment Equipment,
+        LobbyJobLevels JobLevels)
     {
         /// <summary>Status 1: playable, or free to create a character in.</summary>
         public const ushort StatusAvailable = 1;
@@ -90,6 +91,29 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>The world packets' GrapIDTbl[0] for this character: <c>(race &lt;&lt; 8) | face</c>.</summary>
         public ushort FaceModel => (ushort)((Race << 8) | Face);
+    }
+
+    /// <summary>A character's seven model ids (head .. sub) in the lobby list, kept inline (no heap array per character).</summary>
+    [System.Runtime.CompilerServices.InlineArray(Count)]
+    public struct LobbyEquipment
+    {
+        public const int Count = 7;
+        private ushort _element0;
+
+        public static LobbyEquipment From(ReadOnlySpan<ushort> models)
+        {
+            var equipment = new LobbyEquipment();
+            for (int i = 0; i < Count && i < models.Length; i++) equipment[i] = models[i];
+            return equipment;
+        }
+    }
+
+    /// <summary>The 16 <c>job_lev</c> bytes of a lobby list entry, kept inline.</summary>
+    [System.Runtime.CompilerServices.InlineArray(Count)]
+    public struct LobbyJobLevels
+    {
+        public const int Count = 16;
+        private byte _element0;
     }
 
     /// <summary>One world of the lobby world list (S2C 0x23 <c>lpkt_world_name</c>).</summary>
@@ -114,9 +138,12 @@ namespace Gordian.Core.Network.LandSandBoat
         public ushort FaceModel => (ushort)((Hair & 1) | (2 * (Face | (Race << 7))));
     }
 
-    /// <summary>The lobby's S2C 0x0B: where the selected character's map server is.</summary>
+    /// <summary>
+    /// The lobby's S2C 0x0B: where the selected character's map server is. The addresses are the IPv4 bytes as sent,
+    /// read as a little-endian u32 (127.0.0.1 = 0x0100007F), which is what <see cref="System.Net.IPAddress(long)"/> takes.
+    /// </summary>
     public readonly record struct LobbyNextLogin(uint ContentId, uint ServerId, string Name, uint ServerIndex,
-        byte[] ServerAddress, uint ServerPort, byte[] CacheAddress, uint CachePort);
+        uint ServerAddress, uint ServerPort, uint CacheAddress, uint CachePort);
 
     /// <summary>
     /// Builders and parsers for the lobby packets. Builders write into caller-provided buffers sized by the
@@ -342,14 +369,15 @@ namespace Gordian.Core.Network.LandSandBoat
             ushort grap0 = BinaryPrimitives.ReadUInt16LittleEndian(info[12..]);
             // Retail: GrapIDTbl[0] = (race << 8) | combined face. LandSandBoat: the combined face only (also in face_no).
             byte face = grap0 >= 0x100 ? (byte)(grap0 & 0xFF) : (byte)(grap0 != 0 ? grap0 : BinaryPrimitives.ReadUInt16LittleEndian(info[4..]));
-            var equipment = new ushort[7];
-            for (int s = 0; s < equipment.Length; s++)
+            var equipment = new LobbyEquipment();
+            for (int s = 0; s < LobbyEquipment.Count; s++)
             {
                 ushort model = BinaryPrimitives.ReadUInt16LittleEndian(info[(14 + s * 2)..]);
                 equipment[s] = model < 0x1000 ? (ushort)(model | ((s + 1) << 12)) : model;
             }
             ushort zone = (ushort)(info[28] | ((info[35] & 1) << 8));
-            var jobLevels = info.Slice(56, 16).ToArray();
+            var jobLevels = new LobbyJobLevels();
+            info.Slice(56, LobbyJobLevels.Count).CopyTo(jobLevels);
 
             return new LobbyCharacter(slot, contentId, serverId, worldId, status,
                 RenameRequired: (flags & 0x01) != 0, RaceChangeAvailable: (flags & 0x02) != 0,
@@ -382,9 +410,9 @@ namespace Gordian.Core.Network.LandSandBoat
                 BinaryPrimitives.ReadUInt32LittleEndian(packet[32..]),
                 ReadAscii(packet.Slice(36, NameLength)),
                 BinaryPrimitives.ReadUInt32LittleEndian(packet[52..]),
-                packet.Slice(56, 4).ToArray(),
+                BinaryPrimitives.ReadUInt32LittleEndian(packet[56..]),
                 BinaryPrimitives.ReadUInt32LittleEndian(packet[60..]),
-                packet.Slice(64, 4).ToArray(),
+                BinaryPrimitives.ReadUInt32LittleEndian(packet[64..]),
                 BinaryPrimitives.ReadUInt32LittleEndian(packet[68..]));
             return true;
         }
