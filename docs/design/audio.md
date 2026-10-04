@@ -73,6 +73,30 @@ Sound pointers (`SoundEffectPointer`, DAT section 0x3D, xi-tools `docs/audio/ref
 
 `SoundLibrary` (App) decodes effects whole once and caches them (about 96 MB cap), and streams music from the file bytes, both through `FfxiSoundDecoder` (ADPCM / PCM managed, ATRAC3 through the registered decoder).
 
+## Music and ambience (#42, #114)
+
+**Server music state** (`ZoneMusicState` on `WorldState.Music`, Core): eight slots (XiPackets `world/server/0x005F`): 0 zone day, 1 zone night, 2 solo battle, 3 party battle, 4 mount, 5 dead, 6 Mog House, 7 fishing.
+
+- S2C 0x00A `MusicNum[5]` (wire 0x56, payload 0x52) fills slots 0-4 on every zone-in and resets the server volume to 127; slots 5-7 are kept.
+- S2C 0x05F (`u16 Slot`, `u16 MusicNum`) sets one slot. LandSandBoat sends it from Lua `changeMusic` and zone-wide battle music changes.
+- S2C 0x060 (`u16 time`, `u16 volume` 0-127) eases the music bus to `volume / 127`. XiPackets says the client lerps over `time` without a unit; we read 1/60 s frames (provisional). LandSandBoat never sends it.
+
+**Track choice** (`MusicDirector`, App), from the local player each frame:
+
+| Situation | Slot |
+|---|---|
+| status 3 (dead) | 5 dead |
+| status 1 (engaged) | 3 party battle when in a party of two or more, else 2 solo battle |
+| status 5 (chocobo) or 85 (mount) | 4 mount |
+| status 6 or 38-62 (fishing) | 7 fishing |
+| otherwise | 1 night from 18:00 to 06:00 Vana'diel time, else 0 day |
+
+A slot holding 0 falls back to the zone's day / night track (night 0 falls back to day). When the track changes, the old one fades out over 1.5 s and the new one starts from the top; when two slots hold the same track it keeps playing. An event can override the choice (#167). Tracks loop at their header loop point. Provisional, not yet compared with retail: the 18:00 / 06:00 switch, battle music only while the player is engaged (not while a party member fights or a monster claims the player), the fade length, and the Mog House slot (not picked yet: nothing tells the client it is in the Mog House; #116's MyRoom flags would).
+
+**Ambient loops** (`GameAudioService`): on each zone change the zone model DAT's sound pointers are read on a worker (`ZoneSoundTable`). The loop for the current weather (`WorldState.WeatherId`, falling back to its sky category, then `fine`, then any authored weather) and Vana'diel minute plays on the Zone bus, looped, crossfading over 2 s (provisional) when weather or time selects another. The indoor (`indo`) sets are not used.
+
+**Who is heard:** one device for the app. The viewport whose window was last activated owns the sound (multi-boxing plays only that character); its render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
+
 ## Phase 5H plan
 
 - [ ] Zone effect audio: ~5.9k Section 0x05 generators link a sound (`0x3D`) with near/far range (`0x4C`), time-of-day volume (`0x43`) and path-following emitters (`0x6B`, shoreline waves); they run on the existing zone particle runtime and need only the sound backend.
@@ -80,6 +104,6 @@ Sound pointers (`SoundEffectPointer`, DAT section 0x3D, xi-tools `docs/audio/ref
 - [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
 - [ ] Footstep & movement SFX tied to `PlayerLocomotionController`/animation state; the surface under each foot comes from the decoded collision terrain type (`CollisionTriangle.Terrain`: object, path, grass, sand, snow, stone, metal, wood, shallow/deep water), and sand/snow leave footprints. (FFXI has no swimming: water edges are ordinary collision barriers.)
 - [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
-- [ ] Ambient zone loops & BGM playback tied to `WorldState.ZoneChanged`.
+- [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [ ] UI/menu sound cues (target, cursor move, confirm, cancel).
 - [ ] Master/category volume mixing (SFX/BGM/Ambient/UI) with persisted settings.

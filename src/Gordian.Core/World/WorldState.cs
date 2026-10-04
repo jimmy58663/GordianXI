@@ -45,6 +45,9 @@ namespace Gordian.Core.World
         public event Action<ushort>? ZoneChanged;
         public event Action<string>? WeatherChanged;
 
+        /// <summary>The zone's music slots and server music volume (S2C 0x00A / 0x05F / 0x060), read by the audio engine.</summary>
+        public ZoneMusicState Music { get; } = new();
+
         private ushort _currentZoneId;
         private volatile Collision.ZoneCollisionMesh? _collision;
 

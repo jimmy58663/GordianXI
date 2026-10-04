@@ -91,6 +91,8 @@ namespace Gordian.Core.Network
             {
                 _world.UpdateWeather(weatherNumber);
             };
+            _lifecycleModule.MusicTableReceived += table => _world.Music.SetZoneTable(table);
+            new MusicPacketModule(_world.Music).Register(_dispatcher);
             // A zone-in event runs like a 0x032 event of the player (the zone was set just before, so it reads the new zone's scripts).
             _lifecycleModule.ZoneInEventReceived += evt =>
             {

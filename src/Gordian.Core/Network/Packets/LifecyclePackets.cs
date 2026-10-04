@@ -264,6 +264,23 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
+        /// Reads the zone's music table <c>MusicNum[5]</c> (wire offset 0x56, payload 0x52): day, night, solo battle,
+        /// party battle and mount music numbers. Field referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000A).
+        /// </summary>
+        public bool TryGetMusicTable(Span<ushort> destination)
+        {
+            const int musicOffset = 0x52;
+            if (destination.Length < 5 || _payload.Length < musicOffset + 10) return false;
+
+            for (int i = 0; i < 5; i++)
+            {
+                destination[i] = BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(musicOffset + (i * 2), 2));
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Reads character name ASCII string from the login packet if present.
         /// In 0x00A payload, name is located at offset 0x80 (128).
         /// </summary>
@@ -828,6 +845,9 @@ namespace Gordian.Core.Network.Packets
         public event Action<WorldPositionUpdate>? WorldPositionReceived;
         public event Action<ushort>? ZoneReceived;
         public event Action<ushort>? WeatherReceived;
+
+        /// <summary>The zone's music table from S2C 0x00A (<c>MusicNum[5]</c>), raised after <see cref="ZoneReceived"/>.</summary>
+        public event Action<ushort[]>? MusicTableReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
@@ -897,6 +917,11 @@ namespace Gordian.Core.Network.Packets
                 }
                 // Weather 0 is Clear/Fine ("fine") in FFXI; invoke unconditionally so initial zone weather is applied
                 WeatherReceived?.Invoke(ack.WeatherNumber);
+                Span<ushort> music = stackalloc ushort[5];
+                if (ack.TryGetMusicTable(music))
+                {
+                    MusicTableReceived?.Invoke(music.ToArray());
+                }
                 if (ack.HasZoneInEvent)
                 {
                     GordianLog.Info("EVENT", $"Zone-in event: EventNum={ack.EventNum}, EventPara={ack.EventPara}, Mode=0x{ack.EventMode:X}, EventNo={ack.EventNo}");

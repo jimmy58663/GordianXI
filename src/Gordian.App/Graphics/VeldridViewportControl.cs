@@ -527,6 +527,7 @@ namespace Gordian.App.Graphics
                 _renderLoopCts.Dispose();
                 _renderLoopCts = null;
                 _renderTask = null;
+                Audio.GameAudioService.ReleaseIfCreated(this);
             }
         }
 
@@ -660,6 +661,16 @@ namespace Gordian.App.Graphics
                 else
                 {
                     Camera.AspectRatio = aspect;
+                }
+
+                // Sound follows the viewport that last had focus (Phase 5H); never let it break a frame.
+                try
+                {
+                    Audio.GameAudioService.Instance.Update(this, _activeSession, Camera, deltaSeconds);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
                 }
 
                 lock (_renderLock)
