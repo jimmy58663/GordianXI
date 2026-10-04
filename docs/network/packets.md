@@ -187,14 +187,14 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0B6` | `SET_GMMSG` | var | `dropped` |  | GM. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0B7` | `GMSCITEM` | ? | `dropped` |  | GM. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0BF` | `REGISTRATION` (LSB) | 28 | `dropped` |  | Battlefield registration. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
-| `0x0C8` | `GROUP_TBL` | 248 | `decoded` | `S2C_0x0C8_GroupTbl` | Party roster. Leader flags partly exposed [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
+| `0x0C8` | `GROUP_TBL` | 248 | `decoded` | `S2C_0x0C8_GroupTbl` | Party roster. Leader flags partly exposed [#116](https://github.com/jimmy58663/GordianXI/issues/116). Each entry's `ZoneNo` is the member's zone (same-zone members included, unlike 0x0DD), stored on `PartyMember.ZoneId` and used by the party window to show "(zone)" for members elsewhere [#146](https://github.com/jimmy58663/GordianXI/issues/146). |
 | `0x0C9` | `EQUIP_INSPECT` | var | `dropped` |  | Player `/check` reply (LSB `equip_inspect_equipment` / `_general`). [#64](https://github.com/jimmy58663/GordianXI/issues/64) |
 | `0x0CA` | `INSPECT_MESSAGE` | 148 | `dropped` |  | Bazaar / check comment. [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled 2026-09-30 and 2026-10-01. |
 | `0x0CC` | `LINKSHELL_MESSAGE` | 176 | `decoded` | `S2C_0x0CC_LinkshellMessage` | Linkshell message. `encodedLsName` (payload 156) is the 6-bit packed name, confirmed against a retail capture of 2026-09-28 [#100](https://github.com/jimmy58663/GordianXI/issues/100). |
 | `0x0D2` | `TROPHY_LIST` | 60 | `decoded` | `S2C_0x0D2_TrophyList` | Treasure pool item (`TreasurePoolState`). |
 | `0x0D3` | `TROPHY_SOLUTION` | 60 | `decoded` | `S2C_0x0D3_TrophySolution` | Treasure pool lot / result. |
 | `0x0DC` | `GROUP_SOLICIT_REQ` | 32 | `decoded` | `S2C_0x0DC_GroupSolicitReq` | Party invite. |
-| `0x0DD` | `GROUP_LIST` | var | `decoded` | `S2C_0x0DD_GroupList` | Member list, sized to the name: LSB cuts `Name[16]` (payload 36) to the name rounded up to 4 plus 4 bytes; a fixed 52-byte guard used to drop short names [#159](https://github.com/jimmy58663/GordianXI/issues/159). |
+| `0x0DD` | `GROUP_LIST` | var | `decoded` | `S2C_0x0DD_GroupList` | Member list, sized to the name: LSB cuts `Name[16]` (payload 36) to the name rounded up to 4 plus 4 bytes; a fixed 52-byte guard used to drop short names [#159](https://github.com/jimmy58663/GordianXI/issues/159). `ZoneNo` (offset 28) is set only for a member in a different zone from yours, whose HP/MP/TP/percent/jobs are then zero: the party window shows the zone name instead, and the stored vitals are not overwritten [#146](https://github.com/jimmy58663/GordianXI/issues/146). |
 | `0x0DE` | `GROUP_SOLICIT_NO` | 8 | `decoded` | `S2C_0x0DE_GroupSolicitNo` | Clears the pending invite. |
 | `0x0DF` | `GROUP_ATTR` | 36/40 | `decoded` | `S2C_0x0DF_GroupAttr` | Member HP/MP/TP; local vitals. |
 | `0x0E0` | `GROUP_COMLINK` | 8 | `decoded` | `S2C_0x0E0_GroupComlink` | Linkshell item location; LSB sends it at zone-in and on equip. |
