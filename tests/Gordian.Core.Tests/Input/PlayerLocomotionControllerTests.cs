@@ -548,6 +548,49 @@ namespace Gordian.Core.Tests.Input
             Assert.True(Math.Abs(diff) <= limit + 2f, $"camera {diff} degrees off the line, limit {limit} (was {before} off north)");
         }
 
+        private static float ScreenX(PlayerLocomotionController c, Vector3 p)
+        {
+            var v = Vector4.Transform(new Vector4(p, 1f), c.Camera.ViewProjectionMatrix);
+            return v.X / v.W;
+        }
+
+        [Fact]
+        public void Update_LockedOnAtAnArcLimit_ViewFacesTheTargetAndTheCharacterStaysOnScreen()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33)); // eased in, at the limit
+            input.SetKeyUp(GordianKey.L);
+
+            Assert.InRange(Math.Abs(ScreenX(controller, mob.Position)), 0f, 0.15f); // the target sits at the view centre
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0.2f, 0.95f); // the character is off to the side but visible
+        }
+
+        [Fact]
+        public void Update_NotLockedOn_ViewStaysOnTheCharacterAndAimEasesInAndOut()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraYaw = NorthYaw + 25f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0f, 0.01f);
+            Assert.Null(controller.Camera.AimPoint);
+
+            actionService.SetLockOn(true);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.InRange(controller.Camera.AimBlend, 0.01f, 0.99f); // eased, as the zoom
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnAimWeight, controller.Camera.AimBlend, 3);
+
+            actionService.SetLockOn(false);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.InRange(controller.Camera.AimBlend, 0.01f, 0.99f);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(0f, controller.Camera.AimBlend, 3);
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0f, 0.01f);
+        }
+
         [Fact]
         public void Update_LockedOn_CameraPitchIsHeldInsideTheMeasuredRange()
         {

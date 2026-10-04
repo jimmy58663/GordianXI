@@ -9,6 +9,29 @@ namespace Gordian.Core.Tests.Graphics
     public class ViewportCameraTests
     {
         [Fact]
+        public void ViewportCamera_AimPoint_TurnsTheViewTowardItWithoutMovingTheCamera()
+        {
+            var camera = new ViewportCamera { Mode = CameraMode.ThirdPersonOrbital, EyeOffset = Vector3.Zero };
+            camera.Update(Vector3.Zero, 0f, 0f, 10f, 16f / 9f);
+            var unaimed = camera.Position;
+            var plain = Vector3.Normalize(camera.Target - camera.Position);
+
+            camera.AimPoint = new Vector3(0f, 0f, 30f);
+            camera.AimBlend = 1f;
+            camera.Update(Vector3.Zero, 0f, 0f, 10f, 16f / 9f);
+
+            Assert.Equal(unaimed, camera.Position);
+            var aimed = Vector3.Normalize(camera.Target - camera.Position);
+            var toAim = Vector3.Normalize(new Vector3(0f, 0f, 30f) - camera.Position);
+            Assert.True(Vector3.Dot(aimed, toAim) > 0.999f);
+            Assert.True(Vector3.Dot(aimed, plain) < 0.9f);
+
+            camera.AimBlend = 0f;
+            camera.Update(Vector3.Zero, 0f, 0f, 10f, 16f / 9f);
+            Assert.True(Vector3.Dot(Vector3.Normalize(camera.Target - camera.Position), plain) > 0.999f);
+        }
+
+        [Fact]
         public void ViewportCamera_ThirdPersonOrbital_PositionsEyeBehindTarget()
         {
             var camera = new ViewportCamera

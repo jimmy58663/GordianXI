@@ -564,7 +564,14 @@ namespace Gordian.Core.Input
             {
                 targetPos = targetEnt.Position;
             }
-            _camera.Update(targetPos, CameraPitch, CameraYaw, LockOnZoomedDistance(dt), _camera.AspectRatio);
+            float lockDistance = LockOnZoomedDistance(dt);
+            // The view re-aims at the target on the same eased blend as the zoom (retail recording 2026-10-03).
+            var aimTarget = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
+            if (aimTarget is { IsSpawned: true }) _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+            _camera.AimPoint = _lastAimPoint;
+            _camera.AimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
+            if (_lockZoomBlend <= 0f) _lastAimPoint = null;
+            _camera.Update(targetPos, CameraPitch, CameraYaw, lockDistance, _camera.AspectRatio);
 
             if (cameraChanged)
             {
@@ -1248,6 +1255,15 @@ namespace Gordian.Core.Input
         public const float LockOnZoomFactor = 0.48f;
 
         /// <summary>
+        /// How far the locked-on view turns toward the target's bearing (1 = faces it exactly). Retail recording
+        /// 2026-10-03, 10-18 s: the Rarab stays at x = 290-350 of 640 (about plus or minus 5 degrees of the centre) while
+        /// the character moves across the whole screen, with the pitch left to the camera (the Rarab is on the view's
+        /// centre row when level, 17.8-18.0 s, and 45 rows of 540 above it when pitched down, 16.7-17.3 s). So the view
+        /// faces the target in yaw only. The plus or minus 5 degrees is not modelled (likely lag in the aim).
+        /// </summary>
+        public const float LockOnAimWeight = 1.0f;
+
+        /// <summary>
         /// Time the lock-on zoom takes, eased (smoothstep). Retail recording 2026-10-03: nothing at 4.1-4.2 s, 40% done at
         /// 4.3 s, 95% at 4.4 s, done at 4.5 s, so about 0.3 s; turning lock-on off was not recorded and eases back at the
         /// same speed.
@@ -1266,6 +1282,7 @@ namespace Gordian.Core.Input
         private float _lockCameraDiff;
         private float _lockCameraPitch;
         private float _lockZoomBlend;
+        private Vector3? _lastAimPoint;
 
         /// <summary>
         /// Holds the locked-on camera inside the measured yaw arc (<see cref="LockOnCameraArcRightDegrees"/> /
