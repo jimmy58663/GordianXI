@@ -443,20 +443,94 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(0, me.Direction);
         }
 
+        private const float NorthYaw = 270f; // camera yaw looking at +Z (wire heading 192)
+
         [Fact]
-        public void Update_WhenEngagedAndLockedOnAndMoving_RunsInInputDirectionWithCameraUntouched()
+        public void Update_LockedOnAndIdle_DoesNotTurnTheCharacter()
         {
             var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
-            controller.Update(TimeSpan.FromMilliseconds(16));
-            float yaw = controller.CameraYaw;
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(0, me.Direction);
+        }
+
+        [Fact]
+        public void Update_LockedOnAndMovingForward_RunsTowardTargetTurningGraduallyToFaceIt()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
 
             input.SetKeyDown(GordianKey.W);
-            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.InRange(me.Direction, 193, 255); // one tick: a step toward 192 the short way, not the whole turn
 
-            Assert.True(actionService.IsLockedOn);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.InRange(me.Direction, 190, 194);
             Assert.Equal(LocomotionDirection.Forward, me.LocomotionDirection);
-            Assert.True(me.Position.Z < 1f, "Runs along the camera-relative heading, not toward the target at +Z");
-            Assert.Equal(yaw, controller.CameraYaw, 3);
+            Assert.True(me.Position.Z > 3f, "Forward while locked runs toward the target at +Z");
+        }
+
+        [Fact]
+        public void Update_LockedOnAndBackingUp_MovesAwayFromTargetStillFacingIt()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            me.Direction = 192;
+
+            input.SetKeyDown(GordianKey.S);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(LocomotionDirection.Backward, me.LocomotionDirection);
+            Assert.True(me.Position.Z < -3f, "Back while locked runs away from the target");
+            Assert.Equal(192, me.Direction);
+        }
+
+        [Fact]
+        public void Update_LockedOnAndStrafing_CirclesTheTargetFacingIt()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            me.Direction = 192;
+
+            input.SetKeyDown(GordianKey.E);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(LocomotionDirection.Right, me.LocomotionDirection);
+            Assert.True(Math.Abs(me.Position.X) > 3f, "Strafing moves sideways to the target line");
+            Assert.True(Math.Abs(me.Position.Z) < 1f);
+            // still facing the target, which is now off to the side of the original line
+            float expected = WorldEntity.DirectionFromRadians(WorldEntity.HeadingOf(mob.Position.X - me.Position.X, mob.Position.Z - me.Position.Z));
+            Assert.InRange(me.Direction, expected - 10, expected + 10);
+        }
+
+        [Fact]
+        public void Update_LockedOn_CameraStopsAtTheArcLimitAndStaysThere()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(GordianKey.L); // yaw right
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            float atLimit = controller.CameraYaw;
+            float off = Math.Abs(((atLimit - NorthYaw + 540f) % 360f) - 180f);
+            Assert.Equal(PlayerLocomotionController.LockOnCameraArcDegrees, off, 1);
+
+            input.SetKeyUp(GordianKey.L);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(atLimit, controller.CameraYaw, 3); // no ease, no snap back behind the player
+        }
+
+        [Fact]
+        public void Update_NotLockedOn_CameraYawIsFree()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            float off = Math.Abs(((controller.CameraYaw - NorthYaw + 540f) % 360f) - 180f);
+            Assert.True(off > PlayerLocomotionController.LockOnCameraArcDegrees + 20f);
         }
 
         [Fact]

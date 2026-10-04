@@ -555,6 +555,8 @@ namespace Gordian.Core.Input
                 cameraChanged = true;
             }
 
+            if (ClampLockOnCamera()) cameraChanged = true;
+
             // Update underlying ViewportCamera matrices and frustum
             var targetPos = Vector3.Zero;
             uint targetServerId = GetOrResolveLocalServerId();
@@ -647,6 +649,97 @@ namespace Gordian.Core.Input
             Vector2 leftStick = pad.IsConnected
                 ? GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone)
                 : Vector2.Zero;
+
+            // Lock-On Locomotion:
+            // When locked onto a target, the character continuously faces the target directly.
+            // Locomotion moves the character forward/backward or strafes left/right relative to the target line,
+            // assigning LocomotionDirection accordingly without rotating character away from target.
+            WorldEntity? lockTgt = GetLockOnTarget();
+
+            if (lockTgt != null && lockTgt.IsSpawned)
+            {
+                float toTgtX = lockTgt.Position.X - localEnt.Position.X;
+                float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
+                float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
+
+                float lockFwd = 0f;
+                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.MoveBackward)) lockFwd -= 1.0f;
+
+                float lockStrafe = 0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeRight) || _inputState.IsActionHeld(InputAction.TurnRight)) lockStrafe += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeLeft) || _inputState.IsActionHeld(InputAction.TurnLeft)) lockStrafe -= 1.0f;
+
+                if (leftStick != Vector2.Zero)
+                {
+                    lockFwd += leftStick.Y;
+                    lockStrafe += leftStick.X;
+                }
+
+                float inputLen = MathF.Sqrt(lockFwd * lockFwd + lockStrafe * lockStrafe);
+                if (inputLen > 0.001f)
+                {
+                    if (inputLen > 1.0f)
+                    {
+                        lockFwd /= inputLen;
+                        lockStrafe /= inputLen;
+                    }
+
+                    // Facing toward the target starts once the player moves (never on the engage or lock frame), at the
+                    // stick-turn rate rather than as a snap (#137, provisional: see docs/input/console-and-input.md).
+                    if (distSq > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
+
+                    float inputAngle = MathF.Atan2(lockStrafe, lockFwd);
+                    if (MathF.Abs(inputAngle) <= (MathF.PI / 4.0f))
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                    }
+                    else if (MathF.Abs(inputAngle) >= (3.0f * MathF.PI / 4.0f))
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Backward;
+                    }
+                    else if (inputAngle > 0f)
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Right;
+                    }
+                    else
+                    {
+                        localEnt.LocomotionDirection = LocomotionDirection.Left;
+                    }
+
+                    byte effectiveRun = GetEffectiveRunSpeed(localEnt);
+                    byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
+                    byte moveSpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
+                    if (leftStick != Vector2.Zero && leftStick.Length() < padSettings.WalkTiltThreshold)
+                    {
+                        moveSpeed = effectiveWalk;
+                    }
+
+                    localEnt.Speed = moveSpeed;
+                    float speedYalmsPerSec = moveSpeed * 0.1f;
+                    float distance = speedYalmsPerSec * dt;
+
+                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                    var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                    float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
+                    float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
+
+                    MoveHorizontally(localEnt, dx, dz);
+
+                    // Re-align facing to target after displacement
+                    toTgtX = lockTgt.Position.X - localEnt.Position.X;
+                    toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
+                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
+                }
+                else
+                {
+                    localEnt.Speed = 0;
+                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                }
+
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
 
             // Camera-Relative 3D Locomotion (Standard FFXI Type A)
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
@@ -970,6 +1063,18 @@ namespace Gordian.Core.Input
             }
         }
 
+        /// <summary>
+        /// Turns the locked-on character toward the target at <see cref="FacingTurnSpeedDegreesPerSec"/>, so locking on
+        /// (including the automatic lock when engaging) never snaps the heading in one frame (#137). PROVISIONAL: whether
+        /// retail's lock-on turns gradually or at once is unconfirmed.
+        /// </summary>
+        private void FaceTarget(WorldEntity localEnt, float toTgtX, float toTgtZ, float dt)
+        {
+            float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
+            TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
+            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
+        }
+
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
         {
             float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
@@ -1085,6 +1190,70 @@ namespace Gordian.Core.Input
             deg %= 360.0f;
             if (deg < 0) deg += 360.0f;
             return deg;
+        }
+        /// <summary>
+        /// The one place that decides whether the character and camera are tied to the target (#137). PROVISIONAL: only
+        /// an explicit player lock-on (<see cref="PlayerActionService.IsLockedOn"/>) does; being engaged on its own
+        /// leaves movement and heading free (retail recording 2026-10-03: engaging does not turn you).
+        /// </summary>
+        private WorldEntity? GetLockOnTarget()
+        {
+            if (_actionService == null || !_actionService.IsLockedOn) return null;
+            var target = _actionService.CurrentTarget;
+            if (target == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
+            {
+                _world.TryGetByServerId(_actionService.Combat.TargetServerId, out target);
+            }
+            return target;
+        }
+
+        /// <summary>
+        /// While locked on, the camera may swing this far either side of the character-to-target direction
+        /// (degrees). PROVISIONAL (#137): the maintainer reports retail limits the arc and that the camera stays at the
+        /// limit; the recording keeps the target within about 10 degrees of screen centre, so the true value is not
+        /// measured. Chosen to be generous.
+        /// </summary>
+        public const float LockOnCameraArcDegrees = 60.0f;
+
+        private float LockOnCameraDiff(float yawDeg, WorldEntity localEnt, WorldEntity target)
+        {
+            float dx = target.Position.X - localEnt.Position.X;
+            float dz = target.Position.Z - localEnt.Position.Z;
+            if ((dx * dx) + (dz * dz) < 0.0001f) return 0f;
+            return WrapDegrees(yawDeg - (WorldEntity.HeadingOf(dx, dz) * (180.0f / MathF.PI)));
+        }
+
+        private bool _hasLockCameraDiff;
+        private float _lockCameraDiff;
+
+        /// <summary>
+        /// Holds the locked-on camera inside <see cref="LockOnCameraArcDegrees"/> of the target direction, whether the
+        /// player pushes it past the limit or the target drifts there as the player moves around it: the camera stays at
+        /// the limit (no ease, no return behind the player). A camera already outside the arc (locked on from behind) is
+        /// not moved by this, it just cannot go further out. Returns true when it moved the camera.
+        /// </summary>
+        private bool ClampLockOnCamera()
+        {
+            var target = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
+            uint localId = GetOrResolveLocalServerId();
+            if (target == null || !target.IsSpawned || localId == 0 || !_world.TryGetByServerId(localId, out var me) || me == null)
+            {
+                _hasLockCameraDiff = false;
+                return false;
+            }
+
+            float diff = LockOnCameraDiff(CameraYaw, me, target);
+            bool moved = false;
+            if (_hasLockCameraDiff && MathF.Abs(diff) > LockOnCameraArcDegrees && MathF.Abs(diff) > MathF.Abs(_lockCameraDiff))
+            {
+                float allowed = MathF.Max(LockOnCameraArcDegrees, MathF.Abs(_lockCameraDiff));
+                CameraYaw = NormalizeDegrees(CameraYaw - diff + (MathF.Sign(diff) * allowed));
+                diff = MathF.Sign(diff) * allowed;
+                moved = true;
+            }
+            _lockCameraDiff = diff;
+            _hasLockCameraDiff = true;
+            return moved;
         }
     }
 }
