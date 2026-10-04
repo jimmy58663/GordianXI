@@ -149,8 +149,26 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Draws status icons into the "buff" grid, one per slot in the order given.
+        /// The selection cursor over status icon <paramref name="index"/> (keypad + / gamepad Y cycle, #52): the target
+        /// cursor's arrow pointing down at the icon's top edge, and the icon's slot outlined. How retail marks the
+        /// selected icon is not captured yet (provisional look).
         /// </summary>
+        public static void DrawStatusCursor(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition grid, StockUiPlacement placement,
+            int index, long timestamp)
+        {
+            if (index < 0 || index >= grid.Buttons.Count) return;
+            float s = placement.Scale;
+            var slot = grid.Buttons[index];
+            float x = placement.X + slot.X * s, y = placement.Y + slot.Y * s, w = slot.Width * s, h = slot.Height * s;
+            var edge = new UiColor(0x80, 0x70, 0x40, 0x80);
+            float t = Math.Max(1, s);
+            renderer.DrawTextureRect("gauge", 30, 12, 1, 1, x - t, y - t, w + 2 * t, t, edge);
+            renderer.DrawTextureRect("gauge", 30, 12, 1, 1, x - t, y + h, w + 2 * t, t, edge);
+            renderer.DrawTextureRect("gauge", 30, 12, 1, 1, x - t, y, t, h, edge);
+            renderer.DrawTextureRect("gauge", 30, 12, 1, 1, x + w, y, t, h, edge);
+            DrawCursor(renderer, library, new Vector2(x + w * 0.5f, y - 2 * s), s, timestamp);
+        }
+
         /// <summary>
         /// The screen rectangle the first <paramref name="count"/> status icon slots of the "buff" grid cover at a
         /// placement (all of them when <paramref name="count"/> is 0 or more than the grid has); the grid's authored

@@ -94,29 +94,88 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// The log window (1 or 2) selected to scroll through, 0 for none. Retail cycles it with the numeric keypad +
-        /// (gamepad Y): Window 1, Window 2 when split, then none (the status icons follow in retail, to cancel a
-        /// buff, once they can be selected). A selected window is drawn opaque; Up/Down scroll it a line.
+        /// The log window (1 or 2) selected to scroll through, 0 for none. Retail cycles a selection with the numeric
+        /// keypad + (gamepad Y): Window 1, Window 2 when split, then the status icons (to cancel a status), then none.
+        /// A selected window is drawn opaque; Up/Down scroll it a line.
         /// </summary>
         public int SelectedLogWindow { get; set; }
 
-        /// <summary>Selects the next log window, or none after the last.</summary>
+        /// <summary>Icons per row of the status icon grid ("buff": nine per row, 26 px apart).</summary>
+        public const int StatusIconsPerRow = 9;
+
+        /// <summary>Your character's status ids in icon order (the "buff" grid's), for the status-icon step of the cycle.</summary>
+        public Func<IReadOnlyList<ushort>> StatusIds { get; set; } = () => Array.Empty<ushort>();
+
+        /// <summary>Asks the server to cancel a status (C2S 0x0F1, <see cref="PlayerActionService.CancelBuffAsync"/>).</summary>
+        public Action<ushort>? CancelStatus { get; set; }
+
+        private int _selectedStatus = -1;
+
+        /// <summary>The index of the status icon under the selection cursor, -1 when none is selected.</summary>
+        public int SelectedStatusIcon
+        {
+            get
+            {
+                if (_selectedStatus < 0) return -1;
+                int count = StatusIds().Count;
+                return count == 0 ? -1 : Math.Min(_selectedStatus, count - 1);
+            }
+        }
+
+        /// <summary>Whether a log window or a status icon is selected (the menu keys are then the selection's).</summary>
+        public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0;
+
+        /// <summary>
+        /// The next step of the selection cycle: Window 1, Window 2 when split, the status icons when there are any,
+        /// then none. Provisional order and end (#52): whether retail wraps or stops is to be checked on a recording.
+        /// </summary>
         public void CycleLogWindow()
         {
+            if (_selectedStatus >= 0)
+            {
+                _selectedStatus = -1;
+                return;
+            }
             SelectedLogWindow = SelectedLogWindow switch
             {
                 0 => 1,
                 1 when Log.MultiWindow => 2,
                 _ => 0,
             };
-            if (SelectedLogWindow == 0) Log.ScrollToNewest();
+            if (SelectedLogWindow != 0) return;
+            Log.ScrollToNewest();
+            if (StatusIds().Count > 0) _selectedStatus = 0;
         }
 
-        /// <summary>Releases the selected log window and returns it to the newest lines.</summary>
+        /// <summary>Releases the selection (log window or status icon); a log window returns to the newest lines.</summary>
         public void ReleaseLogWindow()
         {
             SelectedLogWindow = 0;
+            _selectedStatus = -1;
             Log.ScrollToNewest();
+        }
+
+        /// <summary>Moves the status cursor: left/right an icon, up/down a row of the grid, staying on the icons shown.</summary>
+        public void MoveStatusSelection(int dx, int dy)
+        {
+            int index = SelectedStatusIcon;
+            if (index < 0) return;
+            int count = StatusIds().Count;
+            int next = index + dx + dy * StatusIconsPerRow;
+            if (dx != 0) next = (next % count + count) % count;
+            else if (next < 0 || next >= count) next = index;
+            _selectedStatus = next;
+        }
+
+        /// <summary>Confirm on a selected status icon: asks the server to cancel that status. Returns the status id, or null.</summary>
+        public ushort? ConfirmStatusSelection()
+        {
+            int index = SelectedStatusIcon;
+            var ids = StatusIds();
+            if (index < 0 || index >= ids.Count) return null;
+            ushort id = ids[index];
+            CancelStatus?.Invoke(id);
+            return id;
         }
 
         /// <summary>Subscribes the log to a session's message sources.</summary>

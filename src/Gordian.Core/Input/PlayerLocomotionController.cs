@@ -319,7 +319,7 @@ namespace Gordian.Core.Input
             var chat = Chat;
             bool menuOpen = menus?.IsOpen ?? false;
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
-            _inputState.MenuContext = menuOpen || (chat?.SelectedLogWindow ?? 0) != 0;
+            _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             _inputState.Update(_profile, elapsed);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
@@ -344,6 +344,13 @@ namespace Gordian.Core.Input
                 if (chat.SelectedLogWindow != 0 && !menuOpen)
                 {
                     UpdateLogScroll(chat, elapsed);
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
+                if (chat.SelectedStatusIcon >= 0 && !menuOpen)
+                {
+                    UpdateStatusSelection(chat);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
@@ -416,6 +423,28 @@ namespace Gordian.Core.Input
             int steps = (int)((_scrollHeld - ScrollRepeatDelay) / ScrollRepeatInterval) - (int)(Math.Max(0, before - ScrollRepeatDelay) / ScrollRepeatInterval);
             if (before < ScrollRepeatDelay) steps++;
             if (steps > 0) chat.Log.Scroll(chat.SelectedLogWindow, direction * steps);
+        }
+
+        /// <summary>
+        /// The status-icon step of the selection cycle: the menu directions move the cursor over the icons, Confirm
+        /// cancels the status under it (it stays selected), Cancel ends the selection.
+        /// </summary>
+        private void UpdateStatusSelection(Ui.StockUiChat chat)
+        {
+            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            {
+                chat.ReleaseLogWindow();
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
+            {
+                chat.ConfirmStatusSelection();
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.MenuLeft)) chat.MoveStatusSelection(-1, 0);
+            if (_inputState.WasActionTriggered(InputAction.MenuRight)) chat.MoveStatusSelection(1, 0);
+            if (_inputState.WasActionTriggered(InputAction.MenuUp)) chat.MoveStatusSelection(0, -1);
+            if (_inputState.WasActionTriggered(InputAction.MenuDown)) chat.MoveStatusSelection(0, 1);
         }
 
         /// <summary>True while a stock menu took this tick's input (movement keys and stick still work, as in retail).</summary>

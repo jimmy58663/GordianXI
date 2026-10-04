@@ -453,6 +453,54 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Chat_KeypadPlusThenSelectsTheStatusIcons_AndConfirmCancelsOne()
+        {
+            var ids = new List<ushort> { 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50 };
+            var cancelled = new List<ushort>();
+            var chat = new StockUiChat { StatusIds = () => ids, CancelStatus = cancelled.Add };
+
+            chat.CycleLogWindow();                     // Window 1
+            Assert.Equal(1, chat.SelectedLogWindow);
+            Assert.Equal(-1, chat.SelectedStatusIcon);
+            chat.CycleLogWindow();                     // one window: the status icons follow
+            Assert.Equal(0, chat.SelectedLogWindow);
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            Assert.True(chat.IsSelecting);
+
+            chat.MoveStatusSelection(-1, 0);           // left from the first wraps to the last
+            Assert.Equal(10, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(1, 0);
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(0, 1);            // down a row of nine
+            Assert.Equal(9, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(0, 1);            // no third row: stays
+            Assert.Equal(9, chat.SelectedStatusIcon);
+
+            Assert.Equal((ushort)49, chat.ConfirmStatusSelection());
+            Assert.Equal(new ushort[] { 49 }, cancelled);
+            ids.RemoveAt(9);
+            ids.RemoveAt(9);                           // the cursor stays on the icons that are left
+            Assert.Equal(8, chat.SelectedStatusIcon);
+
+            chat.CycleLogWindow();                     // after the icons: none
+            Assert.False(chat.IsSelecting);
+
+            // Without status effects the cycle skips the icons.
+            ids.Clear();
+            chat.CycleLogWindow();
+            chat.CycleLogWindow();
+            Assert.False(chat.IsSelecting);
+
+            // Cancel ends the selection.
+            ids.Add(7);
+            chat.CycleLogWindow();
+            chat.CycleLogWindow();
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            chat.ReleaseLogWindow();
+            Assert.False(chat.IsSelecting);
+        }
+
+        [Fact]
         public void SavedProfilesMoveTheDPadToTheTargetCursor()
         {
             var old = InputProfile.CreateCompact();

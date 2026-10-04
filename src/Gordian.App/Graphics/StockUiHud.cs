@@ -427,6 +427,8 @@ namespace Gordian.App.Graphics
                 return;
             }
             StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids);
+            int selected = session.Chat.SelectedStatusIcon;
+            if (selected >= 0) StockUiTargetWindow.DrawStatusCursor(renderer, library, grid, placement, selected, Stopwatch.GetTimestamp());
             Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height);
         }
 
