@@ -97,6 +97,10 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 **Who is heard:** one device for the app. The viewport whose window was last activated owns the sound (multi-boxing plays only that character); its render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
 
+## Volume (#44)
+
+The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x master. No GordianXI-only master or per-bus sliders exist yet; they would be an opt-in enhancement.
+
 ## Phase 5H plan
 
 - [ ] Zone effect audio: ~5.9k Section 0x05 generators link a sound (`0x3D`) with near/far range (`0x4C`), time-of-day volume (`0x43`) and path-following emitters (`0x6B`, shoreline waves); they run on the existing zone particle runtime and need only the sound backend.
@@ -106,4 +110,4 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 - [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [ ] UI/menu sound cues (target, cursor move, confirm, cancel).
-- [ ] Master/category volume mixing (SFX/BGM/Ambient/UI) with persisted settings.
+- [x] Master/category volume mixing from the config sliders (#44, above).

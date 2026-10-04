@@ -10,6 +10,7 @@ using Gordian.Core.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
+using Gordian.Core.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.Audio
@@ -40,6 +41,8 @@ namespace Gordian.App.Audio
         private int _ambientSound;
         private int _ambientHandle;
         private int _ambientToken;
+        private int _appliedMusicVolume = -1;
+        private int _appliedEffectsVolume = -1;
 
         private GameAudioService()
         {
@@ -144,6 +147,7 @@ namespace Gordian.App.Audio
             }
 
             WorldState world = session.World;
+            ApplyVolumes(session.ActionService.UiSettings);
             UpdateListener(camera);
             ushort zone = world.CurrentZoneId;
             if (zone != _zoneId)
@@ -197,6 +201,27 @@ namespace Gordian.App.Audio
 
             PcmClip? clip = await _library.GetEffectAsync(soundId).ConfigureAwait(false);
             return clip is null ? 0 : _engine.Mixer.Play(clip.Open(loop), category, volume, emitter, fadeInSeconds);
+        }
+
+        /// <summary>
+        /// Applies the character's config-page volumes (0-100, linear: provisional): the music slider drives the Music
+        /// bus, the sound effect slider the Effects, System and Zone buses, as the retail config page has only these two.
+        /// </summary>
+        private void ApplyVolumes(StockUiSettings settings)
+        {
+            int music = settings.GetValue(StockUiSettingKey.MusicVolume);
+            int effects = settings.GetValue(StockUiSettingKey.SoundEffectsVolume);
+            if (music == _appliedMusicVolume && effects == _appliedEffectsVolume)
+            {
+                return;
+            }
+
+            _appliedMusicVolume = music;
+            _appliedEffectsVolume = effects;
+            foreach ((AudioCategory category, float gain) in VolumeMix.CategoryGains(music, effects))
+            {
+                _engine.Mixer.SetCategoryVolume(category, gain);
+            }
         }
 
         private void UpdateListener(ViewportCamera camera)
