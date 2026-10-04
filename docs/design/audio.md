@@ -118,12 +118,23 @@ System sounds live in `se000` (ids and names from the Windower pol-utils list bu
 
 Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), level-up (7) and quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
 
+## Footsteps (#40)
+
+`FootstepTracker` (App), each frame, for every drawn actor within 30 yalms of the listener whose animation is a gait (walk, run, combat and strafe moves) and not an action:
+
+1. **When:** a step at the start and at the middle of each gait clip cycle (`EntityAnimationState.CurrentClip` phase crossing 0 or 0.5). Provisional: retail fires on the model's foot-landing state (xi-tools `docs/sounds/footsteps.md`, after xim), which GordianXI does not detect yet.
+2. **Surface:** the collision terrain under the actor (`ZoneCollisionMesh.TryGetGround(position, 1, 2)`, `GroundHit.Terrain`), `Object` when there is no ground.
+3. **Footwear:** `FootwearInfo` reads the first Info section (0x45) of the feet item's DAT (a character: race from the face word, `CharacterEquipmentResolver` feet file) or of the creature's own model DAT: byte 1 is the move digit (base 36, 0xFF = `0`), byte 2 the shake. Read on a worker and cached per file; the default `1`, 0 until then. Checked: all 360 feet DATs of Hume male, Taru female and Galka 0-119 read, digits `11` x99, `12` x97, `10` x94, `21`, `20`, `22`, and every one names a pointer Southern San d'Oria has (`FootwearInfoTests`).
+4. **Sound:** the zone's pointer `0<terrain hex><move><shake + 1>` from `fser` while running, else `fses` (`ZoneSoundTable.FootstepSound`), played positionally on the Effects bus (full volume within 4 yalms, silent at 30; provisional).
+
+Not done: sand / snow footprints (the global `fmrk` decal from `ROM/0/0.DAT` and the zone's `fses/fefs` foot effects are rendering work), and what the config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) controls in retail (sound, footprints or both); it is not applied yet.
+
 ## Phase 5H plan
 
 - [ ] Zone effect audio: ~5.9k Section 0x05 generators link a sound (`0x3D`) with near/far range (`0x4C`), time-of-day volume (`0x43`) and path-following emitters (`0x6B`, shoreline waves); they run on the existing zone particle runtime and need only the sound backend.
 - [ ] Select a cross-platform audio backend (#37: recommendation above, decision pending).
 - [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
-- [ ] Footstep & movement SFX tied to `PlayerLocomotionController`/animation state; the surface under each foot comes from the decoded collision terrain type (`CollisionTriangle.Terrain`: object, path, grass, sand, snow, stone, metal, wood, shallow/deep water), and sand/snow leave footprints. (FFXI has no swimming: water edges are ordinary collision barriers.)
+- [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
 - [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [x] UI/menu sound cues (#43, above).

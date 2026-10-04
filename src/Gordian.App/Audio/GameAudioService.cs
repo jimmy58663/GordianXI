@@ -42,6 +42,10 @@ namespace Gordian.App.Audio
         private int _ambientHandle;
         private int _ambientToken;
         private uint _cueTarget;
+        private readonly FootstepTracker _footsteps = new();
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, FootwearInfo> _footwear = new();
+        private readonly System.Collections.Generic.List<FootstepEvent> _steps = new();
+        private Vector3 _listenerPosition;
         private int _appliedMusicVolume = -1;
         private int _appliedEffectsVolume = -1;
 
@@ -165,6 +169,82 @@ namespace Gordian.App.Audio
             var context = new MusicContext(MusicStatus(session.LocalPlayer.ServerStatus, session.Combat.IsEngaged), session.Party.Members.Count > 1, hour);
             _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
+            UpdateFootsteps(world, session.LocalPlayer.ServerId);
+        }
+
+        /// <summary>Near / far range of footsteps (provisional).</summary>
+        public static readonly (float Near, float Far) FootstepRange = (4f, FootstepTracker.HearingRange);
+
+        /// <summary>
+        /// The footstep digits of an actor: a character's feet item, else a creature's own model DAT (xi-tools
+        /// <c>docs/sounds/footsteps.md</c> §3). Unknown until its DAT is read on a worker; meanwhile the default.
+        /// </summary>
+        private FootwearInfo FootwearOf(WorldEntity entity)
+        {
+            if (_resources is null)
+            {
+                return FootwearInfo.Default;
+            }
+
+            int fileId;
+            ushort face = entity.Appearance.FaceModel;
+            var race = (Gordian.Core.Resources.Tables.CharacterRace)((face >> 8) & 0xFF);
+            if (race != Gordian.Core.Resources.Tables.CharacterRace.Unknown)
+            {
+                ushort feet = (ushort)(entity.Appearance.Feet & 0x0FFF);
+                if (!Gordian.Core.Resources.Tables.CharacterEquipmentResolver.TryResolveGearFileId(race, Gordian.Core.Resources.Tables.CharacterSlot.Feet, feet, out fileId))
+                {
+                    return FootwearInfo.Default;
+                }
+            }
+            else if (entity.Appearance.ModelId != 0)
+            {
+                fileId = Gordian.Core.Resources.Tables.CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId);
+                if (fileId <= 0)
+                {
+                    return FootwearInfo.Default;
+                }
+            }
+            else
+            {
+                return FootwearInfo.Default;
+            }
+
+            if (_footwear.TryGetValue(fileId, out FootwearInfo known))
+            {
+                return known;
+            }
+
+            if (_footwear.TryAdd(fileId, FootwearInfo.Default))
+            {
+                ResourceManager resources = _resources;
+                _ = Task.Run(() =>
+                {
+                    byte[]? dat = resources.LoadDatBytesByFileId(fileId);
+                    if (dat is not null && FootwearInfo.TryRead(dat, out FootwearInfo info))
+                    {
+                        _footwear[fileId] = info;
+                    }
+                });
+            }
+
+            return FootwearInfo.Default;
+        }
+
+        private void UpdateFootsteps(WorldState world, uint localPlayerId)
+        {
+            ZoneSoundTable sounds = _zoneSounds;
+            if (sounds.WalkSteps.Count == 0)
+            {
+                return;
+            }
+
+            _steps.Clear();
+            _footsteps.Update(world.Entities, localPlayerId, _listenerPosition, world.Collision, sounds, _steps, FootwearOf);
+            foreach (FootstepEvent step in _steps)
+            {
+                PlayEffect(step.SoundId, AudioCategory.Effects, 1f, new AudioEmitter(step.Position, FootstepRange.Near, FootstepRange.Far));
+            }
         }
 
         /// <summary>
@@ -287,7 +367,8 @@ namespace Gordian.App.Audio
             Vector3 eye = camera.Position;
             Matrix4x4 view = camera.ViewMatrix;
             var right = new Vector3(view.M11, view.M21, view.M31);
-            _engine.Mixer.SetListener(new Vector3(-eye.X, -eye.Y, eye.Z), new Vector3(-right.X, -right.Y, right.Z));
+            _listenerPosition = new Vector3(-eye.X, -eye.Y, eye.Z);
+            _engine.Mixer.SetListener(_listenerPosition, new Vector3(-right.X, -right.Y, right.Z));
         }
 
         private void LoadZoneSounds(ushort zone)
