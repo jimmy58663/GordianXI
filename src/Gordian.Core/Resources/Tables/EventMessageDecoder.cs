@@ -14,20 +14,50 @@ namespace Gordian.Core.Resources.Tables
         LineBreak,
         /// <summary>The choice list starts here (0x0B): every line after it is one option of a query menu.</summary>
         ChoicesStart,
-        /// <summary>A numeric message parameter (0x0A n): the packet's or event's number <see cref="EventMessageSegment.Argument"/>.</summary>
+        /// <summary>
+        /// A numeric message parameter: the packet's or event's number <see cref="EventMessageSegment.Argument"/>.
+        /// <see cref="EventMessageSegment.Code"/> says how it is written: 0x0A (0x0A n) plain, and the 0x7F n codes 0x94
+        /// two digits, 0x95 hexadecimal, 0x96 binary, 0x99 four digits.
+        /// </summary>
         Number,
         /// <summary>A named thing (0x01 block): <see cref="EventMessageSegment.Code"/> says what kind, <see cref="EventMessageSegment.Values"/> which one.</summary>
         Name,
-        /// <summary>One of several alternatives (0x0C n "[a/b/c]"), picked by number parameter <see cref="EventMessageSegment.Argument"/>.</summary>
+        /// <summary>
+        /// One of several alternatives picked by number parameter <see cref="EventMessageSegment.Argument"/>:
+        /// <see cref="EventMessageSegment.Code"/> 0x0C (0x0C n "[a/b/c]") picks alternative n, 0x92 (0x7F 0x92 n
+        /// "[a/b]") the first when the number is 1, else the second.
+        /// </summary>
         Selector,
-        /// <summary>The message waits for the player to confirm before the event continues (0x7F 0x31).</summary>
+        /// <summary>The message waits for the player to confirm before the event continues (0x7F 0x31, 0x32, 0x33, 0x37).</summary>
         Prompt,
         /// <summary>The player's name (0x08).</summary>
         PlayerName,
         /// <summary>The speaking NPC's name (0x09).</summary>
         NpcName,
-        /// <summary>The name of a party member or another entity the event names (0x19 n, 0x7F 0x93).</summary>
+        /// <summary>
+        /// The name of another entity: <see cref="EventMessageSegment.Code"/> 0x19 (0x19 n) party / alliance member n,
+        /// 0x18 (0x18 n) the entity whose server id is number parameter n, 0x93 (0x7F 0x93) not known.
+        /// </summary>
         EntityName,
+        /// <summary>String parameter <see cref="EventMessageSegment.Argument"/> (0x1C n): an event's string (S2C 0x033).</summary>
+        EventString,
+        /// <summary>
+        /// The text waits <see cref="EventMessageSegment.Argument"/> seconds (0x7F 0x35 n, 0x7F 0x36 n): a pause inside
+        /// the line, or, at the end of a line without a prompt, how long it stays before it closes.
+        /// </summary>
+        Pause,
+        /// <summary>
+        /// The next substitution starts with a capital letter (0x7F 0x80 1); <see cref="EventMessageSegment.Argument"/>
+        /// holds the mode.
+        /// </summary>
+        CaseMode,
+        /// <summary>
+        /// A field of a date and time held in number parameter <see cref="EventMessageSegment.Argument"/> as seconds
+        /// since 2001-12-31 15:00 UTC, shown in local time (0x7F 0xA0-0xAA n): <see cref="EventMessageSegment.Code"/> 0xA0
+        /// year, 0xA1 month, 0xA2 day (checked against retail), 0xA3 / 0xA8 hour, 0xA4 / 0xA9 minute,
+        /// 0xA5 / 0xAA second, 0xA6 / 0xA7 month / day (0xA6-0xAA two digits).
+        /// </summary>
+        DateField,
         /// <summary>A text colour change (0x1F c).</summary>
         Colour,
         /// <summary>An inline icon (0xEF n): elements, auto-translate brackets and the like.</summary>
@@ -66,13 +96,18 @@ namespace Gordian.Core.Resources.Tables
         public EventMessage(IReadOnlyList<EventMessageSegment> segments)
         {
             Segments = segments;
+            int? paused = null;
             foreach (var segment in segments)
             {
                 if (segment.Kind == EventMessageSegmentKind.Prompt) HasPrompt = true;
                 if (segment.Kind == EventMessageSegmentKind.ChoicesStart) HasChoices = true;
                 if (segment.Kind == EventMessageSegmentKind.AutoClose) AutoCloseSeconds = segment.Argument;
+                if (segment.Kind == EventMessageSegmentKind.Pause) paused = (paused ?? 0) + segment.Argument;
                 if (segment.Kind == EventMessageSegmentKind.Position && segment.Values is { Count: 2 } at) Position = (at[0], at[1]);
             }
+            // A line without a prompt that pauses (0x7F 0x36 n at its end: "Shhh! Be quiet!" 0x7F 0x36 0x01) stays up for
+            // its pauses before it closes; with a prompt the pauses are only beats inside the line.
+            if (AutoCloseSeconds == null && !HasPrompt && paused is int seconds) AutoCloseSeconds = seconds;
         }
 
         public IReadOnlyList<EventMessageSegment> Segments { get; }
@@ -83,7 +118,10 @@ namespace Gordian.Core.Resources.Tables
         /// <summary>Where the event message mode shows the message (0x02 code), or null.</summary>
         public (int X, int Y)? Position { get; }
 
-        /// <summary>Seconds after which the message closes by itself (0x7F 0x34 n), or null when it waits (or does not).</summary>
+        /// <summary>
+        /// Seconds after which the message closes by itself (0x7F 0x34 n; or the pauses 0x7F 0x35 / 0x36 n of a message
+        /// without a prompt), or null when it waits (or does not).
+        /// </summary>
         public int? AutoCloseSeconds { get; }
 
         /// <summary>Whether the message carries a choice list (a query menu's options).</summary>
@@ -111,23 +149,28 @@ namespace Gordian.Core.Resources.Tables
     /// <summary>
     /// Decodes the control-coded strings of a zone dialog table (<see cref="ZoneDialogTable"/>).
     /// <para>
-    /// Codes were worked out from the retail English tables (2026-09-28) with the XiEvents 0x0024 query handler
-    /// (https://github.com/atom0s/XiEvents) for the 0x7F code lengths and xi-tinkerer's decoder
-    /// (https://github.com/InoUno/xi-tinkerer, read for the format only) for the 0x01 block layout:
+    /// Codes were worked out from the retail English tables (2026-09-28, 2026-10-03) with the XiEvents 0x0024 query
+    /// handler (https://github.com/atom0s/XiEvents) and xi-tools' dialog decode table (https://github.com/vekien/xi-tools,
+    /// docs/dialog/format.md and the parameter counts of its Shift-JIS event table) for the code lengths, and
+    /// xi-tinkerer's decoder (https://github.com/InoUno/xi-tinkerer, read for the format only) for the 0x01 block layout:
     /// </para>
     /// <list type="bullet">
     /// <item>0x00 ends the message; 0x07 breaks the line; 0x0B starts the choice list of a query.</item>
-    /// <item>0x01 len type ... names something: the type byte says what ('#' item, '3' key item, '8' zone in
-    /// the tables read so far), then sub-blocks of (length ^ 0x80), that many value bytes each ^ 0x80 (little-endian),
-    /// and a closing byte.</item>
-    /// <item>0x0A n prints number parameter n; 0x0C n "[a/b/c]" prints the alternative number parameter n picks;
-    /// 0x08 / 0x09 the player's / NPC's name; 0x19 n another entity's name; 0x1F c sets a colour; the other codes
-    /// below 0x20 take one argument byte.</item>
-    /// <item>0x7F 0x31 (then 0x00) is the prompt: the event waits for the player's confirm. 0x7F 0x34 n closes the message
-    /// after n seconds (the Southern San d'Oria intro's narration carries 9 and 5; the maintainer's retail recording,
-    /// 2026-09-30, shows those lines for 9.2-9.3 s and 5.1 s). 0x7F 0x85 "[a/b]" picks by the player's sex; 0x02 x 0x03 y
-    /// (six bytes) places a line on the screen. Other 0x7F codes are two
-    /// bytes long except 0x34-0x36, 0x80, 0x84, 0x86, 0x8C and 0x92 (three) and 0x38 (four).</item>
+    /// <item>0x01 len type ... names something: the type byte says what ('#' item, '3' key item, '8' zone and the
+    /// rest listed in docs/events/message-codes.md), then sub-blocks of (length ^ 0x80), that many value bytes each ^ 0x80
+    /// (little-endian), and a closing byte.</item>
+    /// <item>0x0A n prints number parameter n; 0x0C n picks one alternative of the next "[a/b/c]" by number parameter n;
+    /// 0x08 / 0x09 the player's / NPC's name; 0x18 n the name of the entity whose server id is parameter n; 0x19 n party
+    /// member n's name; 0x1C n string parameter n; 0x1F c sets a colour; 0x02 x:u16 / 0x03 y:u16 set the line's screen
+    /// position; the other codes below 0x20 take one argument byte.</item>
+    /// <item>0x7F 0x31 (also 0x32, 0x33, 0x37) is the prompt: the event waits for the player's confirm, and the 0x00 after it
+    /// ends the string. 0x7F 0x34 n closes the message after n seconds (the Southern San d'Oria intro's narration carries 9
+    /// and 5; the maintainer's retail recording, 2026-09-30, shows those lines for 9.2-9.3 s and 5.1 s); 0x7F 0x35 / 0x36 n
+    /// pause n seconds. 0x7F 0x85 "[a/b]" picks by the player's sex, 0x7F 0x92 n "[a/b]" by whether number parameter n
+    /// is 1; 0x7F 0x80 1 capitalises the next substitution; 0x7F 0x94 / 0x95 / 0x96 / 0x99 n print number n with two
+    /// digits, in hexadecimal, in binary, with four digits; 0x7F 0xA0-0xAA n print a field of the date in parameter n.
+    /// 0x7F codes are two bytes long except those taking an argument: 0x34-0x36, 0x80, 0x81, 0x84, 0x86-0x88, 0x8C,
+    /// 0x8F, 0x92, 0x94-0x97, 0x99, 0xA0-0xAC, 0xB0, 0xB1, 0xB4, 0xB5 (three) and 0x38 (four).</item>
     /// <item>0xEF n is an icon; 0xFD ... 0xFD (six bytes) an auto-translate resource; everything else is Shift-JIS text.</item>
     /// </list>
     /// </summary>
@@ -148,10 +191,17 @@ namespace Gordian.Core.Resources.Tables
             }
         }
 
+        /// <summary>
+        /// A selector code waiting for its "[a/b/...]" list. The list need not follow the code at once: retail lines put
+        /// text or a space between them ("{0A 02} {7F 92 02}credit[/s]", "{7F 85} [Lord/Lady]"), always on the same line.
+        /// </summary>
+        private readonly record struct PendingSelector(EventMessageSegmentKind Kind, byte Code, int Argument);
+
         public static EventMessage Decode(ReadOnlySpan<byte> raw)
         {
             var segments = new List<EventMessageSegment>();
             var text = new List<byte>();
+            PendingSelector? pending = null;
             int i = 0;
             while (i < raw.Length)
             {
@@ -160,6 +210,14 @@ namespace Gordian.Core.Resources.Tables
 
                 if (b >= 0x20 && b != 0x7F && b != 0xEF && b != 0xFD)
                 {
+                    if (b == (byte)'[' && pending is { } selector && TryReadAlternatives(raw, i, out var alternatives, out int next))
+                    {
+                        FlushText(segments, text);
+                        segments.Add(new EventMessageSegment(selector.Kind, Argument: selector.Argument, Code: selector.Code, Alternatives: alternatives));
+                        pending = null;
+                        i = next;
+                        continue;
+                    }
                     text.Add(b);
                     // Shift-JIS lead byte: the trail byte is part of the character, whatever its value.
                     if (IsSjisLead(b) && i + 1 < raw.Length)
@@ -191,12 +249,18 @@ namespace Gordian.Core.Resources.Tables
                         }
                         else
                         {
-                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: 0x02));
-                            i += 5;
+                            // A lone set_x (or set_y below) is three bytes (xi-tools docs/dialog/format.md).
+                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: ReadU16(raw, i + 1), Code: 0x02));
+                            i += 3;
                         }
+                        break;
+                    case 0x03:
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: ReadU16(raw, i + 1), Code: 0x03));
+                        i += 3;
                         break;
                     case 0x07:
                         segments.Add(new EventMessageSegment(EventMessageSegmentKind.LineBreak));
+                        pending = null;
                         i++;
                         break;
                     case 0x08:
@@ -209,28 +273,35 @@ namespace Gordian.Core.Resources.Tables
                         break;
                     case 0x0B:
                         segments.Add(new EventMessageSegment(EventMessageSegmentKind.ChoicesStart));
+                        pending = null;
                         i++;
                         break;
                     case 0x0A:
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: i + 1 < raw.Length ? raw[i + 1] : 0));
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: ArgumentAt(raw, i + 1), Code: 0x0A));
                         i += 2;
                         break;
                     case 0x0C:
-                        i = DecodeSelector(raw, i, segments);
+                        pending = new PendingSelector(EventMessageSegmentKind.Selector, 0x0C, ArgumentAt(raw, i + 1));
+                        i += 2;
                         break;
+                    case 0x18:
                     case 0x19:
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Argument: i + 1 < raw.Length ? raw[i + 1] : 0, Code: 0x19));
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Argument: ArgumentAt(raw, i + 1), Code: b));
+                        i += 2;
+                        break;
+                    case 0x1C:
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.EventString, Argument: ArgumentAt(raw, i + 1), Code: 0x1C));
                         i += 2;
                         break;
                     case 0x1F:
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Colour, Argument: i + 1 < raw.Length ? raw[i + 1] : 0));
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Colour, Argument: ArgumentAt(raw, i + 1)));
                         i += 2;
                         break;
                     case 0x7F:
-                        i = DecodeExtended(raw, i, segments);
+                        i = DecodeExtended(raw, i, segments, ref pending);
                         break;
                     case 0xEF:
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Icon, Argument: i + 1 < raw.Length ? raw[i + 1] : 0));
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Icon, Argument: ArgumentAt(raw, i + 1)));
                         i += 2;
                         break;
                     case 0xFD:
@@ -239,7 +310,7 @@ namespace Gordian.Core.Resources.Tables
                         break;
                     default:
                         // The remaining codes below 0x20 carry one argument byte.
-                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: i + 1 < raw.Length ? raw[i + 1] : 0, Code: b));
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: ArgumentAt(raw, i + 1), Code: b));
                         i += 2;
                         break;
                 }
@@ -250,11 +321,31 @@ namespace Gordian.Core.Resources.Tables
 
         private static bool IsSjisLead(byte b) => (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC);
 
+        private static int ArgumentAt(ReadOnlySpan<byte> raw, int index) => index < raw.Length ? raw[index] : 0;
+
+        private static int ReadU16(ReadOnlySpan<byte> raw, int index) => ArgumentAt(raw, index) | (ArgumentAt(raw, index + 1) << 8);
+
         private static void FlushText(List<EventMessageSegment> segments, List<byte> text)
         {
             if (text.Count == 0) return;
             segments.Add(new EventMessageSegment(EventMessageSegmentKind.Text, Cp932.GetString(text.ToArray())));
             text.Clear();
+        }
+
+        /// <summary>Reads the "[a/b/...]" list at <paramref name="open"/> (a '['); false when it is not closed.</summary>
+        private static bool TryReadAlternatives(ReadOnlySpan<byte> raw, int open, out string[] alternatives, out int next)
+        {
+            int close = raw.Slice(open).IndexOf((byte)']');
+            int end = raw.Slice(open).IndexOf((byte)0x00);
+            if (close <= 0 || (end >= 0 && end < close))
+            {
+                alternatives = Array.Empty<string>();
+                next = open;
+                return false;
+            }
+            alternatives = Cp932.GetString(raw.Slice(open + 1, close - 1)).Split('/');
+            next = open + close + 1;
+            return true;
         }
 
         private static int DecodeNameBlock(ReadOnlySpan<byte> raw, int i, List<EventMessageSegment> segments)
@@ -283,71 +374,76 @@ namespace Gordian.Core.Resources.Tables
             return end;
         }
 
-        private static int DecodeSelector(ReadOnlySpan<byte> raw, int i, List<EventMessageSegment> segments)
-        {
-            int argument = i + 1 < raw.Length ? raw[i + 1] : 0;
-            int p = i + 2;
-            if (p < raw.Length && raw[p] == (byte)'[')
-            {
-                int close = raw.Slice(p).IndexOf((byte)']');
-                if (close > 0)
-                {
-                    string inner = Cp932.GetString(raw.Slice(p + 1, close - 1));
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Selector, Argument: argument, Alternatives: inner.Split('/')));
-                    return p + close + 1;
-                }
-            }
-            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Selector, Argument: argument, Alternatives: Array.Empty<string>()));
-            return p;
-        }
-
-        private static int DecodeExtended(ReadOnlySpan<byte> raw, int i, List<EventMessageSegment> segments)
+        private static int DecodeExtended(ReadOnlySpan<byte> raw, int i, List<EventMessageSegment> segments, ref PendingSelector? pending)
         {
             if (i + 1 >= raw.Length) return raw.Length;
             byte code = raw[i + 1];
+            int argument = ArgumentAt(raw, i + 2);
             switch (code)
             {
                 case 0x31:
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Prompt));
-                    return i + 2 < raw.Length && raw[i + 2] == 0x00 ? i + 3 : i + 2;
-                case 0x93:
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Code: 0x93));
+                case 0x32:
+                case 0x33:
+                case 0x37:
+                    // The manual prompts (xi-tools docs/dialog/format.md; retail uses 0x31). The 0x00 that follows ends the
+                    // string, as it does in retail: what comes after it is padding or another sub-string.
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Prompt, Code: code));
                     return i + 2;
-                case 0x85:
-                {
-                    // "[his/her]": the player's sex picks (the retail recording shows a Mithra's lines with "her").
-                    int p = i + 2;
-                    if (p < raw.Length && raw[p] == (byte)'[')
-                    {
-                        int close = raw.Slice(p).IndexOf((byte)']');
-                        if (close > 0)
-                        {
-                            string inner = Cp932.GetString(raw.Slice(p + 1, close - 1));
-                            segments.Add(new EventMessageSegment(EventMessageSegmentKind.GenderSelector, Code: code, Alternatives: inner.Split('/')));
-                            return p + close + 1;
-                        }
-                    }
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: code));
-                    return i + 2;
-                }
-                case 0xFB:
-                case 0xFC:
-                    return i + 2; // entity name wrap markers
                 case 0x34:
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.AutoClose, Argument: i + 2 < raw.Length ? raw[i + 2] : 0, Code: code));
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.AutoClose, Argument: argument, Code: code));
                     return i + 3;
                 case 0x35:
                 case 0x36:
-                case 0x80:
-                case 0x84:
-                case 0x86:
-                case 0x8C:
-                case 0x92:
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: i + 2 < raw.Length ? raw[i + 2] : 0, Code: code));
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Pause, Argument: argument, Code: code));
                     return i + 3;
                 case 0x38:
-                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: code));
+                    // Two argument bytes (7F 38 B4 00 = 180, C8 00, F0 00 at the end of prompt-less cutscene lines); the unit
+                    // is not known.
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: ReadU16(raw, i + 2), Code: code));
                     return i + 4;
+                case 0x80:
+                    // 7F 80 01 stands before the substitutions that open a sentence or a menu row ("Obtained key item:
+                    // {7F 80 01}<key item>", "{7F 80 01}{01 01 01} {item} will be used to..."): a capital first letter.
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.CaseMode, Argument: argument, Code: code));
+                    return i + 3;
+                case 0x85:
+                    // "[his/her]": the player's sex picks (the retail recording shows a Mithra's lines with "her").
+                    pending = new PendingSelector(EventMessageSegmentKind.GenderSelector, code, 0);
+                    return i + 2;
+                case 0x92:
+                    pending = new PendingSelector(EventMessageSegmentKind.Selector, code, argument);
+                    return i + 3;
+                case 0x93:
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.EntityName, Code: code));
+                    return i + 2;
+                case 0x94:
+                case 0x95:
+                case 0x96:
+                case 0x99:
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: argument, Code: code));
+                    return i + 3;
+                case >= 0xA0 and <= 0xAA:
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.DateField, Argument: argument, Code: code));
+                    return i + 3;
+                case 0x81:
+                case 0x84:
+                case 0x86:
+                case 0x87:
+                case 0x88:
+                case 0x8C:
+                case 0x8F:
+                case 0x97:
+                case 0xAB:
+                case 0xAC:
+                case 0xB0:
+                case 0xB1:
+                case 0xB4:
+                case 0xB5:
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: argument, Code: code));
+                    return i + 3;
+                case 0xFB:
+                case 0xFC:
+                    return i + 2; // entity name wrap markers
                 default:
                     segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Code: code));
                     return i + 2;

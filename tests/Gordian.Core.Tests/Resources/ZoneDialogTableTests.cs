@@ -178,6 +178,86 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void Decode_ThreeByteExtendedCodesKeepTheTextAfterThem()
+        {
+            // "until " 7F A1 00 "/" 7F A2 00 "/" 7F A0 00 " at " 7F A3 00 ":" 7F A9 00 " (JST)." (the Assist Channel line):
+            // the 00 argument must not end the string.
+            var raw = Ascii("until ").Concat(new byte[] { 0x7F, 0xA1, 0x00 }).Concat(Ascii("/")).Concat(new byte[] { 0x7F, 0xA2, 0x00 })
+                .Concat(Ascii("/")).Concat(new byte[] { 0x7F, 0xA0, 0x00 }).Concat(Ascii(" at ")).Concat(new byte[] { 0x7F, 0xA3, 0x00 })
+                .Concat(Ascii(":")).Concat(new byte[] { 0x7F, 0xA9, 0x00 }).Concat(Ascii(" (JST).")).ToArray();
+            var message = EventMessageDecoder.Decode(raw);
+            Assert.Equal("until // at : (JST).", message.ToPlainText());
+            Assert.Equal(new byte[] { 0xA1, 0xA2, 0xA0, 0xA3, 0xA9 },
+                message.Segments.Where(s => s.Kind == EventMessageSegmentKind.DateField).Select(s => s.Code).ToArray());
+
+            // 7F 81 00 (a linkshell name), 7F 94 01, 7F 95 / 96 / 99, 7F B4 / B5: three bytes each.
+            foreach (byte code in new byte[] { 0x81, 0x94, 0x95, 0x96, 0x99, 0xAB, 0xAC, 0xB4, 0xB5, 0x87, 0x88, 0x8F, 0x97, 0xB0, 0xB1 })
+            {
+                var coded = Ascii("a").Concat(new byte[] { 0x7F, code, 0x00 }).Concat(Ascii("b")).ToArray();
+                Assert.Equal("ab", EventMessageDecoder.Decode(coded).ToPlainText());
+            }
+        }
+
+        [Fact]
+        public void Decode_LoneSetXAndSetYAreThreeBytes()
+        {
+            var x = EventMessageDecoder.Decode(new byte[] { 0x02, 0x50, 0x00, (byte)'T', (byte)'o' });
+            Assert.Equal("To", x.ToPlainText());
+            Assert.Null(x.Position);
+            Assert.Equal("To", EventMessageDecoder.Decode(new byte[] { 0x03, 0x54, 0x01, (byte)'T', (byte)'o' }).ToPlainText());
+        }
+
+        [Fact]
+        public void Decode_PluralAndIndexSelectorsFindTheirListAfterText()
+        {
+            // {0A 02} " " {7F 92 02} "credit[/s]" (Jeuno 9388): the list follows the noun.
+            var raw = new byte[] { 0x0A, 0x02, (byte)' ', 0x7F, 0x92, 0x02 }.Concat(Ascii("credit[/s]: Level 60 offer")).ToArray();
+            var message = EventMessageDecoder.Decode(raw);
+            var selector = message.Segments.Single(s => s.Kind == EventMessageSegmentKind.Selector);
+            Assert.Equal(0x92, selector.Code);
+            Assert.Equal(2, selector.Argument);
+            Assert.Equal(new[] { "", "s" }, selector.Alternatives);
+            Assert.DoesNotContain(message.Segments, s => s.Kind == EventMessageSegmentKind.Text && s.Text.Contains('['));
+
+            // {0C 01} " [days/hours/hour or less]": a space between the code and its list.
+            var spaced = EventMessageDecoder.Decode(new byte[] { 0x0C, 0x01 }.Concat(Ascii(" [days/hours/hour or less] (Earth time).")).ToArray());
+            Assert.Equal(new[] { "days", "hours", "hour or less" }, spaced.Segments.Single(s => s.Kind == EventMessageSegmentKind.Selector).Alternatives);
+
+            // A list with no selector before it stays text; a selector does not reach past a line break.
+            Assert.Equal("Status [Eff, yeah/Heck, no].", EventMessageDecoder.Decode(Ascii("Status [Eff, yeah/Heck, no].")).ToPlainText());
+            var broken = EventMessageDecoder.Decode(new byte[] { 0x0C, 0x01, 0x07 }.Concat(Ascii("[a/b]")).ToArray());
+            Assert.DoesNotContain(broken.Segments, s => s.Kind == EventMessageSegmentKind.Selector);
+        }
+
+        [Fact]
+        public void Decode_ThePromptEndsTheString()
+        {
+            // 7F 31 00, then a second sub-string: retail shows only the first.
+            var raw = Ascii("Halt!").Concat(new byte[] { 0x7F, 0x31, 0x00 }).Concat(Ascii("hidden")).ToArray();
+            Assert.Equal("Halt!", EventMessageDecoder.Decode(raw).ToPlainText());
+            foreach (byte code in new byte[] { 0x32, 0x33, 0x37 })
+                Assert.True(EventMessageDecoder.Decode(Ascii("a").Concat(new byte[] { 0x7F, code }).ToArray()).HasPrompt);
+        }
+
+        [Fact]
+        public void Decode_PausesCloseALineWithoutAPrompt()
+        {
+            // "Shhh! Be quiet!" 7F 36 01 00: no prompt, the line stays one second.
+            var quiet = EventMessageDecoder.Decode(Ascii("Shhh! Be quiet!").Concat(new byte[] { 0x7F, 0x36, 0x01, 0x00 }).ToArray());
+            Assert.False(quiet.HasPrompt);
+            Assert.Equal(1, quiet.AutoCloseSeconds);
+            Assert.Equal("Shhh! Be quiet!", quiet.ToPlainText());
+
+            // "Canst thou..." 7F 36 02 07 "...hear me..." 7F 36 03 07 "...Promathia?" 7F 31: pauses inside a prompted line.
+            var prompted = EventMessageDecoder.Decode(Ascii("Canst thou...").Concat(new byte[] { 0x7F, 0x36, 0x02, 0x07 })
+                .Concat(Ascii("...hear me...")).Concat(new byte[] { 0x7F, 0x36, 0x03, 0x07 }).Concat(Ascii("...Promathia?"))
+                .Concat(new byte[] { 0x7F, 0x31, 0x00 }).ToArray());
+            Assert.True(prompted.HasPrompt);
+            Assert.Null(prompted.AutoCloseSeconds);
+            Assert.Equal(2, prompted.Segments.Count(s => s.Kind == EventMessageSegmentKind.Pause));
+        }
+
+        [Fact]
         public void Decode_ShiftJisPairsStayTogether()
         {
             // Full-width parentheses (0x81 0x69 / 0x81 0x6A) around "x": the trail byte 0x69 must not be read as text on its own.

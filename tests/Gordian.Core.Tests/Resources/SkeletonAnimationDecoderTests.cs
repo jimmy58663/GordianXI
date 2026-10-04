@@ -180,6 +180,56 @@ namespace Gordian.Core.Tests.Resources
             Assert.False(clip!.Tracks.ContainsKey(0));
         }
 
+        /// <summary>
+        /// #76: zero and near-zero scale keys are kept (retail hides joints with them); only a non-finite scale
+        /// component becomes 1, and the track stays.
+        /// </summary>
+        [Theory]
+        [InlineData(0f, 0f)]
+        [InlineData(1e-5f, 1e-5f)]
+        [InlineData(1e-10f, 1e-10f)]
+        [InlineData(-0.5f, -0.5f)]
+        [InlineData(float.NaN, 1f)]
+        [InlineData(float.PositiveInfinity, 1f)]
+        public void SkeletonAnimationDecoder_DecodeClip_KeepsZeroScaleKeys(float stored, float expected)
+        {
+            byte[] payload = BuildSingleJointClipPayload();
+            const int entryStart = 10;
+            // scale_constValues[3] at +0x48: X stored, Y 0.5, Z 0
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(entryStart + 72, 4), stored);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(entryStart + 76, 4), 0.5f);
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(entryStart + 80, 4), 0f);
+
+            var clip = SkeletonAnimationDecoder.DecodeClip(payload, "idl1");
+
+            Assert.NotNull(clip);
+            Assert.True(clip!.Tracks.TryGetValue(0, out var track));
+            Assert.Equal(new Vector3(expected, 0.5f, 0f), track!.Scales[0]);
+            Assert.Equal(new Vector3(expected, 0.5f, 0f), track.Scales[1]);
+            Assert.True(clip.TrySample(0, 0f, true, out _, out _, out var sampled));
+            Assert.Equal(new Vector3(expected, 0.5f, 0f), sampled);
+        }
+
+        /// <summary>
+        /// #76, retail: model 37 (ROM/3/11, a fixed NPC) holds joint 78 at scale (0, 0, 0) through its idl1, which the
+        /// decoder used to turn into 1. Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void RetailModel37_Idl1_Joint78_KeepsZeroScale()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            Assert.True(rm.FileTable.TryResolve(CharacterEquipmentResolver.GetMonsterFileId(37), out string path));
+            Assert.Equal(System.IO.Path.Combine("ROM", "3", "11.DAT"), path);
+            var dat = rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(37))!;
+            var idl1 = EntityModelLoader.ParseDatContainer(dat, "m37").Animations.Find(a => a.Name == "idl1");
+            Assert.NotNull(idl1);
+            Assert.True(idl1!.Tracks.TryGetValue(78, out var track));
+            Assert.All(track!.Scales, s => Assert.Equal(Vector3.Zero, s));
+        }
+
         private readonly Xunit.Abstractions.ITestOutputHelper _output;
 
         public SkeletonAnimationDecoderTests(Xunit.Abstractions.ITestOutputHelper output)
