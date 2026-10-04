@@ -125,13 +125,18 @@ namespace Gordian.Core.Tests.Resources
 
             // Date fields: seconds since 2002-01-01 00:00 JST.
             // Date fields, in local time (here a fixed UTC-7 zone). Retail on 2026-10-03 (US Pacific) shows the lease end
-            // 781790400 (2026-10-10 12:00 JST) as "10/9/2026 20:00:00"; Southern San d'Oria's lease line is 6702.
+            // 781790400 (2026-10-10 12:00 JST) as "10/9/2026 at 20:00:00" in the Mog Garden line LandSandBoat's Green Thumb
+            // Moogle sends (zone 280, MOGLOCKER_MESSAGE_OFFSET + 1 = 7538, codes A1/A2/A0 at A3:A9:AA).
+            var garden = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(280))!)!;
+            Assert.Equal("Your Mog Locker may be used until: | 10/9/2026 at 20:00:00 (Earth Time).", Line(garden, 7538, 781790400));
+            // The city lease lines (Southern San d'Oria 6702, MOG_LOCKER_OFFSET) write their codes A0/A1/A2: year first
+            // (not checked against retail).
             var sandoria = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(SouthernSandoria))!)!;
-            Assert.Equal("Your Mog Locker lease is valid until 10/9/2026 20:00:00, kupo.", Line(sandoria, 6702, 781790400));
-            Assert.Equal("Your Mog Locker lease is valid until 10/9/2026 20:00:00, kupo.", Line(alZahbi, 7409, 781790400));
-            // The Assist Channel line orders its codes A1/A2/A0 (day/year/month in the English client): not checked
-            // against retail.
-            Assert.Equal("You will be able to use the Assist Channel until 9/2026/10 at 20:00 (JST).", Line(channel, 6380, 781790400));
+            Assert.Equal("Your Mog Locker lease is valid until 2026/10/9 20:00:00, kupo.", Line(sandoria, 6702, 781790400));
+            Assert.Equal("Your Mog Locker lease is valid until 2026/10/9 20:00:00, kupo.", Line(alZahbi, 7409, 781790400));
+            // The Assist Channel line (A1/A2/A0 at A3:A9 (JST)): shown here in local time; whether retail keeps JST for it is
+            // not known.
+            Assert.Equal("You will be able to use the Assist Channel until 10/9/2026 at 20:00 (JST).", Line(channel, 6380, 781790400));
         }
 
         [Fact]

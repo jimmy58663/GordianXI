@@ -195,10 +195,12 @@ namespace Gordian.Core.Events
         /// <summary>
         /// One field of a date held as seconds since the Vana'diel epoch, 2001-12-31 15:00 UTC (LandSandBoat sends the
         /// Mog Locker lease end that way), shown in the player's local time zone <paramref name="zone"/> (local time when
-        /// null). Confirmed against retail on 2026-10-03: the lease line 6702 ("A0/A1/A2 A3:A9:AA") with 781790400 reads
-        /// "10/9/2026 20:00:00" on a US Pacific (UTC-7) machine. So in the English client 0xA0 is the month, 0xA1 the day
-        /// and 0xA2 the year, unpadded; 0xA3-0xA5 hour, minute, second unpadded; 0xA6-0xAA month, day, hour, minute,
-        /// second with two digits (0xA9 / 0xAA confirmed, 0xA6-0xA8 corpus reading only).
+        /// null). Confirmed against retail on 2026-10-03: the Mog Garden lease line (zone 280, message 7538, which
+        /// LandSandBoat's Green Thumb Moogle sends: "A1/A2/A0 at A3:A9:AA (Earth Time)") with 781790400 reads
+        /// "10/9/2026 at 20:00:00" on a US Pacific (UTC-7) machine. So 0xA0 is the year, 0xA1 the month, 0xA2 the day,
+        /// 0xA3-0xA5 hour, minute, second, unpadded; 0xA6-0xAA month, day, hour, minute, second with two digits (0xA9 /
+        /// 0xAA confirmed, 0xA4-0xA8 corpus readings only). The order is the message's own: the city lease lines write
+        /// "A0/A1/A2" (year first).
         /// </summary>
         public static string FormatDateField(byte code, int seconds, TimeZoneInfo? zone = null)
         {
@@ -206,9 +208,9 @@ namespace Gordian.Core.Events
             var date = TimeZoneInfo.ConvertTime(utc, zone ?? TimeZoneInfo.Local);
             return code switch
             {
-                0xA0 => date.Month.ToString(CultureInfo.InvariantCulture),
-                0xA1 => date.Day.ToString(CultureInfo.InvariantCulture),
-                0xA2 => date.Year.ToString(CultureInfo.InvariantCulture),
+                0xA0 => date.Year.ToString(CultureInfo.InvariantCulture),
+                0xA1 => date.Month.ToString(CultureInfo.InvariantCulture),
+                0xA2 => date.Day.ToString(CultureInfo.InvariantCulture),
                 0xA3 => date.Hour.ToString(CultureInfo.InvariantCulture),
                 0xA4 => date.Minute.ToString(CultureInfo.InvariantCulture),
                 0xA5 => date.Second.ToString(CultureInfo.InvariantCulture),
