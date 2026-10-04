@@ -1311,7 +1311,7 @@ namespace Gordian.Core.Events
 
         /// <summary>
         /// A 0x66 motion package: the first of its DATs that has routines (<see cref="EventMotionBank.PackageFiles"/>: with
-        /// the waist part, else without it, for 0-69; the race sets table for 70-139).
+        /// the waist part, else without it, for 0-69; the three race sets tables for 70-279; the 0x5B bank file from 280).
         /// </summary>
         private EventMotionBank? LoadMotionPackage(int package)
         {
