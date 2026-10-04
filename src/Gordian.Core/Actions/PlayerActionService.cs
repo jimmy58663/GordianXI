@@ -177,6 +177,9 @@ namespace Gordian.Core.Actions
         public ProgressionPacketModule? ProgressionModule { get; set; }
         public TreasurePacketModule? TreasureModule { get; set; }
 
+        /// <summary>The social packet module (<c>/itemsearch</c>, <c>/blacklist</c>, delivery box, linkshell items); null in sessions without one.</summary>
+        public SocialPacketModule? SocialModule { get; set; }
+
         /// <summary>The everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, votes, wide scan); null in sessions without one.</summary>
         public PlayerCommandPacketModule? CommandModule { get; set; }
 
@@ -1543,6 +1546,104 @@ namespace Gordian.Core.Actions
             }
         }
 
+        /// <summary>How long <c>/itemsearch</c> and <c>/blacklist list</c> wait for the packet that answers them.</summary>
+        public TimeSpan SocialReplyTimeout { get; set; } = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// <c>/itemsearch &lt;name&gt;</c> (C2S 0x02C): asks the server which item the name is and reports the containers that
+        /// hold it from the S2C 0x049 that answers (the client's own inventory state does the container search).
+        /// </summary>
+        public async Task<PlayerActionResult> ItemSearchAsync(string itemName)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.ItemSearch;
+            var module = SocialModule;
+            if (module == null) return PlayerActionResult.Fail("/itemsearch is unavailable: no social module.", Kind);
+            if (string.IsNullOrWhiteSpace(itemName)) return PlayerActionResult.Warn("Usage: /itemsearch <item name>", Kind);
+
+            var answered = new TaskCompletionSource<ItemSearchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnResult(ItemSearchResult r) => answered.TrySetResult(r);
+            module.Social.ItemSearchReceived += OnResult;
+            try
+            {
+                await module.SendItemSearchAsync(itemName.Trim()).ConfigureAwait(false);
+                var finished = await Task.WhenAny(answered.Task, Task.Delay(SocialReplyTimeout)).ConfigureAwait(false);
+                if (finished != answered.Task) return PlayerActionResult.Warn("Item search sent; the server did not answer.", Kind);
+
+                var result = await answered.Task.ConfigureAwait(false);
+                if (result.IsAsync) return PlayerActionResult.Info($"Searching for '{result.ItemName}'.", Kind);
+                if (result.ItemId == 0) return PlayerActionResult.Info($"'{result.ItemName}' is not an item the server knows.", Kind);
+                if (result.Containers.Count == 0) return PlayerActionResult.Info($"You do not have item {result.ItemId} ('{result.ItemName}').", Kind);
+                var where = string.Join(", ", result.Containers.Select(c => $"{c.Container} ({c.Count})"));
+                return PlayerActionResult.Info($"'{result.ItemName}' is in: {where}.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/itemsearch failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/itemsearch failed: {ex.Message}", Kind);
+            }
+            finally
+            {
+                module.Social.ItemSearchReceived -= OnResult;
+            }
+        }
+
+        /// <summary>
+        /// <c>/blacklist add|delete &lt;name&gt;</c> (C2S 0x03D) and <c>/blacklist [list]</c> (C2S 0x03C, then the S2C 0x041
+        /// pages): edits or lists the character's blacklist.
+        /// </summary>
+        public async Task<PlayerActionResult> BlacklistAsync(string arguments)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.Blacklist;
+            var module = SocialModule;
+            if (module == null) return PlayerActionResult.Fail("/blacklist is unavailable: no social module.", Kind);
+
+            string[] parts = (arguments ?? string.Empty).Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string verb = parts.Length > 0 ? parts[0].ToLowerInvariant() : "list";
+            string name = parts.Length > 1 ? parts[1] : string.Empty;
+
+            try
+            {
+                switch (verb)
+                {
+                    case "add" when name.Length > 0:
+                        await module.AddToBlacklistAsync(name).ConfigureAwait(false);
+                        return PlayerActionResult.Ok($"Blacklist add requested for {name}.", Kind);
+                    case "delete" or "remove" or "del" when name.Length > 0:
+                        await module.RemoveFromBlacklistAsync(name).ConfigureAwait(false);
+                        return PlayerActionResult.Ok($"Blacklist removal requested for {name}.", Kind);
+                    case "list":
+                    {
+                        if (!module.Blacklist.IsComplete)
+                        {
+                            var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            void OnChanged() { if (module.Blacklist.IsComplete) answered.TrySetResult(); }
+                            module.Blacklist.Changed += OnChanged;
+                            try
+                            {
+                                await module.RequestBlacklistAsync().ConfigureAwait(false);
+                                await Task.WhenAny(answered.Task, Task.Delay(SocialReplyTimeout)).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                module.Blacklist.Changed -= OnChanged;
+                            }
+                        }
+                        var entries = module.Blacklist.Snapshot();
+                        return entries.Count == 0
+                            ? PlayerActionResult.Info("Your blacklist is empty.", Kind)
+                            : PlayerActionResult.Info($"Blacklist ({entries.Count}): {string.Join(", ", entries.Select(e => e.Name))}.", Kind);
+                    }
+                    default:
+                        return PlayerActionResult.Warn("Usage: /blacklist add <name> | delete <name> | list", Kind);
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/blacklist failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/blacklist failed: {ex.Message}", Kind);
+            }
+        }
+
         /// <summary>How long <c>/conquest</c> waits for the S2C 0x05E that answers it.</summary>
         public TimeSpan ConquestReplyTimeout { get; set; } = TimeSpan.FromSeconds(3);
 
@@ -2019,6 +2120,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.ConquestRequest:
                     return await ConquestAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.ItemSearch:
+                    return await ItemSearchAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Blacklist:
+                    return await BlacklistAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.JobMasterDisplay:
                     return await JobMasterDisplayAsync(cmd.Rest == RestMode.On).ConfigureAwait(false);

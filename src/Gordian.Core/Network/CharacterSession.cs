@@ -104,6 +104,18 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
 
+        /// <summary>Gets the delivery box state (S2C 0x04B).</summary>
+        public DeliveryBoxState Delivery => NetworkManager.Delivery;
+
+        /// <summary>Gets the character's blacklist (S2C 0x041 / 0x042).</summary>
+        public BlacklistState Blacklist => NetworkManager.Blacklist;
+
+        /// <summary>Gets the world pass, item search, party group id, party map position and concierge state.</summary>
+        public SocialState Social => NetworkManager.Social;
+
+        /// <summary>Gets the social packet module (delivery box, blacklist, item search, linkshell items, party id and map positions).</summary>
+        public SocialPacketModule SocialModule => NetworkManager.SocialModule;
+
         /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
         public PlayerCommandState Commands => NetworkManager.Commands;
 

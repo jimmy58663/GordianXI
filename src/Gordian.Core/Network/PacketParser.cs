@@ -40,6 +40,10 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly DeliveryBoxState _delivery = new();
+        private readonly BlacklistState _blacklist = new();
+        private readonly SocialState _social = new();
+        private readonly SocialPacketModule _socialModule;
         private readonly PlayerCommandState _commandState = new();
         private readonly PlayerCommandPacketModule _commandModule;
         private readonly LocalPetState _pet = new();
@@ -104,6 +108,7 @@ namespace Gordian.Core.Network
             _entityModule.Register(_dispatcher);
 
             _chatModule = new ChatPacketModule(_sendChunkCallback, LogPacket);
+            _chatModule.IsBlacklisted = _blacklist.IsBlacklisted;
             _chatModule.Register(_dispatcher);
 
             _partyModule = new PartyPacketModule(_party, _sendChunkCallback, LogPacket);
@@ -117,6 +122,9 @@ namespace Gordian.Core.Network
 
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
+
+            _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
+            _socialModule.Register(_dispatcher);
 
             _commandModule = new PlayerCommandPacketModule(_commandState, _world, _sendChunkCallback, LogPacket);
             _commandModule.Register(_dispatcher);
@@ -145,6 +153,7 @@ namespace Gordian.Core.Network
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
+            _actionService.SocialModule = _socialModule;
             _actionService.CommandModule = _commandModule;
             _actionService.LoginDataModule = _loginDataModule;
 
@@ -231,6 +240,18 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>Gets the delivery box: the incoming and outgoing slots as the server described them (S2C 0x04B).</summary>
+        public DeliveryBoxState Delivery => _delivery;
+
+        /// <summary>Gets the character's blacklist (S2C 0x041 / 0x042).</summary>
+        public BlacklistState Blacklist => _blacklist;
+
+        /// <summary>Gets the world pass, <c>/itemsearch</c>, party group id, party map position and linkshell concierge state.</summary>
+        public SocialState Social => _social;
+
+        /// <summary>Gets the social packet module (delivery box, blacklist, world pass, item search, linkshell items, party id and map positions).</summary>
+        public SocialPacketModule SocialModule => _socialModule;
 
         /// <summary>
         /// Gets the state behind the everyday commands: the emote list, wide scan and proposals.

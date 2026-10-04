@@ -89,7 +89,7 @@ Missing packets, grouped by feature:
 - ~~[#110](https://github.com/jimmy58663/GordianXI/issues/110)~~: message and event-parameter packets, including the `0x05A` emote echo, are decoded, see below.
 - ~~[#111](https://github.com/jimmy58663/GordianXI/issues/111)~~: `/heal`, `/sit`, `/sitchair`, `/random`, votes, wide scan and the emote list are done, see below.
 - [#112](https://github.com/jimmy58663/GordianXI/issues/112): synthesis and guild-shop requests.
-- [#113](https://github.com/jimmy58663/GordianXI/issues/113): delivery box, blacklist, linkshell equip.
+- ~~[#113](https://github.com/jimmy58663/GordianXI/issues/113)~~: delivery box, blacklist, friend pass, `/itemsearch`, linkshell items, party group id and map positions are decoded and their requests built, see below.
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
 - ~~[#115](https://github.com/jimmy58663/GordianXI/issues/115)~~: login-time data (mounts, Maze Mongers, Trust points, BLU / PUP / Monstrosity) is decoded and its requests built, see below.
 - ~~[#116](https://github.com/jimmy58663/GordianXI/issues/116)~~: the fields handled packets used to ignore (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others) are decoded, see below.
@@ -252,3 +252,21 @@ The decoders already registered now read the fields LandSandBoat sends that they
 | S2C 0x0C8 / 0x0DD / 0x0E2 | quartermaster flags, level sync, master level | `PartyMember` | nothing yet |
 
 Findings. The quest/mission ports each carry 8 words of a bit table (`MissionPorts.TryResolve`); the retail client counts a port as received through `RecBitFlag`, which reaches 0x83FFFFFF when the whole log is in. Retail cancels an event on 0x052 mode 2 only when `Mode >> 8` equals its running event's `EventPara`, so a cancel for another event is ignored (before, any cancel flagged the next event). The currency structs of XiPackets are natural-aligned, so a 4-byte field following odd bytes starts on a 4-byte boundary (`silver_aman_vouchers_stored` at payload 124).
+
+### Social packets (#113)
+
+`SocialPacketModule` (`SocialPackets.cs`, `SocialPacketModule.cs`) decodes the answers into `DeliveryBoxState`, `BlacklistState` and `SocialState` (`CharacterSession.Delivery`, `Blacklist`, `Social`) and sends the requests. Every size is what LandSandBoat's `ValidatedPacketHandler` expects (the struct size rounded up to 4).
+
+| Packet | Layout | State | Used by |
+|---|---|---|---|
+| C2S 0x04D `PBX` (32) | 4 command, 5 box (1 incoming, 2 outgoing, -1 none), 6 slot (0-7), 7 item work, 8 stacks (-1 default), 12-15 result bytes (0), 16 recipient (first letter upper-cased) | | `SocialPacketModule` delivery methods; no delivery box window yet |
+| S2C 0x04B `PBX_RESULT` (20 or 88) | the same 12 bytes, then a state word, name, request id and time, item id, kind, quantity, 28 bytes of extra data in the full form | `DeliveryBoxState` (slots, counts, open mode, last answer, recipient query) | nothing yet |
+| C2S 0x03C / 0x03D, S2C 0x041 / 0x042 | blacklist request (zeros), edit (name at 8, mode at 24), pages of 12 x (id, name) with `Stat` bit 0 first / bit 1 last, edit answers | `BlacklistState` | S2C 0x009 filtering (`ChatPacketModule.IsBlacklisted`), `/blacklist add\|delete\|list` |
+| C2S 0x01B, S2C 0x059 | world pass steps, uses/hours/price/pass/type | `SocialState.LastFriendPass` | nothing yet |
+| C2S 0x02C, S2C 0x049 | language + 64-byte name; item id, async flag, echoed name | `SocialState.LastItemSearch` | `/itemsearch <name>` lists the containers holding the item |
+| C2S 0x0C3 / 0x0C4 | make a linkpearl; equip, unequip or create a linkshell (6-bit packed name) | | `SocialPacketModule` linkshell methods; no caller |
+| C2S 0x078, S2C 0x0E1 | party group id request / answer | `SocialState.GroupId` | the search server's party member list ([#119](https://github.com/jimmy58663/GordianXI/issues/119)) |
+| C2S 0x0D2, S2C 0x0A0 | zone id; one member position per packet | `SocialState.SnapshotMapGroup` | the map window |
+| S2C 0x048 | linkshell concierge, header and record forms | `SocialState` (`ConciergeOwnSlot`, `GetConciergeLinkshell`) | nothing yet |
+
+Findings. The blacklist's `ID` is the character id (S2C 0x009 `UniqueNo` carries the same), so the filter matches by it. LSB's C2S 0x0C4 rejects a colour alpha other than 15. LSB answers every delivery box command, so `DeliveryBoxState` follows the answers; a finished Get / Clear / Reject comes back with an empty state, which empties the slot.
