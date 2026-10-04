@@ -65,6 +65,12 @@ namespace Gordian.Core.Events
         public const byte KeyItemPluralKind = (byte)'5';
         public const byte ZoneKind = (byte)'8';
 
+        /// <summary>
+        /// A Unity leader's name (0x01 kind 0x89; value 1-11 = Pieuje ... Sylvie, d_msg ROM/165/61 rows 419-429). Unity
+        /// messages (file 7039) open with it; retail shows it as the line's speaker, <c>{Yoran-Oran} ...</c>.
+        /// </summary>
+        public const byte UnityLeaderKind = 0x89;
+
         /// <summary>The 0x01 kind with no value (01 01 01) that stands for the article of the item tag after it.</summary>
         public const byte ArticleKind = 0x01;
 
