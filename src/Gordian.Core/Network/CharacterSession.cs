@@ -116,6 +116,9 @@ namespace Gordian.Core.Network
         /// <summary>Gets the social packet module (delivery box, blacklist, item search, linkshell items, party id and map positions).</summary>
         public SocialPacketModule SocialModule => NetworkManager.SocialModule;
 
+        /// <summary>Gets the search (cache) server service: Auction House lists and histories, <c>/sea</c>, party and linkshell member lists.</summary>
+        public Search.SearchService Search => NetworkManager.Search;
+
         /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
         public PlayerCommandState Commands => NetworkManager.Commands;
 

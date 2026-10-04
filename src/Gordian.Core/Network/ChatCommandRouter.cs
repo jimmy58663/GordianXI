@@ -80,6 +80,8 @@ namespace Gordian.Core.Network
         TrackTarget,
         /// <summary><c>/conquest</c> (<c>/cq</c>): requests the conquest overview (C2S 0x05A, answered by S2C 0x05E).</summary>
         ConquestRequest,
+        /// <summary><c>/sea [all] [name] [job] [level] [party]</c>: searches players on the search server; <see cref="ChatCommandResult.Message"/> is the arguments (including a leading <c>all</c>).</summary>
+        PlayerSearch,
         /// <summary><c>/itemsearch &lt;name&gt;</c>: asks the server which containers hold an item (C2S 0x02C); <see cref="ChatCommandResult.Message"/> is the item name.</summary>
         ItemSearch,
         /// <summary><c>/blacklist [add|delete|list] [name]</c> (C2S 0x03C / 0x03D); <see cref="ChatCommandResult.Message"/> is the arguments.</summary>
@@ -224,6 +226,7 @@ namespace Gordian.Core.Network
                     "widescan" or "wide" => new ChatCommandResult { Kind = ChatCommandResultKind.WideScan },
                     "track" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = args },
                     "conquest" or "cq" => new ChatCommandResult { Kind = ChatCommandResultKind.ConquestRequest },
+                    "sea" or "search" => new ChatCommandResult { Kind = ChatCommandResultKind.PlayerSearch, Message = args },
                     "itemsearch" => new ChatCommandResult { Kind = ChatCommandResultKind.ItemSearch, Message = args },
                     "blacklist" => new ChatCommandResult { Kind = ChatCommandResultKind.Blacklist, Message = args },
                     "untrack" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = "off" },

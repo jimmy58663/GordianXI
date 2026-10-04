@@ -422,4 +422,23 @@ The rows carry the details; these are the ones most useful to other client and s
 | xi_view | C2S | `0x28` | `RequestRenameChr` | 68 | `not built` | [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
 | xi_view | C2S | `0x2B` | `RequestMoveGMChr` | 68 | `not built` | GM only. |
 
-The other XiPackets folders are covered in [session-and-packets.md](session-and-packets.md#xipackets-coverage-audit-2026-09-28): `cache/` is the search server ([#119](https://github.com/jimmy58663/GordianXI/issues/119)) and `patch/` is not needed with LSB.
+The other XiPackets folders are covered in [session-and-packets.md](session-and-packets.md#xipackets-coverage-audit-2026-09-28): `cache/` is the search server (below) and `patch/` is not needed with LSB.
+
+## Search (cache) server
+
+`SearchClient` (`src/Gordian.Core/Network/Search`, [#119](https://github.com/jimmy58663/GordianXI/issues/119)) talks to LSB's search server (TCP, default port 54002, `SEARCH_PORT`), which XiPackets calls the cache server and documents only as a list of duties (`cache/README.md`). Everything here comes from LandSandBoat `src/search/` (`search_handler.cpp`, `packets/`), read for the wire format and written from scratch. One connection and one request at a time; the framing and keys are in [session-and-packets.md](session-and-packets.md#search-cache-server-119). Offsets are from the start of the plain frame, 8 header bytes included (the same numbers LSB's code uses); the request type is the byte at 0x0B and an answer repeats it with bit 7 set.
+
+| Dir | Type | Name | GordianXI status | Layout |
+|---|---|---|---|---|
+| C2S | `0x15` / `0x10` | `TCP_AH_REQUEST` / `TCP_AH_REQUEST_MORE` | `built` | 0x12 sort key count, 0x16 category, 0x18 + 8n one key per entry (2 level, 5 damage, 6 delay, 9 name). `SearchRequestBuilder.BuildAuctionList`. LSB answers `REQUEST_MORE` with the whole list again. |
+| S2C | `0x95` | Auction House item list | `decoded` | Up to 20 items from 0x18 (item id u16, singles u32, stacks u32 = counts of listings); 0x0E total, 0x0A bit 7 on the last packet. `AuctionListPage`. |
+| C2S | `0x05` / `0x06` | `TCP_AH_HISTORY_SINGLE` / `_STACK` | `built` | 0x12 item id, 0x15 stack flag (1 for stacks). `BuildAuctionHistory`. |
+| S2C | `0x85` | Auction House price history | `decoded` | 0x18 item id, 0x1A value, 0x1E category, up to 10 sales of 40 bytes from 0x20 (price, a second word, seller 16, buyer 16). `AuctionHistoryPage`. |
+| C2S | `0x03` / `0x00` | `TCP_SEARCH` / `TCP_SEARCH_ALL` | `built` | 0x10 stream length, 0x11 bit stream of fields (Name, Area x n, Nation, Job, Level, Race, Rank, Flags1, Comment, Linkshell, Friend, Flags2). `BuildSearch`, `/sea`. |
+| S2C | `0x80` | player list | `decoded` | From 0x18 entries of a size byte and a bit stream (Name, Area, Nation, Job, Level, Race, Rank, Flags1, Id, Unknown0E, Comment, Flags2, Language); 0x0E total; several packets, the last flagged. `SearchEntityPage`. |
+| C2S | `0x02` | `TCP_GROUP_LIST` | `built` | 0x10 party id, 0x14 alliance id, 0x18 and 0x1C linkshell ids. `BuildGroupList`; the party id comes from S2C 0x0E1 (C2S 0x078). |
+| S2C | `0x82` | party / linkshell member list | `decoded` | As the player list; linkshell entries add a rank block (3 ranks, 3 linkshell ids). |
+| C2S | `0x08` | `TCP_SEARCH_COMMENT` | `built` | 0x10 player id. `BuildSearchComment`. |
+| S2C | `0x88` | search comment | `decoded` | 0x18 player id, 0x1C length, 0x1E text of up to 123 characters padded with spaces. LSB sends nothing for an empty comment. `SearchCommentPage`. |
+
+Status of the pieces: the client, state (`SearchState`), service (`SearchService`) and `/sea` are done and unit tested against frames built by an independent writer; nothing here has run against a live LSB search server yet, and the Auction House window ([#90](https://github.com/jimmy58663/GordianXI/issues/90)) and party list window do not read `SearchState` yet.

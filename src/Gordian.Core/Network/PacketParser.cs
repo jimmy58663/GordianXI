@@ -44,6 +44,7 @@ namespace Gordian.Core.Network
         private readonly BlacklistState _blacklist = new();
         private readonly SocialState _social = new();
         private readonly SocialPacketModule _socialModule;
+        private readonly Search.SearchService _search;
         private readonly PlayerCommandState _commandState = new();
         private readonly PlayerCommandPacketModule _commandModule;
         private readonly LocalPetState _pet = new();
@@ -125,6 +126,7 @@ namespace Gordian.Core.Network
 
             _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
             _socialModule.Register(_dispatcher);
+            _search = new Gordian.Core.Network.Search.SearchService(_socialModule, _party, _inventory);
 
             _commandModule = new PlayerCommandPacketModule(_commandState, _world, _sendChunkCallback, LogPacket);
             _commandModule.Register(_dispatcher);
@@ -154,6 +156,7 @@ namespace Gordian.Core.Network
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
             _actionService.SocialModule = _socialModule;
+            _actionService.SearchService = _search;
             _actionService.CommandModule = _commandModule;
             _actionService.LoginDataModule = _loginDataModule;
 
@@ -249,6 +252,9 @@ namespace Gordian.Core.Network
 
         /// <summary>Gets the world pass, <c>/itemsearch</c>, party group id, party map position and linkshell concierge state.</summary>
         public SocialState Social => _social;
+
+        /// <summary>Gets the search (cache) server service: Auction House lists and histories, <c>/sea</c>, party and linkshell member lists.</summary>
+        public Search.SearchService Search => _search;
 
         /// <summary>Gets the social packet module (delivery box, blacklist, world pass, item search, linkshell items, party id and map positions).</summary>
         public SocialPacketModule SocialModule => _socialModule;

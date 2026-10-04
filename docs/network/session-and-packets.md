@@ -93,12 +93,12 @@ Missing packets, grouped by feature:
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
 - ~~[#115](https://github.com/jimmy58663/GordianXI/issues/115)~~: login-time data (mounts, Maze Mongers, Trust points, BLU / PUP / Monstrosity) is decoded and its requests built, see below.
 - ~~[#116](https://github.com/jimmy58663/GordianXI/issues/116)~~: the fields handled packets used to ignore (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others) are decoded, see below.
-- [#119](https://github.com/jimmy58663/GordianXI/issues/119): search (cache) server client.
+- ~~[#119](https://github.com/jimmy58663/GordianXI/issues/119)~~: the search (cache) server client is done, see below.
 - [#117](https://github.com/jimmy58663/GordianXI/issues/117): the post-MVP backlog, including the packets LSB doesn't implement.
 
 The other XiPackets folders:
 - **`lobby/`** (TCP 54001): `LsbLoginClient` implements 0x26 login → 0x05/0x04, 0x20 character info, and 0x07 select → 0x0B. Get-character 0x1F, the world list 0x24/0x23, create 0x22/0x21, delete 0x14 and rename 0x28 are still missing ([#35](https://github.com/jimmy58663/GordianXI/issues/35)). Our 0x07 (64 bytes) and 0x26 (128) are shorter than retail (0x58 and 0x98). LSB's `view_session.cpp` doesn't check lengths, so they work on LSB.
-- **`cache/`** is the search server (LSB `src/search/`, TCP 54002). It serves AH item lists and price history, `/sea`, and party/linkshell member lists, and we have no client for it ([#119](https://github.com/jimmy58663/GordianXI/issues/119)). XiPackets has no per-packet pages for it yet.
+- **`cache/`** is the search server (LSB `src/search/`, TCP 54002). It serves AH item lists and price history, `/sea`, and party/linkshell member lists; `SearchClient` talks to it ([#119](https://github.com/jimmy58663/GordianXI/issues/119), see below). XiPackets has no per-packet pages for it yet.
 - **`patch/`** is the POL version-check and file-update protocol (8 packets). LSB has no patch server and xiloader bypasses it, so the client doesn't need it.
 
 To repeat the opcode diff, list `XiPackets/world/{client,server}`, then compare against `grep -rhoE "struct S2C_0x[0-9A-Fa-f]+" src/Gordian.Core` and the opcodes passed to `PacketHeader.Write(...)` or `(0xNNN | (size << 9))` under `src/Gordian.Core/Network`.
@@ -270,3 +270,19 @@ Findings. The quest/mission ports each carry 8 words of a bit table (`MissionPor
 | S2C 0x048 | linkshell concierge, header and record forms | `SocialState` (`ConciergeOwnSlot`, `GetConciergeLinkshell`) | nothing yet |
 
 Findings. The blacklist's `ID` is the character id (S2C 0x009 `UniqueNo` carries the same), so the filter matches by it. LSB's C2S 0x0C4 rejects a colour alpha other than 15. LSB answers every delivery box command, so `DeliveryBoxState` follows the answers; a finished Get / Clear / Reject comes back with an empty state, which empties the slot.
+
+### Search (cache) server (#119)
+
+The search server runs next to the world server on its own TCP port (LSB `SEARCH_PORT`, 54002) and answers what takes a long time: Auction House item lists and price histories, `/sea`, search comments and the party and linkshell member lists. `SearchClient` opens a connection per request, sends one frame and reads the answers until the final flag, so a request never blocks the UDP session. `SearchService` (`CharacterSession.Search`) holds the address and the answers (`SearchState`).
+
+**Address.** `SearchService.ConfigureDefault` is called when the session connects: the host of the world connection and port 54002, unless `Configure(host, port)` was called (a server that runs the search server elsewhere; nothing in the login flow or the server profile carries a search address yet, so profiles for such servers need a field).
+
+**Frame.** `[u16 total length][u16 0]["IXFF"][payload][MD5 of the payload, 16][key seed, u32]`. The payload and the hash are enciphered with the world server's Blowfish (key schedule and ECB; `LegacyBlowfishCryptoSuite`) in 8-byte blocks from byte 8, as many whole blocks as fit before the seed; the hash is of the plain payload. The key is the MD5 of a string, not the world session key: 16 constant bytes (`SearchFrame`), then the 4-byte seed the client chose (the last 4 bytes of its frame), and for answers also the 4 bytes of the request's plain payload just before its hash. A request is keyed by `MD5(constant + seed)` and every answer to it by `MD5(constant + seed + payload tail)`. The payload of a request pads to a multiple of 8 bytes; LSB's answers keep the 4-byte seed and end with their hash, with 8 extra bytes of padding in front of it for the Auction House answers.
+
+**Payloads.** A request's bytes 0x08-0x0A and 0x0C-0x0F are ignored by LSB (we send the length and zeros); the type is at 0x0B. An answer: 0x08 the data length, 0x0A bit 7 on the last packet, 0x0B the type with bit 7 set, 0x0E the total result count. The player entries are bit streams, most significant bit first, which is how LSB's `packBitsLE` writes them and its `unpackBitsLE` reads requests. The per-type layouts are in [packets.md](packets.md#search-cache-server).
+
+**`/sea [all] [job] [level] [party] [friend] [name]`.** `PlayerActionService.ParseSearchQuery`: `all` searches every zone (type 0), otherwise the current zone (type 3); a three-letter job code, a level or range (`75`, `70-75`, `lv75`), `party` (players seeking a party) and `friend` set filters; the first other word is the name. The result is in `SearchState.LastSearch`.
+
+**Findings.** LSB answers a search comment request with nothing when the comment is empty, so the request runs out its wait (a timeout is not an error). The party list needs the party's group id from the world server (C2S 0x078 / S2C 0x0E1); the linkshell list needs the id in the first word of the worn linkshell item's extra data. LSB's Auction House history packet writes the item's listing counts into the price slot of its header; the sales list (price, date, seller, buyer) is the useful part.
+
+**To verify against a live server.** The frame, key derivation and every layout are from reading LSB; no live search server was available. Check in game: open a connection and `/sea all` (a non-empty result proves the frame, the keys and the player entry layout); `GetAuctionListAsync(1)` and a history for a listed item; the party list in a party; the linkshell list with a linkshell equipped; and `/sea` with a name, a job and a level range (the request bit stream).
