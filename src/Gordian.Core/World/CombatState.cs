@@ -56,7 +56,20 @@ namespace Gordian.Core.World
         public event Action? CastingStateChanged;
         public event Action<CraftEffectInfo>? CraftEffectChanged;
 
+        /// <summary>The server picked the character's target (S2C 0x058): its server id, 0 for none.</summary>
+        public event Action<uint>? AssistTargetReceived;
+
         #endregion
+
+        /// <summary>The target the server last picked for the character (S2C 0x058), 0 before any.</summary>
+        public uint AssistTargetServerId { get; private set; }
+
+        /// <summary>Records the target the server picked (S2C 0x058) and raises <see cref="AssistTargetReceived"/>.</summary>
+        public void ApplyAssistTarget(uint serverId)
+        {
+            lock (_lock) AssistTargetServerId = serverId;
+            AssistTargetReceived?.Invoke(serverId);
+        }
 
         public void SetTarget(uint serverId, ushort targetIndex)
         {

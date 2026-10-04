@@ -11,8 +11,10 @@ namespace Gordian.Core.Network.Packets
     #region Enums
 
     /// <summary>
-    /// Message type / channel identifiers transmitted in S2C 0x017 (GP_SERV_COMMAND_CHAT_STD).
-    /// Wire format referenced from LandSandBoat CHAT_MESSAGE_TYPE (src/map/enums/chat_message_type.h).
+    /// Message type / channel identifiers transmitted in S2C 0x017 (GP_SERV_COMMAND_CHAT_STD) as <c>Kind</c>.
+    /// Wire format referenced from LandSandBoat CHAT_MESSAGE_TYPE (src/map/enums/chat_message_type.h) and
+    /// XiPackets (https://github.com/atom0s/XiPackets, world/server/0x0017), which names 0x11-0x17 and 0x20 standard
+    /// (yellow) messages and 0x18/0x19 copies of Say; LSB lists those as unknown. Other values print nothing in retail.
     /// </summary>
     public enum ChatMessageType : byte
     {
@@ -22,7 +24,9 @@ namespace Gordian.Core.Network.Packets
         Tell = 3,
         Party = 4,
         Linkshell = 5,
+        /// <summary>System message (LSB's <c>printToPlayer</c> default). Retail prints a banner line above it.</summary>
         System1 = 6,
+        /// <summary>System message (area announcements, maintenance notices). Retail prints a banner line above it.</summary>
         System2 = 7,
         Emotion = 8,
         GmPrompt = 12,
@@ -30,15 +34,142 @@ namespace Gordian.Core.Network.Packets
         NoSpeakerShout = 14,
         NoSpeakerParty = 15,
         NoSpeakerLinkshell = 16,
+        /// <summary>Standard message, yellow (XiPackets 0x11).</summary>
+        StandardMessage17 = 17,
+        /// <summary>Standard message, yellow (XiPackets 0x12).</summary>
+        StandardMessage18 = 18,
+        /// <summary>Standard message, yellow (XiPackets 0x13).</summary>
+        StandardMessage19 = 19,
+        /// <summary>Standard message, yellow (XiPackets 0x14).</summary>
+        StandardMessage20 = 20,
+        /// <summary>Standard message, yellow (XiPackets 0x15).</summary>
+        StandardMessage21 = 21,
+        /// <summary>Standard message, yellow (XiPackets 0x16).</summary>
+        StandardMessage22 = 22,
+        /// <summary>Standard message, yellow (XiPackets 0x17).</summary>
+        StandardMessage23 = 23,
+        /// <summary>A copy of Say (XiPackets 0x18).</summary>
+        SayCopy24 = 24,
+        /// <summary>A copy of Say (XiPackets 0x19).</summary>
+        SayCopy25 = 25,
         Yell = 26,
         Linkshell2 = 27,
         NoSpeakerLinkshell2 = 28,
+        /// <summary>"Basic system messages" (yellow); no banner in retail.</summary>
         System3 = 29,
         Linkshell3 = 30,
         NoSpeakerLinkshell3 = 31,
+        /// <summary>Standard message, yellow (XiPackets 0x20; LSB: "looks the same as 31").</summary>
+        StandardMessage32 = 32,
         Unity = 33,
         JpAssist = 34,
         NaAssist = 35
+    }
+
+    /// <summary>
+    /// The DAT message tables an S2C 0x017 message with <c>Attr</c> 0x08 can name (its first value).
+    /// Referenced from XiPackets (https://github.com/atom0s/XiPackets, world/server/0x0017, "Kind: Any - Attr: 0x08").
+    /// </summary>
+    public enum ChatFormattedTable : byte
+    {
+        None = 0,
+        /// <summary>The current zone's event messages (the zone dialog table).</summary>
+        EventMess = 1,
+        SkillName = 2,
+        BitName = 3,
+        EmotionMess = 4,
+        BtlMess = 5,
+        SystemMess = 6,
+        MonWazaMess = 7,
+        /// <summary>The current zone's general messages.</summary>
+        SevMess = 8,
+        TrustMess = 9,
+        /// <summary>Unity leader messages (file 7039, ROM/337/68 in the English client).</summary>
+        UnityMess = 10,
+    }
+
+    /// <summary>
+    /// The body of an S2C 0x017 message with <c>Attr</c> 0x08: instead of text, <c>Mes</c> holds seven comma-terminated
+    /// hex values, <c>"tt,mmmm,p0,p1,p2,p3,p4,"</c>: the table, the message in it, and five parameters for the
+    /// message's codes (number, name and selector tags read parameters 0-4).
+    /// Format referenced from XiPackets (https://github.com/atom0s/XiPackets, world/server/0x0017). Checked against a
+    /// retail capture (Windower packetviewer, 2025-02-10): Kind 0x21, Attr 0x08,
+    /// <c>"0a,01ef,0000000a,0000002d,00000123,00000002,00000002,"</c> printed Unity message 495 with leader 10
+    /// (Yoran-Oran), zone 291 (Reisenjima) and choice 2 of its selectors.
+    /// </summary>
+    public readonly record struct ChatFormattedMessage(ChatFormattedTable Table, int MessageId, int Param0, int Param1, int Param2, int Param3, int Param4)
+    {
+        public const int ParamCount = 5;
+
+        /// <summary>Parameter <paramref name="index"/> (0-4), 0 out of range.</summary>
+        public int GetParam(int index) => index switch
+        {
+            0 => Param0,
+            1 => Param1,
+            2 => Param2,
+            3 => Param3,
+            4 => Param4,
+            _ => 0,
+        };
+
+        /// <summary>The five parameters as a list (for the message formatter).</summary>
+        public int[] ToParamArray() => new[] { Param0, Param1, Param2, Param3, Param4 };
+
+        /// <summary>
+        /// Reads the values from a message body. Missing trailing values read as 0 (the client's <c>sscanf</c> leaves
+        /// them unset); fails when the table or message value is missing or not hex.
+        /// </summary>
+        public static bool TryParse(ReadOnlySpan<byte> mes, out ChatFormattedMessage message)
+        {
+            Span<uint> values = stackalloc uint[7];
+            int count = 0;
+            int start = 0;
+            for (int i = 0; i <= mes.Length && count < values.Length; i++)
+            {
+                bool end = i == mes.Length || mes[i] == 0;
+                if (!end && mes[i] != (byte)',') continue;
+                if (i > start)
+                {
+                    if (!TryParseHex(mes.Slice(start, i - start), out values[count])) break;
+                    count++;
+                }
+                else if (!end)
+                {
+                    break; // an empty field stops sscanf
+                }
+                if (end) break;
+                start = i + 1;
+            }
+
+            if (count < 2)
+            {
+                message = default;
+                return false;
+            }
+            message = new ChatFormattedMessage((ChatFormattedTable)(byte)values[0], (int)values[1],
+                (int)values[2], (int)values[3], (int)values[4], (int)values[5], (int)values[6]);
+            return true;
+        }
+
+        private static bool TryParseHex(ReadOnlySpan<byte> text, out uint value)
+        {
+            value = 0;
+            text = text.Trim((byte)' ');
+            if (text.IsEmpty || text.Length > 8) return false;
+            foreach (byte c in text)
+            {
+                int digit = c switch
+                {
+                    >= (byte)'0' and <= (byte)'9' => c - '0',
+                    >= (byte)'a' and <= (byte)'f' => c - 'a' + 10,
+                    >= (byte)'A' and <= (byte)'F' => c - 'A' + 10,
+                    _ => -1,
+                };
+                if (digit < 0) return false;
+                value = (value << 4) | (uint)digit;
+            }
+            return true;
+        }
     }
 
     /// <summary>
@@ -133,10 +264,27 @@ namespace Gordian.Core.Network.Packets
     /// S2C 0x017 (GP_SERV_COMMAND_CHAT_STD): Standard chat and communication message packet.
     /// Protocol specification referenced from LandSandBoat (src/map/packets/s2c/0x017_chat_std.cpp)
     /// and Atom0s XiPackets (world/server/0x0017).
+    /// <para>
+    /// <c>Data</c> means something only for some kinds (XiPackets): the sender's zone for Yell (0x1A), the sender's
+    /// mastery rank (low byte) and mentor status (high byte) for the assist channels (0x22/0x23); other kinds ignore
+    /// it. LSB fills it with the sender's zone for every kind, so <see cref="ZoneId"/> and the ranks read it only for
+    /// their kinds.
+    /// </para>
     /// </summary>
     public readonly ref struct S2C_0x017_ChatStd
     {
         public const ushort PacketId = 0x017;
+
+        /// <summary><c>Attr</c> 0x01: the sender is a GM (retail prefixes the message with [GM]).</summary>
+        public const byte AttrGm = 0x01;
+
+        /// <summary><c>Attr</c> 0x08: <c>Mes</c> names a DAT message (<see cref="ChatFormattedMessage"/>), not text.</summary>
+        public const byte AttrFormatted = 0x08;
+
+        /// <summary>The client clamps <c>Mes</c> to 150 bytes (XiPackets).</summary>
+        public const int MaxMessageLength = 150;
+
+        private const int MessageOffset = 19;
         private readonly ReadOnlySpan<byte> _payload;
 
         public bool IsValid { get; }
@@ -144,10 +292,19 @@ namespace Gordian.Core.Network.Packets
         public byte Attr { get; }
         public ushort Data { get; }
 
-        public bool IsGm => (Attr & 0x01) != 0;
-        public ushort ZoneId => Data;
-        public byte MasteryRank => (byte)(Data & 0xFF);
-        public byte MentorRank => (byte)((Data >> 8) & 0xFF);
+        public bool IsGm => (Attr & AttrGm) != 0;
+        public bool IsFormatted => (Attr & AttrFormatted) != 0;
+
+        /// <summary>The sender's zone; only Yell carries it (0 for the other kinds).</summary>
+        public ushort ZoneId => Kind == ChatMessageType.Yell ? Data : (ushort)0;
+
+        private bool IsAssist => Kind is ChatMessageType.JpAssist or ChatMessageType.NaAssist;
+
+        /// <summary>The sender's mastery rank; only the assist channels carry it.</summary>
+        public byte MasteryRank => IsAssist ? (byte)(Data & 0xFF) : (byte)0;
+
+        /// <summary>The sender's mentor status; only the assist channels carry it.</summary>
+        public byte MentorRank => IsAssist ? (byte)((Data >> 8) & 0xFF) : (byte)0;
 
         public S2C_0x017_ChatStd(ReadOnlySpan<byte> payload)
         {
@@ -169,7 +326,7 @@ namespace Gordian.Core.Network.Packets
 
         public string GetSenderName()
         {
-            if (!IsValid || _payload.Length < 19) return string.Empty;
+            if (!IsValid || _payload.Length < MessageOffset) return string.Empty;
             ReadOnlySpan<byte> nameSpan = _payload.Slice(4, 15);
             int len = 0;
             while (len < nameSpan.Length && nameSpan[len] != 0)
@@ -181,13 +338,9 @@ namespace Gordian.Core.Network.Packets
 
         public string GetMessage()
         {
-            if (!IsValid || _payload.Length <= 19) return string.Empty;
-            ReadOnlySpan<byte> msgSpan = _payload.Slice(19);
-            int len = 0;
-            while (len < msgSpan.Length && msgSpan[len] != 0)
-            {
-                len++;
-            }
+            ReadOnlySpan<byte> msgSpan = RawMessageSpan;
+            int len = msgSpan.IndexOf((byte)0);
+            if (len < 0) len = msgSpan.Length;
             if (len == 0) return string.Empty;
 
             try
@@ -200,8 +353,25 @@ namespace Gordian.Core.Network.Packets
             }
         }
 
+        /// <summary>
+        /// <c>Mes</c>: the rest of the packet, clamped to <see cref="MaxMessageLength"/>. It need not be
+        /// null-terminated (the packet's size ends it).
+        /// </summary>
         public ReadOnlySpan<byte> RawMessageSpan =>
-            IsValid && _payload.Length > 19 ? _payload.Slice(19) : ReadOnlySpan<byte>.Empty;
+            IsValid && _payload.Length > MessageOffset
+                ? _payload.Slice(MessageOffset, Math.Min(MaxMessageLength, _payload.Length - MessageOffset))
+                : ReadOnlySpan<byte>.Empty;
+
+        /// <summary>Reads the DAT message an <c>Attr</c> 0x08 packet names; false for plain text or a malformed body.</summary>
+        public bool TryGetFormattedMessage(out ChatFormattedMessage message)
+        {
+            if (!IsValid || !IsFormatted)
+            {
+                message = default;
+                return false;
+            }
+            return ChatFormattedMessage.TryParse(RawMessageSpan, out message);
+        }
 
         public bool HasAutoTranslate()
         {

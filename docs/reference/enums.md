@@ -6,7 +6,7 @@
 
 GordianXI type: `EmoteId` (`Network/Packets/CombatPackets.cs`), written by `CombatPacketBuilder.BuildEmoteRequest` (payload 6 `Number`, 7 `Mode`, 8 `Param`). Ids from XiPackets `world/client/0x005D` and LandSandBoat `src/map/enums/emote.h` (the two agree on every id below). Before [#178](https://github.com/jimmy58663/GordianXI/issues/178) the client numbered them from its own list.
 
-`Mode`: 0 text and motion, 1 text only, 2 motion only (LandSandBoat `EmoteMode`; GordianXI passes a byte, no enum). There is no "none" id.
+`Mode`: 0 text and motion, 1 text only, 2 motion only (LandSandBoat `EmoteMode`; GordianXI `EmoteMode`, which the S2C 0x05A echo also carries). There is no "none" id. The echo's log line is the emote table's message `2 * id` (with a target) or `2 * id + 1` (file id 7025, [dat-files.md](../world/dat-files.md#client-message-tables)).
 
 The motion slot is where the race's emote motion DATs keep the emote (`EmoteMotion.Slot`; file n / 8, routine `em0(n % 8)`), read from the Hume male DATs on 2026-10-01 ([world/entities-and-animation.md](../world/entities-and-animation.md)). **Beyond XiPackets / LandSandBoat:** neither gives the id-to-slot mapping; it is slot = id + 2 from Kneel on, with Point and Bow swapped and Salute taking one of three slots.
 
@@ -59,7 +59,7 @@ The motion slot is where the race's emote motion DATs keep the emote (`EmoteMoti
 | 74 | Job | none | `/jobemote`, `Param` = job id + 30; not routed |
 | 96 | Aim | none | `Param` 53; not routed |
 
-Slots in parentheses are what `EmoteMotion.Slot` computes (id + 2 for ids 3-45); the slot survey lists clips only up to slot 40, so these are not checked against the DATs. `/sit` is not an emote (C2S 0x0EA, [#111](https://github.com/jimmy58663/GordianXI/issues/111)); the S2C 0x05A echo is [#110](https://github.com/jimmy58663/GordianXI/issues/110).
+Slots in parentheses are what `EmoteMotion.Slot` computes (id + 2 for ids 3-45); the slot survey lists clips only up to slot 40, so these are not checked against the DATs. `/sit` is not an emote (C2S 0x0EA, [#111](https://github.com/jimmy58663/GordianXI/issues/111)); the S2C 0x05A echo ([#110](https://github.com/jimmy58663/GordianXI/issues/110)) plays the same slots on the caster and prints the emote table's line.
 
 ## Action kinds (C2S 0x01A `ActionID`)
 

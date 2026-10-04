@@ -21,8 +21,10 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
-    /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A): the message id into the
-    /// zone's dialog table, the entity it is about, the numbers the text substitutes, and how to show it.
+    /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A / 0x027 / 0x043 / 0x03B): the
+    /// message id into the zone's dialog table, the entity it is about, the numbers the text substitutes, and how to show
+    /// it. <see cref="Strings"/> holds the strings the text's 0x1C n codes read (0x027's String1 / String2, 0x043's name),
+    /// null for the packets without any.
     /// </summary>
     public sealed record DialogMessageInfo(
         ushort MessageId,
@@ -31,7 +33,8 @@ namespace Gordian.Core.World
         bool HideName,
         byte Type,
         int[] Numbers,
-        string Name
+        string Name,
+        string[]? Strings = null
     );
 
     /// <summary>
@@ -189,6 +192,15 @@ namespace Gordian.Core.World
         /// <summary>The server answered a pending event update (S2C 0x052 mode 1): the event script may go on.</summary>
         public event Action? EventUpdateAcknowledged;
 
+        /// <summary>
+        /// New numbers for the running event (S2C 0x05C): the eight values the client copies into the event work zone from
+        /// index 2, where the event scripts read their parameters.
+        /// </summary>
+        public event Action<int[]>? EventNumbersUpdated;
+
+        /// <summary>New strings for the running event (S2C 0x05D): the four strings the 0x1C n dialog codes read.</summary>
+        public event Action<string[]>? EventStringsUpdated;
+
         /// <summary>The server cancelled the running event (S2C 0x052 mode 2).</summary>
         public event Action? EventCancelledByServer;
         public event Action? KeyItemsUpdated;
@@ -202,6 +214,132 @@ namespace Gordian.Core.World
         public event Action? ToteboardUpdated;
         public event Action? UnityUpdated;
         public event Action? TeleportMasksUpdated;
+
+        /// <summary>The unlocked mounts changed (S2C 0x0AE).</summary>
+        public event Action? MountsUpdated;
+
+        /// <summary>The Moblin Maze Mongers vouchers or runes changed (S2C 0x0AD).</summary>
+        public event Action? MazeUnlocksUpdated;
+
+        /// <summary>The Alter Ego (Trust) points or upgrades changed (S2C 0x08E).</summary>
+        public event Action? AlterEgoPointsUpdated;
+
+        #endregion
+
+        #region Mounts, Moblin Maze Mongers, Alter Ego points (S2C 0x0AE / 0x0AD / 0x08E)
+
+        private readonly byte[] _mountTable = new byte[S2C_0x0AE_MountData.TableLength];
+        private readonly byte[] _mazeVouchers = new byte[S2C_0x0AD_Dungeon.VoucherBytes];
+        private readonly byte[] _mazeRunes = new byte[S2C_0x0AD_Dungeon.RuneBytes];
+        private readonly byte[] _alterEgoUpgrades = new byte[S2C_0x08E_AlterEgoPoints.CategorySlots];
+        private readonly ushort[] _alterEgoCosts = new ushort[S2C_0x08E_AlterEgoPoints.CategorySlots];
+
+        /// <summary>True once an S2C 0x0AE arrived.</summary>
+        public bool HasMountData { get; private set; }
+
+        /// <summary>The character's Alter Ego (Trust) points (S2C 0x08E).</summary>
+        public ushort AlterEgoPoints { get; private set; }
+
+        /// <summary>Stores the unlocked mount table of S2C 0x0AE.</summary>
+        public void UpdateMounts(in S2C_0x0AE_MountData mounts)
+        {
+            if (!mounts.IsValid) return;
+            lock (_lock)
+            {
+                mounts.MountTable.CopyTo(_mountTable);
+                HasMountData = true;
+            }
+            MountsUpdated?.Invoke();
+        }
+
+        /// <summary>True when mount <paramref name="mountIndex"/> (0 = Chocobo, the mount names DAT order) is unlocked.</summary>
+        public bool HasMount(int mountIndex)
+        {
+            lock (_lock) return LoginDataBits.Test(_mountTable, mountIndex);
+        }
+
+        /// <summary>The unlocked mount indices, lowest first.</summary>
+        public IReadOnlyList<int> GetUnlockedMounts() => CollectBits(_mountTable);
+
+        /// <summary>Stores the Moblin Maze Mongers vouchers and runes of S2C 0x0AD.</summary>
+        public void UpdateMazeUnlocks(in S2C_0x0AD_Dungeon dungeon)
+        {
+            if (!dungeon.IsValid) return;
+            lock (_lock)
+            {
+                dungeon.Vouchers.CopyTo(_mazeVouchers);
+                dungeon.Runes.CopyTo(_mazeRunes);
+            }
+            MazeUnlocksUpdated?.Invoke();
+        }
+
+        /// <summary>True when Maze Voucher <paramref name="index"/> (item 28736 + index) is unlocked.</summary>
+        public bool HasMazeVoucher(int index)
+        {
+            lock (_lock) return LoginDataBits.Test(_mazeVouchers, index);
+        }
+
+        /// <summary>True when Maze Rune <paramref name="index"/> (item 28800 + index) is unlocked.</summary>
+        public bool HasMazeRune(int index)
+        {
+            lock (_lock) return LoginDataBits.Test(_mazeRunes, index);
+        }
+
+        /// <summary>The unlocked Maze Voucher item ids.</summary>
+        public IReadOnlyList<ushort> GetMazeVoucherItemIds() => ToItemIds(CollectBits(_mazeVouchers), S2C_0x0AD_Dungeon.FirstVoucherItemId);
+
+        /// <summary>The unlocked Maze Rune item ids.</summary>
+        public IReadOnlyList<ushort> GetMazeRuneItemIds() => ToItemIds(CollectBits(_mazeRunes), S2C_0x0AD_Dungeon.FirstRuneItemId);
+
+        /// <summary>Stores the Alter Ego points and per-category upgrades of S2C 0x08E.</summary>
+        public void UpdateAlterEgoPoints(in S2C_0x08E_AlterEgoPoints points)
+        {
+            if (!points.IsValid) return;
+            lock (_lock)
+            {
+                AlterEgoPoints = points.Points;
+                for (int i = 0; i < S2C_0x08E_AlterEgoPoints.CategorySlots; i++)
+                {
+                    _alterEgoUpgrades[i] = points.GetUpgrade(i);
+                    _alterEgoCosts[i] = points.GetNextCost(i);
+                }
+            }
+            AlterEgoPointsUpdated?.Invoke();
+        }
+
+        /// <summary>The upgrade level of an Alter Ego category.</summary>
+        public byte GetAlterEgoUpgrade(AlterEgoCategory category)
+        {
+            int i = (int)category;
+            lock (_lock) return (uint)i < (uint)_alterEgoUpgrades.Length ? _alterEgoUpgrades[i] : (byte)0;
+        }
+
+        /// <summary>The points needed for the next upgrade of an Alter Ego category.</summary>
+        public ushort GetAlterEgoNextCost(AlterEgoCategory category)
+        {
+            int i = (int)category;
+            lock (_lock) return (uint)i < (uint)_alterEgoCosts.Length ? _alterEgoCosts[i] : (ushort)0;
+        }
+
+        private List<int> CollectBits(byte[] table)
+        {
+            var result = new List<int>();
+            lock (_lock)
+            {
+                for (int i = 0; i < table.Length * 8; i++)
+                {
+                    if (LoginDataBits.Test(table, i)) result.Add(i);
+                }
+            }
+            return result;
+        }
+
+        private static List<ushort> ToItemIds(List<int> bits, ushort firstItemId)
+        {
+            var ids = new List<ushort>(bits.Count);
+            foreach (int bit in bits) ids.Add((ushort)(firstItemId + bit));
+            return ids;
+        }
 
         #endregion
 
@@ -240,6 +378,33 @@ namespace Gordian.Core.World
         }
 
         public void AcknowledgeEventUpdate() => EventUpdateAcknowledged?.Invoke();
+
+        /// <summary>
+        /// Replaces the running event's numbers (S2C 0x05C) in <see cref="ActiveEvent"/> and raises
+        /// <see cref="EventNumbersUpdated"/>. Raised also when no event runs: the client copies them into the work zone
+        /// regardless (XiPackets 0x005C).
+        /// </summary>
+        public void UpdateEventNumbers(ReadOnlySpan<int> numbers)
+        {
+            var copy = numbers.ToArray();
+            lock (_lock)
+            {
+                if (ActiveEvent != null) ActiveEvent = ActiveEvent with { NumericParams = (int[])copy.Clone() };
+            }
+            EventNumbersUpdated?.Invoke(copy);
+        }
+
+        /// <summary>Replaces the running event's strings (S2C 0x05D) in <see cref="ActiveEvent"/> and raises <see cref="EventStringsUpdated"/>.</summary>
+        public void UpdateEventStrings(string[] strings)
+        {
+            ArgumentNullException.ThrowIfNull(strings);
+            var copy = (string[])strings.Clone();
+            lock (_lock)
+            {
+                if (ActiveEvent != null) ActiveEvent = ActiveEvent with { StringParams = (string[])copy.Clone() };
+            }
+            EventStringsUpdated?.Invoke(copy);
+        }
 
         public void CancelEventByServer() => EventCancelledByServer?.Invoke();
 

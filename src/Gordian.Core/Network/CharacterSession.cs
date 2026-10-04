@@ -113,6 +113,9 @@ namespace Gordian.Core.Network
         /// <summary>Gets the local player's personal pet (S2C 0x068).</summary>
         public LocalPetState Pet => NetworkManager.Pet;
 
+        /// <summary>Gets the login-time data module (mounts, Maze Mongers, Alter Ego points, extended job data).</summary>
+        public LoginDataPacketModule LoginDataModule => NetworkManager.LoginDataModule;
+
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
         /// </summary>
@@ -220,6 +223,9 @@ namespace Gordian.Core.Network
             Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName,
                 Party, index => _ = EntityModule.RequestEntityInfoAsync(index));
             Locomotion.Events = Events;
+            // System messages (S2C 0x053) and everyone's emotes (S2C 0x05A, ours included): text from the client's own
+            // message tables, the emote motion on the caster.
+            Messages.Attach(Commands, World, LocalPlayer, Chat, () => CharacterName);
             // The NPC shop (Tier 2 chunk 6c): S2C 0x03E / 0x03C / 0x03D drive the shop windows through the inventory
             // state; the windows send 0x083 (buy) and 0x084 + 0x085 (appraise, sell). A zone change ends the shop.
             ActionService.Menus.Inventory = Inventory;
@@ -286,6 +292,9 @@ namespace Gordian.Core.Network
 
         /// <summary>Event dialog: NPC talk, choice menus and zone messages (Tier 2 chunk 6).</summary>
         public Events.EventDialogController Events { get; } = new();
+
+        /// <summary>System messages and emotes from the client's own message tables (S2C 0x053, 0x05A).</summary>
+        public Events.ClientMessageController Messages { get; } = new();
 
         private string? ResolveEntityName(uint id)
         {

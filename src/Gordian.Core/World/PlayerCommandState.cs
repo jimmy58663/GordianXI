@@ -245,15 +245,92 @@ namespace Gordian.Core.World
         }
     }
 
+    /// <summary>A system message to print (S2C 0x053): its id in the client's system message table and its two numbers.</summary>
+    public readonly record struct SystemMessageInfo(ushort MessageId, uint Para, uint Para2);
+
     /// <summary>
-    /// The state behind the everyday command packets: the emote list (S2C 0x11A), wide scan (0x0F4-0x0F6) and proposals
-    /// (0x078 / 0x079). One per session.
+    /// An emote someone in range made (S2C 0x05A), our own included: the caster, the target (0 / 0 without one), the
+    /// emote id (the C2S 0x05D ids; job emotes from 74), its <c>Param</c> and how it plays.
+    /// </summary>
+    public readonly record struct EmoteEcho(uint CasterId, ushort CasterIndex, uint TargetId, ushort TargetIndex, ushort EmoteId, ushort Param, EmoteMode Mode)
+    {
+        /// <summary>Whether the emote was made at a target ("waves to X" rather than "waves").</summary>
+        public bool HasTarget => TargetId != 0;
+
+        /// <summary>Whether the log line shows (mode 0 or 1).</summary>
+        public bool ShowsText => Mode != EmoteMode.Motion;
+
+        /// <summary>Whether the motion plays (mode 0 or 2).</summary>
+        public bool PlaysMotion => Mode != EmoteMode.Text;
+    }
+
+    /// <summary>A checked character's bazaar message and title (S2C 0x0CA).</summary>
+    public sealed record InspectMessageInfo(string Name, string Message, bool HasBazaar, bool IsSelf, byte Race, uint TitleId);
+
+    /// <summary>
+    /// The bazaar messages the server sent (S2C 0x0CA): the last checked character's, and our own (LandSandBoat sends ours
+    /// on zone-in). The check window that shows them is #64; nothing draws them yet.
+    /// </summary>
+    public sealed class InspectMessageState
+    {
+        private readonly object _sync = new();
+        private InspectMessageInfo? _last;
+        private InspectMessageInfo? _own;
+
+        /// <summary>The last message received, or null.</summary>
+        public InspectMessageInfo? Last { get { lock (_sync) return _last; } }
+
+        /// <summary>Our own bazaar message (the last one with <c>MyFlag</c> set), or null.</summary>
+        public InspectMessageInfo? Own { get { lock (_sync) return _own; } }
+
+        public event Action<InspectMessageInfo>? Received;
+
+        public void Apply(InspectMessageInfo info)
+        {
+            ArgumentNullException.ThrowIfNull(info);
+            lock (_sync)
+            {
+                _last = info;
+                if (info.IsSelf) _own = info;
+            }
+            Received?.Invoke(info);
+        }
+    }
+
+    /// <summary>
+    /// The state behind the everyday command packets: the emote list (S2C 0x11A), emotes made in range (0x05A), wide scan
+    /// (0x0F4-0x0F6), proposals (0x078 / 0x079), system messages (0x053) and bazaar messages (0x0CA). One per session.
     /// </summary>
     public sealed class PlayerCommandState
     {
         public EmoteListState Emotes { get; } = new();
         public WideScanState WideScan { get; } = new();
         public VoteState Votes { get; } = new();
+        public InspectMessageState Inspect { get; } = new();
+
+        /// <summary>The last emote made in range (S2C 0x05A), or null.</summary>
+        public EmoteEcho? LastEmote { get; private set; }
+
+        /// <summary>The last system message (S2C 0x053), or null.</summary>
+        public SystemMessageInfo? LastSystemMessage { get; private set; }
+
+        /// <summary>An emote was made in range (S2C 0x05A), ours included: the log line and the motion follow from it.</summary>
+        public event Action<EmoteEcho>? EmotePerformed;
+
+        /// <summary>A system message arrived (S2C 0x053).</summary>
+        public event Action<SystemMessageInfo>? SystemMessageReceived;
+
+        public void ApplyEmote(EmoteEcho emote)
+        {
+            LastEmote = emote;
+            EmotePerformed?.Invoke(emote);
+        }
+
+        public void ApplySystemMessage(SystemMessageInfo message)
+        {
+            LastSystemMessage = message;
+            SystemMessageReceived?.Invoke(message);
+        }
 
         /// <summary>Forgets what does not survive a zone change: the wide scan list and the tracked entity.</summary>
         public void OnZoneChanged() => WideScan.Clear();

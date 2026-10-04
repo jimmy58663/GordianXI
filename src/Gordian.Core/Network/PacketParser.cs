@@ -43,6 +43,7 @@ namespace Gordian.Core.Network
         private readonly PlayerCommandState _commandState = new();
         private readonly PlayerCommandPacketModule _commandModule;
         private readonly LocalPetState _pet = new();
+        private readonly LoginDataPacketModule _loginDataModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
         private readonly Animation.ActionPlaybackQueue _actionPlayback;
@@ -118,6 +119,9 @@ namespace Gordian.Core.Network
             _commandModule = new PlayerCommandPacketModule(_commandState, _world, _sendChunkCallback, LogPacket);
             _commandModule.Register(_dispatcher);
 
+            _loginDataModule = new LoginDataPacketModule(_progression, _localPlayer, _sendChunkCallback, LogPacket);
+            _loginDataModule.Register(_dispatcher);
+
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
             _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world);
@@ -140,6 +144,7 @@ namespace Gordian.Core.Network
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
             _actionService.CommandModule = _commandModule;
+            _actionService.LoginDataModule = _loginDataModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -239,6 +244,11 @@ namespace Gordian.Core.Network
         /// Gets the local player's personal pet (S2C 0x068).
         /// </summary>
         public LocalPetState Pet => _pet;
+
+        /// <summary>
+        /// Gets the login-time data module (mounts, Maze Mongers, Alter Ego points, extended job data and their requests).
+        /// </summary>
+        public LoginDataPacketModule LoginDataModule => _loginDataModule;
 
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.

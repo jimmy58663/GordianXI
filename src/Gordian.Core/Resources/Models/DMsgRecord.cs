@@ -43,6 +43,11 @@ namespace Gordian.Core.Resources.Models
         /// 0x18 names the noun, 0x17 the adjective (#125).
         /// </summary>
         WeatherNames,
+        /// <summary>
+        /// A table of 526 short UI strings (ROM/165/61.DAT; found 2026-10-03): race and sex marks first (0 = "全種"),
+        /// the Unity leaders at rows 418-429 (418 = "No Unity", 419 = "Pieuje" ... 428 = "Yoran-Oran", 429 = "Sylvie").
+        /// </summary>
+        MiscStrings,
         Custom
     }
 
