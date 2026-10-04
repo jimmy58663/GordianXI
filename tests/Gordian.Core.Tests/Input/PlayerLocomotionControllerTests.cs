@@ -591,6 +591,67 @@ namespace Gordian.Core.Tests.Input
             Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0f, 0.01f);
         }
 
+        // The viewport draws with its own ViewportCamera in display space, fed from the controller's public values; this
+        // does what VeldridViewportControl does each frame and measures the eye that would be drawn.
+        private static (float eyeDistance, Vector3 view) RenderedEye(PlayerLocomotionController controller, WorldEntity me, ViewportCamera camera)
+        {
+            camera.Mode = controller.Camera.Mode;
+            camera.Pitch = controller.CameraPitch;
+            camera.Yaw = controller.CameraYaw;
+            camera.Distance = controller.EffectiveCameraDistance;
+            controller.ApplyLockOnAim(camera);
+            var display = new Vector3(-me.Position.X, -me.Position.Y, me.Position.Z);
+            camera.Update(display, camera.Pitch, camera.Yaw, camera.Distance, 16f / 9f, 0f);
+            var lookAtCharacter = display + camera.EyeOffset;
+            return ((camera.Position - lookAtCharacter).Length(), Vector3.Normalize(camera.Target - camera.Position));
+        }
+
+        [Theory]
+        [InlineData(false)] // manual T / /lockon
+        [InlineData(true)]  // auto-lock on engage
+        public void RenderedCamera_ZoomsInWhenLockedOnAndOutWhenReleased(bool auto)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraDistance = 8f;
+            var camera = new ViewportCamera();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8f, RenderedEye(controller, me, camera).eyeDistance, 1);
+
+            if (auto)
+            {
+                actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
+                actionService.Combat!.Disengage();
+                actionService.Combat.Engage(mob.ServerId, mob.TargetIndex); // the engage itself locks on
+            }
+            else
+            {
+                actionService.ToggleLockOn();
+            }
+            Assert.True(actionService.IsLockedOn);
+
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            float partway = RenderedEye(controller, me, camera).eyeDistance;
+            Assert.InRange(partway, 8f * PlayerLocomotionController.LockOnZoomFactor + 0.05f, 7.95f);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f * PlayerLocomotionController.LockOnZoomFactor, RenderedEye(controller, me, camera).eyeDistance, 1);
+
+            actionService.ToggleLockOn();
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f, RenderedEye(controller, me, camera).eyeDistance, 1);
+        }
+
+        [Fact]
+        public void RenderedCamera_WhenLockedOn_FacesTheTargetOnScreen()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw + 25f;
+            var camera = new ViewportCamera();
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            RenderedEye(controller, me, camera);
+            var v = Vector4.Transform(new Vector4(-mob.Position.X, -mob.Position.Y, mob.Position.Z, 1f), camera.ViewProjectionMatrix);
+            Assert.InRange(Math.Abs(v.X / v.W), 0f, 0.15f);
+        }
+
         [Fact]
         public void Update_LockedOn_CameraPitchIsHeldInsideTheMeasuredRange()
         {

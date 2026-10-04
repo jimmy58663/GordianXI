@@ -569,7 +569,7 @@ namespace Gordian.Core.Input
             var aimTarget = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
             if (aimTarget is { IsSpawned: true }) _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
             _camera.AimPoint = _lastAimPoint;
-            _camera.AimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
+            _camera.AimBlend = LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
             if (_lockZoomBlend <= 0f) _lastAimPoint = null;
             _camera.Update(targetPos, CameraPitch, CameraYaw, lockDistance, _camera.AspectRatio);
 
@@ -1340,10 +1340,50 @@ namespace Gordian.Core.Input
         private float LockOnZoomedDistance(float dt)
         {
             bool zoomed = _camera.Mode == CameraMode.ThirdPersonOrbital && (_actionService?.IsLockedOn ?? false);
+            float previousBlend = _lockZoomBlend;
             float step = dt / LockOnZoomSeconds;
             _lockZoomBlend = Math.Clamp(_lockZoomBlend + (zoomed ? step : -step), 0f, 1f);
             float eased = _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend));
-            return CameraDistance * (1f + ((LockOnZoomFactor - 1f) * eased));
+            float distance = CameraDistance * (1f + ((LockOnZoomFactor - 1f) * eased));
+
+            // Trace the zoom (the real renderer draws from EffectiveCameraDistance, not from the controller's own camera).
+            float zoomedDistance = CameraDistance * LockOnZoomFactor;
+            if (previousBlend == 0f && _lockZoomBlend > 0f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in starts: distance {CameraDistance:F2} -> {zoomedDistance:F2} over {LockOnZoomSeconds:F2} s");
+            else if (previousBlend == 1f && _lockZoomBlend < 1f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out starts: distance {zoomedDistance:F2} -> {CameraDistance:F2} over {LockOnZoomSeconds:F2} s");
+            else if (previousBlend < 1f && _lockZoomBlend == 1f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in done: distance {distance:F2}");
+            else if (previousBlend > 0f && _lockZoomBlend == 0f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out done: distance {distance:F2}");
+
+            EffectiveCameraDistance = distance;
+            LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * eased : 0f;
+            return distance;
+        }
+
+        /// <summary>
+        /// The camera distance to draw with: <see cref="CameraDistance"/> with the lock-on zoom applied. The viewport
+        /// draws with its own camera, so it must read this, not <see cref="CameraDistance"/> (#137).
+        /// </summary>
+        public float EffectiveCameraDistance { get; private set; } = 6.0f;
+
+        /// <summary>How far the view is turned toward <see cref="LockOnAimPoint"/> (0 when not locked on).</summary>
+        public float LockOnAimBlend { get; private set; }
+
+        /// <summary>The locked-on target's position (internal space), kept while the aim eases back out; null when none.</summary>
+        public Vector3? LockOnAimPoint => _lastAimPoint;
+
+        /// <summary>
+        /// Sets <paramref name="renderCamera"/>'s aim for this frame: the viewport's own camera works in display space
+        /// (-x, -y, z), so the aim point is mirrored the same way the player position is.
+        /// </summary>
+        public void ApplyLockOnAim(ViewportCamera renderCamera)
+        {
+            ArgumentNullException.ThrowIfNull(renderCamera);
+            var aim = LockOnAimPoint;
+            renderCamera.AimPoint = aim is { } a ? new Vector3(-a.X, -a.Y, a.Z) : null;
+            renderCamera.AimBlend = LockOnAimBlend;
         }
     }
 }

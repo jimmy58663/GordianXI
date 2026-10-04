@@ -595,12 +595,14 @@ namespace Gordian.App.Graphics
                     _unwrappedCameraYaw += yawStep;
                     _lastRawCameraYaw = rawYaw;
                     var orbit = _cameraOrbitSmoother.Update(
-                        new Vector3(_unwrappedCameraYaw, locomotion.CameraPitch, locomotion.CameraDistance),
+                        new Vector3(_unwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
                         TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
                     Camera.Yaw = orbit.X;
                     Camera.Pitch = orbit.Y;
                     Camera.Distance = orbit.Z;
                     Camera.Mode = locomotion.Camera.Mode;
+                    // Lock-on: the view turns toward the target (the zoom is in EffectiveCameraDistance above).
+                    locomotion.ApplyLockOnAim(Camera);
                 }
 
                 // Locomotion ticks on a UI timer (irregular ~16/31 ms); interpolate between ticks so the camera and the
