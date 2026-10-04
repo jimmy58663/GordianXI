@@ -9,8 +9,10 @@ namespace Gordian.Core.Resources.Graphics
 {
     /// <summary>
     /// Clean-room binary decoder for FFXI Section 0x2B SkeletonAnimation resources.
-    /// Parses per-joint rotation/translation keyframe tracks (scale channels are decoded but
-    /// not surfaced, as no consuming code path uses bone scale).
+    /// Parses per-joint rotation, translation and scale keyframe tracks. Scale keys are kept as stored, zero included:
+    /// retail hides joints with near-zero scale (#76; xi-tools docs/anim/fishing.md, xi-model-viewer ui/js/dat.js keeps
+    /// the raw values too); only a non-finite scale component becomes 1. A track with a non-finite rotation or translation
+    /// key is dropped as a mis-parsed payload.
     /// Derived from community research in xi-tools (https://github.com/vekien/xi-tools) docs/anim/format.md.
     /// </summary>
     public static class SkeletonAnimationDecoder
@@ -146,14 +148,17 @@ namespace Gordian.Core.Resources.Graphics
                     float sx = scaleChannels[0]?[f] ?? scaleConst[0];
                     float sy = scaleChannels[1]?[f] ?? scaleConst[1];
                     float sz = scaleChannels[2]?[f] ?? scaleConst[2];
+                    // Zero and near-zero scale keys are kept: retail uses them to hide a joint's geometry (a mount part
+                    // in ROM/3/11's idl1 at (0, 0, 0), the fishing rod in fsh0 / fh00 at 1e-5 until the cast; #76).
+                    // Skinning multiplies by the scale and nothing divides by it, so such a joint collapses to its origin.
+                    // Only a non-finite scale component is replaced, by 1.
                     scales[f] = new Vector3(
-                        float.IsFinite(sx) && MathF.Abs(sx) > 0.0001f ? sx : 1f,
-                        float.IsFinite(sy) && MathF.Abs(sy) > 0.0001f ? sy : 1f,
-                        float.IsFinite(sz) && MathF.Abs(sz) > 0.0001f ? sz : 1f);
+                        float.IsFinite(sx) ? sx : 1f,
+                        float.IsFinite(sy) ? sy : 1f,
+                        float.IsFinite(sz) ? sz : 1f);
 
                     if (!float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz) ||
-                        !float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw) ||
-                        !float.IsFinite(sx) || !float.IsFinite(sy) || !float.IsFinite(sz))
+                        !float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw))
                     {
                         allFinite = false;
                     }

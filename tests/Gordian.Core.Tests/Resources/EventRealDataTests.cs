@@ -90,6 +90,55 @@ namespace Gordian.Core.Tests.Resources
             _output.WriteLine($"{script.Blocks.Count} blocks, {dialog.Count} messages, {entities.Count} entities");
         }
 
+        /// <summary>
+        /// Retail lines that use the codes fixed for #202 / #74 (corpus scan of 2026-10-03), formatted with the game's own
+        /// item and key item names: Phanauet Channel (zone 1) carries the shared system lines, Al Zahbi (48) the Mog Locker.
+        /// </summary>
+        [Fact]
+        public void RetailLines_FormatPluralsItemFormsDatesAndCase()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            var channel = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(1))!)!;
+            var alZahbi = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(48))!)!;
+            string Line(ZoneDialogTable table, int id, params int[] numbers)
+            {
+                var context = new Gordian.Core.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, value),
+                    timeZone: Gordian.Core.Tests.Events.EventMessageFormatterTests.Pacific);
+                var lines = Gordian.Core.Events.EventMessageFormatter.FormatLines(table.GetMessage(id)!, context);
+                _output.WriteLine($"{id}: {string.Join(" | ", lines)}");
+                return string.Join(" | ", lines);
+            }
+
+            // 01 05 03 (a number) and 01 09 29 (item by count): plural and singular log names.
+            Assert.Equal("You obtain 12 fire crystals!", Line(channel, 6401, 4096, 12));
+            Assert.Equal("You obtain 1 fire crystal!", Line(channel, 6401, 4096, 1));
+            // 01 01 01 (the article) before 01 05 24 (item log name).
+            Assert.Equal("You have been rewarded a fire crystal as compensation.", Line(channel, 7059, 4096));
+            // 7F 80 01 before a plural item name at the start of a sentence.
+            Assert.Equal("Unable to proceed. | Fire crystals are not suitable for use as synergy ingredients.", Line(channel, 38, 4096));
+            // 7F 80 01 before a key item name.
+            Assert.Equal("Obtained key item: Blue acidity tester.", Line(channel, 6398, 3));
+            // 7F 92 n [singular/plural].
+            Assert.Equal("Objective: 1 arcana-type creature. | Equipment: Target item must be equipped.", Line(channel, 2327, 1));
+            Assert.Equal("Objective: 3 arcana-type creatures. | Equipment: Target item must be equipped.", Line(channel, 2327, 3));
+
+            // Date fields: seconds since 2002-01-01 00:00 JST.
+            // Date fields, in local time (here a fixed UTC-7 zone). Retail on 2026-10-03 (US Pacific) shows the lease end
+            // 781790400 (2026-10-10 12:00 JST) as "10/9/2026 at 20:00:00" in the Mog Garden line LandSandBoat's Green Thumb
+            // Moogle sends (zone 280, MOGLOCKER_MESSAGE_OFFSET + 1 = 7538, codes A1/A2/A0 at A3:A9:AA).
+            var garden = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(280))!)!;
+            Assert.Equal("Your Mog Locker may be used until: | 10/9/2026 at 20:00:00 (Earth Time).", Line(garden, 7538, 781790400));
+            // The city lease lines (Southern San d'Oria 6702, MOG_LOCKER_OFFSET) write their codes A0/A1/A2: year first
+            // (not checked against retail).
+            var sandoria = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(SouthernSandoria))!)!;
+            Assert.Equal("Your Mog Locker lease is valid until 2026/10/9 20:00:00, kupo.", Line(sandoria, 6702, 781790400));
+            Assert.Equal("Your Mog Locker lease is valid until 2026/10/9 20:00:00, kupo.", Line(alZahbi, 7409, 781790400));
+            // The Assist Channel line (A1/A2/A0 at A3:A9 (JST)): shown here in local time; whether retail keeps JST for it is
+            // not known.
+            Assert.Equal("You will be able to use the Assist Channel until 10/9/2026 at 20:00 (JST).", Line(channel, 6380, 781790400));
+        }
+
         [Fact]
         public void ZoneNames_ComeFromTheZoneNameTable()
         {
@@ -99,6 +148,28 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal("Southern San d'Oria", name);
             Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNamesShort, 231, out var shortName));
             Assert.Equal("N.San d'Oria", shortName);
+        }
+
+        [Fact]
+        public void CompactZoneNames_AreTheTextTheRetailPartyWindowShows()
+        {
+            var rm = Open();
+            if (rm == null) return;
+            var category = Gordian.Core.Resources.Models.DMsgCategory.ZoneNamesCompact;
+            Assert.True(rm.TryGetString(category, 230, out var ssandoria));
+            Assert.Equal("SSandOria", ssandoria);
+            Assert.True(rm.TryGetString(category, 231, out var nsandoria));
+            Assert.Equal("NSandOria", nsandoria);
+            Assert.True(rm.TryGetString(category, 232, out var psandoria));
+            Assert.Equal("PSandOria", psandoria);
+            Assert.True(rm.TryGetString(category, 233, out var chateau));
+            Assert.Equal("ChatdOrag", chateau);
+            for (int id = 230; id < 250; id++)
+            {
+                Assert.True(rm.TryGetString(category, id, out var text));
+                Assert.DoesNotContain(' ', text);
+                _output.WriteLine($"{id}: {text}");
+            }
         }
 
         [Fact]
