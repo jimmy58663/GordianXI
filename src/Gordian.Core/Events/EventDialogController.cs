@@ -699,6 +699,38 @@ namespace Gordian.Core.Events
             return "???";
         }
 
+        /// <summary>
+        /// The name of the entity with this server id (a 0x18 n dialog code: "The synergy furnace is currently in use by
+        /// {18 01}."), from the player, the zone's entities or the party list; null when not known.
+        /// </summary>
+        private string? EntityNameById(uint serverId)
+        {
+            if (serverId == 0) return null;
+            if (_player != null && serverId == _player.ServerId) return _playerName();
+            if (_world != null && _world.TryGetByServerId(serverId, out var entity) && !string.IsNullOrEmpty(entity.Name)) return entity.Name;
+            if (_party != null)
+            {
+                foreach (var member in _party.Members)
+                {
+                    if (member.ServerId == serverId && !string.IsNullOrEmpty(member.Name)) return member.Name;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Party / alliance member n of a 0x19 n dialog code ("Whose Mog House will you visit?" lists {19 01}-{19 11}):
+        /// the event VM's 18 party slots (XiEvents InitEvent2 / GetActorNum, <see cref="TryGetPartyMember"/>), 0 the
+        /// player, 1-5 the rest of the player's party, 6-11 and 12-17 the alliance's other parties. Null for an empty slot.
+        /// </summary>
+        private string? PartyMemberName(int n)
+        {
+            if (n < 0 || n >= 18) return null;
+            if (n == 0) return _playerName();
+            if (!TryGetPartyMember(n / 6, n % 6, out uint serverId, out _)) return null;
+            return EntityNameById(serverId);
+        }
+
         /// <summary>The entity a line is spoken by (0 = the player), resolved as <see cref="EntityName"/> does, or null.</summary>
         private WorldEntity? SpeakingEntity(uint serverId, ushort index)
         {
@@ -708,7 +740,8 @@ namespace Gordian.Core.Events
             return index != 0 && _world.TryGetByTargetIndex(index, out entity) ? entity : null;
         }
 
-        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, PlayerIsFemale());
+        private IEventMessageContext EventContext(string npcName) =>
+            new WorkZoneContext(this, _zone, _playerName(), npcName, PlayerIsFemale(), _info?.StringParams);
 
         /// <summary>
         /// The player's sex from its look's race byte (1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru male/female, 7 Mithra, 8 Galka),
@@ -752,7 +785,7 @@ namespace Gordian.Core.Events
             string speaker = message.HideName ? string.Empty
                 : !string.IsNullOrEmpty(message.Name) ? message.Name
                 : EntityName(message.UniqueNo, message.ActIndex);
-            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName);
+            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName, PartyMemberName, EntityNameById);
             var lines = EventMessageFormatter.FormatLines(decoded, context);
             PrintLines(lines, speaker, message.HideName ? ChatLogChannel.Message : ChatLogChannel.Dialog);
         }
@@ -1310,14 +1343,19 @@ namespace Gordian.Core.Events
         /// </summary>
         private sealed class WorkZoneContext : IEventMessageContext
         {
+            private readonly EventDialogController _owner;
             private readonly EventWorkZone _zone;
+            private readonly string[]? _strings;
 
-            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName, bool? playerIsFemale = null)
+            public WorkZoneContext(EventDialogController owner, EventWorkZone zone, string playerName, string npcName,
+                bool? playerIsFemale = null, string[]? strings = null)
             {
+                _owner = owner;
                 _zone = zone;
                 PlayerName = playerName;
                 NpcName = npcName;
                 PlayerIsFemale = playerIsFemale;
+                _strings = strings;
             }
 
             public string PlayerName { get; }
@@ -1326,7 +1364,16 @@ namespace Gordian.Core.Events
 
             public int GetNumber(int index) => _zone.GetMessageParameter(index);
 
-            public string? GetEntityName(int index) => null;
+            public string? GetEntityName(int index) => _owner.PartyMemberName(index);
+
+            public string? GetEntityNameById(uint serverId) => _owner.EntityNameById(serverId);
+
+            /// <summary>
+            /// The event's string parameter n (S2C 0x033: LandSandBoat's Tateeya sends the automaton's name in all four for
+            /// "If you would like to customize {1C 00}, ..."), or null.
+            /// </summary>
+            public string? GetEventString(int index) =>
+                _strings != null && index >= 0 && index < _strings.Length && !string.IsNullOrEmpty(_strings[index]) ? _strings[index] : null;
 
             public string? ResolveName(byte kind, int id) => EventDialogController.ResolveName(kind, id);
         }
