@@ -246,7 +246,8 @@ namespace Gordian.Core.Network.Packets
 
             GordianLog.Info("AUCTION", $"Auction response: Command={p.Command}, Result={p.Result}, Item={p.ItemId}, Price={p.Price}");
             _inventoryState.SetAuctionResponse(new AuctionResponse(p.Command, p.AucWorkIndex, p.Result, p.ResultStatus,
-                p.ParcelStat, p.ParcelItemIndex, p.ItemId, p.Count, p.Price, p.SellerName));
+                p.ParcelStat, p.ParcelItemIndex, p.ItemId, p.Count, p.Price, p.SellerName,
+                p.ParcelCategory, p.ParcelMarketNo, p.ParcelLotNo, p.ParcelTimeStamp, p.ParamStacks, p.ParamWorkIndex));
         }
 
         private void HandleEquipClear(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -317,7 +318,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x086_GuildOpen(payload);
             if (!p.IsValid) return;
 
-            _inventoryState.SetGuildOpenStatus(p.Status);
+            _inventoryState.SetGuildOpenStatus(p.Status, new GuildHoursInfo(p.OpenHour, p.CloseHour, p.HolidayDay));
         }
 
         private void HandleBazaarList(PacketHeader header, ReadOnlySpan<byte> payload)

@@ -154,14 +154,104 @@ namespace Gordian.Core.Network.Packets
     /// </summary>
     public enum AuctionCommand : byte
     {
+        /// <summary>BARE_TRANSFER (XiPackets 0x004C); LandSandBoat never sends it.</summary>
+        BareTransfer = 0x01,
         Open      = 0x02,
+        /// <summary>MCLOSE: the market closed.</summary>
+        Close     = 0x03,
         AskCommit = 0x04,
         Info      = 0x05,
         WorkCheck = 0x0A,
         LotIn     = 0x0B,
         LotCancel = 0x0C,
         LotCheck  = 0x0D,
-        Bid       = 0x0E
+        Bid       = 0x0E,
+        /// <summary>GET: take a sold or returned parcel from the delivery slot.</summary>
+        Get       = 0x0F,
+        /// <summary>CLEAR: clear a finished sale slot.</summary>
+        Clear     = 0x10
+    }
+
+    /// <summary>
+    /// The status of an Auction House sale slot (<c>Stat</c> of the S2C 0x04C parcel).
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x004C</c>.
+    /// </summary>
+    public enum AuctionParcelStat : byte
+    {
+        None = 0x00,
+        LotSet = 0x01,
+        LotInGoing = 0x02,
+        LotInDone = 0x03,
+        CancelGoing = 0x04,
+        CancelDone = 0x05,
+        BidSet = 0x06,
+        BidGoing = 0x07,
+        BidSuccess = 0x08,
+        BidFail = 0x09,
+        SoldOut = 0x0A,
+        SendBack = 0x0B,
+        SoldPost = 0x0C,
+        BackPost = 0x0D,
+        SendBackPend = 0x0E,
+        SoldOutPend = 0x0F,
+        LotInCheck = 0x10,
+        BackPendCheck = 0x11,
+        SoldPendCheck = 0x12,
+        BackPostCheck = 0x13,
+        SoldPostCheck = 0x14,
+        SoldPostChecked = 0x15,
+        BackPostChecked = 0x16,
+        Null = 0x18
+    }
+
+    /// <summary>
+    /// The <c>Result</c> byte of S2C 0x04C: 0 fail, 1 success, 2 interim, and the error codes 0xC5-0xFF. Which of them
+    /// print a chat line depends on the command (see the registry in docs/network/packets.md).
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x004C</c>.
+    /// </summary>
+    public enum AuctionResultCode : byte
+    {
+        Fail = 0x00,
+        Success = 0x01,
+        Interim = 0x02,
+        CanNotBuy = 0xC5,
+        AlreadyGone = 0xDA,
+        AlreadyHaveLore = 0xE4,
+        ProbInventoryFull = 0xE5,
+        NoItemInWork = 0xEE,
+        NotForAuction = 0xEF,
+        NotForPost = 0xF0,
+        NotEnoughStack = 0xF1,
+        ItemWorkLocked = 0xF2,
+        LastSlot = 0xF3,
+        ServiceUnavailable = 0xF5,
+        Limit = 0xF6,
+        RefusedThisTime = 0xF7,
+        RefusedTooMany = 0xF8,
+        WrongPlace = 0xF9,
+        IllegalItemNo = 0xFA,
+        SlotNotSuite = 0xFB,
+        NotHaveGil = 0xFC,
+        BadSlotNo = 0xFD,
+        InItemSys = 0xFE,
+        OnAuction = 0xFF
+    }
+
+    /// <summary>
+    /// The <c>ResultStatus</c> byte of S2C 0x04C: where the item stands in the market.
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x004C</c>.
+    /// </summary>
+    public enum AuctionResultStatus : byte
+    {
+        NotFound = 0,
+        InPool = 1,
+        InOutLot = 2,
+        InTimeout = 3,
+        InCancel = 4,
+        InSoldOut = 5,
+        InSendBack = 6,
+        InIncome = 7,
+        WrongM = 8
     }
 
     /// <summary>
@@ -774,6 +864,62 @@ namespace Gordian.Core.Network.Packets
         public string SellerName { get; }
         public bool IsValid { get; }
 
+        /// <summary>The parcel's item category (<c>ItemCategory</c>); 0 when the packet carries no parcel.</summary>
+        public byte ParcelCategory { get; }
+
+        /// <summary>The parcel's market number (<c>MarketNo</c>; LandSandBoat sends 4, the Jeuno linked market).</summary>
+        public uint ParcelMarketNo { get; }
+
+        /// <summary>The parcel's lot number (<c>LotNo</c>).</summary>
+        public uint ParcelLotNo { get; }
+
+        /// <summary>
+        /// The parcel's raw <c>TimeStamp</c>. XiPackets gives no unit and LandSandBoat never fills it, so it is kept raw.
+        /// </summary>
+        public uint ParcelTimeStamp { get; }
+
+        /// <summary>The parcel's status as a named value.</summary>
+        public AuctionParcelStat Stat => (AuctionParcelStat)ParcelStat;
+
+        /// <summary><c>Result</c> as the byte the client switches on (see <see cref="AuctionResultCode"/>).</summary>
+        public byte ResultCode => (byte)Result;
+
+        /// <summary><c>ResultStatus</c> as a named value.</summary>
+        public AuctionResultStatus Status => (AuctionResultStatus)(byte)ResultStatus;
+
+        /// <summary>
+        /// The command-dependent <c>Param</c> union (payload 4-15), as its three words: the first is a price for AskCommit
+        /// (<c>Commission</c>), Bid (<c>BidPrice</c>) and LotIn (<c>LimitPrice</c>), or <c>Kind</c> / <c>Range</c> for
+        /// Summary / History.
+        /// </summary>
+        public uint ParamWord0 { get; }
+
+        /// <summary>Param bytes 4-7: <c>ItemWorkIndex</c> + <c>ItemNo</c> (AskCommit), <c>ItemNo</c> + padding (Bid, Summary, History) or <c>ItemWorkIndex</c> + padding (LotIn).</summary>
+        public uint ParamWord1 { get; }
+
+        /// <summary>Param bytes 8-11: <c>ItemStacks</c> (AskCommit, Bid, LotIn).</summary>
+        public uint ParamWord2 { get; }
+
+        /// <summary>
+        /// The price in <c>Param</c>: the listing fee of an AskCommit reply, the bid of a Bid reply, the asking price of a
+        /// LotIn; 0 for the other commands.
+        /// </summary>
+        public uint ParamPrice => Command is AuctionCommand.AskCommit or AuctionCommand.Bid or AuctionCommand.LotIn ? ParamWord0 : 0u;
+
+        /// <summary>The item id in <c>Param</c>: AskCommit's <c>ItemNo</c> (high word of word 1), Bid's, Summary's and History's (low word); 0 otherwise.</summary>
+        public ushort ParamItemId => Command switch
+        {
+            AuctionCommand.AskCommit => (ushort)(ParamWord1 >> 16),
+            AuctionCommand.Bid or AuctionCommand.Info or AuctionCommand.LotCheck => (ushort)(ParamWord1 & 0xFFFF),
+            _ => (ushort)0
+        };
+
+        /// <summary>The inventory slot in <c>Param</c> (<c>ItemWorkIndex</c>) of an AskCommit or LotIn reply; 0 otherwise.</summary>
+        public ushort ParamWorkIndex => Command is AuctionCommand.AskCommit or AuctionCommand.LotIn ? (ushort)(ParamWord1 & 0xFFFF) : (ushort)0;
+
+        /// <summary>The <c>ItemStacks</c> in <c>Param</c> of an AskCommit, Bid or LotIn reply (0 stack, 1 single in the client's request); 0 otherwise.</summary>
+        public uint ParamStacks => Command is AuctionCommand.AskCommit or AuctionCommand.Bid or AuctionCommand.LotIn ? ParamWord2 : 0u;
+
         public S2C_0x04C_Auc(ReadOnlySpan<byte> payload)
         {
             if (payload.Length < 20)
@@ -788,6 +934,13 @@ namespace Gordian.Core.Network.Packets
                 Price = 0;
                 Count = 0;
                 SellerName = string.Empty;
+                ParcelCategory = 0;
+                ParcelMarketNo = 0;
+                ParcelLotNo = 0;
+                ParcelTimeStamp = 0;
+                ParamWord0 = 0;
+                ParamWord1 = 0;
+                ParamWord2 = 0;
                 IsValid = false;
                 return;
             }
@@ -796,6 +949,9 @@ namespace Gordian.Core.Network.Packets
             AucWorkIndex = (sbyte)payload[1];
             Result = (sbyte)payload[2];
             ResultStatus = (sbyte)payload[3];
+            ParamWord0 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            ParamWord1 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8, 4));
+            ParamWord2 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(12, 4));
 
             if (payload.Length >= 48)
             {
@@ -807,7 +963,11 @@ namespace Gordian.Core.Network.Packets
                 SellerName = nullIdx >= 0 ? Encoding.ASCII.GetString(nameBytes.Slice(0, nullIdx)) : Encoding.ASCII.GetString(nameBytes);
                 ItemId = BinaryPrimitives.ReadUInt16LittleEndian(parcel.Slice(20, 2));
                 Count = parcel[22];
+                ParcelCategory = parcel[23];
                 Price = BinaryPrimitives.ReadUInt32LittleEndian(parcel.Slice(24, 4));
+                ParcelMarketNo = parcel.Length >= 32 ? BinaryPrimitives.ReadUInt32LittleEndian(parcel.Slice(28, 4)) : 0u;
+                ParcelLotNo = parcel.Length >= 36 ? BinaryPrimitives.ReadUInt32LittleEndian(parcel.Slice(32, 4)) : 0u;
+                ParcelTimeStamp = parcel.Length >= 40 ? BinaryPrimitives.ReadUInt32LittleEndian(parcel.Slice(36, 4)) : 0u;
             }
             else
             {
@@ -817,7 +977,15 @@ namespace Gordian.Core.Network.Packets
                 ItemId = 0;
                 Count = 0;
                 Price = 0;
+                ParcelCategory = 0;
+                ParcelMarketNo = 0;
+                ParcelLotNo = 0;
+                ParcelTimeStamp = 0;
             }
+
+            // The listing-fee and bid replies carry the item and price in Param, not in the parcel.
+            if (ItemId == 0) ItemId = ParamItemId;
+            if (Price == 0) Price = ParamPrice;
 
             IsValid = true;
         }
@@ -1027,8 +1195,49 @@ namespace Gordian.Core.Network.Packets
         public const ushort PacketId = 0x086;
 
         public ShopOpenStatus Status { get; }
+
+        /// <summary>
+        /// The raw <c>Time</c>; its meaning depends on <see cref="Status"/>: unused when open, an hour bitmask when closed
+        /// after hours (<see cref="OpenHour"/>, <see cref="CloseHour"/>), the weekly holiday's day number when closed for the
+        /// holiday (<see cref="HolidayDay"/>). Bit 31 is a flag, see <see cref="SuppressesMessage"/>.
+        /// </summary>
         public uint Time { get; }
         public bool IsValid { get; }
+
+        /// <summary>
+        /// Bit 31 of <c>Time</c>: for an after-hours close, the client drops the packet when the guild window is not open;
+        /// for the holiday close it prints the message only when the bit is clear (XiPackets 0x0086).
+        /// </summary>
+        public bool SuppressesMessage => (Time & 0x80000000u) != 0;
+
+        /// <summary>
+        /// For <see cref="ShopOpenStatus.Close"/>: the opening hour, the number of low bits of <c>Time</c> before the first set bit
+        /// (<c>0x1E0</c> opens at 5). -1 when there is no set bit.
+        /// </summary>
+        public int OpenHour => Status == ShopOpenStatus.Close ? ReadHours(Time).Open : -1;
+
+        /// <summary>
+        /// For <see cref="ShopOpenStatus.Close"/>: the closing hour, the position of the first clear bit after the set run
+        /// (<c>0x1E0</c> closes at 9). -1 when there is no set bit.
+        /// </summary>
+        public int CloseHour => Status == ShopOpenStatus.Close ? ReadHours(Time).Close : -1;
+
+        /// <summary>
+        /// For <see cref="ShopOpenStatus.Holiday"/>: the day-of-week number (<c>Time</c> without bit 31, under 8) the client looks up
+        /// in its day-name table; -1 when it is out of range or the status is another.
+        /// </summary>
+        public int HolidayDay => Status == ShopOpenStatus.Holiday && (Time & 0x7FFFFFFFu) < 8 ? (int)(Time & 0x7FFFFFFFu) : -1;
+
+        private static (int Open, int Close) ReadHours(uint time)
+        {
+            uint bits = time & 0x7FFFFFFFu;
+            if (bits == 0) return (-1, -1);
+            int open = 0;
+            while ((bits & (1u << open)) == 0) open++;
+            int close = open;
+            while (close < 31 && (bits & (1u << close)) != 0) close++;
+            return (open, close);
+        }
 
         public S2C_0x086_GuildOpen(ReadOnlySpan<byte> payload)
         {
@@ -1285,8 +1494,17 @@ namespace Gordian.Core.Network.Packets
         public ushort Deeds { get; }
         public bool IsValid { get; }
 
+        private readonly ReadOnlySpan<byte> _payload;
+
+        /// <summary>
+        /// Any currency of the packet by name (guild points, cinders, zeni, tokens, assault points, crystals stored and the
+        /// rest; see <see cref="Currency1Kind"/>). 0 when the packet is too short for the field.
+        /// </summary>
+        public int GetCurrency(Currency1Kind kind) => IsValid ? CurrencyLayout.Read(_payload, kind) : 0;
+
         public S2C_0x113_Currencies1(ReadOnlySpan<byte> payload)
         {
+            _payload = payload;
             if (payload.Length < 28)
             {
                 ConquestSandoria = 0;
@@ -1443,8 +1661,17 @@ namespace Gordian.Core.Network.Packets
         public int Gallimaufry { get; }
         public bool IsValid { get; }
 
+        private readonly ReadOnlySpan<byte> _payload;
+
+        /// <summary>
+        /// Any currency of the packet by name (the Salvage and Nyzul stones, Mystical Canteens, Aman vouchers, crafter points
+        /// and the rest; see <see cref="Currency2Kind"/>). 0 when the packet is too short for the field.
+        /// </summary>
+        public int GetCurrency(Currency2Kind kind) => IsValid ? CurrencyLayout.Read(_payload, kind) : 0;
+
         public S2C_0x118_Currencies2(ReadOnlySpan<byte> payload)
         {
+            _payload = payload;
             if (payload.Length < 20)
             {
                 Bayld = 0;

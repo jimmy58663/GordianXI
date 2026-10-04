@@ -152,6 +152,12 @@ namespace Gordian.Core.Network.Packets
         /// <summary>Bit 3: AllianceLeaderFlg.</summary>
         public bool IsEntryAllianceLeader(int index) => (GetEntryFlags(index) & 0x08) != 0;
 
+        /// <summary>Bit 4: PartyRFlg, the party's quartermaster (XiPackets 0x00C8).</summary>
+        public bool IsEntryQuartermaster(int index) => (GetEntryFlags(index) & 0x10) != 0;
+
+        /// <summary>Bit 5: AllianceRFlg, the alliance's quartermaster (XiPackets 0x00C8).</summary>
+        public bool IsEntryAllianceQuartermaster(int index) => (GetEntryFlags(index) & 0x20) != 0;
+
         public ushort GetEntryZoneNo(int index)
         {
             if (index < 0 || index >= EntryCount) return 0;
@@ -198,6 +204,15 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>GAttr bit 3: AllianceLeaderFlg.</summary>
         public bool IsAllianceLeader => (GAttr & 0x08) != 0;
+
+        /// <summary>GAttr bit 4: PartyRFlg, the party's quartermaster (XiPackets 0x00DD).</summary>
+        public bool IsQuartermaster => (GAttr & 0x10) != 0;
+
+        /// <summary>GAttr bit 5: AllianceRFlg, the alliance's quartermaster (XiPackets 0x00DD).</summary>
+        public bool IsAllianceQuartermaster => (GAttr & 0x20) != 0;
+
+        /// <summary>GAttr bit 8: LevelSyncFlg, the member is under level sync (XiPackets 0x00DD).</summary>
+        public bool IsLevelSynced => (GAttr & 0x100) != 0;
 
         private readonly ReadOnlySpan<byte> _payload;
 
@@ -488,7 +503,30 @@ namespace Gordian.Core.Network.Packets
         public byte MainJobLevel { get; }
         public JobId SubJob { get; }
         public byte SubJobLevel { get; }
+
+        /// <summary><c>masterjob_lv</c> (payload 34), the member's master level.</summary>
+        public byte MasterJobLevel { get; }
+
+        /// <summary><c>masterjob_flags</c> (payload 35).</summary>
+        public byte MasterJobFlags { get; }
         public bool IsValid { get; }
+
+        public bool IsPartyLeader => (GAttr & 0x04) != 0;
+
+        /// <summary>The alliance party the member belongs to (GAttr bits 0-1: PartyNo, 0-2).</summary>
+        public byte PartyNumber => (byte)(GAttr & 0x03);
+
+        /// <summary>GAttr bit 3: AllianceLeaderFlg.</summary>
+        public bool IsAllianceLeader => (GAttr & 0x08) != 0;
+
+        /// <summary>GAttr bit 4: PartyRFlg, the party's quartermaster (XiPackets 0x00E2).</summary>
+        public bool IsQuartermaster => (GAttr & 0x10) != 0;
+
+        /// <summary>GAttr bit 5: AllianceRFlg, the alliance's quartermaster (XiPackets 0x00E2).</summary>
+        public bool IsAllianceQuartermaster => (GAttr & 0x20) != 0;
+
+        /// <summary>GAttr bit 8: LevelSyncFlg, the member is under level sync (XiPackets 0x00E2).</summary>
+        public bool IsLevelSynced => (GAttr & 0x100) != 0;
 
         private readonly ReadOnlySpan<byte> _payload;
 
@@ -513,6 +551,8 @@ namespace Gordian.Core.Network.Packets
                 MainJobLevel = 0;
                 SubJob = JobId.None;
                 SubJobLevel = 0;
+                MasterJobLevel = 0;
+                MasterJobFlags = 0;
                 IsValid = false;
                 return;
             }
@@ -533,6 +573,8 @@ namespace Gordian.Core.Network.Packets
             MainJobLevel = payload[31];
             SubJob = (JobId)payload[32];
             SubJobLevel = payload[33];
+            MasterJobLevel = payload[34];
+            MasterJobFlags = payload[35];
             IsValid = true;
         }
 

@@ -110,6 +110,8 @@ namespace Gordian.Core.Network.Packets
                     TargetIndex = tbl.GetEntryActIndex(i),
                     IsLeader = tbl.IsEntryLeader(i),
                     IsAllianceLeader = tbl.IsEntryAllianceLeader(i),
+                    IsQuartermaster = tbl.IsEntryQuartermaster(i),
+                    IsAllianceQuartermaster = tbl.IsEntryAllianceQuartermaster(i),
                     ZoneId = tbl.GetEntryZoneNo(i),
                     PartyNumber = partyNumber,
                     MemberNumber = nextSlot[partyNumber]++
@@ -141,6 +143,11 @@ namespace Gordian.Core.Network.Packets
                 SubJobLevel = list.SubJobLevel,
                 IsLeader = list.IsPartyLeader,
                 IsAllianceLeader = list.IsAllianceLeader,
+                IsQuartermaster = list.IsQuartermaster,
+                IsAllianceQuartermaster = list.IsAllianceQuartermaster,
+                IsLevelSynced = list.IsLevelSynced,
+                MasterJobLevel = list.MasterJobLevel,
+                MasterJobFlags = list.MasterJobFlags,
                 PartyNumber = list.PartyNumber,
                 MemberNumber = list.MemberNumber
             };
@@ -320,9 +327,14 @@ namespace Gordian.Core.Network.Packets
                 MainJobLevel = list2.MainJobLevel,
                 SubJob = list2.SubJob,
                 SubJobLevel = list2.SubJobLevel,
-                IsLeader = (list2.GAttr & 0x04) != 0,
-                IsAllianceLeader = (list2.GAttr & 0x08) != 0,
-                PartyNumber = (byte)(list2.GAttr & 0x03),
+                IsLeader = list2.IsPartyLeader,
+                IsAllianceLeader = list2.IsAllianceLeader,
+                IsQuartermaster = list2.IsQuartermaster,
+                IsAllianceQuartermaster = list2.IsAllianceQuartermaster,
+                IsLevelSynced = list2.IsLevelSynced,
+                MasterJobLevel = list2.MasterJobLevel,
+                MasterJobFlags = list2.MasterJobFlags,
+                PartyNumber = list2.PartyNumber,
                 MemberNumber = list2.MemberNumber
             };
 

@@ -92,7 +92,7 @@ Missing packets, grouped by feature:
 - [#113](https://github.com/jimmy58663/GordianXI/issues/113): delivery box, blacklist, linkshell equip.
 - [#114](https://github.com/jimmy58663/GordianXI/issues/114): music.
 - ~~[#115](https://github.com/jimmy58663/GordianXI/issues/115)~~: login-time data (mounts, Maze Mongers, Trust points, BLU / PUP / Monstrosity) is decoded and its requests built, see below.
-- [#116](https://github.com/jimmy58663/GordianXI/issues/116): undecoded fields in handled packets (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others).
+- ~~[#116](https://github.com/jimmy58663/GordianXI/issues/116)~~: the fields handled packets used to ignore (`0x00A`, `0x056`, `0x057`, `0x028`, `0x04C`, and others) are decoded, see below.
 - [#119](https://github.com/jimmy58663/GordianXI/issues/119): search (cache) server client.
 - [#117](https://github.com/jimmy58663/GordianXI/issues/117): the post-MVP backlog, including the packets LSB doesn't implement.
 
@@ -235,3 +235,20 @@ C2S requests (sizes are LSB's `ValidatedPacketHandler` sizes):
 | 0x114 (4) | `BuildMapMarkers`, `SendMapMarkersRequestAsync` | header only; LSB answers with 0x063 type 6 (the teleport masks, already decoded) |
 
 **Beyond XiPackets:** the 0x044 data layouts above come from LSB (`s2c/0x044_extended_job_{blu,pup,mon}.h`); XiPackets documents only the job and sub-job bytes. In LSB the job-specific data starts at payload 4 (two padding bytes after `IsSubJob`), where XiPackets' `Data[154]` starts at 2. The bit order of the mount and maze tables (least significant bit first) follows LSB's `memcpy` of its bitsets; neither is checked against a retail capture. Not done: any menu that reads this data (mounts [#87](https://github.com/jimmy58663/GordianXI/issues/87), BLU set spells, the automaton, Trusts, Maze Tabula), the C2S 0x102 Monstrosity form and the S2C 0x063 Monstrosity types. Verify with `dotnet test tests/Gordian.Core.Tests --filter LoginDataPacketTests`; in game, a login should log `Mount data 0x0AE`, `Maze data 0x0AD`, `Alter Ego points 0x08E` and, on a Blue Mage or Puppetmaster, `Extended job 0x044` lines instead of `Unhandled Packet ID` for those opcodes.
+
+### Fields handled packets used to ignore (#116)
+
+The decoders already registered now read the fields LandSandBoat sends that they dropped. Each row's layout is in [packets.md](packets.md); this is where the data lands.
+
+| Packet | Data | Where it lives | Consumer |
+|---|---|---|---|
+| S2C 0x00A | music, `SubMapNumber`, `ZoneSubNo`, weather schedule, Mog House fields, job/HP/MP block (`ZoneLoginInfo`) | `WorldState.ZoneLoginInfo`, `LifecyclePacketModule.ZoneLoginInfoReceived` | nothing yet ([#114](https://github.com/jimmy58663/GordianXI/issues/114), [#68](https://github.com/jimmy58663/GordianXI/issues/68), [#71](https://github.com/jimmy58663/GordianXI/issues/71), [#93](https://github.com/jimmy58663/GordianXI/issues/93)) |
+| S2C 0x00A, 0x057 | weather start time (minutes) and offset | `WorldState.WeatherTiming`, `LifecyclePacketModule.WeatherTimingReceived` | nothing yet |
+| S2C 0x056 | quest offer/complete and mission bit tables, TVR | `ProgressionState.IsQuestActive` / `IsQuestComplete` / `IsMissionComplete`, `ExpansionTvr`, `QuestLogComplete` | nothing yet (the quest log window) |
+| S2C 0x052 | mode 0 and 3 events; the cancel event id is compared | `ProgressionState.EventControlReleased` / `EventInputCancelled` | nothing yet |
+| S2C 0x032 / 0x034 | `EventNum2`, `EventPara2` | `CutsceneEventInfo.GetEventFileNumber(zoneSubNo)` | the event DAT loader, once instances matter ([#71](https://github.com/jimmy58663/GordianXI/issues/71)) |
+| S2C 0x04C | `Param` union, parcel category/market/lot/timestamp, all commands and result codes | `AuctionResponse` | the Auction House window ([#90](https://github.com/jimmy58663/GordianXI/issues/90)) |
+| S2C 0x113 / 0x118 | every currency by name | `InventoryState.GetCurrency(Currency1Kind / Currency2Kind)` | nothing yet |
+| S2C 0x0C8 / 0x0DD / 0x0E2 | quartermaster flags, level sync, master level | `PartyMember` | nothing yet |
+
+Findings. The quest/mission ports each carry 8 words of a bit table (`MissionPorts.TryResolve`); the retail client counts a port as received through `RecBitFlag`, which reaches 0x83FFFFFF when the whole log is in. Retail cancels an event on 0x052 mode 2 only when `Mode >> 8` equals its running event's `EventPara`, so a cancel for another event is ignored (before, any cancel flagged the next event). The currency structs of XiPackets are natural-aligned, so a 4-byte field following odd bytes starts on a 4-byte boundary (`silver_aman_vouchers_stored` at payload 124).

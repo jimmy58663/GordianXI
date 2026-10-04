@@ -96,7 +96,51 @@ namespace Gordian.Core.Network.Packets
         Death = 19,
         Shield = 20,
         HpDrain = 21,
-        MpDrain = 22
+        MpDrain = 22,
+        /// <summary>Haste, e.g. a Haste Samba (XiPackets 0x0028 lists 23; LandSandBoat's enum stops at 22).</summary>
+        Haste = 23
+    }
+
+    /// <summary>
+    /// The skillchain effect an S2C 0x028 weapon skill (category 3) result carries in <c>proc_kind</c>, which picks the
+    /// skillchain animation. For the other categories the same field is an <see cref="ActionProcAddEffect"/>.
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0028).
+    /// </summary>
+    public enum ActionSkillchain : byte
+    {
+        None = 0,
+        Light = 1,
+        Darkness = 2,
+        Gravitation = 3,
+        Fragmentation = 4,
+        Distortion = 5,
+        Fusion = 6,
+        Compression = 7,
+        Liquefaction = 8,
+        Induration = 9,
+        Reverberation = 10,
+        Transfixion = 11,
+        Scission = 12,
+        Detonation = 13,
+        Impaction = 14,
+        Radiance = 15,
+        Umbra = 16
+    }
+
+    /// <summary>
+    /// The extended message modifier flags of an S2C 0x028 result (<c>bit</c>), which add "Cover!", "Resist!" and similar
+    /// to the log. Not every action sets them.
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0028).
+    /// </summary>
+    [Flags]
+    public enum ActionResultFlags : uint
+    {
+        None = 0,
+        Cover = 0x01,
+        Resist = 0x02,
+        MagicBurst = 0x04,
+        Immunobreak = 0x08,
+        CriticalHit = 0x10
     }
 
     /// <summary>
@@ -266,6 +310,40 @@ namespace Gordian.Core.Network.Packets
         public byte ReactionInfo { get; init; }
         public int ReactionParam { get; init; }
         public ushort ReactionMessageId { get; init; }
+
+        /// <summary>The <see cref="Modifier"/> (<c>bit</c>) message flags: Cover, Resist, Magic Burst, Immunobreak, Critical Hit.</summary>
+        public ActionResultFlags Flags => (ActionResultFlags)Modifier;
+
+        /// <summary>
+        /// Which of the four hit-distortion amounts (0, 0.25, 0.5, 1.0) the hit bends the target by: the low 2 bits of
+        /// <see cref="Scale"/> (XiPackets 0x0028). Normal hits use 0-2, critical hits 2-3.
+        /// </summary>
+        public int HitDistortionIndex => Scale & 3;
+
+        /// <summary>The hit distortion amount from the client's table (0, 0.25, 0.5, 1.0).</summary>
+        public float HitDistortion => HitDistortionIndex switch { 1 => 0.25f, 2 => 0.5f, 3 => 1.0f, _ => 0f };
+
+        /// <summary>
+        /// Which row of the client's knockback table applies: <see cref="Scale"/> &gt;&gt; 2 (0-6; the rows are listed in
+        /// XiPackets 0x0028), meaningful only for attacks and abilities that knock back.
+        /// </summary>
+        public int KnockbackIndex => Scale >> 2;
+
+        /// <summary>
+        /// For a weapon skill (category 3), the skillchain effect: <see cref="ProcKind"/> is the skillchain id there, not an
+        /// <see cref="ActionProcAddEffect"/>. <see cref="ActionSkillchain.None"/> when there is no proc.
+        /// </summary>
+        public ActionSkillchain Skillchain => HasProc ? (ActionSkillchain)(byte)ProcKind : ActionSkillchain.None;
+
+        /// <summary>The additional effect of a basic or ranged attack (categories 1 and 2) or any category but weapon skills; None for a skillchain.</summary>
+        public ActionProcAddEffect GetAddEffect(ActionCategory category) =>
+            HasProc && category != ActionCategory.SkillFinish ? ProcKind : ActionProcAddEffect.None;
+
+        /// <summary>
+        /// Info (<see cref="Info"/>) of a basic attack: critical hits are 2 and 3, normal hits 0 and 1 (XiPackets 0x0028);
+        /// for Rune Fencer wards and effusions (category 15) it is the element (0 mixed, 1 Ignis ... 8 Tenebrae).
+        /// </summary>
+        public bool IsCriticalInfo => Info is 2 or 3;
     }
 
     /// <summary>
@@ -285,7 +363,16 @@ namespace Gordian.Core.Network.Packets
         public uint ActorId { get; init; }
         public ActionCategory Category { get; init; }
         public uint ActionId { get; init; }
+
+        /// <summary>
+        /// The action's <c>info</c> word. Only for a spell cast (<see cref="ActionCategory.MagicFinish"/>) is it a recast, in
+        /// seconds; the other categories send 0 (XiPackets 0x0028). Use <see cref="RecastSeconds"/> for the recast.
+        /// </summary>
         public uint Recast { get; init; }
+
+        /// <summary>The spell's recast time in seconds; 0 for every category but a finished spell (category 4).</summary>
+        public uint RecastSeconds => Category == ActionCategory.MagicFinish ? Recast : 0;
+
         public List<CombatActionTargetRecord> Targets { get; init; } = new();
     }
 

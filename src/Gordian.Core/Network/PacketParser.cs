@@ -87,6 +87,8 @@ namespace Gordian.Core.Network
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
             };
+            _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
+            _lifecycleModule.ZoneLoginInfoReceived += info => _world.UpdateZoneLoginInfo(info);
             _lifecycleModule.WeatherReceived += weatherNumber =>
             {
                 _world.UpdateWeather(weatherNumber);

@@ -266,9 +266,12 @@ namespace Gordian.Core.Network.Packets
                     // Additional effect proc
                     if (result.HasProc)
                     {
-                        string procLine = result.ProcParam > 0
-                            ? $"Additional effect: {target} takes {result.ProcParam} points of {result.ProcKind} damage."
-                            : $"Additional effect: {result.ProcKind}.";
+                        // On a weapon skill the proc kind is the skillchain, not an additional effect.
+                        string procLine = record.Category == ActionCategory.SkillFinish
+                            ? $"Skillchain: {result.Skillchain}."
+                            : result.ProcParam > 0
+                                ? $"Additional effect: {target} takes {result.ProcParam} points of {result.ProcKind} damage."
+                                : $"Additional effect: {result.ProcKind}.";
                         lines.Add(procLine);
                     }
 

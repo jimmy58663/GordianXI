@@ -347,6 +347,14 @@ namespace Gordian.Core.Network.Packets
             return BinaryPrimitives.ReadInt32LittleEndian(_payload.Slice(4 + index * 4, 4));
         }
 
+        /// <summary>
+        /// True when <see cref="GetName"/> is the speaker's name: the event form of the packet (<c>Flag</c> set, a string,
+        /// no <c>UniqueNo</c>), where the client heads the message with <c>String</c> instead of an entity's name, whether
+        /// or not the no-name bit is set. Otherwise (<c>Flag</c> 0) the string is only a text parameter (XiPackets 0x002A);
+        /// LandSandBoat sends the entity's own name there.
+        /// </summary>
+        public bool NameIsSpeaker => IsValid && Flag != 0 && UniqueNo == 0 && _payload.Length > 0x1A && _payload[0x1A] != 0;
+
         /// <summary>The name parameter (an entity name the server sends instead of an entity), or empty.</summary>
         public string GetName()
         {
@@ -609,8 +617,18 @@ namespace Gordian.Core.Network.Packets
     {
         public const ushort PacketId = 0x052;
 
+        /// <summary>The raw 32-bit mode word: the release kind in the low byte, and for <see cref="EventUcOffMode.CancelEvent"/> the event id above it.</summary>
         public EventUcOffMode Mode { get; }
         public bool IsValid { get; }
+
+        /// <summary>The release kind: the low byte of <see cref="Mode"/>.</summary>
+        public EventUcOffMode Kind => (EventUcOffMode)((uint)Mode & 0xFF);
+
+        /// <summary>
+        /// For <see cref="EventUcOffMode.CancelEvent"/>, the id of the event to cancel (<c>Mode &gt;&gt; 8</c>); the retail client
+        /// cancels only when it equals the running event's <c>EventPara</c> (XiPackets 0x0052). 0 for the other kinds.
+        /// </summary>
+        public uint EventId => Kind == EventUcOffMode.CancelEvent ? (uint)Mode >> 8 : 0;
 
         public S2C_0x052_EventUcOff(ReadOnlySpan<byte> payload)
         {
@@ -627,8 +645,107 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// S2C 0x056 (GP_SERV_COMMAND_MISSION): Mission log and storyline progression state.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x056_mission.h).
+    /// The quest and mission areas of the quest log. The value is the area's block of 256 bits in the
+    /// <c>QuestOffer</c> / <c>QuestComplete</c> tables (8 words of the S2C 0x056 data per block).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0056</c>.
+    /// </summary>
+    public enum QuestLogArea : byte
+    {
+        SandOria = 0,
+        Bastok = 1,
+        Windurst = 2,
+        Jeuno = 3,
+        OtherAreas = 4,
+        Outlands = 5,
+        AhtUrhgan = 6,
+        CrystalWar = 7,
+        Abyssea = 8,
+        Adoulin = 9,
+        Coalition = 10
+    }
+
+    /// <summary>The table an S2C 0x056 <c>Port</c> fills.</summary>
+    public enum MissionTable : byte
+    {
+        /// <summary>The port is one of the two fixed ports (0xFFFE, 0xFFFF) or unknown.</summary>
+        None = 0,
+        QuestOffer = 1,
+        QuestComplete = 2,
+        MissionComplete = 3
+    }
+
+    /// <summary>
+    /// Where an S2C 0x056 <c>Port</c> puts its 8 data words: <see cref="MissionTable"/> and the word offset into it.
+    /// Table values referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0056</c>.
+    /// </summary>
+    public static class MissionPorts
+    {
+        /// <summary>Port 0xFFFE: The Voracious Resurgence mission (<c>data[0]</c>).</summary>
+        public const ushort Tvr = 0xFFFE;
+
+        /// <summary>Port 0xFFFF: the main mission information (nation, expansions).</summary>
+        public const ushort Main = 0xFFFF;
+
+        public const int QuestOfferWords = 88;
+        public const int QuestCompleteWords = 88;
+        public const int MissionCompleteWords = 32;
+
+        /// <summary>The <c>RecBitFlag</c> value the retail client waits for before it reads the mission data.</summary>
+        public const uint AllReceived = 0x83FFFFFF;
+
+        /// <summary>Resolves a data port to its table and word offset; false for 0xFFFE, 0xFFFF and unknown ports.</summary>
+        public static bool TryResolve(ushort port, out MissionTable table, out int wordOffset)
+        {
+            table = MissionTable.None;
+            wordOffset = 0;
+            switch (port)
+            {
+                case 0x0030 or 0x0038: table = MissionTable.MissionComplete; wordOffset = port - 0x20; return true;
+                case >= 0x0050 and <= 0x0088 when (port & 7) == 0: table = MissionTable.QuestOffer; wordOffset = port - 0x50; return true;
+                case >= 0x0090 and <= 0x00C8 when (port & 7) == 0: table = MissionTable.QuestComplete; wordOffset = port - 0x90; return true;
+                case 0x00D0 or 0x00D8: table = MissionTable.MissionComplete; wordOffset = port - 0xD0; return true;
+                case 0x00E0: table = MissionTable.QuestOffer; wordOffset = port - 0xA0; return true;
+                case 0x00E8: table = MissionTable.QuestComplete; wordOffset = port - 0xA8; return true;
+                case 0x00F0: table = MissionTable.QuestOffer; wordOffset = port - 0xA8; return true;
+                case 0x00F8: table = MissionTable.QuestComplete; wordOffset = port - 0xB0; return true;
+                case 0x0100: table = MissionTable.QuestOffer; wordOffset = port - 0xB0; return true;
+                case 0x0108: table = MissionTable.QuestComplete; wordOffset = port - 0xB8; return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// The <c>RecBitFlag</c> bit the retail client sets for a received port (0x80000000 for the two fixed ports, 0
+        /// for an unknown port); the log is complete when the bits reach <see cref="AllReceived"/>.
+        /// </summary>
+        public static uint ReceivedBit(ushort port)
+        {
+            if (port is Tvr or Main) return 0x80000000u;
+            int shift;
+            switch (port)
+            {
+                case 0x0030 or 0x0038: shift = ((port - 0x20) >> 3) + 22; break;
+                case >= 0x0050 and <= 0x0088 when (port & 7) == 0: shift = (port - 0x50) >> 3; break;
+                case >= 0x0090 and <= 0x00C8 when (port & 7) == 0: shift = ((port - 0x90) >> 3) + 11; break;
+                case 0x00D0 or 0x00D8: shift = ((port - 0xD0) >> 3) + 22; break;
+                case 0x00E0: shift = (port - 0xA0) >> 3; break;
+                case 0x00E8: shift = ((port - 0xA8) >> 3) + 11; break;
+                case 0x00F0: shift = (port - 0xA8) >> 3; break;
+                case 0x00F8: shift = ((port - 0xB0) >> 3) + 11; break;
+                case 0x0100: shift = (port - 0xB0) >> 3; break;
+                case 0x0108: shift = ((port - 0xB8) >> 3) + 11; break;
+                default: return 0;
+            }
+            return 1u << shift;
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x056 (GP_SERV_COMMAND_MISSION): Mission log and storyline progression state. The 8 data words mean one thing
+    /// per <see cref="Port"/>: the main mission information (0xFFFF), the Voracious Resurgence mission (0xFFFE, word 0)
+    /// or eight words of a quest/mission bit table (<see cref="MissionPorts.TryResolve"/>).
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x056_mission.h)
+    /// and XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0056</c>.
     /// </summary>
     public readonly ref struct S2C_0x056_Mission
     {
@@ -647,6 +764,9 @@ namespace Gordian.Core.Network.Packets
         public bool IsValid { get; }
 
         public bool IsMainPort => Port == 0xFFFF;
+
+        /// <summary>True for the Voracious Resurgence port (0xFFFE), whose only data is word 0.</summary>
+        public bool IsTvrPort => Port == MissionPorts.Tvr;
 
         private readonly ReadOnlySpan<byte> _payload;
 
@@ -682,6 +802,7 @@ namespace Gordian.Core.Network.Packets
             IsValid = true;
         }
 
+        /// <summary>Data word 0-7 (the quest and mission bit tables use all eight; 0 when the packet is short).</summary>
         public uint GetOtherData(int index)
         {
             if (!IsValid || index < 0 || index >= 8 || _payload.Length < (index + 1) * 4) return 0;

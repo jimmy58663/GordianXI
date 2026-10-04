@@ -106,7 +106,8 @@ namespace Gordian.Core.Network.Packets
             if (!evt.IsValid) return;
 
             GordianLog.Info("EVENT", $"Cutscene started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}, Mode={evt.Mode}");
-            _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode);
+            _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode,
+                eventNum2: evt.EventNum2, eventPara2: evt.EventPara2);
         }
 
         private void HandleEventStr(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -135,7 +136,7 @@ namespace Gordian.Core.Network.Packets
 
             GordianLog.Info("EVENT", $"Cutscene (Num) started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}");
             _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode,
-                nums, null, null);
+                nums, null, null, eventNum2: evt.EventNum2, eventPara2: evt.EventPara2);
         }
 
         private void HandleTalkNum(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -156,8 +157,12 @@ namespace Gordian.Core.Network.Packets
             var numbers = new int[4];
             for (int i = 0; i < 4; i++) numbers[i] = talk.GetNumber(i);
             string name = talk.GetName();
-            GordianLog.Debug("DIALOG", $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Numbers={string.Join(",", numbers)}, Name='{name}'");
-            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type, numbers, name));
+            // In the event form (Flag set, no UniqueNo) the string heads the message even with the no-name bit; with Flag 0 it
+            // is a text parameter (and LandSandBoat's copy of the entity's name).
+            bool hideName = talk.HideName && !talk.NameIsSpeaker;
+            string[]? strings = talk.Flag == 0 && name.Length > 0 ? new[] { name } : null;
+            GordianLog.Debug("DIALOG", $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flag={talk.Flag}, Numbers={string.Join(",", numbers)}, Name='{name}'");
+            _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, hideName, talk.Type, numbers, name, strings));
         }
 
         /// <summary>
@@ -260,16 +265,29 @@ namespace Gordian.Core.Network.Packets
             var ucoff = new S2C_0x052_EventUcOff(payload);
             if (!ucoff.IsValid) return;
 
-            var mode = (EventUcOffMode)((uint)ucoff.Mode & 0xFF);
+            var mode = ucoff.Kind;
             GordianLog.Info("EVENT", $"Event user control release: Mode={mode} (raw 0x{(uint)ucoff.Mode:X})");
             switch (mode)
             {
+                case EventUcOffMode.Standard:
+                    _progressionState.ReleaseEventControl();
+                    break;
                 case EventUcOffMode.EventRecvPending:
                     _progressionState.AcknowledgeEventUpdate();
                     break;
                 case EventUcOffMode.CancelEvent:
+                    // The retail client cancels only the event the server names (Mode >> 8 against its EventPara).
+                    var active = _progressionState.ActiveEvent;
+                    if (active == null || active.EventPara != ucoff.EventId)
+                    {
+                        GordianLog.Debug("EVENT", $"Ignored event cancel for event {ucoff.EventId} (running: {active?.EventPara.ToString() ?? "none"})");
+                        break;
+                    }
                     _progressionState.CancelEventByServer();
                     _progressionState.EndEvent();
+                    break;
+                case EventUcOffMode.CancelInput:
+                    _progressionState.CancelEventInput();
                     break;
                 case EventUcOffMode.Fishing:
                     _progressionState.ClearFishing();
