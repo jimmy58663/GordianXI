@@ -394,27 +394,30 @@ The rows carry the details; these are the ones most useful to other client and s
 
 ## Lobby and login server
 
-`LsbLoginClient` (`src/Gordian.Core/Network/LandSandBoat`) logs in to LSB without the retail bootloader ([session-and-packets.md](session-and-packets.md#bootloader-handoff-and-direct-login-phase-2)). It talks to three LSB services. Only the xi_view packets are in XiPackets `lobby/`; there the command byte sits at offset 8, after a u32 size and the `IXFF` magic. Sizes are whole packets in bytes.
+`LsbLoginClient` (`src/Gordian.Core/Network/LandSandBoat`) logs in to LSB without the retail bootloader ([session-and-packets.md](session-and-packets.md#bootloader-handoff-and-direct-login-phase-2)); `LsbLobbySession` keeps the lobby connection open for the character select screen and runs every lobby request ([session-and-packets.md](session-and-packets.md#lobby-session-35)); `LobbyPackets` builds and parses the packets. It talks to three LSB services. Only the xi_view packets are in XiPackets `lobby/`; there the command byte sits at offset 8, after a u32 size and the `IXFF` magic. Sizes are whole packets in bytes. **Differs from XiPackets:** the header's 16-byte identifier is the packet's MD5 on retail; LSB looks the session up by it (`getHashFromPacket` reads offset 12), so every view request carries the session hash there.
 
 | Service | Dir | Id | Name | Size | GordianXI status | Notes |
 |---|---|---|---|---|---|---|
 | xi_connect (TLS, 54231) | C2S | `0x10` | login attempt (LSB) | JSON | `built` | LSB-only JSON command; returns the account id and session hash. Not in XiPackets. |
-| xi_data (54230) | C2S | `0xA1` | character list request (LSB) | 28 | `built` | Account id and session hash. Not in XiPackets. |
-| xi_data | S2C | `0x03` | character list (LSB) | 328 | `decoded` | Not the xi_view `0x03` below. |
-| xi_data | C2S | `0xA2` | character select + Blowfish key (LSB) | 28 | `built` | 20-byte client key and the character id; LSB then sends `0x0B` on xi_view. |
-| xi_data | S2C | `0x02` | select confirmation (LSB) | 5 | `decoded` | Awaited after xi_view `0x07`, before `0xA2`. |
-| xi_view (54001) | C2S | `0x26` | `RequestLobbyLogin` | 152 | `built` | We send 128 bytes (session hash, version string at 0x74); LSB's `view_session.cpp` does not check the length. |
-| xi_view | S2C | `0x05` | `ResponseKey` | 40 | `decoded` | The expected reply to `0x26`. |
-| xi_view | S2C | `0x04` | `ResponseError` | 36 | `decoded` | The u16 error code at 32 is reported and the login stops. |
-| xi_view | S2C | `0x20` | `ResponseChrInfo2` | var | `decoded` | 140-byte slots after a u32 count at 28; names and ids for the profile's character ([#179](https://github.com/jimmy58663/GordianXI/issues/179)). |
-| xi_view | C2S | `0x07` | `RequestSelectChr` | 88 | `built` | We send 64 bytes (character id 28, name 36); accepted by LSB. |
-| xi_view | S2C | `0x0B` | `ResponseNextLogin` | 72 | `decoded` | Character name 36, map server IP 56 and port 60; the session moves to the world protocol. |
-| xi_view | S2C | `0x03` | `ResponseOk` | 32 | not handled | |
-| xi_view | C2S | `0x1F` | `RequestGetChr` | 44 | `not built` | [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
-| xi_view | C2S | `0x24` / S2C `0x23` | `RequestQueryWorldList` / `ResponseWorldList` | 44 / var | `not built` | [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
-| xi_view | C2S | `0x22`, `0x21` | `RequestCreateChrPre`, `RequestCreateChr` | 96, 144 | `not built` | [#33](https://github.com/jimmy58663/GordianXI/issues/33), [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
-| xi_view | C2S | `0x14` | `RequestDeleteChr` | 52 | `not built` | [#34](https://github.com/jimmy58663/GordianXI/issues/34), [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
-| xi_view | C2S | `0x28` | `RequestRenameChr` | 68 | `not built` | [#35](https://github.com/jimmy58663/GordianXI/issues/35) |
+| xi_data (54230) | C2S | `0xFE` | session hash (LSB) | 28 | `built` | The first packet on the channel; LSB answers nothing. |
+| xi_data | C2S | `0xA1` | account id (LSB) | 28 | `built` | Account id 1, search server address 5, session hash 12; answered with data `0x03` and view `0x20`. Not in XiPackets. |
+| xi_data | S2C | `0x01` | account prompt (LSB) | 5 | `decoded` | LSB's answer to view `0x1F`: the client sends `0xA1` again. |
+| xi_data | S2C | `0x03` | character id list (LSB) | 328 | `decoded` | Count at 1, 16-byte entries from 16. Not the xi_view `0x03` below. |
+| xi_data | C2S | `0xA2` | session key (LSB) | 28 | `built` | 20-byte client key at 1 and the character id at 21; LSB then sends `0x0B` (or `0x04`) on xi_view. LSB stores the key with byte 16 raised by its lobby key accounting ([session-and-packets.md](session-and-packets.md#lobby-session-35)). |
+| xi_data | S2C | `0x02` | key prompt (LSB) | 5 | `decoded` | LSB's answer to view `0x07`, before `0xA2`. |
+| xi_view (54001) | C2S | `0x26` | `RequestLobbyLogin` | 152 | `built` | Retail size; version string at 0x74 (LSB compares its first 6 characters with `login.CLIENT_VER`), `excode_client` at 0x84 = every expansion. |
+| xi_view | S2C | `0x05` | `ResponseKey` | 40 | `decoded` | `excode_server` (expansions) and `excode_server2` (features) kept on the session. |
+| xi_view | S2C | `0x04` | `ResponseError` | 36 | `decoded` | Error code at 32 (`LobbyErrorCode`); the client shows code + 3000 with its text from ROM/165/70 ([character-lobby.md](../design/character-lobby.md)). |
+| xi_view | S2C | `0x03` | `ResponseOk` | 32 | `decoded` | The answer to `0x22`, `0x21`, `0x14` and `0x28`. |
+| xi_view | C2S | `0x1F` | `RequestGetChr` | 44 | `built` | Refreshes the list; LSB answers on the data channel (`0x01`). |
+| xi_view | S2C | `0x20` | `ResponseChrInfo2` | var | `decoded` | 140-byte entries after a u32 count at 28: ids, status, rename / race-change flags, name, world and the `TC_OPERATION_MAKE` look (race, jobs, level, face, nation, size, zone, model ids). **Differs from XiPackets:** LSB sends the combined face (0-15) in `face_no`, `hair_no` and GrapIDTbl[0], and the model ids without their 0x1000-0x7000 slot bits; `ParseCharacterList` normalizes both. Free slots have a one-space name. |
+| xi_view | C2S | `0x24` / S2C `0x23` | `RequestQueryWorldList` / `ResponseWorldList` | 44 / var | `built` / `decoded` | LSB lists one world, number 0x20, named `main.SERVER_NAME`. |
+| xi_view | C2S | `0x22` | `RequestCreateChrPre` | 96 | `built` | Name 32, world name 64; LSB checks the name (letters only, 3-15, unused, filters) and answers `0x03` or `0x04` 313. |
+| xi_view | C2S | `0x21` | `RequestCreateChr` | 144 | `built` | `TC_OPERATION_MAKE` at 48: race, job, face, nation, hair, size, GrapIDTbl[0] = `hair \| 2 * (face \| race << 7)`, level 1. LSB reads race 48, job 50, nation 54, size 57 and the combined face from 60, and drops the connection when they are out of range. |
+| xi_view | C2S | `0x14` | `RequestDeleteChr` | 52 | `built` | Content id 28, server id 32; LSB answers `0x03` (or `0x04` 332 with `login.CHARACTER_DELETION` off). |
+| xi_view | C2S | `0x28` | `RequestRenameChr` | 68 | `built` | For characters with the rename flag; then `0x07` under the new name. |
+| xi_view | C2S | `0x07` | `RequestSelectChr` | 88 | `built` | Retail size: content id 28, server id 32, name 36, checksum index 3 at 0x44. LSB drops the connection when the id and name do not match. |
+| xi_view | S2C | `0x0B` | `ResponseNextLogin` | 72 | `decoded` | Character name 36, map server IP 56 and port 60, search server 64 / 68; LSB then closes the view channel and the session moves to the world protocol. |
 | xi_view | C2S | `0x2B` | `RequestMoveGMChr` | 68 | `not built` | GM only. |
 
 The other XiPackets folders are covered in [session-and-packets.md](session-and-packets.md#xipackets-coverage-audit-2026-09-28): `cache/` is the search server ([#119](https://github.com/jimmy58663/GordianXI/issues/119)) and `patch/` is not needed with LSB.
