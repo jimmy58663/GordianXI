@@ -334,7 +334,7 @@ namespace Gordian.Core.Resources
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
             var particleMeshes = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var weightedMeshes = new Dictionary<string, WeightedMesh>(StringComparer.OrdinalIgnoreCase);
-            var zoneRoutines = new List<(string? ParentDir, string? Weather, EffectRoutine Routine)>();
+            var zoneRoutines = new List<(string Path, string? Weather, EffectRoutine Routine)>();
             var routinesByPath = new Dictionary<string, Dictionary<string, EffectRoutine>>(StringComparer.OrdinalIgnoreCase);
             var generatorPaths = new Dictionary<ParticleGeneratorDefinition, string>(ReferenceEqualityComparer.Instance);
             var onDemandRoutines = new List<(string Directory, Events.SceneRoutine Routine)>();
@@ -463,8 +463,9 @@ namespace Gordian.Core.Resources
                                 envData.AddKeyFrameCurve($"{weather}/{header.DatId}", curve);
                             }
                             envData.AddKeyFrameCurve(header.DatId, curve);
-                            // Curve ids repeat across directories (umi2/uma1 vs umi5/uma1); generators resolve their own first.
-                            if (dirStack.Count > 0) envData.AddKeyFrameCurve(DirectoryCurveKey(dirStack.Peek(), header.DatId), curve);
+                            // Curve ids repeat across directories (umi2/uma1 vs umi5/uma1, and the same leaf name under
+                            // different parents, #81); generators resolve their own directory first, then its parents.
+                            if (dirStack.Count > 0) envData.AddKeyFrameCurve(DirectoryCurveKey(DirectoryPath(dirStack), header.DatId), curve);
                         }
                         break;
                     }
@@ -546,7 +547,7 @@ namespace Gordian.Core.Resources
                         string routinePath = DirectoryPath(dirStack);
                         if (routine != null)
                         {
-                            if (routine.Spawns.Count > 0) zoneRoutines.Add((dirStack.Count > 0 ? dirStack.Peek() : null, routineWeather, routine));
+                            if (routine.Spawns.Count > 0) zoneRoutines.Add((routinePath, routineWeather, routine));
                             if (!routinesByPath.TryGetValue(routinePath, out var inPath))
                             {
                                 routinesByPath[routinePath] = inPath = new Dictionary<string, EffectRoutine>(StringComparer.OrdinalIgnoreCase);
@@ -1013,13 +1014,17 @@ namespace Gordian.Core.Resources
 
             // Phase 2b: World effects from zone-anchored Section 0x05 generators drawing a Section 0x1F / 0x2E mesh.
             // A generator whose particle never expires (max life span 0: sea surfaces, sunset glints on the water) keeps
-            // one static effect mesh, drawn with its generator's color, alpha, blend, UV scroll and lighting.
+            // one static effect mesh, drawn with its generator's color, alpha, blend, UV scroll and lighting, when it
+            // auto-runs or a zone-load routine starts it.
             // A generator outside the weather directories whose particles have a finite life (shoreline surf, wave
             // crests) becomes a particle emitter simulated by ZoneParticleEmitter when it auto-runs, or when an ambient
             // Section 0x07 routine (one the client starts on zone load, EffectRoutine.StartsOnZoneLoad) or a routine it
             // starts runs it (e.g. Bibiki Bay's umi2/s000 rolls kwa1..kwa3 in). A generator only on-demand routines start
             // (Alzadaal's Runic Portal 1pa2 / 1pak, #210) gets an idle emitter that ZoneRoutinePlayer starts when a map
-            // scheduler names its routine.
+            // scheduler names its routine, never-expiring ones included (#225: the portals' idle and stage meshes g0b1 /
+            // g0c1 / tw31-tw34 were static layers drawn from zone load; as idle emitters they appear with 1pa1 / s104 and
+            // go with 1pak's 0x1E kills). Routines, generators and curves are matched by their full directory path
+            // (#81: s_pa/effe/nami and s_pa/door/_030/nami hold generators of the same names).
             // Auto-running emitters in a weather directory (rain, snow, splashes, lightning bolts) run while their weather
             // is active, including camera-following and camera-anchored ones; the client starts the rest (lightning
             // strike routines, actor effects) itself.
@@ -1058,6 +1063,14 @@ namespace Gordian.Core.Resources
                 return false;
             }
             var layerDirectories = new Dictionary<WeatherSkyLayer, string?>(ReferenceEqualityComparer.Instance);
+            // Generators other generators spawn as children (0x3C / 0x44 / 0x53 / 0x6A, expiration 0x01): a never-expiring
+            // one among them is drawn by its parent's particles (the child pass below), not as a static layer (#225:
+            // Alzadaal's stage meshes tw31-tw34, which the pillars tw21-tw24 leave behind when they expire, were both).
+            var childGeneratorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, _, _, parentGen) in generatorPlacements)
+            {
+                foreach (string childId in ChildGeneratorIds(parentGen)) childGeneratorIds.Add(childId);
+            }
             foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
                 var setup = gen.Setup;
@@ -1079,13 +1092,15 @@ namespace Gordian.Core.Resources
                 // routine (its schedule), or a short weather routine the client plays at random (lightning strikes).
                 List<EffectRoutineSpawn>? schedule = null;
                 int scheduleLoop = 0;
+                generatorPaths.TryGetValue(gen, out string? genPath);
+                genPath ??= string.Empty;
                 // An actor's non-auto-running generators wait for the client to play one of its routines on the actor.
-                if (isEmitter && !gen.AutoRun && !actorEffects)
+                if (!gen.AutoRun && !actorEffects)
                 {
                     bool sporadic = false;
                     foreach (var ambient in ambientSpawns)
                     {
-                        if (!string.Equals(ambient.Directory, parentDir, StringComparison.OrdinalIgnoreCase) ||
+                        if (!string.Equals(ambient.Directory, genPath, StringComparison.OrdinalIgnoreCase) ||
                             !string.Equals(ambient.Weather, genWeather, StringComparison.OrdinalIgnoreCase) ||
                             !string.Equals(ambient.Spawn.GeneratorId, genId, StringComparison.OrdinalIgnoreCase)) continue;
                         if (ambient.Sporadic)
@@ -1095,18 +1110,28 @@ namespace Gordian.Core.Resources
                         }
                         schedule ??= new List<EffectRoutineSpawn>();
                         schedule.Add(ambient.Spawn);
-                        scheduleLoop = ambient.LoopFrames;
+                        if (ambient.LoopFrames > 0) scheduleLoop = ambient.LoopFrames;
                     }
-                    if (schedule == null && !sporadic && (isWeather || !StartedOnDemand(genId, gen))) continue;
+                    if (isEmitter)
+                    {
+                        if (schedule == null && !sporadic && (isWeather || !StartedOnDemand(genId, gen))) continue;
+                    }
+                    else if (schedule == null && !sporadic && !isWeather)
+                    {
+                        // A never-expiring generator only on-demand routines start waits for them as an idle emitter; one
+                        // only a parent generator spawns is its child layer alone (#225).
+                        if (StartedOnDemand(genId, gen)) isEmitter = true;
+                        else if (childGeneratorIds.Contains(genId)) continue;
+                    }
                 }
 
-                var effect = BuildEffectLayer(genId, genWeather, parentDir, gen, isEmitter, schedule, scheduleLoop, childOnly: false);
+                var effect = BuildEffectLayer(genId, genWeather, genPath, gen, isEmitter, schedule, scheduleLoop, childOnly: false);
                 if (effect == null) continue;
                 zone.EffectLayers.Add(effect);
-                layerDirectories[effect] = parentDir;
-                if (!actorEffects && !isWeather && effect.Emitter != null && generatorPaths.TryGetValue(gen, out string? effectPath))
+                layerDirectories[effect] = genPath;
+                if (!actorEffects && !isWeather && effect.Emitter != null)
                 {
-                    zone.MapRoutines.AddGenerator(effectPath, genId, effect.Emitter);
+                    zone.MapRoutines.AddGenerator(genPath, genId, effect.Emitter);
                 }
             }
 
@@ -1126,16 +1151,18 @@ namespace Gordian.Core.Resources
 
                 List<EffectRoutineSpawn>? schedule = null;
                 int scheduleLoop = 0;
+                generatorPaths.TryGetValue(gen, out string? lightPath);
+                lightPath ??= string.Empty;
                 if (!gen.AutoRun)
                 {
                     foreach (var ambient in ambientSpawns)
                     {
-                        if (!string.Equals(ambient.Directory, parentDir, StringComparison.OrdinalIgnoreCase) ||
+                        if (!string.Equals(ambient.Directory, lightPath, StringComparison.OrdinalIgnoreCase) ||
                             !string.Equals(ambient.Weather, genWeather, StringComparison.OrdinalIgnoreCase) ||
                             !string.Equals(ambient.Spawn.GeneratorId, genId, StringComparison.OrdinalIgnoreCase)) continue;
                         schedule ??= new List<EffectRoutineSpawn>();
                         schedule.Add(ambient.Spawn);
-                        scheduleLoop = ambient.LoopFrames;
+                        if (ambient.LoopFrames > 0) scheduleLoop = ambient.LoopFrames;
                     }
                     if (schedule == null && (actorEffects || !string.IsNullOrEmpty(genWeather) || !StartedOnDemand(genId, gen))) continue;
                 }
@@ -1151,14 +1178,14 @@ namespace Gordian.Core.Resources
                     Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
                     FollowCamera = false,
                     PointLightSlot = lightSlot,
-                    Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
+                    Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, lightPath, envData),
                         schedule, scheduleLoop, 0, childOnly: false, isWeather: !string.IsNullOrEmpty(genWeather))
                 };
                 ApplyGeneratorRenderState(light, gen, genWeather, envData, authoredOrder);
                 if (!string.IsNullOrEmpty(genWeather)) light.WeatherIds.Add(genWeather);
                 zone.EffectLayers.Add(light);
-                layerDirectories[light] = parentDir;
-                if (!actorEffects && string.IsNullOrEmpty(genWeather) && generatorPaths.TryGetValue(gen, out string? lightPath))
+                layerDirectories[light] = lightPath;
+                if (!actorEffects && string.IsNullOrEmpty(genWeather))
                 {
                     zone.MapRoutines.AddGenerator(lightPath, genId, light.Emitter);
                 }
@@ -1168,14 +1195,14 @@ namespace Gordian.Core.Resources
             // emitter layer of the same generator in the routine's directory.
             if (actorEffects)
             {
-                foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
+                foreach (var (routinePath, routineWeather, routine) in zoneRoutines)
                 {
                     var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
                     foreach (var spawn in routine.Spawns)
                     {
                         var layer = zone.EffectLayers.FirstOrDefault(l =>
                             l.Emitter != null && string.Equals(l.Name, spawn.GeneratorId, StringComparison.OrdinalIgnoreCase) &&
-                            layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routineDir, StringComparison.OrdinalIgnoreCase));
+                            layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routinePath, StringComparison.OrdinalIgnoreCase));
                         if (layer != null) spawns.Add(new Gordian.Core.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
                     }
                     zone.ActorRoutines.Add(new Gordian.Core.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
@@ -1184,7 +1211,7 @@ namespace Gordian.Core.Resources
 
             // Short weather routines (lightning strikes) become groups the renderer plays one random routine at a time.
             var sporadicGroups = new Dictionary<(string Weather, string? Dir), Gordian.Core.Graphics.WeatherRoutineGroup>();
-            foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
+            foreach (var (routinePath, routineWeather, routine) in zoneRoutines)
             {
                 if (actorEffects || routineWeather == null || !IsSporadicWeatherRoutine(routineWeather, routine)) continue;
                 var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
@@ -1192,15 +1219,15 @@ namespace Gordian.Core.Resources
                 {
                     var layer = zone.EffectLayers.FirstOrDefault(l =>
                         l.Emitter != null && string.Equals(l.Name, spawn.GeneratorId, StringComparison.OrdinalIgnoreCase) &&
-                        layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routineDir, StringComparison.OrdinalIgnoreCase) &&
+                        layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routinePath, StringComparison.OrdinalIgnoreCase) &&
                         l.WeatherIds.Contains(routineWeather));
                     if (layer != null) spawns.Add(new Gordian.Core.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
                 }
                 if (spawns.Count == 0) continue;
-                if (!sporadicGroups.TryGetValue((routineWeather, routineDir), out var group))
+                if (!sporadicGroups.TryGetValue((routineWeather, routinePath), out var group))
                 {
-                    group = new Gordian.Core.Graphics.WeatherRoutineGroup(routineWeather, routineDir ?? string.Empty);
-                    sporadicGroups[(routineWeather, routineDir)] = group;
+                    group = new Gordian.Core.Graphics.WeatherRoutineGroup(routineWeather, routinePath);
+                    sporadicGroups[(routineWeather, routinePath)] = group;
                     zone.WeatherRoutineGroups.Add(group);
                 }
                 group.Routines.Add(new Gordian.Core.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
@@ -1223,18 +1250,21 @@ namespace Gordian.Core.Resources
                     foreach (var placement in generatorPlacements)
                     {
                         if (!string.Equals(placement.DatId, childId, StringComparison.OrdinalIgnoreCase)) continue;
-                        if (match == null || string.Equals(placement.ParentDir, parentLayerDir, StringComparison.OrdinalIgnoreCase)) match = placement;
-                        if (string.Equals(placement.ParentDir, parentLayerDir, StringComparison.OrdinalIgnoreCase)) break;
+                        bool sameDirectory = generatorPaths.TryGetValue(placement.Generator, out string? placementPath) &&
+                                             string.Equals(placementPath, parentLayerDir, StringComparison.OrdinalIgnoreCase);
+                        if (match == null || sameDirectory) match = placement;
+                        if (sameDirectory) break;
                     }
                     if (match is not { } child) continue;
 
                     if (!childLayers.TryGetValue(child.Generator, out var childLayer))
                     {
-                        var built = BuildEffectLayer(child.Id, child.Weather, child.ParentDir, child.Generator, isEmitter: true, null, 0, childOnly: true);
+                        generatorPaths.TryGetValue(child.Generator, out string? childPath);
+                        var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true);
                         if (built == null) continue;
                         childLayer = built;
                         childLayers[child.Generator] = childLayer;
-                        layerDirectories[childLayer] = child.ParentDir;
+                        layerDirectories[childLayer] = childPath;
                         zone.EffectLayers.Add(childLayer);
                         pendingParents.Enqueue(childLayer);
                     }
@@ -1469,15 +1499,22 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Resolves a generator's Section 2 keyframe links to Section 0x19 curves by allocation slot, preferring curves
-        /// declared in the generator's own directory, then its weather directory, then any.
+        /// declared in the generator's own directory (its full path, #81), then each parent directory's, then its weather
+        /// directory, then any.
         /// </summary>
-        private static Dictionary<ushort, KeyFrameCurve> ResolveEmitterCurves(ParticleGeneratorDefinition gen, string? genWeather, string? parentDir, ZoneEnvironmentData envData)
+        private static Dictionary<ushort, KeyFrameCurve> ResolveEmitterCurves(ParticleGeneratorDefinition gen, string? genWeather, string? directoryPath, ZoneEnvironmentData envData)
         {
             var curves = new Dictionary<ushort, KeyFrameCurve>();
             foreach (var (slot, link) in gen.KeyFrameLinks)
             {
                 KeyFrameCurve? curve = null;
-                if (!string.IsNullOrEmpty(parentDir)) envData.KeyFrameCurves.TryGetValue(DirectoryCurveKey(parentDir, link.CurveId), out curve);
+                string dir = directoryPath ?? string.Empty;
+                while (curve == null && dir.Length > 0)
+                {
+                    envData.KeyFrameCurves.TryGetValue(DirectoryCurveKey(dir, link.CurveId), out curve);
+                    int slash = dir.LastIndexOf('/');
+                    dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
+                }
                 if (curve == null && !string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{link.CurveId}", out curve);
                 if (curve == null) envData.KeyFrameCurves.TryGetValue(link.CurveId, out curve);
                 if (curve != null) curves[slot] = curve;
@@ -1485,24 +1522,42 @@ namespace Gordian.Core.Resources
             return curves;
         }
 
+        /// <summary>The key of a curve by its full directory path (<see cref="DirectoryPath"/>) and id.</summary>
         private static string DirectoryCurveKey(string directory, string curveId) => $"dir:{directory}/{curveId}";
 
         /// <summary>
-        /// Routines in a weather directory shorter than this play one at a time at random (lightning strikes, 0-480
-        /// frames); longer ones are ambient loops (birds, butterflies, fireflies, 1890-9000 frames). A survey of all zone
-        /// DATs separates the two cleanly; the client's own selection logic is not documented in any reference.
+        /// Routines in a weather directory shorter than this, without an op 0x52 timer, play one at a time at random
+        /// (lightning strikes, 0-480 frames: 57 of the 164 short weather routines, 27 of them <c>kmi1</c>); longer ones are
+        /// ambient loops (birds, butterflies, fireflies, 1890-9000 frames). A survey of all zone DATs separates the two
+        /// cleanly; the client's own selection logic is not documented in any reference. A routine with op 0x52 (107 of
+        /// the short ones, 125 of the long ones) plays by its own timer instead (#81, <see cref="RoutineReplayTimer"/>).
         /// </summary>
         private const int SporadicRoutineMaxFrames = 1000;
 
         private static bool IsSporadicWeatherRoutine(string? weather, EffectRoutine routine) =>
-            !string.IsNullOrEmpty(weather) && routine.TotalFrames < SporadicRoutineMaxFrames;
+            !string.IsNullOrEmpty(weather) && routine.TotalFrames < SporadicRoutineMaxFrames && !routine.HasTimedReplay;
 
         /// <summary>
-        /// One generator start an ambient routine schedules: the generator's directory (its immediate parent) and weather,
-        /// the start within the routine's cycle, the cycle length (0 = once), and whether it belongs to a short weather
-        /// routine the client plays at random (<see cref="IsSporadicWeatherRoutine"/>).
+        /// One generator start an ambient routine schedules: the generator's directory (its full path) and weather, the
+        /// start within the routine's cycle, the cycle length (0 = once, or a timed replay: <see cref="EffectRoutineSpawn.Timer"/>),
+        /// and whether it belongs to a short weather routine the client plays at random (<see cref="IsSporadicWeatherRoutine"/>).
         /// </summary>
         internal readonly record struct AmbientSpawn(string? Directory, string? Weather, EffectRoutineSpawn Spawn, int LoopFrames, bool Sporadic);
+
+        /// <summary>
+        /// The replay timer of a routine with op 0x52: its windows, with an interval of the routine's own length where a
+        /// command carries none, seeded by the routine's path so every emitter it starts replays together.
+        /// </summary>
+        private static RoutineReplayTimer CreateReplayTimer(string path, EffectRoutine routine)
+        {
+            var windows = new List<TimedReplayWindow>(routine.TimedReplays.Count);
+            int ownLengthMs = Math.Max(1, (int)(routine.TotalFrames * 1000L / 60));
+            foreach (var window in routine.TimedReplays)
+            {
+                windows.Add(window.MaxIntervalMs > 0 ? window : window with { MaxIntervalMs = ownLengthMs, MinIntervalMs = ownLengthMs });
+            }
+            return new RoutineReplayTimer(windows, StringComparer.OrdinalIgnoreCase.GetHashCode(path + "/" + routine.DatId));
+        }
 
         /// <summary>Deepest chain of routines starting routines followed into an ambient schedule.</summary>
         private const int MaxRoutineChainDepth = 8;
@@ -1511,27 +1566,40 @@ namespace Gordian.Core.Resources
         private const int MaxChildRepeats = 256;
 
         /// <summary>
-        /// The generator starts the client runs by itself (#210). Weather routines play under their weather as before (all
-        /// of them: the long ones loop, the short ones are played at random). Outside the weather directories only the
+        /// The generator starts the client runs by itself (#210). Weather routines play under their weather as before (the
+        /// long ones loop, the short ones without a timer are played at random). Outside the weather directories only the
         /// routines that start on zone load (<see cref="EffectRoutine.StartsOnZoneLoad"/>: op 0x01 in the third list, or
-        /// op 0x52) loop, at their own length, together with the routines they start (op 0x03 once at its frame, op 0x73
-        /// repeating at the child's length until the cycle ends), resolved in the routine's directory and then its
-        /// parents. A routine of 0 frames runs once. Every other routine waits for a trigger
-        /// (<see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>). With <paramref name="actorEffects"/> (a model DAT)
-        /// every routine is listed as before; actors play their routines by name.
+        /// op 0x52) run, together with the routines they start (op 0x03 once at its frame, op 0x73 repeating at the
+        /// child's length until the root's length ends), resolved in the routine's directory and then its parents. A
+        /// routine with the third-list loop runs at its own length; a routine of 0 frames runs once; a routine with op
+        /// 0x52 (in a weather directory or not) replays on its timer inside its Vana'diel clock windows (#81,
+        /// <see cref="RoutineReplayTimer"/>, carried on each start as <see cref="EffectRoutineSpawn.Timer"/>). Every
+        /// other routine waits for a trigger (<see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>). Directories are
+        /// full paths (<see cref="DirectoryPath"/>). With <paramref name="actorEffects"/> (a model DAT) every routine is
+        /// listed as before; actors play their routines by name.
         /// </summary>
         internal static List<AmbientSpawn> BuildAmbientSpawns(
-            List<(string? ParentDir, string? Weather, EffectRoutine Routine)> zoneRoutines,
+            List<(string Path, string? Weather, EffectRoutine Routine)> zoneRoutines,
             Dictionary<string, Dictionary<string, EffectRoutine>> routinesByPath,
             bool actorEffects)
         {
             var spawns = new List<AmbientSpawn>();
-            foreach (var (routineDir, routineWeather, routine) in zoneRoutines)
+            foreach (var (routinePath, routineWeather, routine) in zoneRoutines)
             {
-                if (actorEffects || !string.IsNullOrEmpty(routineWeather))
+                if (actorEffects)
                 {
+                    foreach (var spawn in routine.Spawns) spawns.Add(new AmbientSpawn(routinePath, routineWeather, spawn, routine.TotalFrames, false));
+                }
+                else if (!string.IsNullOrEmpty(routineWeather))
+                {
+                    if (routine.HasTimedReplay)
+                    {
+                        var chain = new HashSet<EffectRoutine>(ReferenceEqualityComparer.Instance);
+                        Expand(routine, routinePath, routineWeather, 0, 0, routine.TotalFrames, CreateReplayTimer(routinePath, routine), 0, chain);
+                        continue;
+                    }
                     bool sporadic = IsSporadicWeatherRoutine(routineWeather, routine);
-                    foreach (var spawn in routine.Spawns) spawns.Add(new AmbientSpawn(routineDir, routineWeather, spawn, routine.TotalFrames, sporadic));
+                    foreach (var spawn in routine.Spawns) spawns.Add(new AmbientSpawn(routinePath, routineWeather, spawn, routine.TotalFrames, sporadic));
                 }
             }
             if (actorEffects) return spawns;
@@ -1544,31 +1612,33 @@ namespace Gordian.Core.Resources
                 {
                     if (!routine.StartsOnZoneLoad || IsWeatherPath(path)) continue;
                     var chain = new HashSet<EffectRoutine>(ReferenceEqualityComparer.Instance);
-                    Expand(routine, path, 0, routine.TotalFrames, 0, chain);
+                    var timer = routine.HasTimedReplay ? CreateReplayTimer(path, routine) : null;
+                    Expand(routine, path, null, 0, timer == null ? routine.TotalFrames : 0, routine.TotalFrames, timer, 0, chain);
                 }
             }
             return spawns;
 
-            void Expand(EffectRoutine routine, string path, int offset, int loop, int depth, HashSet<EffectRoutine> chain)
+            // offset: the routine's start within the root's cycle; loop: the cycle length (0 = once or timed); span: the
+            // root's length, which bounds the repeats of op 0x73 children.
+            void Expand(EffectRoutine routine, string path, string? weather, int offset, int loop, int span, RoutineReplayTimer? timer, int depth, HashSet<EffectRoutine> chain)
             {
                 if (depth > MaxRoutineChainDepth || !chain.Add(routine)) return;
-                string? directory = LastSegment(path);
                 foreach (var spawn in routine.Spawns)
                 {
-                    spawns.Add(new AmbientSpawn(directory, null, spawn with { StartFrame = offset + spawn.StartFrame }, loop, false));
+                    spawns.Add(new AmbientSpawn(path, weather, spawn with { StartFrame = offset + spawn.StartFrame, Timer = timer }, loop, false));
                 }
                 foreach (var start in routine.Starts)
                 {
                     if (!TryResolve(path, start.RoutineId, out string childPath, out var child)) continue;
                     int at = offset + start.StartFrame;
-                    if (!start.Repeats || child.TotalFrames <= 0 || loop <= 0)
+                    if (!start.Repeats || child.TotalFrames <= 0 || span <= 0)
                     {
-                        Expand(child, childPath, at, loop, depth + 1, chain);
+                        Expand(child, childPath, weather, at, loop, span, timer, depth + 1, chain);
                         continue;
                     }
-                    for (int k = 0; k < MaxChildRepeats && at + k * child.TotalFrames < loop; k++)
+                    for (int k = 0; k < MaxChildRepeats && at + k * child.TotalFrames < span; k++)
                     {
-                        Expand(child, childPath, at + k * child.TotalFrames, loop, depth + 1, chain);
+                        Expand(child, childPath, weather, at + k * child.TotalFrames, loop, span, timer, depth + 1, chain);
                     }
                 }
                 chain.Remove(routine);

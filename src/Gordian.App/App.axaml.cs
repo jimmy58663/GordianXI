@@ -25,6 +25,15 @@ public partial class App : Application
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
         Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
         Gordian.Core.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
+        // Zone routines an event starts (0x2D, #226): their length from the loaded zone, for the event's 0x54 wait.
+        Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = (zoneId, routine) =>
+        {
+            var zone = AppResourceManager.Instance?.TryGetLoadedZone(zoneId);
+            if (zone == null) return 0;
+            int frames = 0;
+            foreach (var (_, found) in zone.MapRoutines.Find(routine)) frames = System.Math.Max(frames, found.TotalFrames);
+            return frames;
+        };
         Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;

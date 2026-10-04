@@ -98,6 +98,19 @@ namespace Gordian.Core.Tests.Events
         public void StopSceneTask(int taskId) => StoppedTasks.Add(taskId);
         public void SetEventCamera(bool held) => CameraHolds.Add(held);
 
+        /// <summary>How many frames each zone routine (by name) runs for 0x2D; routines not listed are missing (0 frames).</summary>
+        public Dictionary<string, int> ZoneRoutineFrames { get; } = new();
+        public List<(string Routine, uint Caster, uint Target)> ZoneSchedulers { get; } = new();
+        public List<(string Routine, uint Caster, uint Target)> StoppedZoneSchedulers { get; } = new();
+
+        public int StartZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            ZoneSchedulers.Add((routine, casterServerId, targetServerId));
+            return ZoneRoutineFrames.TryGetValue(routine, out int frames) ? frames : 0;
+        }
+
+        public void StopZoneScheduler(string routine, uint casterServerId, uint targetServerId) => StoppedZoneSchedulers.Add((routine, casterServerId, targetServerId));
+
         public int PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)
         {
             Motions.Add((serverId, source, resource, routine));

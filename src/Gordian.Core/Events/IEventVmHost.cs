@@ -183,6 +183,19 @@ namespace Gordian.Core.Events
         }
 
         /// <summary>
+        /// Opcodes 0x2D (CodeMAPSCHEDULOR) and 0x60 sub 2: plays the zone DAT's own routine <paramref name="routine"/> (as
+        /// an S2C 0x039 map scheduler does) on two actors (server ids; 0 = the local player, or none for 0x60 sub 2).
+        /// Returns how many 60 Hz frames the routine runs, so 0x54 can wait for it; 0 when the zone has no such routine
+        /// or its length is not known, and a wait on it then ends at once.
+        /// </summary>
+        int StartZoneScheduler(string routine, uint casterServerId, uint targetServerId) => 0;
+
+        /// <summary>Opcode 0x51 (CodeENDMAPSCHEDULOR): ends the zone routine <paramref name="routine"/> on the two actors.</summary>
+        void StopZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+        }
+
+        /// <summary>
         /// Opcodes 0x34 / 0x35: the event deletes its actors and opens another zone for the scene (a zone id), or the
         /// player's own zone again.
         /// </summary>

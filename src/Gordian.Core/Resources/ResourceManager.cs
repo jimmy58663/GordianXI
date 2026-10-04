@@ -530,6 +530,9 @@ namespace Gordian.Core.Resources
             return datBytes;
         }
 
+        /// <summary>A zone already loaded by <see cref="TryLoadZone"/>, without loading anything; null otherwise.</summary>
+        public ZoneGeometry? TryGetLoadedZone(int zoneId) => _zoneCache.TryGetValue(zoneId, out var cached) ? cached.Geometry : null;
+
         /// <summary>
         /// Attempts to load and parse a zone's 3D terrain geometry and texture resources.
         /// </summary>
