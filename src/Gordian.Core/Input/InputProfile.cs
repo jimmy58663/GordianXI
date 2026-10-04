@@ -176,6 +176,16 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
+        /// Gives a profile saved before lock-on had keys (or with them unbound) the lock-on keys, so the toggle works (#137).
+        /// </summary>
+        public void EnsureLockOnBindings()
+        {
+            if (GetChords(InputAction.ToggleLockOn).Count > 0) return;
+            Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.NumPadMultiply));
+            Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.T));
+        }
+
+        /// <summary>
         /// Moves the gamepad d-pad left / right of a profile saved before the target cursor actions existed from Target
         /// Previous / Target Nearest (Shift+Tab / Tab) to <see cref="InputAction.TargetCursorLeft"/> /
         /// <see cref="InputAction.TargetCursorRight"/>, which cycle through yourself as retail's d-pad does.
@@ -507,6 +517,7 @@ namespace Gordian.Core.Input
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
             profile.EnsureTargetCursorBindings();
+            profile.EnsureLockOnBindings();
             return profile;
         }
 

@@ -44,7 +44,7 @@ namespace Gordian.Core.Tests.Ui
             };
         }
 
-        private static UiResourceLibrary SyntheticLibrary() => UiResourceLibrary.FromDefinitions(new[]
+        internal static UiResourceLibrary SyntheticLibrary() => UiResourceLibrary.FromDefinitions(new[]
         {
             List(StockUiMenuEntries.MainMenu, 384, 48, UiAnchor.TopRight, 1, 2, 3),
             List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 1, 2, 7, 12),

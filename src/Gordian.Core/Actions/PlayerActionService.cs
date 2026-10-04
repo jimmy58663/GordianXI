@@ -82,6 +82,12 @@ namespace Gordian.Core.Actions
 
         public void ToggleLockOn()
         {
+            if (CurrentTarget == null && Combat is { IsEngaged: true, TargetServerId: not 0 } engaged
+                && _world.TryGetByServerId(engaged.TargetServerId, out var engagedTarget) && engagedTarget != null)
+            {
+                SetTarget(engagedTarget); // engaged by the server with nothing selected: lock on to the fight
+            }
+
             if (CurrentTarget != null)
             {
                 SetLockOn(!IsLockedOn);
@@ -302,6 +308,19 @@ namespace Gordian.Core.Actions
             _localPlayer.ServerStatusChanged += OnLocalServerStatusChanged;
             _world.EntityUpdated += OnEntityUpdated;
             _world.EntityDespawned += OnEntityDespawned;
+            _combatModule.State.EngagementChanged += OnEngagementChanged;
+        }
+
+        /// <summary>
+        /// Engaging locks on when the player enabled <see cref="StockUiSettingKey.AutoLockOnEngage"/> (#137). PROVISIONAL:
+        /// retail has no confirmed auto-lock option; the turn toward the target is gradual (never on the engage frame).
+        /// </summary>
+        private void OnEngagementChanged()
+        {
+            var combat = Combat;
+            if (combat is not { IsEngaged: true } || !_uiSettings.IsOn(StockUiSettingKey.AutoLockOnEngage)) return;
+            if (CurrentTarget == null && _world.TryGetByServerId(combat.TargetServerId, out var fought) && fought != null) SetTarget(fought);
+            if (CurrentTarget != null) SetLockOn(true);
         }
 
         #region Engagement End
@@ -522,7 +541,6 @@ namespace Gordian.Core.Actions
                 {
                     SetTarget(tgtEnt);
                 }
-                SetLockOn(true);
                 return switchTarget
                     ? PlayerActionResult.Ok($"Switched target to {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack)
                     : PlayerActionResult.Ok($"Engaged in combat with {resolvedName} [ID: 0x{resolvedId:X8}].", ChatCommandResultKind.CombatAttack);
@@ -1900,6 +1918,18 @@ namespace Gordian.Core.Actions
 
                 // Targeting & Lock-On
                 case ChatCommandResultKind.ToggleLockOn:
+                    {
+                        string lockArgs = (cmd.Message ?? string.Empty).Trim();
+                        if (lockArgs.StartsWith("auto", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string mode = lockArgs[4..].Trim();
+                            bool on = mode.Length == 0 ? !_uiSettings.IsOn(StockUiSettingKey.AutoLockOnEngage) : mode.Equals("on", StringComparison.OrdinalIgnoreCase);
+                            if (mode.Length != 0 && !on && !mode.Equals("off", StringComparison.OrdinalIgnoreCase))
+                                return PlayerActionResult.Warn("Usage: /lockon [auto [on|off]]", ChatCommandResultKind.ToggleLockOn);
+                            _uiSettings.SetValue(StockUiSettingKey.AutoLockOnEngage, on ? 1 : 0);
+                            return PlayerActionResult.Ok(on ? "Auto lock-on when engaging: on." : "Auto lock-on when engaging: off.", ChatCommandResultKind.ToggleLockOn);
+                        }
+                    }
                     if (CurrentTarget == null)
                     {
                         return PlayerActionResult.Warn("Cannot lock on: No target selected.", ChatCommandResultKind.ToggleLockOn);

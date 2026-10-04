@@ -418,84 +418,375 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
         }
 
-        [Fact]
-        public void Update_WhenLockedOn_FacesTargetDirectly()
+        // Retail recording 2026-10-03 (docs/input/console-and-input.md): lock-on neither turns the character nor
+        // moves the camera; the character runs in its input direction and the camera stays where the player put it.
+        private (PlayerLocomotionController c, InputState i, WorldState w, WorldEntity me, PlayerActionService a, WorldEntity mob) EngagedHarness(bool lockOn)
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(0f, 0f, 10f), // North (+Z)
-                IsSpawned = true
-            };
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
-
-            localEnt.Direction = 0; // East
+            localEnt.Direction = 0;
             actionService.SetTarget(target);
-            actionService.SetLockOn(true);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            if (lockOn) actionService.SetLockOn(true);
+            return (controller, input, world, localEnt, actionService, target);
+        }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Update_WhenEngagedWithOrWithoutLockOn_DoesNotTurnTowardTarget(bool lockOn)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn);
+            for (int i = 0; i < 10; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(0, me.Direction);
+        }
+
+        private const float NorthYaw = 270f; // camera yaw looking at +Z (wire heading 192)
+
+        [Fact]
+        public void Update_LockedOnAndIdle_DoesNotTurnTheCharacter()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(0, me.Direction);
+        }
+
+        [Fact]
+        public void Update_LockedOnAndMovingForward_RunsTowardTargetTurningGraduallyToFaceIt()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+
+            input.SetKeyDown(GordianKey.W);
             controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.InRange(me.Direction, 193, 255); // one tick: a step toward 192 the short way, not the whole turn
 
-            // Heading towards (0, 0, 10) from (0, 0, 0) is North (wire Direction = 192)
-            Assert.Equal(192, localEnt.Direction);
-            Assert.InRange(localEnt.RenderHeadingRadians, 3.0f * MathF.PI / 2.0f - 0.05f, 3.0f * MathF.PI / 2.0f + 0.05f);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.InRange(me.Direction, 190, 194);
+            Assert.Equal(LocomotionDirection.Forward, me.LocomotionDirection);
+            Assert.True(me.Position.Z > 3f, "Forward while locked runs toward the target at +Z");
         }
 
         [Fact]
-        public void Update_WhenLockedOn_StrafingMovesPerpendicularToTargetWithoutChangingFacing()
+        public void Update_LockedOnAndBackingUp_MovesAwayFromTargetStillFacingIt()
         {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            me.Direction = 192;
 
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(100f, 0f, 0f), // East (+X)
-                IsSpawned = true
-            };
-            world.UpsertEntity(target);
-
-            localEnt.Direction = 0; // East
-            actionService.SetTarget(target);
-            actionService.SetLockOn(true);
-
-            // Strafe Right (E)
-            input.SetKeyDown(GordianKey.E);
-            controller.Update(TimeSpan.FromSeconds(1.0));
-
-            // Facing +X, strafing right moves towards -Z: the same on-screen right as camera-relative D with the camera facing +X
-            Assert.Equal(50, localEnt.Speed);
-            Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
-            Assert.InRange(localEnt.Position.Z, -5.1f, -4.9f);
-
-            // Facing should remain oriented towards target (within ~3 degrees of 0 / East)
-            Assert.True(localEnt.Direction is <= 2 or >= 254);
-        }
-
-        [Fact]
-        public void Update_WhenLockedOn_MoveBackwardMovesAwayAndSetsBackwardLocomotion()
-        {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(100f, 0f, 0f), // East (+X)
-                IsSpawned = true
-            };
-            world.UpsertEntity(target);
-
-            actionService.SetTarget(target);
-            actionService.SetLockOn(true);
-
-            // Move Backward (S)
             input.SetKeyDown(GordianKey.S);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
-            // Moves backward along -X away from target
-            Assert.Equal(50, localEnt.Speed);
-            Assert.Equal(LocomotionDirection.Backward, localEnt.LocomotionDirection);
-            Assert.InRange(localEnt.Position.X, -5.1f, -4.9f);
+            Assert.Equal(LocomotionDirection.Backward, me.LocomotionDirection);
+            Assert.True(me.Position.Z < -3f, "Back while locked runs away from the target");
+            Assert.Equal(192, me.Direction);
+        }
 
-            // Facing still faces East towards target
+        [Fact]
+        public void Update_LockedOnAndStrafing_CirclesTheTargetFacingIt()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            me.Direction = 192;
+
+            input.SetKeyDown(GordianKey.E);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+
+            Assert.Equal(LocomotionDirection.Right, me.LocomotionDirection);
+            Assert.True(Math.Abs(me.Position.X) > 3f, "Strafing moves sideways to the target line");
+            Assert.True(Math.Abs(me.Position.Z) < 1f);
+            // still facing the target, which is now off to the side of the original line
+            float expected = WorldEntity.DirectionFromRadians(WorldEntity.HeadingOf(mob.Position.X - me.Position.X, mob.Position.Z - me.Position.Z));
+            Assert.InRange(me.Direction, expected - 10, expected + 10);
+        }
+
+        private static float YawOffFromNorth(PlayerLocomotionController c) => ((c.CameraYaw - NorthYaw + 540f) % 360f) - 180f;
+
+        [Theory]
+        [InlineData(GordianKey.L)]
+        [InlineData(GordianKey.J)]
+        public void Update_LockedOn_CameraStopsAtTheMeasuredArcLimitAndStaysThere(GordianKey key)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(key);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            float atLimit = controller.CameraYaw;
+            float off = YawOffFromNorth(controller);
+            float limit = off > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.Equal(limit, Math.Abs(off), 1);
+
+            input.SetKeyUp(key);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(atLimit, controller.CameraYaw, 3); // no ease, no snap back behind the player
+        }
+
+        [Fact]
+        public void Update_LockedOnAtTheLimit_RunningAroundTheTargetCarriesTheCameraAlongWithoutInput()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            input.SetKeyUp(GordianKey.L);
+            float before = YawOffFromNorth(controller);
+
+            // Run around the target with no camera input: the camera holds its world yaw while it can, then rides the limit.
+            input.SetKeyDown(GordianKey.Q);
+            input.SetKeyDown(GordianKey.A);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+
+            var target = mob.Position - me.Position;
+            float line = WorldEntity.HeadingOf(target.X, target.Z) * (180f / MathF.PI);
+            float diff = ((controller.CameraYaw - line + 540f) % 360f) - 180f;
+            float limit = diff > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.True(Math.Abs(diff) <= limit + 2f, $"camera {diff} degrees off the line, limit {limit} (was {before} off north)");
+        }
+
+        private static float ScreenX(PlayerLocomotionController c, Vector3 p)
+        {
+            var v = Vector4.Transform(new Vector4(p, 1f), c.Camera.ViewProjectionMatrix);
+            return v.X / v.W;
+        }
+
+        [Fact]
+        public void Update_LockedOnAtAnArcLimit_ViewFacesTheTargetAndTheCharacterStaysOnScreen()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33)); // eased in, at the limit
+            input.SetKeyUp(GordianKey.L);
+
+            Assert.InRange(Math.Abs(ScreenX(controller, mob.Position)), 0f, 0.15f); // the target sits at the view centre
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0.2f, 0.95f); // the character is off to the side but visible
+        }
+
+        [Fact]
+        public void Update_NotLockedOn_ViewStaysOnTheCharacterAndAimEasesInAndOut()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraYaw = NorthYaw + 25f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0f, 0.01f);
+            Assert.Null(controller.Camera.AimPoint);
+
+            actionService.SetLockOn(true);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.InRange(controller.Camera.AimBlend, 0.01f, 0.99f); // eased, as the zoom
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnAimWeight, controller.Camera.AimBlend, 3);
+
+            actionService.SetLockOn(false);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.InRange(controller.Camera.AimBlend, 0.01f, 0.99f);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(0f, controller.Camera.AimBlend, 3);
+            Assert.InRange(Math.Abs(ScreenX(controller, me.Position)), 0f, 0.01f);
+        }
+
+        // The viewport draws with its own ViewportCamera in display space, fed from the controller's public values; this
+        // does what VeldridViewportControl does each frame and measures the eye that would be drawn.
+        private static (float eyeDistance, Vector3 view) RenderedEye(PlayerLocomotionController controller, WorldEntity me, ViewportCamera camera)
+        {
+            camera.Mode = controller.Camera.Mode;
+            camera.Pitch = controller.CameraPitch;
+            camera.Yaw = controller.CameraYaw;
+            camera.Distance = controller.EffectiveCameraDistance;
+            controller.ApplyLockOnAim(camera);
+            var display = new Vector3(-me.Position.X, -me.Position.Y, me.Position.Z);
+            camera.Update(display, camera.Pitch, camera.Yaw, camera.Distance, 16f / 9f, 0f);
+            var lookAtCharacter = display + camera.EyeOffset;
+            return ((camera.Position - lookAtCharacter).Length(), Vector3.Normalize(camera.Target - camera.Position));
+        }
+
+        [Theory]
+        [InlineData(false)] // manual T / /lockon
+        [InlineData(true)]  // auto-lock on engage
+        public void RenderedCamera_ZoomsInWhenLockedOnAndOutWhenReleased(bool auto)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraDistance = 8f;
+            var camera = new ViewportCamera();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8f, RenderedEye(controller, me, camera).eyeDistance, 1);
+
+            if (auto)
+            {
+                actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
+                actionService.Combat!.Disengage();
+                actionService.Combat.Engage(mob.ServerId, mob.TargetIndex); // the engage itself locks on
+            }
+            else
+            {
+                actionService.ToggleLockOn();
+            }
+            Assert.True(actionService.IsLockedOn);
+
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            float partway = RenderedEye(controller, me, camera).eyeDistance;
+            Assert.InRange(partway, 8f * PlayerLocomotionController.LockOnZoomFactor + 0.05f, 7.95f);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f * PlayerLocomotionController.LockOnZoomFactor, RenderedEye(controller, me, camera).eyeDistance, 1);
+
+            actionService.ToggleLockOn();
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f, RenderedEye(controller, me, camera).eyeDistance, 1);
+        }
+
+        [Fact]
+        public void RenderedCamera_WhenLockedOn_FacesTheTargetOnScreen()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraYaw = NorthYaw + 25f;
+            var camera = new ViewportCamera();
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            RenderedEye(controller, me, camera);
+            var v = Vector4.Transform(new Vector4(-mob.Position.X, -mob.Position.Y, mob.Position.Z, 1f), camera.ViewProjectionMatrix);
+            Assert.InRange(Math.Abs(v.X / v.W), 0f, 0.15f);
+        }
+
+        [Fact]
+        public void Update_LockedOn_CameraPitchIsHeldInsideTheMeasuredRange()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            controller.CameraPitch = 10f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(GordianKey.K); // pitch up (camera higher)
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnCameraPitchMaxDegrees, controller.CameraPitch, 2);
+            input.SetKeyUp(GordianKey.K);
+
+            input.SetKeyDown(GordianKey.I); // pitch down
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(PlayerLocomotionController.LockOnCameraPitchMinDegrees, controller.CameraPitch, 2);
+        }
+
+        [Fact]
+        public void Update_LockingOn_ZoomsTheCameraInEasedAndOutAgainWhenReleased()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraDistance = 8f;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8f, controller.Camera.Distance, 2);
+
+            actionService.SetLockOn(true);
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            float partway = controller.Camera.Distance;
+            Assert.InRange(partway, 8f * PlayerLocomotionController.LockOnZoomFactor + 0.05f, 7.95f); // eased, not instant
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f * PlayerLocomotionController.LockOnZoomFactor, controller.Camera.Distance, 2);
+            Assert.Equal(8f, controller.CameraDistance); // the player's own distance is untouched
+
+            actionService.SetLockOn(false);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            Assert.Equal(8f, controller.Camera.Distance, 2);
+        }
+
+        [Fact]
+        public void Update_NotLockedOn_CameraYawIsFree()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(GordianKey.L);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
+            float off = Math.Abs(((controller.CameraYaw - NorthYaw + 540f) % 360f) - 180f);
+            Assert.True(off > PlayerLocomotionController.LockOnCameraArcRightDegrees + 20f);
+        }
+
+        [Fact]
+        public void Update_WhenLockedOn_DisengagingKeepsPlayersLockChoice()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            actionService.Combat!.Disengage();
+            Assert.True(actionService.IsLockedOn);
+        }
+
+        [Theory]
+        [InlineData(GordianKey.T)]
+        [InlineData(GordianKey.NumPadMultiply)]
+        public void Update_LockOnKeyTogglesLock_EvenWithAStockMenuOpen(GordianKey key)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            actionService.Menus.Library = Gordian.Core.Tests.Ui.StockUiMenuControllerTests.SyntheticLibrary();
+            Assert.True(actionService.Menus.OpenMainMenu());
+            Assert.True(actionService.Menus.IsOpen);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            input.SetKeyDown(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(actionService.IsLockedOn);
+
+            input.SetKeyDown(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(key);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(actionService.IsLockedOn);
+        }
+
+        [Fact]
+        public void Engage_WithAutoLockOnEngageDefault_LocksOnWithoutTurning()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            localEnt.Direction = 0;
+            actionService.SetTarget(target);
+            Assert.True(actionService.UiSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage));
+
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.True(actionService.IsLockedOn);
+            for (int i = 0; i < 10; i++) controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.Equal(0, localEnt.Direction);
+        }
+
+        [Fact]
+        public void Engage_WithAutoLockOnEngageOff_DoesNotLockOn()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            actionService.SetTarget(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.False(actionService.IsLockedOn);
+        }
+
+        [Fact]
+        public void ToggleLockOn_EngagedByServerWithNothingSelected_LocksOntoTheFight()
+        {
+            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
+            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
+            world.UpsertEntity(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            Assert.Null(actionService.CurrentTarget);
+
+            actionService.ToggleLockOn();
+
+            Assert.True(actionService.IsLockedOn);
+            Assert.Same(target, actionService.CurrentTarget);
+        }
+
+        [Fact]
+        public void FromJson_ProfileWithoutLockOnKeys_GetsTheDefaults()
+        {
+            var p = InputProfile.CreateCompact();
+            p.Bindings.Remove(InputAction.ToggleLockOn);
+            var loaded = InputProfile.FromJson(p.SaveToJson());
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.T), out var a) && a == InputAction.ToggleLockOn);
+            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadMultiply), out var b) && b == InputAction.ToggleLockOn);
         }
 
         [Fact]

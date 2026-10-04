@@ -52,6 +52,17 @@ namespace Gordian.Core.Graphics
         private float _collisionDistance = float.MaxValue;
         public Vector3 Target => _target;
 
+        /// <summary>
+        /// A point the third-person view turns toward, in the same space as the position passed to
+        /// <see cref="Update(Vector3, float, float, float, float, float)"/> (the lock-on target, #137). Only its bearing
+        /// from the camera is used: the view yaw swings to face it while the pitch stays the orbit pitch, and the camera
+        /// keeps orbiting the character. <see cref="AimBlend"/> says how far.
+        /// </summary>
+        public Vector3? AimPoint { get; set; }
+
+        /// <summary>0 = look at the character as always, 1 = view yaw fully toward <see cref="AimPoint"/>.</summary>
+        public float AimBlend { get; set; }
+
         public Vector3 EyeOffset
         {
             get => _eyeOffset;
@@ -205,6 +216,26 @@ namespace Gordian.Core.Graphics
                         _target.Z - (-sinY * cosP * _distance)
                     );
                     _position = KeepInFrontOfWalls(_target, _position, deltaSeconds);
+                    if (AimPoint is { } aim && AimBlend > 0.0f)
+                    {
+                        // Turn the view toward the aim point's bearing, keeping the orbit pitch: retail's lock-on view
+                        // faces the target while the character moves about the screen (#137).
+                        float ax = aim.X - _position.X;
+                        float az = aim.Z - _position.Z;
+                        float len = MathF.Sqrt((ax * ax) + (az * az));
+                        if (len > 1e-3f)
+                        {
+                            var aimed = new Vector3(ax / len * cosP, -sinP, az / len * cosP);
+                            var orbit = _target - _position;
+                            float orbitLen = orbit.Length();
+                            if (orbitLen > 1e-4f)
+                            {
+                                var current = orbit / orbitLen;
+                                var blended = Vector3.Normalize(Vector3.Lerp(current, aimed, Math.Clamp(AimBlend, 0.0f, 1.0f)));
+                                _target = _position + (blended * orbitLen);
+                            }
+                        }
+                    }
                     break;
 
                 case CameraMode.FirstPerson:

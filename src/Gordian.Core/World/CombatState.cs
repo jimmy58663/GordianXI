@@ -74,7 +74,6 @@ namespace Gordian.Core.World
             {
                 changed = !IsEngaged || TargetServerId != serverId || TargetIndex != targetIndex;
                 IsEngaged = true;
-                IsLockedOn = true;
                 TargetServerId = serverId;
                 TargetIndex = targetIndex;
             }
@@ -107,7 +106,6 @@ namespace Gordian.Core.World
             {
                 changed = IsEngaged;
                 IsEngaged = false;
-                IsLockedOn = false;
             }
 
             if (changed)

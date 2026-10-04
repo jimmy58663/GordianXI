@@ -107,6 +107,13 @@ namespace Gordian.Core.Ui
 
         /// <summary>The server's 2-bit system message filter level (0-3): the Chat Filters list's three "System Lv." rows stack on it.</summary>
         SystemMessageFilterLevel,
+
+        /// <summary>
+        /// GordianXI-only (#137): lock on automatically when the character engages. Not a row of retail's config pages
+        /// (none of the ten decoded pages has one; "Auto-target during battle" is the server's re-target-after-a-kill
+        /// flag), so it is set with <c>/lockon auto [on|off]</c>. Default on.
+        /// </summary>
+        AutoLockOnEngage,
     }
 
     /// <summary>A setting's range, default and scope; <see cref="Step"/> is a slider's increment per key press.</summary>
@@ -211,6 +218,7 @@ namespace Gordian.Core.Ui
             Add(StockUiSettingKey.AutoDisconnectMinutes, 0, 0, 60, StockUiSettingScope.Client, 10);
             Add(StockUiSettingKey.ClientChatFilters, 0, 0, int.MaxValue);
             Add(StockUiSettingKey.SystemMessageFilterLevel, 0, 0, 3, StockUiSettingScope.Server);
+            Toggle(StockUiSettingKey.AutoLockOnEngage, true);
             return d;
         }
 

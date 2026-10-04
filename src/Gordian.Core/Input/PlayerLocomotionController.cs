@@ -370,6 +370,10 @@ namespace Gordian.Core.Input
             // 4. Update Locomotion (movement, strafing, turning)
             UpdateLocomotion(elapsed);
 
+            // 4b. Lock-on works with a stock menu open too (the command menu stays up while engaged in retail, 2026-10-03
+            //     recording); before #137 it sat behind the menu gate below, so T / NumPad * did nothing while it was open.
+            UpdateLockOnToggle();
+
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
         }
@@ -550,41 +554,8 @@ namespace Gordian.Core.Input
 
                 cameraChanged = true;
             }
-            else if (_camera.Mode == CameraMode.ThirdPersonOrbital)
-            {
-                // Smooth camera tracking to keep locked-on target in view
-                WorldEntity? lockTgt = null;
-                if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
-                {
-                    lockTgt = _actionService.CurrentTarget;
-                    if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
-                    {
-                        _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
-                    }
-                }
 
-                if (lockTgt != null && lockTgt.IsSpawned)
-                {
-                    uint localId = GetOrResolveLocalServerId();
-                    if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
-                    {
-                        float toTgtX = lockTgt.Position.X - localEnt.Position.X;
-                        float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                        if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.001f)
-                        {
-                            float targetHeadingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                            float yawDiff = targetHeadingDeg - CameraYaw;
-                            while (yawDiff > 180.0f) yawDiff -= 360.0f;
-                            while (yawDiff < -180.0f) yawDiff += 360.0f;
-                            if (MathF.Abs(yawDiff) > 0.1f)
-                            {
-                                CameraYaw = NormalizeDegrees(CameraYaw + (yawDiff * MathF.Min(1.0f, dt * 5.0f)));
-                                cameraChanged = true;
-                            }
-                        }
-                    }
-                }
-            }
+            if (ClampLockOnCamera()) cameraChanged = true;
 
             // Update underlying ViewportCamera matrices and frustum
             var targetPos = Vector3.Zero;
@@ -593,7 +564,14 @@ namespace Gordian.Core.Input
             {
                 targetPos = targetEnt.Position;
             }
-            _camera.Update(targetPos, CameraPitch, CameraYaw, CameraDistance, _camera.AspectRatio);
+            float lockDistance = LockOnZoomedDistance(dt);
+            // The view re-aims at the target on the same eased blend as the zoom (retail recording 2026-10-03).
+            var aimTarget = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
+            if (aimTarget is { IsSpawned: true }) _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+            _camera.AimPoint = _lastAimPoint;
+            _camera.AimBlend = LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
+            if (_lockZoomBlend <= 0f) _lastAimPoint = null;
+            _camera.Update(targetPos, CameraPitch, CameraYaw, lockDistance, _camera.AspectRatio);
 
             if (cameraChanged)
             {
@@ -683,27 +661,13 @@ namespace Gordian.Core.Input
             // When locked onto a target, the character continuously faces the target directly.
             // Locomotion moves the character forward/backward or strafes left/right relative to the target line,
             // assigning LocomotionDirection accordingly without rotating character away from target.
-            WorldEntity? lockTgt = null;
-            if (_actionService != null && (_actionService.IsLockedOn || (_actionService.Combat?.IsEngaged ?? false)))
-            {
-                lockTgt = _actionService.CurrentTarget;
-                if (lockTgt == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
-                {
-                    _world.TryGetByServerId(_actionService.Combat.TargetServerId, out lockTgt);
-                }
-            }
+            WorldEntity? lockTgt = GetLockOnTarget();
 
             if (lockTgt != null && lockTgt.IsSpawned)
             {
                 float toTgtX = lockTgt.Position.X - localEnt.Position.X;
                 float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
                 float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
-                if (distSq > 0.0001f)
-                {
-                    float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
-                    localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
-                    localEnt.RenderHeadingRadians = toTargetRad;
-                }
 
                 float lockFwd = 0f;
                 if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
@@ -727,6 +691,10 @@ namespace Gordian.Core.Input
                         lockFwd /= inputLen;
                         lockStrafe /= inputLen;
                     }
+
+                    // Facing toward the target starts once the player moves (never on the engage or lock frame), at the
+                    // stick-turn rate rather than as a snap (#137, provisional: see docs/input/console-and-input.md).
+                    if (distSq > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
 
                     float inputAngle = MathF.Atan2(lockStrafe, lockFwd);
                     if (MathF.Abs(inputAngle) <= (MathF.PI / 4.0f))
@@ -768,12 +736,7 @@ namespace Gordian.Core.Input
                     // Re-align facing to target after displacement
                     toTgtX = lockTgt.Position.X - localEnt.Position.X;
                     toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f)
-                    {
-                        float toTargetRad = WorldEntity.HeadingOf(toTgtX, toTgtZ);
-                        localEnt.Direction = WorldEntity.DirectionFromRadians(toTargetRad);
-                        localEnt.RenderHeadingRadians = toTargetRad;
-                    }
+                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
                 }
                 else
                 {
@@ -1107,6 +1070,18 @@ namespace Gordian.Core.Input
             }
         }
 
+        /// <summary>
+        /// Turns the locked-on character toward the target at <see cref="FacingTurnSpeedDegreesPerSec"/>, so locking on
+        /// (including the automatic lock when engaging) never snaps the heading in one frame (#137). PROVISIONAL: whether
+        /// retail's lock-on turns gradually or at once is unconfirmed.
+        /// </summary>
+        private void FaceTarget(WorldEntity localEnt, float toTgtX, float toTgtZ, float dt)
+        {
+            float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
+            TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
+            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
+        }
+
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
         {
             float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
@@ -1156,15 +1131,27 @@ namespace Gordian.Core.Input
             if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 
+        private bool _lockKeyLogged;
+
+        private void UpdateLockOnToggle()
+        {
+            if (_actionService == null) return;
+            bool keyHeld = _inputState.IsKeyHeld(GordianKey.T) || _inputState.IsKeyHeld(GordianKey.NumPadMultiply);
+            if (keyHeld && !_lockKeyLogged)
+            {
+                // Diagnosis of a key that does nothing: it reached InputState; is it bound, and did the action fire?
+                _lockKeyLogged = true;
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
+            }
+            else if (!keyHeld) _lockKeyLogged = false;
+            if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
+            _actionService.ToggleLockOn();
+            Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+        }
+
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
-
-            // Toggle Lock-On
-            if (_inputState.WasActionTriggered(InputAction.ToggleLockOn))
-            {
-                _actionService.ToggleLockOn();
-            }
 
             UpdateTargetCycling();
 
@@ -1210,6 +1197,193 @@ namespace Gordian.Core.Input
             deg %= 360.0f;
             if (deg < 0) deg += 360.0f;
             return deg;
+        }
+        /// <summary>
+        /// The one place that decides whether the character and camera are tied to the target (#137). PROVISIONAL: only
+        /// an explicit player lock-on (<see cref="PlayerActionService.IsLockedOn"/>) does; being engaged on its own
+        /// leaves movement and heading free (retail recording 2026-10-03: engaging does not turn you).
+        /// </summary>
+        private WorldEntity? GetLockOnTarget()
+        {
+            if (_actionService == null || !_actionService.IsLockedOn) return null;
+            var target = _actionService.CurrentTarget;
+            if (target == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
+            {
+                _world.TryGetByServerId(_actionService.Combat.TargetServerId, out target);
+            }
+            return target;
+        }
+
+        // Locked-on camera, measured from the maintainer's retail recording of 2026-10-03 (1438p, 10 fps frames t001-t287,
+        // where tNNN is (NNN - 1) / 10 s). Method: with the stock 60 degree vertical field of view (16:9, 91 degree
+        // horizontal) the character's screen offset from the view centre at each limit gives the angle between the view
+        // and the character, and the camera-to-character parallax (target 10 yalms away, camera about 3 yalms behind) adds
+        // about 6 degrees to get the camera's yaw against the character-to-target line.
+
+        /// <summary>
+        /// Furthest the locked-on camera may swing RIGHT of the character-to-target line (degrees). Retail recording
+        /// 2026-10-03, about 10.2-10.6 s: the camera sits at its right limit with the character at x = 175 of 640
+        /// (145 px left of centre, 24.9 degrees of view, about 32 degrees of yaw with parallax).
+        /// </summary>
+        public const float LockOnCameraArcRightDegrees = 32.0f;
+
+        /// <summary>
+        /// Furthest the locked-on camera may swing LEFT of the line (degrees). Retail recording 2026-10-03, about
+        /// 11.8-12.6 s: left limit with the character at x = 460 of 640 (140 px right of centre, 24.2 degrees of view,
+        /// about 31 degrees of yaw). Left and right agree within the measuring error.
+        /// </summary>
+        public const float LockOnCameraArcLeftDegrees = 31.0f;
+
+        /// <summary>
+        /// Lowest the locked-on camera pitch may go (degrees above the horizon looking down; 0 = level). Retail recording
+        /// 2026-10-03, 17.8-18.0 s: the horizon sits on the view centre (262 of 540 rows), a level view.
+        /// </summary>
+        public const float LockOnCameraPitchMinDegrees = 0.0f;
+
+        /// <summary>
+        /// Highest the locked-on camera pitch may go (degrees looking down). Retail recording 2026-10-03, 16.7-17.3 s:
+        /// the distant horizon sits 120 of 540 rows above the view centre, atan(120 / 270 x tan 30 degrees) = 14.4 degrees
+        /// down. Estimated from the horizon of far hills, so good to a few degrees.
+        /// </summary>
+        public const float LockOnCameraPitchMaxDegrees = 14.5f;
+
+        /// <summary>
+        /// Locking on pulls the camera in to this share of its distance. Retail recording 2026-10-03, 4.2-4.5 s (engage):
+        /// the character's on-screen height grows from about 125 px to about 250-275 px of 1438, 2.0-2.2 times, so the
+        /// distance drops to about 0.48. One sample, so it is not known whether retail uses a share or a fixed distance.
+        /// </summary>
+        public const float LockOnZoomFactor = 0.48f;
+
+        /// <summary>
+        /// How far the locked-on view turns toward the target's bearing (1 = faces it exactly). Retail recording
+        /// 2026-10-03, 10-18 s: the Rarab stays at x = 290-350 of 640 (about plus or minus 5 degrees of the centre) while
+        /// the character moves across the whole screen, with the pitch left to the camera (the Rarab is on the view's
+        /// centre row when level, 17.8-18.0 s, and 45 rows of 540 above it when pitched down, 16.7-17.3 s). So the view
+        /// faces the target in yaw only. The plus or minus 5 degrees is not modelled (likely lag in the aim).
+        /// </summary>
+        public const float LockOnAimWeight = 1.0f;
+
+        /// <summary>
+        /// Time the lock-on zoom takes, eased (smoothstep). Retail recording 2026-10-03: nothing at 4.1-4.2 s, 40% done at
+        /// 4.3 s, 95% at 4.4 s, done at 4.5 s, so about 0.3 s; turning lock-on off was not recorded and eases back at the
+        /// same speed.
+        /// </summary>
+        public const float LockOnZoomSeconds = 0.3f;
+
+        private float LockOnCameraDiff(float yawDeg, WorldEntity localEnt, WorldEntity target)
+        {
+            float dx = target.Position.X - localEnt.Position.X;
+            float dz = target.Position.Z - localEnt.Position.Z;
+            if ((dx * dx) + (dz * dz) < 0.0001f) return 0f;
+            return WrapDegrees(yawDeg - (WorldEntity.HeadingOf(dx, dz) * (180.0f / MathF.PI)));
+        }
+
+        private bool _hasLockCameraDiff;
+        private float _lockCameraDiff;
+        private float _lockCameraPitch;
+        private float _lockZoomBlend;
+        private Vector3? _lastAimPoint;
+
+        /// <summary>
+        /// Holds the locked-on camera inside the measured yaw arc (<see cref="LockOnCameraArcRightDegrees"/> /
+        /// <see cref="LockOnCameraArcLeftDegrees"/>) and pitch range, whether the player pushes it past a limit or the
+        /// target drifts there as the player runs around it: the camera stays at the limit (no ease, no return behind the
+        /// player; retail recording 2026-10-03, 12-16 s: starting from the left limit the camera does not turn on its
+        /// own while the player runs left, the character crosses the screen until the right limit is reached and the
+        /// camera is then carried along there). A camera already outside the range (locked on from behind) is not moved
+        /// by this, it just cannot go further out. Returns true when it moved the camera.
+        /// </summary>
+        private bool ClampLockOnCamera()
+        {
+            var target = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
+            uint localId = GetOrResolveLocalServerId();
+            if (target == null || !target.IsSpawned || localId == 0 || !_world.TryGetByServerId(localId, out var me) || me == null)
+            {
+                _hasLockCameraDiff = false;
+                return false;
+            }
+
+            float diff = LockOnCameraDiff(CameraYaw, me, target);
+            bool moved = false;
+            if (_hasLockCameraDiff)
+            {
+                float limit = diff >= 0 ? LockOnCameraArcRightDegrees : LockOnCameraArcLeftDegrees;
+                if (MathF.Abs(diff) > limit && MathF.Abs(diff) > MathF.Abs(_lockCameraDiff))
+                {
+                    float oldMag = MathF.Abs(_lockCameraDiff);
+                    float allowed = MathF.Max(limit, oldMag);
+                    CameraYaw = NormalizeDegrees(CameraYaw - diff + (MathF.Sign(diff) * allowed));
+                    diff = MathF.Sign(diff) * allowed;
+                    moved = true;
+                }
+
+                float lo = MathF.Min(LockOnCameraPitchMinDegrees, _lockCameraPitch);
+                float hi = MathF.Max(LockOnCameraPitchMaxDegrees, _lockCameraPitch);
+                float pitch = Math.Clamp(CameraPitch, lo, hi);
+                if (pitch != CameraPitch)
+                {
+                    CameraPitch = pitch;
+                    moved = true;
+                }
+            }
+            _lockCameraDiff = diff;
+            _lockCameraPitch = CameraPitch;
+            _hasLockCameraDiff = true;
+            return moved;
+        }
+
+        /// <summary>
+        /// The camera distance to draw with: <see cref="CameraDistance"/> scaled toward <see cref="LockOnZoomFactor"/>
+        /// while locked on, eased over <see cref="LockOnZoomSeconds"/> (smoothstep) both ways. The user's own distance is
+        /// never changed, so it is back where it was when lock-on ends.
+        /// </summary>
+        private float LockOnZoomedDistance(float dt)
+        {
+            bool zoomed = _camera.Mode == CameraMode.ThirdPersonOrbital && (_actionService?.IsLockedOn ?? false);
+            float previousBlend = _lockZoomBlend;
+            float step = dt / LockOnZoomSeconds;
+            _lockZoomBlend = Math.Clamp(_lockZoomBlend + (zoomed ? step : -step), 0f, 1f);
+            float eased = _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend));
+            float distance = CameraDistance * (1f + ((LockOnZoomFactor - 1f) * eased));
+
+            // Trace the zoom (the real renderer draws from EffectiveCameraDistance, not from the controller's own camera).
+            float zoomedDistance = CameraDistance * LockOnZoomFactor;
+            if (previousBlend == 0f && _lockZoomBlend > 0f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in starts: distance {CameraDistance:F2} -> {zoomedDistance:F2} over {LockOnZoomSeconds:F2} s");
+            else if (previousBlend == 1f && _lockZoomBlend < 1f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out starts: distance {zoomedDistance:F2} -> {CameraDistance:F2} over {LockOnZoomSeconds:F2} s");
+            else if (previousBlend < 1f && _lockZoomBlend == 1f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in done: distance {distance:F2}");
+            else if (previousBlend > 0f && _lockZoomBlend == 0f)
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out done: distance {distance:F2}");
+
+            EffectiveCameraDistance = distance;
+            LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * eased : 0f;
+            return distance;
+        }
+
+        /// <summary>
+        /// The camera distance to draw with: <see cref="CameraDistance"/> with the lock-on zoom applied. The viewport
+        /// draws with its own camera, so it must read this, not <see cref="CameraDistance"/> (#137).
+        /// </summary>
+        public float EffectiveCameraDistance { get; private set; } = 6.0f;
+
+        /// <summary>How far the view is turned toward <see cref="LockOnAimPoint"/> (0 when not locked on).</summary>
+        public float LockOnAimBlend { get; private set; }
+
+        /// <summary>The locked-on target's position (internal space), kept while the aim eases back out; null when none.</summary>
+        public Vector3? LockOnAimPoint => _lastAimPoint;
+
+        /// <summary>
+        /// Sets <paramref name="renderCamera"/>'s aim for this frame: the viewport's own camera works in display space
+        /// (-x, -y, z), so the aim point is mirrored the same way the player position is.
+        /// </summary>
+        public void ApplyLockOnAim(ViewportCamera renderCamera)
+        {
+            ArgumentNullException.ThrowIfNull(renderCamera);
+            var aim = LockOnAimPoint;
+            renderCamera.AimPoint = aim is { } a ? new Vector3(-a.X, -a.Y, a.Z) : null;
+            renderCamera.AimBlend = LockOnAimBlend;
         }
     }
 }

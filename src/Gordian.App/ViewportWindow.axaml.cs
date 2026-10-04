@@ -316,6 +316,11 @@ namespace Gordian.App
                 return;
             }
 
+            if (gKey is GordianKey.T or GordianKey.NumPadMultiply)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"KeyDown {e.Key} -> {gKey} reached the game input (modifiers {mods})");
+            }
+
             if (gKey != GordianKey.None)
             {
                 session.InputState.SetModifiers(mods);
