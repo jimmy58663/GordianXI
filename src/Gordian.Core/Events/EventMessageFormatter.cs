@@ -44,7 +44,23 @@ namespace Gordian.Core.Events
 
         /// <summary>The time zone the date codes (0x7F 0xA0-0xAA) are shown in: the machine's local zone, as retail does.</summary>
         TimeZoneInfo TimeZone => TimeZoneInfo.Local;
+
+        /// <summary>
+        /// Message entity <paramref name="slot"/> of the client's own tables (emotes, system messages): 0 the emote's caster,
+        /// 1 its target. Named by the 0x01 kinds 0x10 / 0x11; their sex and article pick 0x7F 0x90 / 0x91 and 0x7F 0x88.
+        /// Null when the message has no such entity.
+        /// </summary>
+        MessageEntity? GetMessageEntity(int slot) => null;
+
+        /// <summary>The compass direction the 0x1D code prints ("north"...), or null when not known.</summary>
+        string? Heading => null;
     }
+
+    /// <summary>
+    /// An entity a client message names (<see cref="IEventMessageContext.GetMessageEntity"/>): its name, its sex (null when
+    /// not known: a monster, a fixed model) and whether its name takes "the" (a monster's does, a player's does not).
+    /// </summary>
+    public readonly record struct MessageEntity(string Name, bool? IsFemale = null, bool TakesArticle = false);
 
     /// <summary>
     /// Turns a decoded dialog message into log lines, and a query into its comment lines and options, with the
@@ -65,8 +81,17 @@ namespace Gordian.Core.Events
         public const byte KeyItemPluralKind = (byte)'5';
         public const byte ZoneKind = (byte)'8';
 
+        /// <summary>
+        /// A Unity leader's name (0x01 kind 0x89; value 1-11 = Pieuje ... Sylvie, d_msg ROM/165/61 rows 419-429). Unity
+        /// messages (file 7039) open with it; retail shows it as the line's speaker, <c>{Yoran-Oran} ...</c>.
+        /// </summary>
+        public const byte UnityLeaderKind = 0x89;
+
         /// <summary>The 0x01 kind with no value (01 01 01) that stands for the article of the item tag after it.</summary>
         public const byte ArticleKind = 0x01;
+
+        /// <summary>The 0x01 kind with no value (01 01 10) naming message entity 0; 0x11 names entity 1.</summary>
+        public const byte MessageEntityKind = 0x10;
 
         /// <summary>The Vana'diel epoch the date codes count from: 2001-12-31 15:00 UTC (2002-01-01 00:00 JST).</summary>
         private static readonly DateTimeOffset VanadielEpochUtc = new(2001, 12, 31, 15, 0, 0, TimeSpan.Zero);
@@ -137,14 +162,26 @@ namespace Gordian.Core.Events
                         if (alternatives is { Count: > 0 })
                         {
                             int number = context.GetNumber(segment.Argument);
-                            // 0x7F 0x92 "[singular/plural]": the first when the number is 1 (xi-tools docs/events/authoring.md).
-                            int pick = segment.Code == 0x92 ? (number == 1 ? 0 : 1) : number;
+                            // 0x7F 0x92 / 0x86 "[singular/plural]": the first when the number is 1 (xi-tools docs/events/authoring.md).
+                            int pick = segment.Code is 0x92 or 0x86 ? (number == 1 ? 0 : 1) : number;
                             Substitute(alternatives[Math.Clamp(pick, 0, alternatives.Count - 1)]);
                         }
                         break;
                     }
                     case EventMessageSegmentKind.GenderSelector when segment.Alternatives is { Count: >= 2 } words:
                         Substitute(context.PlayerIsFemale is bool female ? words[female ? 1 : 0] : $"[{string.Join('/', words)}]");
+                        break;
+                    case EventMessageSegmentKind.EntityGenderSelector when segment.Alternatives is { Count: >= 2 } words:
+                        Substitute(context.GetMessageEntity(segment.Argument)?.IsFemale is bool isFemale
+                            ? words[isFemale ? 1 : 0]
+                            : $"[{string.Join('/', words)}]");
+                        break;
+                    case EventMessageSegmentKind.ArticleSelector when segment.Alternatives is { Count: >= 2 } articles:
+                        // No entity, or one without an article: the second word (empty in "[the /]").
+                        line.Append(context.GetMessageEntity(segment.Argument) is { TakesArticle: true } ? articles[0] : articles[1]);
+                        break;
+                    case EventMessageSegmentKind.Heading:
+                        Substitute(context.Heading ?? string.Empty);
                         break;
                     case EventMessageSegmentKind.PlayerName:
                         Substitute(context.PlayerName);
@@ -233,8 +270,13 @@ namespace Gordian.Core.Events
         private static string FormatName(EventMessageSegment segment, IEventMessageContext context)
         {
             var values = segment.Values;
-            int first = values is { Count: > 0 } ? context.GetNumber(values[0]) : 0;
             byte kind = segment.Code;
+            // 0x10 / 0x11 with no value: message entity 0 / 1 (the emote table's caster and target).
+            if (kind is MessageEntityKind or MessageEntityKind + 1 && values is not { Count: > 0 })
+            {
+                return context.GetMessageEntity(kind - MessageEntityKind)?.Name ?? string.Empty;
+            }
+            int first = values is { Count: > 0 } ? context.GetNumber(values[0]) : 0;
             int id = first;
             byte resolveAs = kind;
             switch (kind)
@@ -291,9 +333,29 @@ namespace Gordian.Core.Events
         }
     }
 
-    /// <summary>A context with fixed numbers and no names, for messages that carry everything they show.</summary>
+    /// <summary>
+    /// A context with fixed numbers, for messages that carry everything they show: the zone messages (0x036 / 0x02A /
+    /// 0x027 / 0x043 / 0x03B), the system messages (0x053) and the emote lines (0x05A). <see cref="Strings"/>,
+    /// <see cref="Entities"/> and <see cref="HeadingText"/> are set by the messages that have them.
+    /// </summary>
     public sealed class SimpleMessageContext : IEventMessageContext
     {
+        /// <summary>The string parameters of the 0x1C codes (0x027's names, 0x043's name), or null.</summary>
+        public IReadOnlyList<string>? Strings { get; init; }
+
+        /// <summary>The message entities (0 caster, 1 target) of the 0x01 kinds 0x10 / 0x11, or null.</summary>
+        public IReadOnlyList<MessageEntity?>? Entities { get; init; }
+
+        /// <summary>The compass direction of the 0x1D code, or null.</summary>
+        public string? HeadingText { get; init; }
+
+        public string? GetEventString(int index) =>
+            Strings != null && index >= 0 && index < Strings.Count && !string.IsNullOrEmpty(Strings[index]) ? Strings[index] : null;
+
+        public MessageEntity? GetMessageEntity(int slot) => Entities != null && slot >= 0 && slot < Entities.Count ? Entities[slot] : null;
+
+        public string? Heading => HeadingText;
+
         private readonly IReadOnlyList<int> _numbers;
         private readonly Func<int, string?>? _partyMemberName;
         private readonly Func<uint, string?>? _entityNameById;

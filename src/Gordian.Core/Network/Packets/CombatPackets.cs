@@ -527,6 +527,36 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// S2C 0x058 (GP_SERV_COMMAND_ASSIST): the server picks the character's target. Payload: 0 u32 <c>UniqueNo</c> (the
+    /// local player), 4 u32 <c>AssistNo</c> (the entity to target), 8 u16 <c>ActIndex</c> (the player's index; the client
+    /// ignores it), 10 padding; 12 bytes. LandSandBoat sends it in answer to <c>/assist</c> (C2S 0x01A kind 0x0C: the
+    /// assisted character's battle target) and whenever the character's battle target changes (<c>OnChangeTarget</c>,
+    /// <c>attack_state.cpp</c>, <c>player_controller.cpp</c>); <c>AssistNo</c> is 0 when there is none.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0058)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x058_assist.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x058_Assist
+    {
+        public const ushort PacketId = 0x058;
+        public const int PayloadLength = 10;
+
+        public bool IsValid { get; }
+        public uint PlayerId { get; }
+        public uint TargetId { get; }
+        public ushort PlayerIndex { get; }
+
+        public S2C_0x058_Assist(ReadOnlySpan<byte> payload)
+        {
+            this = default;
+            if (payload.Length < PayloadLength) return;
+            PlayerId = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            TargetId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4, 4));
+            PlayerIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            IsValid = true;
+        }
+    }
+
+    /// <summary>
     /// S2C 0x029 (GP_SERV_COMMAND_BATTLE_MESSAGE): Standard combat message notification.
     /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x029_battle_message.h).
     /// </summary>

@@ -8,10 +8,10 @@ This pass was made on 2026-10-01. It lists every opcode in XiPackets `world/serv
 
 | Direction | XiPackets opcodes | GordianXI handles | Used | Unused | Not handled |
 |---|---|---|---|---|---|
-| S2C | 168 | 102 decoders (100 XiPackets opcodes, plus `0x015` and `0x0EE`) | 57 `decoded` | 45 `decoded, unused` | 68 `dropped` |
-| C2S | 153 | 91 builders' opcodes, all in XiPackets | 46 `built` | 45 `built, unused` | 62 `not built` |
+| S2C | 168 | 115 decoders (113 XiPackets opcodes, plus `0x015` and `0x0EE`) | 65 `decoded` | 50 `decoded, unused` | 55 `dropped` |
+| C2S | 153 | 97 builders' opcodes, all in XiPackets | 47 `built` | 50 `built, unused` | 56 `not built` |
 
-Of the 68 dropped S2C opcodes, 18 have no LSB definition, and LSB names or declares 3 more without ever sending them (`0x072`, `0x081`, `0x0AB`), so 47 can arrive from an LSB server. Of the 62 C2S opcodes we do not build, 23 have no LSB handler. The counts were last updated for #107 and #111 (S2C `0x067`, `0x068`, `0x078`, `0x079`, `0x0F4`-`0x0F6`, `0x11A`, `0x11E` decoded; C2S `0x059`, `0x0A0`-`0x0A2`, `0x0E8`, `0x0EA`, `0x0F4`-`0x0F6`, `0x113`, `0x119` built, and `0x05A` given a caller).
+Of the 55 dropped S2C opcodes, 18 have no LSB definition, and LSB names or declares 3 more without ever sending them (`0x072`, `0x081`, `0x0AB`), so 34 can arrive from an LSB server. Of the 56 C2S opcodes we do not build, 23 have no LSB handler. The counts were last updated for #110 (S2C `0x027`, `0x03B`, `0x043`, `0x053`, `0x058`, `0x05A`, `0x05C`, `0x05D`, `0x0CA` decoded; C2S `0x0DE` built) and #115 (S2C `0x044`, `0x08E`, `0x0AD`, `0x0AE` decoded; C2S `0x0C1`, `0x0D8`, `0x102`, `0x114`, `0x11B` built, `0x11B` with `/jobmasterdisp`); before that for #107 and #111 (S2C `0x067`, `0x068`, `0x078`, `0x079`, `0x0F4`-`0x0F6`, `0x11A`, `0x11E` decoded; C2S `0x059`, `0x0A0`-`0x0A2`, `0x0E8`, `0x0EA`, `0x0F4`-`0x0F6`, `0x113`, `0x119` built, and `0x05A` given a caller).
 
 The audit of 2026-09-28 counted 169 S2C and 154 C2S XiPackets packets; that count included the `README.md` in each folder. The folders hold 168 and 153 packets.
 
@@ -52,8 +52,11 @@ The rows carry the details; these are the ones most useful to other client and s
 - S2C `0x061`: `ExpNow` / `ExpNext` must be read unsigned although both references say int16.
 - S2C `0x0FA` and C2S `0x02B`, `0x0B7`, `0x11C`: XiPackets and LSB disagree on layout or size; the row says which form works with LSB.
 - S2C `0x026`, `0x0DD`, `0x0E2`: LSB sends more (or fewer) bytes than XiPackets' fixed layout.
+- S2C `0x05A`: the emote log lines are the client's emote table (file id 7025, `ROM/27/70`), message `2 * id` with a target and `2 * id + 1` without; S2C `0x053` reads the system table (7031) that XiPackets names, whose ids are LSB's `MsgStd`.
+- S2C `0x058`: LSB sends it for `/assist` and on every battle target change, not as a reply to C2S 0x0B7.
 - S2C `0x067`, `0x068`, `0x05D`: unnamed in XiPackets; LSB uses them for char sync / entity rename / pet sync (the owner goes in the common fields and the pet index at packet 0x0C, the reverse of XiPackets' labels; a mode 3 name sits 4 bytes later than documented) and event string parameters.
 - C2S `0x11D`: LSB drops `/jump` unless the packet carries the character's own target index.
+- S2C `0x044`: the per-job data layouts (BLU set spells, the PUP automaton, Monstrosity) that XiPackets leaves unreversed, from LSB.
 - S2C `0x0CC`: the 6-bit packed linkshell name, bit order confirmed against a retail capture.
 
 ## Server to client (S2C)
@@ -74,7 +77,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x014` | `TELL` | var | `dropped` |  | Not in LSB. |
 | `0x015` | (none) | ? | `decoded` | `S2C_0x015_PosPing` | **Beyond XiPackets:** not documented by XiPackets or LSB, and no reference server sends it. GordianXI answers it with a C2S 0x015 if it arrives. |
 | `0x016` | `TALK` | var | `dropped` |  | Not in LSB. |
-| `0x017` | `CHAT_STD` | var | `decoded` | `S2C_0x017_ChatStd` | Sized to the message; guarded on the fixed part only. Type enum, Attr 0x08 and `Data` gaps [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
+| `0x017` | `CHAT_STD` | var | `decoded` | `S2C_0x017_ChatStd` | Sized to the message; guarded on the fixed part only. `Mes` read to the packet's end, clamped to 150 bytes, not assumed null-terminated. `Kind` enum complete (0x11-0x17 and 0x20 standard messages, 0x18/0x19 Say copies). `Data` read as the zone only for Yell (0x1A) and as mastery/mentor rank only for 0x22/0x23. **Differs from LSB:** LSB fills `Data` with the sender's zone for every kind; XiPackets says other kinds ignore it. `Attr` 0x08 bodies (`"tt,mmmm,p0,...,p4,"`) are decoded to `ChatFormattedMessage`; tables 1 (EventMess, the zone dialog table) and 10 (UnityMess, file 7039) are formatted, others dropped. **Beyond XiPackets:** UnityMess is file 7039 (ROM/337/68), its 0x01 kind 0x89 tag is the Unity leader shown as the speaker (`{Yoran-Oran} ...`), leader names in d_msg ROM/165/61 rows 419-429; checked against a retail capture (2025-02-10, Unity, table 10, message 0x1EF). LSB never sends `Attr` 0x08. Retail's banner line above kinds 6/7: [stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5). GM prompt (kind 0x0C) dialog and the `Attr` 0x01 `[GM]` prefix are not done ([#116](https://github.com/jimmy58663/GordianXI/issues/116)). |
 | `0x01B` | `JOB_INFO` (LSB) | 132 | `decoded` | `S2C_0x01B_JobInfo` | Job, levels, max HP/MP, base stats. Mastery, Unity and item level not read [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
 | `0x01C` | `ITEM_MAX` | 100 | `decoded` | `S2C_0x01C_ItemMax` | Container sizes. |
 | `0x01D` | `ITEM_SAME` | 12 | `decoded, unused` | `S2C_0x01D_ItemSame` | Logged only. |
@@ -87,7 +90,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x024` | `ITEM_PRESENT` | ? | `dropped` |  | Not in LSB. |
 | `0x025` | `ITEM_TRADE_MYLIST` | 12 | `decoded, unused` | `S2C_0x025_ItemTradeMyList` | As 0x021. |
 | `0x026` | `ITEM_SUBCONTAINER` (LSB) | 28 | `decoded, unused` | `S2C_0x026_ItemSubcontainer` | Mannequin: race/hair 6, gear 8-22 (payload). **Differs from XiPackets:** XiPackets ends at 24 bytes; LSB appends race 24 and pose 25, read only when present [#100](https://github.com/jimmy58663/GordianXI/issues/100). |
-| `0x027` | `TALKNUMWORK2` | 112 | `dropped` |  | Dialog message with numbers and a speaker. [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x027` | `TALKNUMWORK2` | 112 | `decoded` | `S2C_0x027_TalkNumWork2` | Zone dialog message as 0x02A, printed by `EventDialogController`: twelve numbers (`Num1` then `Num2`), String1 / String2 as the text's `1C 0` / `1C 1` strings; the speaker follows XiPackets' handler pseudo-code (String1, or with String2 / `Flags` bit 0 the entity's own name or String2; `Flags` bit 1 heads a no-name line with String2). LSB sends it for the fishing lines (String1 = the player). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x028` | `BATTLE2` | var | `decoded` | `S2C_0x028_CombatAction` | Bit-packed actions; `CombatState`, action playback. Add-effect, skillchain, `info` and flag gaps [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
 | `0x029` | `BATTLE_MESSAGE` | 28 | `decoded` | `S2C_0x029_BattleMessage` | `CombatState` to the log; also the monster `/check` reply. |
 | `0x02A` | `TALKNUMWORK` | 64 | `decoded` | `S2C_0x02A_TalkNumWork` | Event dialog text. `String` is a speaker only when Flag != 0 and UniqueNo == 0; we always treat it as one [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
@@ -106,7 +109,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x038` | `SCHEDULOR` | 20 | `dropped` |  | Actor scheduler (despawn fades, Home Point `bind`). [#109](https://github.com/jimmy58663/GordianXI/issues/109) Logged unhandled 2026-10-01. |
 | `0x039` | `MAPSCHEDULOR` | 20 | `decoded` | `S2C_0x039_MapSchedulor` | Map scheduler: plays the zone routine named by the FourCC at payload +0x08 (`WorldState.PostMapScheduler` → `ZoneRoutinePlayer`, [#210](https://github.com/jimmy58663/GordianXI/issues/210)); the caster / target ids are kept but not used. **Beyond XiPackets:** the routine is a Section 0x07 routine of the zone DAT, found by name anywhere outside the weather and door directories (LSB sends `1pa1` / `1pb1` / `2pb1` with both actors 0 after each Alzadaal zone-in); see [particles.md](../rendering/particles.md#how-zone-routines-start-210). The event opcodes 0x2D / 0x51 / 0x54 and 0x60 sub 2 play and end zone routines through the same queue ([#226](https://github.com/jimmy58663/GordianXI/issues/226)); `MapSchedulerRequest.Stop` marks an end. |
 | `0x03A` | `MAGICSCHEDULOR` | 20 | `dropped` |  | Magic scheduler. [#109](https://github.com/jimmy58663/GordianXI/issues/109) |
-| `0x03B` | `EVENTMES` | 12 | `dropped` |  | [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x03B` | `EVENTMES` | 12 | `decoded` | `S2C_0x03B_EventMes` | Zone dialog message with no parameters, printed like 0x036; bit 15 of `Number` asks for the entity's name (the reverse of 0x036 / 0x02A's no-name bit, per XiPackets). LSB declares it but never sends it. [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x03C` | `SHOP_LIST` | var | `decoded` | `S2C_0x03C_ShopList` | NPC shop list: 12-byte entries; flags 0x89 on the last packet. |
 | `0x03D` | `SHOP_SELL` | 16 | `decoded` | `S2C_0x03D_ShopSell` | Appraisal price. |
 | `0x03E` | `SHOP_OPEN` | 8 | `decoded` | `S2C_0x03E_ShopOpen` | Opens the NPC shop. |
@@ -114,8 +117,8 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x040` | (unknown) | ? | `dropped` |  | Not in LSB. |
 | `0x041` | `BLACK_LIST` | 248 | `dropped` |  | LSB sends it at every login. [#113](https://github.com/jimmy58663/GordianXI/issues/113) Logged unhandled 2026-09-30 and 2026-10-01. |
 | `0x042` | `BLACK_EDIT` | 28 | `dropped` |  | [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
-| `0x043` | `TALKNUMNAME` | 32 | `dropped` |  | [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
-| `0x044` | `EXTENDED_JOB` (LSB) | 160 | `dropped` |  | BLU / PUP / Monstrosity job data (LSB `0x044_extended_job_*`). [#115](https://github.com/jimmy58663/GordianXI/issues/115) Logged unhandled 2026-09-30 and 2026-10-01. |
+| `0x043` | `TALKNUMNAME` | 32 | `decoded` | `S2C_0x043_TalkNumName` | Zone dialog message whose `sName` is the text's `1C 0` string; a line that shows a name is headed by the entity's own name (provisional: LSB only sends the no-name form, with the player's name). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x044` | `EXTENDED_JOB` (LSB) | 160 | `decoded, unused` | `S2C_0x044_ExtendedJob` | BLU set spells, the PUP automaton (parts, unlocks, name, HP/MP, skills, stats) and Monstrosity species / instincts into `LocalPlayerState.MainJobData` / `SubJobData`; a packet for a job the character is not on is ignored, as retail does. No BLU / PUP menu yet. **Beyond XiPackets:** the per-job data layouts are LSB's (XiPackets leaves `Data` unreversed); the data starts at payload 4, not 2. [details](session-and-packets.md#login-time-data-115) [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x047` | `TRANSLATE` (LSB) | 136 | `decoded` | `S2C_0x047_Translate` | `TranslateReceived` to the chat view. Nothing sends the C2S 0x02B request yet. |
 | `0x048` | `LINK_CONCIERGE` (LSB) | 128 | `dropped` |  | Linkshell concierge. [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
 | `0x049` | `ITEMSEARCH` (LSB) | 72 | `dropped` |  | `/itemsearch` reply. [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
@@ -126,17 +129,17 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x050` | `EQUIP_LIST` | 8 | `decoded` | `S2C_0x050_EquipList` | Equip slot; `InventoryState`. |
 | `0x051` | `GRAP_LIST` | 24 | `decoded` | `S2C_0x051_GrapList` | Payload 0-17: nine grap ids, the local player's appearance [#153](https://github.com/jimmy58663/GordianXI/issues/153). |
 | `0x052` | `EVENTUCOFF` | 8 | `decoded` | `S2C_0x052_EventUcOff` | Event update ack, server cancel, fishing end. Modes 0 and 3 ignored; mode 2 event id not compared [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
-| `0x053` | `SYSTEMMES` | 16 | `dropped` |  | [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled 2026-10-01. |
+| `0x053` | `SYSTEMMES` | 16 | `decoded` | `S2C_0x053_SystemMes` | `PlayerCommandState.SystemMessageReceived`; `ClientMessageController` prints the system message table's text (file id 7031, `ROM/27/76`, the same ids as `MsgStd`) with `para` / `para2` as numbers 0 / 1 to the system channel. Logged unhandled 2026-10-01 (52 times by 2026-10-03). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x054` | `DEBUGPRINT` | 12 | `dropped` |  | Not in LSB. |
 | `0x055` | `SCENARIOITEM` | 136 | `decoded, unused` | `S2C_0x055_ScenarioItem` | Key item tables in `ProgressionState`; only the unused C2S 0x064 path reads them [#91](https://github.com/jimmy58663/GordianXI/issues/91). |
 | `0x056` | `MISSION` | 40 | `decoded, unused` | `S2C_0x056_Mission` | Only port 0xFFFF is used; TVR and quest ports dropped [#116](https://github.com/jimmy58663/GordianXI/issues/116). `MissionsUpdated` has no subscriber. |
 | `0x057` | `WEATHER` | 12 | `decoded` | `S2C_0x057_Weather` | Weather; `StartTime` / `OffsetTime` decoded but not used [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
-| `0x058` | `ASSIST` | 16 | `dropped` |  | Target-of-target reply to C2S 0x0B7. [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled in September 2026. |
+| `0x058` | `ASSIST` | 16 | `decoded` | `S2C_0x058_Assist` | The server picks the character's target: `CombatState.AssistTargetReceived`, and `PlayerActionService` selects `AssistNo` (lock-on unchanged; whether retail locks on is not checked). LSB sends it for `/assist` (C2S 0x01A kind 0x0C) and whenever the battle target changes (`OnChangeTarget`). **Differs from the earlier GordianXI note:** it is not a reply to C2S 0x0B7 (the Assist channel chat). Logged unhandled in September 2026 (105 times by 2026-10-03). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x059` | `FRIENDPASS` | 36 | `dropped` |  | Friend pass. [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
-| `0x05A` | `MOTIONMES` | 56 | `dropped` |  | Emote echo, including our own. [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x05A` | `MOTIONMES` | 56 | `decoded` | `S2C_0x05A_MotionMes` | Everyone's emotes, ours included: `PlayerCommandState.EmotePerformed`; `ClientMessageController` prints the emote table's line (file id 7025, `ROM/27/70`: message `2 * id` with a target, `2 * id + 1` without) unless `Mode` is 2, and plays the race emote motion on the caster (`EmoteMotion`) unless `Mode` is 1. `/emote` no longer prints a line of its own. **Beyond XiPackets:** the message file and the id-to-message rule (read from the retail table, checked against LSB's emote ids). `FaithUniqueNo` (`/emotefaith`) is decoded, not used. [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x05B` | `WPOS` | 28 | `decoded` | `S2C_0x05B_WPos` | Position set; modes 3/6 place then remove, 7 places [#101](https://github.com/jimmy58663/GordianXI/issues/101). |
-| `0x05C` | `PENDINGNUM` | 36 | `dropped` |  | Updates the running event's numbers. [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled 2026-10-01. |
-| `0x05D` | `PENDINGSTR` (LSB) | 104 | `dropped` |  | **Beyond XiPackets:** unnamed there; LSB names it `PENDINGSTR` (the event's string parameters). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x05C` | `PENDINGNUM` | 36 | `decoded` | `S2C_0x05C_PendingNum` | `ProgressionState.UpdateEventNumbers`; `EventDialogController` copies the eight numbers into the work zone from index 2 on the next game tick, before the script goes on. LSB sends it right before the 0x052 mode 1 that answers an event update (home point menus, logged 2026-10-01). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x05D` | `PENDINGSTR` (LSB) | 104 | `decoded` | `S2C_0x05D_PendingStr` | `ProgressionState.UpdateEventStrings`; `EventDialogController` replaces the event's 0x033 strings (what `1C n` reads). Its nine numbers are decoded, not used (the client ignores them, per XiPackets). **Beyond XiPackets:** unnamed there; LSB names it `PENDINGSTR` (the event's string parameters). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x05E` | `CONQUEST` | 180 (LSB) | `decoded, unused` | `S2C_0x05E_Conquest` | **Beyond XiPackets:** XiPackets has no layout; 176-byte payload from LSB `0x05e_conquest.h` [#99](https://github.com/jimmy58663/GordianXI/issues/99). `ConquestUpdated` has no subscriber. |
 | `0x05F` | `MUSIC` | 8 | `dropped` |  | [#114](https://github.com/jimmy58663/GordianXI/issues/114) |
 | `0x060` | `MUSICVOLUME` | 8 | `dropped` |  | [#114](https://github.com/jimmy58663/GordianXI/issues/114) |
@@ -167,7 +170,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x086` | `GUILD_OPEN` | 12 | `decoded, unused` | `S2C_0x086_GuildOpen` | As 0x082; `Time` left raw [#116](https://github.com/jimmy58663/GordianXI/issues/116). |
 | `0x08C` | `MERIT` (LSB) | var | `decoded, unused` | `S2C_0x08C_Merit` | `merit_count` is the number of entries in this packet, not a point total [#100](https://github.com/jimmy58663/GordianXI/issues/100). `MeritsUpdated` has no subscriber. |
 | `0x08D` | `JOB_POINTS` (LSB) | 260 | `decoded, unused` | `S2C_0x08D_JobPoints` | `JobPointsUpdated` has no subscriber. |
-| `0x08E` | `alter_ego_points` (LSB) | 104 | `dropped` |  | Alter Ego (Trust) points. LSB has `s2c/0x08e_alter_ego_points` but no entry for it in `enums/packet_s2c.h`. [#115](https://github.com/jimmy58663/GordianXI/issues/115) Logged unhandled 2026-09-30 and 2026-10-01. |
+| `0x08E` | `ALTER_EGO_POINTS` (LSB) | 104 | `decoded, unused` | `S2C_0x08E_AlterEgoPoints` | Trust points, upgrade level and next cost per category into `ProgressionState.AlterEgoPoints` / `GetAlterEgoUpgrade` / `GetAlterEgoNextCost`. LSB fills only the points (the arrays are zero) and names it `GP_SERV_PACKET_ALTER_EGO_POINTS` in `enums/packet_s2c.h`. [details](session-and-packets.md#login-time-data-115) [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x096` | `MYROOM_ENTER` | 8 | `decoded, unused` | `S2C_0x096_MyRoomEnter` | Mog House enter result; nothing reads it [#93](https://github.com/jimmy58663/GordianXI/issues/93). |
 | `0x097` | `MYROOM_EXIT` | 8 | `dropped` |  | LSB defines it. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x098` | `MYROOM_IS` | 8 | `dropped` |  | Not in LSB. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
@@ -181,8 +184,8 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0AA` | `MAGIC_DATA` | 132 | `decoded, unused` | `S2C_0x0AA_MagicData` | Learned spells stored in `LocalPlayerState`; nothing reads them. |
 | `0x0AB` | `FEAT_DATA` | 24 | `dropped` |  | LSB declares `s2c/0x0ab_feat_data.h` but never sends it. |
 | `0x0AC` | `COMMAND_DATA` | 228 | `decoded, unused` | `S2C_0x0AC_CommandData` | Abilities, weapon skills, traits stored in `LocalPlayerState`; nothing reads them. |
-| `0x0AD` | `DUNGEON` (LSB) | 132 | `dropped` |  | Moblin Maze Mongers data. [#115](https://github.com/jimmy58663/GordianXI/issues/115) Logged unhandled 2026-09-30 and 2026-10-01. |
-| `0x0AE` | `MOUNT_DATA` (LSB) | 12 | `dropped` |  | Unlocked mounts. [#115](https://github.com/jimmy58663/GordianXI/issues/115), [#87](https://github.com/jimmy58663/GordianXI/issues/87) Logged unhandled 2026-09-30 and 2026-10-01. |
+| `0x0AD` | `DUNGEON` (LSB) | 132 | `decoded, unused` | `S2C_0x0AD_Dungeon` | Moblin Maze Mongers voucher (bit n = item 28736 + n) and rune (28800 + n) bits into `ProgressionState.HasMazeVoucher` / `HasMazeRune`. No Maze Tabula menu yet. [details](session-and-packets.md#login-time-data-115) [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x0AE` | `MOUNT_DATA` (LSB) | 12 | `decoded, unused` | `S2C_0x0AE_MountData` | Unlocked mounts (bit n = mount n of the mount names DAT, 0 Chocobo) into `ProgressionState.HasMount` / `GetUnlockedMounts`. LSB copies key item table 6, so mount n is key item 3072 + n. The mount menu is [#87](https://github.com/jimmy58663/GordianXI/issues/87). [details](session-and-packets.md#login-time-data-115) [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x0B4` | `CONFIG` | 24 | `decoded` | `S2C_0x0B4_Config` | `PlayerConfigState`; its flag word is echoed by C2S 0x0DB and 0x0DC. |
 | `0x0B5` | `FAQ_GMPARAM` | 32 | `dropped` |  | GM. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0B6` | `SET_GMMSG` | var | `dropped` |  | GM. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
@@ -190,7 +193,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0BF` | `REGISTRATION` (LSB) | 28 | `dropped` |  | Battlefield registration. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0C8` | `GROUP_TBL` | 248 | `decoded` | `S2C_0x0C8_GroupTbl` | Party roster. Leader flags partly exposed [#116](https://github.com/jimmy58663/GordianXI/issues/116). Each entry's `ZoneNo` is the member's zone (same-zone members included, unlike 0x0DD), stored on `PartyMember.ZoneId` and used by the party window to show "(zone)" for members elsewhere [#146](https://github.com/jimmy58663/GordianXI/issues/146). |
 | `0x0C9` | `EQUIP_INSPECT` | var | `dropped` |  | Player `/check` reply (LSB `equip_inspect_equipment` / `_general`). [#64](https://github.com/jimmy58663/GordianXI/issues/64) |
-| `0x0CA` | `INSPECT_MESSAGE` | 148 | `dropped` |  | Bazaar / check comment. [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled 2026-09-30 and 2026-10-01. |
+| `0x0CA` | `INSPECT_MESSAGE` | 148 | `decoded, unused` | `S2C_0x0CA_InspectMessage` | Bazaar message (three 40-character lines), flags, name and title id to `PlayerCommandState.Inspect` (`Last`, `Own`). Nothing shows it yet: the check window is [#64](https://github.com/jimmy58663/GordianXI/issues/64), and the title line retail prints is not built (its wording is not known). LSB sends our own on zone-in. [#110](https://github.com/jimmy58663/GordianXI/issues/110) Logged unhandled 2026-09-30 and 2026-10-01. |
 | `0x0CC` | `LINKSHELL_MESSAGE` | 176 | `decoded` | `S2C_0x0CC_LinkshellMessage` | Linkshell message. `encodedLsName` (payload 156) is the 6-bit packed name, confirmed against a retail capture of 2026-09-28 [#100](https://github.com/jimmy58663/GordianXI/issues/100). |
 | `0x0D2` | `TROPHY_LIST` | 60 | `decoded` | `S2C_0x0D2_TrophyList` | Treasure pool item (`TreasurePoolState`). |
 | `0x0D3` | `TROPHY_SOLUTION` | 60 | `decoded` | `S2C_0x0D3_TrophySolution` | Treasure pool lot / result. |
@@ -319,7 +322,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0BE` | `MERITS` (LSB) | 12 | `built, unused` | `ProgressionPacketBuilder.BuildMerits` | `SendMeritsAsync`: No caller of its module send method. |
 | `0x0BF` | `JOB_POINTS_SPEND` (LSB) | 8 | `built, unused` | `ProgressionPacketBuilder.BuildJobPointsSpend` | `SendJobPointsSpendAsync`: No caller of its module send method. |
 | `0x0C0` | `JOB_POINTS_REQ` (LSB) | 4 | `built, unused` | `ProgressionPacketBuilder.BuildJobPointsReq` | `SendJobPointsReqAsync`: No caller of its module send method. |
-| `0x0C1` | `ALTER_EGO_POINTS` (LSB) | 8 | `not built` |  | [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x0C1` | `ALTER_EGO_POINTS` (LSB) | 8 | `built, unused` | `LoginDataPacketBuilder.BuildAlterEgoUpgrade` | `LoginDataPacketModule.SendAlterEgoUpgradeAsync`; no Trust menu calls it. LSB accepts it only in the Mog House with the Cipher Bracelet and a level 99 main job, and applies no upgrade yet. **Beyond XiPackets:** LSB adds kinds 17 (combat skills) and 18 (magic skills). [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x0C3` | `GROUP_COMLINK_MAKE` | 6 | `not built` |  | [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
 | `0x0C4` | `GROUP_COMLINK_ACTIVE` | 28 | `not built` |  | [#113](https://github.com/jimmy58663/GordianXI/issues/113) |
 | `0x0C9` | `MYROOM_ENTER` | 8 | `not built` |  | Not in LSB. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
@@ -334,11 +337,11 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0D3` | `FAQ_GMCALL` | var | `not built` |  | GM call; LSB variable length. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0D4` | `FAQ_GMPARAM` | 8 | `not built` |  | [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x0D5` | `ACK_GMMSG` | 12 | `not built` |  | [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
-| `0x0D8` | `DUNGEON_PARAM` (LSB) | 40 | `not built` |  | [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x0D8` | `DUNGEON_PARAM` (LSB) | 40 | `built, unused` | `LoginDataPacketBuilder.BuildDungeonParam` | `SendDungeonParamAsync`; `Data[24]` is unreversed and nothing calls it. LSB checks the id and index and only logs it. [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x0DB` | `CONFIG_LANGUAGE` (LSB) | 40 | `built` | `ConfigOutboundPackets.BuildChatFilters`, `BuildPartyLanguages` | Kind 0 (chat filters, system message filter level) must echo the server's flag word: LSB stores the whole word. Kind 1 (party languages) has no caller. |
 | `0x0DC` | `CONFIG` | 20 | `built` | `ConfigOutboundPackets.BuildConfig` | Sets or clears one config flag. |
 | `0x0DD` | `EQUIP_INSPECT` | 16 | `built` | `CombatPacketBuilder.BuildCheckRequest` | `/check`. |
-| `0x0DE` | `INSPECT_MESSAGE` | 128 | `not built` |  | [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
+| `0x0DE` | `INSPECT_MESSAGE` | 128 | `built, unused` | `PlayerCommandPacketBuilder.BuildInspectMessage` | Sets the bazaar message: three 40-character lines padded with spaces. `SendInspectMessageAsync`: no caller (the editor belongs to [#64](https://github.com/jimmy58663/GordianXI/issues/64)). [#110](https://github.com/jimmy58663/GordianXI/issues/110) |
 | `0x0E0` | `SET_USERMSG` | 152 | `built, unused` | `ChatOutboundPackets.BuildSetUserMsg` | 152 bytes. `SetSearchMessageAsync`: No caller of its module send method. |
 | `0x0E1` | `GET_LSMSG` | 144 | `built` | `ChatOutboundPackets.BuildGetLsMsg` | 144 bytes (`0x90`) [#97](https://github.com/jimmy58663/GordianXI/issues/97). |
 | `0x0E2` | `SET_LSMSG` | 144 | `built, unused` | `ChatOutboundPackets.BuildSetLsMsg`, `BuildSetLsWriteLevel` | 144 bytes. `BuildSetLsMsg` sets byte 4 bit 6, `BuildSetLsWriteLevel` bit 5; LSB ignores the packet unless one is set [#97](https://github.com/jimmy58663/GordianXI/issues/97). No caller of its module send method. |
@@ -363,7 +366,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x0FF` | `MYROOM_PLANT_STOP` | 8 | `not built` |  | [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x100` | `MYROOM_JOB` | 6 | `built, unused` | `ProgressionPacketBuilder.BuildMyRoomJob` | Mog House job change. `SendMyRoomJobChangeAsync`: No caller of its module send method. |
 | `0x101` | `MYROOM_DANCER` | 4 | `not built` |  | Not in LSB. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
-| `0x102` | `EXTENDED_JOB` (LSB) | 164 | `not built` |  | BLU / PUP set (LSB `extended_job`). [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x102` | `EXTENDED_JOB` (LSB) | 164 | `built, unused` | `LoginDataPacketBuilder.BuildSetBlueSpell`, `BuildRemoveBlueSpell`, `BuildEquipAutomatonPart`, `BuildRemoveAutomatonAttachment` | BLU spells and PUP parts; no menu calls them yet. The Monstrosity form is not built. LSB answers with S2C 0x044. [details](session-and-packets.md#login-time-data-115) [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x104` | `BAZAAR_EXIT` | 4 | `built, unused` | `InventoryPacketBuilders.BuildBazaarExit` | Bazaar. No caller of its module send method. |
 | `0x105` | `BAZAAR_LIST` | 12 | `built, unused` | `InventoryPacketBuilders.BuildBazaarList` | No caller of its module send method. |
 | `0x106` | `BAZAAR_BUY` | 12 | `built, unused` | `InventoryPacketBuilders.BuildBazaarBuy` | No caller of its module send method. |
@@ -378,14 +381,14 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x111` | (unknown) | 8 | `not built` |  | Not in LSB. |
 | `0x112` | `BATTLEFIELD_REQ` (LSB) | 6 | `not built` |  | Battlefield request. [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x113` | `SITCHAIR` (LSB) | 12 | `built` | `PlayerCommandPacketBuilder.BuildSitChair` | `/sitchair [n] [on\|off]`: mode, then `ChairId` 0-20 (0 the plain chair; LSB falls back to 0 without the key item). The chair pose is not drawn yet. [#111](https://github.com/jimmy58663/GordianXI/issues/111) |
-| `0x114` | `MAP_MARKERS` (LSB) | 4 | `not built` |  | Map markers. [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x114` | `MAP_MARKERS` (LSB) | 4 | `built, unused` | `LoginDataPacketBuilder.BuildMapMarkers` | `SendMapMarkersRequestAsync`; the map does not ask yet. LSB answers with S2C 0x063 type 6. [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x115` | `CURRENCIES_2` (LSB) | 4 | `built` | `InventoryPacketBuilders.BuildCurrencies2Request` | Currencies page 2 request (inventory view). |
 | `0x116` | `UNITY_MENU` (LSB) | 8 | `built, unused` | `ProgressionPacketBuilder.BuildUnityMenu` | Unity. No caller of its module send method. [#94](https://github.com/jimmy58663/GordianXI/issues/94) |
 | `0x117` | `UNITY_QUEST` (LSB) | 8 | `built, unused` | `ProgressionPacketBuilder.BuildUnityQuest` | No caller of its module send method. [#94](https://github.com/jimmy58663/GordianXI/issues/94) |
 | `0x118` | `UNITY_TOGGLE` (LSB) | 8 | `built, unused` | `ProgressionPacketBuilder.BuildUnityToggle` | No caller of its module send method. [#94](https://github.com/jimmy58663/GordianXI/issues/94) |
 | `0x119` | `EMOTE_LIST` (LSB) | 4 | `built, unused` | `PlayerCommandPacketBuilder.BuildEmoteListRequest` | `PlayerCommandPacketModule.SendEmoteListRequestAsync`: no caller until Main Menu, Communication exists; the answer is S2C 0x11A. [#111](https://github.com/jimmy58663/GordianXI/issues/111) |
 | `0x11A` | (unknown) | 4 | `not built` |  | Not in LSB. |
-| `0x11B` | `MASTERY_DISPLAY` (LSB) | 8 | `not built` |  | Mastery display. [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
+| `0x11B` | `MASTERY_DISPLAY` (LSB) | 8 | `built` | `LoginDataPacketBuilder.BuildMasteryDisplay` | `/jobmasterdisp on\|off`. LSB answers with S2C 0x037 and 0x067 when the setting changed. [#115](https://github.com/jimmy58663/GordianXI/issues/115) |
 | `0x11C` | `PARTY_REQUEST` (LSB) | 12 | `built, unused` | `PartyPacketBuilder.BuildPartyRequest` | **Differs between references:** XiPackets 12 bytes; LSB's struct adds `padding01` for 16, which it enforces. We send 16. `SendPartyRequestAsync`: No caller of its module send method. |
 | `0x11D` | `JUMP` (LSB) | 12 | `built` | `CombatPacketBuilder.BuildJumpRequest` | `/jump`. **Differs from the old client:** LSB (`0x11d_jump.cpp`) drops it unless `ActIndex` is the character's own target index; we sent 0, so no jump was ever relayed. It now sends the local entity's index (#111). LSB then sends S2C 0x11E to others. |
 
