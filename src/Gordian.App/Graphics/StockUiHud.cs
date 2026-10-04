@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
 using Gordian.Core.World;
@@ -180,7 +181,7 @@ namespace Gordian.App.Graphics
             if (!cutscene)
             {
                 var party = DrawPartyWindow(renderer, library, session, groups, width, height);
-                DrawAllianceWindows(renderer, library, groups, width, height);
+                DrawAllianceWindows(renderer, library, session, groups, width, height);
                 DrawLogWindows(renderer, library, session, party, width, height);
                 DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
                 DrawStatusIcons(renderer, library, session, width, height);
@@ -590,7 +591,7 @@ namespace Gordian.App.Graphics
 
             var font = _font;
             if (font == null) return result;
-            var rows = GetPartyRows(session, groups, count);
+            var rows = GetPartyRows(session, groups, count, _resources);
             StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
             if (Layout.ShowPartyStatusIcons && _statusIcons is { } icons)
             {
@@ -603,7 +604,7 @@ namespace Gordian.App.Graphics
         /// The alliance's other parties, in the "raid1" (upper) and "raid2" (lower) windows: authored above the target
         /// window's slot, so they stay put whether or not something is targeted (as in retail captures).
         /// </summary>
-        private void DrawAllianceWindows(StockUiRenderer renderer, UiResourceLibrary library, PartyGroups groups, uint width, uint height)
+        private void DrawAllianceWindows(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, PartyGroups groups, uint width, uint height)
         {
             var font = _font;
             int windows = Drag.Unlocked ? 2 : Math.Min(groups.Others.Count, 2);
@@ -623,12 +624,12 @@ namespace Gordian.App.Graphics
                 if (font == null) continue;
 
                 var rows = new List<PartyRowVitals>(6);
-                foreach (var m in groups.Others[i].Take(6)) rows.Add(ToRow(m));
+                foreach (var m in groups.Others[i].Take(6)) rows.Add(ToRow(m, session.World.CurrentZoneId, _resources));
                 StockUiPartyWindow.DrawAllianceRows(renderer, font, menu, placement, rows);
             }
         }
 
-        private static List<PartyRowVitals> GetPartyRows(CharacterSession session, PartyGroups groups, int count)
+        private static List<PartyRowVitals> GetPartyRows(CharacterSession session, PartyGroups groups, int count, ResourceManager? resources)
         {
             var rows = new List<PartyRowVitals>(count);
             var local = session.LocalPlayer;
@@ -653,13 +654,24 @@ namespace Gordian.App.Graphics
                         local.GetStatusEffectIds()));
                     continue;
                 }
-                rows.Add(ToRow(m));
+                rows.Add(ToRow(m, session.World.CurrentZoneId, resources));
             }
             return rows;
         }
 
-        private static PartyRowVitals ToRow(PartyMember m) =>
-            new(m.Name, (int)m.Hp, m.Hpp, (int)m.Mp, m.Mpp, (int)m.Tp, m.IsLeader, m.IsAllianceLeader, m.StatusEffectIds);
+        private static PartyRowVitals ToRow(PartyMember m, ushort currentZoneId, ResourceManager? resources) =>
+            new(m.Name, (int)m.Hp, m.Hpp, (int)m.Mp, m.Mpp, (int)m.Tp, m.IsLeader, m.IsAllianceLeader, m.StatusEffectIds,
+                m.IsInOtherZone(currentZoneId) ? ZoneRowName(m.ZoneId, resources) : null);
+
+        /// <summary>The parenthesised zone text for a member in zone <paramref name="zoneId"/>: the compact name from ROM/165/85.</summary>
+        internal static string ZoneRowName(ushort zoneId, ResourceManager? resources)
+        {
+            if (resources != null && resources.TryGetString(DMsgCategory.ZoneNamesCompact, zoneId, out var name))
+            {
+                return StockUiPartyWindow.ZoneRowText(name);
+            }
+            return StockUiPartyWindow.ZoneRowText("Zone " + zoneId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
 
         private static int Percent(int value, int max) => max > 0 ? Math.Clamp(value * 100 / max, 0, 100) : 100;
     }

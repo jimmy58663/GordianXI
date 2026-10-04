@@ -423,6 +423,60 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void MemberInAnotherZone_KeepsItsVitalsAndIsFlaggedElsewhere_UntilItReturns()
+        {
+            var party = new PartyState();
+            const ushort southernSandoria = 230, bastokMarkets = 235;
+
+            // In our zone: 0x0DD carries the vitals and a zone of 0.
+            party.UpsertMember(new PartyMember { ServerId = 1001, Name = "Cybin", Hp = 1658, Mp = 571, Hpp = 100, Mpp = 100 });
+            Assert.False(party.Members.Single().IsInOtherZone(bastokMarkets));
+
+            // They zone away: LandSandBoat sends only ZoneNo, with HP/MP/TP and percentages zeroed.
+            party.UpsertMember(new PartyMember { ServerId = 1001, Name = "Cybin", ZoneId = southernSandoria });
+            var away = party.Members.Single();
+            Assert.True(away.IsInOtherZone(bastokMarkets));
+            Assert.Equal(1658u, away.Hp);
+            Assert.Equal(571u, away.Mp);
+            Assert.Equal(100, away.Hpp);
+
+            // The roster table (0x0C8) lists every member's zone, ours included: not "another zone".
+            party.UpsertMember(new PartyMember { ServerId = 1001, ZoneId = bastokMarkets }, includeVitals: false);
+            Assert.False(party.Members.Single().IsInOtherZone(bastokMarkets));
+            party.UpsertMember(new PartyMember { ServerId = 1001, ZoneId = southernSandoria }, includeVitals: false);
+            Assert.True(party.Members.Single().IsInOtherZone(bastokMarkets));
+
+            // They return: ZoneNo 0 again with fresh vitals.
+            party.UpsertMember(new PartyMember { ServerId = 1001, Name = "Cybin", Hp = 1200, Mp = 300, Hpp = 70, Mpp = 50 });
+            var back = party.Members.Single();
+            Assert.False(back.IsInOtherZone(bastokMarkets));
+            Assert.Equal(0, back.ZoneId);
+            Assert.Equal(1200u, back.Hp);
+            Assert.Equal(70, back.Hpp);
+        }
+
+        [Fact]
+        public void GroupList_ForAMemberInAnotherZone_StoresTheZoneAndNoZeroedVitals()
+        {
+            var party = new PartyState();
+            var dispatcher = new PacketDispatcher();
+            new PartyPacketModule(party, (_, _) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] inZone = NameSizedGroupList(1002, "Cybin");
+            BinaryPrimitives.WriteUInt32LittleEndian(inZone.AsSpan(4, 4), 500);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0DD_GroupList.PacketId, (ushort)(inZone.Length + 4), 1), inZone);
+            Assert.Equal(500u, party.Members.Single().Hp);
+
+            byte[] away = NameSizedGroupList(1002, "Cybin");
+            BinaryPrimitives.WriteUInt16LittleEndian(away.AsSpan(28, 2), 230);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x0DD_GroupList.PacketId, (ushort)(away.Length + 4), 2), away);
+            var member = party.Members.Single();
+            Assert.Equal(230, member.ZoneId);
+            Assert.True(member.IsInOtherZone(235));
+            Assert.Equal(500u, member.Hp);
+        }
+
+        [Fact]
         public void GroupEffects_StoreEachMembersStatusIds()
         {
             var party = new PartyState();

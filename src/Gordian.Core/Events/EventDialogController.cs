@@ -40,6 +40,25 @@ namespace Gordian.Core.Events
         /// <summary>Names an item / key item / zone by id for the 0x01 codes of the text; null names show as &lt;#id&gt;.</summary>
         public static Func<byte, int, string?>? NameResolver { get; set; }
 
+        private readonly Func<int, byte[]?>? _datLoader;
+
+        /// <summary>A controller that reads its DATs through the static <see cref="DatLoader"/> (the app's).</summary>
+        public EventDialogController()
+        {
+        }
+
+        /// <summary>
+        /// A controller that reads its DATs by file id through <paramref name="datLoader"/> instead of the static
+        /// <see cref="DatLoader"/>, so tests running in parallel do not share (and race on) one global loader.
+        /// </summary>
+        public EventDialogController(Func<int, byte[]?> datLoader)
+        {
+            _datLoader = datLoader;
+        }
+
+        /// <summary>This controller's DAT loader: its own when one was given, else the static <see cref="DatLoader"/>.</summary>
+        private Func<int, byte[]?>? Loader => _datLoader ?? DatLoader;
+
         private readonly object _sync = new();
         private readonly EventWorkZone _zone = new();
         private ProgressionState? _progression;
@@ -564,7 +583,7 @@ namespace Gordian.Core.Events
                 _scriptZone = zoneId;
                 _script = null;
                 _dialog = null;
-                var loader = DatLoader;
+                var loader = Loader;
                 if (loader == null)
                 {
                     GordianLog.Warning("EVENT", "No DAT loader is set; events cannot run.");
@@ -1264,7 +1283,7 @@ namespace Gordian.Core.Events
             EventSceneResource? resource = null;
             try
             {
-                if (DatLoader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
+                if (Loader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
             }
             catch (Exception ex)
             {
@@ -1280,7 +1299,7 @@ namespace Gordian.Core.Events
             EventMotionBank? bank = null;
             try
             {
-                if (DatLoader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
+                if (Loader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
             }
             catch (Exception ex)
             {

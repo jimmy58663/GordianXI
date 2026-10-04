@@ -32,6 +32,8 @@ namespace Gordian.Core.Resources
         private volatile bool _fileTableInitialized;
 
         private readonly ConcurrentDictionary<uint, ItemRecord> _itemCache = new();
+        // Item tables already read by TryGetItem, so an id with no record (an empty slot) does not reread its table.
+        private readonly ConcurrentDictionary<string, Lazy<int>> _loadedItemTables = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
@@ -380,7 +382,7 @@ namespace Gordian.Core.Resources
             string relPath = GetItemTablePathForId(itemId);
             if (!string.IsNullOrEmpty(relPath))
             {
-                LoadItemDat(relPath);
+                _ = _loadedItemTables.GetOrAdd(relPath, path => new Lazy<int>(() => LoadItemDat(path))).Value;
                 return _itemCache.TryGetValue(itemId, out item);
             }
 
@@ -400,6 +402,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.KeyItems => Path.Combine("ROM", "175", "35.DAT"),
             DMsgCategory.ZoneNames => Path.Combine("ROM", "165", "84.DAT"),
             DMsgCategory.ZoneNamesShort => Path.Combine("ROM", "165", "83.DAT"),
+            DMsgCategory.ZoneNamesCompact => Path.Combine("ROM", "165", "85.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),
@@ -432,17 +435,8 @@ namespace Gordian.Core.Resources
             _ => new[] { "name" }
         };
 
-        private static string GetItemTablePathForId(uint itemId)
-        {
-            if (itemId <= 4095) return Path.Combine("ROM", "118", "106.DAT");             // General
-            if (itemId <= 8191) return Path.Combine("ROM", "118", "107.DAT");             // Consumables
-            if (itemId <= 8703) return Path.Combine("ROM", "118", "110.DAT");             // Automaton
-            if (itemId is >= 10240 and <= 16383) return Path.Combine("ROM", "118", "109.DAT"); // Armor
-            if (itemId is >= 16384 and <= 23039) return Path.Combine("ROM", "118", "108.DAT"); // Weapons
-            if (itemId is >= 23040 and <= 28671) return Path.Combine("ROM", "286", "73.DAT");  // Armor 2
-            if (itemId == 65535) return Path.Combine("ROM", "174", "48.DAT");             // Gil/Currency
-            return string.Empty;
-        }
+        /// <summary>The item table holding an item id, from the table shared with <see cref="ItemNameResolver"/> (#203).</summary>
+        internal static string GetItemTablePathForId(uint itemId) => Tables.ItemTables.GetTablePath(itemId);
 
         private readonly ConcurrentDictionary<int, World.Collision.ZoneCollisionMesh?> _collisionCache = new();
 
@@ -773,6 +767,7 @@ namespace Gordian.Core.Resources
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
             _itemCache.Clear();
+            _loadedItemTables.Clear();
             _dmsgCache.Clear();
             lock (_lock)
             {

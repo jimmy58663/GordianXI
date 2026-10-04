@@ -143,6 +143,18 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// The name in a single decrypted item record block, read the same way as <see cref="DecodeSingleRecord"/>
+        /// (without the icon), so <see cref="ItemNameResolver"/> and the item cache agree (#203).
+        /// </summary>
+        public static string DecodeName(ReadOnlySpan<byte> block)
+        {
+            if (block.Length < 0x30) return string.Empty;
+            var item = new ItemRecord();
+            DecodeStrings(block, item);
+            return item.Name;
+        }
+
+        /// <summary>
         /// Decodes a single decrypted item record block.
         /// </summary>
         public static ItemRecord? DecodeSingleRecord(ReadOnlySpan<byte> block, bool isRetail)
