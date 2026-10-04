@@ -284,5 +284,39 @@ namespace Gordian.Core.Tests.Resources
             // Water: IsWater true -> Drawn in Pass 5 with depth write disabled
             Assert.True(waterInst.IsWater);
         }
+
+        [Theory]
+        // #251: Fort Ghelsba's palisade logs (no 0x8000 flag) use the bark textures kawa / kawa_hos, which the river
+        // hint "kawa" matched; the client draws them solid.
+        [InlineData(false, "uge_he02", "model   kawa_hos", false)]
+        [InlineData(false, "_uge_bo56", "model   kawa", false)]
+        // Opaque sea and castle surfaces are solid too (ship routes' em_umi01, Whitegate's shiro).
+        [InlineData(false, "sea1_h", "model   em_umi01", false)]
+        [InlineData(false, "lowsea", "sea.png", false)]
+        // Blended water keeps the water pass.
+        [InlineData(true, "lowsea", "sea.png", true)]
+        [InlineData(true, "sea1_h", "model   sea_00", true)]
+        // A blended decal without a water name is not water.
+        [InlineData(true, "rz_sima_dou_m", "model per_sna", false)]
+        public void IsWaterSurface_RequiresTheBlendFlag(bool isBlend, string meshName, string textureName, bool expected)
+        {
+            Assert.Equal(expected, ZoneDefDecoder.IsWaterSurface(isBlend, meshName, textureName));
+        }
+
+        [Fact]
+        public void InstantiateSubmesh_OpaqueSubmeshWithAWaterName_IsNotWater()
+        {
+            var palisade = new MeshGroup
+            {
+                Name = "uge_he02",
+                TextureName = "model   kawa_hos",
+                Vertices = new MeshVertex[] { new(Vector3.Zero, Vector3.UnitY, Vector2.Zero, 0xFFFFFFFF) },
+                Indices = new int[] { 0, 0, 0 },
+                IsWater = true // even a template flagged by an older decode
+            };
+            var inst = ZoneDefDecoder.InstantiateSubmesh(palisade, Matrix4x4.Identity, "uge_he02");
+            Assert.False(inst.IsBlend);
+            Assert.False(inst.IsWater);
+        }
     }
 }

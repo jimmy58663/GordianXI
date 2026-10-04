@@ -337,9 +337,22 @@ namespace Gordian.Core.Resources.Graphics
                 IsBlend = template.IsBlend,
                 NoCull = template.NoCull,
                 IsFoliage = template.IsFoliage || template.Name.StartsWith("_") || placementName.StartsWith("_"),
-                IsWater = template.IsWater || IsWaterMesh(template.Name, template.TextureName) || IsWaterMesh(placementName, template.TextureName)
+                IsWater = template.IsBlend &&
+                          (template.IsWater || IsWaterMesh(template.Name, template.TextureName) || IsWaterMesh(placementName, template.TextureName))
             };
         }
+
+        /// <summary>
+        /// Whether a Section 0x2E submesh is drawn as a translucent water surface: it must carry the 0x8000 blend flag and
+        /// have a water name (<see cref="IsWaterMesh"/>). The client picks a zone submesh's render state from the flag
+        /// word and the mesh name's first byte only (0x8000 blend, a leading <c>_</c> alpha test, otherwise opaque); a
+        /// submesh without the blend flag is opaque whatever its texture is called, so a name can never make it
+        /// translucent (#251: Fort Ghelsba's palisade logs use the bark textures <c>kawa</c> / <c>kawa_hos</c>, which the
+        /// river hint <c>kawa</c> matched). Render state referenced from xi-tools (docs/zone/format.md, docs/zone/export.md
+        /// "Clipped floors and walls") and xi-model-viewer (ui/js/zoneModel.js, after xim GLDrawer.drawXim).
+        /// </summary>
+        public static bool IsWaterSurface(bool isBlend, string meshName, string textureName) =>
+            isBlend && IsWaterMesh(meshName, textureName);
 
         private static readonly string[] SkyPrefixes =
         {
