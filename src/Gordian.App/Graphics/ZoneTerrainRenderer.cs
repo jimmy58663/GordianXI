@@ -47,6 +47,9 @@ namespace Gordian.App.Graphics
         /// </summary>
         public WorldState? World { get; set; }
 
+        /// <summary>The moving platform the displayed session's player is riding (empty when none): an event pose keeps it on it.</summary>
+        public string LocalPlayerRidingPlatformId { get; set; } = string.Empty;
+
         /// <summary>
         /// The running event's presentation (<see cref="Gordian.Core.Events.EventPresentation"/>), whose scene effect log
         /// the renderer plays: the particle generators of cutscene scene routines (#192). Null without a session.
@@ -1133,7 +1136,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights, LoadedZone, _subEnvironmentActorLights);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights, LoadedZone, _subEnvironmentActorLights, LocalPlayerRidingPlatformId);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;

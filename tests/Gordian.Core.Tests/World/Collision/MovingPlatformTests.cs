@@ -117,7 +117,79 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.Equal(-9.17f + 8.19f, new PlatformHeight(davoi, davoi.RestHeight).Offset, 3); // the parts move to the stop
         }
 
-        private static readonly MovingPlatform Lift = new("@6l0", new Vector2(-59, -15), new Vector2(-53, -9), -10.0f, -10.0f, 2.0f);
+        private static MovingPlatform RecordLift(string id, Vector2 min, Vector2 max, float authored, float floor0, float floor1) =>
+            new(id, min, max, authored, MathF.Min(floor0, floor1), MathF.Max(floor0, floor1), FromRecord: true, Floor0: floor0, Floor1: floor1);
+
+        private static WorldEntity ElevatorEntity(uint id, string fourCc, Vector3 position, byte animation, double legStart) =>
+            new(id, (ushort)id, EntityType.Elevator)
+            {
+                TransportId = fourCc,
+                Position = position,
+                AnimationState = animation,
+                TransportStartSeconds = (uint)legStart,
+                TransportTravelSeconds = 8,
+                IsSpawned = true,
+            };
+
+        [Fact]
+        public void LeverLift_Animation11GoesToFloor1_TheTop()
+        {
+            // Palborough Mines @3z0: floor 0 = 1.028 (bottom), floor 1 = -32.117 (top, internal -Y up). LSB spawns it with
+            // animation 11 and, its lever lifts being "reversed", at the top; Davoi's (-1.969 / -9.168) likewise.
+            var palborough = RecordLift("@3z0", new Vector2(176, 59.4f), new Vector2(182, 65), 0.85f, 1.028f, -32.117f);
+            var arrived = ElevatorEntity(1, "@3z0", new Vector3(179.03f, -19.22f, 62.61f), MovingPlatforms.AnimationDown, 0);
+            Assert.Equal(-32.117f, MovingPlatforms.HeightAt(palborough, arrived, 1000.0), 3);
+            arrived.AnimationState = MovingPlatforms.AnimationUp; // LSB's "up" on a reversed lift: it descends
+            Assert.Equal(1.028f, MovingPlatforms.HeightAt(palborough, arrived, 1000.0), 3);
+
+            var davoi = RecordLift("@450", new Vector2(20.9f, -149.5f), new Vector2(27.8f, -142.9f), -8.19f, -1.969f, -9.168f);
+            Assert.Equal(-9.168f, MovingPlatforms.HeightAt(davoi, ElevatorEntity(2, "@450", new Vector3(24.3f, -8.7f, -146.2f), MovingPlatforms.AnimationDown, 0), 1000.0), 3);
+        }
+
+        [Fact]
+        public void Metalworks_PairedByFourCc_PlaysAsBefore()
+        {
+            // Both shafts share the stops (floor 0 = 1.962 bottom, floor 1 = -9.983 top); LSB puts entity "@6l0" in the
+            // north shaft (z +12, car @6l1) and "@6l1" in the south one (z -12, car @6l0), always on opposite legs.
+            var south = RecordLift("@6l0", new Vector2(-59, -15), new Vector2(-53, -9), -9.98f, 1.962f, -9.983f);
+            var north = RecordLift("@6l1", new Vector2(-59, 9), new Vector2(-53, 15), 1.97f, 1.962f, -9.983f);
+            var world = new WorldState { Collision = new ZoneCollisionMesh(Array.Empty<CollisionTriangle>()) { MovingPlatforms = new[] { south, north } } };
+            world.UpsertEntity(ElevatorEntity(0x01000001, "@6l0", new Vector3(-56.0f, -13.1f, 12.0f), MovingPlatforms.AnimationUp, 1000));
+            world.UpsertEntity(ElevatorEntity(0x01000002, "@6l1", new Vector3(-56.0f, -13.1f, -12.0f), MovingPlatforms.AnimationDown, 1000));
+
+            // Before: the entity's own shaft went up on 10 (north up, south down). Now: car @6l0 (south) goes to floor 0
+            // on 10 and car @6l1 (north) to floor 1 on 11: the same heights.
+            var done = MovingPlatforms.Evaluate(world.Collision, world, 1010.0);
+            Assert.Equal(1.962f, done.Single(h => h.Platform.Id == "@6l0").Height, 3);
+            Assert.Equal(-9.983f, done.Single(h => h.Platform.Id == "@6l1").Height, 3);
+            var half = MovingPlatforms.Evaluate(world.Collision, world, 1000.0 + (11.945 / MovingPlatforms.LiftSpeed / 2));
+            Assert.Equal(half[0].Height, half[1].Height, 2); // crossing in the middle
+        }
+
+        [Fact]
+        public void EventPose_OnALift_StandsOnTheLift_NotTheShaftFloor()
+        {
+            // The lever question while riding Palborough Mines' lift at its bottom stop: the event places the rider on the
+            // floor under its event position, which was the pit far below the car (#66, also before #66).
+            var pit = new ZoneCollisionMesh(new[]
+            {
+                new CollisionTriangle(new Vector3(170, 5.0f, 50), new Vector3(190, 5.0f, 50), new Vector3(170, 5.0f, 70), -Vector3.UnitY, false, default, false),
+                new CollisionTriangle(new Vector3(190, 5.0f, 50), new Vector3(190, 5.0f, 70), new Vector3(170, 5.0f, 70), -Vector3.UnitY, false, default, false),
+            });
+            var lift = RecordLift("@3z0", new Vector2(176, 59.4f), new Vector2(182, 65), 0.85f, 1.028f, -32.117f);
+            var heights = new[] { new PlatformHeight(lift, 1.028f) };
+            var rider = new Vector3(179.6f, 1.028f, 63.6f);
+
+            Assert.Equal(5.0f, EntityGrounding.GetEventDisplayHeight(rider, pit), 3);           // without platforms: the pit
+            Assert.Equal(1.028f, EntityGrounding.GetEventDisplayHeight(rider, pit, heights), 3); // on the car
+            Assert.Equal(5.0f, EntityGrounding.GetEventDisplayHeight(rider with { X = 185f }, pit, heights), 3); // off the car
+
+            // A rider stays on the car it is riding while the car moves away from the event position's height.
+            var moved = new[] { new PlatformHeight(lift, -10.0f) };
+            Assert.Equal(-10.0f, EntityGrounding.GetEventDisplayHeight(rider, pit, moved, "@3z0"), 3);
+        }
+
+        private static readonly MovingPlatform Lift = new("@6l0",new Vector2(-59, -15), new Vector2(-53, -9), -10.0f, -10.0f, 2.0f);
 
         [Fact]
         public void HeightAt_FollowsTheElevatorLegAtConstantSpeed()

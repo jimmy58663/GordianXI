@@ -46,13 +46,36 @@ namespace Gordian.Core.World.Collision
         /// the ground: Port Jeuno 324's Buntz stands at his server spot, beside a ledge 1.2 yalms high, and the wide search
         /// alone drew him on top of it.
         /// </summary>
-        public static float GetEventDisplayHeight(Vector3 position, ZoneCollisionMesh? collision)
+        public static float GetEventDisplayHeight(Vector3 position, ZoneCollisionMesh? collision) =>
+            GetEventDisplayHeight(position, collision, ReadOnlySpan<PlatformHeight>.Empty);
+
+        /// <summary>
+        /// As <see cref="GetEventDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with moving platforms: an actor whose event
+        /// position is on a platform (a rider answering Palborough Mines' lever question on the lift, #66) stands on the
+        /// platform, not on the shaft floor below it, by the same rule as <see cref="GetDisplayHeight(WorldEntity,
+        /// ZoneCollisionMesh?, ReadOnlySpan{PlatformHeight})"/>; one riding <paramref name="ridingPlatformId"/> keeps riding it
+        /// while the event position stays over its footprint.
+        /// </summary>
+        public static float GetEventDisplayHeight(Vector3 position, ZoneCollisionMesh? collision, ReadOnlySpan<PlatformHeight> platforms,
+                                                  string ridingPlatformId = "")
         {
-            if (collision == null) return position.Y;
-            if (collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
-                    PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out var near))
-                return near.Height;
-            return GetDisplayHeight(position, collision, EventStepUpHeight);
+            if (ridingPlatformId.Length > 0)
+            {
+                foreach (var platform in platforms)
+                {
+                    if (platform.Platform.Id == ridingPlatformId && platform.Platform.Contains(position.X, position.Z)) return platform.Height;
+                }
+            }
+
+            GroundHit near = default;
+            bool found = collision != null && collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
+                PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out near);
+            if (MovingPlatforms.TryGetPlatformUnder(platforms, position, PlayerLocomotionController.StepUpHeight,
+                    PlayerLocomotionController.MaxFallDistance, out var under) &&
+                (!found || under.Height <= near.Height + MovingPlatforms.LevelTolerance))
+                return under.Height;
+            if (found) return near.Height;
+            return collision == null ? position.Y : GetDisplayHeight(position, collision, EventStepUpHeight);
         }
 
         /// <summary>As <see cref="GetDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with the floor allowed up to <paramref name="stepUp"/> above.</summary>
