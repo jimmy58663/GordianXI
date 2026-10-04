@@ -56,6 +56,9 @@ namespace Gordian.Core.Network.Packets
         /// <summary>MsgStd::Sell and MsgStd::SellToShop: sent after a vendor sale with the item id and count.</summary>
         public const ushort ShopSellMessage = 232, ShopSellToShopMessage = 233;
 
+        /// <summary>MsgStd::DiceRoll (LandSandBoat <c>msg_std.h</c>): the <c>/random</c> result, data <c>string2 NAME string3 N</c>.</summary>
+        public const ushort DiceRollMessage = 88;
+
         /// <summary>Item records for the messages that name items (their log names and plurals); set once the item DATs are available.</summary>
         public static System.Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? ItemLookup { get; set; }
 
@@ -94,6 +97,10 @@ namespace Gordian.Core.Network.Packets
                 // LandSandBoat sends 232 with "Para0 <id> Para1 <count>" after a completed vendor sale (0x085); the
                 // retail client prints it as "You sell 12 Ronfaure chestnuts to the shop." (capture, 2026-09-28).
                 return Gordian.Core.Ui.StockUiShop.SellMessage(Gordian.Core.Ui.StockUiShop.Lookup(ItemLookup, (ushort)itemId), count);
+            }
+            if (msg.MessageId == DiceRollMessage && Gordian.Core.Ui.StockUiPlayerCommands.FormatDiceRoll(msg.Parameters) is { } roll)
+            {
+                return roll;
             }
             if (TryGetMessage(msg.MessageId, out string knownText))
             {

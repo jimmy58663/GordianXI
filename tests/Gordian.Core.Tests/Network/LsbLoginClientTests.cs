@@ -210,5 +210,37 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((21828u, "Knot"), LsbLoginClient.ChooseCharacter(slots, "Nobody", 0));
             Assert.Equal((5u, "Solo"), LsbLoginClient.ChooseCharacter(System.Array.Empty<(uint, string)>(), "Solo", 5));
         }
+
+        [Fact]
+        public void ParseCharacterSlotList_KeepsTheRawSlotNumberAcrossFreeSlots()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlotList(CharacterList((21828, "Knot"), (0, " "), (21900, "BLM")));
+            Assert.Equal(new[] { new LsbCharacterSlot(1, 21828, "Knot"), new LsbCharacterSlot(3, 21900, "BLM") }, slots.ToArray());
+        }
+
+        [Fact]
+        public void ChooseCharacter_BySlot_UsesTheRawSlotNumber()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlotList(CharacterList((21828, "Knot"), (0, " "), (21900, "BLM")));
+            Assert.Equal(new LsbCharacterSlot(3, 21900, "BLM"), LsbLoginClient.ChooseCharacter(slots, null, 0, 3));
+            Assert.Equal(new LsbCharacterSlot(1, 21828, "Knot"), LsbLoginClient.ChooseCharacter(slots, "", 0, 1));
+        }
+
+        [Fact]
+        public void ChooseCharacter_NameWinsOverSlot_AndSlotCoversAMissingName()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlotList(CharacterList((21828, "Knot"), (21900, "BLM")));
+            Assert.Equal("BLM", LsbLoginClient.ChooseCharacter(slots, "BLM", 0, 1).Name);
+            Assert.Equal("BLM", LsbLoginClient.ChooseCharacter(slots, "Renamed", 0, 2).Name);
+        }
+
+        [Fact]
+        public void ChooseCharacter_AnEmptyOrOutOfRangeSlotThrows()
+        {
+            var slots = LsbLoginClient.ParseCharacterSlotList(CharacterList((21828, "Knot"), (0, " "), (21900, "BLM")));
+            Assert.Throws<System.InvalidOperationException>(() => LsbLoginClient.ChooseCharacter(slots, null, 0, 2));
+            Assert.Throws<System.InvalidOperationException>(() => LsbLoginClient.ChooseCharacter(slots, null, 0, 9));
+            Assert.Throws<System.InvalidOperationException>(() => LsbLoginClient.ChooseCharacter(new System.Collections.Generic.List<LsbCharacterSlot>(), null, 0, 1));
+        }
     }
 }

@@ -26,6 +26,9 @@ namespace Gordian.Core.Network.Packets
         public WorldState World => _world;
         public LocalPlayerState LocalPlayer => _localPlayer;
 
+        /// <summary>The local player's pet, from S2C 0x068 (<see cref="EntitySyncPacket"/>). Replaceable so the session can share one instance.</summary>
+        public LocalPetState Pet { get; set; } = new();
+
         public event Action<WorldEntity>? EntitySpawned;
         public event Action<WorldEntity>? EntityUpdated;
         public event Action<WorldEntity>? EntityDespawned;
@@ -63,6 +66,8 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x077_EntityVis.PacketId, HandleEntityVis);
             dispatcher.Register(S2C_0x0DF_GroupAttr.PacketId, HandleGroupAttr);
             dispatcher.Register(S2C_0x039_MapSchedulor.PacketId, HandleMapSchedulor);
+            dispatcher.Register(S2C_0x067_EntityUpdate1.PacketId, HandleEntityUpdate1);
+            dispatcher.Register(S2C_0x068_EntityUpdate2.PacketId, HandleEntityUpdate2);
         }
 
         /// <summary>
@@ -488,7 +493,130 @@ namespace Gordian.Core.Network.Packets
                     $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
 
+            // The pet's 0x068 can arrive before its 0x00E: link it once it spawns.
+            if (Pet.Current is { } pet && pet.TargetIndex == npcPacket.ActorIndex)
+            {
+                entity.OwnerTargetIndex = pet.OwnerIndex;
+            }
+
             _world.UpsertEntity(entity);
+        }
+
+        private void HandleEntityUpdate1(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var update = new S2C_0x067_EntityUpdate1(payload);
+            if (!update.IsValid)
+            {
+                GordianLog.Debug("ENTITY", $"0x067 ignored: unsupported mode or short payload ({payload.Length} bytes).");
+                return;
+            }
+            ApplyEntitySync(update.Sync, S2C_0x067_EntityUpdate1.PacketId);
+        }
+
+        private void HandleEntityUpdate2(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var update = new S2C_0x068_EntityUpdate2(payload);
+            if (!update.IsValid)
+            {
+                GordianLog.Debug("ENTITY", $"0x068 ignored: unsupported mode or short payload ({payload.Length} bytes).");
+                return;
+            }
+            ApplyEntitySync(update.Sync, S2C_0x068_EntityUpdate2.PacketId);
+        }
+
+        /// <summary>
+        /// Applies S2C 0x067 / 0x068 (<see cref="EntitySyncPacket"/>). Mode 2 is a player's name flags and, for the local
+        /// player, <see cref="LocalPlayerState.CharSync"/> (Level Sync, mount, Mog House). Mode 3 renames an NPC and links
+        /// a Trust to its owner. Mode 4 is the local player's pet, kept in <see cref="Pet"/> and linked to its entity.
+        /// </summary>
+        private void ApplyEntitySync(in EntitySyncPacket sync, ushort packetId)
+        {
+            switch (sync.Mode)
+            {
+                case EntitySyncMode.Player:
+                {
+                    bool isLocal = _localPlayer.ServerId != 0 && sync.UniqueNo == _localPlayer.ServerId;
+                    GordianLog.Debug("ENTITY", $"0x{packetId:X3} char sync: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} local={isLocal} " +
+                        $"nameFlags=0x{sync.NameFlags:X8} levelSync={sync.IsLevelSynced} levelCap={sync.LevelRestriction} mount={sync.MountWord} " +
+                        $"mjobLv={sync.MainJobLevel} mogExpansion={sync.MogExpansionFlag}");
+                    if (isLocal) _localPlayer.ApplyCharSync(sync);
+                    if (_world.TryGetByServerId(sync.UniqueNo, out var player) && player != null)
+                    {
+                        player.SyncNameFlags = sync.NameFlags;
+                        _world.UpsertEntity(player);
+                    }
+                    break;
+                }
+
+                case EntitySyncMode.Npc:
+                {
+                    if (!_world.TryGetByServerId(sync.UniqueNo, out var entity) || entity == null)
+                    {
+                        GordianLog.Debug("ENTITY", $"0x{packetId:X3} entity update for unknown entity 0x{sync.UniqueNo:X8} (index {sync.ActIndex}) ignored.");
+                        break;
+                    }
+
+                    entity.SyncNameFlags = sync.NameFlags;
+                    if (sync.SecondIndex != 0)
+                    {
+                        entity.OwnerTargetIndex = sync.SecondIndex;
+                        // LandSandBoat sends this packet for a Trust "to make the client aware that this pet is a trust".
+                        if (entity.Type is EntityType.Monster or EntityType.Npc) entity.Type = EntityType.Trust;
+                    }
+                    if (sync.Name.Length > 0)
+                    {
+                        // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
+                        entity.Name = sync.Name.Replace('_', ' ');
+                    }
+                    GordianLog.Debug("ENTITY", $"0x{packetId:X3} entity update: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} owner={sync.SecondIndex} name='{entity.Name}' type={entity.Type}");
+                    _world.UpsertEntity(entity);
+                    break;
+                }
+
+                case EntitySyncMode.Pet:
+                    ApplyPetSync(sync, packetId);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Mode 4: the local player's pet. LandSandBoat puts the owner (the local player) in the common fields and the
+        /// pet's index in the second index; XiPackets documents the opposite, so the owner is whichever of the two ids is
+        /// the local player. An index of 0 means the pet is gone.
+        /// </summary>
+        private void ApplyPetSync(in EntitySyncPacket sync, ushort packetId)
+        {
+            bool ownerFirst = _localPlayer.ServerId != 0 && sync.UniqueNo == _localPlayer.ServerId;
+            ushort petIndex = ownerFirst ? sync.SecondIndex : sync.ActIndex;
+            ushort ownerIndex = ownerFirst ? sync.ActIndex : sync.SecondIndex;
+
+            if (_world.TryGetByServerId(_localPlayer.ServerId, out var self) && self is PlayerEntity selfPlayer)
+            {
+                selfPlayer.PetActorIndex = petIndex;
+            }
+
+            if (petIndex == 0)
+            {
+                GordianLog.Debug("ENTITY", $"0x{packetId:X3} pet sync: pet gone.");
+                Pet.Clear();
+                return;
+            }
+
+            uint petId = ownerFirst ? 0 : sync.UniqueNo;
+            string name = sync.Name;
+            if (_world.TryGetByTargetIndex(petIndex, out var petEntity) && petEntity != null)
+            {
+                petId = petEntity.ServerId;
+                petEntity.OwnerTargetIndex = ownerIndex;
+                petEntity.Hpp = sync.Hpp;
+                if (string.IsNullOrEmpty(petEntity.Name) && name.Length > 0) petEntity.Name = name;
+                if (name.Length == 0) name = petEntity.Name;
+                _world.UpsertEntity(petEntity);
+            }
+
+            GordianLog.Debug("ENTITY", $"0x{packetId:X3} pet sync: pet index={petIndex} id=0x{petId:X8} owner index={ownerIndex} hp={sync.Hpp}% mp={sync.Mpp}% tp={sync.Tp} " +
+                $"target=0x{sync.TargetId:X8} name='{name}'");
+            Pet.Set(new LocalPet(petId, petIndex, ownerIndex, sync.Hpp, sync.Mpp, sync.Tp, sync.TargetId, name));
         }
 
         private void HandleCharStatus(PacketHeader header, ReadOnlySpan<byte> payload)

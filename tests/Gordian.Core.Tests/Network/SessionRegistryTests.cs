@@ -163,5 +163,45 @@ namespace Gordian.Core.Tests.Network
             Assert.False(_registry.IsCharacterActive("Disconnector"));
             Assert.Empty(_registry.ActiveSessions);
         }
+
+        private CharacterSession Register(string character, uint id, string account, string profile = "")
+        {
+            var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            var session = new CharacterSession(character, id, account, net) { ProfileName = profile };
+            _registry.RegisterSession(session);
+            return session;
+        }
+
+        [Fact]
+        public void IsProfileOnline_OnlyTheProfileOfTheLoggedInCharacter_NotTheWholeAccount()
+        {
+            Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+
+            Assert.True(_registry.IsProfileOnline("BLM Profile", ""));        // by slot: no character name on the profile
+            Assert.False(_registry.IsProfileOnline("Knot Profile", "Knot"));  // same account, other character
+            Assert.False(_registry.IsProfileOnline("Knot Profile", ""));
+        }
+
+        [Fact]
+        public void IsProfileOnline_UntaggedSessionsMatchByCharacterName_AndTwoCharactersCoexist()
+        {
+            Register("Knot", 21828, "acct1000");                              // retail handoff: no profile tag
+            Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+
+            Assert.True(_registry.IsProfileOnline("Knot Profile", "knot"));
+            Assert.True(_registry.IsProfileOnline("BLM Profile", "BLM"));
+            Assert.False(_registry.IsProfileOnline("Other", "Nobody"));
+            Assert.True(_registry.IsCharacterIdActive(21900));
+            Assert.False(_registry.IsCharacterIdActive(5));
+            Assert.False(_registry.IsCharacterIdActive(0));
+        }
+
+        [Fact]
+        public void IsProfileOnline_GoesOfflineWhenTheSessionDisconnects()
+        {
+            var session = Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+            session.Disconnect();
+            Assert.False(_registry.IsProfileOnline("BLM Profile", "BLM"));
+        }
     }
 }
