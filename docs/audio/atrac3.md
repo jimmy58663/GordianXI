@@ -41,10 +41,10 @@ What every file has in common:
 
 - **One frame size: 192 bytes per channel per 1024 samples** (66.15 kbit/s per channel at 44.1 kHz, the "LP2" rate; 72 kbit/s at 48 kHz). A stereo block is 384 bytes: the left channel's 192 bytes, then the right's.
 - **No joint stereo.** Every channel's 192 bytes is an independent sound unit (checked on every frame of all 152 stereo files: after de-obfuscation both halves of every block start with the single-channel unit id). Joint stereo is documented in [section 14](#14-out-of-scope-joint-stereo) for completeness only.
-- **Spectral coefficients always use variable-length codes** (the constant-length mode bit was 0 in every frame examined). Constant-length codes still appear inside tonal components, so both codings are needed.
-- **Tonal coding mode selector is always 0 or 1** (never 3, never the invalid 2).
-- **Coded QMF bands** (`bandsCoded`, below): 0, 1 or 2 in music; 3 occurs in 3 effect frames only. Gain points per band: 0 to 6 observed (7 allowed).
-- Gain locations were strictly increasing in every frame; no frame read past its 192 bytes.
+- **Spectral coefficients always use variable-length codes** (the constant-length mode bit was 0 in all 1,367,551 channel frames of the install). Constant-length codes still appear inside tonal components, so both codings are needed.
+- **Tonal coding mode selector is always 0 or 1** (never 3, never the invalid 2); tonal quantiser selectors seen are 3, 5 and 7, with 1-4 values per component. Half the frames carry tonal components.
+- **Coded QMF bands** (`bandsCoded`, below): 0, 1 or 2 in music; 3 occurs in 3 effect frames only. Gain points per band: 0 to 7 all occur (7 in 5 bands); all 16 gain levels occur.
+- Gain locations were strictly increasing in every frame; no frame read past its 192 bytes (some use all 1,536 bits); no frame failed to parse.
 
 Out of scope: joint stereo, the RealMedia byte scrambling, the "ATRAC3 AL" variant, more than 2 channels, and other frame sizes (96 and 152 bytes per channel exist in other ATRAC3 files, but not in FFXI; nothing below depends on the frame size except where the frame ends).
 
