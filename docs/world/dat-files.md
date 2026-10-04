@@ -160,7 +160,7 @@ Status: **decoded** = every field GordianXI needs is read; **partly** = some fie
 | `0x3E` | PointList | Point list | none | not decoded | |
 | `0x45` | Info | Model info block | `EntityModelLoader` reads byte 3 (weapon animation type) and byte 6 (standard joint) of weapon DATs | partly | [entities-and-animation.md](entities-and-animation.md#models-and-equipment-phase-5c) |
 | `0x49` | SpellList | Spell id list | none | not decoded | |
-| `0x4A` | Path | Path data | none | not decoded | |
+| `0x4A` | Path | Points a sound generator follows: `"RAB\0"`, u32 7, ..., u32 count at +0x30, points of 0x20 bytes from +0x40 (`f32 x, y, z, w`, rest unknown) | `ZoneSoundEmitterDecoder.ReadPath` | partly. **Beyond xi-tools:** layout read from the retail zones (Bibiki Bay `mina` / `gake` / `hama`, Southern San d'Oria `kiji` / `choc`) | [audio.md](../design/audio.md#zone-effect-audio-39) |
 | `0x53` | AbilityList | Ability id list | none | not decoded | |
 | `0x54` | WeaponTrace | Weapon swing trail | none | not decoded | |
 | `0x5D` | BumpMap | Bump map | none | not decoded | |

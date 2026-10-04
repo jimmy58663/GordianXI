@@ -129,9 +129,27 @@ Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target me
 
 Not done: sand / snow footprints (the global `fmrk` decal from `ROM/0/0.DAT` and the zone's `fses/fefs` foot effects are rendering work), and what the config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) controls in retail (sound, footprints or both); it is not applied yet.
 
+## Zone effect audio (#39)
+
+Zone sound sources are Section 0x05 generators whose linked data is a 0x3D sound pointer: 5,868 in 298 zone DATs, 5,227 of them auto-run, 184 on paths, 1,686 with a time-of-day volume (`ZoneSoundEmitterTests`). Op names from xi-tools `docs/reference/ps2_beta_2001.md`; argument layouts read from the retail data (**Beyond xi-tools**):
+
+| Op | Name (PS2) | Layout | Example |
+|---|---|---|---|
+| init 0x01 | standard setup | linked data id = the 0x3D section name, resolved in the generator's directory then its parents; base position (internal space) | San d'Oria `seso/se01` → `2003` |
+| init 0x4C | `InitSoundElemParam` (audio range) | `f32 far, f32 near, f32 ?` | Bibiki Bay `mina` 60 / 10, `gake` 80 / 40, `hama` 60 / 25; San d'Oria 8-30 / 0 |
+| init 0x6B | `InitPathSound` | arg 0: 0x4A path section name | `mina`, `gake`, `hama`, `kiji`, `choc` |
+| init 0x68 | `InitCorrectKeyTimeVolume` | arg 1: 0x19 key curve name | `tmvo` |
+| update 0x43 | `IdleCorrectKeyTimeVolume` | applies the curve over the day fraction | San d'Oria `tmvo`: 0 until 06:00, 1 from 06:36 to 18:36, 0 from 19:12 |
+
+Path sections (0x4A): `"RAB\0"`, u32 7, ..., u32 point count at +0x30, then points of 0x20 bytes from +0x40, each `f32 x, y, z, w` (w is 10 in Bibiki Bay, 1 in San d'Oria; unknown). A path whose points all have height 0 takes the generator's height.
+
+Playback (`ZoneEmitterAudio`, App): each auto-run source starts when the listener is within `far` and its time volume is above 0, plays on the Zone bus with full volume inside `near` and linear falloff to `far`, follows the nearest point of its path to the listener, and stops with a 0.5 s fade 5 yalms past `far` or when its time volume reaches 0. Looped files loop; one-shot files replay when they end.
+
+Provisional: the nearest-point reading of path sounds, the replay of one-shot files (retail re-emits on the generator's own timing), the flat-path height, and the unknown third 0x4C float and path `w`. Not done: generators that routines spawn on demand (doors, scheduler effects: not auto-run), sounds of actor-attached effects.
+
 ## Phase 5H plan
 
-- [ ] Zone effect audio: ~5.9k Section 0x05 generators link a sound (`0x3D`) with near/far range (`0x4C`), time-of-day volume (`0x43`) and path-following emitters (`0x6B`, shoreline waves); they run on the existing zone particle runtime and need only the sound backend.
+- [x] Zone effect audio: the auto-run sound generators with range, path and time-of-day volume (#39, above).
 - [ ] Select a cross-platform audio backend (#37: recommendation above, decision pending).
 - [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).

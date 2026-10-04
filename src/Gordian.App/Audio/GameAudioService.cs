@@ -1,5 +1,6 @@
 // src/Gordian.App/Audio/GameAudioService.cs
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,6 +34,8 @@ namespace Gordian.App.Audio
         private readonly SoundLibrary? _library;
         private readonly ResourceManager? _resources;
         private readonly MusicDirector _music;
+        private readonly ZoneEmitterAudio _emitters;
+        private volatile IReadOnlyList<ZoneSoundEmitter>? _pendingEmitters;
         private object? _owner;
         private CharacterSession? _session;
         private ushort _zoneId;
@@ -64,6 +67,7 @@ namespace Gordian.App.Audio
             }
 
             _music = new MusicDirector(_engine.Mixer, id => _library?.OpenMusic(id));
+            _emitters = new ZoneEmitterAudio(_engine.Mixer, id => _library?.GetEffectAsync(id) ?? Task.FromResult<PcmClip?>(null));
             _created = true;
         }
 
@@ -125,6 +129,7 @@ namespace Gordian.App.Audio
                 Volatile.Write(ref _session, null);
                 _music.StopAll(1f);
                 StopAmbient(1f);
+                _emitters.StopAll(1f);
                 _zoneId = 0;
             }
         }
@@ -146,6 +151,7 @@ namespace Gordian.App.Audio
                 AttachSession(session);
                 _music.StopAll(1f);
                 StopAmbient(1f);
+                _emitters.StopAll(1f);
                 _zoneId = 0;
             }
 
@@ -163,6 +169,7 @@ namespace Gordian.App.Audio
                 _zoneId = zone;
                 LoadZoneSounds(zone);
                 StopAmbient(0.5f);
+                _emitters.SetEmitters(Array.Empty<ZoneSoundEmitter>());
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);
@@ -170,6 +177,12 @@ namespace Gordian.App.Audio
             _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
             UpdateFootsteps(world, session.LocalPlayer.ServerId);
+            if (Interlocked.Exchange(ref _pendingEmitters, null) is { } loaded)
+            {
+                _emitters.SetEmitters(loaded);
+            }
+
+            _emitters.Update(_listenerPosition, hour / 24f);
         }
 
         /// <summary>Near / far range of footsteps (provisional).</summary>
@@ -390,11 +403,14 @@ namespace Gordian.App.Audio
                         return;
                     }
 
-                    ZoneSoundTable table = ZoneSoundTable.Read(DatDirectoryTree.Build(dat));
+                    DatDirectoryNode tree = DatDirectoryTree.Build(dat);
+                    ZoneSoundTable table = ZoneSoundTable.Read(tree);
+                    List<ZoneSoundEmitter> emitters = ZoneSoundEmitterDecoder.Read(tree);
                     if (Volatile.Read(ref _zoneLoadToken) == token)
                     {
                         _zoneSounds = table;
-                        GordianLog.Info("AUDIO", $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.WalkSteps.Count} footsteps, {table.Doors.Count} doors.");
+                        _pendingEmitters = emitters;
+                        GordianLog.Info("AUDIO", $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.WalkSteps.Count} footsteps, {table.Doors.Count} doors, {emitters.Count} sound generators.");
                     }
                 }
                 catch (Exception ex)
