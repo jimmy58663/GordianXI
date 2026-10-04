@@ -450,7 +450,15 @@ namespace Gordian.App.Graphics
             chat.SetMultiWindow(multi != 0);
             var logFont = _logFont;
             _window1Top = null;
-            if (!TryGetLogFrame(library, StockUiSettingKey.Window1MaxLines, out var menu1, out int maxRows1)) return;
+            // Reactive sizing picks each window's line count (and so its frame) from the lines arriving; it shows the
+            // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
+            double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+            bool typing = chat.Input.IsOpen;
+            int lines1 = _logSizing[0].Update(now, chat.Log.AddedCount(1), Settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
+                Settings.GetValue(StockUiSettingKey.Window1MinLines), Settings.GetValue(StockUiSettingKey.Window1MaxLines),
+                StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
+                expanded: typing || Drag.Unlocked || chat.SelectedLogWindow == 1 || chat.Log.ScrollOffset(1) > 0);
+            if (!TryGetLogFrame(library, lines1, out var menu1, out int maxRows1)) return;
             var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out _);
             if (placement.Hidden) return;
             float s = placement.Scale;
@@ -503,7 +511,11 @@ namespace Gordian.App.Graphics
                 chat.SelectedLogWindow == 1, logFont);
             Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window1.X, window1.Y, width1 * s, height1 * s);
 
-            if (multi != 0 && TryGetLogFrame(library, StockUiSettingKey.Window2MaxLines, out var menu2, out int maxRows2))
+            int lines2 = multi == 0 ? 0 : _logSizing[1].Update(now, chat.Log.AddedCount(2), Settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
+                Settings.GetValue(StockUiSettingKey.Window2MinLines), Settings.GetValue(StockUiSettingKey.Window2MaxLines),
+                StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
+                expanded: Drag.Unlocked || chat.SelectedLogWindow == 2 || chat.Log.ScrollOffset(2) > 0);
+            if (multi != 0 && TryGetLogFrame(library, lines2, out var menu2, out int maxRows2))
             {
                 if (!horizontal) width2 = fullWidth;
                 width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
@@ -556,13 +568,16 @@ namespace Gordian.App.Graphics
         /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
         private bool _dialogWaiting;
 
+        /// <summary>Each log window's reactive sizing (Window 1, Window 2).</summary>
+        private readonly StockUiLogSizing[] _logSizing = { new(), new() };
+
         /// <summary>
-        /// The frame for a log window's "Maximum lines displayed" ("log1".."log8"; "logwindo" is the same frame as
-        /// "log8") and its row count.
+        /// The frame for a log window showing <paramref name="lines"/> lines ("log1".."log8"; "logwindo" is the same
+        /// frame as "log8") and its row count.
         /// </summary>
-        private bool TryGetLogFrame(UiResourceLibrary library, StockUiSettingKey maxLinesKey, out UiMenuDefinition menu, out int rows)
+        private static bool TryGetLogFrame(UiResourceLibrary library, int lines, out UiMenuDefinition menu, out int rows)
         {
-            rows = Math.Clamp(Settings.GetValue(maxLinesKey), 1, 8);
+            rows = Math.Clamp(lines, 1, 8);
             if (library.TryGetMenu($"log{rows}", out menu)) return true;
             rows = 8;
             return library.TryGetMenu("logwindo", out menu);

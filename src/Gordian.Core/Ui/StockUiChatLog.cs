@@ -189,6 +189,7 @@ namespace Gordian.Core.Ui
             {
                 var lines = _windows[window];
                 lines.Add(line);
+                _added[window]++;
                 if (lines.Count > Capacity) lines.RemoveRange(0, lines.Count - Capacity);
                 // A window scrolled back keeps showing the same lines while new ones arrive below.
                 if (_scroll[window] > 0) _scroll[window] = Math.Min(_scroll[window] + 1, lines.Count - 1);
@@ -205,6 +206,21 @@ namespace Gordian.Core.Ui
                     _windows[i].Clear();
                     _scroll[i] = 0;
                 }
+            }
+        }
+
+        private readonly long[] _added = new long[2];
+
+        /// <summary>
+        /// How many lines have arrived for a window (1 or 2) since the log was created, never decreasing (Window 1
+        /// counts both windows' lines without multi-window): the reactive sizing grows a window by the difference.
+        /// </summary>
+        public long AddedCount(int window)
+        {
+            lock (_sync)
+            {
+                int i = WindowIndex(window);
+                return !MultiWindow && i == 0 ? _added[0] + _added[1] : MultiWindow ? _added[i] : 0;
             }
         }
 
