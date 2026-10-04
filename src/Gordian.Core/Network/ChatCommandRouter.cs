@@ -80,6 +80,8 @@ namespace Gordian.Core.Network
         TrackTarget,
         /// <summary><c>/conquest</c> (<c>/cq</c>): requests the conquest overview (C2S 0x05A, answered by S2C 0x05E).</summary>
         ConquestRequest,
+        /// <summary><c>/jobmasterdisp on|off</c>: shows or hides the job mastery mark (C2S 0x11B); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
+        JobMasterDisplay,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -219,6 +221,7 @@ namespace Gordian.Core.Network
                     "track" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = args },
                     "conquest" or "cq" => new ChatCommandResult { Kind = ChatCommandResultKind.ConquestRequest },
                     "untrack" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = "off" },
+                    "jobmasterdisp" => ParseJobMasterDisplay(args),
 
                     // Treasure pool
                     "lot" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasureLot, Message = args },
@@ -273,6 +276,16 @@ namespace Gordian.Core.Network
                 return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = $"Usage: /{verb} [on|off]" };
             }
             return new ChatCommandResult { Kind = kind, Rest = mode };
+        }
+
+        /// <summary><c>/jobmasterdisp on|off</c>: the mode is required (the client does not know the current setting).</summary>
+        private static ChatCommandResult ParseJobMasterDisplay(string args)
+        {
+            if (!TryParseRestMode(args.Trim(), out var mode) || mode == RestMode.Toggle)
+            {
+                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /jobmasterdisp on|off" };
+            }
+            return new ChatCommandResult { Kind = ChatCommandResultKind.JobMasterDisplay, Rest = mode };
         }
 
         /// <summary><c>/sitchair [n] [on|off]</c>: chair 0 (the default) is the plain chair, 1 to 11 the unlockable ones.</summary>

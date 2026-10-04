@@ -278,6 +278,61 @@ namespace Gordian.Core.World
         }
         #endregion
 
+        #region Extended job data (S2C 0x044)
+        private ExtendedJobData? _mainJobData;
+        private ExtendedJobData? _subJobData;
+
+        /// <summary>
+        /// The S2C 0x044 data of the current main job (Blue Mage spells, the automaton) or of Monstrosity; null when none
+        /// arrived for that job.
+        /// </summary>
+        public ExtendedJobData? MainJobData
+        {
+            get
+            {
+                lock (_lock) return _mainJobData != null && (_mainJobData.IsMonstrosity || MainJob == JobId.None || _mainJobData.Job == MainJob) ? _mainJobData : null;
+            }
+        }
+
+        /// <summary>The S2C 0x044 data of the current support job; null when none arrived for that job.</summary>
+        public ExtendedJobData? SubJobData
+        {
+            get
+            {
+                lock (_lock) return _subJobData != null && (SubJob == JobId.None || _subJobData.Job == SubJob) ? _subJobData : null;
+            }
+        }
+
+        /// <summary>Raised after <see cref="MainJobData"/> or <see cref="SubJobData"/> changed, on the network thread.</summary>
+        public event Action? ExtendedJobUpdated;
+
+        /// <summary>
+        /// Stores an S2C 0x044. Like the retail client, a packet for a job the character is not on (main or support, by
+        /// <c>IsSubJob</c>) is ignored; Monstrosity data always goes to the main job. Returns false when ignored.
+        /// </summary>
+        public bool ApplyExtendedJob(in S2C_0x044_ExtendedJob packet)
+        {
+            if (!packet.IsValid) return false;
+            var data = new ExtendedJobData(packet);
+            lock (_lock)
+            {
+                if (data.IsMonstrosity)
+                {
+                    _mainJobData = data;
+                }
+                else
+                {
+                    JobId current = data.IsSubJob ? SubJob : MainJob;
+                    if (current != JobId.None && data.Job != current) return false;
+                    if (data.IsSubJob) _subJobData = data;
+                    else _mainJobData = data;
+                }
+            }
+            ExtendedJobUpdated?.Invoke();
+            return true;
+        }
+        #endregion
+
         #region Events
         public event Action? VitalsUpdated;
         public event Action? StatsUpdated;
