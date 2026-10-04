@@ -38,8 +38,9 @@ namespace Gordian.Core.Resources.Models
         /// <summary>Compact zone names by zone id (ROM/165/85.DAT: 230 = "SSandOria"), the text retail's party window shows in parentheses for a member in another zone (#146).</summary>
         ZoneNamesCompact,
         /// <summary>
-        /// Weather names by weather id (ROM/165/79.DAT, 20 entries: 0 "fine patches", 1 "sunshine", 6 "rain", 19
-        /// "darkness"), which the forecast lines' 0x01 kinds 0x17 / 0x18 name (#125).
+        /// Weather names by weather id (ROM/165/79.DAT, 20 entries of two strings, noun and adjective: 0 "fine patches" /
+        /// "fine", 1 "sunshine" / "sunny", 6 "rain" / "rainy", 19 "darkness" / "dark"). The forecast lines' 0x01 kind
+        /// 0x18 names the noun, 0x17 the adjective (#125).
         /// </summary>
         WeatherNames,
         Custom

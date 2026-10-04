@@ -94,7 +94,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Key items | `ROM/175/35` | 55714 |
 | Zone names / short zone names | `ROM/165/84` / `ROM/165/83` | 55465 / 55661 |
 | Compact zone names (`DMsgCategory.ZoneNamesCompact`) | `ROM/165/85` | 55466 |
-| Weather names by weather id (`DMsgCategory.WeatherNames`, 20 rows: 0 "fine patches", 1 "sunshine" ... 19 "darkness"; the dialog's 0x01 kinds `17` / `18`) | `ROM/165/79` | 55657 |
+| Weather names by weather id (`DMsgCategory.WeatherNames`, 20 rows of noun and adjective: 0 "fine patches" / "fine", 1 "sunshine" / "sunny" ... 19 "darkness" / "dark"; the dialog's 0x01 kind `18` names the noun, `17` the adjective) | `ROM/165/79` | 55657 |
 | Quests San d'Oria, Bastok, Windurst, Jeuno | `ROM/176/60`-`63` | 55706-55709 |
 | Missions San d'Oria, Bastok, Windurst, Zilart, CoP | `ROM/176/67`-`71` | 55715-55719 |
 | Missions ToAU | `ROM/176/73` | 55721 |

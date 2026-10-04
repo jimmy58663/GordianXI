@@ -8,7 +8,7 @@ namespace Gordian.Core.Events
     /// <summary>
     /// Resolves the names a dialog line's 0x01 tags ask for (<see cref="IEventMessageContext.ResolveName"/>) from the
     /// game's own tables: items (the item DATs' name, log name and plural log name), key items (name and plural), zone
-    /// names (d_msg ROM/165/84) and weather names (d_msg ROM/165/79). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
+    /// names (d_msg ROM/165/84) and weather nouns and adjectives (d_msg ROM/165/79). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
     /// onto these.
     /// </summary>
     public static class EventMessageNames
@@ -31,7 +31,9 @@ namespace Gordian.Core.Events
                 case EventMessageFormatter.ZoneKind:
                     return resources.TryGetString(DMsgCategory.ZoneNames, id, out var zone) ? zone : null;
                 case EventMessageFormatter.WeatherKind:
-                    return resources.TryGetString(DMsgCategory.WeatherNames, id, out var weather) ? weather : null;
+                    return resources.TryGetWeatherName(id, adjective: false, out var weather) ? weather : null;
+                case EventMessageFormatter.WeatherAdjectiveKind:
+                    return resources.TryGetWeatherName(id, adjective: true, out var weatherAdjective) ? weatherAdjective : null;
                 default:
                     return null;
             }

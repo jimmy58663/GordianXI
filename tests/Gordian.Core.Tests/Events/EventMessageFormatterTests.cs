@@ -123,10 +123,14 @@ namespace Gordian.Core.Tests.Events
         {
             // "will be " {01 05 17 p0} " with a chance of " {01 05 18 p1} (the weather reporters' forecast lines, #125).
             var raw = Ascii("will be ").Concat(Tag(0x17, 0)).Concat(Ascii(" with a chance of ")).Concat(Tag(0x18, 1)).ToArray();
-            string? Weather(byte kind, int id) => kind == EventMessageFormatter.WeatherKind
-                ? id switch { 6 => "rain", 10 => "winds", _ => null }
-                : null;
-            Assert.Equal("will be rain with a chance of winds", Assert.Single(EventMessageFormatter.FormatLines(
+            // Kind 0x17 is the adjective ("rainy"), 0x18 the noun ("winds"): Maleme's event 632 lines, checked in game.
+            string? Weather(byte kind, int id) => kind switch
+            {
+                EventMessageFormatter.WeatherKind => id switch { 6 => "rain", 10 => "winds", _ => null },
+                EventMessageFormatter.WeatherAdjectiveKind => id switch { 6 => "rainy", 10 => "windy", _ => null },
+                _ => null,
+            };
+            Assert.Equal("will be rainy with a chance of winds", Assert.Single(EventMessageFormatter.FormatLines(
                 EventMessageDecoder.Decode(raw), new SimpleMessageContext(new[] { 6, 10 }, resolveName: Weather))));
         }
 

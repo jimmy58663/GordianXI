@@ -256,15 +256,26 @@ namespace Gordian.Core.Tests.Events
         /// Southern San d'Oria's weather reporter Maleme (LandSandBoat: Maleme.lua, startEvent(632, 0, 0, 0, 0, 0, 0, 0,
         /// VanadielTime())): the player picks an area, the script divides the eighth parameter by 3456 for the day, then
         /// runs <c>72 00</c> / <c>72 01</c> for that day and the next two, and prints one of four lines a day by which of
-        /// zone work values 3 and 4 are 255 (no common / rare weather).
+        /// zone work values 3 and 4 are 255 (no common / rare weather). The weather after "will be" is an adjective
+        /// (0x01 kind 0x17: "sunny"), the others nouns (kind 0x18: "rain"), as the maintainer's retail check showed.
         /// </summary>
         [Theory]
-        [InlineData(3, 102, 0)]      // La Theine Plateau, days 0-2
-        [InlineData(3, 102, 2158)]   // across the end of the 2,160-day cycle
-        [InlineData(2, 100, 41)]     // West Ronfaure
-        [InlineData(11, 111, 700)]   // Beaucedine Glacier: snow, blizzards and gloom
-        public void Maleme_Event632_ReadsTheForecast(int option, int zoneId, int day)
+        [InlineData(3, 102, 0, // La Theine Plateau, days 0-2
+            "Today, that area's weather will be rainy with a chance of winds.",
+            "Tomorrow, the weather will be sunny with a chance of winds.",
+            "And, the day after tomorrow, the weather will be windy with a chance of sunshine.")]
+        [InlineData(3, 102, 2158, null, null, null)]   // across the end of the 2,160-day cycle
+        [InlineData(2, 100, 41, // West Ronfaure
+            "Today, that area's weather will be cloudy with a chance of sunshine.",
+            "The weather tomorrow will be cloudy.",
+            "And, the day after tomorrow, the weather will be cloudy with a chance of sunshine.")]
+        [InlineData(11, 111, 700, // Beaucedine Glacier: snow, blizzards and gloom
+            "That area's forecast for today is for snow with occasional gloom. There is also a slight chance of blizzards, so caution is advised.",
+            "Tomorrow, the weather will be snowy. There is also the possibility of blizzards, so caution is advised.",
+            "And, the forecast for the day after tomorrow is for gloom with occasional clouds. There is also a slight chance of blizzards, so caution is advised.")]
+        public void Maleme_Event632_ReadsTheForecast(int option, int zoneId, int day, string? line0, string? line1, string? line2)
         {
+            string?[] lines = { line0, line1, line2 };
             var rm = Open();
             if (rm == null) return;
             var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(230))!)!;
@@ -304,7 +315,9 @@ namespace Gordian.Core.Tests.Events
                     (kind, value) => EventMessageNames.Resolve(rm, kind, value));
                 string line = string.Join(" ", EventMessageFormatter.FormatLines(dialog.GetMessage(message)!, context));
                 _output.WriteLine($"{message}: {line}");
-                Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.WeatherNames, last.Normal, out string normalName));
+                if (lines[k] != null) Assert.Equal(lines[k], line);
+                // The all-three line (6563 + k) names the normal weather as a noun, the others as an adjective.
+                Assert.True(rm.TryGetWeatherName(last.Normal, adjective: message - k != 6563, out string normalName));
                 Assert.Contains(normalName, line);
                 Assert.DoesNotContain("<17", line);
                 Assert.DoesNotContain("<18", line);
