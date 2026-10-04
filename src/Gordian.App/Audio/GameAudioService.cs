@@ -41,6 +41,7 @@ namespace Gordian.App.Audio
         private int _ambientSound;
         private int _ambientHandle;
         private int _ambientToken;
+        private uint _cueTarget;
         private int _appliedMusicVolume = -1;
         private int _appliedEffectsVolume = -1;
 
@@ -116,6 +117,7 @@ namespace Gordian.App.Audio
         {
             if (Interlocked.CompareExchange(ref _owner, null, owner) == owner)
             {
+                DetachSession(_session);
                 Volatile.Write(ref _session, null);
                 _music.StopAll(1f);
                 StopAmbient(1f);
@@ -135,7 +137,9 @@ namespace Gordian.App.Audio
 
             if (!ReferenceEquals(session, _session))
             {
+                DetachSession(_session);
                 Volatile.Write(ref _session, session);
+                AttachSession(session);
                 _music.StopAll(1f);
                 StopAmbient(1f);
                 _zoneId = 0;
@@ -201,6 +205,58 @@ namespace Gordian.App.Audio
 
             PcmClip? clip = await _library.GetEffectAsync(soundId).ConfigureAwait(false);
             return clip is null ? 0 : _engine.Mixer.Play(clip.Open(loop), category, volume, emitter, fadeInSeconds);
+        }
+
+        /// <summary>Plays a stock UI system sound (centred, System bus).</summary>
+        public void PlayCue(StockUiSoundCue cue) => PlayEffect((int)cue, AudioCategory.System);
+
+        private void AttachSession(CharacterSession? session)
+        {
+            if (session is null)
+            {
+                return;
+            }
+
+            _cueTarget = session.ActionService.CurrentTarget?.ServerId ?? 0;
+            session.ActionService.Menus.SoundCue += PlayCue;
+            session.ActionService.TargetChanged += OnTargetChanged;
+            session.ChatModule.ChatMessageReceived += OnChatMessage;
+        }
+
+        private void DetachSession(CharacterSession? session)
+        {
+            if (session is null)
+            {
+                return;
+            }
+
+            session.ActionService.Menus.SoundCue -= PlayCue;
+            session.ActionService.TargetChanged -= OnTargetChanged;
+            session.ChatModule.ChatMessageReceived -= OnChatMessage;
+        }
+
+        /// <summary>A new target plays "Target Selection"; changing from one target to another plays "Target Switch".</summary>
+        private void OnTargetChanged(WorldEntity? target)
+        {
+            uint previous = _cueTarget;
+            _cueTarget = target?.ServerId ?? 0;
+            if (target is null || target.ServerId == previous)
+            {
+                return;
+            }
+
+            PlayCue(previous == 0 ? StockUiSoundCue.TargetSelect : StockUiSoundCue.TargetSwitch);
+        }
+
+        /// <summary>An incoming tell plays "Message Arrival".</summary>
+        private void OnChatMessage(Gordian.Core.Network.Packets.ChatMessage message)
+        {
+            CharacterSession? session = Session;
+            if (message.Type == Gordian.Core.Network.Packets.ChatMessageType.Tell && session is not null
+                && !string.Equals(message.Sender, session.CharacterName, StringComparison.OrdinalIgnoreCase))
+            {
+                PlayCue(StockUiSoundCue.MessageArrival);
+            }
         }
 
         /// <summary>

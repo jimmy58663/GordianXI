@@ -101,6 +101,23 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x master. No GordianXI-only master or per-bus sliders exist yet; they would be an opt-in enhancement.
 
+## UI sound cues (#43)
+
+System sounds live in `se000` (ids and names from the Windower pol-utils list bundled in xi-tools `src/xi/audio/data/SFXInfo.xml`, Apache-2.0). `StockUiSoundCue` values are those ids; Core raises them as neutral cues and `GameAudioService.PlayCue` plays them centred on the System bus.
+
+| Cue | Id | Raised by |
+|---|---|---|
+| Menu Movement | 1 | `StockUiMenuController.ProcessInput`: a direction that changed the selection, slider or count |
+| Menu Selection | 2 | Confirm in a menu |
+| Main Menu Page Switch | 13 | the menu key on an open paged menu |
+| Main Menu Open | 14 | the menu key opening the main menu |
+| Close Menu | 15 | Cancel in a menu |
+| Target Selection | 9 | `PlayerActionService.TargetChanged` from no target |
+| Target Switch | 10 | `TargetChanged` from one target to another |
+| Message Arrival | 39 | an incoming tell (`ChatMessageType.Tell` not from the player) |
+
+Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), level-up (7) and quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
+
 ## Phase 5H plan
 
 - [ ] Zone effect audio: ~5.9k Section 0x05 generators link a sound (`0x3D`) with near/far range (`0x4C`), time-of-day volume (`0x43`) and path-following emitters (`0x6B`, shoreline waves); they run on the existing zone particle runtime and need only the sound backend.
@@ -109,5 +126,5 @@ The retail config page has two sliders, music and sound effects (`StockUiSetting
 - [ ] Footstep & movement SFX tied to `PlayerLocomotionController`/animation state; the surface under each foot comes from the decoded collision terrain type (`CollisionTriangle.Terrain`: object, path, grass, sand, snow, stone, metal, wood, shallow/deep water), and sand/snow leave footprints. (FFXI has no swimming: water edges are ordinary collision barriers.)
 - [ ] Combat/action SFX tied to `CombatPacketModule` action/effect events (`0x028`/`0x030`/`0x0AA`).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
-- [ ] UI/menu sound cues (target, cursor move, confirm, cancel).
+- [x] UI/menu sound cues (#43, above).
 - [x] Master/category volume mixing from the config sliders (#44, above).
