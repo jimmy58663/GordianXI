@@ -28,14 +28,7 @@ public partial class App : Application
         Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;
-            if (rm == null) return null;
-            return kind switch
-            {
-                Gordian.Core.Events.EventMessageFormatter.ItemKind => rm.TryGetItem((uint)id, out var item) ? item?.Name : null,
-                Gordian.Core.Events.EventMessageFormatter.KeyItemKind => rm.TryGetKeyItemName((uint)id, out var keyItem) ? keyItem : null,
-                Gordian.Core.Events.EventMessageFormatter.ZoneKind => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNames, id, out var zone) ? zone : null,
-                _ => null,
-            };
+            return rm == null ? null : Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, id);
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

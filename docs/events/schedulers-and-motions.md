@@ -139,7 +139,7 @@ The scene DAT layout (`evte`, Route sections 0x06, routine sections 0x07, genera
 
 ## Clip and routine names
 
-Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its three-letter stem and a wildcard (`tl1?`); a clip's last digit is its body-region part on fixed NPC models, emotes and packages: 0 legs, 1 upper body with the weapon joints, 2 waist. `EventMotionBank` and `EntityModelLoader.JoinBodyRegionParts` join the parts under the stem ([world/entities-and-animation.md](../world/entities-and-animation.md)).
+Routines (Section 0x07) play clips (Section 0x2B). A routine names a clip by its three-letter stem and a wildcard (`tl1?`); a clip's last digit is its body-region part on fixed NPC models, emotes and packages: 0 legs, 1 upper body with the weapon joints, 2 waist. `EventMotionBank` and `EntityModelLoader.JoinBodyRegionParts` join the parts under the stem when they drive disjoint joints; on a model whose same-stem clips overlap (variants, not body regions) the stem is part 0 (#75; [world/entities-and-animation.md](../world/entities-and-animation.md)).
 
 | name / id | what it is | where it lives | used by | GordianXI | source |
 |---|---|---|---|---|---|

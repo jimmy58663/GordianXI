@@ -189,5 +189,18 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(customMob, 1));
             Assert.Equal(0, NpcStanceResolver.ResolveEffectiveStance(customMob, 99)); // Unknown sub defaults to 0
         }
+
+        /// <summary>
+        /// #75: a death stored in body-region parts is joined under its stem (ded), which plays before part 0 alone.
+        /// </summary>
+        [Fact]
+        public void ResolveTargetClip_Death_PrefersTheJoinedStem()
+        {
+            var mob = CreateModelWithClips("idl", "idl0", "ded", "ded0", "de1", "de10");
+            Assert.Equal("ded", NpcStanceResolver.ResolveTargetClip(mob, AnimationCategory.Death, 0)!.Name);
+            Assert.Equal("de1", NpcStanceResolver.ResolveTargetClip(mob, AnimationCategory.Death, 1)!.Name);
+            var single = CreateModelWithClips("idl0", "ded0");
+            Assert.Equal("ded0", NpcStanceResolver.ResolveTargetClip(single, AnimationCategory.Death, 0)!.Name);
+        }
     }
 }

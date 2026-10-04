@@ -52,8 +52,6 @@ namespace Gordian.Core.Resources.Tables
     /// </summary>
     public static class CharacterEquipmentResolver
     {
-        public const int EntityModelOffset = 98239;
-
         private readonly record struct GearGroup(int BaseFileId, int Count);
 
         // Retail FFXI gear tables mapping (Race, Slot) -> list of [base_file_id, count] groups.
@@ -363,20 +361,6 @@ namespace Gordian.Core.Resources.Tables
                 file %= 128;
             }
             return Path.Combine("ROM", folder.ToString(), $"{file}.DAT");
-        }
-
-        /// <summary>
-        /// Resolves the battle-stance motion-pack legacy file number (folder * 1000 + file) for a race and weapon-type index.
-        /// </summary>
-        public static int GetBattlePackFileId(CharacterRace race, int weaponTypeIndex = 0)
-        {
-            int raceIdx = GetRetailRaceIndex(race);
-            if (raceIdx < 0 || raceIdx >= BattleByTypeLocations.Length) return 0;
-
-            var table = BattleByTypeLocations[raceIdx];
-            int clampedIndex = Math.Clamp(weaponTypeIndex, 0, table.Length - 1);
-            var loc = table[clampedIndex];
-            return (loc.Folder * 1000) + loc.File;
         }
 
         /// <summary>
