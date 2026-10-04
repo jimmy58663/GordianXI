@@ -465,7 +465,9 @@ namespace Gordian.Core.Resources
                     if (collision != null)
                     {
                         var placements = ZoneDefDecoder.ParseZonePlacements(payload, nodeCount);
-                        collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision);
+                        // Lift records live in their own 0x36 tables; the door blockers keep to the first table.
+                        collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision,
+                                                                                         ZoneInteractionDecoder.DecodeAllFromDat(datBytes));
                         collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeFromDat(datBytes));
                     }
                     break;

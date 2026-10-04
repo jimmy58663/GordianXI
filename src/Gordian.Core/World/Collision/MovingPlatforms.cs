@@ -2,22 +2,34 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.World.Collision
 {
     /// <summary>
     /// A moving platform (an elevator) of the zone: the ZoneDef placements whose BlockID FourCC starts with <c>@</c>.
-    /// The platform floor is authored at one landing; it travels vertically between <see cref="UpperHeight"/> and
-    /// <see cref="LowerHeight"/> (internal space, -Y up) over its XZ footprint.
+    /// It travels vertically between <see cref="UpperHeight"/> and <see cref="LowerHeight"/> (internal space, -Y up) over
+    /// its XZ footprint; its parts are moved so their placement origin sits at the current height (the stops of the
+    /// zone's Section 0x36 record are absolute heights, which Davoi's car, authored between its stops, confirms against
+    /// the landings beside its shaft).
     /// BlockID semantics referenced from xi-tools (docs/zone/format.md, https://github.com/vekien/xi-tools).
     /// </summary>
     /// <param name="Id">The BlockID FourCC, which the server's elevator entity names as its door id (e.g. <c>@6l0</c>).</param>
     /// <param name="Min">Footprint minimum (internal X, Z).</param>
     /// <param name="Max">Footprint maximum (internal X, Z).</param>
     /// <param name="AuthoredHeight">The floor height the platform's parts are authored at.</param>
-    public sealed record MovingPlatform(string Id, Vector2 Min, Vector2 Max, float AuthoredHeight, float UpperHeight, float LowerHeight)
+    /// <param name="FromRecord">Whether the travel came from the zone's Section 0x36 <c>@</c> record (otherwise the
+    /// landing heuristic).</param>
+    public sealed record MovingPlatform(string Id, Vector2 Min, Vector2 Max, float AuthoredHeight, float UpperHeight, float LowerHeight,
+                                        bool FromRecord = false)
     {
         public bool Contains(float x, float z) => x >= Min.X && x <= Max.X && z >= Min.Y && z <= Max.Y;
+
+        /// <summary>
+        /// Where the platform rests while no elevator entity moves it: the stop nearest its authored floor. Most cars are
+        /// authored at a stop; Davoi's is authored a yalm below its upper stop (-8.19 against the record's -9.17).
+        /// </summary>
+        public float RestHeight => MathF.Abs(AuthoredHeight - UpperHeight) <= MathF.Abs(AuthoredHeight - LowerHeight) ? UpperHeight : LowerHeight;
     }
 
     /// <summary>
@@ -61,13 +73,30 @@ namespace Gordian.Core.World.Collision
         public const float LandingSearchMargin = 1.5f;
 
         /// <summary>
-        /// Builds a platform from its parts' footprint and authored floor, finding the other end of its travel as the
-        /// landing: the floor level with the most walkable area beside the footprint (not the pit under it), at least
-        /// <see cref="MinimumTravel"/> from the authored floor (stair treads beside a shaft are small; landings are not).
-        /// The client's own source for the travel distance is not decoded (its move routines carry only the duration);
-        /// this matches the Metalworks lifts to within 0.04 yalms. Null when there is no other landing.
+        /// Builds a platform from its parts' footprint and authored floor. Its travel comes from the zone's Section 0x36
+        /// <c>@</c> record of the same id when there is one (<see cref="ZoneInteraction.TryGetLiftFloors"/>, the two
+        /// stops the legacy client's lift actor uses; Metalworks' match a Windower capture exactly). A car without a
+        /// usable record falls back to <see cref="CreateFromLanding"/>. Null when neither gives a travel.
         /// </summary>
-        public static MovingPlatform? Create(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision)
+        public static MovingPlatform? Create(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision,
+                                             ZoneInteraction? record = null)
+        {
+            if (record is { } lift && lift.TryGetLiftFloors(out float floor0, out float floor1)
+                && MathF.Abs(floor0 - floor1) >= LevelTolerance)
+            {
+                return new MovingPlatform(id, min, max, authoredHeight, MathF.Min(floor0, floor1), MathF.Max(floor0, floor1), FromRecord: true);
+            }
+            return CreateFromLanding(id, min, max, authoredHeight, collision);
+        }
+
+        /// <summary>
+        /// The fallback for a car with no Section 0x36 record: finds the other end of its travel as the landing, the floor
+        /// level with the most walkable area beside the footprint (not the pit under it), at least
+        /// <see cref="MinimumTravel"/> from the authored floor (stair treads beside a shaft are small; landings are not).
+        /// This matched the Metalworks lifts to within 0.04 yalms (2.0 / -10.0 against the records' 1.9625 / -9.983).
+        /// Null when there is no other landing.
+        /// </summary>
+        public static MovingPlatform? CreateFromLanding(string id, Vector2 min, Vector2 max, float authoredHeight, ZoneCollisionMesh collision)
         {
             var areaByLevel = new Dictionary<int, (float Height, float Area)>();
             foreach (var (height, area, centroid) in collision.FloorsNear(min - new Vector2(LandingSearchMargin), max + new Vector2(LandingSearchMargin)))
@@ -91,13 +120,13 @@ namespace Gordian.Core.World.Collision
 
         /// <summary>
         /// The floor height of <paramref name="platform"/> at <paramref name="earthSecondsSinceEpoch"/> as its elevator
-        /// entity describes it, or its authored height when the entity has no leg.
+        /// entity describes it, or its <see cref="MovingPlatform.RestHeight"/> when there is no entity or it has no leg.
         /// </summary>
         public static float HeightAt(MovingPlatform platform, WorldEntity? elevator, double earthSecondsSinceEpoch, double clockSkewSeconds = 0.0)
         {
-            if (elevator == null) return platform.AuthoredHeight;
+            if (elevator == null) return platform.RestHeight;
             bool up = elevator.AnimationState == AnimationUp;
-            if (!up && elevator.AnimationState != AnimationDown) return platform.AuthoredHeight;
+            if (!up && elevator.AnimationState != AnimationDown) return platform.RestHeight;
 
             // The platform moves at the retail lift speed; the server's leg time (doors and wait included) caps it.
             float legSeconds = elevator.TransportTravelSeconds > 0 ? elevator.TransportTravelSeconds : DefaultTravelSeconds;
