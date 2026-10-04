@@ -111,7 +111,7 @@ namespace Gordian.Core.Ui
         /// <summary>
         /// GordianXI-only (#137): lock on automatically when the character engages. Not a row of retail's config pages
         /// (none of the ten decoded pages has one; "Auto-target during battle" is the server's re-target-after-a-kill
-        /// flag), so it is set with <c>/lockon auto [on|off]</c>. Default off, as engaging does not lock on unless asked.
+        /// flag), so it is set with <c>/lockon auto [on|off]</c>. Default on.
         /// </summary>
         AutoLockOnEngage,
     }
@@ -218,7 +218,7 @@ namespace Gordian.Core.Ui
             Add(StockUiSettingKey.AutoDisconnectMinutes, 0, 0, 60, StockUiSettingScope.Client, 10);
             Add(StockUiSettingKey.ClientChatFilters, 0, 0, int.MaxValue);
             Add(StockUiSettingKey.SystemMessageFilterLevel, 0, 0, 3, StockUiSettingScope.Server);
-            Toggle(StockUiSettingKey.AutoLockOnEngage, false);
+            Toggle(StockUiSettingKey.AutoLockOnEngage, true);
             return d;
         }
 

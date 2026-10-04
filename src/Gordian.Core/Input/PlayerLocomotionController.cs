@@ -370,6 +370,10 @@ namespace Gordian.Core.Input
             // 4. Update Locomotion (movement, strafing, turning)
             UpdateLocomotion(elapsed);
 
+            // 4b. Lock-on works with a stock menu open too (the command menu stays up while engaged in retail, 2026-10-03
+            //     recording); before #137 it sat behind the menu gate below, so T / NumPad * did nothing while it was open.
+            UpdateLockOnToggle();
+
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
         }
@@ -550,33 +554,6 @@ namespace Gordian.Core.Input
 
                 cameraChanged = true;
             }
-            else if (_camera.Mode == CameraMode.ThirdPersonOrbital)
-            {
-                // Smooth camera tracking to keep locked-on target in view
-                WorldEntity? lockTgt = GetLockOnTarget();
-
-                if (lockTgt != null && lockTgt.IsSpawned)
-                {
-                    uint localId = GetOrResolveLocalServerId();
-                    if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
-                    {
-                        float toTgtX = lockTgt.Position.X - localEnt.Position.X;
-                        float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                        if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.001f)
-                        {
-                            float targetHeadingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                            float yawDiff = targetHeadingDeg - CameraYaw;
-                            while (yawDiff > 180.0f) yawDiff -= 360.0f;
-                            while (yawDiff < -180.0f) yawDiff += 360.0f;
-                            if (MathF.Abs(yawDiff) > 0.1f)
-                            {
-                                CameraYaw = NormalizeDegrees(CameraYaw + (yawDiff * MathF.Min(1.0f, dt * 5.0f)));
-                                cameraChanged = true;
-                            }
-                        }
-                    }
-                }
-            }
 
             // Update underlying ViewportCamera matrices and frustum
             var targetPos = Vector3.Zero;
@@ -670,94 +647,6 @@ namespace Gordian.Core.Input
             Vector2 leftStick = pad.IsConnected
                 ? GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone)
                 : Vector2.Zero;
-
-            // Lock-On Locomotion:
-            // When locked onto a target, the character continuously faces the target directly.
-            // Locomotion moves the character forward/backward or strafes left/right relative to the target line,
-            // assigning LocomotionDirection accordingly without rotating character away from target.
-            WorldEntity? lockTgt = GetLockOnTarget();
-
-            if (lockTgt != null && lockTgt.IsSpawned)
-            {
-                float toTgtX = lockTgt.Position.X - localEnt.Position.X;
-                float toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
-                if (distSq > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
-
-                float lockFwd = 0f;
-                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.MoveBackward)) lockFwd -= 1.0f;
-
-                float lockStrafe = 0f;
-                if (_inputState.IsActionHeld(InputAction.StrafeRight) || _inputState.IsActionHeld(InputAction.TurnRight)) lockStrafe += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.StrafeLeft) || _inputState.IsActionHeld(InputAction.TurnLeft)) lockStrafe -= 1.0f;
-
-                if (leftStick != Vector2.Zero)
-                {
-                    lockFwd += leftStick.Y;
-                    lockStrafe += leftStick.X;
-                }
-
-                float inputLen = MathF.Sqrt(lockFwd * lockFwd + lockStrafe * lockStrafe);
-                if (inputLen > 0.001f)
-                {
-                    if (inputLen > 1.0f)
-                    {
-                        lockFwd /= inputLen;
-                        lockStrafe /= inputLen;
-                    }
-
-                    float inputAngle = MathF.Atan2(lockStrafe, lockFwd);
-                    if (MathF.Abs(inputAngle) <= (MathF.PI / 4.0f))
-                    {
-                        localEnt.LocomotionDirection = LocomotionDirection.Forward;
-                    }
-                    else if (MathF.Abs(inputAngle) >= (3.0f * MathF.PI / 4.0f))
-                    {
-                        localEnt.LocomotionDirection = LocomotionDirection.Backward;
-                    }
-                    else if (inputAngle > 0f)
-                    {
-                        localEnt.LocomotionDirection = LocomotionDirection.Right;
-                    }
-                    else
-                    {
-                        localEnt.LocomotionDirection = LocomotionDirection.Left;
-                    }
-
-                    byte effectiveRun = GetEffectiveRunSpeed(localEnt);
-                    byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
-                    byte moveSpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
-                    if (leftStick != Vector2.Zero && leftStick.Length() < padSettings.WalkTiltThreshold)
-                    {
-                        moveSpeed = effectiveWalk;
-                    }
-
-                    localEnt.Speed = moveSpeed;
-                    float speedYalmsPerSec = moveSpeed * 0.1f;
-                    float distance = speedYalmsPerSec * dt;
-
-                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    var right = WorldEntity.RightOf(localEnt.HeadingRadians);
-                    float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
-                    float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
-
-                    MoveHorizontally(localEnt, dx, dz);
-
-                    // Re-align facing to target after displacement
-                    toTgtX = lockTgt.Position.X - localEnt.Position.X;
-                    toTgtZ = lockTgt.Position.Z - localEnt.Position.Z;
-                    if ((toTgtX * toTgtX) + (toTgtZ * toTgtZ) > 0.0001f) FaceTarget(localEnt, toTgtX, toTgtZ, dt);
-                }
-                else
-                {
-                    localEnt.Speed = 0;
-                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
-                }
-
-                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
-                return;
-            }
 
             // Camera-Relative 3D Locomotion (Standard FFXI Type A)
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
@@ -1081,18 +970,6 @@ namespace Gordian.Core.Input
             }
         }
 
-        /// <summary>
-        /// Turns the locked-on character toward the target at <see cref="FacingTurnSpeedDegreesPerSec"/>, so locking on
-        /// (including the automatic lock when engaging) never snaps the heading in one frame (#137). PROVISIONAL: whether
-        /// retail's lock-on turns gradually or at once is unconfirmed.
-        /// </summary>
-        private void FaceTarget(WorldEntity localEnt, float toTgtX, float toTgtZ, float dt)
-        {
-            float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
-            TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
-            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
-        }
-
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
         {
             float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
@@ -1142,15 +1019,27 @@ namespace Gordian.Core.Input
             if (pick != 0) _actionService.SetTargetByServerId(pick);
         }
 
+        private bool _lockKeyLogged;
+
+        private void UpdateLockOnToggle()
+        {
+            if (_actionService == null) return;
+            bool keyHeld = _inputState.IsKeyHeld(GordianKey.T) || _inputState.IsKeyHeld(GordianKey.NumPadMultiply);
+            if (keyHeld && !_lockKeyLogged)
+            {
+                // Diagnosis of a key that does nothing: it reached InputState; is it bound, and did the action fire?
+                _lockKeyLogged = true;
+                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
+            }
+            else if (!keyHeld) _lockKeyLogged = false;
+            if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
+            _actionService.ToggleLockOn();
+            Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+        }
+
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
-
-            // Toggle Lock-On
-            if (_inputState.WasActionTriggered(InputAction.ToggleLockOn))
-            {
-                _actionService.ToggleLockOn();
-            }
 
             UpdateTargetCycling();
 
@@ -1196,23 +1085,6 @@ namespace Gordian.Core.Input
             deg %= 360.0f;
             if (deg < 0) deg += 360.0f;
             return deg;
-        }
-
-        /// <summary>
-        /// The one place that decides whether the character and camera are tied to the target (#137). PROVISIONAL: only
-        /// an explicit player lock-on (<see cref="PlayerActionService.IsLockedOn"/>) does; being engaged on its own
-        /// leaves movement and heading free, because the legacy client does not turn you on engage. Not yet confirmed
-        /// against a retail capture (docs/input/console-and-input.md, "Engage versus lock-on").
-        /// </summary>
-        private WorldEntity? GetLockOnTarget()
-        {
-            if (_actionService == null || !_actionService.IsLockedOn) return null;
-            var target = _actionService.CurrentTarget;
-            if (target == null && _actionService.Combat != null && _actionService.Combat.TargetServerId != 0)
-            {
-                _world.TryGetByServerId(_actionService.Combat.TargetServerId, out target);
-            }
-            return target;
         }
     }
 }

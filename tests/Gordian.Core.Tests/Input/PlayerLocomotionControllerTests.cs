@@ -418,104 +418,71 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
         }
 
-        [Fact]
-        public void Update_WhenLockedOn_FacesTargetDirectly()
-        {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(0f, 0f, 10f), // North (+Z)
-                IsSpawned = true
-            };
-            world.UpsertEntity(target);
-
-            localEnt.Direction = 0; // East
-            actionService.SetTarget(target);
-            actionService.SetLockOn(true);
-
-            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
-
-            // Heading towards (0, 0, 10) from (0, 0, 0) is North (wire Direction = 192)
-            Assert.Equal(192, localEnt.Direction);
-            Assert.InRange(localEnt.RenderHeadingRadians, 3.0f * MathF.PI / 2.0f - 0.05f, 3.0f * MathF.PI / 2.0f + 0.05f);
-        }
-
-        [Fact]
-        public void Update_WhenEngagedButNotLockedOn_DoesNotTurnTowardTarget()
+        // Retail recording 2026-10-03 (docs/input/console-and-input.md): lock-on neither turns the character nor
+        // moves the camera; the character runs in its input direction and the camera stays where the player put it.
+        private (PlayerLocomotionController c, InputState i, WorldState w, WorldEntity me, PlayerActionService a, WorldEntity mob) EngagedHarness(bool lockOn)
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
             localEnt.Direction = 0;
             actionService.SetTarget(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
+            if (lockOn) actionService.SetLockOn(true);
+            return (controller, input, world, localEnt, actionService, target);
+        }
 
-            Assert.True(actionService.Combat.IsEngaged);
-            Assert.False(actionService.IsLockedOn);
-            Assert.False(actionService.Combat.IsLockedOn);
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Update_WhenEngagedWithOrWithoutLockOn_DoesNotTurnTowardTarget(bool lockOn)
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn);
+            for (int i = 0; i < 10; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(0, me.Direction);
+        }
 
+        [Fact]
+        public void Update_WhenEngagedAndLockedOnAndMoving_RunsInInputDirectionWithCameraUntouched()
+        {
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
             controller.Update(TimeSpan.FromMilliseconds(16));
-
-            Assert.Equal(0, localEnt.Direction);
-        }
-
-        [Fact]
-        public void Update_WhenEngagedAndMoving_HeadingFollowsInputNotTarget()
-        {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
-            world.UpsertEntity(target);
-            actionService.SetTarget(target);
-            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
-            localEnt.Direction = 0;
+            float yaw = controller.CameraYaw;
 
             input.SetKeyDown(GordianKey.W);
-            controller.Update(TimeSpan.FromSeconds(1.0));
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(33));
 
-            Assert.Equal(LocomotionDirection.Forward, localEnt.LocomotionDirection);
-            Assert.True(localEnt.Position.Z < 1f, "Free movement runs along the camera-relative heading, not toward the target at +Z");
+            Assert.True(actionService.IsLockedOn);
+            Assert.Equal(LocomotionDirection.Forward, me.LocomotionDirection);
+            Assert.True(me.Position.Z < 1f, "Runs along the camera-relative heading, not toward the target at +Z");
+            Assert.Equal(yaw, controller.CameraYaw, 3);
         }
 
         [Fact]
-        public void Update_WhenEngagedThenLockedOn_FacesTarget()
+        public void Update_WhenLockedOn_DisengagingKeepsPlayersLockChoice()
         {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
-            world.UpsertEntity(target);
-            localEnt.Direction = 0;
-            actionService.SetTarget(target);
-            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
-            actionService.SetLockOn(true);
-
-            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
-
-            Assert.Equal(192, localEnt.Direction);
-
-            actionService.Combat.Disengage();
-            Assert.True(actionService.IsLockedOn, "Disengaging does not change the player's lock-on choice");
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: true);
+            actionService.Combat!.Disengage();
+            Assert.True(actionService.IsLockedOn);
         }
 
         [Theory]
         [InlineData(GordianKey.T)]
         [InlineData(GordianKey.NumPadMultiply)]
-        public void Update_WhileEngaged_LockOnKeyTogglesLockAndFacing(GordianKey key)
+        public void Update_LockOnKeyTogglesLock_EvenWithAStockMenuOpen(GordianKey key)
         {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
-            world.UpsertEntity(target);
-            localEnt.Direction = 0;
-            actionService.SetTarget(target);
-            actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
-
+            var (controller, input, world, me, actionService, mob) = EngagedHarness(lockOn: false);
+            actionService.Menus.Library = Gordian.Core.Tests.Ui.StockUiMenuControllerTests.SyntheticLibrary();
+            Assert.True(actionService.Menus.OpenMainMenu());
+            Assert.True(actionService.Menus.IsOpen);
             controller.Update(TimeSpan.FromMilliseconds(16));
+
             input.SetKeyDown(key);
             controller.Update(TimeSpan.FromMilliseconds(16));
             input.SetKeyUp(key);
-            for (int i = 0; i < 40; i++) controller.Update(TimeSpan.FromMilliseconds(16));
-
+            controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.True(actionService.IsLockedOn);
-            Assert.Equal(192, localEnt.Direction);
 
             input.SetKeyDown(key);
             controller.Update(TimeSpan.FromMilliseconds(16));
@@ -525,23 +492,19 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
-        public void Update_WhenAutoLockOnEngageIsOn_EngagingLocksOnButTurnsGradually()
+        public void Engage_WithAutoLockOnEngageDefault_LocksOnWithoutTurning()
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
             localEnt.Direction = 0;
             actionService.SetTarget(target);
-            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
+            Assert.True(actionService.UiSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage));
 
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.True(actionService.IsLockedOn);
-
-            controller.Update(TimeSpan.FromMilliseconds(16));
-            Assert.InRange(localEnt.Direction, 193, 255); // a step toward North (192) the short way round, not all of it at once
-
-            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(16));
-            Assert.Equal(192, localEnt.Direction);
+            for (int i = 0; i < 10; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(0, localEnt.Direction);
         }
 
         [Fact]
@@ -551,6 +514,7 @@ namespace Gordian.Core.Tests.Input
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
             actionService.SetTarget(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.False(actionService.IsLockedOn);
         }
@@ -561,6 +525,7 @@ namespace Gordian.Core.Tests.Input
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
+            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.Null(actionService.CurrentTarget);
 
@@ -578,63 +543,6 @@ namespace Gordian.Core.Tests.Input
             var loaded = InputProfile.FromJson(p.SaveToJson());
             Assert.True(loaded.TryGetAction(new InputChord(GordianKey.T), out var a) && a == InputAction.ToggleLockOn);
             Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadMultiply), out var b) && b == InputAction.ToggleLockOn);
-        }
-
-        [Fact]
-        public void Update_WhenLockedOn_StrafingMovesPerpendicularToTargetWithoutChangingFacing()
-        {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(100f, 0f, 0f), // East (+X)
-                IsSpawned = true
-            };
-            world.UpsertEntity(target);
-
-            localEnt.Direction = 0; // East
-            actionService.SetTarget(target);
-            actionService.SetLockOn(true);
-
-            // Strafe Right (E)
-            input.SetKeyDown(GordianKey.E);
-            controller.Update(TimeSpan.FromSeconds(1.0));
-
-            // Facing +X, strafing right moves towards -Z: the same on-screen right as camera-relative D with the camera facing +X
-            Assert.Equal(50, localEnt.Speed);
-            Assert.Equal(LocomotionDirection.Right, localEnt.LocomotionDirection);
-            Assert.InRange(localEnt.Position.Z, -5.1f, -4.9f);
-
-            // Facing should remain oriented towards target (within ~3 degrees of 0 / East)
-            Assert.True(localEnt.Direction is <= 2 or >= 254);
-        }
-
-        [Fact]
-        public void Update_WhenLockedOn_MoveBackwardMovesAwayAndSetsBackwardLocomotion()
-        {
-            var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
-
-            var target = new WorldEntity(0x9999, 2, EntityType.Monster)
-            {
-                Position = new Vector3(100f, 0f, 0f), // East (+X)
-                IsSpawned = true
-            };
-            world.UpsertEntity(target);
-
-            actionService.SetTarget(target);
-            actionService.SetLockOn(true);
-
-            // Move Backward (S)
-            input.SetKeyDown(GordianKey.S);
-            controller.Update(TimeSpan.FromSeconds(1.0));
-
-            // Moves backward along -X away from target
-            Assert.Equal(50, localEnt.Speed);
-            Assert.Equal(LocomotionDirection.Backward, localEnt.LocomotionDirection);
-            Assert.InRange(localEnt.Position.X, -5.1f, -4.9f);
-
-            // Facing still faces East towards target
-            Assert.Equal(0, localEnt.Direction);
         }
 
         [Fact]
