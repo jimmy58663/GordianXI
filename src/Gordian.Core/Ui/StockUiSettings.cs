@@ -118,6 +118,19 @@ namespace Gordian.Core.Ui
         /// </summary>
         AutoLockOnEngage,
 
+        /// <summary>
+        /// Log page (conf11m -> conf11l -> conf11s): the message types shown in Window 2 when the log is split, one
+        /// bit per <see cref="ChatLogType"/>; every other type goes to Window 1 (retail keeps each type in exactly one
+        /// window). Default: the battle types, as a fresh character's cnf.dat routes them.
+        /// </summary>
+        LogWindow2Types,
+
+        /// <summary>
+        /// Effects page (fxfilter): one bit per <see cref="StockUiConfigPages.EffectFilters"/> row; a set bit filters
+        /// the effect out (ON). Stored only: battle effects are not drawn yet.
+        /// </summary>
+        EffectFilters,
+
         // Font Colors (conftxtc -> textcol1 -> textcol3): the colour being edited, 0-255 per channel in the 0x80
         // half scale. Transient: OK copies them into the row's colour (StockUiSettings.SetFontColor).
         FontColorEditRed,
@@ -228,6 +241,8 @@ namespace Gordian.Core.Ui
             Add(StockUiSettingKey.ClientChatFilters, 0, 0, int.MaxValue);
             Add(StockUiSettingKey.SystemMessageFilterLevel, 0, 0, 3, StockUiSettingScope.Server);
             Toggle(StockUiSettingKey.AutoLockOnEngage, true);
+            Add(StockUiSettingKey.LogWindow2Types, (int)StockUiChatLog.DefaultWindow2Types, 0, int.MaxValue);
+            Add(StockUiSettingKey.EffectFilters, 0, 0, int.MaxValue);
             // Retail's step per key press is not captured; 4 reaches every default in the cnf.dat table but 0xFF / 0x3F / 0xAF.
             Add(StockUiSettingKey.FontColorEditRed, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);
             Add(StockUiSettingKey.FontColorEditGreen, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);

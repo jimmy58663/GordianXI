@@ -591,6 +591,8 @@ namespace Gordian.Core.Tests.Ui
                 StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu,
                 StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
                 StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorListMenu,
+                StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogCategoryMenu, StockUiConfigPages.LogListMenu,
+                StockUiConfigPages.EffectsPage,
             };
             driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
             foreach (string name in driven)

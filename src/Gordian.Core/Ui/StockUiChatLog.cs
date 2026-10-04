@@ -143,9 +143,9 @@ namespace Gordian.Core.Ui
     /// windows, and each window's scroll position. Lines arrive from the network thread and are read by the
     /// render thread, so every access takes the log's lock.
     /// <para>
-    /// With the config menu's "Log Window Multi-window" OFF everything goes to Window 1; otherwise combat lines go
-    /// to Window 2 (retail's Log page routes message types per window; its row text needs the menu string table,
-    /// so the split is fixed until then).
+    /// With the config menu's "Log Window Multi-window" OFF Window 1 shows everything; otherwise each line goes to
+    /// the window its <see cref="ChatLogLine.Type"/> is routed to by the Log page (<see cref="Window2Types"/>:
+    /// battle messages to Window 2 by default).
     /// </para>
     /// </summary>
     public sealed class StockUiChatLog
@@ -153,12 +153,25 @@ namespace Gordian.Core.Ui
         /// <summary>Lines kept per window.</summary>
         public const int Capacity = 1000;
 
+        /// <summary>
+        /// The types a fresh character's log shows in Window 2: every For Self and For Others type, standard battle
+        /// messages and calls for help (cnf.dat 0x298 = ffffffff, read as the battle word; provisional bit mapping).
+        /// </summary>
+        public const uint DefaultWindow2Types =
+            ((1u << ((int)ChatLogType.CallsForHelp + 1)) - 1) & ~((1u << (int)ChatLogType.SelfRecover) - 1);
+
+        /// <summary>The bit of a type in <see cref="Window2Types"/>.</summary>
+        public static uint Bit(ChatLogType type) => 1u << (int)type;
+
         private readonly object _sync = new();
         private readonly List<ChatLogLine>[] _windows = { new(), new() };
         private readonly int[] _scroll = new int[2];
 
-        /// <summary>Returns true when <paramref name="channel"/> goes to Window 2 while the log is split.</summary>
-        public static bool IsWindow2Channel(ChatLogChannel channel) => channel == ChatLogChannel.Combat;
+        /// <summary>The Log page's routing: the types that go to Window 2 (the settings' <see cref="StockUiSettingKey.LogWindow2Types"/>).</summary>
+        public Func<uint> Window2Types { get; set; } = () => DefaultWindow2Types;
+
+        /// <summary>Whether a line goes to Window 2 while the log is split.</summary>
+        public bool IsWindow2(ChatLogLine line) => (Window2Types() & Bit(line.Type)) != 0;
 
         /// <summary>True when the log is split into two windows (config "Log Window Multi-window" not OFF).</summary>
         public bool MultiWindow { get; set; }
@@ -171,7 +184,7 @@ namespace Gordian.Core.Ui
         public void Add(ChatLogLine line)
         {
             ArgumentNullException.ThrowIfNull(line);
-            int window = IsWindow2Channel(line.Channel) ? 1 : 0;
+            int window = IsWindow2(line) ? 1 : 0;
             lock (_sync)
             {
                 var lines = _windows[window];

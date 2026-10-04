@@ -72,6 +72,9 @@ namespace Gordian.Core.Ui
         }
     }
 
+    /// <summary>One row of the Log page's lists: its text and the message type it routes.</summary>
+    public readonly record struct StockUiLogRow(string Label, ChatLogType Type);
+
     /// <summary>A config page: the DAT menu that draws it and its rows.</summary>
     public sealed class StockUiConfigPage
     {
@@ -179,13 +182,115 @@ namespace Gordian.Core.Ui
         public const int FontColorListRows = 11;
         public const int FontColorOkButton = 4, FontColorCancelButton = 5, FontColorDefaultButton = 5;
 
+        /// <summary>
+        /// The Log page (help 900 "Designate which messages appear in which window. Only active when multiple log
+        /// windows are displayed."): <c>conf11m</c> (top right: Window 1, Window 2, Default; help 905 / 906), then
+        /// <c>conf11l</c> (the same corner: Chat, For Self, For Others, System; help 901-904), then <c>conf11s</c>
+        /// (16,48, 366 x 248: fourteen invisible 256 x 16 rows at x 34 like the Chat Filters list; help 907 "Select
+        /// items to be displayed in the log."), whose rows are ON when the chosen window shows that message type.
+        /// The order of the three windows is our reading of their help text and of cnf.dat (each type sits in exactly
+        /// one window, so "ON in Window 1" is "OFF in Window 2"); to confirm in retail.
+        /// </summary>
+        public const string LogWindowMenu = "conf11m";
+        public const string LogCategoryMenu = "conf11l";
+        public const string LogListMenu = "conf11s";
+        public const int LogListRows = 14;
+        public const int LogDefaultButton = 3;
+
+        /// <summary>The Effects page (<c>fxfilter</c>, help 599 "Remove onscreen battle effects to improve frame rate."): fourteen rows like the Chat Filters list.</summary>
+        public const string EffectsPage = "fxfilter";
+        public const int EffectRows = 14;
+
         /// <summary>Which client-drawn list a DAT menu is.</summary>
         public static StockUiListKind ListKindOf(string menuName)
         {
             if (menuName.Equals(ChatFiltersPage, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.ChatFilters;
             if (menuName.Equals(FontColorListMenu, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.FontColors;
+            if (menuName.Equals(LogListMenu, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.LogRouting;
+            if (menuName.Equals(EffectsPage, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.Effects;
             return StockUiListKind.None;
         }
+
+        /// <summary>How many rows a list page shows at once (its DAT row buttons).</summary>
+        public static int VisibleRowsOf(StockUiListKind kind) => kind switch
+        {
+            StockUiListKind.ChatFilters => ChatFilterRowsPerPage,
+            StockUiListKind.FontColors => FontColorListRows,
+            StockUiListKind.LogRouting => LogListRows,
+            StockUiListKind.Effects => EffectRows,
+            _ => 0,
+        };
+
+        /// <summary>
+        /// The Log page's rows per category, worded as the config row table (ROM/165/74): Chat 36-47 and 196
+        /// (Yell, placed after Shout: provisional), For Self 48-53, For Others 54-59, System 60-62. Which rows retail
+        /// lists under which category is our reading of the table's grouping (no capture yet).
+        /// </summary>
+        public static IReadOnlyList<StockUiLogRow> LogRows(StockUiFontColorCategory category) => category switch
+        {
+            StockUiFontColorCategory.Chat => ChatLogRows,
+            StockUiFontColorCategory.ForSelf => SelfLogRows,
+            StockUiFontColorCategory.ForOthers => OthersLogRows,
+            _ => SystemLogRows,
+        };
+
+        private static readonly StockUiLogRow[] ChatLogRows =
+        {
+            new("Immediate vicinity (\"Say\")", ChatLogType.Say),
+            new("Wide area (\"Shout\")", ChatLogType.Shout),
+            new("Extremely wide area (\"Yell\")", ChatLogType.Yell),
+            new("Tell target only (\"Tell\")", ChatLogType.Tell),
+            new("All party members (\"Party\")", ChatLogType.Party),
+            new("Linkshell group (\"Linkshell\")", ChatLogType.Linkshell),
+            new("Linkshell group 2 (\"Linkshell 2\")", ChatLogType.Linkshell2),
+            new("Assistance in Japanese (\"Assist J\")", ChatLogType.AssistJ),
+            new("Assistance in English (\"Assist E\")", ChatLogType.AssistE),
+            new("Unity group (\"Unity\")", ChatLogType.Unity),
+            new("Emotes", ChatLogType.Emote),
+            new("Messages (\"Message\")", ChatLogType.Message),
+            new("NPC conversations", ChatLogType.NpcConversation),
+        };
+
+        private static readonly StockUiLogRow[] SelfLogRows =
+        {
+            new("HP/MP you recover", ChatLogType.SelfRecover),
+            new("HP/MP you lose", ChatLogType.SelfLose),
+            new("Beneficial effects you are granted", ChatLogType.SelfBeneficial),
+            new("Detrimental effects you receive", ChatLogType.SelfDetrimental),
+            new("Effects you resist", ChatLogType.SelfResist),
+            new("Actions you evade", ChatLogType.SelfEvade),
+        };
+
+        private static readonly StockUiLogRow[] OthersLogRows =
+        {
+            new("HP/MP others recover", ChatLogType.OthersRecover),
+            new("HP/MP others lose", ChatLogType.OthersLose),
+            new("Beneficial effects others are granted", ChatLogType.OthersBeneficial),
+            new("Detrimental effects others receive", ChatLogType.OthersDetrimental),
+            new("Effects others resist", ChatLogType.OthersResist),
+            new("Actions others evade", ChatLogType.OthersEvade),
+        };
+
+        private static readonly StockUiLogRow[] SystemLogRows =
+        {
+            new("Standard battle messages", ChatLogType.StandardBattle),
+            new("Calls for help", ChatLogType.CallsForHelp),
+            new("Basic system messages", ChatLogType.BasicSystem),
+        };
+
+        /// <summary>
+        /// The Effects page's rows, worded as the config row table (ROM/165/74 153-170, CP932 0x81A8 drawn as "->"
+        /// since the menu font has no arrow glyph); a row's index is its bit in <see cref="StockUiSettingKey.EffectFilters"/>.
+        /// </summary>
+        public static IReadOnlyList<string> EffectFilters { get; } = new[]
+        {
+            "All effects during battle",
+            "You -> you", "You -> monster", "You -> party", "You -> non-party PC",
+            "Monster -> you", "Monster -> monster", "Monster -> party", "Monster -> non-party PC",
+            "Party -> you", "Party -> monster", "Party -> party", "Party -> non-party PC",
+            "Non-party PC -> you", "Non-party PC -> monster", "Non-party PC -> party", "Non-party PC -> non-party PC",
+            "Screen shaking",
+        };
 
         private static StockUiConfigChoice On(int button) => new(button, 1, "ON");
         private static StockUiConfigChoice Off(int button) => new(button, 0, "OFF");

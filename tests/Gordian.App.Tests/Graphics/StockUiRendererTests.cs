@@ -712,6 +712,18 @@ namespace Gordian.App.Tests.Graphics
                 var redFill = Pixel(pixels, width, 16 + redBar.X + redBar.Width / 2, 48 + redBar.Y + 5);
                 Assert.True(redFill.R > redFill.B + 40, $"R bar filled red past half (tell red 0xA0) {redFill}");
 
+                // The Log page's list and the Effects page draw the Chat Filters rows: an ON / OFF ball and the text.
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.LogWindowMenu));
+                menus.Activate();                                              // Window 1
+                menus.Activate();                                              // Chat
+                Assert.Equal(StockUiConfigPages.LogListMenu, menus.Top!.Name);
+                Render(menus, "config_log_chat");
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.EffectsPage));
+                menus.Activate();
+                Render(menus, "config_effects");
+
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
             }
             finally

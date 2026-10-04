@@ -27,6 +27,10 @@ namespace Gordian.Core.Ui
         None,
         ChatFilters,
         FontColors,
+        /// <summary>The Log page's list (<c>conf11s</c>): ON = the chosen window shows the message type.</summary>
+        LogRouting,
+        /// <summary>The Effects page (<c>fxfilter</c>): ON = the effect is filtered out.</summary>
+        Effects,
     }
 
     /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
@@ -64,13 +68,17 @@ namespace Gordian.Core.Ui
             StockUiConfigPages.TryGet(menu.Name, out var page);
             ConfigPage = page;
             ListKind = StockUiConfigPages.ListKindOf(menu.Name);
-            VisibleRows = ListKind switch
-            {
-                StockUiListKind.ChatFilters => StockUiConfigPages.ChatFilterRowsPerPage,
-                StockUiListKind.FontColors => StockUiConfigPages.FontColorListRows,
-                _ => visibleRows,
-            };
+            VisibleRows = ListKind != StockUiListKind.None ? StockUiConfigPages.VisibleRowsOf(ListKind) : visibleRows;
         }
+
+        /// <summary>The Log page's window (1 or 2) a category menu or list is for.</summary>
+        public int LogWindow { get; internal set; } = 1;
+
+        /// <summary>The Log page's category a list shows.</summary>
+        public StockUiFontColorCategory LogCategory { get; init; }
+
+        /// <summary>The Log page list's rows, parallel to <see cref="Rows"/>.</summary>
+        public IReadOnlyList<StockUiLogRow> LogRows { get; internal set; } = Array.Empty<StockUiLogRow>();
 
         /// <summary>Which client-drawn list this menu is, if any.</summary>
         public StockUiListKind ListKind { get; }
@@ -817,6 +825,28 @@ namespace Gordian.Core.Ui
                     menu.SampleColor = EditedFontColor().ToUiColor();
                 }
             }
+            else if (menu.ListKind == StockUiListKind.LogRouting)
+            {
+                // A row is ON when the list's window shows the type: Window 2 has its bit set, Window 1 has it clear.
+                uint window2 = (uint)_settings.GetValue(StockUiSettingKey.LogWindow2Types);
+                var entries = StockUiConfigPages.LogRows(menu.LogCategory);
+                var rows = new List<StockUiListRow>(entries.Count);
+                foreach (var entry in entries)
+                {
+                    bool inWindow2 = (window2 & StockUiChatLog.Bit(entry.Type)) != 0;
+                    rows.Add(new StockUiListRow(rows.Count + 1, entry.Label, inWindow2 == (menu.LogWindow == 2)));
+                }
+                menu.LogRows = entries;
+                menu.Rows = rows;
+            }
+            else if (menu.ListKind == StockUiListKind.Effects)
+            {
+                uint filtered = (uint)_settings.GetValue(StockUiSettingKey.EffectFilters);
+                var labels = StockUiConfigPages.EffectFilters;
+                var rows = new List<StockUiListRow>(labels.Count);
+                for (int i = 0; i < labels.Count; i++) rows.Add(new StockUiListRow(i + 1, labels[i], (filtered & (1u << i)) != 0));
+                menu.Rows = rows;
+            }
             else if (menu.ListKind == StockUiListKind.FontColors)
             {
                 // Retail lists the message types in white and shows the selected row's sample in its colour in the
@@ -1274,6 +1304,29 @@ namespace Gordian.Core.Ui
                 return;
             }
 
+            if (top.ListKind == StockUiListKind.LogRouting)
+            {
+                // Each type sits in one window: switching a row ON or OFF in either window moves it to the other.
+                int index = top.EntryIndex(button.ButtonId);
+                if (index < 0 || index >= top.LogRows.Count) return;
+                uint mask = (uint)_settings.GetValue(StockUiSettingKey.LogWindow2Types) ^ StockUiChatLog.Bit(top.LogRows[index].Type);
+                _settings.SetValue(StockUiSettingKey.LogWindow2Types, (int)mask);
+                lock (_sync) Refresh(top);
+                Changed?.Invoke();
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.Effects)
+            {
+                int index = top.EntryIndex(button.ButtonId);
+                if (index < 0 || index >= top.Rows.Count) return;
+                uint mask = (uint)_settings.GetValue(StockUiSettingKey.EffectFilters) ^ (1u << index);
+                _settings.SetValue(StockUiSettingKey.EffectFilters, (int)mask);
+                lock (_sync) Refresh(top);
+                Changed?.Invoke();
+                return;
+            }
+
             if (!TryGetEntry(top, button.ButtonId, out var entry)) return;
             if (top.IsGreyed(button.ButtonId))
             {
@@ -1389,6 +1442,35 @@ namespace Gordian.Core.Ui
             CloseTop();
         }
 
+        /// <summary>Opens the Log page's list for a category, for the window its category menu was opened for. Call under the lock.</summary>
+        private StockUiOpenMenu? OpenLogList(StockUiFontColorCategory category, StockUiOpenMenu parent)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiConfigPages.LogListMenu, out var definition))
+            {
+                GordianLog.Warning("UI", $"Stock menu '{StockUiConfigPages.LogListMenu}' is not available.");
+                return null;
+            }
+            var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null) { LogCategory = category };
+            menu.LogWindow = parent.LogWindow;
+            Refresh(menu);
+            menu.SelectedButtonId = 1;
+            var open = new StockUiOpenMenu[_open.Length + 1];
+            Array.Copy(_open, open, _open.Length);
+            open[^1] = menu;
+            _open = open;
+            return menu;
+        }
+
+        /// <summary>The Log page's Default: asks, then routes every type back to its default window.</summary>
+        private async Task ConfirmLogResetAsync()
+        {
+            bool yes = await PromptYesNoAsync(null, defaultYes: false).ConfigureAwait(false);
+            if (!yes) return;
+            _settings.SetValue(StockUiSettingKey.LogWindow2Types, (int)StockUiChatLog.DefaultWindow2Types);
+            RefreshAll();
+        }
+
         /// <summary>The Font Colors page's Default: asks (the bare yes/no window, No by default), then returns every row to its retail default.</summary>
         private async Task ConfirmFontColorResetAsync()
         {
@@ -1441,6 +1523,23 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.FontColorDefault:
                     _ = ConfirmFontColorResetAsync();
+                    break;
+
+                case StockUiMenuCommand.LogWindowSelect:
+                case StockUiMenuCommand.LogCategory:
+                    StockUiOpenMenu? opened2;
+                    lock (_sync)
+                    {
+                        opened2 = entry.Command == StockUiMenuCommand.LogWindowSelect
+                            ? Push(StockUiConfigPages.LogCategoryMenu, from, Array.Empty<string>(), null, null)
+                            : OpenLogList((StockUiFontColorCategory)entry.Argument, from);
+                        if (opened2 != null && entry.Command == StockUiMenuCommand.LogWindowSelect) opened2.LogWindow = entry.Argument;
+                    }
+                    if (opened2 != null) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.LogDefault:
+                    _ = ConfirmLogResetAsync();
                     break;
 
                 case StockUiMenuCommand.FontColorApply:

@@ -193,6 +193,7 @@ namespace Gordian.Core.Network
 
             Chat.CharacterName = () => CharacterName;
             Chat.LocalPlayerId = () => LocalPlayer.ServerId;
+            Chat.Log.Window2Types = () => (uint)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.LogWindow2Types);
             Chat.ClientChatFilters = () => (uint)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.ClientChatFilters);
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);

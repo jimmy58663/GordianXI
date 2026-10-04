@@ -53,13 +53,18 @@ Little-endian. Values below are "fresh" (the four never-configured characters) u
 | - | 0x2D8 | ff 50 00 | Assist J | (0, 160, 255) | not shown; ambiguous with Assist E |
 | - | 0x2DC | ff 70 00 | Assist E | (0, 224, 255) | not shown |
 
+### Log page routing ([#49](https://github.com/jimmy58663/GordianXI/issues/49))
+
+- **0x290-0x29C: four u32.** Fresh `00000000, ffffffff, ffffffff, 00000000`; every configured character `00003fdf, ffffe001, ffffc020, 00001ffe`. The pairs (0x290, 0x298) and (0x294, 0x29C) are bitwise complements in every file, so each bit is in exactly one of two sets: read as **Window 1 = (0x290, 0x294), Window 2 = (0x298, 0x29C)**, one bit per Log page message type, in two words. Fresh: Window 2 has all of word A and Window 1 all of word B, which is the default split (battle in Window 2). The configured characters moved word A bits 0-4 and 6-13 to Window 1 and word B bits 1-12 to Window 2: 14 and 14 used bits, matching 14 battle rows and 13 chat rows plus one system row.
+- **Bit order: provisional** (`StockUiChatLog` import mapping in [#51](https://github.com/jimmy58663/GordianXI/issues/51)): word A bits 0-5 For Self (config rows 48-53), 6-11 For Others (54-59), 12 standard battle messages, 13 calls for help; word B bit 0 basic system messages, 1-12 the chat rows 36-47 (Say ... NPC conversations), 13 Yell (196, added later). To settle by moving one type in retail's Log page and diffing.
+
 ### Other fields (seen, not decoded)
 
 Differences between the fresh files and the configured ones, for the next diffing round:
 
 - 0x00 u32 5 (version?); 0x14 / 0x18 u32 100 / 100 fresh, 3 / 3, 3 / 14 and 34 / 20 on configured characters (the Gameplay volumes?); 0x1C u32 60.
 - 0x2C u32 10 fresh, 8 on the older characters.
-- 0x290-0x29C four u32: fresh `0, ffffffff, ffffffff, 0`; configured `00003fdf, ffffe001, ffffc020, 00001ffe`. The pairs (0x290, 0x298) and (0x294, 0x29C) are bitwise complements in every file, so they look like the Log page's per-window message routing (each message type in exactly one window).
+- 0x290-0x29C: see [Log page routing](#log-page-routing-49) below.
 - 0x100-0x1EF: a list of small numbers, the same in every file (key assignments?).
 - 0x1F8 u32 1000-2000, different per character.
 - 0x244 "stak", 0x24C "nihs" (four-character tags), the same everywhere.
