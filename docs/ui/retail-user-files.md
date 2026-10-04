@@ -4,6 +4,12 @@
 
 **Beyond xi-tools / LandSandBoat:** none of the public references documents these files; everything here is our reading of the maintainer's retail install (2026-09 / 10), so each field says how sure it is.
 
+## Import (`/importretail`, [#51](https://github.com/jimmy58663/GordianXI/issues/51))
+
+- Typed on the stock chat line (2026-10-04, awaiting the in-game test). `/importretail` lists the USER folders, newest first, with each `cnf.dat`'s last-modified time, marking the folder named after this character's id in hex ("<- this character?"; a guess, see below) and those without a `cnf.dat`. `/importretail <folder>` reads that folder's `cnf.dat` and overwrites the character's GordianXI settings with what it understands: every Font Colors row and the Log page's routing (`RetailUserSettings`, `RetailCnf`), then prints what it imported. Nothing is imported automatically and nothing is ever written to the game folder (maintainer's decision, 2026-09-27); file and folder names are looked up in their exact case (`USER`, `cnf.dat`).
+- The guess uses `CharacterSession.CharacterId` (the server's character id), which equals the content id on LSB; the lobby's content id (`LsbCharacterInfo.ContentId`) is not carried into the session yet, nor is whatever the xiloader / pol handoff passes.
+- Not imported yet: the window settings (log lines, timestamps, multi-window), volumes and the other config fields (not decoded, below) and macros.
+
 ## Folders
 
 - One folder per character, named like the character's content id in lowercase hex without leading zeros (`167dc34`, `c3cbbf`); the LSB characters 1-6 on the maintainer's install have folders `1`..`6`. To confirm with a known character (see [#51](https://github.com/jimmy58663/GordianXI/issues/51)'s comment); GordianXI's import lists every folder with its last-modified time.
@@ -56,7 +62,7 @@ Little-endian. Values below are "fresh" (the four never-configured characters) u
 ### Log page routing ([#49](https://github.com/jimmy58663/GordianXI/issues/49))
 
 - **0x290-0x29C: four u32.** Fresh `00000000, ffffffff, ffffffff, 00000000`; every configured character `00003fdf, ffffe001, ffffc020, 00001ffe`. The pairs (0x290, 0x298) and (0x294, 0x29C) are bitwise complements in every file, so each bit is in exactly one of two sets: read as **Window 1 = (0x290, 0x294), Window 2 = (0x298, 0x29C)**, one bit per Log page message type, in two words. Fresh: Window 2 has all of word A and Window 1 all of word B, which is the default split (battle in Window 2). The configured characters moved word A bits 0-4 and 6-13 to Window 1 and word B bits 1-12 to Window 2: 14 and 14 used bits, matching 14 battle rows and 13 chat rows plus one system row.
-- **Bit order: provisional** (`StockUiChatLog` import mapping in [#51](https://github.com/jimmy58663/GordianXI/issues/51)): word A bits 0-5 For Self (config rows 48-53), 6-11 For Others (54-59), 12 standard battle messages, 13 calls for help; word B bit 0 basic system messages, 1-12 the chat rows 36-47 (Say ... NPC conversations), 13 Yell (196, added later). To settle by moving one type in retail's Log page and diffing.
+- **Bit order: provisional** (`RetailCnf.LogWindow2Types`, used by the import): word A bits 0-5 For Self (config rows 48-53), 6-11 For Others (54-59), 12 standard battle messages, 13 calls for help; word B bit 0 basic system messages, 1-12 the chat rows 36-47 (Say ... NPC conversations), 13 Yell (196, added later). To settle by moving one type in retail's Log page and diffing.
 
 ### Other fields (seen, not decoded)
 

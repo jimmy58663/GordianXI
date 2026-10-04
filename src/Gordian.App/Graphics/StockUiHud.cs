@@ -147,6 +147,12 @@ namespace Gordian.App.Graphics
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
             }
+            if (_resources is { } game && session.Chat.GameDirectory() == null)
+            {
+                // /importretail reads the install's USER folder (read-only).
+                string directory = game.GameDirectory;
+                session.Chat.GameDirectory = () => directory;
+            }
             if (menus.ItemLookup == null && _resources is { } items)
             {
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.

@@ -328,6 +328,7 @@ namespace Gordian.Core.Ui
             if (string.IsNullOrWhiteSpace(line)) return;
             string raw = line.Trim();
             if (TryChatModeCommand(raw)) return;
+            if (TryImportRetailCommand(raw)) return;
             bool command = raw.StartsWith('/') || raw.StartsWith('!');
             if (!command && mode == ChatInputMode.Tell)
             {
@@ -454,6 +455,76 @@ namespace Gordian.Core.Ui
                 Input.TellTarget = words[2];
             }
             Input.SetMode(mode.Value);
+            return true;
+        }
+
+        /// <summary>The retail install folder (for <c>/importretail</c>); null when unknown.</summary>
+        public Func<string?> GameDirectory { get; set; } = () => null;
+
+        /// <summary>The character's id, whose hex form is the likely name of its retail USER folder.</summary>
+        public Func<uint> CharacterId { get; set; } = () => 0;
+
+        /// <summary>The character's stock UI settings, which <c>/importretail</c> overwrites.</summary>
+        public Func<StockUiSettings?> Settings { get; set; } = () => null;
+
+        /// <summary>
+        /// <c>/importretail [folder]</c> (#51): with no folder, lists the retail USER folders (newest first, the one
+        /// named after this character marked); with one, imports its cnf.dat (the Font Colors and the Log page's
+        /// routing, which it overwrites). The game folder is only read. Returns false for any other line.
+        /// </summary>
+        public bool TryImportRetailCommand(string raw)
+        {
+            if (!raw.StartsWith('/')) return false;
+            string[] words = raw[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0 || !words[0].Equals("importretail", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string? game = GameDirectory();
+            if (string.IsNullOrEmpty(game))
+            {
+                Log.Add(ChatLogChannel.Error, "Import retail settings: the FINAL FANTASY XI folder was not found.");
+                return true;
+            }
+            var folders = RetailUserSettings.ListFolders(game);
+            string guess = RetailUserSettings.FolderNameFor(CharacterId());
+            if (words.Length == 1)
+            {
+                if (folders.Count == 0)
+                {
+                    Log.Add(ChatLogChannel.Error, "Import retail settings: there are no character folders in the retail USER folder.");
+                    return true;
+                }
+                Log.Add(ChatLogChannel.Notice, "Retail character settings (USER folders, newest first). Import one with /importretail <folder>:");
+                foreach (var folder in folders)
+                {
+                    string mark = folder.Name.Equals(guess, StringComparison.Ordinal) ? "  <- this character?" : string.Empty;
+                    string config = folder.HasConfig ? string.Empty : " (no cnf.dat)";
+                    Log.Add(ChatLogChannel.Notice, $"  {folder.Name}  {folder.LastModifiedUtc.ToLocalTime():yyyy-MM-dd HH:mm}{config}{mark}");
+                }
+                return true;
+            }
+
+            string name = words[1];
+            RetailUserFolder? chosen = null;
+            foreach (var folder in folders)
+            {
+                if (folder.Name.Equals(name, StringComparison.Ordinal)) chosen = folder;
+            }
+            if (chosen == null)
+            {
+                Log.Add(ChatLogChannel.Error, $"Import retail settings: there is no USER folder \"{name}\". Type /importretail to list them.");
+                return true;
+            }
+            var settings = Settings();
+            var cnf = RetailUserSettings.ReadConfig(chosen.Path);
+            if (settings == null || cnf == null)
+            {
+                Log.Add(ChatLogChannel.Error, $"Import retail settings: USER/{chosen.Name} has no readable cnf.dat.");
+                return true;
+            }
+            var applied = RetailUserSettings.Apply(cnf, settings);
+            Log.Add(ChatLogChannel.Notice, applied.Count == 0
+                ? $"Imported nothing from USER/{chosen.Name}."
+                : $"Imported {string.Join(" and ", applied)} from USER/{chosen.Name}.");
             return true;
         }
 
