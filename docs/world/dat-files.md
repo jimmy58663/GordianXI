@@ -126,7 +126,7 @@ Both in the zone dialog table format (`ZoneDialogTable`) and read by `ClientMess
 
 ### Sound and music
 
-No DAT holds audio that GordianXI reads. Zone and actor generators link 0x3D sound pointers, which name sound files outside the DAT tree (xi-tools `docs/reference/dat_sections.md`). Audio is planned: [audio.md](../design/audio.md).
+No DAT holds audio. DATs carry 0x3D sound pointers (`SoundEffectPointer`) whose id names a sound file outside the DAT tree: sound effects at `sound*/win/se/seNNN/seNNNNNN.spw`, music at `sound*/win/music/data/musicNNN.bgw` (roots `sound`, `sound2`-`sound6`, `sound9`). `FfxiSoundHeader` / `FfxiAdpcm` / `FfxiSoundStream` decode them (ADPCM and PCM; ATRAC3 not yet) and `ZoneSoundTable` groups a zone model DAT's pointers (weather ambient loops, footsteps, doors). Formats and the retail census: [audio.md](../design/audio.md#sound-files-38).
 
 ## Section types (`DatSectionType`)
 
@@ -156,7 +156,7 @@ Status: **decoded** = every field GordianXI needs is read; **partly** = some fie
 | `0x30` | UiMenu | Menu frame, buttons, navigation links, shape references | `UiMenuDecoder` | decoded | [stock-ui.md](../ui/stock-ui.md#data-layer-chunk-1) |
 | `0x31` | UiElementGroup | Texture list and images of quad parts | `UiElementGroupDecoder` | decoded | [stock-ui.md](../ui/stock-ui.md#data-layer-chunk-1) |
 | `0x36` | ZoneInteractions | Zone interaction volumes (`RID`): turned boxes with a 4-char id whose first character is the kind (`_` door, `@` lift, `z` zone line, `m` sub-area) | `ZoneInteractionDecoder` | partly: doors' boxes used ([#15](https://github.com/jimmy58663/GordianXI/issues/15), first table only); lifts' two stops (+0x34 / +0x36 s16, `/ 256 + Y`) used from every table ([#66](https://github.com/jimmy58663/GordianXI/issues/66)): a zone has several 0x36 sections and the `@` records sit in their own (Metalworks `e237`, Palborough Mines `l143`, Pso'Xja `l009`, Davoi `l149`, Fort Ghelsba `z141`), not the first. **Differs from xi-tools:** `docs/zone/elevators.md` has each car parked on one of its stops; Davoi's `@450` car is authored at -8.19, a yalm off its upper stop (-9.17), and the landings show the stops are absolute | [collision-and-physics.md](collision-and-physics.md) |
-| `0x3D` | SoundEffectPointer | Reference to a sound file | none (generators record the link as `ParticleLinkedDataType.Audio`) | not decoded | [audio.md](../design/audio.md) |
+| `0x3D` | SoundEffectPointer | `"SeSep  "` magic + `u32` sound effect id (the section name is not the id) | `SoundEffectPointer`, `ZoneSoundTable` (zone `weat/<weather>` ambient loops keyed `HHMM`, `fses` / `fser` footsteps, `door/<door>`); generators record the link as `ParticleLinkedDataType.Audio` | decoded. **Beyond xi-tools:** the `fser` running set and the `HHMM` time keys of the weather ambient loops | [audio.md](../design/audio.md#sound-files-38) |
 | `0x3E` | PointList | Point list | none | not decoded | |
 | `0x45` | Info | Model info block | `EntityModelLoader` reads byte 3 (weapon animation type) and byte 6 (standard joint) of weapon DATs | partly | [entities-and-animation.md](entities-and-animation.md#models-and-equipment-phase-5c) |
 | `0x49` | SpellList | Spell id list | none | not decoded | |
