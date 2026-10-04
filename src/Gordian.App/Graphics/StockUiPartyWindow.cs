@@ -40,8 +40,8 @@ namespace Gordian.App.Graphics
     {
         public const float TextScale = 0.875f;
 
-        /// <summary>Left edge of the "(zone)" text on a party row's second line, from the row origin (layout pixels).</summary>
-        public const float ZoneTextX = 0;
+        /// <summary>Right edge of the "(zone)" text on a party row's second line, from the row origin: the MP number's (layout pixels).</summary>
+        public const float ZoneTextRight = 96;
 
         /// <summary>The "(SSandOria)" row text for a zone's compact name (ROM/165/85).</summary>
         public static string ZoneRowText(string compactName) => string.Concat("(", compactName, ")");
@@ -122,7 +122,7 @@ namespace Gordian.App.Graphics
                     // A member in another zone has no vitals: retail shows the name and "(zone)" on the second row.
                     DrawLeaderBalls(renderer, row, placement.X, ry, s);
                     renderer.DrawText(font, FitZoneRowName(font, row.Name), rx, ry, textScale);
-                    renderer.DrawText(font, row.ZoneName, rx + ZoneTextX * s, ry + 10 * s, textScale);
+                    DrawRightAligned(renderer, font, row.ZoneName, rx + ZoneTextRight * s, ry + 10 * s, textScale, null);
                     continue;
                 }
 
@@ -164,7 +164,7 @@ namespace Gordian.App.Graphics
                     // The 16-pixel row has no second line: the zone takes the gauge's place.
                     DrawLeaderBalls(renderer, row, placement.X, ry, s);
                     renderer.DrawText(font, FitZoneRowName(font, row.Name), rx, ry, textScale);
-                    renderer.DrawText(font, row.ZoneName, rx + 25 * s, ry + 4 * s, textScale);
+                    DrawRightAligned(renderer, font, row.ZoneName, rx + 87 * s, ry + 4 * s, textScale, null);
                     continue;
                 }
 

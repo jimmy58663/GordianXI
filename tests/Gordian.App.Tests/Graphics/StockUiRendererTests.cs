@@ -821,6 +821,21 @@ namespace Gordian.App.Tests.Graphics
                     if (px.R > 200 && px.G < 190) anyPink = true;
                 }
                 Assert.False(anyPink, "a member in another zone must not draw an HP gauge");
+
+                // The zone text is right-aligned to the MP number's edge (row x + 96): bright glyph pixels at the right,
+                // none over the first 20 px of the second line.
+                bool Bright(int x0, int x1)
+                {
+                    for (int x = x0; x < x1; x++)
+                        for (int y = rowY + 10; y < rowY + 22; y++)
+                        {
+                            var px = Pixel(pixels, width, x, y);
+                            if (px.R > 220 && px.G > 220 && px.B > 220) return true;
+                        }
+                    return false;
+                }
+                Assert.True(Bright(rowX + 80, rowX + 97), "zone text should reach the right edge");
+                Assert.False(Bright(rowX, rowX + 20), "zone text must not start at the left edge");
                 var button0 = menu.Buttons[0];
                 var hp = Pixel(pixels, width, (int)placement.X + button0.X + 25 + 40, (int)placement.Y + button0.Y + 7 + 4);
                 Assert.True(hp.R > 200 && hp.G < 190, $"HP gauge {hp}");
