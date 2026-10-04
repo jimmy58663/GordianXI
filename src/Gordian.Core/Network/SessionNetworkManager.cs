@@ -190,6 +190,15 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => _parser.TreasureModule;
 
+        /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
+        public PlayerCommandState Commands => _parser.Commands;
+
+        /// <summary>Gets the everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, wide scan, votes).</summary>
+        public PlayerCommandPacketModule CommandModule => _parser.CommandModule;
+
+        /// <summary>Gets the local player's personal pet (S2C 0x068).</summary>
+        public LocalPetState Pet => _parser.Pet;
+
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
         /// </summary>

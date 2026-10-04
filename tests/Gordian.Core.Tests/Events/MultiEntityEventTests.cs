@@ -149,6 +149,25 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>
+        /// Upper Jeuno 10221 (Rhapsodies 2-4 "Numbering Days", LandSandBoat <c>2_04_Numbering_Days.lua</c>) plays
+        /// <c>orz0</c> on the player from the second race sets table (#228): package 140 + 10 · skeleton slot, chosen by a
+        /// branch per race with a literal package (Tarutaru: race 5, slot 4, package 180 = file 87865). Before #228 the
+        /// package was not located and the gesture fell back to the player's own motions, which have no <c>orz0</c>.
+        /// </summary>
+        [Fact]
+        public void UpperJeunoNumberingDays_ThePlayerDespairsFromItsRacePackage()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 244, 10221, host => host.EntityValues[7] = 5);
+            var orz = Assert.Single(run.Host.Motions, m => m.Id == PlayerId && m.Routine == "orz0");
+            Assert.Equal((EventMotionSource.Package, 180), (orz.Source, orz.Resource));
+            Assert.Equal(new[] { 87865 }, Gordian.Core.Animation.EventMotionBank.PackageFiles(180));
+            var bank = Gordian.Core.Animation.EventMotionBank.Parse(rm.LoadDatBytesByFileId(87865)!, 87865);
+            Assert.True(bank!.GetRoutineFrames("orz0") > 0);
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.
@@ -204,84 +223,75 @@ namespace Gordian.Core.Tests.Events
             var rm = OpenGame();
             if (rm == null) return;
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
-            var controller = new EventDialogController();
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
             var chat = new Gordian.Core.Ui.StockUiChat();
-            var previousLoader = EventDialogController.DatLoader;
-            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
             const uint Ceraule = 0x010E6001, Knight = 0x010E6068, TempleKnight = 0x010E60D7;
-            try
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
+                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 230);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 503);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2), 0x83);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+
+            // Nothing for 5 s: the zone-in start keeps waiting.
+            for (int i = 0; i < 300; i++) controller.Tick(Frame);
+            Assert.False(controller.IsActive);
+            // Ceraule arrives (hidden by the server, as LandSandBoat sends cutscene NPCs); 1.5 s later the event runs.
+            parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Ceraule, 1, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            // A cutscene-only knight of the 1:50 scene: placed at the start, out of sight until the script shows it.
+            parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(TempleKnight, 0xD7, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            int waited = 0;
+            for (; waited < 600 && !controller.IsActive; waited++) controller.Tick(Frame);
+            Assert.True(controller.IsActive);
+            Assert.InRange(waited, 60 * EventDialogController.EntityWaitSeconds - 2, 60 * EventDialogController.EntityWaitSeconds + 2);
+
+            // A knight arrives after the start: it joins the event and takes the place its script gave it.
+            parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Knight, 104, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            bool narrationShown = false, knightJoined = false, ceraulePosed = false;
+            int narrationTicks = 0, logLinesInMode = 0, maxNarrationRun = 0, run = 0, narrationPages = 0, pagesBeforeKnight = -1;
+            bool wasShowing = false;
+            for (int i = 0; i < 200_000 && controller.IsActive; i++)
             {
-                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
-                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
-                byte[] login = new byte[144];
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
-                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 230);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 503);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2), 0x83);
-                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
-
-                // Nothing for 5 s: the zone-in start keeps waiting.
-                for (int i = 0; i < 300; i++) controller.Tick(Frame);
-                Assert.False(controller.IsActive);
-                // Ceraule arrives (hidden by the server, as LandSandBoat sends cutscene NPCs); 1.5 s later the event runs.
-                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Ceraule, 1, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
-                // A cutscene-only knight of the 1:50 scene: placed at the start, out of sight until the script shows it.
-                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(TempleKnight, 0xD7, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
-                int waited = 0;
-                for (; waited < 600 && !controller.IsActive; waited++) controller.Tick(Frame);
-                Assert.True(controller.IsActive);
-                Assert.InRange(waited, 60 * EventDialogController.EntityWaitSeconds - 2, 60 * EventDialogController.EntityWaitSeconds + 2);
-
-                // A knight arrives after the start: it joins the event and takes the place its script gave it.
-                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(Knight, 104, Gordian.Core.World.EntityType.Npc) { IsHidden = true });
-                bool narrationShown = false, knightJoined = false, ceraulePosed = false;
-                int narrationTicks = 0, logLinesInMode = 0, maxNarrationRun = 0, run = 0, narrationPages = 0, pagesBeforeKnight = -1;
-                bool wasShowing = false;
-                for (int i = 0; i < 200_000 && controller.IsActive; i++)
+                int before = chat.Log.Count(0);
+                controller.Tick(Frame);
+                parser.Progression.AcknowledgeEventUpdate();
+                if (controller.IsCutsceneHud) logLinesInMode += chat.Log.Count(0) - before;
+                var text = controller.EventText;
+                if (text != null && !wasShowing) narrationPages++;
+                wasShowing = text != null;
+                parser.World.TryGetByServerId(TempleKnight, out var temple);
+                if (temple!.IsDrawn && pagesBeforeKnight < 0) pagesBeforeKnight = narrationPages;
+                if (text != null)
                 {
-                    int before = chat.Log.Count(0);
-                    controller.Tick(Frame);
-                    parser.Progression.AcknowledgeEventUpdate();
-                    if (controller.IsCutsceneHud) logLinesInMode += chat.Log.Count(0) - before;
-                    var text = controller.EventText;
-                    if (text != null && !wasShowing) narrationPages++;
-                    wasShowing = text != null;
-                    parser.World.TryGetByServerId(TempleKnight, out var temple);
-                    if (temple!.IsDrawn && pagesBeforeKnight < 0) pagesBeforeKnight = narrationPages;
-                    if (text != null)
-                    {
-                        narrationShown = true;
-                        narrationTicks++;
-                        run++;
-                        maxNarrationRun = Math.Max(maxNarrationRun, run);
-                        Assert.Equal((80, 340), (text.X, text.Y)); // the lines' own 0x02 position
-                        Assert.DoesNotContain(text.Lines, l => l.Contains('<'));
-                    }
-                    else
-                    {
-                        run = 0;
-                        // Lines outside the narration (after 0x68) wait for Confirm, as in retail.
-                        if (!controller.IsCutsceneHud) controller.Confirm();
-                    }
-                    parser.World.TryGetByServerId(Knight, out var knight);
-                    knightJoined |= knight!.IsInEvent && knight.EventPose != null && knight.IsDrawn;
-                    parser.World.TryGetByServerId(Ceraule, out var ceraule);
-                    ceraulePosed |= ceraule!.EventPose != null;
+                    narrationShown = true;
+                    narrationTicks++;
+                    run++;
+                    maxNarrationRun = Math.Max(maxNarrationRun, run);
+                    Assert.Equal((80, 340), (text.X, text.Y)); // the lines' own 0x02 position
+                    Assert.DoesNotContain(text.Lines, l => l.Contains('<'));
                 }
-                Assert.False(controller.IsActive);
-                Assert.True(narrationShown);
-                Assert.Equal(0, logLinesInMode);
-                Assert.InRange(maxNarrationRun, 9 * 60 - 3, 9 * 60 + 3); // 0x7F 0x34 09
-                Assert.True(knightJoined);
-                Assert.True(pagesBeforeKnight >= 7, $"the 1:50 knight showed after {pagesBeforeKnight} narration pages"); // after all of them
-                Assert.True(ceraulePosed);
-                Assert.True(chat.Log.Count(0) > 5); // the talk after 0x68 goes to the log
+                else
+                {
+                    run = 0;
+                    // Lines outside the narration (after 0x68) wait for Confirm, as in retail.
+                    if (!controller.IsCutsceneHud) controller.Confirm();
+                }
+                parser.World.TryGetByServerId(Knight, out var knight);
+                knightJoined |= knight!.IsInEvent && knight.EventPose != null && knight.IsDrawn;
+                parser.World.TryGetByServerId(Ceraule, out var ceraule);
+                ceraulePosed |= ceraule!.EventPose != null;
             }
-            finally
-            {
-                EventDialogController.DatLoader = previousLoader;
-            }
+            Assert.False(controller.IsActive);
+            Assert.True(narrationShown);
+            Assert.Equal(0, logLinesInMode);
+            Assert.InRange(maxNarrationRun, 9 * 60 - 3, 9 * 60 + 3); // 0x7F 0x34 09
+            Assert.True(knightJoined);
+            Assert.True(pagesBeforeKnight >= 7, $"the 1:50 knight showed after {pagesBeforeKnight} narration pages"); // after all of them
+            Assert.True(ceraulePosed);
+            Assert.True(chat.Log.Count(0) > 5); // the talk after 0x68 goes to the log
         }
 
         /// <summary>Windurst Woods (241), event 367: the player's block has a bare end; NPC 0x010F100B's ~2 KB part is the scene.</summary>
@@ -376,86 +386,77 @@ namespace Gordian.Core.Tests.Events
             var rm = OpenGame();
             if (rm == null) return;
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
-            var controller = new EventDialogController();
-            var previousLoader = EventDialogController.DatLoader;
-            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
             const uint OtherPc = 0x00054321, Bystander = 0x010F1050, Hidden = 0x010F1081, Nanaa = 0x010F100F, Director = 0x010F100B;
-            try
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
+                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2),
+                (ushort)(CutsceneFlags.ResetCamera | CutsceneFlags.NoPcs | CutsceneFlags.NoNpcs | CutsceneFlags.OpeningMode));
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            foreach (var (id, type) in new[] { (OtherPc, Gordian.Core.World.EntityType.Player), (Bystander, Gordian.Core.World.EntityType.Npc),
+                (Hidden, Gordian.Core.World.EntityType.Npc), (Nanaa, Gordian.Core.World.EntityType.Npc), (Director, Gordian.Core.World.EntityType.Npc) })
             {
-                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
-                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
-                byte[] login = new byte[144];
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
-                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(98, 2),
-                    (ushort)(CutsceneFlags.ResetCamera | CutsceneFlags.NoPcs | CutsceneFlags.NoNpcs | CutsceneFlags.OpeningMode));
-                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
-                foreach (var (id, type) in new[] { (OtherPc, Gordian.Core.World.EntityType.Player), (Bystander, Gordian.Core.World.EntityType.Npc),
-                    (Hidden, Gordian.Core.World.EntityType.Npc), (Nanaa, Gordian.Core.World.EntityType.Npc), (Director, Gordian.Core.World.EntityType.Npc) })
-                {
-                    parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), type) { Position = new System.Numerics.Vector3(10, 0, 10) });
-                }
-
-                bool bystanderHidden = false, pcHidden = false, flaggedHidden = false, nanaaPosed = false, nanaaWalked = false, cutsceneHud = false, clockLocked = false;
-                bool wallsShown = false, backHome = false;
-                int loadTicks = 0, eventTicks = 0, wallsTicks = 0;
-                parser.World.UpdateWeather(1);
-                parser.World.DisplayedZoneId = 241; // a viewport draws the session's zone
-                for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
-                {
-                    // The viewport takes half a second to load a zone the event opens (0x34 / 0x35, #175).
-                    if (parser.World.DisplayedZoneId != parser.World.SceneZoneId && ++loadTicks >= 30)
-                    {
-                        parser.World.DisplayedZoneId = parser.World.SceneZoneId;
-                        loadTicks = 0;
-                    }
-                    controller.Tick(Frame);
-                    controller.Confirm();
-                    parser.Progression.AcknowledgeEventUpdate();
-                    if (!controller.IsActive) continue;
-                    parser.World.TryGetByServerId(Bystander, out var bystander);
-                    parser.World.TryGetByServerId(OtherPc, out var pc);
-                    parser.World.TryGetByServerId(Hidden, out var hidden);
-                    parser.World.TryGetByServerId(Nanaa, out var nanaa);
-                    bystanderHidden |= bystander!.IsEventHidden;
-                    pcHidden |= pc!.IsEventHidden;
-                    flaggedHidden |= hidden!.IsEventHidden;
-                    nanaaPosed |= nanaa!.EventPose != null;
-                    nanaaWalked |= nanaa.EventPose is { Speed: > 0 };
-                    cutsceneHud |= controller.IsCutsceneHud;
-                    clockLocked |= parser.World.IsTimeOfDayLocked;
-                    eventTicks++;
-                    if (parser.World.EventZoneId == 239) wallsTicks++;
-                    wallsShown |= parser.World.EventZoneId == 239;
-                    backHome |= wallsShown && parser.World.EventZoneId == 0;
-                }
-                Assert.False(controller.IsActive);
-                Assert.True(bystanderHidden);
-                Assert.True(pcHidden);
-                Assert.True(flaggedHidden);
-                Assert.True(nanaaPosed);
-                Assert.True(nanaaWalked);
-                Assert.True(cutsceneHud); // 0x67
-                Assert.True(clockLocked); // 0x77
-                Assert.False(controller.IsCutsceneHud);
-                Assert.False(parser.World.IsTimeOfDayLocked);
-                Assert.Equal(1, parser.World.WeatherNumber); // the zone's weather is back
-                Assert.True(wallsShown); // 0x34: Windurst Walls for the opening scene
-                Assert.True(backHome); // 0x35: Windurst Woods again
-                Assert.InRange(wallsTicks, 60 * 60, 100 * 60); // seven narration lines that close themselves (0x7F 0x34)
-                Assert.Equal(0, parser.World.EventZoneId);
-                foreach (var entity in parser.World.GetAllEntities())
-                {
-                    Assert.False(entity.IsEventHidden);
-                    Assert.Null(entity.EventPose);
-                    Assert.Null(entity.EventLook);
-                }
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), type) { Position = new System.Numerics.Vector3(10, 0, 10) });
             }
-            finally
+
+            bool bystanderHidden = false, pcHidden = false, flaggedHidden = false, nanaaPosed = false, nanaaWalked = false, cutsceneHud = false, clockLocked = false;
+            bool wallsShown = false, backHome = false;
+            int loadTicks = 0, eventTicks = 0, wallsTicks = 0;
+            parser.World.UpdateWeather(1);
+            parser.World.DisplayedZoneId = 241; // a viewport draws the session's zone
+            for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
             {
-                EventDialogController.DatLoader = previousLoader;
+                // The viewport takes half a second to load a zone the event opens (0x34 / 0x35, #175).
+                if (parser.World.DisplayedZoneId != parser.World.SceneZoneId && ++loadTicks >= 30)
+                {
+                    parser.World.DisplayedZoneId = parser.World.SceneZoneId;
+                    loadTicks = 0;
+                }
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                if (!controller.IsActive) continue;
+                parser.World.TryGetByServerId(Bystander, out var bystander);
+                parser.World.TryGetByServerId(OtherPc, out var pc);
+                parser.World.TryGetByServerId(Hidden, out var hidden);
+                parser.World.TryGetByServerId(Nanaa, out var nanaa);
+                bystanderHidden |= bystander!.IsEventHidden;
+                pcHidden |= pc!.IsEventHidden;
+                flaggedHidden |= hidden!.IsEventHidden;
+                nanaaPosed |= nanaa!.EventPose != null;
+                nanaaWalked |= nanaa.EventPose is { Speed: > 0 };
+                cutsceneHud |= controller.IsCutsceneHud;
+                clockLocked |= parser.World.IsTimeOfDayLocked;
+                eventTicks++;
+                if (parser.World.EventZoneId == 239) wallsTicks++;
+                wallsShown |= parser.World.EventZoneId == 239;
+                backHome |= wallsShown && parser.World.EventZoneId == 0;
+            }
+            Assert.False(controller.IsActive);
+            Assert.True(bystanderHidden);
+            Assert.True(pcHidden);
+            Assert.True(flaggedHidden);
+            Assert.True(nanaaPosed);
+            Assert.True(nanaaWalked);
+            Assert.True(cutsceneHud); // 0x67
+            Assert.True(clockLocked); // 0x77
+            Assert.False(controller.IsCutsceneHud);
+            Assert.False(parser.World.IsTimeOfDayLocked);
+            Assert.Equal(1, parser.World.WeatherNumber); // the zone's weather is back
+            Assert.True(wallsShown); // 0x34: Windurst Walls for the opening scene
+            Assert.True(backHome); // 0x35: Windurst Woods again
+            Assert.InRange(wallsTicks, 60 * 60, 100 * 60); // seven narration lines that close themselves (0x7F 0x34)
+            Assert.Equal(0, parser.World.EventZoneId);
+            foreach (var entity in parser.World.GetAllEntities())
+            {
+                Assert.False(entity.IsEventHidden);
+                Assert.Null(entity.EventPose);
+                Assert.Null(entity.EventLook);
             }
         }
 
@@ -471,48 +472,39 @@ namespace Gordian.Core.Tests.Events
             var rm = OpenGame();
             if (rm == null) return;
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
-            var controller = new EventDialogController();
-            var previousLoader = EventDialogController.DatLoader;
-            EventDialogController.DatLoader = rm.LoadDatBytesByFileId;
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
             const uint Nanaa = 0x010F100F, Outsider = 0x010F1050;
-            try
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
+                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            foreach (uint id in new[] { Nanaa, Outsider })
             {
-                controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
-                    new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
-                byte[] login = new byte[144];
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
-                foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 241);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(96, 2), 367);
-                parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
-                foreach (uint id in new[] { Nanaa, Outsider })
-                {
-                    parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
-                }
-                parser.World.TryGetByServerId(Nanaa, out var nanaa);
-                parser.World.TryGetByServerId(Outsider, out var outsider);
-                Assert.False(nanaa!.IsDrawn);
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            }
+            parser.World.TryGetByServerId(Nanaa, out var nanaa);
+            parser.World.TryGetByServerId(Outsider, out var outsider);
+            Assert.False(nanaa!.IsDrawn);
 
-                bool drawnDuring = false, outsiderDrawn = false;
-                for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
-                {
-                    controller.Tick(Frame);
-                    controller.Confirm();
-                    parser.Progression.AcknowledgeEventUpdate();
-                    if (!controller.IsActive) continue;
-                    drawnDuring |= nanaa.IsDrawn;
-                    outsiderDrawn |= outsider!.IsDrawn;
-                }
-                Assert.False(controller.IsActive);
-                Assert.True(drawnDuring);
-                Assert.False(outsiderDrawn);
-                Assert.False(nanaa.IsDrawn); // the server still hides her: gone once the event ends
-                Assert.False(nanaa.IsInEvent);
-            }
-            finally
+            bool drawnDuring = false, outsiderDrawn = false;
+            for (int i = 0; i < 200_000 && (i < 60 * (int)EventDialogController.ZoneInEntityWaitSeconds + 120 || controller.IsActive); i++)
             {
-                EventDialogController.DatLoader = previousLoader;
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                if (!controller.IsActive) continue;
+                drawnDuring |= nanaa.IsDrawn;
+                outsiderDrawn |= outsider!.IsDrawn;
             }
+            Assert.False(controller.IsActive);
+            Assert.True(drawnDuring);
+            Assert.False(outsiderDrawn);
+            Assert.False(nanaa.IsDrawn); // the server still hides her: gone once the event ends
+            Assert.False(nanaa.IsInEvent);
         }
     }
 }

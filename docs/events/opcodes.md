@@ -65,7 +65,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x2A | | 6 | runs | 2,716 | Waits until another entity has no request at or above a priority. |
 | 0x2B | | 7 | runs | 6,344 | Prints a dialog message with a named actor as the speaker. |
 | 0x2C | `CodeSCHEDULOR` | 13 | runs | 3,340 | Plays one of the actor's own motion routines toward a target ([#165](https://github.com/jimmy58663/GordianXI/issues/165)). |
-| 0x2D | `CodeMAPSCHEDULOR` | 13 | stepped | 464 | Starts a zone scheduler action on two actors (doors and set pieces). |
+| 0x2D | `CodeMAPSCHEDULOR` | 13 | runs | 464 | Plays a routine of the zone DAT on two actors, as an S2C 0x039 map scheduler does (doors and set pieces; [#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
 | 0x2E | | 1 | stepped | 1,044 | Arms the event cancel data flag (and the cancel flag when cancelling is allowed). |
 | 0x2F | | 6 | ignored | 10,668 | Sets or clears `Render.Flags0` bit 19 of an actor. |
 | 0x30 | | 1 | stepped | 848 | Clears the client's "continue after control release" flag. |
@@ -101,10 +101,10 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x4E | | 6 | runs | 4,334 | Sets or clears the event hide flag of a named actor. |
 | 0x4F | | 3 | stepped | 77 | Sets the event's entity event status to a value plus 18. |
 | 0x50 | `CodeENDSCHEDULOR` | 13 | runs | 140 | Stops an actor's motion routine. |
-| 0x51 | `CodeENDMAPSCHEDULOR` | 13 | stepped | 67 | Stops a zone scheduler action. |
+| 0x51 | `CodeENDMAPSCHEDULOR` | 13 | runs | 67 | Ends a zone routine of 0x2D ([#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
 | 0x52 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 5,071 | Stops a scene task of 0x45. |
 | 0x53 | `CodeWAITSCHEDULOR` | 13 | runs | 23,558 | Waits while an actor's motion routine plays. |
-| 0x54 | `CodeWAITMAPSCHEDULOR` | 13 | stepped | 82 | Waits while a zone scheduler action plays. |
+| 0x54 | `CodeWAITMAPSCHEDULOR` | 13 | runs | 82 | Waits while a zone routine of 0x2D plays ([#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
 | 0x55 | `CodeWAITLOADSCHEDULER_Main` | 15 | runs | 4,864 | Waits while a scene task of 0x45 runs. |
 | 0x56 | | 5 | stepped | 6 | Reads an actor operand, does nothing with it and yields a frame. |
 | 0x57 | | 3 | runs | 90 | Adds the frames since the last tick to a work value. |
@@ -116,7 +116,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x5D | | 5 | stepped | 2,139 | Moves the music volume to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x5E | | 5 | partial | 3,008 | Ends the event entity's action and returns it to an idle motion it names. |
 | 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
-| 0x60 | | by sub | stepped | 50 | Sets `Render.Flags1` bit 30 (subs 0/1) or starts a zone scheduler action (sub 2). |
+| 0x60 | | by sub | partial | 50 | Sets `Render.Flags1` bit 30 (subs 0/1, stepped) or plays a zone routine with no actors (sub 2, runs; [#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
 | 0x61 | | 2 | stepped | 327 | Sets or clears `Render.Flags2` bit 0 of the event's own entity. |
 | 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | runs | 1,701 | Like 0x45, from scheduler file 5012 + n: one effect package per file (warps `wp00` / `wp01`...). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0x63 | | 3 | stepped | 0 | Plays an emote id on the event's entity and waits while one plays. |
@@ -317,8 +317,9 @@ When a change makes an opcode run, update its row and detail section in the same
 
 ### 0x2D `CodeMAPSCHEDULOR`
 
-- Layout: `2D actor:u32 target:u32 routine:u32`; 0x51 stops it and 0x54 waits for it, same operands (XiEvents OpCodes/0x002D, 0x0051, 0x0054: `XiZone::SetAction`, `KillAction`, `IsMovingAction`). Retail runs it only when both actors' models are loaded (`Render.Flags0` bit 9).
-- GordianXI steps over all three. S2C 0x039 now plays zone routines through `ZoneRoutinePlayer` ([#210](https://github.com/jimmy58663/GordianXI/issues/210)); these opcodes are not wired to it yet ([#109](https://github.com/jimmy58663/GordianXI/issues/109)); doors' own open / close routines run from their status ([#15](https://github.com/jimmy58663/GordianXI/issues/15)).
+- Layout: `2D actor:u32 target:u32 routine:u32`; 0x51 stops it and 0x54 waits for it, same operands (XiEvents OpCodes/0x002D, 0x0051, 0x0054: `XiZone::SetAction`, `KillAction`, `IsMovingAction`). Retail runs it only when both actors' models are loaded (`Render.Flags0` bit 9). The routine is a Section 0x07 of the zone DAT, the same kind an S2C 0x039 map scheduler names (LandSandBoat sends `1pa1` / `1pb1` / `2pb1` after an Alzadaal zone-in; the zone's events 6-11 and 124-126 play the same three with 0x2D on the player, 117 / 118 play the activations `1pa2` / `1pb2` on the event's own entity, 116 and 405-410 the second portal's `2pb2`, `2pbk`, `2pb1`).
+- GordianXI ([#226](https://github.com/jimmy58663/GordianXI/issues/226), 2026-10-03, awaits the in-game test): `EventVm.ExecZoneScheduler` resolves both actors like the scene tasks (an actor not in the zone steps the opcode over), 0x2D asks the host to play the routine (`IEventVmHost.StartZoneScheduler` → `WorldState.PostMapScheduler` → `ZoneRoutinePlayer`, [particles.md](../rendering/particles.md#how-zone-routines-start-210)) and registers it as an `EventScene` task under the file key -1 with the routine's length from the loaded zone DAT (`EventDialogController.ZoneRoutineFrames`; the longest routine of that name), 0x54 waits while that task runs and 0x51 removes it and ends the routine (`ZoneRoutinePlayer.Stop`: the routines it started and its particles go on, as a scene task's stop leaves them). A routine the zone lacks lasts no frames, so a wait on it never holds the scene. The actors are carried to the renderer and logged but the routine is played on the zone's generators without them (the generators attached to an actor are not placed, [#232](https://github.com/jimmy58663/GordianXI/issues/232)); 0x54 on a door's own `open` / `clos` (46 of its 96 uses, 20 each) finds no 0x2D task and ends at once, since the door routines play from the door's status ([#15](https://github.com/jimmy58663/GordianXI/issues/15), [#233](https://github.com/jimmy58663/GordianXI/issues/233)); the 476 uses naming routines outside the zone DAT are [#233](https://github.com/jimmy58663/GordianXI/issues/233) too.
+- Corpus (2026-10-03, operands read from the 1,500 0x2D, 96 0x54, 79 0x51 and 173 0x60 sub 2 occurrences the walk reaches; the `?1?2` / `?7??` tags with `NN80` actors in every city's event 30034 are script tables walked as code): 0x2D names its two actors alike in 1,440 uses, the event's own entity (0x7FFFFFF8) in 763, the player (0x7FFFFFF0) in 548 and an NPC id in 189; 1,024 of its routines are in the zone DAT (863 on demand, 93 under door directories, 6 ambient) and 476 are not (zone 14's `sc11` / `kaks` / `4aks`, zone 9's, zone 32's `sc51`...; presumably a resource not read yet). The most used names: `1pb1` 75, `sta1`-`sta4` 251 (zones 16-22's `dor1`-`dor3` doors, whose `sta3` / `stb3` / `stc3` 0x54 waits for), `2pb1` 34, `kill` 27, `1pb2` 22, `kaks` 20, `2end` / `3end` 18. 0x51's real uses are few: Pso'Xja (170) event 42's `hshi` / `kika` / `izum` / `yomi` and zone 192's `kbas` / `kkid` / `kkai` (the rest are table data). Starter-zone uses: Lower Jeuno (245) events 196 and 204 play `sc00` (`t_ju/effe/tama`, 80 frames) on the event's entity; Windurst Waters 976 names `1pb1` and Windurst Woods 588 `skai`, neither in those zones' DATs; San d'Oria, Bastok and the other Windurst and Jeuno zones have no real use. **Beyond XiEvents:** the counts and that the routine is the zone DAT's own.
 
 ### 0x31 `CodeSMOVE`
 
@@ -413,7 +414,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 ### 0x53 `CodeWAITSCHEDULOR`, 0x54 `CodeWAITMAPSCHEDULOR`, 0x55 `CodeWAITLOADSCHEDULER_Main`
 
-- GordianXI: 0x53 yields while `EventScene.IsEntityActionPlaying` for the actor and routine, 0x55 while `IsTaskRunning`; both step past once the motion or task is over, or when an actor is not in the zone. 0x54 is stepped over.
+- GordianXI: 0x53 yields while `EventScene.IsEntityActionPlaying` for the actor and routine, 0x55 while `IsTaskRunning`, 0x54 while the zone routine task of 0x2D runs ([#226](https://github.com/jimmy58663/GordianXI/issues/226), see [0x2D](#0x2d-codemapschedulor)); all step past once the motion or task is over, or when an actor is not in the zone.
 - **Differs from XiEvents:** as transcribed, the 0x54 and 0x55 pseudo code never moves past the opcode once the action has finished (it only steps past when an actor is missing), which would stall the request; 0x53 has the step. GordianXI steps past.
 
 ### 0x56
@@ -454,7 +455,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `5B|66 res:work actor:u32 target:u32 routine:u32` (15 bytes). Retail loads the motion resource onto the actor (0x5B: an event motion DAT; 0x66: the player-model package), yields until it has been read, ends the actor's last action and starts the routine, then yields one frame. It needs both actors in an event with their models loaded (XiEvents OpCodes/0x005B, 0x0066).
 - GordianXI: `ExecEntityMotion` with `EventMotionSource.Bank` / `Package`, then yields a frame; routine 0 and `xxxx` start nothing. File ids and packages: [vm.md](vm.md#cutscene-schedulers). The race sets 9-69 and the "package -1" of [#193](https://github.com/jimmy58663/GordianXI/issues/193): [schedulers-and-motions.md](schedulers-and-motions.md#motion-resources).
-- **Beyond XiEvents:** 0x66 packages 70-139, ten per player race, are file `61171 + n`, not the tables of 0-69 ([#209](https://github.com/jimmy58663/GordianXI/issues/209): Port Jeuno 324's player look up, `atp0` from package slot · 10 + 70); packages from 140 on are not located.
+- **Beyond XiEvents:** 0x66 packages 70-279 are three tables of ten per player race, not the tables of 0-69: `61171 + n` for 70-139 ([#209](https://github.com/jimmy58663/GordianXI/issues/209): Port Jeuno 324's player look up, `atp0` from package slot · 10 + 70), `87685 + n` for 140-209 and `102029 + n` for 210-279 ([#228](https://github.com/jimmy58663/GordianXI/issues/228): Upper Jeuno 10221's `orz0` from slot · 10 + 140, the race talk sets at slot · 10 + 149, the Rhapsodies finale's 210-279). The scripts' package numbers from 280 on (25 uses) name routines of the 0x5B bank file of that number; GordianXI reads it (provisional: retail's handling is not verified). Per package: [schedulers-and-motions.md](schedulers-and-motions.md#motion-resources).
 - **Beyond XiEvents:** XiEvents lists a 17-byte form of both. That form is reached only through 0x5F subs 5 and 6 (one more work value at +15, which retail hands to the actor); a top-level 0x5B or 0x66 is always 15 bytes (xi-tools `docs/events/opcodes.md`: no 17-byte instance in 67k and 82k decodes; the corpus walk agrees).
 
 ### 0x5C, 0x5D
@@ -498,9 +499,10 @@ When a change makes an opcode run, update its row and detail section in the same
 | sub | bytes | events using | meaning | GordianXI |
 |---|---|---|---|---|
 | 0x00, 0x01 | 4 | 0, 0 | set `Render.Flags1` bit 30 of the event's own entity to the sub | stepped |
-| 0x02 | 6 | 49 | start zone scheduler action `routine:u32` (at +2) with no actors | stepped |
+| 0x02 | 6 | 49 | play the zone routine `routine:u32` (at +2) with no actors (`XiZone::SetAction` with null actors) | runs ([#226](https://github.com/jimmy58663/GordianXI/issues/226)): played like 0x2D's, its task kept under actors 0 / 0 |
 | 0x03-0xFF | 2 | 1 (0x80) | the old two-byte form, stepped in retail | stepped |
 
+- Sub 2's 173 uses lie in six zones and name `i0on`-`i3on` (152, lamps turned on in sets of four), `d0on` / `d0of`, `s000`-`s002`, `sta1`; 156 of them are in their zone DAT (corpus, 2026-10-03).
 - **Differs from xi-tools:** xi-tools `docs/events/opcodes.md` lists 0x60 as deprecated; only the two-byte form is (XiEvents OpCodes/0x0060).
 
 ### 0x62 `CodeLOADEVENTSCHEDULER`

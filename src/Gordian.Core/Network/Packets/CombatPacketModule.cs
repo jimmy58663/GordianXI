@@ -364,12 +364,15 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
         }
 
-        public async Task RequestJumpAsync()
+        /// <summary>
+        /// Sends C2S 0x11D (<c>/jump</c>). LandSandBoat drops it unless <paramref name="playerIndex"/> is the character's own
+        /// target index (it validates both the id and the index, <c>c2s/0x11d_jump.cpp</c>), then relays S2C 0x11E to others.
+        /// </summary>
+        public async Task RequestJumpAsync(ushort playerIndex = 0)
         {
             byte[] buffer = new byte[12];
             ushort seq = ++_sequenceNumber;
             uint playerId = _localPlayerState.ServerId;
-            ushort playerIndex = 0; // zone target index
             int length = CombatPacketBuilder.BuildJumpRequest(buffer, seq, playerId, playerIndex);
 
             LogOutbound(0x11D, seq, buffer.AsSpan(4, length - 4));

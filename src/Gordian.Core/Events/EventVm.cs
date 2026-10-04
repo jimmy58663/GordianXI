@@ -1177,6 +1177,25 @@ namespace Gordian.Core.Events
                 case 0x55:
                     ExecWaitTask(EventSceneResource.GetFileId(GetWork(1)));
                     return;
+                case 0x2D:
+                    ExecZoneScheduler(ZoneSchedulerAction.Start);
+                    return;
+                case 0x51:
+                    ExecZoneScheduler(ZoneSchedulerAction.Stop);
+                    return;
+                case 0x54:
+                    ExecZoneScheduler(ZoneSchedulerAction.Wait);
+                    return;
+                case 0x60 when Code8(1) == 2:
+                {
+                    // A zone routine with no actors (XiEvents OpCodes/0x0060: XiZone::SetAction with null actors), e.g.
+                    // the i0on-i3on lamps of six zones; its length is kept under actors 0 / 0 for a 0x54 that names none.
+                    uint tag = unchecked((uint)Code32(2));
+                    int frames = _host.StartZoneScheduler(FourCc(tag), 0, 0);
+                    Scene.AddTask(Scene.NewTaskId(), ZoneSchedulerFileId, tag, 0, 0, frames);
+                    _pc += 6;
+                    return;
+                }
                 case 0x9F or 0x62 or 0xBB or 0xC5 or 0xCD or 0xD0 or 0xD5:
                     // The same scheduler on the other scene ranges, file base + the work value without 0x45's remapping
                     // (XiEvents OpCodes/0x009F, 0x0062, 0x00BB, 0x00C5, 0x00CD, 0x00D0, 0x00D5): the effect and screen
@@ -1618,6 +1637,49 @@ namespace Gordian.Core.Events
                 return;
             }
             _pc += 15;
+        }
+
+        private enum ZoneSchedulerAction { Start, Stop, Wait }
+
+        /// <summary>The task file key under which <see cref="EventScene"/> keeps the zone routines an event started (no scene file).</summary>
+        internal const int ZoneSchedulerFileId = -1;
+
+        /// <summary>
+        /// 0x2D (CodeMAPSCHEDULOR), 0x51 (CodeENDMAPSCHEDULOR) and 0x54 (CodeWAITMAPSCHEDULOR): <c>op actor:u32
+        /// target:u32 routine:u32</c> (13 bytes). The zone's own routine <c>routine</c> (a Section 0x07 of the zone DAT,
+        /// what an S2C 0x039 map scheduler names: Alzadaal's portal activation <c>1pa2</c>, Lower Jeuno's <c>sc00</c>)
+        /// starts on the two actors through the host, like a scene task; 0x51 ends it and 0x54 waits while it runs
+        /// (XiEvents OpCodes/0x002D, 0x0051, 0x0054: XiZone::SetAction / KillAction / IsMovingAction, when both actors'
+        /// models are loaded; here when both are in the zone). The routine's length comes from the zone DAT
+        /// (<see cref="IEventVmHost.StartZoneScheduler"/>); a routine the zone lacks, or one of 0 frames, is over at once.
+        /// </summary>
+        private void ExecZoneScheduler(ZoneSchedulerAction action)
+        {
+            if (TryTaskActors(Code32(1), Code32(5), out uint caster, out uint target))
+            {
+                uint tag = unchecked((uint)Code32(9));
+                switch (action)
+                {
+                    case ZoneSchedulerAction.Start:
+                    {
+                        int frames = _host.StartZoneScheduler(FourCc(tag), caster, target);
+                        Scene.AddTask(Scene.NewTaskId(), ZoneSchedulerFileId, tag, caster, target, frames);
+                        break;
+                    }
+                    case ZoneSchedulerAction.Stop:
+                        Scene.RemoveTask(ZoneSchedulerFileId, tag, caster, target);
+                        _host.StopZoneScheduler(FourCc(tag), caster, target);
+                        break;
+                    case ZoneSchedulerAction.Wait:
+                        if (Scene.IsTaskRunning(ZoneSchedulerFileId, tag, caster, target))
+                        {
+                            _retFlag = true;
+                            return;
+                        }
+                        break;
+                }
+            }
+            _pc += 13;
         }
 
         /// <summary>

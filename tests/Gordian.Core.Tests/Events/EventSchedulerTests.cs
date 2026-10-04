@@ -49,6 +49,59 @@ namespace Gordian.Core.Tests.Events
             return ticks;
         }
 
+        /// <summary>0x2D / 0x51 / 0x54 actor actor routine (13 bytes), on the event's own entity.</summary>
+        private static IEnumerable<byte> ZoneOp(byte op, string routine, uint actor = 0x7FFFFFF8) =>
+            new[] { op }.Concat(U32(actor)).Concat(U32(actor)).Concat(Tag(routine));
+
+        [Fact]
+        public void ZoneScheduler_PlaysTheZoneRoutineOnItsActors_WaitsForItsLength_AndEndsIt()
+        {
+            // Lower Jeuno 196: 2D sc00 ; 54 wait sc00 ; 48 print ; 51 end sc00 ; 00 (#226)
+            var code = ZoneOp(0x2D, "sc00").Concat(ZoneOp(0x54, "sc00")).Concat(Print(0)).Concat(ZoneOp(0x51, "sc00")).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.ZoneRoutineFrames["sc00"] = 80;
+            var vm = Make(code, host, new uint[] { 9 });
+
+            int ticks = TicksUntilPrinted(vm, host, 1);
+            vm.Tick(Frame);
+
+            Assert.Equal(("sc00", Npc, Npc), Assert.Single(host.ZoneSchedulers));
+            Assert.InRange(ticks, 80, 82); // the wait held for the routine's 80 frames
+            Assert.Equal(("sc00", Npc, Npc), Assert.Single(host.StoppedZoneSchedulers));
+            Assert.Empty(host.Skipped);
+            Assert.True(vm.IsFinished);
+        }
+
+        [Fact]
+        public void ZoneScheduler_UnknownRoutineOrMissingActor_DoesNotHoldTheScene()
+        {
+            // A routine the zone lacks lasts no frames; an actor not in the zone steps the opcodes over (retail).
+            var code = ZoneOp(0x2D, "none").Concat(ZoneOp(0x54, "none")).Concat(ZoneOp(0x2D, "sc00", 0x010E6999)).Concat(ZoneOp(0x54, "sc00", 0x010E6999))
+                .Concat(Print(0)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            host.ZoneRoutineFrames["sc00"] = 500;
+            var vm = Make(code, host, new uint[] { 9 });
+
+            int ticks = TicksUntilPrinted(vm, host, 1);
+
+            Assert.InRange(ticks, 1, 3);
+            Assert.Equal(("none", Npc, Npc), Assert.Single(host.ZoneSchedulers));
+        }
+
+        [Fact]
+        public void ZoneScheduler_Sub2Of0x60_PlaysTheRoutineWithNoActors()
+        {
+            // 60 02 i0on ; 48 print ; 00 (the lamps of six zones; XiEvents OpCodes/0x0060 SetAction with null actors)
+            var code = new byte[] { 0x60, 0x02 }.Concat(Tag("i0on")).Concat(Print(0)).Concat(new byte[] { 0x00 }).ToArray();
+            var host = new RecordingHost();
+            var vm = Make(code, host, new uint[] { 9 });
+
+            TicksUntilPrinted(vm, host, 1);
+
+            Assert.Equal(("i0on", 0u, 0u), Assert.Single(host.ZoneSchedulers));
+            Assert.Empty(host.Skipped);
+        }
+
         [Fact]
         public void StartTask_LoadsTheSceneResourceOfItsNumber_AndTheWaitHoldsForTheRoutine()
         {

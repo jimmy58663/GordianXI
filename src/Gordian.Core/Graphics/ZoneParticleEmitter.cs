@@ -318,7 +318,27 @@ namespace Gordian.Core.Graphics
         {
             Template = template ?? throw new ArgumentNullException(nameof(template));
             _random = new Random(seed);
+            if (template.Schedule != null)
+            {
+                // One replay state per op 0x52 routine in the schedule (#81), seeded by the routine so every emitter it
+                // starts replays at the same moments.
+                List<(RoutineReplayTimer, RoutineReplayTimer.State)>? timers = null;
+                foreach (var spawn in template.Schedule)
+                {
+                    if (spawn.Timer == null) continue;
+                    timers ??= new List<(RoutineReplayTimer, RoutineReplayTimer.State)>();
+                    bool known = false;
+                    foreach (var (timer, _) in timers)
+                    {
+                        if (ReferenceEquals(timer, spawn.Timer)) { known = true; break; }
+                    }
+                    if (!known) timers.Add((spawn.Timer, new RoutineReplayTimer.State(spawn.Timer)));
+                }
+                _replayTimers = timers?.ToArray();
+            }
         }
+
+        private readonly (RoutineReplayTimer Timer, RoutineReplayTimer.State State)[]? _replayTimers;
 
         public ZoneEmitterTemplate Template { get; }
 
@@ -356,7 +376,7 @@ namespace Gordian.Core.Graphics
             Particles.RemoveAll(p => p.IsExpired);
 
             if (Template.ChildOnly) return;
-            AdvanceSchedule(frames);
+            AdvanceSchedule(frames, frame.DayFraction);
             AdvanceTriggers(frames);
             _emitLifeTime += frames;
             if (IsDoneEmitting()) return;
@@ -404,11 +424,25 @@ namespace Gordian.Core.Graphics
         /// <summary>
         /// Advances the looping routine clock and (re)arms the generator at each scheduled start. A routine of 0 frames
         /// never loops: its starts run once, when the zone loads (#210: looped every frame, Alzadaal's portal pillars piled up).
+        /// Starts of an op 0x52 routine (<see cref="EffectRoutineSpawn.Timer"/>) follow the routine's replay timer on the
+        /// Vana'diel clock instead (#81): each replay queues them as triggers at their frame in the routine.
         /// </summary>
-        private void AdvanceSchedule(float frames)
+        private void AdvanceSchedule(float frames, float dayFraction)
         {
             var schedule = Template.Schedule;
             if (schedule == null || schedule.Count == 0) return;
+
+            if (_replayTimers != null)
+            {
+                foreach (var (timer, state) in _replayTimers)
+                {
+                    if (!state.Advance(frames, dayFraction)) continue;
+                    foreach (var spawn in schedule)
+                    {
+                        if (ReferenceEquals(spawn.Timer, timer)) _pendingTriggers.Add((spawn.StartFrame, spawn.Duration));
+                    }
+                }
+            }
 
             float previous = _routineClock;
             _routineClock += frames;
@@ -416,7 +450,7 @@ namespace Gordian.Core.Graphics
             {
                 foreach (var spawn in schedule)
                 {
-                    if (spawn.StartFrame > previous && spawn.StartFrame <= _routineClock) Arm(spawn.Duration);
+                    if (spawn.Timer == null && spawn.StartFrame > previous && spawn.StartFrame <= _routineClock) Arm(spawn.Duration);
                 }
                 return;
             }
@@ -426,6 +460,7 @@ namespace Gordian.Core.Graphics
             {
                 foreach (var spawn in schedule)
                 {
+                    if (spawn.Timer != null) continue;
                     float at = cycle * loop + spawn.StartFrame;
                     if (at > previous && at <= _routineClock) Arm(spawn.Duration);
                 }

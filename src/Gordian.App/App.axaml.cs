@@ -25,17 +25,19 @@ public partial class App : Application
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
         Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
         Gordian.Core.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
+        // Zone routines an event starts (0x2D, #226): their length from the loaded zone, for the event's 0x54 wait.
+        Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = (zoneId, routine) =>
+        {
+            var zone = AppResourceManager.Instance?.TryGetLoadedZone(zoneId);
+            if (zone == null) return 0;
+            int frames = 0;
+            foreach (var (_, found) in zone.MapRoutines.Find(routine)) frames = System.Math.Max(frames, found.TotalFrames);
+            return frames;
+        };
         Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;
-            if (rm == null) return null;
-            return kind switch
-            {
-                Gordian.Core.Events.EventMessageFormatter.ItemKind => rm.TryGetItem((uint)id, out var item) ? item?.Name : null,
-                Gordian.Core.Events.EventMessageFormatter.KeyItemKind => rm.TryGetKeyItemName((uint)id, out var keyItem) ? keyItem : null,
-                Gordian.Core.Events.EventMessageFormatter.ZoneKind => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.ZoneNames, id, out var zone) ? zone : null,
-                _ => null,
-            };
+            return rm == null ? null : Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, id);
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

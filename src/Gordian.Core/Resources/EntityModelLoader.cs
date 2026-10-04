@@ -135,15 +135,7 @@ namespace Gordian.Core.Resources
                 model.Textures[kvp.Key] = kvp.Value;
             }
 
-            foreach (var clip in primary.Animations)
-            {
-                model.Animations[clip.Name] = clip;
-                string stripped = StripBodyRegionSuffix(clip.Name);
-                if (!model.Animations.ContainsKey(stripped))
-                {
-                    model.Animations[stripped] = clip;
-                }
-            }
+            AddClipsWithStems(model, primary.Animations);
             MergeBodyRegionParts(model, primary.Animations);
 
             AddRoutines(model, primary.Routines);
@@ -363,12 +355,11 @@ namespace Gordian.Core.Resources
                     }
                 }
 
+                // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
+                // number (folder * 1000 + file, 32013 for Hume male hand-to-hand) as a file id, which names no file or an
+                // unrelated one (#203); the path already goes through the VFS and the game directory.
                 string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
                 byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
-                if ((battleDat == null || battleDat.Length == 0) && CharacterEquipmentResolver.GetBattlePackFileId(race, weaponAnimType) is int battleFid && battleFid > 0)
-                {
-                    battleDat = datByFileId(battleFid);
-                }
 
                 List<AnimationClip>? battleAnims = null;
                 if (battleDat != null && battleDat.Length > 0)
@@ -564,6 +555,31 @@ namespace Gordian.Core.Resources
             var hidden = new HashSet<int>();
             foreach (var (slot, hide) in state) if (hide) hidden.Add(slot);
             return hidden;
+        }
+
+        /// <summary>
+        /// Adds a model's own clips under their names (the last copy in file order wins) and names each stem
+        /// (<c>idl</c> for <c>idl0</c>-<c>idl2</c>) after its part 0, else its first part in file order. A stem never
+        /// replaces a clip of that exact name. <see cref="MergeBodyRegionParts"/> then replaces the stems whose parts
+        /// animate disjoint joints with the joined clip, so part 0 stands for the stem only where the parts overlap:
+        /// alternative variants rather than body regions, e.g. the elemental models 11 and 12 (<c>ROM/97/61</c> stores
+        /// <c>idl1</c> before <c>idl0</c>, each driving all 16 joints; #75).
+        /// </summary>
+        internal static void AddClipsWithStems(EntityModel model, List<AnimationClip> clips)
+        {
+            var ownNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in clips)
+            {
+                model.Animations[clip.Name] = clip;
+                ownNames.Add(clip.Name);
+            }
+            foreach (var clip in clips)
+            {
+                string stem = StripBodyRegionSuffix(clip.Name);
+                if (stem == clip.Name || ownNames.Contains(stem)) continue;
+                if (clip.Name[^1] == '0') model.Animations[stem] = clip;
+                else model.Animations.TryAdd(stem, clip);
+            }
         }
 
         /// <summary>

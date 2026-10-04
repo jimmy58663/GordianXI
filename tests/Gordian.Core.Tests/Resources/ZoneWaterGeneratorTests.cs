@@ -136,6 +136,111 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ParseZoneContainer_NeverExpiringGeneratorOfAnOnDemandRoutineWaitsAsAnIdleEmitter()
+        {
+            // Alzadaal's portal glow g0b1 (max life span 0, not auto-running) is spawned only by the idle routine 1pa1
+            // (0 frames, on demand): it must not be drawn until 1pa1 plays, and must go with 1pak's kill (#225).
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("g0b1", "rip1", new Vector3(1f, 2f, 3f), Vector2.Zero, maxLifeSpan: 0), "g0b1");
+            byte[] routineSection = BuildChunk(DatSectionType.EffectRoutine, EffectRoutineDecoderTests.BuildRoutinePayload(0, ("g0b1", 0, 0)), "1pa1");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection, routineSection), zoneId: 72);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.NotNull(effect.Emitter);
+            Assert.Null(effect.Emitter.Schedule);
+            Assert.True(zone.MapRoutines.TryResolveGenerator(string.Empty, "g0b1", out var template));
+            Assert.Same(effect.Emitter, template);
+
+            // Nothing is drawn until the routine plays; then one never-expiring particle, until a kill.
+            var emitter = new Gordian.Core.Graphics.ZoneParticleEmitter(effect.Emitter);
+            var frame = new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One);
+            emitter.Update(600f, frame);
+            Assert.Empty(emitter.Particles);
+            var player = new Gordian.Core.Graphics.ZoneRoutinePlayer(zone.MapRoutines);
+            Assert.True(player.Play("1pa1"));
+            player.Update(1f, t => ReferenceEquals(t, effect.Emitter) ? emitter : null);
+            emitter.Update(600f, frame);
+            var particle = Assert.Single(emitter.Particles);
+            Assert.Equal(float.PositiveInfinity, particle.MaxAge);
+            emitter.Kill();
+            Assert.Empty(emitter.Particles);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_NeverExpiringGeneratorOfAZoneLoadRoutineStaysAStaticLayer()
+        {
+            // The same generator started by a routine that loops on completion keeps the static layer (#225 item 2).
+            byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] genSection = BuildChunk(DatSectionType.ParticleGenerator,
+                BuildSyntheticWaterGeneratorPayload("umi1", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 0), "umi1");
+            byte[] routineSection = BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineDecoderTests.WithLoopOnComplete(EffectRoutineDecoderTests.BuildRoutinePayload(2669, ("umi1", 0, 0))), "s000");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(meshSection, genSection, routineSection), zoneId: 4);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            Assert.Null(effect.Emitter);
+            Assert.False(effect.IsParticleMesh);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_MatchesRoutinesAndGeneratorsByTheirFullDirectoryPath()
+        {
+            // s_pa/effe/nami and s_pa/door/_030/nami hold generators of the same names with their own lop0 schedules
+            // (#81): matched by the leaf name, each generator took both folders' spawns and emitted twice.
+            byte[] mesh = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] Dir(string name) => BuildChunk(DatSectionType.Directory, Array.Empty<byte>(), name);
+            byte[] end = BuildChunk(DatSectionType.End, Array.Empty<byte>(), "end");
+            byte[] gen = BuildChunk(DatSectionType.ParticleGenerator, BuildSyntheticWaterGeneratorPayload("yk01", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 500), "yk01");
+            // A command's delay is the wait after it: a leading dummy spawn puts yk01 at its delay.
+            byte[] Loop(ushort delay) => BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineDecoderTests.WithLoopOnComplete(EffectRoutineDecoderTests.BuildRoutinePayload(1000, ("none", delay, 0), ("yk01", 0, 100))), "lop0");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(mesh,
+                Dir("s_pa"), Dir("effe"), Dir("nami"), gen, Loop(0), end, end,
+                Dir("door"), Dir("_030"), Dir("nami"), gen, Loop(50), end, end, end, end), zoneId: 3);
+
+            Assert.Equal(2, zone.EffectLayers.Count);
+            foreach (var layer in zone.EffectLayers)
+            {
+                var spawn = Assert.Single(layer.Emitter!.Schedule!);
+                Assert.Equal(1000, layer.Emitter.ScheduleLoopFrames);
+                Assert.Equal("yk01", spawn.GeneratorId);
+            }
+            Assert.Contains(zone.EffectLayers, l => l.Emitter!.Schedule![0].StartFrame == 0);
+            Assert.Contains(zone.EffectLayers, l => l.Emitter!.Schedule![0].StartFrame == 50);
+        }
+
+        [Fact]
+        public void ParseZoneContainer_TimedRoutineSchedulesItsGeneratorOnTheVanadielClock()
+        {
+            // The ducks kamo/s001 (#81): op 0x52 10:30-11:24, replayed 18-129.6 s apart, spawning kamo for 5,400 frames.
+            byte[] mesh = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");
+            byte[] gen = BuildChunk(DatSectionType.ParticleGenerator, BuildSyntheticWaterGeneratorPayload("kamo", "rip1", Vector3.Zero, Vector2.Zero, maxLifeSpan: 300), "kamo");
+            byte[] routine = BuildChunk(DatSectionType.EffectRoutine, EffectRoutineDecoderTests.BuildPayload(5400, new List<byte[]>
+            {
+                EffectRoutineDecoderTests.TimedReplayCommand(1512000, 1641600, 129600, 18000),
+                EffectRoutineDecoderTests.Command(0x02, 5400, 5400, "kamo"),
+            }), "s001");
+
+            var zone = ZoneDataLoader.ParseZoneContainer(Concat(mesh, gen, routine), zoneId: 240);
+
+            var effect = Assert.Single(zone.EffectLayers);
+            var spawn = Assert.Single(effect.Emitter!.Schedule!);
+            Assert.Equal(0, effect.Emitter.ScheduleLoopFrames); // not a loop at its own length any more
+            Assert.NotNull(spawn.Timer);
+            Assert.Equal("10:30-11:24", Assert.Single(spawn.Timer.Windows).ToString());
+
+            var emitter = new Gordian.Core.Graphics.ZoneParticleEmitter(effect.Emitter);
+            for (int i = 0; i < 300; i++) emitter.Update(1f, new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 9f / 24f, Vector3.One));
+            Assert.Empty(emitter.Particles);
+            emitter.Update(1f, new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 11f / 24f, Vector3.One));
+            Assert.NotEmpty(emitter.Particles);
+        }
+
+        [Fact]
         public void ParseZoneContainer_ChildGeneratorGetsAChildOnlyEmitterLinkedToItsParent()
         {
             byte[] meshSection = BuildChunk(DatSectionType.ZoneMesh, BuildSyntheticZoneMeshPayload("rip1", "umi1"), "rip1");

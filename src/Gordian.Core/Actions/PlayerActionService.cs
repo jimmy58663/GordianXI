@@ -177,6 +177,9 @@ namespace Gordian.Core.Actions
         public ProgressionPacketModule? ProgressionModule { get; set; }
         public TreasurePacketModule? TreasureModule { get; set; }
 
+        /// <summary>The everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, votes, wide scan); null in sessions without one.</summary>
+        public PlayerCommandPacketModule? CommandModule { get; set; }
+
         /// <summary>The configuration packet module (S2C 0x0B4, C2S 0x0DB / 0x0DC); null in sessions without one.</summary>
         public ConfigPacketModule? ConfigModule
         {
@@ -992,7 +995,9 @@ namespace Gordian.Core.Actions
         {
             try
             {
-                await _combatModule.RequestJumpAsync().ConfigureAwait(false);
+                // The server checks the index against the character's own (c2s/0x11d_jump.cpp).
+                ushort selfIndex = _world.TryGetByServerId(_localPlayer.ServerId, out var self) && self != null ? self.TargetIndex : (ushort)0;
+                await _combatModule.RequestJumpAsync(selfIndex).ConfigureAwait(false);
                 return PlayerActionResult.Ok("Jumped.", ChatCommandResultKind.CombatJump);
             }
             catch (Exception ex)
@@ -1270,6 +1275,22 @@ namespace Gordian.Core.Actions
                         return "Usage: /kick <player> - Remove player from party.";
                     case "uilayout" or "uil":
                         return UiLayoutUsage;
+                    case "heal":
+                        return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
+                    case "sit":
+                        return "Usage: /sit [on|off] - Sit down or stand up.";
+                    case "sitchair":
+                        return "Usage: /sitchair [chair 0-20] [on|off] - Sit in a chair (0 is the plain chair; 1-11 need the matching key item).";
+                    case "random" or "rand":
+                        return "Usage: /random - Roll a number from 0 to 999, shown to you and everyone near.";
+                    case "nominate" or "propose":
+                        return "Usage: /nominate [say|party|shout|linkshell|linkshell2] \"question\" \"option 1\" \"option 2\" ... - Start a vote (no text cancels yours).";
+                    case "vote":
+                        return "Usage: /vote <option 1-8> [proposer] - Vote in a proposal (the last one seen without a name).";
+                    case "widescan" or "wide":
+                        return "Usage: /widescan - List monsters and NPCs around you (Rangers and Beastmasters).";
+                    case "track" or "untrack":
+                        return "Usage: /track [index|name|off] - Track a Wide Scan target (your target without an argument); /untrack stops.";
                     case "lockstyle":
                         return LockstyleUsage;
                     case "lockstyleset":
@@ -1317,7 +1338,14 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /fish, /dig, /sprint      - Fish, dig with your chocobo, sprint");
             sb.AppendLine("[Emotes]");
             sb.AppendLine("  /emote <name>             - Perform emote (/em)");
-            sb.AppendLine("  /cheer, /wave, /bow, /sit - Standard emote shortcuts");
+            sb.AppendLine("  /cheer, /wave, /bow, ...  - Standard emote shortcuts");
+            sb.AppendLine("  /heal [on|off]            - Rest to recover HP and MP; again to stand");
+            sb.AppendLine("  /sit [on|off]             - Sit down or stand up");
+            sb.AppendLine("  /sitchair [n] [on|off]    - Sit in a chair (0 plain, 1-11 unlocked chairs)");
+            sb.AppendLine("  /random                   - Roll the dice (0-999), shown to everyone near");
+            sb.AppendLine("  /nominate [scope] \"question\" \"option\" ... - Start a vote (/propose); /vote <n> [proposer] to answer");
+            sb.AppendLine("  /widescan, /track [target|off] - Wide Scan (Ranger, Beastmaster) and tracking");
+            sb.AppendLine("  /conquest                 - Conquest points and Imperial Standing (/cq)");
             sb.AppendLine("[Communication]");
             sb.AppendLine("  /say <msg>                - Send chat to Say (/s)");
             sb.AppendLine("  /party <msg>              - Send chat to Party (/p)");
@@ -1384,6 +1412,132 @@ namespace Gordian.Core.Actions
             }
             return await LockstyleAsync("on").ConfigureAwait(false);
         }
+
+        #region Everyday commands (/heal, /sit, /random, votes, wide scan)
+
+        private async Task<PlayerActionResult> SendCommandAsync(ChatCommandResultKind kind, string name, string okMessage, Func<PlayerCommandPacketModule, Task> send)
+        {
+            var module = CommandModule;
+            if (module == null) return PlayerActionResult.Fail($"/{name} is unavailable: no command module.", kind);
+            try
+            {
+                await send(module).ConfigureAwait(false);
+                return PlayerActionResult.Ok(okMessage, kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/{name} failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/{name} failed: {ex.Message}", kind);
+            }
+        }
+
+        /// <summary>
+        /// <c>/heal</c> (C2S 0x0E8): rests, or stops resting. The server puts the character in the Healing state (status 33,
+        /// the Healing status effect) and refuses while engaged, dead, crafting or in an event.
+        /// </summary>
+        public Task<PlayerActionResult> HealAsync(RestMode mode = RestMode.Toggle)
+            => SendCommandAsync(ChatCommandResultKind.Heal, "heal", "Heal requested.", m => m.SendHealAsync(mode));
+
+        /// <summary><c>/sit</c> (C2S 0x0EA): sits down or stands up; it also stops resting.</summary>
+        public Task<PlayerActionResult> SitAsync(RestMode mode = RestMode.Toggle)
+            => SendCommandAsync(ChatCommandResultKind.Sit, "sit", "Sit requested.", m => m.SendSitAsync(mode));
+
+        /// <summary><c>/sitchair [n]</c> (C2S 0x113): sits in chair <paramref name="chairId"/> (0 is the plain chair).</summary>
+        public Task<PlayerActionResult> SitChairAsync(uint chairId, RestMode mode = RestMode.Toggle)
+            => SendCommandAsync(ChatCommandResultKind.SitChair, "sitchair", $"Sit in chair {chairId} requested.", m => m.SendSitChairAsync(chairId, mode));
+
+        /// <summary><c>/random</c> (C2S 0x0A2): the server rolls 0 to 999 and tells everyone near (S2C 0x009 message 88).</summary>
+        public Task<PlayerActionResult> RandomAsync(string args = "")
+        {
+            uint.TryParse(args.Trim(), out uint typed);
+            return SendCommandAsync(ChatCommandResultKind.Random, "random", "Dice rolled.", m => m.SendRandomAsync(typed));
+        }
+
+        /// <summary><c>/nominate</c> (C2S 0x0A0): proposes <paramref name="text"/> (a question and its options); empty text cancels your live proposal.</summary>
+        public Task<PlayerActionResult> ProposeAsync(ProposalKind kind, string text)
+            => SendCommandAsync(ChatCommandResultKind.Propose, "nominate",
+                string.IsNullOrWhiteSpace(text) ? "Proposal cancel requested." : "Proposal sent.", m => m.SendProposalAsync(kind, text.Trim()));
+
+        /// <summary><c>/vote</c> (C2S 0x0A1): votes for <paramref name="option"/> in <paramref name="proposer"/>'s proposal (the last one seen when empty).</summary>
+        public async Task<PlayerActionResult> VoteAsync(byte option, string proposer)
+        {
+            string name = string.IsNullOrWhiteSpace(proposer) ? CommandModule?.State.Votes.LastProposer ?? string.Empty : proposer.Trim();
+            if (name.Length == 0)
+            {
+                return PlayerActionResult.Warn("There is no proposal to vote on. Usage: /vote <option 1-8> [proposer]", ChatCommandResultKind.Vote);
+            }
+            return await SendCommandAsync(ChatCommandResultKind.Vote, "vote", $"Voted {option} in {name}'s proposal.", m => m.SendVoteAsync(option, name)).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// <c>/widescan</c> (C2S 0x0F4): asks for the wide scan list. LandSandBoat answers only Rangers and Beastmasters
+        /// (or every job when its <c>ALL_JOBS_WIDESCAN</c> setting is on); the list then prints to the message log.
+        /// </summary>
+        public Task<PlayerActionResult> WideScanAsync()
+            => SendCommandAsync(ChatCommandResultKind.WideScan, "widescan", "Wide Scan requested.", m => m.SendWideScanAsync());
+
+        /// <summary>
+        /// <c>/track [index|name|off]</c>: tracks a monster or NPC (C2S 0x0F5), the current target without an argument, or
+        /// stops (0x0F6) with <c>off</c>. The server must have it within the wide scan range.
+        /// </summary>
+        public async Task<PlayerActionResult> TrackAsync(string args)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.TrackTarget;
+            string arg = args.Trim();
+            if (arg.Equals("off", StringComparison.OrdinalIgnoreCase) || arg.Equals("stop", StringComparison.OrdinalIgnoreCase))
+            {
+                return await SendCommandAsync(Kind, "track", "Tracking stopped.", m => m.SendTrackingEndAsync()).ConfigureAwait(false);
+            }
+
+            WorldEntity? target = null;
+            if (arg.Length == 0) target = CurrentTarget;
+            else if (ushort.TryParse(arg, out ushort index)) _world.TryGetByTargetIndex(index, out target);
+            else _world.TryGetByName(arg, out target);
+
+            if (target == null || target.TargetIndex == 0)
+            {
+                return PlayerActionResult.Warn("Usage: /track <index|name|off> (or target something first)", Kind);
+            }
+            ushort actIndex = target.TargetIndex;
+            return await SendCommandAsync(Kind, "track", $"Tracking {(target.Name.Length > 0 ? target.Name : "#" + actIndex)} requested.", m => m.SendTrackingStartAsync(actIndex)).ConfigureAwait(false);
+        }
+
+        /// <summary>How long <c>/conquest</c> waits for the S2C 0x05E that answers it.</summary>
+        public TimeSpan ConquestReplyTimeout { get; set; } = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// <c>/conquest</c> (C2S 0x05A): asks for the conquest overview and reports the conquest points and Imperial
+        /// Standing from the S2C 0x05E that answers. The conquest window does not exist yet; the full data is in
+        /// <see cref="ProgressionState"/>.
+        /// </summary>
+        public async Task<PlayerActionResult> ConquestAsync()
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.ConquestRequest;
+            var module = ProgressionModule;
+            if (module == null) return PlayerActionResult.Fail("/conquest is unavailable: no progression module.", Kind);
+
+            var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnConquest() => answered.TrySetResult();
+            module.State.ConquestUpdated += OnConquest;
+            try
+            {
+                await module.SendReqConquestAsync().ConfigureAwait(false);
+                var finished = await Task.WhenAny(answered.Task, Task.Delay(ConquestReplyTimeout)).ConfigureAwait(false);
+                if (finished != answered.Task) return PlayerActionResult.Warn("Conquest status requested; the server did not answer.", Kind);
+                return PlayerActionResult.Info($"Conquest points: {module.State.ConquestPoints}, Imperial Standing: {module.State.ImperialStanding}.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/conquest failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/conquest failed: {ex.Message}", Kind);
+            }
+            finally
+            {
+                module.State.ConquestUpdated -= OnConquest;
+            }
+        }
+
+        #endregion
 
         #region Treasure pool
 
@@ -1797,6 +1951,33 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.TreasurePass:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: false).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Heal:
+                    return await HealAsync(cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Sit:
+                    return await SitAsync(cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.SitChair:
+                    return await SitChairAsync(cmd.ActionParam, cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Random:
+                    return await RandomAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Propose:
+                    return await ProposeAsync((ProposalKind)cmd.ActionParam, cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Vote:
+                    return await VoteAsync((byte)cmd.ActionParam, cmd.TargetName).ConfigureAwait(false);
+
+                case ChatCommandResultKind.WideScan:
+                    return await WideScanAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.TrackTarget:
+                    return await TrackAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ConquestRequest:
+                    return await ConquestAsync().ConfigureAwait(false);
 
                 case ChatCommandResultKind.Lockstyle:
                     return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

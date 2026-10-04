@@ -82,6 +82,36 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void Decode_ReadsTheTimedReplayWindow()
+        {
+            // Ronfaure's pigeons hato/s002 (#81): 22:30-23:54, longest interval 201,600 ms (84 Vana'diel minutes), shortest 10,800.
+            var payload = BuildPayload(8500, new List<byte[]> { TimedReplayCommand(3240000, 3441600, 201600, 10800), Command(0x02, 8500, 8400, "hato") });
+            var routine = EffectRoutineDecoder.Decode(payload, "s002");
+
+            var window = Assert.Single(routine!.TimedReplays);
+            Assert.Equal(new TimedReplayWindow(3240000, 3441600, 201600, 10800), window);
+            Assert.Equal("22:30-23:54", window.ToString());
+            Assert.True(window.Contains(23f / 24f));
+            Assert.False(window.Contains(12f / 24f));
+            Assert.Equal(8500, routine.TotalFrames);
+            Assert.Equal(new EffectRoutineSpawn("hato", 0, 8400), Assert.Single(routine.Spawns));
+        }
+
+        /// <summary>A 24-byte op 0x52 command: start, end, longest and shortest interval at +8, +12, +16, +20.</summary>
+        internal static byte[] TimedReplayCommand(int startMs, int endMs, int maxIntervalMs, int minIntervalMs, ushort delay = 0)
+        {
+            var cmd = new byte[24];
+            cmd[0] = 0x52;
+            cmd[1] = 0x06;
+            BinaryPrimitives.WriteUInt16LittleEndian(cmd.AsSpan(4), delay);
+            BinaryPrimitives.WriteInt32LittleEndian(cmd.AsSpan(8), startMs);
+            BinaryPrimitives.WriteInt32LittleEndian(cmd.AsSpan(12), endMs);
+            BinaryPrimitives.WriteInt32LittleEndian(cmd.AsSpan(16), maxIntervalMs);
+            BinaryPrimitives.WriteInt32LittleEndian(cmd.AsSpan(20), minIntervalMs);
+            return cmd;
+        }
+
+        [Fact]
         public void Decode_RejectsTruncatedPayload()
         {
             Assert.Null(EffectRoutineDecoder.Decode(new byte[0x10], "s000"));

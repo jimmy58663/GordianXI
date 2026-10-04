@@ -105,14 +105,15 @@ namespace Gordian.Core.Animation
             if (model == null || model.Animations.Count == 0) return null;
             var anims = model.Animations;
 
-            // Death is universal across stances unless specialized death clips exist
+            // Death is universal across stances unless specialized death clips exist. Stems come before their part 0:
+            // a death stored in body-region parts (ded0 legs, ded1 upper body...) is joined under the stem (#75).
             if (category == AnimationCategory.Death)
             {
                 return stanceIndex switch
                 {
-                    1 => TryGetClip(anims, "de10", "de1", "dd10", "dd1", "ded0", "ded", "dth0", "dth"),
-                    2 => TryGetClip(anims, "de20", "de2", "dd20", "dd2", "ded0", "ded", "dth0", "dth"),
-                    _ => TryGetClip(anims, "ded0", "ded", "dth0", "dth")
+                    1 => TryGetClip(anims, "de1", "de10", "dd1", "dd10", "ded", "ded0", "dth", "dth0"),
+                    2 => TryGetClip(anims, "de2", "de20", "dd2", "dd20", "ded", "ded0", "dth", "dth0"),
+                    _ => TryGetClip(anims, "ded", "ded0", "dth", "dth0")
                 };
             }
 

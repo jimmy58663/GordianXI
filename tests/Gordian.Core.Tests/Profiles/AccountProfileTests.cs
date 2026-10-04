@@ -212,5 +212,22 @@ namespace Gordian.Core.Tests.Profiles
             profile.DeleteFile(_tempDirectory);
             Assert.False(File.Exists(expectedPath));
         }
+
+        [Fact]
+        public void CharacterSlot_RoundTripsAndDefaultsToZeroForOlderProfiles()
+        {
+            var profile = new AccountProfile { ProfileName = "SlotTwo", Username = "u", CharacterSlot = 2 };
+            profile.SaveToFile(_tempDirectory);
+            Assert.Equal(2, AccountProfile.LoadFromFile(Path.Combine(_tempDirectory, "SlotTwo.json"))!.CharacterSlot);
+            Assert.Equal(2, profile.Clone("Copy").CharacterSlot);
+
+            // A profile saved before the field existed has no CharacterSlot key.
+            string oldPath = Path.Combine(_tempDirectory, "Old.json");
+            File.WriteAllText(oldPath, "{ \"ProfileName\": \"Old\", \"CharacterName\": \"Knot\", \"Username\": \"u\" }");
+            var old = AccountProfile.LoadFromFile(oldPath);
+            Assert.NotNull(old);
+            Assert.Equal(0, old!.CharacterSlot);
+            Assert.Equal("Knot", old.CharacterName);
+        }
     }
 }

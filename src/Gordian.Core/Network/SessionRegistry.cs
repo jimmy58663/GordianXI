@@ -74,6 +74,61 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Determines if a character is currently active in memory by character id (unique per character).
+        /// </summary>
+        public bool IsCharacterIdActive(uint characterId)
+        {
+            if (characterId == 0) return false;
+
+            return _sessions.Values.Any(s => s.CharacterId == characterId && s.State != SessionState.Disconnected);
+        }
+
+        /// <summary>
+        /// Finds the live session of a launch profile: the session tagged with the profile name or, for sessions without
+        /// a profile tag (such as the retail handoff), one of the profile's character name (or the profile name, which
+        /// older profiles use as the character name). The account is deliberately not matched: one account holds several
+        /// characters, each with its own profile.
+        /// </summary>
+        public bool TryGetSessionForProfile(string profileName, string? characterName, out CharacterSession? session)
+        {
+            session = _sessions.Values.FirstOrDefault(s =>
+                s.State != SessionState.Disconnected &&
+                !string.IsNullOrWhiteSpace(profileName) &&
+                string.Equals(s.ProfileName, profileName, StringComparison.OrdinalIgnoreCase));
+            session ??= _sessions.Values.FirstOrDefault(s =>
+                s.State != SessionState.Disconnected &&
+                string.IsNullOrEmpty(s.ProfileName) &&
+                ((!string.IsNullOrWhiteSpace(characterName) &&
+                  string.Equals(s.CharacterName, characterName, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(profileName) &&
+                  string.Equals(s.CharacterName, profileName, StringComparison.OrdinalIgnoreCase))));
+            return session != null;
+        }
+
+        /// <summary>
+        /// Determines if a launch profile is online; see <see cref="TryGetSessionForProfile"/> for how it is matched.
+        /// </summary>
+        public bool IsProfileOnline(string profileName, string? characterName)
+        {
+            return TryGetSessionForProfile(profileName, characterName, out _);
+        }
+
+        /// <summary>
+        /// Finds a live session of the account. LandSandBoat (like retail) allows one session per account: a second
+        /// login is denied and drops the first, so launching must be refused while this returns true.
+        /// </summary>
+        public bool TryGetActiveAccountSession(string username, out CharacterSession? session)
+        {
+            session = null;
+            if (string.IsNullOrWhiteSpace(username)) return false;
+
+            session = _sessions.Values.FirstOrDefault(s =>
+                string.Equals(s.AccountUsername, username, StringComparison.OrdinalIgnoreCase) &&
+                s.State != SessionState.Disconnected);
+            return session != null;
+        }
+
+        /// <summary>
         /// Determines if an account is currently active in memory by account username.
         /// </summary>
         public bool IsAccountActive(string username)

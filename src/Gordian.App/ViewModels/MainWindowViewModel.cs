@@ -27,6 +27,7 @@ namespace Gordian.App.ViewModels
         private string? _editingOriginalFolder;
         private string _formProfileName = string.Empty;
         private string _formCharacterName = string.Empty;
+        private int _formCharacterSlot;
         private string _formFolder = string.Empty;
         private string _formServerHost = string.Empty;
         private int _formServerPort = 54231;
@@ -96,6 +97,15 @@ namespace Gordian.App.ViewModels
         {
             get => _formProfileName;
             set => SetProperty(ref _formProfileName, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the LandSandBoat character slot (1-16) the profile logs in as; 0 = not set (pick by name).
+        /// </summary>
+        public int FormCharacterSlot
+        {
+            get => _formCharacterSlot;
+            set => SetProperty(ref _formCharacterSlot, value);
         }
 
         public string FormCharacterName
@@ -998,6 +1008,7 @@ namespace Gordian.App.ViewModels
             _editingOriginalFolder = item.Profile.Folder;
             FormProfileName = item.Profile.ProfileName;
             FormCharacterName = item.Profile.CharacterName;
+            FormCharacterSlot = item.Profile.CharacterSlot;
             FormFolder = item.Profile.Folder;
             FormServerHost = item.Profile.ServerHost;
             FormServerPort = item.Profile.ServerPort > 0 ? item.Profile.ServerPort : 54231;
@@ -1042,6 +1053,7 @@ namespace Gordian.App.ViewModels
             _editingOriginalFolder = null;
             FormProfileName = string.Empty;
             FormCharacterName = string.Empty;
+            FormCharacterSlot = 0;
             FormFolder = string.Empty;
             FormServerHost = string.Empty;
             FormServerPort = 54231;
@@ -1092,6 +1104,7 @@ namespace Gordian.App.ViewModels
             {
                 ProfileName = targetName,
                 CharacterName = FormCharacterName.Trim(),
+                CharacterSlot = FormCharacterSlot is >= 1 and <= 16 ? FormCharacterSlot : 0,
                 Folder = targetFolder,
                 ServerHost = FormServerHost.Trim(),
                 ServerPort = FormServerPort > 0 ? FormServerPort : 54231,
@@ -1108,6 +1121,10 @@ namespace Gordian.App.ViewModels
             if (existing != null)
             {
                 int index = Profiles.IndexOf(existing);
+                // Remember where the profile sits in the tree: a save that keeps its folder must keep its position.
+                bool sameFolder = string.Equals(
+                    (existing.Profile.Folder ?? string.Empty).Trim().Replace('\\', '/'), targetFolder, StringComparison.OrdinalIgnoreCase);
+                int treeIndex = existing.Parent != null ? existing.Parent.Children.IndexOf(existing) : LaunchTree.IndexOf(existing);
                 UnwireProfileEvents(existing);
                 RemoveNodeFromTree(existing);
 
@@ -1117,12 +1134,14 @@ namespace Gordian.App.ViewModels
 
                 if (string.IsNullOrWhiteSpace(profile.Folder))
                 {
-                    LaunchTree.Add(updatedVm);
+                    if (sameFolder && treeIndex >= 0) LaunchTree.Insert(Math.Min(treeIndex, LaunchTree.Count), updatedVm);
+                    else LaunchTree.Add(updatedVm);
                 }
                 else
                 {
                     var folderVm = GetOrCreateFolder(profile.Folder);
-                    folderVm.AddChild(updatedVm);
+                    if (sameFolder && treeIndex >= 0) folderVm.InsertChild(treeIndex, updatedVm);
+                    else folderVm.AddChild(updatedVm);
                 }
             }
             else
@@ -1142,6 +1161,24 @@ namespace Gordian.App.ViewModels
 
             ClearForm();
             StatusMessage = $"Saved profile '{profile.ProfileName}'.";
+        }
+
+        /// <summary>
+        /// Why a profile must not be launched right now, or null. Online status is per profile (#180), but the server
+        /// allows one session per account (a second login is denied and drops the first), so an account that already
+        /// has a character in game blocks every other profile of that account.
+        /// </summary>
+        public string? GetLaunchSkipReason(AccountProfile profile)
+        {
+            if (_sessionRegistry.IsProfileOnline(profile.ProfileName, profile.CharacterName))
+            {
+                return $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+            }
+            if (_sessionRegistry.TryGetActiveAccountSession(profile.Username, out var live) && live != null)
+            {
+                return $"Account '{profile.Username}' already has a character in game ({live.CharacterName}). Skipped.";
+            }
+            return null;
         }
 
         private void LaunchSelected()
@@ -1189,13 +1226,12 @@ namespace Gordian.App.ViewModels
                     };
                     foreach (var profile in directLsbProfiles)
                     {
-                        if (_sessionRegistry.IsAccountActive(profile.Username) ||
-                            _sessionRegistry.IsCharacterActive(profile.ProfileName) ||
-                            (!string.IsNullOrWhiteSpace(profile.CharacterName) && _sessionRegistry.IsCharacterActive(profile.CharacterName)))
+                        string? skipReason = GetLaunchSkipReason(profile);
+                        if (skipReason != null)
                         {
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
-                                StatusMessage = $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+                                StatusMessage = skipReason;
                             });
                             continue;
                         }
@@ -1229,8 +1265,22 @@ namespace Gordian.App.ViewModels
                                 connectPort: connectPort,
                                 dataPort: dataPort,
                                 viewPort: viewPort,
-                                targetCharacterName: targetCharName
+                                targetCharacterName: targetCharName,
+                                targetCharacterSlot: profile.CharacterSlot
                             ).ConfigureAwait(false);
+
+                            GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
+
+                            // The profile resolves to a character only now (by slot, or a name that was not found), so
+                            // make sure that exact character is not already in the game from another profile.
+                            if (_sessionRegistry.IsCharacterIdActive(ticket.CharacterId))
+                            {
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{profile.ProfileName}] Character '{ticket.CharacterName}' (ID {ticket.CharacterId}) is already in the game. Skipped.";
+                                });
+                                continue;
+                            }
 
                             string resolvedCharName = !string.IsNullOrWhiteSpace(ticket.CharacterName)
                                 ? ticket.CharacterName
@@ -1258,7 +1308,10 @@ namespace Gordian.App.ViewModels
                                 ticket.CharacterId,
                                 profile.Username,
                                 netManager
-                            );
+                            )
+                            {
+                                ProfileName = profile.ProfileName
+                            };
 
                             netManager.StateChanged += (s, state) =>
                             {

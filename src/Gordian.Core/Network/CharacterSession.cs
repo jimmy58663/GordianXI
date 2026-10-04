@@ -1,5 +1,6 @@
 // src/Gordian.Core/Network/CharacterSession.cs
 using System;
+using System.Linq;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -16,6 +17,13 @@ namespace Gordian.Core.Network
         public string CharacterName { get; }
         public uint CharacterId { get; }
         public string AccountUsername { get; }
+
+        /// <summary>
+        /// Gets or sets the name of the launch profile that started this session (empty for sessions that did not come
+        /// from a profile, such as the retail handoff). Online status keys on this, not on the account, so the other
+        /// profiles of an account do not show Online when one of its characters is.
+        /// </summary>
+        public string ProfileName { get; set; } = string.Empty;
         public SessionNetworkManager NetworkManager { get; }
         public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 
@@ -95,6 +103,15 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
+
+        /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
+        public PlayerCommandState Commands => NetworkManager.Commands;
+
+        /// <summary>Gets the everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, wide scan, votes).</summary>
+        public PlayerCommandPacketModule CommandModule => NetworkManager.CommandModule;
+
+        /// <summary>Gets the local player's personal pet (S2C 0x068).</summary>
+        public LocalPetState Pet => NetworkManager.Pet;
 
         /// <summary>
         /// Gets the active session combat, targeting, recast, and action history state model.
@@ -236,6 +253,24 @@ namespace Gordian.Core.Network
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
                 Treasure.Clear();
+                // The pet, the wide scan list and the tracked entity do not survive a zone change; the server sends the
+                // pet again (S2C 0x068) when it comes along.
+                Pet.Clear();
+                Commands.OnZoneChanged();
+            };
+            // Wide scan lists and proposals print to the message log; no window for them exists yet.
+            Commands.WideScan.ListCompleted += entries =>
+            {
+                foreach (string line in Ui.StockUiPlayerCommands.FormatWideScan(entries, ResolveEntityNameByIndex)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Commands.WideScan.ListFailed += state =>
+                Chat.Log.Add(Ui.ChatLogChannel.System, state == TrackingListState.Error ? "Wide Scan is not available." : "Wide Scan ended.");
+            Commands.Votes.Changed += proposal =>
+            {
+                var lines = proposal.Closed ? Ui.StockUiPlayerCommands.FormatProposalResult(proposal)
+                    : proposal.Votes.All(v => v == 0) ? Ui.StockUiPlayerCommands.FormatProposalStart(proposal)
+                    : Enumerable.Empty<string>();
+                foreach (string line in lines) Chat.Log.Add(Ui.ChatLogChannel.System, line);
             };
             // The character stops while the input line has the keyboard (keys held when it opened are released).
             Chat.Input.OpenChanged += open =>
@@ -257,6 +292,9 @@ namespace Gordian.Core.Network
             if (id == LocalPlayer.ServerId || id == CharacterId) return CharacterName;
             return World.TryGetByServerId(id, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
         }
+
+        private string? ResolveEntityNameByIndex(ushort targetIndex)
+            => World.TryGetByTargetIndex(targetIndex, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
 
         public void Disconnect()
         {

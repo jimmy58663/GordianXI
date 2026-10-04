@@ -91,7 +91,8 @@ namespace Gordian.Core.Graphics
     /// <summary>
     /// Plays a zone's on-demand routines (<see cref="ZoneRoutineLibrary"/>) on the zone's emitters when a trigger names
     /// them: a map scheduler from the server (S2C 0x039, <see cref="World.WorldState.PostMapScheduler"/>), e.g. the
-    /// Alzadaal Runic Portals' idle glow <c>1pa1</c>, activation <c>1pa2</c> and end <c>1pak</c>.
+    /// Alzadaal Runic Portals' idle glow <c>1pa1</c>, activation <c>1pa2</c> and end <c>1pak</c>, or an event's zone
+    /// scheduler opcodes 0x2D / 0x60 sub 2 (start) and 0x51 (<see cref="Stop"/>) through the same queue (#226).
     /// <para>
     /// The commands play as in the cutscene scene files (<see cref="SceneEffectPlayer"/>, #192): op 0x02 starts a
     /// generator emitting for the command's duration, 0x1E kills one, 0x3F kills the first and starts the second, 0x03
@@ -134,6 +135,34 @@ namespace Gordian.Core.Graphics
                 if (_running.Count < MaxRunning) Add(directory, routine, loop: false);
             }
             return found.Count > 0;
+        }
+
+        /// <summary>
+        /// Ends every running routine named <paramref name="name"/> (an event's 0x51, CodeENDMAPSCHEDULOR, or the server
+        /// ending a map scheduler): nothing more of it runs; the routines it started and its particles go on, as a scene
+        /// task's stop leaves them (<see cref="SceneEffectPlayer"/>). False when the zone has no routine of that name.
+        /// </summary>
+        public bool Stop(string name)
+        {
+            var found = _library.Find(name);
+            foreach (var (_, routine) in found)
+            {
+                foreach (var run in _running)
+                {
+                    if (ReferenceEquals(run.Routine, routine)) End(run);
+                }
+            }
+            return found.Count > 0;
+        }
+
+        /// <summary>Whether a routine named <paramref name="name"/> is still running (started by name or by another routine).</summary>
+        public bool IsPlaying(string name)
+        {
+            foreach (var run in _running)
+            {
+                if (string.Equals(run.Routine.Name, name, StringComparison.OrdinalIgnoreCase) && (run.Loop || run.Next < run.Routine.Commands.Count)) return true;
+            }
+            return false;
         }
 
         /// <summary>

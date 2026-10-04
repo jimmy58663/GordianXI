@@ -40,6 +40,25 @@ namespace Gordian.Core.Events
         /// <summary>Names an item / key item / zone by id for the 0x01 codes of the text; null names show as &lt;#id&gt;.</summary>
         public static Func<byte, int, string?>? NameResolver { get; set; }
 
+        private readonly Func<int, byte[]?>? _datLoader;
+
+        /// <summary>A controller that reads its DATs through the static <see cref="DatLoader"/> (the app's).</summary>
+        public EventDialogController()
+        {
+        }
+
+        /// <summary>
+        /// A controller that reads its DATs by file id through <paramref name="datLoader"/> instead of the static
+        /// <see cref="DatLoader"/>, so tests running in parallel do not share (and race on) one global loader.
+        /// </summary>
+        public EventDialogController(Func<int, byte[]?> datLoader)
+        {
+            _datLoader = datLoader;
+        }
+
+        /// <summary>This controller's DAT loader: its own when one was given, else the static <see cref="DatLoader"/>.</summary>
+        private Func<int, byte[]?>? Loader => _datLoader ?? DatLoader;
+
         private readonly object _sync = new();
         private readonly EventWorkZone _zone = new();
         private ProgressionState? _progression;
@@ -564,7 +583,7 @@ namespace Gordian.Core.Events
                 _scriptZone = zoneId;
                 _script = null;
                 _dialog = null;
-                var loader = DatLoader;
+                var loader = Loader;
                 if (loader == null)
                 {
                     GordianLog.Warning("EVENT", "No DAT loader is set; events cannot run.");
@@ -680,6 +699,38 @@ namespace Gordian.Core.Events
             return "???";
         }
 
+        /// <summary>
+        /// The name of the entity with this server id (a 0x18 n dialog code: "The synergy furnace is currently in use by
+        /// {18 01}."), from the player, the zone's entities or the party list; null when not known.
+        /// </summary>
+        private string? EntityNameById(uint serverId)
+        {
+            if (serverId == 0) return null;
+            if (_player != null && serverId == _player.ServerId) return _playerName();
+            if (_world != null && _world.TryGetByServerId(serverId, out var entity) && !string.IsNullOrEmpty(entity.Name)) return entity.Name;
+            if (_party != null)
+            {
+                foreach (var member in _party.Members)
+                {
+                    if (member.ServerId == serverId && !string.IsNullOrEmpty(member.Name)) return member.Name;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Party / alliance member n of a 0x19 n dialog code ("Whose Mog House will you visit?" lists {19 01}-{19 11}):
+        /// the event VM's 18 party slots (XiEvents InitEvent2 / GetActorNum, <see cref="TryGetPartyMember"/>), 0 the
+        /// player, 1-5 the rest of the player's party, 6-11 and 12-17 the alliance's other parties. Null for an empty slot.
+        /// </summary>
+        private string? PartyMemberName(int n)
+        {
+            if (n < 0 || n >= 18) return null;
+            if (n == 0) return _playerName();
+            if (!TryGetPartyMember(n / 6, n % 6, out uint serverId, out _)) return null;
+            return EntityNameById(serverId);
+        }
+
         /// <summary>The entity a line is spoken by (0 = the player), resolved as <see cref="EntityName"/> does, or null.</summary>
         private WorldEntity? SpeakingEntity(uint serverId, ushort index)
         {
@@ -689,7 +740,8 @@ namespace Gordian.Core.Events
             return index != 0 && _world.TryGetByTargetIndex(index, out entity) ? entity : null;
         }
 
-        private IEventMessageContext EventContext(string npcName) => new WorkZoneContext(_zone, _playerName(), npcName, PlayerIsFemale());
+        private IEventMessageContext EventContext(string npcName) =>
+            new WorkZoneContext(this, _zone, _playerName(), npcName, PlayerIsFemale(), _info?.StringParams);
 
         /// <summary>
         /// The player's sex from its look's race byte (1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru male/female, 7 Mithra, 8 Galka),
@@ -733,7 +785,7 @@ namespace Gordian.Core.Events
             string speaker = message.HideName ? string.Empty
                 : !string.IsNullOrEmpty(message.Name) ? message.Name
                 : EntityName(message.UniqueNo, message.ActIndex);
-            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName);
+            var context = new SimpleMessageContext(message.Numbers, _playerName(), speaker, ResolveName, PartyMemberName, EntityNameById);
             var lines = EventMessageFormatter.FormatLines(decoded, context);
             PrintLines(lines, speaker, message.HideName ? ChatLogChannel.Message : ChatLogChannel.Dialog);
         }
@@ -1153,6 +1205,28 @@ namespace Gordian.Core.Events
 
         void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);
 
+        /// <summary>
+        /// How many 60 Hz frames a zone's routine runs (the longest of that name in the zone DAT's on-demand routines), for
+        /// 0x2D's 0x54 wait; set by the app from the resource manager's loaded zones. Null, or 0, when it is not known.
+        /// </summary>
+        public static Func<ushort, string, int>? ZoneRoutineFrames { get; set; }
+
+        int IEventVmHost.StartZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            if (_world == null || string.IsNullOrEmpty(routine)) return 0;
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false);
+            int frames = ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;
+            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} in zone {_world.SceneZoneId}: {frames} frames.");
+            return frames;
+        }
+
+        void IEventVmHost.StopZoneScheduler(string routine, uint casterServerId, uint targetServerId)
+        {
+            if (_world == null) return;
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true);
+            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
+        }
+
         void IEventVmHost.SetEventCamera(bool held) => Presentation.SetCameraHeld(held);
 
         int IEventVmHost.PlayEntityMotion(uint serverId, EventMotionSource source, int resource, string routine, uint targetServerId)
@@ -1231,7 +1305,7 @@ namespace Gordian.Core.Events
             EventSceneResource? resource = null;
             try
             {
-                if (DatLoader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
+                if (Loader?.Invoke(fileId) is { } bytes) resource = EventSceneResource.Parse(bytes);
             }
             catch (Exception ex)
             {
@@ -1247,7 +1321,7 @@ namespace Gordian.Core.Events
             EventMotionBank? bank = null;
             try
             {
-                if (DatLoader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
+                if (Loader?.Invoke(fileId) is { } bytes) bank = EventMotionBank.Parse(bytes, fileId);
             }
             catch (Exception ex)
             {
@@ -1259,7 +1333,7 @@ namespace Gordian.Core.Events
 
         /// <summary>
         /// A 0x66 motion package: the first of its DATs that has routines (<see cref="EventMotionBank.PackageFiles"/>: with
-        /// the waist part, else without it, for 0-69; the race sets table for 70-139).
+        /// the waist part, else without it, for 0-69; the three race sets tables for 70-279; the 0x5B bank file from 280).
         /// </summary>
         private EventMotionBank? LoadMotionPackage(int package)
         {
@@ -1291,14 +1365,19 @@ namespace Gordian.Core.Events
         /// </summary>
         private sealed class WorkZoneContext : IEventMessageContext
         {
+            private readonly EventDialogController _owner;
             private readonly EventWorkZone _zone;
+            private readonly string[]? _strings;
 
-            public WorkZoneContext(EventWorkZone zone, string playerName, string npcName, bool? playerIsFemale = null)
+            public WorkZoneContext(EventDialogController owner, EventWorkZone zone, string playerName, string npcName,
+                bool? playerIsFemale = null, string[]? strings = null)
             {
+                _owner = owner;
                 _zone = zone;
                 PlayerName = playerName;
                 NpcName = npcName;
                 PlayerIsFemale = playerIsFemale;
+                _strings = strings;
             }
 
             public string PlayerName { get; }
@@ -1307,7 +1386,16 @@ namespace Gordian.Core.Events
 
             public int GetNumber(int index) => _zone.GetMessageParameter(index);
 
-            public string? GetEntityName(int index) => null;
+            public string? GetEntityName(int index) => _owner.PartyMemberName(index);
+
+            public string? GetEntityNameById(uint serverId) => _owner.EntityNameById(serverId);
+
+            /// <summary>
+            /// The event's string parameter n (S2C 0x033: LandSandBoat's Tateeya sends the automaton's name in all four for
+            /// "If you would like to customize {1C 00}, ..."), or null.
+            /// </summary>
+            public string? GetEventString(int index) =>
+                _strings != null && index >= 0 && index < _strings.Length && !string.IsNullOrEmpty(_strings[index]) ? _strings[index] : null;
 
             public string? ResolveName(byte kind, int id) => EventDialogController.ResolveName(kind, id);
         }
