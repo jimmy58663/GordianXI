@@ -114,6 +114,21 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Finds a live session of the account. LandSandBoat (like retail) allows one session per account: a second
+        /// login is denied and drops the first, so launching must be refused while this returns true.
+        /// </summary>
+        public bool TryGetActiveAccountSession(string username, out CharacterSession? session)
+        {
+            session = null;
+            if (string.IsNullOrWhiteSpace(username)) return false;
+
+            session = _sessions.Values.FirstOrDefault(s =>
+                string.Equals(s.AccountUsername, username, StringComparison.OrdinalIgnoreCase) &&
+                s.State != SessionState.Disconnected);
+            return session != null;
+        }
+
+        /// <summary>
         /// Determines if an account is currently active in memory by account username.
         /// </summary>
         public bool IsAccountActive(string username)

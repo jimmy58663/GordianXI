@@ -1121,6 +1121,10 @@ namespace Gordian.App.ViewModels
             if (existing != null)
             {
                 int index = Profiles.IndexOf(existing);
+                // Remember where the profile sits in the tree: a save that keeps its folder must keep its position.
+                bool sameFolder = string.Equals(
+                    (existing.Profile.Folder ?? string.Empty).Trim().Replace('\\', '/'), targetFolder, StringComparison.OrdinalIgnoreCase);
+                int treeIndex = existing.Parent != null ? existing.Parent.Children.IndexOf(existing) : LaunchTree.IndexOf(existing);
                 UnwireProfileEvents(existing);
                 RemoveNodeFromTree(existing);
 
@@ -1130,12 +1134,14 @@ namespace Gordian.App.ViewModels
 
                 if (string.IsNullOrWhiteSpace(profile.Folder))
                 {
-                    LaunchTree.Add(updatedVm);
+                    if (sameFolder && treeIndex >= 0) LaunchTree.Insert(Math.Min(treeIndex, LaunchTree.Count), updatedVm);
+                    else LaunchTree.Add(updatedVm);
                 }
                 else
                 {
                     var folderVm = GetOrCreateFolder(profile.Folder);
-                    folderVm.AddChild(updatedVm);
+                    if (sameFolder && treeIndex >= 0) folderVm.InsertChild(treeIndex, updatedVm);
+                    else folderVm.AddChild(updatedVm);
                 }
             }
             else
@@ -1155,6 +1161,24 @@ namespace Gordian.App.ViewModels
 
             ClearForm();
             StatusMessage = $"Saved profile '{profile.ProfileName}'.";
+        }
+
+        /// <summary>
+        /// Why a profile must not be launched right now, or null. Online status is per profile (#180), but the server
+        /// allows one session per account (a second login is denied and drops the first), so an account that already
+        /// has a character in game blocks every other profile of that account.
+        /// </summary>
+        public string? GetLaunchSkipReason(AccountProfile profile)
+        {
+            if (_sessionRegistry.IsProfileOnline(profile.ProfileName, profile.CharacterName))
+            {
+                return $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+            }
+            if (_sessionRegistry.TryGetActiveAccountSession(profile.Username, out var live) && live != null)
+            {
+                return $"Account '{profile.Username}' already has a character in game ({live.CharacterName}). Skipped.";
+            }
+            return null;
         }
 
         private void LaunchSelected()
@@ -1202,13 +1226,12 @@ namespace Gordian.App.ViewModels
                     };
                     foreach (var profile in directLsbProfiles)
                     {
-                        // Keyed on the profile's own character, not the account: an account can hold several characters
-                        // (one profile each), and any of them may be logged in at the same time (#180).
-                        if (_sessionRegistry.IsProfileOnline(profile.ProfileName, profile.CharacterName))
+                        string? skipReason = GetLaunchSkipReason(profile);
+                        if (skipReason != null)
                         {
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
-                                StatusMessage = $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+                                StatusMessage = skipReason;
                             });
                             continue;
                         }

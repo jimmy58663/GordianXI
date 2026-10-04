@@ -1,6 +1,7 @@
 // tests/Gordian.App.Tests/MainWindowViewModelTests.cs
 using System;
 using System.IO;
+using System.Linq;
 using Gordian.App.ViewModels;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
@@ -119,6 +120,55 @@ namespace Gordian.App.Tests
             knot.RefreshOnlineStatus();
             Assert.False(blm.IsOnline);
             Assert.True(knot.IsOnline);
+        }
+
+        [Fact]
+        public void SaveProfile_KeepsTheProfilePositionInTheTree()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            var order = vm.LaunchTree.OfType<ProfileItemViewModel>().Select(p => p.ProfileName).ToList();
+            Assert.True(order.Count >= 2);
+
+            var first = vm.LaunchTree.OfType<ProfileItemViewModel>().First();
+            first.EditCommand.Execute(null);
+            vm.FormArguments = "--changed";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.Equal(order, vm.LaunchTree.OfType<ProfileItemViewModel>().Select(p => p.ProfileName).ToList());
+            Assert.Equal(first.ProfileName, vm.Profiles[0].ProfileName);
+
+            // Same inside a folder: edit the first of two profiles there.
+            foreach (var name in new[] { "FolderA", "FolderB" })
+            {
+                vm.FormProfileName = name;
+                vm.FormFolder = "Grp";
+                vm.FormUsername = name;
+                vm.SaveProfileCommand.Execute(null);
+            }
+            var folder = vm.LaunchTree.OfType<LaunchFolderViewModel>().First(f => f.FolderPath == "Grp");
+            var a = folder.Children.OfType<ProfileItemViewModel>().First(p => p.ProfileName == "FolderA");
+            a.EditCommand.Execute(null);
+            vm.FormArguments = "--x";
+            vm.SaveProfileCommand.Execute(null);
+            Assert.Equal(new[] { "FolderA", "FolderB" }, folder.Children.OfType<ProfileItemViewModel>().Select(p => p.ProfileName).ToArray());
+        }
+
+        [Fact]
+        public void GetLaunchSkipReason_BlocksASecondCharacterOfALiveAccount_ButOnlyThatAccount()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            var knot = new AccountProfile { ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" };
+            var blm = new AccountProfile { ProfileName = "BLM", Username = "acct1000", CharacterSlot = 2 };
+            var other = new AccountProfile { ProfileName = "Other", Username = "acct2000" };
+
+            Assert.Null(vm.GetLaunchSkipReason(blm));
+
+            var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
+            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net) { ProfileName = "Knot" });
+
+            Assert.Contains("already active", vm.GetLaunchSkipReason(knot));
+            Assert.Equal("Account 'acct1000' already has a character in game (Knot). Skipped.", vm.GetLaunchSkipReason(blm));
+            Assert.Null(vm.GetLaunchSkipReason(other));
         }
 
         [Fact]
