@@ -93,6 +93,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Jobs | `ROM/165/86` | 55467 |
 | Key items | `ROM/175/35` | 55714 |
 | Zone names / short zone names | `ROM/165/84` / `ROM/165/83` | 55465 / 55661 |
+| Compact zone names (`DMsgCategory.ZoneNamesCompact`) | `ROM/165/85` | 55466 |
 | Quests San d'Oria, Bastok, Windurst, Jeuno | `ROM/176/60`-`63` | 55706-55709 |
 | Missions San d'Oria, Bastok, Windurst, Zilart, CoP | `ROM/176/67`-`71` | 55715-55719 |
 | Missions ToAU | `ROM/176/73` | 55721 |
