@@ -266,6 +266,9 @@ namespace Gordian.App.Graphics
             public bool IsWater { get; init; }
             public Vector2 UVScroll { get; init; }
 
+            /// <summary>The pass and render state this submesh draws with (#251).</summary>
+            public ZoneSubmeshPass Pass => ZoneSubmeshPasses.Classify(IsBlend, IsFoliage, IsWater);
+
             /// <summary>
             /// Point-light binding (set 2) for a placement lit by zone lights; null uses the renderer's unlit set.
             /// </summary>
@@ -749,7 +752,7 @@ namespace Gordian.App.Graphics
                     IsBlend = group.IsBlend,
                     NoCull = group.NoCull,
                     IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
-                    IsWater = group.IsWater || ZoneDefDecoder.IsWaterMesh(group.Name, group.TextureName),
+                    IsWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName),
                     UVScroll = group.UVScroll,
                     EnvironmentId = group.EnvironmentId
                 });
@@ -1046,8 +1049,10 @@ namespace Gordian.App.Graphics
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
-                // Water and translucent foliage/fog planes are deferred to the translucent water pass (Pass 3)
-                if (submesh.IsWater || (submesh.IsBlend && submesh.IsFoliage)) continue;
+                // Blended water and the blended parts of alpha-tested meshes are deferred to the translucent pass
+                // (Pass 3). A submesh without the 0x8000 blend flag is solid and draws here whatever its name (#251).
+                var pass = submesh.Pass;
+                if (pass.IsDeferred()) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
@@ -1056,22 +1061,15 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                Pipeline targetPipeline;
-                if (submesh.IsBlend)
+                Pipeline targetPipeline = pass switch
                 {
                     // Blended terrain decals (sand/grass/cliff transitions, path overlays)
-                    targetPipeline = _terrainBlendPipeline;
-                }
-                else if (submesh.IsFoliage)
-                {
+                    ZoneSubmeshPass.BlendDecal => _terrainBlendPipeline,
                     // Cutout foliage (palm trees, vines, grates) with alpha-test discard and depth write
-                    targetPipeline = _cutoutPipeline;
-                }
-                else
-                {
-                    // Solid opaque terrain, rocks, placed structures, dock posts
-                    targetPipeline = _pipeline;
-                }
+                    ZoneSubmeshPass.Cutout => _cutoutPipeline,
+                    // Solid opaque terrain, rocks, placed structures, dock posts, palisades
+                    _ => _pipeline
+                };
                 targetPipeline = ForSubmesh(targetPipeline, submesh.NoCull);
 
                 var sceneSet = SceneSetFor(submesh);
@@ -1144,7 +1142,7 @@ namespace Gordian.App.Graphics
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
 
-            // Pass 3: Translucent Water, Translucent Foliage & Fog Planes (IsWater == true || (IsBlend == true && IsFoliage == true))
+            // Pass 3: Translucent Water and the blended parts of alpha-tested meshes (ZoneSubmeshPass.Water / DeferredBlend: 0x8000 only)
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
             // Water submeshes use _waterPipeline with linear W-scaled depth bias to eliminate distance z-fighting over shallow seabed.
             // Generator effects advance at 60 frames per second; static water meshes do not scroll.
@@ -1158,7 +1156,7 @@ namespace Gordian.App.Graphics
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
-                if (!submesh.IsWater && (!submesh.IsBlend || !submesh.IsFoliage)) continue;
+                if (!submesh.Pass.IsDeferred()) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
@@ -1167,8 +1165,9 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                var targetPipeline = submesh.IsWater ? _waterPipeline : ForSubmesh(_blendPipeline, submesh.NoCull);
-                var targetSet0 = submesh.IsWater ? _waterResourceSet : SceneSetFor(submesh);
+                bool isWater = submesh.Pass == ZoneSubmeshPass.Water;
+                var targetPipeline = isWater ? _waterPipeline : ForSubmesh(_blendPipeline, submesh.NoCull);
+                var targetSet0 = isWater ? _waterResourceSet : SceneSetFor(submesh);
                 if (currentBoundBlendPipeline != targetPipeline)
                 {
                     _commandList.SetPipeline(targetPipeline);
@@ -1181,7 +1180,7 @@ namespace Gordian.App.Graphics
                     currentBlendSceneSet = targetSet0;
                 }
 
-                if (submesh.IsWater)
+                if (isWater)
                 {
                     // Section 0x05 UV scroll is authored per effect frame
                     Vector2 targetUv = submesh.UVScroll * effectFrames;

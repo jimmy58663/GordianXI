@@ -324,7 +324,7 @@ namespace Gordian.Core.Resources.Graphics
                         IsBlend = blend,
                         NoCull = noCull,
                         IsFoliage = meshName.StartsWith("_"),
-                        IsWater = ZoneDefDecoder.IsWaterMesh(meshName, texName)
+                        IsWater = ZoneDefDecoder.IsWaterSurface(blend, meshName, texName)
                     });
                 }
 
