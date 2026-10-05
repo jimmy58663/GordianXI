@@ -421,35 +421,121 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Chat_KeypadPlusCyclesTheLogWindows()
+        public void Chat_KeypadPlusSelectsTheLogThenTheStatusIcons()
         {
-            var chat = new StockUiChat();
+            var ids = new List<ushort>();
+            var chat = new StockUiChat { StatusIds = () => ids };
             for (int i = 0; i < 20; i++) chat.Log.Add(ChatLogChannel.Say, i.ToString());
 
-            chat.CycleLogWindow();
-            Assert.Equal(1, chat.SelectedLogWindow);
-            chat.CycleLogWindow(); // one window: back to none
-            Assert.Equal(0, chat.SelectedLogWindow);
-
+            // Retail: the first press selects the log (both windows), the next ends it without status effects.
             chat.SetMultiWindow(true);
             chat.CycleLogWindow();
+            Assert.True(chat.IsLogSelected);
+            Assert.Equal(1, chat.SelectedLogWindow);
             chat.CycleLogWindow();
-            Assert.Equal(2, chat.SelectedLogWindow);
-            chat.CycleLogWindow();
-            Assert.Equal(0, chat.SelectedLogWindow);
+            Assert.False(chat.IsSelecting);
 
-            // Releasing a window returns it to the newest lines.
+            // Releasing the log returns it to the newest lines.
             chat.CycleLogWindow();
             chat.Log.Scroll(1, 5);
             chat.ReleaseLogWindow();
-            Assert.Equal(0, chat.SelectedLogWindow);
+            Assert.False(chat.IsLogSelected);
             Assert.Equal(0, chat.Log.ScrollOffset(1));
+        }
 
-            // Window 2 goes away with the split.
+        [Fact]
+        public void Chat_KeypadPlusThenSelectsTheStatusIcons_AndConfirmCancelsOne()
+        {
+            var ids = new List<ushort> { 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50 };
+            var cancelled = new List<ushort>();
+            var chat = new StockUiChat { StatusIds = () => ids, CancelStatus = cancelled.Add };
+
+            chat.CycleLogWindow();                     // the log
+            Assert.True(chat.IsLogSelected);
+            Assert.Equal(-1, chat.SelectedStatusIcon);
+            chat.CycleLogWindow();                     // second press: the status icons
+            Assert.False(chat.IsLogSelected);
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            Assert.True(chat.IsSelecting);
+
+            chat.MoveStatusSelection(-1, 0);           // left from the first wraps to the last
+            Assert.Equal(10, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(1, 0);
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(0, 1);            // down a row of nine
+            Assert.Equal(9, chat.SelectedStatusIcon);
+            chat.MoveStatusSelection(0, 1);            // no third row: stays
+            Assert.Equal(9, chat.SelectedStatusIcon);
+
+            Assert.Equal((ushort)49, chat.ConfirmStatusSelection());
+            Assert.Equal(new ushort[] { 49 }, cancelled);
+            ids.RemoveAt(9);
+            ids.RemoveAt(9);                           // the cursor stays on the icons that are left
+            Assert.Equal(8, chat.SelectedStatusIcon);
+
+            chat.CycleLogWindow();                     // after the icons: none
+            Assert.False(chat.IsSelecting);
+
             chat.CycleLogWindow();
             chat.CycleLogWindow();
-            chat.SetMultiWindow(false);
-            Assert.Equal(0, chat.SelectedLogWindow);
+            Assert.Equal(0, chat.SelectedStatusIcon);
+            chat.ReleaseLogWindow();                   // Cancel ends the selection
+            Assert.False(chat.IsSelecting);
+        }
+
+        [Fact]
+        public void Chat_ConfirmOnTheSelectedLogOpensTheFullLog_WithTabsPerChatType()
+        {
+            var chat = new StockUiChat();
+            chat.Log.Add(ChatLogChannel.Say, "say 1");
+            chat.Log.Add(ChatLogChannel.Tell, "tell 1");
+            chat.Log.Add(new ChatLogLine(ChatLogChannel.Combat, "hit", DateTime.Now));
+            chat.Log.Add(ChatLogChannel.Yell, "yell 1");
+            for (int i = 0; i < 30; i++) chat.Log.Add(ChatLogChannel.Say, $"say {i + 2}");
+
+            chat.OpenFullLog();                        // only from the selected log
+            Assert.False(chat.FullLogOpen);
+            chat.CycleLogWindow();
+            chat.OpenFullLog();
+            Assert.True(chat.FullLogOpen);
+            Assert.Equal(StockUiLogTab.Window1, chat.FullLogTab);
+            var lines = new List<ChatLogLine>();
+            Assert.Equal(34, chat.Log.CopyTab(StockUiLogTab.Window1, 0, 100, lines)); // one window: everything
+
+            chat.CycleLogWindow();                     // keypad + / Y: the next tab
+            Assert.Equal(StockUiLogTab.Window2, chat.FullLogTab);
+            chat.CycleLogWindow();
+            Assert.Equal(StockUiLogTab.Say, chat.FullLogTab);
+            Assert.Equal(31, chat.Log.CopyTab(StockUiLogTab.Say, 0, 100, lines));
+            Assert.All(lines, l => Assert.Equal(ChatLogChannel.Say, l.Channel));
+            chat.ScrollFullLog(5);
+            Assert.Equal(5, chat.FullLogScroll);
+            chat.Log.CopyTab(StockUiLogTab.Say, chat.FullLogScroll, 3, lines);
+            Assert.Equal(new[] { "say 24", "say 25", "say 26" }, lines.Select(l => l.Text));
+            chat.ScrollFullLog(1000);
+            Assert.Equal(30, chat.FullLogScroll);      // clamped to the tab's history
+            chat.ScrollFullLog(-1000);
+            Assert.Equal(0, chat.FullLogScroll);
+
+            Assert.Equal(1, chat.Log.CopyTab(StockUiLogTab.Tell, 0, 100, lines));
+            Assert.Equal(1, chat.Log.CopyTab(StockUiLogTab.Shout, 0, 100, lines));   // Shout keeps Yell
+            for (int i = 0; i < 9; i++) chat.CycleLogWindow();
+            Assert.Equal(StockUiLogTab.Window1, chat.FullLogTab);                     // the tabs wrap
+
+            chat.CloseFullLog();                       // Cancel: back to the selected log
+            Assert.False(chat.FullLogOpen);
+            Assert.True(chat.IsLogSelected);
+        }
+
+        [Fact]
+        public void Log_KeepsALongBoundedHistoryPerChatTab()
+        {
+            var log = new StockUiChatLog();
+            for (int i = 0; i < StockUiChatLog.HistoryCapacity + 10; i++) log.Add(ChatLogChannel.Party, i.ToString());
+            var lines = new List<ChatLogLine>();
+            Assert.Equal(StockUiChatLog.HistoryCapacity, log.CopyTab(StockUiLogTab.Party, 0, 1, lines));
+            Assert.Equal((StockUiChatLog.HistoryCapacity + 9).ToString(), lines[0].Text);
+            Assert.Equal(StockUiChatLog.Capacity, log.Count(1));
         }
 
         [Fact]

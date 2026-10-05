@@ -17,6 +17,7 @@ All formats described here were researched clean-room from public sources (LandS
 | Rendering | [rendering/lighting.md](rendering/lighting.md) | 0x2F light conversion, point lights, sub-environments, actor lighting |
 | Rendering | [rendering/particles.md](rendering/particles.md) | Zone particle runtime, water surfaces, emitters, weather routines |
 | UI | [ui/stock-ui.md](ui/stock-ui.md) | Stock DAT 2D UI: decoders, renderer, HUD, menus, config pages, dump tooling |
+| UI | [ui/retail-user-files.md](ui/retail-user-files.md) | The retail client's per-character `USER` files (cnf.dat colours and settings) and the retail import |
 | Events | [events/vm.md](events/vm.md) | Event files, the event VM, request stacks, cutscene staging and schedulers, the event session |
 | Design | [design/character-lobby.md](design/character-lobby.md) | Phase 5G plan (MVP-blocking) |
 | Design | [design/audio.md](design/audio.md) | Phase 5H: backend recommendation, `.bgw` / `.spw` formats, music slots, ambience, footsteps, zone sound generators, event music |

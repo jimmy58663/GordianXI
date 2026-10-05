@@ -36,6 +36,9 @@ namespace Gordian.Core.Ui
         /// <summary>Your character's name, for the echo of your own lines.</summary>
         public Func<string> CharacterName { get; set; } = () => string.Empty;
 
+        /// <summary>Your character's server id: combat lines about it take the Font Colors "For Self" rows.</summary>
+        public Func<uint> LocalPlayerId { get; set; } = () => 0;
+
         /// <summary>The config menu's client-only chat filter mask (Tell, Party, Linkshell, Linkshell 2, Unity).</summary>
         public Func<uint> ClientChatFilters { get; set; } = () => 0;
 
@@ -87,33 +90,145 @@ namespace Gordian.Core.Ui
         public void SetMultiWindow(bool multiWindow)
         {
             Log.MultiWindow = multiWindow;
-            if (!multiWindow && SelectedLogWindow == 2) SelectedLogWindow = 0;
+            if (SelectedLogWindow > 1) SelectedLogWindow = 1;
         }
 
         /// <summary>
-        /// The log window (1 or 2) selected to scroll through, 0 for none. Retail cycles it with the numeric keypad +
-        /// (gamepad Y): Window 1, Window 2 when split, then none (the status icons follow in retail, to cancel a
-        /// buff, once they can be selected). A selected window is drawn opaque; Up/Down scroll it a line.
+        /// 1 while the log is selected, 0 otherwise. Retail's selection cycle (keypad +, gamepad Y; the maintainer's
+        /// comparison 2026-10-04): the first press selects the log, both windows at once (they open to their maximum
+        /// lines and are drawn opaque), the second the status icons (to cancel a status), the third ends it. While
+        /// the log is selected Up/Down scroll Window 1 a line and Confirm opens the full-screen log.
         /// </summary>
         public int SelectedLogWindow { get; set; }
 
-        /// <summary>Selects the next log window, or none after the last.</summary>
-        public void CycleLogWindow()
+        /// <summary>Whether the log (both windows) is selected.</summary>
+        public bool IsLogSelected => SelectedLogWindow != 0;
+
+        /// <summary>Icons per row of the status icon grid ("buff": nine per row, 26 px apart).</summary>
+        public const int StatusIconsPerRow = 9;
+
+        /// <summary>Your character's status ids in icon order (the "buff" grid's), for the status-icon step of the cycle.</summary>
+        public Func<IReadOnlyList<ushort>> StatusIds { get; set; } = () => Array.Empty<ushort>();
+
+        /// <summary>Asks the server to cancel a status (C2S 0x0F1, <see cref="PlayerActionService.CancelBuffAsync"/>).</summary>
+        public Action<ushort>? CancelStatus { get; set; }
+
+        private int _selectedStatus = -1;
+
+        /// <summary>The index of the status icon under the selection cursor, -1 when none is selected.</summary>
+        public int SelectedStatusIcon
         {
-            SelectedLogWindow = SelectedLogWindow switch
+            get
             {
-                0 => 1,
-                1 when Log.MultiWindow => 2,
-                _ => 0,
-            };
-            if (SelectedLogWindow == 0) Log.ScrollToNewest();
+                if (_selectedStatus < 0) return -1;
+                int count = StatusIds().Count;
+                return count == 0 ? -1 : Math.Min(_selectedStatus, count - 1);
+            }
         }
 
-        /// <summary>Releases the selected log window and returns it to the newest lines.</summary>
+        /// <summary>Whether the log, a status icon or the full-screen log is selected (the menu keys are then the selection's).</summary>
+        public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0 || FullLogOpen;
+
+        /// <summary>
+        /// The full-screen log (the <c>fulllog</c> window with <c>fep</c> tabs; retail capture 2026-10-04): opened
+        /// with Confirm while the log is selected, its tabs cycled with keypad + / gamepad Y, closed with Cancel.
+        /// </summary>
+        public bool FullLogOpen { get; private set; }
+
+        /// <summary>The full-screen log's tab (Window 1, Window 2, then the chat types in retail's order).</summary>
+        public StockUiLogTab FullLogTab { get; private set; }
+
+        /// <summary>How many lines the full-screen log is scrolled back from the tab's newest.</summary>
+        public int FullLogScroll { get; private set; }
+
+        /// <summary>Lines the full-screen log shows at once (set by the HUD), which is how far a page moves.</summary>
+        public int FullLogPageLines { get; set; } = 20;
+
+        /// <summary>
+        /// The next step of the selection cycle: the log, the status icons when there are any, then none; with the
+        /// full-screen log open, its next tab (wrapping).
+        /// </summary>
+        public void CycleLogWindow()
+        {
+            if (FullLogOpen)
+            {
+                int count = Enum.GetValues<StockUiLogTab>().Length;
+                FullLogTab = (StockUiLogTab)(((int)FullLogTab + 1) % count);
+                FullLogScroll = 0;
+                return;
+            }
+            if (_selectedStatus >= 0)
+            {
+                _selectedStatus = -1;
+                return;
+            }
+            if (SelectedLogWindow == 0)
+            {
+                SelectedLogWindow = 1;
+                return;
+            }
+            SelectedLogWindow = 0;
+            Log.ScrollToNewest();
+            if (StatusIds().Count > 0) _selectedStatus = 0;
+        }
+
+        /// <summary>Confirm while the log is selected: opens the full-screen log on its first tab (Window 1).</summary>
+        public void OpenFullLog()
+        {
+            if (!IsLogSelected) return;
+            FullLogOpen = true;
+            FullLogTab = StockUiLogTab.Window1;
+            FullLogScroll = 0;
+        }
+
+        /// <summary>Cancel in the full-screen log: closes it, back to the selected log.</summary>
+        public void CloseFullLog()
+        {
+            FullLogOpen = false;
+            FullLogScroll = 0;
+        }
+
+        /// <summary>Scrolls the full-screen log back (positive) or forward (negative) by lines, within the tab's history.</summary>
+        public void ScrollFullLog(int lines)
+        {
+            if (!FullLogOpen) return;
+            int total = Log.CopyTab(FullLogTab, 0, 0, _scratch);
+            FullLogScroll = Math.Clamp(FullLogScroll + lines, 0, Math.Max(0, total - 1));
+        }
+
+        private readonly List<ChatLogLine> _scratch = new();
+
+        /// <summary>Releases the selection (log window or status icon); a log window returns to the newest lines.</summary>
         public void ReleaseLogWindow()
         {
             SelectedLogWindow = 0;
+            _selectedStatus = -1;
+            FullLogOpen = false;
+            FullLogScroll = 0;
             Log.ScrollToNewest();
+        }
+
+        /// <summary>Moves the status cursor: left/right an icon, up/down a row of the grid, staying on the icons shown.</summary>
+        public void MoveStatusSelection(int dx, int dy)
+        {
+            int index = SelectedStatusIcon;
+            if (index < 0) return;
+            int count = StatusIds().Count;
+            int next = index + dx + dy * StatusIconsPerRow;
+            if (dx != 0) next = (next % count + count) % count;
+            else if (next < 0 || next >= count) next = index;
+            _selectedStatus = next;
+        }
+
+        /// <summary>Confirm on a selected status icon: asks the server to cancel that status. Returns the status id, or null.</summary>
+        public ushort? ConfirmStatusSelection()
+        {
+            int index = SelectedStatusIcon;
+            var ids = StatusIds();
+            if (index < 0 || index >= ids.Count) return null;
+            ushort id = ids[index];
+            CancelStatus?.Invoke(id);
+            return id;
         }
 
         /// <summary>Subscribes the log to a session's message sources.</summary>
@@ -132,14 +247,20 @@ namespace Gordian.Core.Ui
                 Log.Add(ChatLogChannel.System, $"{invite.InviterName} invites you to join a party. Type /join to accept or /decline to decline.");
             combat.ActionExecuted += record =>
             {
-                foreach (var line in CombatLogFormatter.FormatAction(record, resolveEntityName)) Log.Add(ChatLogChannel.Combat, line);
+                // Each line takes its Font Colors row and Log page type from what it reports and whom (StockUiCombatLog).
+                uint me = LocalPlayerId();
+                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName))
+                {
+                    Log.Add(StockUiCombatLog.LineFor(line, me, DateTime.Now));
+                }
             };
             combat.BattleMessageReceived += record =>
             {
                 // A message may span lines (a monster check prints its level, then its defense and evasion).
+                uint me = LocalPlayerId();
                 foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName).Split('\n'))
                 {
-                    if (line.Length > 0) Log.Add(ChatLogChannel.Combat, line);
+                    if (line.Length > 0) Log.Add(StockUiCombatLog.LineFor(line, record.MessageId, record.TargetId, me, DateTime.Now));
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
@@ -207,6 +328,7 @@ namespace Gordian.Core.Ui
             if (string.IsNullOrWhiteSpace(line)) return;
             string raw = line.Trim();
             if (TryChatModeCommand(raw)) return;
+            if (TryImportRetailCommand(raw)) return;
             bool command = raw.StartsWith('/') || raw.StartsWith('!');
             if (!command && mode == ChatInputMode.Tell)
             {
@@ -257,9 +379,11 @@ namespace Gordian.Core.Ui
             }
 
             if (string.IsNullOrEmpty(result.Message)) return;
+            // Search, item search and blacklist replies are server answers retail prints as plain system text (white,
+            // Basic system messages); other client results keep GordianXI's notice colour.
             var channel = result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error
                 ? ChatLogChannel.Error
-                : ChatLogChannel.Notice;
+                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System : ChatLogChannel.Notice;
             foreach (var row in result.Message.Split('\n'))
             {
                 string text = row.TrimEnd('\r');
@@ -335,6 +459,80 @@ namespace Gordian.Core.Ui
             Input.SetMode(mode.Value);
             return true;
         }
+
+        /// <summary>The retail install folder (for <c>/importretail</c>); null when unknown.</summary>
+        public Func<string?> GameDirectory { get; set; } = () => null;
+
+        /// <summary>The character's id, whose hex form is the likely name of its retail USER folder.</summary>
+        public Func<uint> CharacterId { get; set; } = () => 0;
+
+        /// <summary>The character's stock UI settings, which <c>/importretail</c> overwrites.</summary>
+        public Func<StockUiSettings?> Settings { get; set; } = () => null;
+
+        /// <summary>
+        /// <c>/importretail [folder]</c> (#51): with no folder, lists the retail USER folders (newest first, the one
+        /// named after this character marked); with one, imports its cnf.dat (the Font Colors and the Log page's
+        /// routing, which it overwrites). The game folder is only read. Returns false for any other line.
+        /// </summary>
+        public bool TryImportRetailCommand(string raw)
+        {
+            if (!raw.StartsWith('/')) return false;
+            string[] words = raw[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0 || !words[0].Equals("importretail", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string? game = GameDirectory();
+            if (string.IsNullOrEmpty(game))
+            {
+                Log.Add(ChatLogChannel.Error, "Import retail settings: the FINAL FANTASY XI folder was not found.");
+                return true;
+            }
+            var folders = RetailUserSettings.ListFolders(game);
+            string guess = RetailUserSettings.FolderNameFor(CharacterId());
+            if (words.Length == 1)
+            {
+                if (folders.Count == 0)
+                {
+                    Log.Add(ChatLogChannel.Error, "Import retail settings: there are no character folders in the retail USER folder.");
+                    return true;
+                }
+                Log.Add(ChatLogChannel.Notice, "Retail character settings (USER folders, newest first). Import one with /importretail <folder>:");
+                foreach (var folder in folders)
+                {
+                    string mark = folder.Name.Equals(guess, StringComparison.Ordinal) ? "  <- this character?" : string.Empty;
+                    string config = folder.HasConfig ? string.Empty : " (no cnf.dat)";
+                    Log.Add(ChatLogChannel.Notice, $"  {folder.Name}  {folder.LastModifiedUtc.ToLocalTime():yyyy-MM-dd HH:mm}{config}{mark}");
+                }
+                return true;
+            }
+
+            string name = words[1];
+            RetailUserFolder? chosen = null;
+            foreach (var folder in folders)
+            {
+                if (folder.Name.Equals(name, StringComparison.Ordinal)) chosen = folder;
+            }
+            if (chosen == null)
+            {
+                Log.Add(ChatLogChannel.Error, $"Import retail settings: there is no USER folder \"{name}\". Type /importretail to list them.");
+                return true;
+            }
+            var settings = Settings();
+            var cnf = RetailUserSettings.ReadConfig(chosen.Path);
+            if (settings == null || cnf == null)
+            {
+                Log.Add(ChatLogChannel.Error, $"Import retail settings: USER/{chosen.Name} has no readable cnf.dat.");
+                return true;
+            }
+            var applied = RetailUserSettings.Apply(cnf, settings);
+            Log.Add(ChatLogChannel.Notice, applied.Count == 0
+                ? $"Imported nothing from USER/{chosen.Name}."
+                : $"Imported {string.Join(" and ", applied)} from USER/{chosen.Name}.");
+            return true;
+        }
+
+        /// <summary>The commands whose replies are the server's answers (<c>/sea</c>, <c>/itemsearch</c>, <c>/blacklist</c>), logged as system text.</summary>
+        public static bool IsSystemReply(ChatCommandResultKind kind) =>
+            kind is ChatCommandResultKind.PlayerSearch or ChatCommandResultKind.ItemSearch or ChatCommandResultKind.Blacklist;
 
         public static ChatSendKind SendKindOf(ChatInputMode mode) => mode switch
         {

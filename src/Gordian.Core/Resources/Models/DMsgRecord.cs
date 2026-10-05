@@ -48,6 +48,11 @@ namespace Gordian.Core.Resources.Models
         /// the Unity leaders at rows 418-429 (418 = "No Unity", 419 = "Pieuje" ... 428 = "Yoran-Oran", 429 = "Sylvie").
         /// </summary>
         MiscStrings,
+        /// <summary>
+        /// The config menu's row texts (ROM/165/74.DAT, 206 entries; found 2026-09-28, #19): chat filter and Log page
+        /// message types (36-62, 196), Font Colors samples (63-88, 197, 204-205), Effects rows (153-170).
+        /// </summary>
+        MenuConfigRows,
         Custom
     }
 

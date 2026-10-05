@@ -319,7 +319,7 @@ namespace Gordian.Core.Input
             var chat = Chat;
             bool menuOpen = menus?.IsOpen ?? false;
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
-            _inputState.MenuContext = menuOpen || (chat?.SelectedLogWindow ?? 0) != 0;
+            _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             _inputState.Update(_profile, elapsed);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
@@ -341,9 +341,23 @@ namespace Gordian.Core.Input
                     return;
                 }
                 if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !menuOpen) chat.CycleLogWindow();
+                if (chat.FullLogOpen && !menuOpen)
+                {
+                    UpdateFullLog(chat, elapsed);
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
                 if (chat.SelectedLogWindow != 0 && !menuOpen)
                 {
                     UpdateLogScroll(chat, elapsed);
+                    UpdateCamera(elapsed);
+                    UpdateLocomotion(elapsed);
+                    return;
+                }
+                if (chat.SelectedStatusIcon >= 0 && !menuOpen)
+                {
+                    UpdateStatusSelection(chat);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
@@ -389,14 +403,45 @@ namespace Gordian.Core.Input
         private double _scrollHeld;
         private int _scrollDirection;
 
-        /// <summary>Scrolls the selected log window with Up/Down (repeating while held); Cancel or Confirm releases it.</summary>
+        /// <summary>
+        /// Scrolls the selected log with Up/Down (repeating while held); Confirm opens the full-screen log, Cancel
+        /// releases the log.
+        /// </summary>
         private void UpdateLogScroll(Ui.StockUiChat chat, TimeSpan elapsed)
         {
-            if (_inputState.WasActionTriggered(InputAction.Cancel) || _inputState.WasActionTriggered(InputAction.Confirm))
+            if (_inputState.WasActionTriggered(InputAction.Cancel))
             {
                 chat.ReleaseLogWindow();
                 return;
             }
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
+            {
+                chat.OpenFullLog();
+                return;
+            }
+            UpdateHeldScroll(elapsed, steps => chat.Log.Scroll(chat.SelectedLogWindow, steps));
+        }
+
+        /// <summary>
+        /// The full-screen log: Up/Down scroll a line (repeating), Left/Right a page, keypad + / Y the tabs (handled by
+        /// the cycle), Cancel closes it back to the selected log.
+        /// </summary>
+        private void UpdateFullLog(Ui.StockUiChat chat, TimeSpan elapsed)
+        {
+            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            {
+                chat.CloseFullLog();
+                return;
+            }
+            int page = Math.Max(1, chat.FullLogPageLines - 1);
+            if (_inputState.WasActionTriggered(InputAction.MenuLeft)) chat.ScrollFullLog(page);
+            if (_inputState.WasActionTriggered(InputAction.MenuRight)) chat.ScrollFullLog(-page);
+            UpdateHeldScroll(elapsed, chat.ScrollFullLog);
+        }
+
+        /// <summary>Up/Down held: one step at once, then repeating after 0.4 s every 60 ms (positive = back).</summary>
+        private void UpdateHeldScroll(TimeSpan elapsed, Action<int> scroll)
+        {
             int direction = _inputState.IsActionHeld(InputAction.MenuUp) ? 1 : _inputState.IsActionHeld(InputAction.MenuDown) ? -1 : 0;
             if (direction == 0)
             {
@@ -407,7 +452,7 @@ namespace Gordian.Core.Input
             {
                 _scrollDirection = direction;
                 _scrollHeld = 0;
-                chat.Log.Scroll(chat.SelectedLogWindow, direction);
+                scroll(direction);
                 return;
             }
             double before = _scrollHeld;
@@ -415,7 +460,29 @@ namespace Gordian.Core.Input
             if (_scrollHeld < ScrollRepeatDelay) return;
             int steps = (int)((_scrollHeld - ScrollRepeatDelay) / ScrollRepeatInterval) - (int)(Math.Max(0, before - ScrollRepeatDelay) / ScrollRepeatInterval);
             if (before < ScrollRepeatDelay) steps++;
-            if (steps > 0) chat.Log.Scroll(chat.SelectedLogWindow, direction * steps);
+            if (steps > 0) scroll(direction * steps);
+        }
+
+        /// <summary>
+        /// The status-icon step of the selection cycle: the menu directions move the cursor over the icons, Confirm
+        /// cancels the status under it (it stays selected), Cancel ends the selection.
+        /// </summary>
+        private void UpdateStatusSelection(Ui.StockUiChat chat)
+        {
+            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            {
+                chat.ReleaseLogWindow();
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
+            {
+                chat.ConfirmStatusSelection();
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.MenuLeft)) chat.MoveStatusSelection(-1, 0);
+            if (_inputState.WasActionTriggered(InputAction.MenuRight)) chat.MoveStatusSelection(1, 0);
+            if (_inputState.WasActionTriggered(InputAction.MenuUp)) chat.MoveStatusSelection(0, -1);
+            if (_inputState.WasActionTriggered(InputAction.MenuDown)) chat.MoveStatusSelection(0, 1);
         }
 
         /// <summary>True while a stock menu took this tick's input (movement keys and stick still work, as in retail).</summary>

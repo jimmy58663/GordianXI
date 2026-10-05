@@ -72,6 +72,9 @@ namespace Gordian.Core.Ui
         }
     }
 
+    /// <summary>One row of the Log page's lists: its text and the message type it routes.</summary>
+    public readonly record struct StockUiLogRow(string Label, ChatLogType Type, int TextIndex = -1);
+
     /// <summary>A config page: the DAT menu that draws it and its rows.</summary>
     public sealed class StockUiConfigPage
     {
@@ -85,6 +88,13 @@ namespace Gordian.Core.Ui
         public string Menu { get; }
         public string Title { get; }
         public IReadOnlyList<StockUiConfigRow> Rows { get; }
+
+        /// <summary>
+        /// Where a slider's track lies inside its button (layout px from the button's left edge, its width, and the
+        /// fill's top and height): the whole 192 x 16 button on the settings pages (null), the 64 x 8 gauge strip
+        /// drawn from x 13 in each 82-wide bar of the colour editor (its label image: the letter, the strip, knobs).
+        /// </summary>
+        public (float Left, float Width, float FillTop, float FillHeight)? SliderTrack { get; init; }
 
         /// <summary>The option row (and choice) a button belongs to.</summary>
         public bool TryGetOption(int buttonId, out StockUiOptionRow row, out StockUiConfigChoice choice)
@@ -154,6 +164,124 @@ namespace Gordian.Core.Ui
 
         /// <summary>Rows per page of the Chat Filters list (its 14 invisible row buttons).</summary>
         public const int ChatFilterRowsPerPage = 14;
+
+        /// <summary>
+        /// The Font Colors page: <c>conftxtc</c> (top right, the config list's corner: Chat, For Self, For Others,
+        /// System, Default; help 234-238), its lists <c>textcol1</c> (16,106, 366 x 206: eleven invisible 356 x 16
+        /// rows at an 18 px pitch, their links wrapping 11 to 1; help 488 "Select a text category.") and the R/G/B
+        /// editor <c>textcol3</c> (16,48, 366 x 56, right above the list: three 82-wide bars at x 210 with R, G, B
+        /// baked into the frame, then OK (button 4, help 490) and Cancel (5, help 491); help 489 "Set RGB color
+        /// values."). Menu names and help text from the English menu DAT (ROM/119/51) and ROM/165/75.
+        /// </summary>
+        public const string FontColorCategoryMenu = "conftxtc";
+        public const string FontColorListMenu = "textcol1";
+
+        /// <summary>The box above the list (16,48, 366 x 56, no buttons): the selected row's sample in its colour; the editor takes its place.</summary>
+        public const string FontColorSampleBox = "textcol2";
+        public const string FontColorEditPage = "textcol3";
+        public const int FontColorListRows = 11;
+        public const int FontColorOkButton = 4, FontColorCancelButton = 5, FontColorDefaultButton = 5;
+
+        /// <summary>
+        /// The Log page (help 900 "Designate which messages appear in which window. Only active when multiple log
+        /// windows are displayed."): <c>conf11m</c> (top right: Window 1, Window 2, Default; help 905 / 906), then
+        /// <c>conf11l</c> (the same corner: Chat, For Self, For Others, System; help 901-904), then <c>conf11s</c>
+        /// (16,48, 366 x 248: fourteen invisible 256 x 16 rows at x 34 like the Chat Filters list; help 907 "Select
+        /// items to be displayed in the log."), whose rows are ON when the chosen window shows that message type.
+        /// The order of the three windows is our reading of their help text and of cnf.dat (each type sits in exactly
+        /// one window, so "ON in Window 1" is "OFF in Window 2"); to confirm in retail.
+        /// </summary>
+        public const string LogWindowMenu = "conf11m";
+        public const string LogCategoryMenu = "conf11l";
+        public const string LogListMenu = "conf11s";
+        public const int LogListRows = 14;
+        public const int LogDefaultButton = 3;
+
+        /// <summary>The Effects page (<c>fxfilter</c>, help 599 "Remove onscreen battle effects to improve frame rate."): fourteen rows like the Chat Filters list.</summary>
+        public const string EffectsPage = "fxfilter";
+        public const int EffectRows = 14;
+
+        /// <summary>Which client-drawn list a DAT menu is.</summary>
+        public static StockUiListKind ListKindOf(string menuName)
+        {
+            if (menuName.Equals(ChatFiltersPage, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.ChatFilters;
+            if (menuName.Equals(FontColorListMenu, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.FontColors;
+            if (menuName.Equals(LogListMenu, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.LogRouting;
+            if (menuName.Equals(EffectsPage, StringComparison.OrdinalIgnoreCase)) return StockUiListKind.Effects;
+            return StockUiListKind.None;
+        }
+
+        /// <summary>How many rows a list page shows at once (its DAT row buttons).</summary>
+        public static int VisibleRowsOf(StockUiListKind kind) => kind switch
+        {
+            StockUiListKind.ChatFilters => ChatFilterRowsPerPage,
+            StockUiListKind.FontColors => FontColorListRows,
+            StockUiListKind.LogRouting => LogListRows,
+            StockUiListKind.Effects => EffectRows,
+            _ => 0,
+        };
+
+        /// <summary>
+        /// The Log page's rows per category: the Font Colors page's rows (<see cref="StockUiFontColors"/>), which list
+        /// the same message types (config row table 36-62, 196) in retail's order (the Font Colors screenshots,
+        /// 2026-10-04; that the Log page shares the order is our reading).
+        /// </summary>
+        public static IReadOnlyList<StockUiLogRow> LogRows(StockUiFontColorCategory category)
+        {
+            var rows = new List<StockUiLogRow>();
+            foreach (var e in StockUiFontColors.InCategory(category)) rows.Add(new StockUiLogRow(e.Label, LogTypeOf(e.Id), e.LabelIndex));
+            return rows;
+        }
+
+        /// <summary>The Log page message type a Font Colors row stands for.</summary>
+        public static ChatLogType LogTypeOf(StockUiFontColorId id) => id switch
+        {
+            StockUiFontColorId.Say => ChatLogType.Say,
+            StockUiFontColorId.Shout => ChatLogType.Shout,
+            StockUiFontColorId.Yell => ChatLogType.Yell,
+            StockUiFontColorId.Tell => ChatLogType.Tell,
+            StockUiFontColorId.Party => ChatLogType.Party,
+            StockUiFontColorId.Linkshell => ChatLogType.Linkshell,
+            StockUiFontColorId.Linkshell2 => ChatLogType.Linkshell2,
+            StockUiFontColorId.AssistJ => ChatLogType.AssistJ,
+            StockUiFontColorId.AssistE => ChatLogType.AssistE,
+            StockUiFontColorId.Unity => ChatLogType.Unity,
+            StockUiFontColorId.Emote => ChatLogType.Emote,
+            StockUiFontColorId.Message => ChatLogType.Message,
+            StockUiFontColorId.Npc => ChatLogType.NpcConversation,
+            StockUiFontColorId.SelfRecover => ChatLogType.SelfRecover,
+            StockUiFontColorId.SelfDamage => ChatLogType.SelfLose,
+            StockUiFontColorId.SelfBeneficial => ChatLogType.SelfBeneficial,
+            StockUiFontColorId.SelfDetrimental => ChatLogType.SelfDetrimental,
+            StockUiFontColorId.SelfNoEffect => ChatLogType.SelfResist,
+            StockUiFontColorId.SelfMiss => ChatLogType.SelfEvade,
+            StockUiFontColorId.OthersRecover => ChatLogType.OthersRecover,
+            StockUiFontColorId.OthersDamage => ChatLogType.OthersLose,
+            StockUiFontColorId.OthersBeneficial => ChatLogType.OthersBeneficial,
+            StockUiFontColorId.OthersDetrimental => ChatLogType.OthersDetrimental,
+            StockUiFontColorId.OthersNoEffect => ChatLogType.OthersResist,
+            StockUiFontColorId.OthersMiss => ChatLogType.OthersEvade,
+            StockUiFontColorId.StandardBattle => ChatLogType.StandardBattle,
+            StockUiFontColorId.CallForHelp => ChatLogType.CallsForHelp,
+            _ => ChatLogType.BasicSystem,
+        };
+
+        /// <summary>
+        /// The Effects page's rows, worded as the config row table (ROM/165/74 153-170, CP932 0x81A8 drawn as "->"
+        /// since the menu font has no arrow glyph); a row's index is its bit in <see cref="StockUiSettingKey.EffectFilters"/>.
+        /// </summary>
+        /// <summary>The config row table index of the Effects page's first row.</summary>
+        public const int EffectFiltersTextIndex = 153;
+
+        public static IReadOnlyList<string> EffectFilters { get; } = new[]
+        {
+            "All effects during battle",
+            "You -> you", "You -> monster", "You -> party", "You -> non-party PC",
+            "Monster -> you", "Monster -> monster", "Monster -> party", "Monster -> non-party PC",
+            "Party -> you", "Party -> monster", "Party -> party", "Party -> non-party PC",
+            "Non-party PC -> you", "Non-party PC -> monster", "Non-party PC -> party", "Non-party PC -> non-party PC",
+            "Screen shaking",
+        };
 
         private static StockUiConfigChoice On(int button) => new(button, 1, "ON");
         private static StockUiConfigChoice Off(int button) => new(button, 0, "OFF");
@@ -235,6 +363,16 @@ namespace Gordian.Core.Ui
                 new StockUiOptionRow("Third-Person Camera X Axis", StockUiSettingKey.ThirdPersonInvertX, new(9, 0, "Normal"), new(10, 1, "Inverted")),
                 new StockUiOptionRow("First-Person Camera Y Axis", StockUiSettingKey.FirstPersonInvertY, new(11, 0, "Normal"), new(12, 1, "Inverted")),
                 new StockUiOptionRow("First-Person Camera X Axis", StockUiSettingKey.FirstPersonInvertX, new(13, 0, "Normal"), new(14, 1, "Inverted"))));
+
+            // The colour editor: three bars over the colour being set (transient values, 0-255 in the 0x80 half scale).
+            Add(new StockUiConfigPage(FontColorEditPage, "Font Colors",
+                new StockUiSliderRow("R", StockUiSettingKey.FontColorEditRed, 1),
+                new StockUiSliderRow("G", StockUiSettingKey.FontColorEditGreen, 2),
+                new StockUiSliderRow("B", StockUiSettingKey.FontColorEditBlue, 3))
+            {
+                // Each bar's label ("frames" #37-#39): the letter at -1, the gauge strip at (13, 0) 64 x 8, knobs at 9 and 77.
+                SliderTrack = (13, 64, 1, 6),
+            });
 
             Add(new StockUiConfigPage(GlobalPage, "Global",
                 new StockUiOptionRow("Chat Language Filter", StockUiSettingKey.ChatLanguageFilter, On(1), Off(2)),

@@ -32,7 +32,7 @@ namespace Gordian.App.Graphics
         /// list menus) at the selected button's origin plus the cursor offsets.
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
-            long timestamp, (float X, float Y) companionShift = default)
+            long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null)
         {
             var definition = menu.Menu;
             var frame = definition.Frame;
@@ -40,7 +40,9 @@ namespace Gordian.App.Graphics
             // Config pages with sliders: the frame art of some pages bakes in a sample fill (conf5w1's first bar
             // shows about 20%); it is left out so the fill drawn for the value is the only one.
             renderer.DrawMenu(definition, placement, includeButtons: false,
-                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage);
+                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage,
+                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge.
+                opaqueTop: menu.ListKind == StockUiListKind.FontColors ? 0 : StockUiRenderer.MenuBandHeight);
 
             foreach (var button in definition.Buttons)
             {
@@ -82,8 +84,9 @@ namespace Gordian.App.Graphics
                     // value is the same strip's rows 1-6 drawn opaque and tinted light blue from the bar's left edge,
                     // 12 tall inside the 16-tall bar (a retail capture, 2026-09-26; "framesus" #103 is the same
                     // strip with the tint (64, 96, 127), the capture's fill reads a little more lavender).
+                    var track = menu.ConfigPage?.SliderTrack ?? (0, button.Width, SliderFillTop, SliderFillHeight);
                     renderer.DrawTextureRect(SliderTexture, SliderFillSourceX, SliderFillSourceY, SliderFillSourceWidth, SliderFillSourceHeight,
-                        bx, by + SliderFillTop * s, button.Width * fraction * s, SliderFillHeight * s, SliderFillTint);
+                        bx + track.Left * s, by + track.FillTop * s, track.Width * fraction * s, track.FillHeight * s, SliderTint(menu, button.ButtonId));
                 }
 
                 if (menu.IsMarked(button.ButtonId) && menu.Rows.Count == 0)
@@ -127,17 +130,42 @@ namespace Gordian.App.Graphics
                 renderer.SetClip(placement.X + ListClipInset * s, areaY, (frame.Width - ListClipInset) * s, areaH);
                 int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
                 int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+                bool colorRows = menu.ListKind == StockUiListKind.FontColors;
                 for (int i = from; i <= to; i++)
                 {
                     var row = menu.Rows[i];
                     float ry = areaY + (i - first) * pitch * s;
+                    float textY = ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f;
+                    if (colorRows)
+                    {
+                        // Font Colors rows: the message type in white in the log font, no state ball (retail
+                        // screenshots, 2026-10-04: upright text like the log's).
+                        if (logFont != null) logFont.Draw(renderer, row.Text, areaX + FontColorRowTextInset * s, ry, s, White);
+                        else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
+                        continue;
+                    }
                     int stateImage = row.Marked ? StateOnImage : StateOffImage;
                     if (states != null && stateImage < states.Images.Count) renderer.DrawImage(states.Images[stateImage], areaX, ry, s);
-                    renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
+                    renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, textY, s,
                         i == selectedEntry ? SelectedGlyphTint : null);
                 }
                 renderer.ClearClip();
                 if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
+                if (colorRows) DrawFontColorBox(renderer, library, font, logFont, menu, placement);
+            }
+
+            if (font != null && menu.SampleText is { Length: > 0 } sample)
+            {
+                // The colour editor: the row's sample in the colour of its sliders, where the box above the list shows
+                // it, cut with ".." when it does not fit before the bars' labels.
+                float sampleY = placement.Y + (frame.Height * s - font.LineHeight * s) * 0.5f;
+                float sampleWidth = SampleTextRight - SampleTextX;
+                Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
+                string shown = sample;
+                while (shown.Length > 1 && measure(shown) > sampleWidth) shown = shown[..^1];
+                if (shown.Length < sample.Length) shown = shown.TrimEnd() + "..";
+                if (logFont != null) logFont.Draw(renderer, shown, placement.X + SampleTextX * s, placement.Y + (frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, menu.SampleColor);
+                else renderer.DrawText(font, shown, placement.X + SampleTextX * s, sampleY, s, menu.SampleColor);
             }
 
             if (menu.Message is { Length: > 0 } message && font != null)
@@ -439,6 +467,21 @@ namespace Gordian.App.Graphics
         private static readonly UiColor SliderFillTint = new(0x68, 0x60, 0x84, 0x80);
 
         /// <summary>
+        /// The colour editor's bars fill in their channel's colour (retail screenshots, 2026-10-05: a dark red R bar,
+        /// green G bar, navy B bar); every other slider takes the light blue fill.
+        /// </summary>
+        private static UiColor SliderTint(StockUiOpenMenu menu, int buttonId)
+        {
+            if (!menu.Name.Equals(StockUiConfigPages.FontColorEditPage, StringComparison.OrdinalIgnoreCase)) return SliderFillTint;
+            return buttonId switch
+            {
+                1 => new UiColor(0x60, 0x08, 0x08, 0x80),
+                2 => new UiColor(0x08, 0x60, 0x08, 0x80),
+                _ => new UiColor(0x08, 0x08, 0x38, 0x80),
+            };
+        }
+
+        /// <summary>
         /// A frame part that is an authored sample of a slider fill (the orange block, gauge texels 48,16, that
         /// "conf5w1"/"conf5w2" bake into their first bar).
         /// </summary>
@@ -472,11 +515,39 @@ namespace Gordian.App.Graphics
         private const string StateGroup = "frames";
         private const int StateOnImage = 88, StateOffImage = 89;
         private const float ListRowTextInset = 34;
+
+        /// <summary>The Font Colors list's text inset (its rows start at the frame's edge; retail screenshot, 2026-10-04: about 30 px).</summary>
+        private const float FontColorRowTextInset = 30;
+
+        /// <summary>
+        /// Where the sample text sits in the Font Colors box (<c>textcol2</c>) and the colour editor (<c>textcol3</c>,
+        /// the same 366 x 56 rectangle): 16 px in, centred on the window's height (retail screenshot, 2026-10-04); in the
+        /// editor it stops before the "R G B" labels at x ~200.
+        /// </summary>
+        private const float SampleTextX = 16, SampleTextRight = 172;
+
+        /// <summary>
+        /// The box above a Font Colors list (<c>textcol2</c>, authored 58 px above <c>textcol1</c>): its frame, and the
+        /// selected row's sample in the row's colour.
+        /// </summary>
+        private static void DrawFontColorBox(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
+            StockUiOpenMenu list, StockUiPlacement placement)
+        {
+            if (!library.TryGetMenu(StockUiConfigPages.FontColorSampleBox, out var box)) return;
+            float s = placement.Scale;
+            var listFrame = list.Menu.Frame;
+            var at = new StockUiPlacement(placement.X + (box.Frame.X - listFrame.X) * s, placement.Y + (box.Frame.Y - listFrame.Y) * s, s, false);
+            renderer.DrawMenu(box, at, includeButtons: false, opaqueBody: true);
+            if (list.SelectedFontColorSample is not { } sample || sample.Text.Length == 0) return;
+            if (logFont != null) logFont.Draw(renderer, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, sample.Color);
+            else renderer.DrawText(font, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height * s - font.LineHeight * s) * 0.5f, s, sample.Color);
+        }
         private const float ListClipInset = 8;
 
         private const string DefaultCursorGroup = "anc_s";
 
         private static readonly UiColor PointerColor = new(0x80, 0x80, 0x80, 0x80);
+        private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>
         /// The pointer over a clickable entry (retail hides the system arrow there and draws a grey ring over the

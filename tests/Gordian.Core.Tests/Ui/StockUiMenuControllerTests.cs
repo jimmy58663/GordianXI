@@ -616,6 +616,9 @@ namespace Gordian.Core.Tests.Ui
             {
                 StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu,
                 StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
+                StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorListMenu,
+                StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogCategoryMenu, StockUiConfigPages.LogListMenu,
+                StockUiConfigPages.EffectsPage,
             };
             driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
             foreach (string name in driven)
@@ -640,6 +643,14 @@ namespace Gordian.Core.Tests.Ui
                             case StockUiSliderRow slider:
                                 var bar = menu.FindButton(slider.ButtonId);
                                 Assert.NotNull(bar);
+                                if (name.Equals(StockUiConfigPages.FontColorEditPage, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // The colour editor's R/G/B bars are 82 wide and link left to Cancel, right to OK.
+                                    Assert.Equal(82, bar!.Width);
+                                    Assert.Equal(StockUiConfigPages.FontColorCancelButton, bar.NavLeft);
+                                    Assert.Equal(StockUiConfigPages.FontColorOkButton, bar.NavRight);
+                                    break;
+                                }
                                 Assert.Equal(192, bar!.Width);
                                 Assert.Equal(slider.ButtonId, bar.NavLeft);
                                 Assert.Equal(slider.ButtonId, bar.NavRight);

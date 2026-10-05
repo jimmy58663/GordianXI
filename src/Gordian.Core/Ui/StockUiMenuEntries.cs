@@ -52,6 +52,36 @@ namespace Gordian.Core.Ui
 
         /// <summary>The shop window's Sell: opens the inventory list for appraisal and sale.</summary>
         ShopSell,
+
+        /// <summary>A Font Colors category (<c>conftxtc</c>): opens its list; the Argument is a <see cref="StockUiFontColorCategory"/>.</summary>
+        FontColorList,
+
+        /// <summary>The Font Colors page's Default: every colour back to the retail default (after a yes/no prompt).</summary>
+        FontColorDefault,
+
+        /// <summary>A row of a Font Colors list: confirm opens the R/G/B editor on it.</summary>
+        FontColorRow,
+
+        /// <summary>The colour editor's OK: the edited colour becomes the row's.</summary>
+        FontColorApply,
+
+        /// <summary>The colour editor's Cancel.</summary>
+        FontColorCancel,
+
+        /// <summary>The Log page's Window 1 / Window 2 (<c>conf11m</c>): opens the categories for that window (the Argument).</summary>
+        LogWindowSelect,
+
+        /// <summary>A Log page category (<c>conf11l</c>): opens its list; the Argument is a <see cref="StockUiFontColorCategory"/>.</summary>
+        LogCategory,
+
+        /// <summary>The Log page's Default: every message type back to its default window (after a yes/no prompt).</summary>
+        LogDefault,
+
+        /// <summary>A row of the Log page's list: confirm moves the type into or out of the chosen window.</summary>
+        LogRow,
+
+        /// <summary>A row of the Effects page: confirm toggles the filter.</summary>
+        EffectFilter,
     }
 
     /// <summary>
@@ -134,17 +164,37 @@ namespace Gordian.Core.Ui
             // Gamepad is the key-assignment editor ("keypad"/"k1assign").
             [(ConfigMenu, 1)] = new("Gameplay", Opens: StockUiConfigPages.GameplayPage),
             [(ConfigMenu, 2)] = new("Chat Filters", Opens: StockUiConfigPages.ChatFiltersPage),
-            [(ConfigMenu, 3)] = new("Font Colors", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 3)] = new("Font Colors", Opens: StockUiConfigPages.FontColorCategoryMenu),
             [(ConfigMenu, 4)] = new("Windows", Opens: WindowsMenu),
-            [(ConfigMenu, 10)] = new("Log", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 10)] = new("Log", Opens: StockUiConfigPages.LogWindowMenu),
             [(ConfigMenu, 5)] = new("Misc.", Opens: StockUiConfigPages.MiscPage),
             [(ConfigMenu, 6)] = new("Misc. 2", Opens: StockUiConfigPages.Misc2Page),
             [(ConfigMenu, 11)] = new("Misc. 3", Opens: StockUiConfigPages.Misc3Page),
             [(ConfigMenu, 12)] = new("Misc. 4", Opens: StockUiConfigPages.Misc4Page),
-            [(ConfigMenu, 7)] = new("Effects", Command: StockUiMenuCommand.NotAvailable),
+            [(ConfigMenu, 7)] = new("Effects", Opens: StockUiConfigPages.EffectsPage),
             [(ConfigMenu, 8)] = new("Mouse/Cam.", Opens: StockUiConfigPages.MouseCameraPage),
             [(ConfigMenu, 9)] = new("Global", Opens: StockUiConfigPages.GlobalPage),
             [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.NotAvailable),
+
+            // Font Colors: the category lists (label sprites keytops3 #272 Chat, #273 For Self, windowps #432 For
+            // Others, keytops3 #277 System, #278 Default), then the colour editor's OK and Cancel.
+            [(StockUiConfigPages.FontColorCategoryMenu, 1)] = new("Chat", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.Chat),
+            [(StockUiConfigPages.FontColorCategoryMenu, 2)] = new("For Self", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.ForSelf),
+            [(StockUiConfigPages.FontColorCategoryMenu, 3)] = new("For Others", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.ForOthers),
+            [(StockUiConfigPages.FontColorCategoryMenu, 4)] = new("System", Command: StockUiMenuCommand.FontColorList, Argument: (int)StockUiFontColorCategory.System),
+            [(StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorDefaultButton)] = new("Default", Command: StockUiMenuCommand.FontColorDefault),
+            [(StockUiConfigPages.FontColorEditPage, StockUiConfigPages.FontColorOkButton)] = new("OK", Command: StockUiMenuCommand.FontColorApply),
+            [(StockUiConfigPages.FontColorEditPage, StockUiConfigPages.FontColorCancelButton)] = new("Cancel", Command: StockUiMenuCommand.FontColorCancel),
+
+            // Log: the window (windowps #730 Window 1, #731 Window 2, keytops3 #278 Default), then the categories
+            // (keytops3 #272 Chat, #273 For Self, windowps #432 For Others, keytops3 #277 System).
+            [(StockUiConfigPages.LogWindowMenu, 1)] = new("Window 1", Command: StockUiMenuCommand.LogWindowSelect, Argument: 1),
+            [(StockUiConfigPages.LogWindowMenu, 2)] = new("Window 2", Command: StockUiMenuCommand.LogWindowSelect, Argument: 2),
+            [(StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogDefaultButton)] = new("Default", Command: StockUiMenuCommand.LogDefault),
+            [(StockUiConfigPages.LogCategoryMenu, 1)] = new("Chat", Command: StockUiMenuCommand.LogCategory, Argument: (int)StockUiFontColorCategory.Chat),
+            [(StockUiConfigPages.LogCategoryMenu, 2)] = new("For Self", Command: StockUiMenuCommand.LogCategory, Argument: (int)StockUiFontColorCategory.ForSelf),
+            [(StockUiConfigPages.LogCategoryMenu, 3)] = new("For Others", Command: StockUiMenuCommand.LogCategory, Argument: (int)StockUiFontColorCategory.ForOthers),
+            [(StockUiConfigPages.LogCategoryMenu, 4)] = new("System", Command: StockUiMenuCommand.LogCategory, Argument: (int)StockUiFontColorCategory.System),
 
             // Windows: which window's settings to edit.
             [(WindowsMenu, 1)] = new("Shared", Opens: StockUiConfigPages.WindowSettingsPage),
@@ -189,6 +239,24 @@ namespace Gordian.Core.Ui
                 && buttonId >= 1 && buttonId <= StockUiConfigPages.ChatFilterRowsPerPage)
             {
                 entry = new StockUiMenuEntry("Chat filter", Command: StockUiMenuCommand.ChatFilter, Argument: buttonId);
+                return true;
+            }
+            if (menuName.Equals(StockUiConfigPages.FontColorListMenu, StringComparison.OrdinalIgnoreCase)
+                && buttonId >= 1 && buttonId <= StockUiConfigPages.FontColorListRows)
+            {
+                entry = new StockUiMenuEntry("Font color", Command: StockUiMenuCommand.FontColorRow, Argument: buttonId);
+                return true;
+            }
+            if (menuName.Equals(StockUiConfigPages.LogListMenu, StringComparison.OrdinalIgnoreCase)
+                && buttonId >= 1 && buttonId <= StockUiConfigPages.LogListRows)
+            {
+                entry = new StockUiMenuEntry("Log message type", Command: StockUiMenuCommand.LogRow, Argument: buttonId);
+                return true;
+            }
+            if (menuName.Equals(StockUiConfigPages.EffectsPage, StringComparison.OrdinalIgnoreCase)
+                && buttonId >= 1 && buttonId <= StockUiConfigPages.EffectRows)
+            {
+                entry = new StockUiMenuEntry("Effect filter", Command: StockUiMenuCommand.EffectFilter, Argument: buttonId);
                 return true;
             }
             return false;

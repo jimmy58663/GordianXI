@@ -50,28 +50,23 @@ namespace Gordian.App.Graphics
         private const float WaitArrowGap = 2, WaitArrowTop = 3;
 
         /// <summary>
-        /// Log text colours by channel (half scale, 0x80 = 1.0). From retail captures (2026-09-27): say and system
-        /// messages white; server messages (welcome text) violet, about (200, 100, 255); your own tell pink, about
-        /// (255, 150, 255). The rest are approximations of the default Font Colors page, not yet captured.
+        /// A channel's default log colour (half scale, 0x80 = 1.0): its Font Colors row's retail default
+        /// (<see cref="StockUiFontColors"/>, read from a fresh character's cnf.dat), or the fixed colour of channels
+        /// without a row (system text white, server chat-type text violet).
         /// </summary>
-        public static UiColor ChannelColor(ChatLogChannel channel) => channel switch
+        public static UiColor ChannelColor(ChatLogChannel channel) => StockUiFontColors.ForChannel(channel) is { } id
+            ? StockUiFontColors.Get(id).Default.ToUiColor()
+            : StockUiFontColors.FixedColor(channel);
+
+        /// <summary>
+        /// A line's colour: its Font Colors row as the player has set it (<paramref name="settings"/>; the retail default
+        /// without one), or its channel's fixed colour.
+        /// </summary>
+        public static UiColor LineColor(ChatLogLine line, StockUiSettings? settings)
         {
-            ChatLogChannel.Shout => new UiColor(0x7F, 0x5C, 0x40, 0x7F),
-            ChatLogChannel.Yell => new UiColor(0x7F, 0x6C, 0x48, 0x7F),
-            ChatLogChannel.Tell => new UiColor(0x7F, 0x4B, 0x7F, 0x7F),
-            ChatLogChannel.Party => new UiColor(0x50, 0x70, 0x7F, 0x7F),
-            ChatLogChannel.Linkshell => new UiColor(0x58, 0x7F, 0x50, 0x7F),
-            ChatLogChannel.Linkshell2 => new UiColor(0x48, 0x7F, 0x68, 0x7F),
-            ChatLogChannel.Unity => new UiColor(0x7F, 0x74, 0x48, 0x7F),
-            ChatLogChannel.AssistJ or ChatLogChannel.AssistE => new UiColor(0x60, 0x7F, 0x7F, 0x7F),
-            ChatLogChannel.Emote => new UiColor(0x70, 0x70, 0x68, 0x7F),
-            ChatLogChannel.ServerMessage => new UiColor(0x64, 0x32, 0x7F, 0x7F),
-            ChatLogChannel.Notice => new UiColor(0x68, 0x70, 0x7F, 0x7F),
-            ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
-            // NPC dialog and zone messages: white until the Font Colors defaults are captured (#53).
-            ChatLogChannel.Dialog or ChatLogChannel.Message => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
-            _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
-        };
+            if (line.FontColor is not { } id) return StockUiFontColors.FixedColor(line.Channel);
+            return (settings?.GetFontColor(id) ?? StockUiFontColors.Get(id).Default).ToUiColor();
+        }
 
         /// <summary>
         /// Advances a window's slide: the offset decays at one row per <see cref="RowSlideSeconds"/>, and the rows of
@@ -118,6 +113,12 @@ namespace Gordian.App.Graphics
         /// <summary>Timestamp colour: pale yellow, about (255, 255, 228), in a retail capture (2026-09-27).</summary>
         public static readonly UiColor TimestampColor = new(0x7F, 0x7F, 0x72, 0x7F);
 
+        /// <summary>
+        /// A log window's height (layout px, title band included) for a fractional line count: the frame "logN" is 22 px
+        /// + 16 per line after the first, plus the 16-px band; below one line it shrinks to nothing.
+        /// </summary>
+        public static float WindowHeight(float lines) => lines >= 1 ? 22 + 16 * (lines - 1) + TitleBand : Math.Max(0, lines) * (22 + TitleBand);
+
         /// <summary>Rows that fit in a window of <paramref name="textBottom"/> layout pixels (from its top) of text area.</summary>
         public static int RowsThatFit(float textBottom, int maxRows)
         {
@@ -153,7 +154,7 @@ namespace Gordian.App.Graphics
         public static void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition frame, StockUiLogFont logFont,
             UiFont? titleFallback, StockUiPlacement placement, float frameWidth, float frameHeight, int rows,
             IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false,
-            LogScrollState? scroll = null)
+            LogScrollState? scroll = null, StockUiSettings? settings = null, float riseRows = 0)
         {
             float s = placement.Scale;
             var titles = StockUiTitleText.For(library);
@@ -170,16 +171,19 @@ namespace Gordian.App.Graphics
             // Collect wrapped rows from the newest line back until the window is full (and a little past it, for the
             // rows leaving the top while the content slides).
             int collect = rows + SlideExtraRows;
-            var visible = new List<(string Text, ChatLogChannel Channel, bool FirstRow)>(collect);
+            var visible = new List<(string Text, ChatLogLine Line, bool FirstRow)>(collect);
             for (int i = lines.Count - 1; i >= 0 && visible.Count < collect; i--)
             {
                 var wrapped = StockUiChatLog.GetWrappedRows(lines[i], logFont.GetAdvance, textWidth, timestampMode);
-                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < collect; r--) visible.Add((wrapped[r], lines[i].Channel, r == 0));
+                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < collect; r--) visible.Add((wrapped[r], lines[i], r == 0));
             }
 
             float slide = scrolledBack ? 0 : UpdateSlide(scroll, lines, logFont, textWidth, timestampMode, rows);
-            bool clipped = slide > 0;
-            if (clipped) renderer.SetClip(placement.X, placement.Y + RowTop * s, frameWidth * s, rows * RowPitch * s);
+            // A window being resized (reactive sizing) is drawn shorter than its rows: they keep their place against the
+            // bottom edge (moved up by riseRows) and the ones above the top are clipped.
+            riseRows = Math.Clamp(riseRows, 0, rows);
+            bool clipped = slide > 0 || riseRows > 0;
+            if (clipped) renderer.SetClip(placement.X, placement.Y + RowTop * s, frameWidth * s, Math.Max(0, rows - riseRows) * RowPitch * s);
 
             // A line's timestamp has its own colour whatever the line's (retail).
             int stamp = StockUiChatLog.TimestampLength(timestampMode);
@@ -188,14 +192,14 @@ namespace Gordian.App.Graphics
             {
                 float row = rows - 1 - k + slide;
                 if (row >= rows || row <= -1) continue;
-                float x = placement.X + TextLeft * s, y = placement.Y + (RowTop + row * RowPitch) * s;
+                float x = placement.X + TextLeft * s, y = placement.Y + (RowTop + (row - riseRows) * RowPitch) * s;
                 var text = visible[k].Text.AsSpan();
                 if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
                 {
                     x = logFont.Draw(renderer, text[..stamp], x, y, s, TimestampColor);
                     text = text[stamp..];
                 }
-                float end = logFont.Draw(renderer, text, x, y, s, ChannelColor(visible[k].Channel));
+                float end = logFont.Draw(renderer, text, x, y, s, LineColor(visible[k].Line, settings));
                 if (k == 0)
                 {
                     newestEnd = end;
@@ -218,11 +222,111 @@ namespace Gordian.App.Graphics
 
             if (scrolledBack && library.TryGetGroup("kaipage", out var marker) && marker.Images.Count > 0)
             {
-                float bottom = RowTop + rows * RowPitch;
+                float bottom = RowTop + (rows - riseRows) * RowPitch;
                 renderer.DrawImage(marker.Images[0], placement.X + (frameWidth - MoreMarkerInset) * s,
                     placement.Y + (bottom - MoreMarkerInset + 2) * s, s);
             }
         }
+
+        /// <summary>The full-screen log's window (16,48, 366 x 384 authored, no title; its button 1 at (3,3) 64 x 16 is the selected tab's place).</summary>
+        public const string FullLogMenu = "fulllog";
+
+        /// <summary>
+        /// The full-screen log's tab strip (retail capture 2026-10-04): the <c>fep</c> chat-mode pills (64 x 12) along the
+        /// window's top edge from 5 px in, 11 px above it; the selected tab orange and whole, the others grey and 30 px
+        /// apart, each covering the right of the one before (so their labels show cut: "Wind", "Part", "Assi"), and the
+        /// window's top 22 px below the screen's.
+        /// </summary>
+        public const float FullLogTop = 22, TabStripLeft = 5, TabStripRaise = 11, TabPitch = 30, SelectedTabWidth = 64;
+
+        /// <summary>The <c>fep</c> images of each full-log tab: (grey, orange). Read from the group's sheet (10-32).</summary>
+        public static (int Grey, int Orange) TabImages(StockUiLogTab tab) => tab switch
+        {
+            StockUiLogTab.Window1 => (18, 27),
+            StockUiLogTab.Window2 => (19, 28),
+            StockUiLogTab.Say => (10, 20),
+            StockUiLogTab.Tell => (12, 22),
+            StockUiLogTab.Party => (13, 23),
+            StockUiLogTab.Linkshell => (14, 24),
+            StockUiLogTab.Linkshell2 => (16, 25),
+            StockUiLogTab.AssistE => (30, 32),
+            StockUiLogTab.AssistJ => (29, 31),
+            StockUiLogTab.Unity => (17, 26),
+            _ => (11, 21), // Shout
+        };
+
+        private static readonly List<ChatLogLine> FullLogLines = new();
+
+        /// <summary>
+        /// Draws the full-screen log (Confirm while the log is selected): the <c>fulllog</c> frame from
+        /// <see cref="FullLogTop"/> down to the log's bottom edge at <paramref name="width"/> (Window 1's width), opaque,
+        /// the tab strip over its top edge, the tab's lines from the bottom up (timestamps and colours as the log
+        /// windows draw them) and a scrollbar on the right. Returns the rows shown (the page size).
+        /// </summary>
+        public static int DrawFullLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiLogFont logFont, StockUiChat chat,
+            float x, float bottom, float width, float scale, int timestampMode, StockUiSettings? settings)
+        {
+            if (!library.TryGetMenu(FullLogMenu, out var frame)) return 0;
+            float s = scale;
+            float top = FullLogTop * s;
+            float height = Math.Max(RowTop + RowPitch, (bottom - top) / s);
+            var placement = new StockUiPlacement(x, top, s, false);
+            renderer.DrawMenu(frame, placement, includeButtons: false, width, opaqueBody: true, frameHeight: height, opaqueTop: 0);
+
+            if (library.TryGetGroup("fep", out var fep))
+            {
+                float tx = x + TabStripLeft * s, ty = top - TabStripRaise * s;
+                foreach (var tab in Enum.GetValues<StockUiLogTab>())
+                {
+                    bool selected = tab == chat.FullLogTab;
+                    var (grey, orange) = TabImages(tab);
+                    int image = selected ? orange : grey;
+                    if (image < fep.Images.Count) renderer.DrawImage(fep.Images[image], tx, ty, s);
+                    tx += (selected ? SelectedTabWidth : TabPitch) * s;
+                }
+            }
+
+            int rows = Math.Max(1, (int)Math.Floor((height - RowTop - BottomPadding) / RowPitch));
+            float textWidth = width - TextLeft - TextRight - ScrollbarRoom;
+            int total = chat.Log.CopyTab(chat.FullLogTab, chat.FullLogScroll, rows, FullLogLines);
+            var visible = new List<(string Text, ChatLogLine Line, bool FirstRow)>(rows);
+            for (int i = FullLogLines.Count - 1; i >= 0 && visible.Count < rows; i--)
+            {
+                var wrapped = StockUiChatLog.GetWrappedRows(FullLogLines[i], logFont.GetAdvance, textWidth, timestampMode);
+                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < rows; r--) visible.Add((wrapped[r], FullLogLines[i], r == 0));
+            }
+            int stamp = StockUiChatLog.TimestampLength(timestampMode);
+            for (int k = 0; k < visible.Count; k++)
+            {
+                float rx = x + TextLeft * s, ry = top + (RowTop + (rows - 1 - k) * RowPitch) * s;
+                var text = visible[k].Text.AsSpan();
+                if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
+                {
+                    rx = logFont.Draw(renderer, text[..stamp], rx, ry, s, TimestampColor);
+                    text = text[stamp..];
+                }
+                logFont.Draw(renderer, text, rx, ry, s, LineColor(visible[k].Line, settings));
+            }
+
+            // The scrollbar (retail: a pale pink thumb at the right edge): the track over the text area, the thumb as
+            // long as the rows' share of the tab's lines, at the scroll position.
+            if (total > 0)
+            {
+                float trackX = x + (width - ScrollbarInset) * s, trackY = top + RowTop * s, trackH = rows * RowPitch * s;
+                renderer.DrawTextureRect(CaretTexture, 30, 3, 1, 1, trackX, trackY, ScrollbarWidth * s, trackH, ScrollTrackTint);
+                float share = Math.Min(1f, rows / (float)total);
+                float thumbH = Math.Max(4 * s, trackH * share);
+                float back = Math.Clamp(chat.FullLogScroll / (float)total, 0f, 1f);
+                // At the newest lines the thumb sits at the bottom; scrolled back it rises by the share scrolled.
+                float thumbY = Math.Clamp(trackY + (trackH - thumbH) - trackH * back, trackY, trackY + trackH - thumbH);
+                renderer.DrawTextureRect(CaretTexture, 30, 12, 1, 1, trackX, thumbY, ScrollbarWidth * s, thumbH, ScrollThumbTint);
+            }
+            return rows;
+        }
+
+        private const float ScrollbarWidth = 6, ScrollbarInset = 4, ScrollbarRoom = 8;
+        private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
+        private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
         /// <summary>
         /// Draws the chat input line: the <c>inline</c> strip opaque (as menus are) and stretched to
@@ -250,7 +354,7 @@ namespace Gordian.App.Graphics
 
             float textX = placement.X + TextLeft * s;
             float rowY = placement.Y + (inline.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s;
-            logFont.Draw(renderer, text.AsSpan(start, end - start), textX, rowY, s, ChannelColor(ChatLogChannel.Say));
+            logFont.Draw(renderer, text.AsSpan(start, end - start), textX, rowY, s, StockUiFontColors.FixedColor(ChatLogChannel.Say));
 
             // Blink at 0.5 s on, 0.5 s off.
             if (Stopwatch.GetElapsedTime(0, timestamp).TotalMilliseconds % 1000 < 500)

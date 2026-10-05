@@ -207,6 +207,12 @@ namespace Gordian.Core.Network
             };
 
             Chat.CharacterName = () => CharacterName;
+            Chat.LocalPlayerId = () => LocalPlayer.ServerId;
+            Chat.StatusIds = () => LocalPlayer.GetStatusEffectIds();
+            Chat.CharacterId = () => CharacterId;
+            Chat.Settings = () => ActionService.UiSettings;
+            Chat.CancelStatus = id => _ = ActionService.CancelBuffAsync(id);
+            Chat.Log.Window2Types = () => (uint)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.LogWindow2Types);
             Chat.ClientChatFilters = () => (uint)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.ClientChatFilters);
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);

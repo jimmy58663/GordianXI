@@ -12,6 +12,21 @@ namespace Gordian.Core.Network.Packets
     /// into human-readable in-game combat log entries.
     /// Operates zero-allocation on common paths and adheres to authentic FFXI client message phrasing.
     /// </summary>
+    /// <summary>Which part of an action result a log line reports.</summary>
+    public enum CombatLogLinePart : byte
+    {
+        Primary,
+        AddedEffect,
+        Reaction,
+    }
+
+    /// <summary>
+    /// One formatted combat line with what it is about: who acts, who takes the result (the target, or the actor of a
+    /// reaction such as spikes), the message id and the action's category and resolution.
+    /// </summary>
+    public readonly record struct CombatLogLine(string Text, uint ActorId, uint TargetId, ushort MessageId, ActionCategory Category,
+        ActionResolution Resolution, CombatLogLinePart Part);
+
     public static class CombatLogFormatter
     {
         private static readonly Dictionary<ushort, string> WellKnownSpells = new()
@@ -241,10 +256,27 @@ namespace Gordian.Core.Network.Packets
             Func<ushort, string?>? resolveSpellName = null,
             Func<ushort, string?>? resolveAbilityName = null)
         {
+            var detailed = FormatActionLines(record, resolveEntityName, resolveSpellName, resolveAbilityName);
+            var lines = new List<string>(detailed.Count);
+            foreach (var line in detailed) lines.Add(line.Text);
+            return lines;
+        }
+
+        /// <summary>
+        /// The lines of <see cref="FormatAction"/> with what each one is about (the entity that takes the result, its
+        /// message id and resolution, and whether it is the primary result, an added effect or a reaction), so the log
+        /// can pick the line's Font Colors row and window.
+        /// </summary>
+        public static List<CombatLogLine> FormatActionLines(
+            CombatActionRecord record,
+            Func<uint, string?> resolveEntityName,
+            Func<ushort, string?>? resolveSpellName = null,
+            Func<ushort, string?>? resolveAbilityName = null)
+        {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
 
-            var lines = new List<string>(record.Targets.Count);
+            var lines = new List<CombatLogLine>(record.Targets.Count);
             string actor = resolveEntityName(record.ActorId) ?? $"Entity_{record.ActorId:X}";
 
             for (int t = 0; t < record.Targets.Count; t++)
@@ -260,7 +292,8 @@ namespace Gordian.Core.Network.Packets
                     string primaryLine = FormatActionResult(record, actor, target, result, resolveSpellName, resolveAbilityName);
                     if (!string.IsNullOrEmpty(primaryLine))
                     {
-                        lines.Add(primaryLine);
+                        lines.Add(new CombatLogLine(primaryLine, record.ActorId, targetRecord.TargetId, result.MessageId, record.Category,
+                            result.Resolution, CombatLogLinePart.Primary));
                     }
 
                     // Additional effect proc
@@ -272,16 +305,18 @@ namespace Gordian.Core.Network.Packets
                             : result.ProcParam > 0
                                 ? $"Additional effect: {target} takes {result.ProcParam} points of {result.ProcKind} damage."
                                 : $"Additional effect: {result.ProcKind}.";
-                        lines.Add(procLine);
+                        lines.Add(new CombatLogLine(procLine, record.ActorId, targetRecord.TargetId, result.ProcMessageId, record.Category,
+                            ActionResolution.Hit, CombatLogLinePart.AddedEffect));
                     }
 
-                    // Spikes / Reaction
+                    // Spikes / Reaction: the actor takes the damage.
                     if (result.HasReaction)
                     {
                         string reactLine = result.ReactionKind == ActionReactKind.Counter
                             ? $"{target} counters {actor}'s attack for {result.ReactionParam} points of damage."
                             : $"{target}'s {result.ReactionKind} deals {result.ReactionParam} damage to {actor}.";
-                        lines.Add(reactLine);
+                        lines.Add(new CombatLogLine(reactLine, targetRecord.TargetId, record.ActorId, result.ReactionMessageId, record.Category,
+                            ActionResolution.Hit, CombatLogLinePart.Reaction));
                     }
                 }
             }

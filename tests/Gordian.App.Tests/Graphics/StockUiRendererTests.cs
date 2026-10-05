@@ -617,7 +617,7 @@ namespace Gordian.App.Tests.Graphics
                     var top = menus.Top!;
                     var frame = top.Menu.Frame;
                     var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, width, height);
-                    StockUiMenuWindow.Draw(renderer, library, font, top, placement, 0);
+                    StockUiMenuWindow.Draw(renderer, library, font, top, placement, 0, logFont: StockUiLogFont.FromLibrary(library));
                     renderer.End(framebuffer, width, height);
                     var pixels = ReadBack(gd, color, width, height);
                     string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
@@ -682,6 +682,47 @@ namespace Gordian.App.Tests.Graphics
                     }
                 }
                 Assert.True(bright, "row text");
+
+                // Font Colors: the Chat list draws the message types in white and the box above it the selected row's
+                // sample in its colour (the tell row pink: red and blue over green); the R/G/B editor fills its bars
+                // to the colour's channels.
+                menus.CloseAll();
+                menus.ConfigRowText = i => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.MenuConfigRows, i, out var t) ? t : null;
+                Assert.True(menus.Open(StockUiConfigPages.FontColorCategoryMenu));
+                menus.Activate();                                              // Chat
+                Assert.Equal(StockUiConfigPages.FontColorListMenu, menus.Top!.Name);
+                int tellIndex = menus.Top.FontColorRows.ToList().FindIndex(e => e.Id == StockUiFontColorId.Tell);
+                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                pixels = Render(menus, "config_font_colors");
+                bool pink = false;
+                for (int x = 16; x < 160 && !pink; x++)
+                {
+                    for (int y = 16; y < 44 && !pink; y++)
+                    {
+                        var p = Pixel(pixels, width, 16 + x, 48 + y);
+                        pink = p.R > 200 && p.B > 200 && p.G < 160;
+                    }
+                }
+                Assert.True(pink, "tell sample in the tell colour in the box above the list");
+
+                menus.Activate();
+                Assert.Equal(StockUiConfigPages.FontColorEditPage, menus.Top!.Name);
+                pixels = Render(menus, "config_font_color_edit");
+                var redBar = menus.Top.Menu.FindButton(1)!;
+                var redFill = Pixel(pixels, width, 16 + redBar.X + redBar.Width / 2, 48 + redBar.Y + 5);
+                Assert.True(redFill.R > redFill.B + 40, $"R bar filled red past half (tell red 0xA0) {redFill}");
+
+                // The Log page's list and the Effects page draw the Chat Filters rows: an ON / OFF ball and the text.
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.LogWindowMenu));
+                menus.Activate();                                              // Window 1
+                menus.Activate();                                              // Chat
+                Assert.Equal(StockUiConfigPages.LogListMenu, menus.Top!.Name);
+                Render(menus, "config_log_chat");
+                menus.CloseAll();
+                Assert.True(menus.Open(StockUiConfigPages.EffectsPage));
+                menus.Activate();
+                Render(menus, "config_effects");
 
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
             }
@@ -853,6 +894,82 @@ namespace Gordian.App.Tests.Graphics
         public void ZoneRowText_PutsTheCompactNameInParentheses()
         {
             Assert.Equal("(SSandOria)", StockUiPartyWindow.ZoneRowText("SSandOria"));
+        }
+
+        /// <summary>
+        /// Renders the full-screen log (Confirm with the log selected) on its Say tab: the fulllog frame, the fep tab
+        /// strip with Say orange, and the tab's lines; writes full_log.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersFullLogWithTabs()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
+            if (library == null || logFont == null || !library.TryGetMenu(StockUiChatWindow.FullLogMenu, out _)) return;
+
+            const uint width = 900, height = 600;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiFullLogTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.2f, 0.19f, 0.18f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var chat = new StockUiChat();
+                var t = new DateTime(2026, 10, 4, 7, 0, 0);
+                for (int i = 0; i < 60; i++) chat.Log.Add(new ChatLogLine(ChatLogChannel.Say, $"Gemini : line {i}", t.AddSeconds(i)));
+                chat.Log.Add(new ChatLogLine(ChatLogChannel.Tell, "Cybin>> hello", t.AddSeconds(70)));
+                chat.CycleLogWindow();
+                chat.OpenFullLog();
+                chat.CycleLogWindow();
+                chat.CycleLogWindow();                                         // Window 1 -> Window 2 -> Say
+                Assert.Equal(StockUiLogTab.Say, chat.FullLogTab);
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                int rows = StockUiChatWindow.DrawFullLog(renderer, library, logFont, chat, 8, height - 8, 600, 1, 2, null);
+                renderer.End(framebuffer, width, height);
+                Assert.True(rows > 20, $"{rows} rows");
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "full_log.png"), pixels, (int)width, (int)height);
+                }
+                // The selected tab (Say, the third) is orange: red well over blue somewhere in its pill.
+                bool orange = false;
+                float tabX = 8 + StockUiChatWindow.TabStripLeft + 2 * StockUiChatWindow.TabPitch;
+                for (int x = (int)tabX; x < tabX + 60 && !orange; x++)
+                {
+                    for (int y = 11; y < 22 && !orange; y++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        orange = p.R > 120 && p.R > p.B + 60;
+                    }
+                }
+                Assert.True(orange, "selected tab orange");
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
         }
 
         /// <summary>
