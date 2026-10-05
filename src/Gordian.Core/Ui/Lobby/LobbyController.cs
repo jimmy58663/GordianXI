@@ -98,6 +98,7 @@ namespace Gordian.Core.Ui.Lobby
         public const string YesNoPromptMenu = "ptc6yesn";
         public const string DeletePromptMenu = "ptc9dele";
         public const string StatusPromptMenu = "ptc2warn";
+        public const string LicencePromptMenu = "ptc8lice";
 
         /// <summary>loby2win ButtonIds (in screen order 1, 2, 3, 5, 4).</summary>
         public const int SelectButton = 1, CreateButton = 2, DeleteButton = 3, BackButton = 4, ConfigButton = 5;
@@ -113,13 +114,37 @@ namespace Gordian.Core.Ui.Lobby
         private readonly LobbyTextTables? _text;
         private bool _deleting;
 
-        public LobbyController(ILobbyBackend backend, UiResourceLibrary? library, LobbyTextTables? text)
+        /// <param name="showLicence">Whether the title menu waits behind the licence page (retail; tests skip it).</param>
+        public LobbyController(ILobbyBackend backend, UiResourceLibrary? library, LobbyTextTables? text, bool showLicence = true)
         {
             _backend = backend ?? throw new ArgumentNullException(nameof(backend));
             _library = library;
             _text = text;
             MainMenu = Menu(MainMenuName, SelectButton);
+            if (showLicence) ShowLicence();
             UpdateHelp();
+        }
+
+        /// <summary>Whether the licence page is still waiting to be accepted (the title menu stays hidden behind it).</summary>
+        public bool IsLicencePending { get; private set; }
+
+        /// <summary>
+        /// The page retail shows before the title menu: <c>ptc8lice</c> (Accept / Decline, lobbywin #101 / #102) with
+        /// ROM/165/71 row 158 (the notice that the game is played through PlayOnline under its User Agreement and Rules of
+        /// Conduct). Accept shows the title menu; Decline leaves the lobby.
+        /// </summary>
+        private void ShowLicence()
+        {
+            IsLicencePending = true;
+            string text = Status(LobbyTextTables.LicenceNotice);
+            var lines = text.Length > 0 ? text.Split('\n') : Array.Empty<string>();
+            Prompt = new LobbyPrompt(Menu(LicencePromptMenu, PromptFirstButton), lines, button =>
+            {
+                Prompt = null;
+                IsLicencePending = false;
+                if (button != PromptFirstButton) Close(null);
+                else UpdateHelp();
+            });
         }
 
         /// <summary>Raised (on a pool thread) when a character was selected: start the game session with the ticket.</summary>
@@ -154,7 +179,9 @@ namespace Gordian.Core.Ui.Lobby
         public string HelpText { get; private set; } = string.Empty;
 
         /// <summary>Whether a lobby request is running (input is ignored until it ends).</summary>
-        public bool IsBusy { get; private set; }
+        public bool IsBusy { get => _isBusy; private set => _isBusy = value; }
+
+        private volatile bool _isBusy;
 
         /// <summary>Every content id of the account in slot order.</summary>
         public IReadOnlyList<LobbyCharacter> Characters => _backend.Characters;
@@ -360,8 +387,8 @@ namespace Gordian.Core.Ui.Lobby
                     await request(CancellationToken.None).ConfigureAwait(false);
                     lock (SyncRoot)
                     {
-                        IsBusy = false;
                         if (Prompt is { HasButtons: false }) Prompt = null;
+                        IsBusy = false; // last: a reader that sees the request done sees its outcome
                         Touch();
                     }
                 }
@@ -370,9 +397,9 @@ namespace Gordian.Core.Ui.Lobby
                     GordianLog.Warning("LOBBY", $"Lobby request failed: {ex.Message}");
                     lock (SyncRoot)
                     {
-                        IsBusy = false;
                         Prompt = null;
                         ShowError(ex);
+                        IsBusy = false;
                         Touch();
                     }
                 }
@@ -534,6 +561,7 @@ namespace Gordian.Core.Ui.Lobby
                     break;
                 case YesNoPromptMenu:
                 case DeletePromptMenu:
+                case LicencePromptMenu:
                     buttons.Add(new UiMenuButton { ButtonId = 1, X = -24, Y = 118, Width = 118, Height = 22, NavUp = 1, NavDown = 1, NavLeft = 2, NavRight = 2 });
                     buttons.Add(new UiMenuButton { ButtonId = 2, X = 104, Y = 118, Width = 118, Height = 22, NavUp = 2, NavDown = 2, NavLeft = 1, NavRight = 1 });
                     break;
@@ -558,7 +586,7 @@ namespace Gordian.Core.Ui.Lobby
                 LobbyScreen.CharacterList => _deleting ? LobbyTextTables.HelpSelectCharacterToDelete : LobbyTextTables.HelpSelectCharacterToPlay,
                 _ => -1,
             };
-            HelpText = line >= 0 ? Status(line) : string.Empty;
+            HelpText = line >= 0 && !IsLicencePending ? Status(line) : string.Empty;
         }
 
         private void Touch()

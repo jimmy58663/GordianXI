@@ -80,7 +80,7 @@ namespace Gordian.Core.Tests.Ui
         [Fact]
         public void MainMenu_NavigatesInScreenOrderAndWraps()
         {
-            var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null);
+            var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null, showLicence: false);
             Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
             Assert.Equal(LobbyController.SelectButton, lobby.MainMenu!.SelectedButtonId);
             lobby.HandleInput(LobbyInput.Down);
@@ -97,9 +97,46 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Back_ClosesTheLobby()
+        public void Licence_AcceptShowsTheTitleMenu()
         {
             var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null);
+            Assert.True(lobby.IsLicencePending);
+            Assert.Equal(LobbyController.LicencePromptMenu, lobby.Prompt!.Menu.Name);
+            Assert.Equal(LobbyController.PromptFirstButton, lobby.Prompt.Menu.SelectedButtonId); // Accept
+            lobby.HandleInput(LobbyInput.Down); // the title menu does not take input yet
+            Assert.Equal(LobbyController.SelectButton, lobby.MainMenu!.SelectedButtonId);
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.False(lobby.IsLicencePending);
+            Assert.Null(lobby.Prompt);
+            Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
+        }
+
+        [Fact]
+        public void Licence_DeclineLeavesTheLobby()
+        {
+            var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null);
+            bool closed = false;
+            lobby.Closed += _ => closed = true;
+            lobby.HandleInput(LobbyInput.Right); // Decline
+            lobby.HandleInput(LobbyInput.Confirm);
+            Assert.True(closed);
+            Assert.Equal(LobbyScreen.Closed, lobby.Screen);
+        }
+
+        [Fact]
+        public void Preview_StandsAlive()
+        {
+            var preview = new LobbyPreview();
+            preview.Show(Character(1, "Knot"));
+            Assert.Equal(100, preview.Entity!.Hpp);
+            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle,
+                Gordian.Core.Animation.AnimationStateClassifier.Classify(preview.Entity, false, isLocalPlayer: true));
+        }
+
+        [Fact]
+        public void Back_ClosesTheLobby()
+        {
+            var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null, showLicence: false);
             string? reason = "unset";
             lobby.Closed += r => reason = r;
             lobby.HandleInput(LobbyInput.Up); // Back
@@ -111,7 +148,7 @@ namespace Gordian.Core.Tests.Ui
         [Fact]
         public void List_SkipsFreeSlotsAndPreviewsTheSelection()
         {
-            var lobby = new LobbyController(Backend(Free(1), Character(2, "Knot"), Free(3), Character(4, "Blm")), null, null);
+            var lobby = new LobbyController(Backend(Free(1), Character(2, "Knot"), Free(3), Character(4, "Blm")), null, null, showLicence: false);
             lobby.HandleInput(LobbyInput.Confirm);
             Assert.Equal(LobbyScreen.CharacterList, lobby.Screen);
             Assert.Equal(2, lobby.CharacterList!.SelectedButtonId);
@@ -129,7 +166,7 @@ namespace Gordian.Core.Tests.Ui
         public void Select_RaisesTheTicket()
         {
             var backend = Backend(Character(1, "Knot"));
-            var lobby = new LobbyController(backend, null, null);
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
             LsbSessionTicket? ticket = null;
             lobby.CharacterSelected += t => ticket = t;
             lobby.HandleInput(LobbyInput.Confirm);
@@ -145,7 +182,7 @@ namespace Gordian.Core.Tests.Ui
         {
             var backend = Backend(Character(1, "Knot"));
             backend.OnSelect = _ => Task.FromException<LsbSessionTicket>(LobbyRequestException.FromServer("select", LobbyErrorCode.CharacterAlreadyLoggedIn));
-            var lobby = new LobbyController(backend, null, null);
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
             lobby.HandleInput(LobbyInput.Confirm);
             lobby.HandleInput(LobbyInput.Confirm);
             WaitIdle(lobby);
@@ -165,7 +202,7 @@ namespace Gordian.Core.Tests.Ui
                 backend.IsConnected = false;
                 return Task.FromException<LsbSessionTicket>(new LobbyRequestException("select", 0, "connection lost"));
             };
-            var lobby = new LobbyController(backend, null, null);
+            var lobby = new LobbyController(backend, null, null, showLicence: false);
             string? reason = null;
             lobby.Closed += r => reason = r;
             lobby.HandleInput(LobbyInput.Confirm);
@@ -180,7 +217,7 @@ namespace Gordian.Core.Tests.Ui
         [Fact]
         public void Mouse_HoverMovesTheCursorAndClickActivates()
         {
-            var lobby = new LobbyController(Backend(Character(1, "Knot"), Character(2, "Blm")), null, null);
+            var lobby = new LobbyController(Backend(Character(1, "Knot"), Character(2, "Blm")), null, null, showLicence: false);
             var main = lobby.ActiveMenu!;
             lobby.PointAt(main, LobbyController.DeleteButton);
             Assert.Equal(LobbyController.DeleteButton, main.SelectedButtonId);

@@ -59,6 +59,8 @@ namespace Gordian.Core.Ui.Lobby
                 Name = name,
                 Direction = FacingCamera,
                 IsSpawned = true,
+                // Alive: an entity with 0 % HP plays its death pose (AnimationStateClassifier); the lobby shows the idle stance.
+                Hpp = 100,
             };
             entity.Appearance.GrapIdTable = grap;
             entity.Appearance.ModelId = 0;

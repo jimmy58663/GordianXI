@@ -46,6 +46,8 @@ namespace Gordian.Core.Resources.Tables
         public const int HelpWorldPass = 111;
         public const int HelpChooseNation = 112;
         public const int NeedRenameLine1 = 139, NeedRenameLine2 = 140;
+        /// <summary>The licence page's text (six lines; shown in ptc8lice before the title menu).</summary>
+        public const int LicenceNotice = 158;
         public const int DeleteConfirm = 172;
         public const int RegisterAndBeginLine1 = 173, RegisterAndBeginLine2 = 174;
         public const int NotifyingLobbyOfSelections = 194;

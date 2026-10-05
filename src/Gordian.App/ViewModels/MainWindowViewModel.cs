@@ -102,6 +102,25 @@ namespace Gordian.App.ViewModels
         /// <summary>
         /// Gets or sets the LandSandBoat character slot (1-16) the profile logs in as; 0 = not set (pick by name).
         /// </summary>
+        private bool _formAutoLogin;
+
+        /// <summary>The profile's login mode radio: Auto-Login (true) or the Character Select screen (false, the default).</summary>
+        public bool FormAutoLogin
+        {
+            get => _formAutoLogin;
+            set
+            {
+                if (SetProperty(ref _formAutoLogin, value)) OnPropertyChanged(nameof(FormCharacterSelect));
+            }
+        }
+
+        /// <summary>The other side of <see cref="FormAutoLogin"/>, for the second radio button.</summary>
+        public bool FormCharacterSelect
+        {
+            get => !_formAutoLogin;
+            set => FormAutoLogin = !value;
+        }
+
         public int FormCharacterSlot
         {
             get => _formCharacterSlot;
@@ -1009,6 +1028,7 @@ namespace Gordian.App.ViewModels
             FormProfileName = item.Profile.ProfileName;
             FormCharacterName = item.Profile.CharacterName;
             FormCharacterSlot = item.Profile.CharacterSlot;
+            FormAutoLogin = item.Profile.EffectiveLoginMode == ProfileLoginMode.AutoLogin;
             FormFolder = item.Profile.Folder;
             FormServerHost = item.Profile.ServerHost;
             FormServerPort = item.Profile.ServerPort > 0 ? item.Profile.ServerPort : 54231;
@@ -1054,6 +1074,7 @@ namespace Gordian.App.ViewModels
             FormProfileName = string.Empty;
             FormCharacterName = string.Empty;
             FormCharacterSlot = 0;
+            FormAutoLogin = false;
             FormFolder = string.Empty;
             FormServerHost = string.Empty;
             FormServerPort = 54231;
@@ -1073,6 +1094,12 @@ namespace Gordian.App.ViewModels
             if (string.IsNullOrWhiteSpace(FormProfileName))
             {
                 StatusMessage = "Profile name cannot be empty.";
+                return;
+            }
+
+            if (FormAutoLogin && string.IsNullOrWhiteSpace(FormCharacterName) && FormCharacterSlot is < 1 or > 16)
+            {
+                StatusMessage = "Auto-Login needs a Character Name or a Character Slot (1-16).";
                 return;
             }
 
@@ -1105,6 +1132,7 @@ namespace Gordian.App.ViewModels
                 ProfileName = targetName,
                 CharacterName = FormCharacterName.Trim(),
                 CharacterSlot = FormCharacterSlot is >= 1 and <= 16 ? FormCharacterSlot : 0,
+                LoginMode = FormAutoLogin ? ProfileLoginMode.AutoLogin : ProfileLoginMode.CharacterSelect,
                 Folder = targetFolder,
                 ServerHost = FormServerHost.Trim(),
                 ServerPort = FormServerPort > 0 ? FormServerPort : 54231,
@@ -1368,13 +1396,14 @@ namespace Gordian.App.ViewModels
         /// with a character keep logging straight in (the saved-profile fast path).
         /// </summary>
         public static bool UsesCharacterSelect(AccountProfile profile) =>
-            string.IsNullOrWhiteSpace(profile.CharacterName) && profile.CharacterSlot == 0;
+            profile.EffectiveLoginMode == ProfileLoginMode.CharacterSelect;
 
         /// <summary>
         /// Logs in and opens the character lobby in the viewport (#32): one lobby at a time. The chosen character's
         /// ticket starts the game session as the fast path does; leaving the lobby (Back) or losing it disconnects.
         /// </summary>
-        private async Task OpenLobbyAsync(LsbLoginClient client, AccountProfile profile, string serverHost, int connectPort, int dataPort, int viewPort, string otp)
+        private async Task OpenLobbyAsync(LsbLoginClient client, AccountProfile profile, string serverHost, int connectPort, int dataPort, int viewPort, string otp,
+            bool showLicence = true)
         {
             if (ViewportWindowManager.Default.IsLobbyOpen)
             {
@@ -1386,13 +1415,17 @@ namespace Gordian.App.ViewModels
             var resources = AppResourceManager.Instance;
             var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
             var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;
-            var lobby = new Gordian.Core.Ui.Lobby.LobbyController(lobbySession, library, text);
+            // The licence page shows once per launch, not again when a Log Out returns to the title menu.
+            var lobby = new Gordian.Core.Ui.Lobby.LobbyController(lobbySession, library, text, showLicence);
 
             lobby.CharacterSelected += ticket => _ = Task.Run(async () =>
             {
                 try
                 {
-                    await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby)).ConfigureAwait(false);
+                    // A Log Out in game comes back here: the title menu of a fresh lobby login.
+                    Func<Task> backToTitle = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
+                        !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
+                    await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby), backToTitle).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1419,7 +1452,7 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null)
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1489,6 +1522,33 @@ namespace Gordian.App.ViewModels
                     StatusMessage = $"[{session.CharacterName}] Crossing zoneline... Transitioning to map server {targetIp}:{targetPort}...";
                 });
             };
+
+            if (afterLogout != null)
+            {
+                // A session that came through the character select screen goes back to its title menu on Log Out (/logout or
+                // the menu), as retail does; a shutdown or a dropped connection does not.
+                netManager.LoggedOut += state =>
+                {
+                    if (state != Gordian.Core.Network.Packets.LogoutState.Logout) return;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            GordianLog.Info("SESSION", $"'{session.CharacterName}' logged out: back to the character select screen.");
+                            await afterLogout().ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            GordianLog.Error("SESSION", $"Could not reopen the character select screen for '{profile.ProfileName}'", ex);
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Could not return to character select: {ex.Message}");
+                        }
+                        finally
+                        {
+                            _sessionRegistry.UnregisterSession(session);
+                        }
+                    });
+                };
+            }
 
             _sessionRegistry.RegisterSession(session);
             registered?.Invoke();

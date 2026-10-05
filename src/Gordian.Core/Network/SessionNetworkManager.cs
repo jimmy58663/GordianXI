@@ -292,6 +292,12 @@ namespace Gordian.Core.Network
         public event Action<IPAddress, int>? ZoneTransitionStarted;
 
         /// <summary>
+        /// Raised after the server ended the session with S2C 0x00B (Logout, PolExit or End) and the session disconnected:
+        /// a /logout or the menu's Log Out (Logout) can return to the character select screen, a shutdown (PolExit) closes.
+        /// </summary>
+        public event Action<LogoutState>? LoggedOut;
+
+        /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
         /// </summary>
         public event EventHandler<PacketLogEntry>? PacketInspected
@@ -394,6 +400,7 @@ namespace Gordian.Core.Network
                 {
                     World.Clear();
                     Disconnect();
+                    LoggedOut?.Invoke(state);
                 }
             };
         }

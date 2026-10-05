@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/StockUiLobby.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Resources.Models;
@@ -101,9 +102,33 @@ namespace Gordian.App.Graphics
             lock (lobby.SyncRoot)
             {
                 string background = lobby.Screen == LobbyScreen.MainMenu ? LobbyController.TitleBackgroundMenu : LobbyController.ListBackgroundMenu;
-                if (library.TryGetMenu(background, out var menu)) renderer.DrawMenu(menu, Place(menu, rect), includeButtons: false, border: false);
+                if (library.TryGetMenu(background, out var menu))
+                {
+                    // The backdrop's tiled "newtex" fill spans the whole window (no bars on wide or tall windows); the art
+                    // (logo, copyright) stays at its place in the 4:3 area.
+                    var placement = Place(menu, rect);
+                    // Stretched rather than tiled further: the fill texture darkens toward its edges, so more tiles would show seams.
+                    var stretch = Matrix3x2.CreateScale(width / (float)menu.Frame.Width, height / (float)menu.Frame.Height);
+                    foreach (var shape in menu.Frame.Shapes)
+                    {
+                        if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
+                        var fills = new UiImage { Parts = image.Parts.Where(IsFill).ToList() };
+                        if (fills.Parts.Count > 0) renderer.DrawImage(fills, stretch);
+                    }
+                    foreach (var shape in menu.Frame.Shapes)
+                    {
+                        if (shape.Kind != 0 || !library.TryGetImage(shape, out var art)) continue;
+                        foreach (var part in art.Parts)
+                        {
+                            if (!IsFill(part)) renderer.DrawPart(part, placement.X, placement.Y, placement.Scale);
+                        }
+                    }
+                }
             }
         }
+
+        private static bool IsFill(UiSpritePart part) =>
+            UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The windows, their text, the prompt on top and the cursor.</summary>
         public static void DrawForeground(StockUiRenderer renderer, LobbyController lobby, UiFont? font, uint width, uint height, long timestamp)
@@ -117,7 +142,8 @@ namespace Gordian.App.Graphics
                 switch (lobby.Screen)
                 {
                     case LobbyScreen.MainMenu:
-                        if (lobby.MainMenu != null) DrawButtonMenu(renderer, library, lobby.MainMenu, rect, timestamp, cursor: !promptOpen);
+                        // Behind the licence page only the title art shows.
+                        if (lobby.MainMenu != null && !lobby.IsLicencePending) DrawButtonMenu(renderer, library, lobby.MainMenu, rect, timestamp, cursor: !promptOpen);
                         break;
                     case LobbyScreen.CharacterList:
                         if (lobby.CharacterList != null) DrawCharacterList(renderer, library, font, lobby, lobby.CharacterList, rect, timestamp, cursor: !promptOpen);
@@ -127,7 +153,9 @@ namespace Gordian.App.Graphics
                 if (font != null && lobby.HelpText.Length > 0 && library.TryGetMenu(LobbyController.HelpBarMenu, out var help))
                 {
                     var placement = PlaceHelpBar(help, rect);
-                    renderer.DrawMenu(help, placement, includeButtons: false, border: false);
+                    // The bar runs the window's full width; its text starts at the 4:3 area's left edge.
+                    var bar = placement with { X = 256 * placement.Scale };
+                    renderer.DrawMenu(help, bar, includeButtons: false, border: false, frameWidth: width / placement.Scale);
                     // The bar (lobbywin #2) spans x -256..384, y 155..181 from the frame origin; text inset 16, centred on the bar.
                     float textScale = placement.Scale * 0.875f;
                     renderer.DrawText(font, lobby.HelpText, placement.X + (-256 + 16) * placement.Scale,
@@ -269,7 +297,8 @@ namespace Gordian.App.Graphics
             }
             if (font != null && prompt.Lines.Count > 0)
             {
-                float textScale = s;
+                // Long notices (the six-line licence page) are set a little smaller so they clear the buttons.
+                float textScale = prompt.Lines.Count > 4 ? s * 0.85f : s;
                 float lineHeight = font.LineHeight * textScale + 2 * s;
                 // The prompts span x -256..256 from their origin; text from 16 px down, each line centred.
                 float y = placement.Y + 16 * s;

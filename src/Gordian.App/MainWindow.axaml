@@ -69,6 +69,12 @@
                                 <TextBox Grid.Column="2" Text="{Binding FormServerPort, Mode=TwoWay}" PlaceholderText="54231"/>
                             </Grid>
 
+                            <TextBlock Text="Login (LandSandBoat):" Foreground="#A0A0A0"/>
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <RadioButton GroupName="LoginMode" Content="Character Select screen" IsChecked="{Binding FormCharacterSelect, Mode=TwoWay}" ToolTip.Tip="Show the character select screen (create, delete or pick a character), as the retail client does."/>
+                                <RadioButton GroupName="LoginMode" Content="Auto-Login" IsChecked="{Binding FormAutoLogin, Mode=TwoWay}" ToolTip.Tip="Log straight in as the Character Name or Character Slot below (one of them is required)."/>
+                            </StackPanel>
+
                             <TextBlock Text="Character Name (Auto-select):" Foreground="#A0A0A0"/>
                             <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
 

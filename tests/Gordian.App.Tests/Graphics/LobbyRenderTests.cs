@@ -96,6 +96,12 @@ namespace Gordian.App.Tests.Graphics
                 }
 
                 // Title: the FINAL FANTASY XI art and the five buttons; Select Character highlighted.
+                // The licence page comes first (ptc8lice over the title art), Accept shows the title menu.
+                Assert.True(lobby.IsLicencePending);
+                Frame("lobby_licence.png");
+                lobby.HandleInput(LobbyInput.Confirm);
+                Assert.False(lobby.IsLicencePending);
+
                 var title = Frame("lobby_title.png");
                 Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
                 Assert.Contains("Select a character", lobby.HelpText);
