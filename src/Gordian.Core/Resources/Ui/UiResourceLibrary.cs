@@ -67,6 +67,48 @@ namespace Gordian.Core.Resources.Ui
         }
 
         /// <summary>
+        /// Loads the character lobby's UI: the English lobby DAT (ROM/119/50, magic <c>lobb</c>: the lobby menus
+        /// <c>loby2win</c>, <c>lobycwin</c>, <c>chmk*</c>, <c>ptc*</c>, <c>worldsel</c> and the <c>lobbywin</c> element group)
+        /// ahead of the in-game menu DATs, whose <c>windowps</c> labels, fonts and window skin the lobby menus also use.
+        /// Returns null when neither the lobby DAT nor a menu DAT is found. File location referenced from xi-tools
+        /// (https://github.com/vekien/xi-tools, docs/title/README.md); see docs/design/character-lobby.md.
+        /// </summary>
+        public static UiResourceLibrary? LoadLobby(ResourceManager resources, int windowSkin = 1)
+        {
+            var lobby = resources.LoadDatBytes(LobbyDatPath);
+            var english = resources.LoadDatBytesByFileId(EnglishMenuFileId);
+            var baseMenu = resources.LoadDatBytesByFileId(BaseMenuFileId);
+            if (lobby == null && english == null && baseMenu == null)
+            {
+                GordianLog.Warning("UI", $"No lobby or menu DAT found ({LobbyDatPath}); lobby UI unavailable.");
+                return null;
+            }
+
+            int skin = Math.Clamp(windowSkin, 1, WindowSkinCount);
+            var skinBytes = resources.LoadDatBytesByFileId(FirstWindowSkinFileId + skin - 1);
+            var library = new UiResourceLibrary { WindowSkin = skin };
+            if (skinBytes != null) library.AddDat(skinBytes);
+            if (lobby != null) library.AddDat(lobby);
+            if (english != null) library.AddDat(english);
+            if (baseMenu != null) library.AddDat(baseMenu);
+            // The creation, name and prompt menus name their images "lobbyps2" (the PS2 build's group); the PC lobby DAT
+            // only carries "lobbywin", whose images sit at the same indices (#74 "Name", #95 the yes/no frame, #115 /
+            // #116 Delete / Cancel, #3-#10 the race names, #133-#135 the nation flags).
+            if (!library._groups.ContainsKey(LobbyPs2GroupName) && library._groups.TryGetValue(LobbyGroupName, out var lobbyGroup))
+            {
+                library._groups[LobbyPs2GroupName] = lobbyGroup;
+            }
+            GordianLog.Info("UI", $"Lobby UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
+                                  $"{library._texturePayloads.Count} textures (lobby DAT {(lobby != null ? "found" : "missing")}).");
+            return library;
+        }
+
+        public const string LobbyGroupName = "lobbywin", LobbyPs2GroupName = "lobbyps2";
+
+        /// <summary>The English lobby UI DAT (magic <c>lobb</c>), relative to the game directory.</summary>
+        public static readonly string LobbyDatPath = System.IO.Path.Combine("ROM", "119", "50.DAT");
+
+        /// <summary>
         /// Builds a library from raw DAT bytes, in priority order: the window skin's textures, then the localized
         /// menu DAT, then the base menu DAT (first definition of a name wins).
         /// </summary>

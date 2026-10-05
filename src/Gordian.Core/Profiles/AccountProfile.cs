@@ -6,6 +6,16 @@ using System.Text.Json.Serialization;
 
 namespace Gordian.Core.Profiles
 {
+    /// <summary>How a LandSandBoat profile picks its character at launch.</summary>
+    public enum ProfileLoginMode
+    {
+        /// <summary>The character select screen (the lobby), as the retail client always shows.</summary>
+        CharacterSelect,
+
+        /// <summary>Straight into the game as the character named by <see cref="AccountProfile.CharacterName"/> or <see cref="AccountProfile.CharacterSlot"/>.</summary>
+        AutoLogin,
+    }
+
     public sealed class AccountProfile
     {
         public string ProfileName { get; set; } = "Default Profile";
@@ -17,6 +27,27 @@ namespace Gordian.Core.Profiles
         /// means "not set": the character is picked by <see cref="CharacterName"/>. The name wins when both are set.
         /// </summary>
         public int CharacterSlot { get; set; }
+
+        /// <summary>
+        /// The login mode the player chose, or null for a profile saved before the choice existed: such a profile logs in
+        /// automatically when it names a character (name or slot) and opens character select otherwise
+        /// (<see cref="EffectiveLoginMode"/>).
+        /// </summary>
+        public ProfileLoginMode? LoginMode { get; set; }
+
+        /// <summary>Whether the profile names a character to log in as (a name, or a slot 1-16).</summary>
+        [JsonIgnore]
+        public bool HasCharacter => !string.IsNullOrWhiteSpace(CharacterName) || CharacterSlot is >= 1 and <= 16;
+
+        /// <summary>
+        /// The mode in effect: Auto-Login only when chosen (or, for an older profile, implied) and a character is named;
+        /// otherwise character select.
+        /// </summary>
+        [JsonIgnore]
+        public ProfileLoginMode EffectiveLoginMode =>
+            (LoginMode ?? (HasCharacter ? ProfileLoginMode.AutoLogin : ProfileLoginMode.CharacterSelect)) == ProfileLoginMode.AutoLogin && HasCharacter
+                ? ProfileLoginMode.AutoLogin
+                : ProfileLoginMode.CharacterSelect;
 
         public string BootloaderPath { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
@@ -73,6 +104,7 @@ namespace Gordian.Core.Profiles
                 ProfileName = newProfileName ?? ProfileName,
                 CharacterName = CharacterName,
                 CharacterSlot = CharacterSlot,
+                LoginMode = LoginMode,
                 BootloaderPath = BootloaderPath,
                 Arguments = Arguments,
                 Username = Username,

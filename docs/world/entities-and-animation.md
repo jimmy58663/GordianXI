@@ -35,6 +35,8 @@
   - [ ] Particles always move with their actor; generators that leave particles behind (`FollowGenerator` off) and the follow-actor updater `0x11` are not modelled yet. The mapping from actor facing to particle axes is only checked on the rotationally symmetric Home Point.
   - [ ] Actor-attached weather effects (`weat/clod/tobi` birds in zone DATs) are a separate mechanism: zone weather generators attached as target-actor/source-facing that draw a weighted mesh (`0x1D`/`0x25`, decoded and drawn since #204 for unattached generators; the attached ones wait): #121.
 
+- **Player size (#33 round 2).** A player entity's `GraphSize` (S2C 0x00D flags, 0 small / 1 medium / 2 large) scales its whole model uniformly about its feet (`PlayerSizeScale`: 0.94 / 1.0 / 1.06, guessed, [calibrations](../reference/calibrations.md#player-size)); the overhead point (name plate, target cursor) follows. NPCs and monsters are not scaled. The lobby preview uses the same scale for the character's or the creation's size.
+
 ## Skeletal animation (Phase 5D)
 
 - FFXI bone hierarchy & joint matrix tree parser (Section `0x2B` `SkeletonAnimationDecoder`, GPU joint-palette skinning in `EntityRenderer`/`ZoneShaders`)

@@ -244,7 +244,7 @@ namespace Gordian.Core.Tests.Events
             Assert.Equal((SceneCommandKind.StopRoutine, "tama"), (c[5].Kind, c[5].Reference));
             Assert.Equal(SceneCommandKind.ScreenFlash, c[6].Kind);
             Assert.Equal(new Vector3(0x44, 0x30, 0x3A) / 255f, EventPresentation.FlashColorOf(c[6].Color));
-            Assert.Equal(SceneCommandKind.Other, c[7].Kind); // a sound (#167)
+            Assert.Equal((SceneCommandKind.Sound, "8158"), (c[7].Kind, c[7].Reference)); // a sound (#167)
             Assert.False(c[6].IsEffect);
         }
 

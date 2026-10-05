@@ -85,6 +85,12 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<uint, (Vector3 Probe, string? EnvironmentId)> _entityEnvironments = new();
         private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 3];
         private GpuEntityModel? _fallbackPlayerProxy;
+
+        /// <summary>
+        /// Leaves out the placeholder models of entities whose model has not loaded (set while the zoning screen is not
+        /// clear, #36), so the player never shows as the placeholder before its look arrives.
+        /// </summary>
+        public bool HideFallbackProxies { get; set; }
         private GpuEntityModel? _fallbackNpcProxy;
         private GpuEntityModel? _fallbackMonsterProxy;
         private bool _loggedPaletteOverflow;
@@ -466,10 +472,12 @@ namespace Gordian.App.Graphics
                     ? entity.RenderHeadingRadians
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
+                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values).
+                var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
                 // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
                 _actorAnchors.TryGetValue(entity.ServerId, out var previousAnchor);
-                _actorAnchors[entity.ServerId] = previousAnchor with { ModelToWorld = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos) };
+                _actorAnchors[entity.ServerId] = previousAnchor with { ModelToWorld = EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
 
                 if (!frustum.IntersectsBox(minBox, maxBox))
                 {
@@ -503,6 +511,8 @@ namespace Gordian.App.Graphics
                         continue;
                     }
 
+                    // While the loading screen is fading, a model still on its way is drawn as nothing, not the placeholder.
+                    if (HideFallbackProxies) continue;
                     gpuModel = entity.Type switch
                     {
                         EntityType.Player => _fallbackPlayerProxy,
@@ -521,7 +531,7 @@ namespace Gordian.App.Graphics
                                   ReferenceEquals(gpuModel, _fallbackMonsterProxy);
                 var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
 
-                var worldMatrix = rotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
+                var worldMatrix = rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
                 {
@@ -589,7 +599,8 @@ namespace Gordian.App.Graphics
                     paletteSet = palette.Set;
                 }
 
-                var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) : maxBox.Y - pos.Y, 0.0f);
+                float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+                var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
 

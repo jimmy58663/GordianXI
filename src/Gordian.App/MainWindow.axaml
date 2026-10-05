@@ -69,11 +69,20 @@
                                 <TextBox Grid.Column="2" Text="{Binding FormServerPort, Mode=TwoWay}" PlaceholderText="54231"/>
                             </Grid>
 
-                            <TextBlock Text="Character Name (Auto-select):" Foreground="#A0A0A0"/>
-                            <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+                            <TextBlock Text="Login (LandSandBoat):" Foreground="#A0A0A0"/>
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <RadioButton GroupName="LoginMode" Content="Character Select screen" IsChecked="{Binding FormCharacterSelect, Mode=TwoWay}" ToolTip.Tip="Show the character select screen (create, delete or pick a character), as the retail client does."/>
+                                <RadioButton GroupName="LoginMode" Content="Auto-Login" IsChecked="{Binding FormAutoLogin, Mode=TwoWay}" ToolTip.Tip="Log straight in as the Character Name or Character Slot below (one of them is required)."/>
+                            </StackPanel>
 
-                            <TextBlock Text="Character Slot (LandSandBoat, 1-16; 0 = use the name):" Foreground="#A0A0A0"/>
-                            <TextBox Text="{Binding FormCharacterSlot, Mode=TwoWay}" PlaceholderText="0 (or 1-16: position in the character list)" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
+                            <!-- Auto-Login only: the character select screen picks the character itself. -->
+                            <StackPanel Spacing="10" IsVisible="{Binding FormAutoLogin}">
+                                <TextBlock Text="Character Name (Auto-select):" Foreground="#A0A0A0"/>
+                                <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+
+                                <TextBlock Text="Character Slot (LandSandBoat):" Foreground="#A0A0A0"/>
+                                <ComboBox ItemsSource="{Binding CharacterSlotChoices}" SelectedIndex="{Binding FormCharacterSlot, Mode=TwoWay}" HorizontalAlignment="Stretch" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
+                            </StackPanel>
 
                             <TextBlock Text="Username / Account:" Foreground="#A0A0A0"/>
                             <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="e.g. account_user"/>

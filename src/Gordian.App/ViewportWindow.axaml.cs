@@ -57,6 +57,10 @@ namespace Gordian.App
                 _viewportControl.RawMouseMoved += OnRawMouseMoved;
                 _viewportControl.RawMouseLeft += OnRawMouseLeft;
                 _viewportControl.PointerExited += OnViewportPointerExited;
+
+                // The focused window's character is the one heard (Phase 5H).
+                var viewport = _viewportControl;
+                Activated += (_, _) => Audio.GameAudioService.Instance.Claim(viewport);
             }
 
             var minimizeBtn = this.FindControl<Button>("MinimizeButton");
@@ -125,7 +129,7 @@ namespace Gordian.App
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(ViewportViewModel.ActiveTab))
+            if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
             {
                 SyncActiveSessionToViewport();
             }
@@ -138,7 +142,51 @@ namespace Gordian.App
             {
                 viewportControl.ResourceManager = AppResourceManager.Instance;
                 viewportControl.ActiveSession = _viewModel?.ActiveTab?.Session;
+                viewportControl.Lobby = _viewModel?.Lobby;
+                viewportControl.HoldBlack = _viewModel?.IsReturningToLobby == true;
             }
+        }
+
+        /// <summary>The character lobby on show in this window, if any (it takes the keyboard and mouse).</summary>
+        private Gordian.Core.Ui.Lobby.LobbyController? ActiveLobby => _viewModel?.Lobby;
+
+        /// <summary>
+        /// The lobby's keys: the arrows and numeric keypad 8/2/4/6 move the cursor, Enter / keypad 5 confirm, Escape
+        /// cancels, Backspace deletes a letter of a name being typed. Every key is the lobby's while it is open.
+        /// </summary>
+        private static void HandleLobbyKey(Gordian.Core.Ui.Lobby.LobbyController lobby, KeyEventArgs e)
+        {
+            Gordian.Core.Ui.Lobby.LobbyInput? input = e.Key switch
+            {
+                Key.Up or Key.NumPad8 => Gordian.Core.Ui.Lobby.LobbyInput.Up,
+                Key.Down or Key.NumPad2 => Gordian.Core.Ui.Lobby.LobbyInput.Down,
+                Key.Left or Key.NumPad4 => Gordian.Core.Ui.Lobby.LobbyInput.Left,
+                Key.Right or Key.NumPad6 => Gordian.Core.Ui.Lobby.LobbyInput.Right,
+                Key.Enter or Key.NumPad5 => Gordian.Core.Ui.Lobby.LobbyInput.Confirm,
+                Key.Escape => Gordian.Core.Ui.Lobby.LobbyInput.Cancel,
+                Key.Back => Gordian.Core.Ui.Lobby.LobbyInput.Backspace,
+                _ => null,
+            };
+            // Letter keys stay unhandled so their text input follows (the name step types it, OnGameTextInput); Avalonia
+            // drops the WM_CHAR text input after a handled key press on Windows.
+            if (input is not { } action) return;
+            lobby.HandleInput(action);
+            e.Handled = true;
+        }
+
+        /// <summary>The mouse over the lobby: hovering a button moves the cursor there, a left press activates it, a right press cancels.</summary>
+        private void LobbyPointer(Gordian.Core.Ui.Lobby.LobbyController lobby, Point point, Avalonia.Input.MouseButton? pressed)
+        {
+            if (_viewportControl == null) return;
+            var (width, height) = _viewportControl.SurfaceSize;
+            if (pressed == Avalonia.Input.MouseButton.Right)
+            {
+                lobby.HandleInput(Gordian.Core.Ui.Lobby.LobbyInput.Cancel);
+                return;
+            }
+            if (StockUiLobby.HitTest(lobby, width, height, (float)point.X, (float)point.Y) is not { } hit) return;
+            if (pressed == Avalonia.Input.MouseButton.Left) lobby.Activate(hit.Menu, hit.ButtonId);
+            else if (pressed == null) lobby.PointAt(hit.Menu, hit.ButtonId);
         }
 
         private void OnDisplayModeChanged(object? sender, ViewportDisplayMode mode)
@@ -270,6 +318,12 @@ namespace Gordian.App
                 return;
             }
 
+            if (ActiveLobby is { } lobby)
+            {
+                HandleLobbyKey(lobby, e);
+                return;
+            }
+
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -338,6 +392,12 @@ namespace Gordian.App
         /// <summary>Typed text for the stock chat input line (shifted and layout-specific characters included).</summary>
         private void OnGameTextInput(object? sender, TextInputEventArgs e)
         {
+            if (ActiveLobby is { } lobby)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) lobby.HandleText(e.Text);
+                e.Handled = true;
+                return;
+            }
             var input = _viewModel?.ActiveTab?.Session?.Chat.Input;
             if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
             input.InsertText(e.Text);
@@ -354,6 +414,7 @@ namespace Gordian.App
 
         private void OnGameKeyUp(object? sender, KeyEventArgs e)
         {
+            if (ActiveLobby != null) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -369,6 +430,15 @@ namespace Gordian.App
 
         private void OnGamePointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            if (ActiveLobby is { } lobby)
+            {
+                if (TryGetViewportPoint(e, out var lobbyPoint))
+                {
+                    LobbyPointer(lobby, lobbyPoint, e.Properties.IsRightButtonPressed ? Avalonia.Input.MouseButton.Right
+                        : e.Properties.IsLeftButtonPressed ? Avalonia.Input.MouseButton.Left : null);
+                }
+                return;
+            }
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -415,6 +485,11 @@ namespace Gordian.App
 
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
+            if (ActiveLobby is { } lobby)
+            {
+                if (TryGetViewportPoint(e, out var lobbyPoint)) LobbyPointer(lobby, lobbyPoint, null);
+                return;
+            }
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
             if (TryGetViewportPoint(e, out var point)) StockUiMove(session, point);
@@ -518,6 +593,11 @@ namespace Gordian.App
 
         private void OnRawMouseButtonDown(Avalonia.Input.MouseButton button)
         {
+            if (ActiveLobby is { } lobby)
+            {
+                if (_lastRawMouse is { } lobbyPoint) LobbyPointer(lobby, lobbyPoint, button);
+                return;
+            }
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -534,6 +614,7 @@ namespace Gordian.App
 
         private void OnRawMouseButtonUp(Avalonia.Input.MouseButton button)
         {
+            if (ActiveLobby != null) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -551,6 +632,11 @@ namespace Gordian.App
         private void OnRawMouseMoved(double x, double y)
         {
             _lastRawMouse = new Point(x, y);
+            if (ActiveLobby is { } lobby)
+            {
+                LobbyPointer(lobby, new Point(x, y), null);
+                return;
+            }
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
             StockUiMove(session, new Point(x, y));
@@ -575,6 +661,8 @@ namespace Gordian.App
                 {
                     viewportControl.ActiveSession = _viewModel.ActiveTab?.Session;
                 }
+                if (!ReferenceEquals(viewportControl.Lobby, _viewModel.Lobby)) viewportControl.Lobby = _viewModel.Lobby;
+                viewportControl.HoldBlack = _viewModel.IsReturningToLobby;
                 if (viewportControl.ResourceManager == null)
                 {
                     viewportControl.ResourceManager = AppResourceManager.Instance;

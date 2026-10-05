@@ -396,6 +396,26 @@ namespace Gordian.Core.Ui
         /// <summary>A client message for the log window (entries without a window, the current time).</summary>
         public event Action<string>? NoticePosted;
 
+        /// <summary>A system sound the keyboard / gamepad menu input calls for (cursor, select, close, open, page).</summary>
+        public event Action<StockUiSoundCue>? SoundCue;
+
+        /// <summary>Moves the cursor and cues the cursor sound when the selection (or a slider / count) changed.</summary>
+        private void MoveWithCue(InputAction direction)
+        {
+            bool moved = false;
+            Action onChanged = () => moved = true;
+            Changed += onChanged;
+            try
+            {
+                Move(direction);
+            }
+            finally
+            {
+                Changed -= onChanged;
+            }
+            if (moved) SoundCue?.Invoke(StockUiSoundCue.CursorMove);
+        }
+
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
 
@@ -943,8 +963,15 @@ namespace Gordian.Core.Ui
             {
                 // The menu button opens the main menu; pressed again it turns the page of a paged menu (retail
                 // behaviour, confirmed in-game 2026-09-26). Only Cancel closes menus.
-                if (!wasOpen) OpenMainMenu();
-                else if (Top is { PageRing.Count: > 1 }) Move(InputAction.MenuRight);
+                if (!wasOpen)
+                {
+                    if (OpenMainMenu() && IsOpen) SoundCue?.Invoke(StockUiSoundCue.MainMenuOpen);
+                }
+                else if (Top is { PageRing.Count: > 1 })
+                {
+                    Move(InputAction.MenuRight);
+                    SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
+                }
                 Array.Clear(_repeat);
                 return wasOpen;
             }
@@ -957,10 +984,12 @@ namespace Gordian.Core.Ui
             if (input.WasActionTriggered(InputAction.Cancel))
             {
                 CloseTop();
+                SoundCue?.Invoke(StockUiSoundCue.Close);
                 return true;
             }
             if (input.WasActionTriggered(InputAction.Confirm))
             {
+                SoundCue?.Invoke(StockUiSoundCue.Select);
                 Activate();
                 return true;
             }
@@ -979,14 +1008,14 @@ namespace Gordian.Core.Ui
                 }
                 if (input.WasActionTriggered(action) || _repeat[i] == null)
                 {
-                    Move(action);
+                    MoveWithCue(action);
                     _repeat[i] = RepeatDelay;
                     continue;
                 }
                 var remaining = _repeat[i]!.Value - elapsed;
                 if (remaining <= TimeSpan.Zero)
                 {
-                    Move(action);
+                    MoveWithCue(action);
                     remaining = RepeatInterval;
                 }
                 _repeat[i] = remaining;

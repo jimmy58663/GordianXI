@@ -112,8 +112,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x59 | | by sub | partial | 5,279 | Sets turn speeds, the walk speed or a render flag of an actor, or waits for its emote. [#197](https://github.com/jimmy58663/GordianXI/issues/197), [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x5A | `CodeMOVE2` | by sub | runs | 758 | Like 0x1F, but moves in all three axes without following the floor. |
 | 0x5B | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 21,066 | Loads an event motion DAT onto an actor and plays one of its routines. |
-| 0x5C | | by sub | stepped | 2,888 | Sets the music of a music slot, or its volume ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
-| 0x5D | | 5 | stepped | 2,139 | Moves the music volume to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x5C | | by sub | runs | 2,888 | Sets the music of a music slot, or its volume ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x5D | | 5 | runs | 2,139 | Moves the music volume to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x5E | | 5 | partial | 3,008 | Ends the event entity's action and returns it to an idle motion it names. |
 | 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
 | 0x60 | | by sub | partial | 50 | Sets `Render.Flags1` bit 30 (subs 0/1, stepped) or plays a zone routine with no actors (sub 2, runs; [#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
@@ -125,8 +125,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x66 | `CodeLOADEXTSCHEDULERMain` | 15 | runs | 14,143 | Plays a routine from the actor's player-model event motion package. |
 | 0x67 | | 5 | runs | 108 | Turns on the event message mode and hides the HUD and compass. |
 | 0x68 | | 1 | runs | 122 | Turns the event message mode off and shows the HUD again. |
-| 0x69 | | 4 | stepped | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds) ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
-| 0x6A | | 7 | stepped | 191 | Moves the volume of sound categories to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x69 | | 4 | runs | 102 | Mutes or unmutes sound categories (effects, system, zone, master, chat sounds) ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x6A | | 7 | runs | 191 | Moves the volume of sound categories to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x6B | | 9 | partial | 1,145 | Like 0x5E for a named actor. |
 | 0x6C | `CodeTRANSPAR` | 9 | runs | 14,433 | Fades an actor's alpha to a value over a number of frames, yielding until done. [#197](https://github.com/jimmy58663/GordianXI/issues/197). |
 | 0x6D |  | 7 | stepped | 2 | No-op in the current client. All three census hits are 0x9D table data, not code (see [0x9D](#0x9d)). |
@@ -174,7 +174,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x97 |  | 5 | stepped | 165 | Saves the zone's wind values and sets new ones. |
 | 0x98 |  | 1 | stepped | 15 | Waits while the zone is still reading extra data (a room). |
 | 0x99 |  | 5 | runs | 5,220 | Yields one frame while an actor plays an action, then goes on. |
-| 0x9A |  | 1 | stepped | 2,058 | Waits until the music server has read the current song ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
+| 0x9A |  | 1 | runs | 2,058 | Waits until the music server has read the current song ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x9B |  | 1 | stepped | 130 | Waits while the event entity plays an action. |
 | 0x9C |  | 3 | runs | 71 | Stores the client language (2 = English). |
 | 0x9D |  | by sub | partial | 1,850 | Script tables inside the byte code: read, write, share and jump through them, plus string copies and compares. |
@@ -460,18 +460,18 @@ When a change makes an opcode run, update its row and detail section in the same
 
 ### 0x5C, 0x5D
 
-- `5C sub song:work` (4 bytes) sets the song of music slot `sub` (0-7) at full start volume; `5C 8n song:work volume:work` (6 bytes) the same for slot n with a start volume; `5C A0|A1 volume:work time:work` moves the playing music's volume. `5D volume:work time:work` does the same as 0xA0 (XiEvents OpCodes/0x005C, 0x005D). Slots: 0 day idle, 1 night idle, 2 solo battle, 3 party battle, 4 mount, 5 death, 6 and 7 unknown.
+- `5C sub song:work` (4 bytes) sets the song of music slot `sub` (0-7) at full start volume; `5C 8n song:work volume:work` (6 bytes) the same for slot n with a start volume; `5C A0|A1 volume:work time:work` moves the playing music's volume. `5D volume:work time:work` does the same as 0xA0 (XiEvents OpCodes/0x005C, 0x005D). Slots: 0 day idle, 1 night idle, 2 solo battle, 3 party battle, 4 mount, 5 death, 6 and 7 unknown. GordianXI runs them (`EventVm.Sound.cs`, #167): slots go to an event layer of `ZoneMusicState` (the same slots S2C 0x05F sets; XiPackets names 6 Mog House and 7 fishing) and the volume to its music volume, both dropped when the event ends so the zone music comes back (**Beyond XiEvents:** retail overwrites the slots; the restore is ours, asked for in #167). The 0x8n start volume is not applied (tracks start at full volume). A write of the track already playing leaves it playing (**Differs from XiEvents:** its pseudo-code resets the current music number, read as a restart; retail does not restart the zone music, maintainer's check 2026-10-05). A write that changes the track gives the new song full volume again, after a 0x5D fade-out (Port Jeuno 324). An unknown sub ends the request (retail does not advance). 0x9A yields until `MusicDirector.IsSettled` (no fade pending, no track loading); without an audio device it never waits.
 
 | sub | bytes | events using | GordianXI |
 |---|---|---|---|
-| 0x00, 0x01 | 4 | 2,869, 2,869 | stepped |
-| 0x02, 0x03 | 4 | 633, 632 | stepped |
-| 0x06 | 4 | 10 | stepped |
-| 0x80-0x83 | 6 | 49, 36, 22, 22 | stepped |
-| 0xA0, 0xA1 | 6 | 90, 90 | stepped |
+| 0x00, 0x01 | 4 | 2,869, 2,869 | runs |
+| 0x02, 0x03 | 4 | 633, 632 | runs |
+| 0x06 | 4 | 10 | runs |
+| 0x80-0x83 | 6 | 49, 36, 22, 22 | runs (start volume not applied) |
+| 0xA0, 0xA1 | 6 | 90, 90 | runs |
 | 0xB0 | ? | 4 | no length: ends the request (retail has no such sub) |
 
-- [#167](https://github.com/jimmy58663/GordianXI/issues/167) covers both.
+- Implemented for [#167](https://github.com/jimmy58663/GordianXI/issues/167).
 
 ### 0x5E, 0x6B
 
@@ -518,7 +518,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x69, 0x6A
 
 - `69 mute:u8 kinds:work`: `kinds` bits 0x01 effects, 0x02 system, 0x04 zone, 0x08 master, 0x10 chat sounds; volume 0 when `mute` is nonzero, else 1. `6A volume:work time:work kinds:work` moves the volume of the first four kinds to `volume` / 1000 over `time` (XiEvents OpCodes/0x0069, 0x006A).
-- GordianXI steps over both.
+- GordianXI runs both (`EventVm.Sound.cs`, #167): the masks go to `WorldState.EventSoundVolumes`, which the audio engine applies as script fades on the Effects / System / Zone buses (master on all of them and the music); time in 1/60 s frames (provisional). They reset when the event ends. The chat-sound bit (0x10) is stored but nothing plays chat sounds yet.
 - **Differs from [#167](https://github.com/jimmy58663/GordianXI/issues/167):** the issue and xi-tools `docs/events/cutscenes.md` call these sound effect opcodes; per XiEvents they only set category volumes, they play nothing.
 
 ### 0x6C `CodeTRANSPAR`

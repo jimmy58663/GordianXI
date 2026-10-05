@@ -38,7 +38,7 @@ namespace Gordian.Core.Events
     /// until it has finished it, and 0x2A waits until the entity has nothing queued at or above a priority.
     /// </para>
     /// </summary>
-    public sealed class EventVm
+    public sealed partial class EventVm
     {
         /// <summary>The 0x05B end parameter of an event the player cancelled.</summary>
         public const uint CancelledEndParameter = 0x40000000;
@@ -1129,6 +1129,13 @@ namespace Gordian.Core.Events
                 case 0x78:
                     _host.UnlockEnvironment();
                     _pc++;
+                    return;
+                case 0x5C:
+                case 0x5D:
+                case 0x69:
+                case 0x6A:
+                case 0x9A:
+                    ExecSound(op);
                     return;
                 case 0x72:
                     ExecWeatherForecast();

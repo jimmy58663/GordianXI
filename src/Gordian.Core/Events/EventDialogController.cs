@@ -740,6 +740,7 @@ namespace Gordian.Core.Events
             CloseQueryMenu();
             ReleaseParticipants();
             ClearStaging();
+            EndEventSound();
             if (_player != null) _player.IsMovementLocked = false;
             // The end value is the shared work zone's, unless a query was cancelled.
             if (info != null) SendEnd(info, scene.EndParameter);
@@ -753,6 +754,7 @@ namespace Gordian.Core.Events
             CloseQueryMenu();
             ReleaseParticipants();
             ClearStaging();
+            EndEventSound();
             if (_player != null) _player.IsMovementLocked = false;
             Changed?.Invoke();
         }
@@ -1099,6 +1101,29 @@ namespace Gordian.Core.Events
             _cutsceneHud = on;
             (_eventTextX, _eventTextY) = (x, y);
             if (!on) _eventText = null;
+        }
+
+        /// <summary>
+        /// Opcode 0x9A asks whether the music has its track loaded; the audio engine answers (null: always ready, so a
+        /// scene never waits on a client without sound).
+        /// </summary>
+        public static Func<bool>? MusicReady { get; set; }
+
+        void IEventVmHost.SetMusicSlot(int slot, int musicNum) =>
+            _world?.Music.SetEventSlot(slot, (ushort)Math.Clamp(musicNum, 0, ushort.MaxValue));
+
+        void IEventVmHost.SetMusicVolume(int volume, int time) => _world?.Music.SetEventVolume(time, volume);
+
+        void IEventVmHost.SetSoundVolume(int mask, float volume, int time) =>
+            _world?.EventSoundVolumes.Set((EventSoundCategory)mask, volume, time);
+
+        bool IEventVmHost.IsMusicReady => MusicReady?.Invoke() ?? true;
+
+        /// <summary>The event's music and sound volumes end with it; the zone's music comes back (#167).</summary>
+        private void EndEventSound()
+        {
+            _world?.Music.EndEvent();
+            _world?.EventSoundVolumes.Reset();
         }
 
         void IEventVmHost.LockEnvironment(int hour, int weather)

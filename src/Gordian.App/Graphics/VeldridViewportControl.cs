@@ -145,6 +145,8 @@ namespace Gordian.App.Graphics
 
                     _activeSession = value;
                     WorldState = value?.World;
+                    // A session still connecting starts black (#36); one already in the world shows at once.
+                    _loadingScreen.Reset(black: value != null && value.State != SessionState.ActiveInWorld);
 
                     if (_activeSession != null)
                     {
@@ -415,6 +417,10 @@ namespace Gordian.App.Graphics
                 _renderer = null;
                 _stockUiRenderer?.Dispose();
                 _stockUiRenderer = null;
+                _lobbyRenderer?.Dispose();
+                _lobbyRenderer = null;
+                _blackCommands?.Dispose();
+                _blackCommands = null;
 
                 _deviceManager.Dispose();
 
@@ -527,6 +533,7 @@ namespace Gordian.App.Graphics
                 _renderLoopCts.Dispose();
                 _renderLoopCts = null;
                 _renderTask = null;
+                Audio.GameAudioService.ReleaseIfCreated(this);
             }
         }
 
@@ -544,6 +551,24 @@ namespace Gordian.App.Graphics
                 lastTicks = currentTicks;
 
                 var frameStart = Stopwatch.GetTimestamp();
+
+                // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
+                if (Lobby is { } lobby)
+                {
+                    RenderLobbyFrame(lobby, deltaSeconds);
+                    Thread.Sleep(1);
+                    continue;
+                }
+                _lobbyShown = null;
+
+                // Between a Log Out and the lobby's title menu (the launcher logging in again): a black screen in the
+                // same window, which the lobby then fades in over.
+                if (HoldBlack)
+                {
+                    RenderBlackFrame();
+                    Thread.Sleep(15);
+                    continue;
+                }
 
                 CheckAndLoadPendingZone();
 
@@ -662,6 +687,16 @@ namespace Gordian.App.Graphics
                     Camera.AspectRatio = aspect;
                 }
 
+                // Sound follows the viewport that last had focus (Phase 5H); never let it break a frame.
+                try
+                {
+                    Audio.GameAudioService.Instance.Update(this, _activeSession, Camera, deltaSeconds);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                }
+
                 lock (_renderLock)
                 {
                     if (_renderer != null)
@@ -705,6 +740,15 @@ namespace Gordian.App.Graphics
                                     ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)
                                     : 0.0f;
                             }
+
+                            // Zoning (#36), worked out before the scene so this frame already hides the placeholder: black while the session connects or zones and until its zone and the player's
+                            // own model are on screen.
+                            StockUi.LoadingOpacity = _activeSession is { } loadingSession
+                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
+                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId))
+                                : 0f;
+                            // Never the placeholder model while the screen is not fully clear (it showed during the fade).
+                            if (_renderer?.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
@@ -775,6 +819,100 @@ namespace Gordian.App.Graphics
         /// The stock FFXI 2D HUD (Tier 2): layout, visibility and resources.
         /// </summary>
         public StockUiHud StockUi { get; } = new();
+
+        private readonly Gordian.Core.Ui.ZoneLoadingScreen _loadingScreen = new();
+
+        /// <summary>
+        /// Whether the session's own character is in the world with a model that loads (its look has arrived): until then
+        /// the entity renderer would draw the placeholder model, so the loading screen stays black (#36).
+        /// </summary>
+        private bool LocalPlayerModelReady(Gordian.Core.Network.CharacterSession session, uint localPlayerServerId)
+        {
+            if (localPlayerServerId == 0 || !session.World.TryGetByServerId(localPlayerServerId, out var player) || player == null) return false;
+            return ResourceManager is { } resources && resources.TryLoadEntityModel(player, out var model) && model != null;
+        }
+        private volatile Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+        private LobbyFrameRenderer? _lobbyRenderer;
+        private readonly Gordian.Core.Ui.Lobby.LobbyPreview _lobbyPreview = new();
+
+        /// <summary>The character lobby to draw instead of the session's scene, or null (#32).</summary>
+        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        {
+            get => _lobby;
+            set => _lobby = value;
+        }
+
+        /// <summary>
+        /// Draws a black screen instead of the scene while no lobby is set (a Log Out returning to the character select
+        /// screen, #32).
+        /// </summary>
+        public bool HoldBlack
+        {
+            get => _holdBlack;
+            set => _holdBlack = value;
+        }
+        private volatile bool _holdBlack;
+
+        /// <summary>How long the lobby takes to fade in from black when it appears (seconds).</summary>
+        public const float LobbyFadeInSeconds = 0.5f;
+
+        /// <summary>The lobby being drawn and when it first was (render thread only), for its fade in.</summary>
+        private Gordian.Core.Ui.Lobby.LobbyController? _lobbyShown;
+        private long _lobbyShownAt;
+
+        private void RenderBlackFrame()
+        {
+            lock (_renderLock)
+            {
+                var gd = _deviceManager.Device;
+                if (gd == null || !_deviceManager.IsInitialized) return;
+                try
+                {
+                    _blackCommands ??= gd.ResourceFactory.CreateCommandList();
+                    _blackCommands.Begin();
+                    _blackCommands.SetFramebuffer(gd.SwapchainFramebuffer);
+                    _blackCommands.ClearColorTarget(0, RgbaFloat.Black);
+                    _blackCommands.End();
+                    gd.SubmitCommands(_blackCommands);
+                    gd.SwapBuffers();
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Black frame render error: {ex.Message}");
+                }
+            }
+        }
+        private CommandList? _blackCommands;
+
+        /// <summary>The viewport's size in rendering-surface pixels (for the lobby's mouse hit tests).</summary>
+        public (uint Width, uint Height) SurfaceSize => (_deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
+
+        private void RenderLobbyFrame(Gordian.Core.Ui.Lobby.LobbyController lobby, float deltaSeconds)
+        {
+            lock (_renderLock)
+            {
+                var gd = _deviceManager.Device;
+                if (gd == null || !_deviceManager.IsInitialized) return;
+                try
+                {
+                    _lobbyRenderer ??= new LobbyFrameRenderer(gd, gd.SwapchainFramebuffer.OutputDescription);
+                    long now = Stopwatch.GetTimestamp();
+                    if (!ReferenceEquals(_lobbyShown, lobby))
+                    {
+                        _lobbyShown = lobby;
+                        _lobbyShownAt = now;
+                    }
+                    float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
+                    _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, gd.SwapchainFramebuffer,
+                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
+                    gd.SwapBuffers();
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Lobby frame render error: {ex.Message}");
+                }
+            }
+        }
 
         /// <summary>
         /// Tier 2: Stock FFXI 2D UI render pass, drawn in screen space over the finished 3D scene.

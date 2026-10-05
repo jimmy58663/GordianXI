@@ -376,6 +376,43 @@ namespace Gordian.Core.Tests.Events
         }
 
         /// <summary>
+        /// Port Jeuno 324's music (#167, in-game round 2): the zone track 110, then its own track 51, faded to 0 over 120,
+        /// then the zone track 110 again mid-scene (retail: when the player wakes and talks to Joachim), and once more at
+        /// the end. The event layer must give the zone music back at that mid-scene write, not at the event end.
+        /// </summary>
+        /// <summary>
+        /// Lufaise Meadows 117 (#167, in-game round 3): the scene mutes every sound category, master included (0x69 mask
+        /// 0x1F), plays track 900 and unmutes only at its end. The master is the sound elements' master, not the music, so
+        /// the music must stay audible.
+        /// </summary>
+        [Fact]
+        public void LufaiseMeadows117_MutesEffectsForTheSceneAndPlaysItsMusic()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 24, 117);
+            var sound = run.Host.Sound;
+            _output.WriteLine(string.Join(", ", sound));
+            int mute = sound.IndexOf("sound 31=0/0");
+            int music = sound.IndexOf("slot 0=900");
+            int unmute = sound.IndexOf("sound 31=1/0");
+            Assert.True(mute >= 0 && music > mute && unmute > music, string.Join(", ", sound));
+        }
+
+        [Fact]
+        public void PortJeuno324_SetsItsOwnMusicThenGivesTheZoneMusicBack()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 246, 324);
+            _output.WriteLine(string.Join(", ", run.Host.Sound));
+            int own = run.Host.Sound.IndexOf("slot 0=51");
+            int fade = run.Host.Sound.IndexOf("music 0/120");
+            int back = run.Host.Sound.FindIndex(own + 1, s => s == "slot 0=110");
+            Assert.True(own >= 0 && fade > own && back > fade, string.Join(", ", run.Host.Sound));
+        }
+
+        /// <summary>
         /// The session path of the Windurst Woods intro (#86): S2C 0x00A with event 367 and LandSandBoat's flags
         /// RESET_CAMERA | NO_PCS | NO_NPCS | OPENING_MODE. Entities outside the event are hidden, the scripts hide the
         /// four NPCs their blocks flag (0x22 01) and walk others (0x1F), and everything is given back when the event ends.

@@ -108,6 +108,34 @@ namespace Gordian.App.Tests.Services
         }
 
         [Fact]
+        public void LobbyReturn_HoldsTheViewportUntilEnded()
+        {
+            ViewportWindowManager.UiDispatcher = a => a();
+            try
+            {
+                var netManager = new SessionNetworkManager("127.0.0.1", 54230) { CurrentState = SessionState.ActiveInWorld };
+                var session = new CharacterSession("Cybin", 1, "user_cybin", netManager);
+                _registry.RegisterSession(session);
+
+                // A Log Out back to character select: the return starts before the session disconnects.
+                _manager.BeginLobbyReturn();
+                Assert.True(_manager.IsReturningToLobby);
+                Assert.True(_viewModel.IsReturningToLobby);
+                netManager.Disconnect();
+                Assert.Empty(_viewModel.CharacterTabs);
+                Assert.True(_viewModel.IsReturningToLobby);
+
+                _manager.EndLobbyReturn();
+                Assert.False(_manager.IsReturningToLobby);
+                Assert.False(_viewModel.IsReturningToLobby);
+            }
+            finally
+            {
+                ViewportWindowManager.UiDispatcher = null;
+            }
+        }
+
+        [Fact]
         public void SessionDisconnect_TriggersAutomaticUnregistrationAndTabRemoval()
         {
             ViewportWindowManager.UiDispatcher = a => a();
