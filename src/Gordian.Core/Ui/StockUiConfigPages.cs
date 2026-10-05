@@ -172,6 +172,9 @@ namespace Gordian.Core.Ui
         /// </summary>
         public const string FontColorCategoryMenu = "conftxtc";
         public const string FontColorListMenu = "textcol1";
+
+        /// <summary>The box above the list (16,48, 366 x 56, no buttons): the selected row's sample in its colour; the editor takes its place.</summary>
+        public const string FontColorSampleBox = "textcol2";
         public const string FontColorEditPage = "textcol3";
         public const int FontColorListRows = 11;
         public const int FontColorOkButton = 4, FontColorCancelButton = 5, FontColorDefaultButton = 5;

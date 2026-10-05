@@ -18,8 +18,8 @@ Little-endian. Values below are "fresh" (the four never-configured characters) u
 
 - **0x50: 23 colour entries of 4 bytes, then five more at 0x22C, 0x26C, 0x278, 0x2D8, 0x2DC.** Each entry is **B, G, R, 0x80** (a Direct3D colour in memory), in the client's 0x80 half scale: the log glyphs (`moji`) are white, so 0x80 draws white and a channel above 0x80 only brightens the glyphs' grey shading (the renderer's `min(texel x colour x 2, 1)`). `StockUiFontColors.ReadCnf` reads them.
 - **Byte order:** read from the colours. B, G, R makes Shout peach (`40 50 a0` = R 0xA0, G 0x50, B 0x40), Party cyan (`a0 c0 20`) and Linkshell green (`60 ff 50`), as retail draws them; R, G, B would make Party yellow-green and Shout light blue. The tell entry `a0 40 a0` (255, 128, 255) matches the captured tell pink either way (2026-09-27 capture, about (255, 150, 255)).
-- **Which entry is which row: provisional.** Read as the page's rows in the config row table's order (ROM/165/74): the ten chat rows 63-72 at entries 0-9, the six For Self rows 73-78 at 10-15, the six For Others rows 79-84 at 16-21, "Player starts casting Spell." 85 at 22; the five later entries as the rows added since, by their colours: 0x22C calls for help (86, orange-red), 0x26C yell (197, yellow), 0x278 skill-up (87, green), 0x2D8 Assist J (204), 0x2DC Assist E (205) (two blues side by side). The order of the Chat list on the page (Yell after Shout, the Assists after Unity) is a guess too.
-- **To settle (diff):** in retail, set one row to pure red (R 255, G 0, B 0), copy `cnf.dat` before and after, and note which 3 bytes changed; once per uncertain row (the five later entries, Message, NPC, Linkshell 2). One older character (`167dc34` and three siblings) has entry 8 (0x70, read as "Message: Friend List") changed from `c0 90 60` to `38 c4 2c`.
+- **Which entry is which row: provisional, second reading (2026-10-04).** The first reading (config row table order) was wrong for two rows in the first in-game round: NPC dialog draws like Say and emotes are purple in retail (a retail log capture). The current reading fits those and the retail Font Colors screenshots (the yell sample salmon, the casting sample pale yellow): entries 0-9 are Say, Shout, Tell, Party, Linkshell, Emote, Basic system messages, NPC conversations, Messages, Yell; 10-15 For Self and 16-21 For Others in list order; 22 Standard battle messages; the five later entries Calls for help (0x22C), Unity (0x26C), Linkshell 2 (0x278), Assist J (0x2D8), Assist E (0x2DC). With the page's 13 + 6 + 6 + 3 rows that uses every one of the 28 entries.
+- **To settle (diff):** in retail, set one row to pure red (R 255, G 0, B 0), copy `cnf.dat` before and after, and note which 3 bytes changed; once per uncertain row (the five later entries, Basic system, Messages, Yell). One older character (`167dc34` and three siblings) has entry 8 (0x70, read as Messages) changed from `c0 90 60` to `38 c4 2c`.
 
 | Entry | Offset | Fresh bytes (B G R) | Row (provisional) | Drawn (R, G, B) |
 |---|---|---|---|---|
@@ -28,17 +28,17 @@ Little-endian. Values below are "fresh" (the four never-configured characters) u
 | 2 | 0x58 | a0 40 a0 | Tell | (255, 128, 255) |
 | 3 | 0x5C | a0 c0 20 | Party | (64, 255, 255) |
 | 4 | 0x60 | 60 ff 50 | Linkshell | (160, 255, 192) |
-| 5 | 0x64 | a0 50 60 | Linkshell 2 | (192, 160, 255) |
-| 6 | 0x68 | d0 d0 a0 | Unity | white, grey shading brightened |
-| 7 | 0x6C | 80 80 80 | Emote | white |
-| 8 | 0x70 | c0 90 60 | Message (Friend List) | (192, 255, 255) |
-| 9 | 0x74 | 40 40 a0 | NPC text | (255, 128, 128) |
-| 10-15 | 0x78-0x8C | 80 80 80 / 80 80 80 / 50 80 80 / 80 80 80 / f0 c0 90 / 80 80 c0 | For Self: recover, damage, beneficial, detrimental, no effect, miss | |
+| 5 | 0x64 | a0 50 60 | Emotes | (192, 160, 255) |
+| 6 | 0x68 | d0 d0 a0 | Basic system messages | white, grey shading brightened |
+| 7 | 0x6C | 80 80 80 | NPC conversations | white |
+| 8 | 0x70 | c0 90 60 | Messages (Friend List) | (192, 255, 255) |
+| 9 | 0x74 | 40 40 a0 | Yell | (255, 128, 128) |
+| 10-15 | 0x78-0x8C | 80 80 80 / 80 80 80 / 50 80 80 / 80 80 80 / f0 c0 90 / 80 80 c0 | For Self: recover, lose, beneficial, detrimental, resist, evade | |
 | 16-21 | 0x90-0xA4 | 80 80 80 / 80 80 80 / 40 80 a0 / 70 70 70 / 10 80 80 / d0 60 c0 | For Others: same order | |
-| 22 | 0xA8 | 50 c0 c0 | starts casting | (255, 255, 160) |
-| - | 0x22C | 30 40 a0 | calls for help | (255, 128, 96) |
-| - | 0x26C | 3f af ff | yell | (255, 255, 126) |
-| - | 0x278 | 00 cc 00 | skill-up | (0, 255, 0) |
+| 22 | 0xA8 | 50 c0 c0 | Standard battle messages | (255, 255, 160) |
+| - | 0x22C | 30 40 a0 | Calls for help | (255, 128, 96) |
+| - | 0x26C | 3f af ff | Unity | (255, 255, 126) |
+| - | 0x278 | 00 cc 00 | Linkshell 2 | (0, 255, 0) |
 | - | 0x2D8 | ff 50 00 | Assist J | (0, 160, 255) |
 | - | 0x2DC | ff 70 00 | Assist E | (0, 224, 255) |
 

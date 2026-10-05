@@ -81,6 +81,22 @@ namespace Gordian.Core.Ui
         /// <summary>The Font Colors list's rows, parallel to <see cref="Rows"/>.</summary>
         public IReadOnlyList<StockUiFontColorEntry> FontColorRows { get; internal set; } = Array.Empty<StockUiFontColorEntry>();
 
+        /// <summary>
+        /// Each Font Colors row's sample text and colour, parallel to <see cref="Rows"/>: the box above the list
+        /// (<c>textcol2</c>) shows the selected row's.
+        /// </summary>
+        public IReadOnlyList<(string Text, UiColor Color)> FontColorSamples { get; internal set; } = Array.Empty<(string, UiColor)>();
+
+        /// <summary>The sample the Font Colors box shows: the selected row's, if any.</summary>
+        public (string Text, UiColor Color)? SelectedFontColorSample
+        {
+            get
+            {
+                int index = EntryIndex(SelectedButtonId);
+                return index >= 0 && index < FontColorSamples.Count ? FontColorSamples[index] : null;
+            }
+        }
+
         /// <summary>Sample text the colour editor (<c>textcol3</c>) draws at its left in the colour being set; null elsewhere.</summary>
         public string? SampleText { get; internal set; }
         public UiColor SampleColor { get; internal set; }
@@ -328,6 +344,12 @@ namespace Gordian.Core.Ui
             get => _library;
             set => _library = value;
         }
+
+        /// <summary>
+        /// The config row table's text by index (ROM/165/74, <c>DMsgCategory.MenuConfigRows</c>), for the list pages'
+        /// rows; set by the HUD once the resources are known. Without it the pages use their English fallbacks.
+        /// </summary>
+        public Func<int, string?>? ConfigRowText { get; set; }
 
         /// <summary>The config-menu settings the pages show and edit (the character's, once the session knows it).</summary>
         public StockUiSettings Settings
@@ -791,16 +813,24 @@ namespace Gordian.Core.Ui
                 {
                     // The colour editor shows the row being set in the colour of its sliders (provisional: where retail
                     // draws it in the window's empty left part is not captured).
-                    menu.SampleText = _fontColorEditing?.Label;
+                    menu.SampleText = _fontColorEditing is { } edited ? StockUiFontColors.Text(ConfigRowText, edited.SampleIndex, edited.Sample) : null;
                     menu.SampleColor = EditedFontColor().ToUiColor();
                 }
             }
             else if (menu.ListKind == StockUiListKind.FontColors)
             {
+                // Retail lists the message types in white and shows the selected row's sample in its colour in the
+                // box above (the maintainer's screenshots, 2026-10-04).
                 var entries = StockUiFontColors.InCategory(menu.FontColorCategory);
                 var rows = new List<StockUiListRow>(entries.Count);
-                foreach (var entry in entries) rows.Add(new StockUiListRow(rows.Count + 1, entry.Label, false, _settings.GetFontColor(entry.Id).ToUiColor()));
+                var samples = new List<(string, UiColor)>(entries.Count);
+                foreach (var entry in entries)
+                {
+                    rows.Add(new StockUiListRow(rows.Count + 1, StockUiFontColors.Text(ConfigRowText, entry.LabelIndex, entry.Label), false));
+                    samples.Add((StockUiFontColors.Text(ConfigRowText, entry.SampleIndex, entry.Sample), _settings.GetFontColor(entry.Id).ToUiColor()));
+                }
                 menu.FontColorRows = entries;
+                menu.FontColorSamples = samples;
                 menu.Rows = rows;
             }
             else if (menu.IsChatFilterList)

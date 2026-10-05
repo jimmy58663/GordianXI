@@ -617,7 +617,7 @@ namespace Gordian.App.Tests.Graphics
                     var top = menus.Top!;
                     var frame = top.Menu.Frame;
                     var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, width, height);
-                    StockUiMenuWindow.Draw(renderer, library, font, top, placement, 0);
+                    StockUiMenuWindow.Draw(renderer, library, font, top, placement, 0, logFont: StockUiLogFont.FromLibrary(library));
                     renderer.End(framebuffer, width, height);
                     var pixels = ReadBack(gd, color, width, height);
                     string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
@@ -683,27 +683,28 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.True(bright, "row text");
 
-                // Font Colors: the Chat list draws each row's sample in its colour (the tell row pink: red and blue
-                // over green), and the R/G/B editor fills its bars to the colour's channels.
+                // Font Colors: the Chat list draws the message types in white and the box above it the selected row's
+                // sample in its colour (the tell row pink: red and blue over green); the R/G/B editor fills its bars
+                // to the colour's channels.
                 menus.CloseAll();
+                menus.ConfigRowText = i => rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.MenuConfigRows, i, out var t) ? t : null;
                 Assert.True(menus.Open(StockUiConfigPages.FontColorCategoryMenu));
                 menus.Activate();                                              // Chat
                 Assert.Equal(StockUiConfigPages.FontColorListMenu, menus.Top!.Name);
-                pixels = Render(menus, "config_font_colors");
                 int tellIndex = menus.Top.FontColorRows.ToList().FindIndex(e => e.Id == StockUiFontColorId.Tell);
-                var tellRow = menus.Top.Menu.FindButton(tellIndex + 1)!;
+                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                pixels = Render(menus, "config_font_colors");
                 bool pink = false;
-                for (int x = 28; x < 120 && !pink; x++)
+                for (int x = 16; x < 160 && !pink; x++)
                 {
-                    for (int y = 0; y < tellRow.Height && !pink; y++)
+                    for (int y = 16; y < 44 && !pink; y++)
                     {
-                        var p = Pixel(pixels, width, 16 + tellRow.X + x, 106 + tellRow.Y + y);
+                        var p = Pixel(pixels, width, 16 + x, 48 + y);
                         pink = p.R > 200 && p.B > 200 && p.G < 160;
                     }
                 }
-                Assert.True(pink, "tell sample in the tell colour");
+                Assert.True(pink, "tell sample in the tell colour in the box above the list");
 
-                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown);
                 menus.Activate();
                 Assert.Equal(StockUiConfigPages.FontColorEditPage, menus.Top!.Name);
                 pixels = Render(menus, "config_font_color_edit");

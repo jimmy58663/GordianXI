@@ -173,10 +173,12 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiListKind.FontColors, list.ListKind);
             Assert.Equal(StockUiFontColorCategory.ForSelf, list.FontColorCategory);
             Assert.Equal(6, list.Rows.Count);
-            Assert.Equal("Player recovers 10 HP.", list.Rows[0].Text);
+            Assert.Equal("HP/MP you recover", list.Rows[0].Text);                 // the message type, white
+            Assert.Null(list.Rows[0].Color);
+            Assert.Equal("Player recovers 10 HP.", list.SelectedFontColorSample!.Value.Text);
             Assert.False(list.CanScroll);
 
-            menus.Move(InputAction.MenuDown);             // "Enemy hits Player for 1 point of damage."
+            menus.Move(InputAction.MenuDown);             // HP/MP you lose: "Enemy hits Player for 1 point of damage."
             menus.Activate();
             var editor = menus.Top!;
             Assert.Equal(StockUiConfigPages.FontColorEditPage, editor.Name);
@@ -197,7 +199,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Null(menus.FontColorEditing);
             var set = new StockUiRgb(0x80 - StockUiSettings.FontColorStep, 0xFF, 0x80);
             Assert.Equal(set, menus.Settings.GetFontColor(StockUiFontColorId.SelfDamage));
-            Assert.Equal(set.ToUiColor(), list.Rows[1].Color);
+            Assert.Equal(set.ToUiColor(), list.FontColorSamples[1].Color);
 
             // Cancel leaves the colour alone.
             menus.Activate();
@@ -256,11 +258,60 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Lists_FollowRetailsOrder_AndTheFirstRoundsColours()
+        {
+            // Retail's Chat list (the maintainer's screenshots, 2026-10-04): Shout and Yell come last.
+            Assert.Equal(new[]
+            {
+                StockUiFontColorId.Say, StockUiFontColorId.Tell, StockUiFontColorId.Party, StockUiFontColorId.Linkshell,
+                StockUiFontColorId.Linkshell2, StockUiFontColorId.AssistJ, StockUiFontColorId.AssistE, StockUiFontColorId.Unity,
+                StockUiFontColorId.Emote, StockUiFontColorId.Message, StockUiFontColorId.Npc, StockUiFontColorId.Shout, StockUiFontColorId.Yell,
+            }, StockUiFontColors.InCategory(StockUiFontColorCategory.Chat).Select(e => e.Id));
+            Assert.Equal(new[] { "Standard battle messages", "Calls for help", "Basic system messages" },
+                StockUiFontColors.InCategory(StockUiFontColorCategory.System).Select(e => e.Label));
+            // NPC text draws as Say; emotes purple.
+            Assert.Equal(StockUiFontColors.Get(StockUiFontColorId.Say).Default, StockUiFontColors.Get(StockUiFontColorId.Npc).Default);
+            var emote = StockUiFontColors.Get(StockUiFontColorId.Emote).Default;
+            Assert.True(emote.B > emote.G && emote.R > emote.G, emote.ToString());
+        }
+
+        [Fact]
+        public void Texts_ComeFromTheConfigRowTable_WhenItIsRead()
+        {
+            var menus = new StockUiMenuController
+            {
+                Library = UiResourceLibrary.FromDefinitions(FontColorMenus()),
+                ConfigRowText = i => i == 36 ? "Table say" : i == 63 ? "Table say sample" : null,
+            };
+            Assert.True(menus.Open(StockUiConfigPages.FontColorCategoryMenu));
+            menus.Activate();
+            Assert.Equal("Table say", menus.Top!.Rows[0].Text);
+            Assert.Equal("Table say sample", menus.Top.SelectedFontColorSample!.Value.Text);
+            Assert.Equal("Tell target only (\"Tell\")", menus.Top.Rows[1].Text); // fallback
+        }
+
+        /// <summary>Against the retail table: every row's label and sample index holds the fallback text.</summary>
+        [Fact]
+        public void RetailConfigRowTable_HoldsEveryRowsText()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            foreach (var e in StockUiFontColors.Entries)
+            {
+                Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.MenuConfigRows, e.LabelIndex, out var label));
+                Assert.Equal(e.Label, label.Trim());
+                Assert.True(rm.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.MenuConfigRows, e.SampleIndex, out var sample));
+                Assert.Equal(e.Sample, sample.Trim());
+            }
+        }
+
+        [Fact]
         public void LogLines_TakeTheirChannelsRow_AndCombatLinesTheirEffectsRow()
         {
             Assert.Equal(StockUiFontColorId.Tell, new ChatLogLine(ChatLogChannel.Tell, "x", DateTime.Now).FontColor);
             Assert.Equal(StockUiFontColorId.Npc, new ChatLogLine(ChatLogChannel.Dialog, "x", DateTime.Now).FontColor);
-            Assert.Null(new ChatLogLine(ChatLogChannel.System, "x", DateTime.Now).FontColor);
+            Assert.Equal(StockUiFontColorId.BasicSystem, new ChatLogLine(ChatLogChannel.System, "x", DateTime.Now).FontColor);
             Assert.Null(new ChatLogLine(ChatLogChannel.ServerMessage, "x", DateTime.Now).FontColor);
 
             const uint me = 0x1001, mob = 0x01000F00;
@@ -275,10 +326,10 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(ChatLogType.OthersLose, line.Type);
 
             var cast = StockUiCombatLog.LineFor("Me starts casting Cure.", 3, me, me, DateTime.Now);
-            Assert.Equal(StockUiFontColorId.Casting, cast.FontColor);
+            Assert.Equal(StockUiFontColorId.StandardBattle, cast.FontColor);
             Assert.Equal(ChatLogType.StandardBattle, cast.Type);
             var check = StockUiCombatLog.LineFor("The Rabbit seems to be level 1.", 174, mob, me, DateTime.Now);
-            Assert.Null(check.FontColor);
+            Assert.Equal(StockUiFontColorId.StandardBattle, check.FontColor);
             Assert.Equal(ChatLogType.StandardBattle, check.Type);
             var help = StockUiCombatLog.LineFor("Me calls for help!", 19, 0, me, DateTime.Now);
             Assert.Equal(StockUiFontColorId.CallForHelp, help.FontColor);

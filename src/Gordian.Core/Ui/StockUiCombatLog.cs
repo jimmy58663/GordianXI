@@ -17,7 +17,8 @@ namespace Gordian.Core.Ui
         Evade,
         Casting,
         CallForHelp,
-        SkillUp,
+        /// <summary>Skill-ups, experience and level messages (the Basic system messages row: its sample is a skill-up).</summary>
+        System,
     }
 
     /// <summary>
@@ -56,7 +57,7 @@ namespace Gordian.Core.Ui
             Add(CombatLogEffect.Evade, 14, 15, 30, 31, 32, 70, 158, 188, 282, 324, 354);
             Add(CombatLogEffect.Casting, 3, 327);
             Add(CombatLogEffect.CallForHelp, 19);
-            Add(CombatLogEffect.SkillUp, 38, 53);
+            Add(CombatLogEffect.System, 8, 9, 11, 38, 50, 53, 253, 371, 372);
             return d;
         }
 
@@ -78,8 +79,8 @@ namespace Gordian.Core.Ui
             return effect;
         }
 
-        /// <summary>The Font Colors row for an effect on yourself or on someone else; null for standard battle messages (white).</summary>
-        public static StockUiFontColorId? FontColorOf(CombatLogEffect effect, bool self) => effect switch
+        /// <summary>The Font Colors row for an effect on yourself or on someone else.</summary>
+        public static StockUiFontColorId FontColorOf(CombatLogEffect effect, bool self) => effect switch
         {
             CombatLogEffect.Recover => self ? StockUiFontColorId.SelfRecover : StockUiFontColorId.OthersRecover,
             CombatLogEffect.Lose => self ? StockUiFontColorId.SelfDamage : StockUiFontColorId.OthersDamage,
@@ -87,10 +88,10 @@ namespace Gordian.Core.Ui
             CombatLogEffect.Detrimental => self ? StockUiFontColorId.SelfDetrimental : StockUiFontColorId.OthersDetrimental,
             CombatLogEffect.Resist => self ? StockUiFontColorId.SelfNoEffect : StockUiFontColorId.OthersNoEffect,
             CombatLogEffect.Evade => self ? StockUiFontColorId.SelfMiss : StockUiFontColorId.OthersMiss,
-            CombatLogEffect.Casting => StockUiFontColorId.Casting,
             CombatLogEffect.CallForHelp => StockUiFontColorId.CallForHelp,
-            CombatLogEffect.SkillUp => StockUiFontColorId.SkillUp,
-            _ => null,
+            CombatLogEffect.System => StockUiFontColorId.BasicSystem,
+            // Casting starts and every other battle message: the Standard battle messages row (its sample is a cast).
+            _ => StockUiFontColorId.StandardBattle,
         };
 
         /// <summary>The Log page type for an effect on yourself or on someone else.</summary>
@@ -103,6 +104,7 @@ namespace Gordian.Core.Ui
             CombatLogEffect.Resist => self ? ChatLogType.SelfResist : ChatLogType.OthersResist,
             CombatLogEffect.Evade => self ? ChatLogType.SelfEvade : ChatLogType.OthersEvade,
             CombatLogEffect.CallForHelp => ChatLogType.CallsForHelp,
+            CombatLogEffect.System => ChatLogType.BasicSystem,
             _ => ChatLogType.StandardBattle,
         };
 

@@ -142,6 +142,11 @@ namespace Gordian.App.Graphics
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
+            if (menus.ConfigRowText == null && _resources is { } strings)
+            {
+                // The list pages' row text comes from the config row table (ROM/165/74).
+                menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
+            }
             if (menus.ItemLookup == null && _resources is { } items)
             {
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
@@ -329,7 +334,7 @@ namespace Gordian.App.Graphics
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
-                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp);
+                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont);
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
             menus.SetScreenPlacements(_menuPlacements);
