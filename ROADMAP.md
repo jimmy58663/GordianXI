@@ -51,7 +51,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5E Tier 2: stock DAT 2D UI | ⏳ chunks 1-6, 4b, 4c done, 6b (command menu) awaiting the in-game test, 6c (shop) through two in-game rounds; name plates (#28) tested in-game | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
-| 5G Character lobby, creation & deletion (blocking) | ⏳ lobby requests (#35), the character select screen (#32), character creation (#33), deletion (#34) and the zoning fade (#36) built, awaiting the in-game test | [design/character-lobby.md](docs/design/character-lobby.md) |
+| 5G Character lobby, creation & deletion (blocking) | ⏳ lobby requests (#35), the character select screen (#32), character creation (#33), deletion (#34) and the zoning fade (#36) built and tested in game (three rounds); the licence page's border lines await a last look, then one PR | [design/character-lobby.md](docs/design/character-lobby.md) |
 | 5H Audio (non-blocking) | ⬜ | [design/audio.md](docs/design/audio.md) |
 
 ### 🚀 Post-MVP (Phases 6-10)
