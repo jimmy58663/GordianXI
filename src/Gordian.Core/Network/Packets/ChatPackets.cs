@@ -381,6 +381,69 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// The parameters of an S2C 0x009 message, parsed from its <c>Data</c> string the way the retail client does: it
+    /// looks for each key (<c>CasUniqueNo</c>, <c>TarUniqueNo</c>, <c>Para0</c>-<c>Para3</c>, <c>Mode</c>, <c>string2</c>,
+    /// <c>string3</c>) with a substring search, skips spaces and tabs, and reads an integer (<c>atoi</c>) or up to 24
+    /// characters of text ending at a space, tab or NUL. A key that is absent leaves its field 0 (empty).
+    /// Referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0009</c>.
+    /// </summary>
+    public readonly record struct SystemMessageParameters(
+        uint CasUniqueNo, uint TarUniqueNo, int Para0, int Para1, int Para2, int Para3, int Mode, string String2, string String3)
+    {
+        /// <summary>The longest <c>string2</c> / <c>string3</c> value the client copies.</summary>
+        public const int MaxStringLength = 24;
+
+        /// <summary>Parses a <c>Data</c> string; see the type remarks.</summary>
+        public static SystemMessageParameters Parse(string? data)
+        {
+            if (string.IsNullOrEmpty(data)) return new SystemMessageParameters(0, 0, 0, 0, 0, 0, 0, string.Empty, string.Empty);
+            int nul = data.IndexOf('\0');
+            ReadOnlySpan<char> text = nul >= 0 ? data.AsSpan(0, nul) : data.AsSpan();
+            return new SystemMessageParameters(
+                (uint)ReadInt(text, "CasUniqueNo"), (uint)ReadInt(text, "TarUniqueNo"),
+                ReadInt(text, "Para0"), ReadInt(text, "Para1"), ReadInt(text, "Para2"), ReadInt(text, "Para3"),
+                ReadInt(text, "Mode"), ReadString(text, "string2"), ReadString(text, "string3"));
+        }
+
+        private static ReadOnlySpan<char> ValueAfter(ReadOnlySpan<char> text, string key, out bool found)
+        {
+            int at = text.IndexOf(key.AsSpan(), StringComparison.Ordinal);
+            found = at >= 0;
+            if (!found) return ReadOnlySpan<char>.Empty;
+            ReadOnlySpan<char> rest = text.Slice(at + key.Length);
+            int skip = 0;
+            while (skip < rest.Length && (rest[skip] == ' ' || rest[skip] == '\t')) skip++;
+            return rest.Slice(skip);
+        }
+
+        private static int ReadInt(ReadOnlySpan<char> text, string key)
+        {
+            ReadOnlySpan<char> v = ValueAfter(text, key, out bool found);
+            if (!found) return 0;
+            int i = 0;
+            bool negative = false;
+            if (i < v.Length && (v[i] == '-' || v[i] == '+')) { negative = v[i] == '-'; i++; }
+            long value = 0;
+            while (i < v.Length && v[i] >= '0' && v[i] <= '9')
+            {
+                value = unchecked((value * 10) + (v[i] - '0'));
+                if (value > uint.MaxValue) value = uint.MaxValue;
+                i++;
+            }
+            return unchecked((int)(negative ? -value : value));
+        }
+
+        private static string ReadString(ReadOnlySpan<char> text, string key)
+        {
+            ReadOnlySpan<char> v = ValueAfter(text, key, out bool found);
+            if (!found) return string.Empty;
+            int n = 0;
+            while (n < v.Length && n < MaxStringLength && v[n] != ' ' && v[n] != '\t') n++;
+            return v.Slice(0, n).ToString();
+        }
+    }
+
+    /// <summary>
     /// S2C 0x009 (GP_SERV_COMMAND_MESSAGE): General purpose system messages.
     /// Protocol specification referenced from LandSandBoat (src/map/packets/s2c/0x009_message.cpp)
     /// and Atom0s XiPackets (world/server/0x0009).
@@ -395,6 +458,18 @@ namespace Gordian.Core.Network.Packets
         public ushort ActorIndex { get; }
         public ushort MessageId { get; }
         public byte Attr { get; }
+
+        /// <summary>
+        /// <c>Attr</c> 0x10, the only bit the client checks: the message came from <see cref="UniqueNo"/>'s player, so it is
+        /// dropped when that player is on the blacklist (XiPackets 0x0009).
+        /// </summary>
+        public const byte AttrBlacklistable = 0x10;
+
+        /// <summary>True when the message is a player's (<c>Attr</c> 0x10) and must be dropped if that player is blacklisted.</summary>
+        public bool IsBlacklistable => (Attr & AttrBlacklistable) != 0;
+
+        /// <summary>The <c>Data</c> string parsed into its keyed parameters (<c>Para0</c>-<c>Para3</c>, names, ids, mode).</summary>
+        public SystemMessageParameters GetParameters() => SystemMessageParameters.Parse(GetData());
 
         public S2C_0x009_SysMessage(ReadOnlySpan<byte> payload)
         {

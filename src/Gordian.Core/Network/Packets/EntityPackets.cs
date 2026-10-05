@@ -240,6 +240,67 @@ namespace Gordian.Core.Network.Packets
         public byte Flags4 => _payload.Length > 0x2F ? _payload[0x2F] : (byte)0;
 
         /// <summary>
+        /// Flags1 YellFlag (bit 13): the player is called for help on; the retail client draws the name orange
+        /// (<see cref="NamePlateFlags.CalledForHelp"/>). Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D.
+        /// </summary>
+        public bool IsCalledForHelp => ((Flags1 >> 13) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>BallistaInfo</c> (payload 0x2E): extended team/name flags for Ballista and PvP; the client special-cases 6 and 7.
+        /// 0 when the packet is too short.
+        /// </summary>
+        public byte BallistaInfo => _payload.Length > 0x2E ? _payload[0x2E] : (byte)0;
+
+        /// <summary>
+        /// <c>CustomProperties[0]</c> (payload 0x30): the player's custom mount data (breed, colour and so on of a chocobo);
+        /// the client reads only the first of the two words. 0 when the packet is too short.
+        /// </summary>
+        public uint CustomProperty => _payload.Length >= 0x34 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x30, 4)) : 0u;
+
+        /// <summary><c>MonstrosityFlags</c> (payload 0x3A); 0 outside Monstrosity.</summary>
+        public ushort MonstrosityFlags => _payload.Length >= 0x3C ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(0x3A, 2)) : (ushort)0;
+
+        /// <summary><c>MonstrosityNameId1</c> (payload 0x3C): the first part of a Monstrosity name.</summary>
+        public byte MonstrosityNameId1 => _payload.Length > 0x3C ? _payload[0x3C] : (byte)0;
+
+        /// <summary><c>MonstrosityNameId2</c> (payload 0x3D): the second part of a Monstrosity name.</summary>
+        public byte MonstrosityNameId2 => _payload.Length > 0x3D ? _payload[0x3D] : (byte)0;
+
+        /// <summary>
+        /// <c>Flags5</c> (payload 0x3E): the geomancer's Indi- spell aura on the player: bits 0-3 the element, bits 4-5 the size,
+        /// bit 6 the aura is up. 0 when the packet is too short. Layout referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000D flags5_t.
+        /// </summary>
+        public byte Flags5 => _payload.Length > 0x3E ? _payload[0x3E] : (byte)0;
+
+        /// <summary>The Indi- aura's element (Flags5 bits 0-3).</summary>
+        public byte GeoIndiElement => (byte)(Flags5 & 0x0F);
+
+        /// <summary>The Indi- aura's size (Flags5 bits 4-5).</summary>
+        public byte GeoIndiSize => (byte)((Flags5 >> 4) & 0x03);
+
+        /// <summary>Whether an Indi- aura is up (Flags5 bit 6).</summary>
+        public bool HasGeoIndi => (Flags5 & 0x40) != 0;
+
+        /// <summary>
+        /// <c>ModelHitboxSize</c> (payload 0x3F): the model's hitbox size in tenths; <see cref="ModelHitboxRadius"/> is the float the
+        /// client computes (<c>value * 0.1</c>). 0 when the packet is too short.
+        /// </summary>
+        public byte ModelHitboxSize => _payload.Length > 0x3F ? _payload[0x3F] : (byte)0;
+
+        /// <summary>The model's hitbox size as the client reads it: <see cref="ModelHitboxSize"/> * 0.1.</summary>
+        public float ModelHitboxRadius => ModelHitboxSize * 0.1f;
+
+        /// <summary><c>Flags6</c> (payload 0x40): the gate id (bits 0-3) and the mount index (bits 4-11). 0 when the packet is too short.</summary>
+        public uint Flags6 => _payload.Length >= 0x44 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x40, 4)) : 0u;
+
+        /// <summary>Flags6 GateId (bits 0-3).</summary>
+        public byte GateId => (byte)(Flags6 & 0x0F);
+
+        /// <summary>Flags6 MountIndex (bits 4-11): the player's mount; 0 when not mounted.</summary>
+        public byte MountIndex => (byte)((Flags6 >> 4) & 0xFF);
+
+        /// <summary>
         /// The name plate flags: flags1 LfgFlag (11), AnonymousFlag (12), YellFlag (13), AwayFlag (14), PlayOnelineFlag
         /// (16), LinkShellFlag (17), LinkDeadFlag (18), BazaarFlag (31); flags2 GmIconFlag (28), AutoPartyFlag (31);
         /// flags3 LfgMasterFlag (1), NewCharacterFlag (23), MentorFlag (24); flags4 TrialFlag (1), JobMasterFlag (6).
@@ -402,6 +463,37 @@ namespace Gordian.Core.Network.Packets
         {
             if (index < 0 || index >= 7 || _payload.Length < 56) return 0;
             return BinaryPrimitives.ReadInt16LittleEndian(_payload.Slice(42 + (index * 2), 2));
+        }
+
+        /// <summary>
+        /// <c>encumbrance</c> (payload 92): bit flags that lock equipment slots and stats while encumbered. 0 when the packet is
+        /// shorter than the full 128 bytes. Layout referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x001B</c>.
+        /// </summary>
+        public uint Encumbrance => _payload.Length >= 96 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(92, 4)) : 0u;
+
+        /// <summary><c>can_thumbs_up_mentor</c> (payload 96): the player may thumbs-up a mentor in an assist channel (once per earth day).</summary>
+        public bool CanThumbsUpMentor => _payload.Length > 96 && _payload[96] != 0;
+
+        /// <summary><c>mentor_rank</c> (payload 97): 0 none, 1 bronze, 2 silver, 3 gold flag.</summary>
+        public byte MentorRank => _payload.Length > 97 ? _payload[97] : (byte)0;
+
+        /// <summary>
+        /// <c>mastery_rank</c> (payload 98), shown with the mentor flag in assist channels; values like 11 and 21 mean a silver
+        /// or gold flag with rank 1 (XiPackets 0x001B).
+        /// </summary>
+        public byte MasteryRank => _payload.Length > 98 ? _payload[98] : (byte)0;
+
+        /// <summary><c>job_mastery_flags</c> (payload 100): bit n is set when job n has mastery unlocked (bit 0 is not a job).</summary>
+        public uint JobMasteryFlags => _payload.Length >= 104 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(100, 4)) : 0u;
+
+        /// <summary>Whether <paramref name="job"/> has mastery unlocked (<see cref="JobMasteryFlags"/>).</summary>
+        public bool HasJobMastery(JobId job) => (byte)job is > 0 and < 32 && (JobMasteryFlags & (1u << (byte)job)) != 0;
+
+        /// <summary><c>job_mastery_levels</c> (payload 104, 24 bytes indexed by job; byte 0 unused): the job's mastery level.</summary>
+        public byte GetJobMasteryLevel(JobId job)
+        {
+            int idx = (byte)job;
+            return idx > 0 && idx < 24 && _payload.Length >= 104 + 24 ? _payload[104 + idx] : (byte)0;
         }
 
         public byte GetJobLevel(JobId job)
@@ -819,6 +911,7 @@ namespace Gordian.Core.Network.Packets
                 Flags2 = 0;
                 Flags3 = 0;
                 DeadCounterTicks = 0;
+                DeadCounter2Ticks = 0;
                 CostumeId = 0;
                 WarpTargetIndex = 0;
                 FellowTargetIndex = 0;
@@ -843,6 +936,7 @@ namespace Gordian.Core.Network.Packets
             Flags2 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(48, 4));
             Flags3 = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(52, 4));
             DeadCounterTicks = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(56, 4));
+            DeadCounter2Ticks = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(60, 4));
             CostumeId = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(64, 2));
             WarpTargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(66, 2));
             FellowTargetIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(68, 2));
@@ -864,8 +958,23 @@ namespace Gordian.Core.Network.Packets
         public bool HasBazaar => ((Flags1 >> 29) & 0x01) != 0;
         public bool IsCharmed => ((Flags1 >> 30) & 0x01) != 0;
 
-        /// <summary>GM level (flags0 bits 29-31).</summary>
+        /// <summary>GM level (flags0 bits 29-31). The client only distinguishes values of 3 and up.</summary>
         public byte GmLevel => (byte)((Flags0 >> 29) & 0x07);
+
+        /// <summary>
+        /// FreezeFlag (flags1 bit 13): the client is locked in place and the compass is removed. Layout referenced from
+        /// XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
+        /// </summary>
+        public bool IsFrozen => ((Flags1 >> 13) & 0x01) != 0;
+
+        /// <summary>Hackmove (flags1 bit 12).</summary>
+        public bool HackMove => ((Flags1 >> 12) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>dead_counter2</c> (payload 0x3C), written after <see cref="DeadCounterTicks"/>: a second timer of the dead
+        /// entity waiting to homepoint. LandSandBoat leaves it 0.
+        /// </summary>
+        public uint DeadCounter2Ticks { get; }
 
         /// <summary>Flags4 (payload 0x54): bit 7 JobMasterFlag. 0 when the packet is too short.</summary>
         public byte Flags4 => _flags4;
@@ -937,6 +1046,48 @@ namespace Gordian.Core.Network.Packets
         public byte UnityFaction { get; }
         public uint UnityPoints { get; }
         public bool IsValid { get; }
+
+        /// <summary><c>MonsterBuster</c> (payload 72): the Monster Buster bit field.</summary>
+        public uint MonsterBuster => _payload.Length >= 76 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(72, 4)) : 0u;
+
+        /// <summary><c>myroom</c> (payload 77): the Mog House style.</summary>
+        public byte MyRoom => _payload.Length > 77 ? _payload[77] : (byte)0;
+
+        /// <summary><c>ilvl_mhand</c> (payload 82): the item level of the main hand weapon.</summary>
+        public byte ItemLevelMainHand => _payload.Length > 82 ? _payload[82] : (byte)0;
+
+        /// <summary><c>ilvl_ranged</c> (payload 83): the item level of the ranged weapon.</summary>
+        public byte ItemLevelRanged => _payload.Length > 83 ? _payload[83] : (byte)0;
+
+        /// <summary><c>unity_points1</c> (payload 88): the partial Unity personal evaluation points.</summary>
+        public ushort UnityPoints1 => _payload.Length >= 90 ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(88, 2)) : (ushort)0;
+
+        /// <summary><c>unity_points2</c> (payload 90): the Unity personal evaluation points.</summary>
+        public ushort UnityPoints2 => _payload.Length >= 92 ? BinaryPrimitives.ReadUInt16LittleEndian(_payload.Slice(90, 2)) : (ushort)0;
+
+        /// <summary>
+        /// <c>unity_chat_color_flag</c> (payload 92, lowest bit): the Unity leader's name colour in <c>/unity</c> chat, light
+        /// white-grey when set and dark grey when clear.
+        /// </summary>
+        public bool UnityChatLightColor => _payload.Length >= 96 && (BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(92, 4)) & 1) != 0;
+
+        /// <summary><c>mastery_info</c> job level (payload 97): the master level of the current job.</summary>
+        public byte MasteryJobLevel => _payload.Length > 97 ? _payload[97] : (byte)0;
+
+        /// <summary><c>mastery_info</c> flags (payload 98): 0x01 job mastery unlocked (enables Master Levels), 0x02 the job is capped on exemplar points.</summary>
+        public byte MasteryFlags => _payload.Length > 98 ? _payload[98] : (byte)0;
+
+        /// <summary>The job mastery system is unlocked (<see cref="MasteryFlags"/> 0x01).</summary>
+        public bool MasteryUnlocked => (MasteryFlags & 0x01) != 0;
+
+        /// <summary>The current job is capped on exemplar points (<see cref="MasteryFlags"/> 0x02).</summary>
+        public bool MasteryExemplarCapped => (MasteryFlags & 0x02) != 0;
+
+        /// <summary><c>mastery_exp_now</c> (payload 100): the current master experience points.</summary>
+        public uint MasteryExpNow => _payload.Length >= 104 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(100, 4)) : 0u;
+
+        /// <summary><c>mastery_exp_next</c> (payload 104): the master experience points needed for the next level.</summary>
+        public uint MasteryExpNext => _payload.Length >= 108 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(104, 4)) : 0u;
 
         private readonly ReadOnlySpan<byte> _payload;
 

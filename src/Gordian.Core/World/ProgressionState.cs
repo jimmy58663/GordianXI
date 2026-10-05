@@ -17,8 +17,25 @@ namespace Gordian.Core.World
         int[] NumericParams,
         string[] StringParams,
         uint[] DataParams,
-        bool FromZoneIn = false
-    );
+        bool FromZoneIn = false,
+        ushort EventNum2 = 0,
+        ushort EventPara2 = 0,
+        bool HasEventNum2 = false
+    )
+    {
+        /// <summary>
+        /// The number the event DAT is loaded by. S2C 0x032 / 0x034 carry a second event number (<c>EventNum2</c>); the
+        /// retail client loads the event data from <c>EventNum2 + 1000</c> when the zone's sub number is 1000-1299 (an
+        /// instance) or when the two numbers differ, and from <c>EventNum</c> otherwise (XiPackets 0x0032).
+        /// LandSandBoat sets <c>EventNum2</c> to the zone, or to the event's text table on 0x034.
+        /// </summary>
+        public ushort GetEventFileNumber(ushort zoneSubNo)
+        {
+            if (!HasEventNum2) return EventNum;
+            bool offset = (zoneSubNo >= 1000 && zoneSubNo <= 1299) || EventNum != EventNum2;
+            return offset ? (ushort)(EventNum2 + 1000) : EventNum;
+        }
+    }
 
     /// <summary>
     /// A zone dialog message the server asked the client to print (S2C 0x036 / 0x02A / 0x027 / 0x043 / 0x03B): the
@@ -77,6 +94,69 @@ namespace Gordian.Core.World
         public ushort TalesBeginning { get; private set; }
         public uint ExpansionSoA { get; private set; }
         public uint ExpansionRoV { get; private set; }
+
+        /// <summary>The Voracious Resurgence mission (S2C 0x056 port 0xFFFE); bit 31 means missions were completed with none active.</summary>
+        public uint ExpansionTvr { get; private set; }
+
+        // The quest log bit tables (S2C 0x056 ports 0x30-0x108), 8 words per packet.
+        private readonly uint[] _questOffer = new uint[MissionPorts.QuestOfferWords];
+        private readonly uint[] _questComplete = new uint[MissionPorts.QuestCompleteWords];
+        private readonly uint[] _missionComplete = new uint[MissionPorts.MissionCompleteWords];
+        private uint _missionReceivedBits;
+
+        /// <summary>True once every port of the quest log arrived (the retail client's <c>RecBitFlag</c> reaches 0x83FFFFFF).</summary>
+        public bool QuestLogComplete
+        {
+            get { lock (_lock) return _missionReceivedBits == MissionPorts.AllReceived; }
+        }
+
+        /// <summary>Bits of the ports received so far; see <see cref="MissionPorts.ReceivedBit"/>.</summary>
+        public uint MissionReceivedBits
+        {
+            get { lock (_lock) return _missionReceivedBits; }
+        }
+
+        /// <summary>Whether the quest is currently offered/active (bit <paramref name="questId"/> of the area's QuestOffer block).</summary>
+        public bool IsQuestActive(QuestLogArea area, int questId) => TestBit(_questOffer, area, questId);
+
+        /// <summary>Whether the quest is complete (bit <paramref name="questId"/> of the area's QuestComplete block).</summary>
+        public bool IsQuestComplete(QuestLogArea area, int questId) => TestBit(_questComplete, area, questId);
+
+        /// <summary>
+        /// Whether bit <paramref name="bit"/> of the MissionComplete table is set. Words 0-15 hold the nation, treasure and
+        /// Wings of the Goddess mission bits (ports 0xD0 and 0xD8, 8 words each) and words 16-31 the campaign bits.
+        /// </summary>
+        public bool IsMissionComplete(int bit)
+        {
+            if (bit < 0 || bit >= MissionPorts.MissionCompleteWords * 32) return false;
+            lock (_lock) return (_missionComplete[bit >> 5] & (1u << (bit & 31))) != 0;
+        }
+
+        /// <summary>Copies a block of a quest log table (the QuestOffer, QuestComplete or MissionComplete words) into <paramref name="destination"/>.</summary>
+        public int CopyMissionTable(MissionTable table, Span<uint> destination)
+        {
+            lock (_lock)
+            {
+                uint[]? src = table switch
+                {
+                    MissionTable.QuestOffer => _questOffer,
+                    MissionTable.QuestComplete => _questComplete,
+                    MissionTable.MissionComplete => _missionComplete,
+                    _ => null
+                };
+                if (src == null) return 0;
+                int n = Math.Min(src.Length, destination.Length);
+                src.AsSpan(0, n).CopyTo(destination);
+                return n;
+            }
+        }
+
+        private bool TestBit(uint[] table, QuestLogArea area, int questId)
+        {
+            if (questId < 0 || questId >= 256) return false;
+            int word = ((int)area * 8) + (questId >> 5);
+            lock (_lock) return word < table.Length && (table[word] & (1u << (questId & 31))) != 0;
+        }
 
         #endregion
 
@@ -346,7 +426,8 @@ namespace Gordian.Core.World
         #region State Mutators
 
         public void StartEvent(uint uniqueNo, ushort actIndex, ushort eventNum, ushort eventPara, ushort mode,
-            int[]? numericParams = null, string[]? stringParams = null, uint[]? dataParams = null, bool fromZoneIn = false)
+            int[]? numericParams = null, string[]? stringParams = null, uint[]? dataParams = null, bool fromZoneIn = false,
+            ushort? eventNum2 = null, ushort eventPara2 = 0)
         {
             CutsceneEventInfo info;
             lock (_lock)
@@ -360,7 +441,10 @@ namespace Gordian.Core.World
                     numericParams ?? new int[8],
                     stringParams ?? new string[4],
                     dataParams ?? new uint[8],
-                    fromZoneIn
+                    fromZoneIn,
+                    eventNum2 ?? 0,
+                    eventPara2,
+                    eventNum2.HasValue
                 );
                 ActiveEvent = info;
             }
@@ -407,6 +491,18 @@ namespace Gordian.Core.World
         }
 
         public void CancelEventByServer() => EventCancelledByServer?.Invoke();
+
+        /// <summary>Raised by S2C 0x052 mode 0: the server released the character's control after an event.</summary>
+        public event Action? EventControlReleased;
+
+        /// <summary>Raised by S2C 0x052 mode 3: the server closed the event's number or password input.</summary>
+        public event Action? EventInputCancelled;
+
+        /// <summary>Handles S2C 0x052 mode 0 (release control after a cutscene).</summary>
+        public void ReleaseEventControl() => EventControlReleased?.Invoke();
+
+        /// <summary>Handles S2C 0x052 mode 3 (cancel the number or password input of the running event).</summary>
+        public void CancelEventInput() => EventInputCancelled?.Invoke();
 
         public void EndEvent()
         {
@@ -534,7 +630,25 @@ namespace Gordian.Core.World
         {
             lock (_lock)
             {
-                if (mission.IsMainPort)
+                _missionReceivedBits |= MissionPorts.ReceivedBit(mission.Port);
+                if (mission.IsTvrPort)
+                {
+                    ExpansionTvr = mission.GetOtherData(0);
+                }
+                else if (MissionPorts.TryResolve(mission.Port, out MissionTable table, out int offset))
+                {
+                    uint[] dest = table switch
+                    {
+                        MissionTable.QuestOffer => _questOffer,
+                        MissionTable.QuestComplete => _questComplete,
+                        _ => _missionComplete
+                    };
+                    for (int i = 0; i < 8 && offset + i < dest.Length; i++)
+                    {
+                        dest[offset + i] = mission.GetOtherData(i);
+                    }
+                }
+                else if (mission.IsMainPort)
                 {
                     NationId = mission.Nation;
                     NationMissionId = mission.NationMission;

@@ -37,7 +37,14 @@ namespace Gordian.Core.Network.Packets
         ushort MessageId,
         byte Attr,
         string Parameters,
-        DateTime Timestamp);
+        DateTime Timestamp)
+    {
+        /// <summary>The <see cref="Parameters"/> parsed into their keyed values, as the retail client reads them.</summary>
+        public SystemMessageParameters ParsedParameters => SystemMessageParameters.Parse(Parameters);
+
+        /// <summary>True for a player's message (<c>Attr</c> 0x10), which the blacklist can filter.</summary>
+        public bool IsBlacklistable => (Attr & S2C_0x009_SysMessage.AttrBlacklistable) != 0;
+    }
 
     /// <summary>
     /// Represents an immutable decoded auto-translate response.
@@ -79,6 +86,12 @@ namespace Gordian.Core.Network.Packets
         private ushort _sequenceNumber;
 
         public bool LogOutboundOnRoute { get; set; } = true;
+
+        /// <summary>
+        /// Tells whether a player (by server id) is on the blacklist. S2C 0x009 messages flagged <c>Attr</c> 0x10 from a
+        /// blacklisted sender are dropped, as the retail client does (XiPackets 0x0009).
+        /// </summary>
+        public Func<uint, bool>? IsBlacklisted { get; set; }
 
         public event Action<ChatMessage>? ChatMessageReceived;
         public event Action<SystemMessage>? SystemMessageReceived;
@@ -138,6 +151,12 @@ namespace Gordian.Core.Network.Packets
         {
             var msg = new S2C_0x009_SysMessage(payload);
             if (!msg.IsValid) return;
+
+            if (msg.IsBlacklistable && IsBlacklisted?.Invoke(msg.UniqueNo) == true)
+            {
+                GordianLog.Debug("CHAT", $"[SYS_MSG] Dropped message {msg.MessageId} from blacklisted 0x{msg.UniqueNo:X8}");
+                return;
+            }
 
             var model = new SystemMessage(
                 UniqueNo: msg.UniqueNo,

@@ -190,6 +190,24 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => _parser.TreasureModule;
 
+        /// <summary>Gets the delivery box state (S2C 0x04B).</summary>
+        public DeliveryBoxState Delivery => _parser.Delivery;
+
+        /// <summary>Gets the character's blacklist (S2C 0x041 / 0x042).</summary>
+        public BlacklistState Blacklist => _parser.Blacklist;
+
+        /// <summary>Gets the world pass, item search, party group id, party map position and concierge state.</summary>
+        public SocialState Social => _parser.Social;
+
+        /// <summary>Gets the social packet module (delivery box, blacklist, item search, linkshell items, party id and map positions).</summary>
+        public SocialPacketModule SocialModule => _parser.SocialModule;
+
+        /// <summary>
+        /// Gets the search (cache) server service. Its address defaults to the host of the world connection and port 54002;
+        /// call <c>Configure</c> for a server that runs it elsewhere.
+        /// </summary>
+        public Search.SearchService Search => _parser.Search;
+
         /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
         public PlayerCommandState Commands => _parser.Commands;
 
@@ -600,6 +618,7 @@ namespace Gordian.Core.Network
                 }
 
                 _serverEndpoint = new IPEndPoint(targetIp, _serverPort);
+                _parser.Search.ConfigureDefault(targetIp.ToString());
                 _udpSocket = new Socket(_serverEndpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 
                 // On Windows, disable SIO_UDP_CONNRESET so ICMP Port Unreachable packets do not trigger WSAECONNRESET (10054)
