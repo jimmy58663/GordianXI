@@ -23,7 +23,7 @@ namespace Gordian.Core.Audio
         /// <summary>Raw interleaved 16-bit little-endian PCM.</summary>
         Pcm = 1,
 
-        /// <summary>Sony ATRAC3. Not decoded by GordianXI yet (about a third of the music).</summary>
+        /// <summary>Sony ATRAC3 (about a third of the music), decoded by the registered <see cref="IAtrac3Decoder"/>.</summary>
         Atrac3 = 3,
     }
 
@@ -47,6 +47,12 @@ namespace Gordian.Core.Audio
     /// 16 samples).</para>
     /// <para>A <c>.spw</c> whose byte 7 is not zero (<c>se039211</c>-<c>se039225</c>) is an encrypted variant nobody decodes;
     /// <see cref="IsEncrypted"/> marks it.</para>
+    /// <para>ATRAC3 (format 3) reads the fields differently (spec <c>docs/audio/atrac3.md</c> section 2, measured on the
+    /// install): <c>blocks</c> is the total sample count per channel, <c>loopStart</c> a sample index, <c>blockSize</c>
+    /// is meaningless, and every frame is 192 bytes per channel per 1024 samples. <see cref="SampleBlocks"/> is then the
+    /// frame count from the size, and <see cref="LoopStartFrame"/> is <c>loopStart</c> for music and
+    /// <c>loopStart - 1024</c> for effects (provisional: measured on 3 periodic effects; <b>Differs from vgmstream</b>,
+    /// which uses <c>loopStart</c> for both).</para>
     /// </remarks>
     public readonly struct FfxiSoundHeader
     {
@@ -68,10 +74,13 @@ namespace Gordian.Core.Audio
         /// <summary>The sound's own id: the music number for <c>.bgw</c>, the sound effect id (the <c>0x3D</c> pointer value) for <c>.spw</c>.</summary>
         public int Id { get; init; }
 
-        /// <summary>Number of blocks per channel.</summary>
+        /// <summary>Number of blocks per channel (ATRAC3: frames of 1024 samples).</summary>
         public int SampleBlocks { get; init; }
 
-        /// <summary>The block playback loops back to after the last block, or a negative value when the sound does not loop.</summary>
+        /// <summary>
+        /// The block playback loops back to after the last block, or a negative value when the sound does not loop.
+        /// ATRAC3: the raw <c>loopStart</c> field, a sample index (use <see cref="LoopStartFrame"/>).
+        /// </summary>
         public int LoopStartBlock { get; init; }
 
         /// <summary>Sample rate in Hz (the sum of the two obfuscated halves).</summary>
@@ -92,14 +101,19 @@ namespace Gordian.Core.Audio
         /// <summary>True for the encrypted <c>.spw</c> variant (byte 7 not zero), which cannot be decoded.</summary>
         public bool IsEncrypted { get; init; }
 
-        /// <summary>Whether playback loops back to <see cref="LoopStartBlock"/> after the end.</summary>
-        public bool IsLooped => LoopStartBlock >= 0 && LoopStartBlock < SampleBlocks;
+        /// <summary>ATRAC3 only: the sample the loop restarts at (see the remarks), or -1 when one-shot.</summary>
+        public long Atrac3LoopSample { get; init; }
+
+        /// <summary>Whether playback loops back to <see cref="LoopStartFrame"/> after the end.</summary>
+        public bool IsLooped => Format == FfxiSampleFormat.Atrac3
+            ? Atrac3LoopSample >= 0 && Atrac3LoopSample < TotalFrames
+            : LoopStartBlock >= 0 && LoopStartBlock < SampleBlocks;
 
         /// <summary>Sample frames (per channel) in one pass of the file.</summary>
         public long TotalFrames => (long)SampleBlocks * SamplesPerBlock;
 
         /// <summary>The sample frame the loop restarts at, or -1 when not looped.</summary>
-        public long LoopStartFrame => IsLooped ? (long)LoopStartBlock * SamplesPerBlock : -1;
+        public long LoopStartFrame => !IsLooped ? -1 : Format == FfxiSampleFormat.Atrac3 ? Atrac3LoopSample : (long)LoopStartBlock * SamplesPerBlock;
 
         /// <summary>Whether GordianXI can decode this file (ADPCM or PCM, not encrypted, sane geometry).</summary>
         public bool IsDecodable =>
@@ -159,7 +173,19 @@ namespace Gordian.Core.Audio
 
             int frameSize;
             int samplesPerBlock;
-            if (format == (int)FfxiSampleFormat.Adpcm)
+            long atrac3Loop = -1;
+            if (format == (int)FfxiSampleFormat.Atrac3)
+            {
+                // 192 bytes per channel per 1024 samples; the frame count comes from the size (it always matches blocks / 1024).
+                frameSize = 192;
+                samplesPerBlock = 1024;
+                blocks = channels > 0 ? bodyBytes / (frameSize * channels) : 0;
+                if (loop >= 0)
+                {
+                    atrac3Loop = kind == FfxiSoundKind.Effect ? Math.Max(0, loop - 1024) : loop;
+                }
+            }
+            else if (format == (int)FfxiSampleFormat.Adpcm)
             {
                 // Derive the geometry from the data: a handful of effects declare 16 samples per block with smaller frames.
                 long perChannelBlocks = (long)blocks * Math.Max(1, channels);
@@ -203,6 +229,7 @@ namespace Gordian.Core.Audio
                 FrameSize = frameSize,
                 SamplesPerBlock = samplesPerBlock,
                 IsEncrypted = encrypted,
+                Atrac3LoopSample = atrac3Loop,
             };
             return true;
         }
