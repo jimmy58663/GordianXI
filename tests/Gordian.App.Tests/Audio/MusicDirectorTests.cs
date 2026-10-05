@@ -48,6 +48,14 @@ namespace Gordian.App.Tests.Audio
         public void ChooseSlot_FollowsThePlayersSituation(byte status, bool party, float hour, MusicSlot expected) =>
             Assert.Equal(expected, MusicDirector.ChooseSlot(new MusicContext(status, party, hour)));
 
+        [Theory]
+        [InlineData(0, false, 0)]
+        [InlineData(1, false, 1)]  // S2C 0x037 says engaged
+        [InlineData(0, true, 1)]   // engaged locally before the server's status arrives
+        [InlineData(3, true, 3)]   // dead wins
+        public void MusicStatus_ComesFromTheLocalPlayersServerStatus(byte server, bool engaged, byte expected) =>
+            Assert.Equal(expected, GameAudioService.MusicStatus(server, engaged));
+
         [Fact]
         public void EmptySlot_FallsBackToTheZoneMusic()
         {

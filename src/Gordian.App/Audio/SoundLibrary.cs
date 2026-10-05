@@ -109,9 +109,17 @@ namespace Gordian.App.Audio
 
         private void ReportUndecodable(int key, string what, byte[] bytes)
         {
-            string reason = FfxiSoundHeader.TryParse(bytes, out FfxiSoundHeader h)
-                ? h.IsEncrypted ? "encrypted variant" : h.Format == FfxiSampleFormat.Atrac3 && FfxiSoundDecoder.Atrac3 is null ? "no ATRAC3 decoder is registered" : $"{h.Format} did not decode"
-                : "unknown header";
+            bool parsed = FfxiSoundHeader.TryParse(bytes, out FfxiSoundHeader h);
+            if (parsed && h.Format == FfxiSampleFormat.Atrac3 && !h.IsEncrypted && FfxiSoundDecoder.Atrac3 is null)
+            {
+                // ATRAC3 is expected to be silent until a decoder is registered; say so plainly (in-game round 1).
+                Report(key, key < 0 ? $"ATRAC3 track {-key}, no decoder: playing silence." : $"ATRAC3 sound effect {key}, no decoder: playing silence.");
+                return;
+            }
+
+            string reason = !parsed
+                ? "unknown header"
+                : h.IsEncrypted ? "encrypted variant" : $"{h.Format} did not decode";
             Report(key, $"{what} cannot play: {reason}.");
         }
 

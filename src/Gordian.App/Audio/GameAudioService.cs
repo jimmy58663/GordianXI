@@ -154,15 +154,26 @@ namespace Gordian.App.Audio
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);
-            byte status = 0;
-            if (world.TryGetByServerId(session.LocalPlayer.ServerId, out WorldEntity? player))
-            {
-                status = player.AnimationState;
-            }
-
-            var context = new MusicContext(status, session.Party.Members.Count > 1, hour);
+            var context = new MusicContext(MusicStatus(session.LocalPlayer.ServerStatus, session.Combat.IsEngaged), session.Party.Members.Count > 1, hour);
             _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
+        }
+
+        /// <summary>
+        /// The local player's status for the music choice. It comes from S2C 0x037 (<c>LocalPlayerState.ServerStatus</c>):
+        /// the server does not send the player's own 0x00D, so the player's <c>WorldEntity.AnimationState</c> stays 0 and
+        /// battle music never started (in-game round 1). While the client has engaged a target before the server's status
+        /// arrives, it counts as engaged too.
+        /// </summary>
+        public static byte MusicStatus(byte serverStatus, bool clientEngaged)
+        {
+            byte status = serverStatus;
+            if (status == 0 && clientEngaged)
+            {
+                status = 1;
+            }
+
+            return status;
         }
 
         /// <summary>

@@ -81,7 +81,7 @@ Sound pointers (`SoundEffectPointer`, DAT section 0x3D, xi-tools `docs/audio/ref
 - S2C 0x05F (`u16 Slot`, `u16 MusicNum`) sets one slot. LandSandBoat sends it from Lua `changeMusic` and zone-wide battle music changes.
 - S2C 0x060 (`u16 time`, `u16 volume` 0-127) eases the music bus to `volume / 127`. XiPackets says the client lerps over `time` without a unit; we read 1/60 s frames (provisional). LandSandBoat never sends it.
 
-**Track choice** (`MusicDirector`, App), from the local player each frame:
+**Track choice** (`MusicDirector`, App), from the local player each frame. The status is the player's own S2C 0x037 server status (`LocalPlayerState.ServerStatus`), or engaged while the client has engaged a target; the player's `WorldEntity.AnimationState` is not used, because the server never sends the player its own 0x00D (that left battle music silent in the first in-game round). In towns LandSandBoat sets the battle slots to the town track (`data/zones/*/zone.yaml`, e.g. Windurst Woods 151 / 151 / 151 / 151), so battle music only changes outside them (East Ronfaure: 109 day, 101 solo, 103 party). Each track change is logged (`AUDIO Music: slot … → track …`), and an ATRAC3 track logs `ATRAC3 track N, no decoder: playing silence.` once.
 
 | Situation | Slot |
 |---|---|

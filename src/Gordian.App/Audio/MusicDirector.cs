@@ -40,6 +40,7 @@ namespace Gordian.App.Audio
         private int _currentTrack;
         private int _currentHandle;
         private int _startToken;
+        private int _loggedTrack = -1;
         private int _pendingTrack;
         private double _pendingDelay;
         private int _overrideTrack = -1;
@@ -163,6 +164,12 @@ namespace Gordian.App.Audio
             if (wanted == _currentTrack)
             {
                 return;
+            }
+
+            if (wanted != _loggedTrack)
+            {
+                _loggedTrack = wanted;
+                Gordian.Core.Diagnostics.GordianLog.Info("AUDIO", $"Music: slot {(_overrideTrack >= 0 ? "override" : CurrentSlot.ToString())} → track {wanted} (was {_currentTrack}).");
             }
 
             int handle = System.Threading.Volatile.Read(ref _currentHandle);
