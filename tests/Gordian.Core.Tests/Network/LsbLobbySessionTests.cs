@@ -145,6 +145,42 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
 
+        /// <summary>
+        /// The round-1 in-game failure: after a deletion LandSandBoat dropped the 0x1F that followed its OK, the refresh
+        /// timed out and the lobby closed with FFXI-3115. The session now sends the request again and carries on.
+        /// </summary>
+        [Fact]
+        public async Task Delete_WhenTheServerLosesTheRefreshRequest_ResendsItAndKeepsTheSession()
+        {
+            using var server = Server();
+            server.LoseRequestAfterDelete = true;
+            await using var lobby = await Connect(server);
+            await lobby.DeleteCharacterAsync(lobby.Characters[0]);
+
+            Assert.Equal(1, server.DroppedRequests);
+            Assert.True(lobby.IsConnected);
+            Assert.Equal("Blm", lobby.Characters[0].Name);
+            Assert.Equal(new byte[] { 0x26, 0x14, 0x1F }, server.ViewCommands.ToArray());
+
+            // Playing another character in the same session: the map key carries the deletion's +4.
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            Assert.Equal(0x58 + 4, ticket.BlowfishKey[16]);
+            Assert.Equal(server.StoredKey, ticket.BlowfishKey);
+        }
+
+        /// <summary>A slow answer to the first 0x1F: the resent request makes a second prompt, which later reads skip.</summary>
+        [Fact]
+        public async Task Delete_WhenTheServerAnswersLate_SkipsTheDuplicatePrompt()
+        {
+            using var server = Server();
+            server.DelayRequestAfterDeleteMs = 2000;
+            await using var lobby = await Connect(server);
+            await lobby.DeleteCharacterAsync(lobby.Characters[0]);
+            Assert.Equal("Blm", lobby.Characters[0].Name);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            Assert.Equal(server.StoredKey, ticket.BlowfishKey);
+        }
+
         [Fact]
         public async Task Delete_DisabledOnTheServer_IsRefused()
         {

@@ -217,9 +217,18 @@ namespace Gordian.Core.Network.LandSandBoat
             var request = new byte[LobbyPackets.GetCharactersSize];
             LobbyPackets.WriteGetCharacters(request, _sessionHash);
             await SendViewAsync(request, "GP_LOBBY_GET_CHR", ct).ConfigureAwait(false);
-            // LandSandBoat answers the view request on the data channel: 0x01 asks for the account id (0xA1).
-            var prompt = await ReadDataAsync("character list", ct).ConfigureAwait(false);
-            if (prompt.Length == 0 || prompt[0] != LobbyDataCommand.RequestAccount)
+            // LandSandBoat answers the view request on the data channel: 0x01 asks for the account id (0xA1). It can lose
+            // the request: its view session clears its read buffer when a write completes, and a request that arrived just
+            // before that is read as zeros and dropped (seen after a deletion, whose OK it writes before its database work).
+            // A request with no prompt after a short wait is sent once more; a late duplicate prompt is skipped later.
+            byte[]? prompt = await ReadDataCoreAsync("character list", ct, PromptRetryWait, expect: LobbyDataCommand.RequestAccount, breakOnTimeout: false).ConfigureAwait(false);
+            if (prompt == null)
+            {
+                GordianLog.Warning("LSB_LOGIN", $"No account prompt {PromptRetryWait.TotalSeconds:0.#} s after 0x1F; sending the character list request again.");
+                await SendViewAsync(request, "GP_LOBBY_GET_CHR", ct).ConfigureAwait(false);
+                prompt = await ReadDataCoreAsync("character list", ct, expect: LobbyDataCommand.RequestAccount).ConfigureAwait(false);
+            }
+            if (prompt!.Length == 0 || prompt[0] != LobbyDataCommand.RequestAccount)
             {
                 throw Broken(new LobbyRequestException("character list", 0, $"Data server sent 0x{(prompt.Length > 0 ? prompt[0] : 0):X2} instead of the account prompt (0x01)."));
             }
@@ -303,6 +312,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 await ExpectOkAsync("character deletion", ct).ConfigureAwait(false);
                 _keyIncrement += 4;
                 GordianLog.Info("LSB_LOGIN", $"Deleted character '{character.Name}' (content id {character.ContentId}).");
+                await Task.Delay(AfterDeletePause, ct).ConfigureAwait(false);
                 await RefreshUnlockedAsync(ct).ConfigureAwait(false);
             }
             finally { _gate.Release(); }
@@ -491,12 +501,26 @@ namespace Gordian.Core.Network.LandSandBoat
             }
         }
 
-        /// <summary>Reads one data channel message, its length known from its first byte.</summary>
-        private async Task<byte[]> ReadDataAsync(string request, CancellationToken ct)
+        /// <summary>How long a refresh waits for the account prompt before sending its request again.</summary>
+        public static readonly TimeSpan PromptRetryWait = TimeSpan.FromSeconds(1.5);
+
+        /// <summary>A pause after a deletion's OK: LandSandBoat writes it before its database work (view_session.cpp 0x14).</summary>
+        public static readonly TimeSpan AfterDeletePause = TimeSpan.FromMilliseconds(250);
+
+        /// <summary>
+        /// Reads one data channel message, its length known from its first byte. Account prompts (0x01) are skipped unless
+        /// <paramref name="expect"/> asks for one: a duplicate from a resent 0x1F can arrive late. With
+        /// <paramref name="breakOnTimeout"/> false a timeout returns null instead of failing the session.
+        /// </summary>
+        private async Task<byte[]> ReadDataAsync(string request, CancellationToken ct) => (await ReadDataCoreAsync(request, ct).ConfigureAwait(false))!;
+
+        private async Task<byte[]?> ReadDataCoreAsync(string request, CancellationToken ct, TimeSpan? timeout = null, byte expect = 0, bool breakOnTimeout = true)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(Timeout);
+            cts.CancelAfter(timeout ?? Timeout);
             try
+            {
+            while (true)
             {
                 var first = new byte[1];
                 if (!await ReadExactlyAsync(_data, first, cts.Token).ConfigureAwait(false))
@@ -523,11 +547,18 @@ namespace Gordian.Core.Network.LandSandBoat
                 {
                     throw Broken(LobbyRequestException.FromServer(request, LobbyPackets.ReadErrorCode(message)));
                 }
+                if (message[0] == LobbyDataCommand.RequestAccount && expect != LobbyDataCommand.RequestAccount)
+                {
+                    GordianLog.Debug("LSB_LOGIN", "Skipping a duplicate account prompt (0x01) on the data channel.");
+                    continue;
+                }
                 return message;
+            }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                throw Broken(new LobbyRequestException(request, 0, $"Lobby {request}: no reply from the data server (timed out after {Timeout.TotalSeconds:0} s)."));
+                if (!breakOnTimeout) return null;
+                throw Broken(new LobbyRequestException(request, 0, $"Lobby {request}: no reply from the data server (timed out after {(timeout ?? Timeout).TotalSeconds:0.#} s)."));
             }
             catch (Exception ex) when (ex is IOException or SocketException)
             {

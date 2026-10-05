@@ -60,6 +60,19 @@ namespace Gordian.Core.Tests.Network
         public bool VersionLocked { get; set; }
         public bool DeletionEnabled { get; set; } = true;
         public bool AlreadyLoggedInOnce { get; set; }
+
+        /// <summary>
+        /// LandSandBoat's lost request after a deletion: its view session writes the delete OK before the database work and
+        /// clears its read buffer when that write completes, so a request that arrived in between is read as zeros and
+        /// dropped without a reply. When set, the first view request after a deletion is dropped that way.
+        /// </summary>
+        public bool LoseRequestAfterDelete { get; set; }
+
+        /// <summary>When set, the first view request after a deletion is answered only after this delay (a slow server).</summary>
+        public int DelayRequestAfterDeleteMs { get; set; }
+        private bool _delayNextRequest;
+        private bool _dropNextRequest;
+        public int DroppedRequests { get; private set; }
         public List<Character> Characters { get; } = new();
         public List<byte> ViewCommands { get; } = new();
         public List<byte> DataCommands { get; } = new();
@@ -120,6 +133,17 @@ namespace Gordian.Core.Tests.Network
                 header.CopyTo(packet, 0);
                 if (!await ReadExactly(stream, packet.AsMemory(4))) return;
                 if (!packet.AsSpan(12, 16).SequenceEqual(SessionHash)) return;
+                if (_delayNextRequest)
+                {
+                    _delayNextRequest = false;
+                    await Task.Delay(DelayRequestAfterDeleteMs);
+                }
+                if (_dropNextRequest)
+                {
+                    _dropNextRequest = false;
+                    DroppedRequests++;
+                    continue;
+                }
                 byte command = packet[8];
                 lock (_sync) ViewCommands.Add(command);
                 switch (command)
@@ -174,6 +198,8 @@ namespace Gordian.Core.Tests.Network
                             uint id = BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(28));
                             lock (_sync) Characters.RemoveAll(c => c.Id == id);
                             _increment += 4;
+                            if (LoseRequestAfterDelete) _dropNextRequest = true;
+                            if (DelayRequestAfterDeleteMs > 0) _delayNextRequest = true;
                             break;
                         }
                     case 0x28:
