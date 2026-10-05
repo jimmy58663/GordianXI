@@ -172,7 +172,7 @@ Still missing in cutscenes (not built):
 - Sounds of **motions** (emotes, gestures, actor motion routines that carry 0x0A / 0x0B), which need the motion routine player to raise sound commands; `MotionRoutineDecoder` drops them today.
 - Sounds of **zone routines** an event starts (0x2D / 0x51 / 0x54 / 0x60 sub 2, `ZoneRoutinePlayer`) and of **actor-attached effects**: their generators are filtered out before playback (audio generators have no draw layer).
 - **Event-zone ambience**: in an event zone (0x34 / 0x35) the ambient loop and sound generators stay those of the current zone.
-- Looping sound generators are played once, and nothing stops a sound when its generator is killed.
+- A looping sound file spawned as a generator loops for the spawn command's duration and then fades out (0.3 s); sound commands play one pass. Nothing stops a sound early when its generator is killed (0x1E).
 
 ## Combat and action sounds (#41): findings, deferred
 

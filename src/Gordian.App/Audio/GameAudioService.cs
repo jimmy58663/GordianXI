@@ -266,8 +266,28 @@ namespace Gordian.App.Audio
                 AudioEmitter? emitter = sound.Opcode is 0x60 or 0x4A or 0x53
                     ? null
                     : new AudioEmitter(sound.Origin, SceneSoundRange.Near, SceneSoundRange.Far);
-                PlayEffect(sound.SoundId, AudioCategory.Effects, 1f, emitter);
+                if (sound.Duration <= 0)
+                {
+                    PlayEffect(sound.SoundId, AudioCategory.Effects, 1f, emitter);
+                    continue;
+                }
+
+                // A sound generator emits for its command's duration: a looped file loops that long (provisional).
+                double seconds = sound.Duration;
+                _ = PlayLoopFor(sound.SoundId, emitter, seconds);
             }
+        }
+
+        private async Task PlayLoopFor(int soundId, AudioEmitter? emitter, double seconds)
+        {
+            int handle = await PlayEffectAsync(soundId, AudioCategory.Effects, 1f, emitter, loop: null).ConfigureAwait(false);
+            if (handle == 0)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
+            _engine.Mixer.Stop(handle, 0.3f);
         }
 
         private void UpdateFootsteps(WorldState world, uint localPlayerId)

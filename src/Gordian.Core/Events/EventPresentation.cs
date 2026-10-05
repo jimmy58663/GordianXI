@@ -257,7 +257,8 @@ namespace Gordian.Core.Events
         /// <param name="Opcode">The routine command (0x0A at the source actor, 0x0B at the target, 0x60 global), or 0x02 for a sound generator.</param>
         /// <param name="Origin">Where the task's actor stands (internal axes).</param>
         /// <param name="CasterServerId">The task's actor.</param>
-        public readonly record struct SceneSound(int TaskId, double Start, int SoundId, byte Opcode, Vector3 Origin, uint CasterServerId);
+        /// <param name="Duration">For a sound generator, how long it emits (seconds; 0 = one pass): a looped sound loops that long.</param>
+        public readonly record struct SceneSound(int TaskId, double Start, int SoundId, byte Opcode, Vector3 Origin, uint CasterServerId, double Duration = 0);
 
         private readonly List<SceneSound> _sounds = new();
         private const int MaxSoundLinkDepth = 4;
@@ -279,10 +280,10 @@ namespace Gordian.Core.Events
                         _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster));
                         break;
                     case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out int generatorSound):
-                        _sounds.Add(new SceneSound(taskId, at, generatorSound, 0x02, origin, caster));
+                        _sounds.Add(new SceneSound(taskId, at, generatorSound, 0x02, origin, caster, command.Duration / FramesPerSecond));
                         break;
                     case SceneCommandKind.ReplaceGenerator when resource.TryGetGeneratorSound(command.Reference2, out int replacedSound):
-                        _sounds.Add(new SceneSound(taskId, at, replacedSound, 0x02, origin, caster));
+                        _sounds.Add(new SceneSound(taskId, at, replacedSound, 0x02, origin, caster, command.Duration / FramesPerSecond));
                         break;
                     case SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine when depth < MaxSoundLinkDepth
                         && command.Reference != routine.Name && resource.TryGetRoutine(command.Reference, out var child):
