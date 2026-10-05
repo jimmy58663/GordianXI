@@ -38,7 +38,7 @@ namespace Gordian.Core.Ui.Lobby
             var equipment = character.Equipment;
             for (int i = 0; i < LobbyEquipment.Count; i++) grap[i + 1] = equipment[i];
             grap[8] = 0x8000;
-            Show($"c:{character.ContentId}:{string.Join(',', grap)}", grap, character.Name);
+            Show($"c:{character.ContentId}:{string.Join(',', grap)}", grap, character.Name, character.Size);
         }
 
         /// <summary>Shows a character being created (race, face, hair; no gear).</summary>
@@ -47,10 +47,10 @@ namespace Gordian.Core.Ui.Lobby
             var grap = new ushort[9];
             grap[0] = (ushort)((creation.Race << 8) | creation.CombinedFace);
             for (int slot = 1; slot <= 8; slot++) grap[slot] = (ushort)(slot << 12);
-            Show($"n:{grap[0]}", grap, creation.Name);
+            Show($"n:{grap[0]}:{creation.Size}", grap, creation.Name, creation.Size);
         }
 
-        private void Show(string key, ushort[] grap, string name)
+        private void Show(string key, ushort[] grap, string name, byte size)
         {
             if (key == _key && Entity != null) return;
             _key = key;
@@ -61,6 +61,7 @@ namespace Gordian.Core.Ui.Lobby
                 IsSpawned = true,
                 // Alive: an entity with 0 % HP plays its death pose (AnimationStateClassifier); the lobby shows the idle stance.
                 Hpp = 100,
+                GraphSize = size,
             };
             entity.Appearance.GrapIdTable = grap;
             entity.Appearance.ModelId = 0;

@@ -171,6 +171,12 @@ Dates in the evidence column are the dates the docs give.
 | quantity field "1 /12" layout | `StockUiMenuWindow.QuantityCountRight`, `QuantityTotalX` | measured | the maintainer's in-game capture, 2026-09-28 | [ui](../ui/stock-ui.md#shop-window-chunk-6c) |
 | sell list frame reuses the buy frame | `StockUiShop` | guessed | "the sell frame is a guess" | [ui](../ui/stock-ui.md#shop-window-chunk-6c) |
 
+## Player size
+
+| Value | Where | Status | Evidence or what would settle it | Doc |
+|---|---|---|---|---|
+| model scale 0.94 / 1.0 / 1.06 for small / medium / large | `PlayerSizeScale` (`EntityRenderer`, the lobby preview) | guessed | no reference source or DAT gives the factors; settle with a retail capture of one race at the three sizes standing at the same wall | [character-lobby](../design/character-lobby.md#character-creation-33) |
+
 ## Suggested next captures
 
 The open items above cluster around a few recordings, each of which would settle several rows:

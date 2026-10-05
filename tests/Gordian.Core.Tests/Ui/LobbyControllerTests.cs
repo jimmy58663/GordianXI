@@ -134,6 +134,19 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Preview_CarriesTheChosenSize()
+        {
+            var preview = new LobbyPreview();
+            preview.Show(new LobbyCharacterCreation("Big", 8, 0, 0, 1, Size: 2, 0));
+            Assert.Equal(2, preview.Entity!.GraphSize);
+            preview.Show(new LobbyCharacterCreation("Big", 8, 0, 0, 1, Size: 0, 0)); // a size change rebuilds the preview
+            Assert.Equal(0, preview.Entity!.GraphSize);
+            Assert.True(Gordian.Core.World.PlayerSizeScale.For(0) < Gordian.Core.World.PlayerSizeScale.For(1));
+            Assert.True(Gordian.Core.World.PlayerSizeScale.For(2) > Gordian.Core.World.PlayerSizeScale.For(1));
+            Assert.Equal(1f, Gordian.Core.World.PlayerSizeScale.For(7));
+        }
+
+        [Fact]
         public void Back_ClosesTheLobby()
         {
             var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null, showLicence: false);

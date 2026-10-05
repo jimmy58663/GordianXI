@@ -157,7 +157,15 @@ namespace Gordian.App.Tests.Graphics
                 Assert.NotNull(preview.Entity);
                 Assert.Equal((ushort)(7 << 8), preview.Entity!.Appearance.GrapIdTable[0]);
 
-                for (int i = 0; i < 5; i++) lobby.HandleInput(LobbyInput.Confirm); // race .. job
+                for (int i = 0; i < 3; i++) lobby.HandleInput(LobbyInput.Confirm); // race, face, hair
+                lobby.HandleInput(LobbyInput.Down); // Large
+                Frame("lobby_create_size_large.png");
+                Assert.Equal(2, preview.Entity!.GraphSize);
+                lobby.HandleInput(LobbyInput.Up);
+                lobby.HandleInput(LobbyInput.Up); // Small
+                Frame("lobby_create_size_small.png");
+                Assert.Equal(0, preview.Entity!.GraphSize);
+                for (int i = 0; i < 2; i++) lobby.HandleInput(LobbyInput.Confirm); // size, job
                 lobby.HandleInput(LobbyInput.Down);
                 Frame("lobby_create_nation.png");
                 lobby.HandleInput(LobbyInput.Confirm);
