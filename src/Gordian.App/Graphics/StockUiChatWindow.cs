@@ -228,6 +228,106 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>The full-screen log's window (16,48, 366 x 384 authored, no title; its button 1 at (3,3) 64 x 16 is the selected tab's place).</summary>
+        public const string FullLogMenu = "fulllog";
+
+        /// <summary>
+        /// The full-screen log's tab strip (retail capture 2026-10-04): the <c>fep</c> chat-mode pills (64 x 12) along the
+        /// window's top edge from 5 px in, 11 px above it; the selected tab orange and whole, the others grey and 30 px
+        /// apart, each covering the right of the one before (so their labels show cut: "Wind", "Part", "Assi"), and the
+        /// window's top 22 px below the screen's.
+        /// </summary>
+        public const float FullLogTop = 22, TabStripLeft = 5, TabStripRaise = 11, TabPitch = 30, SelectedTabWidth = 64;
+
+        /// <summary>The <c>fep</c> images of each full-log tab: (grey, orange). Read from the group's sheet (10-32).</summary>
+        public static (int Grey, int Orange) TabImages(StockUiLogTab tab) => tab switch
+        {
+            StockUiLogTab.Window1 => (18, 27),
+            StockUiLogTab.Window2 => (19, 28),
+            StockUiLogTab.Say => (10, 20),
+            StockUiLogTab.Tell => (12, 22),
+            StockUiLogTab.Party => (13, 23),
+            StockUiLogTab.Linkshell => (14, 24),
+            StockUiLogTab.Linkshell2 => (16, 25),
+            StockUiLogTab.AssistE => (30, 32),
+            StockUiLogTab.AssistJ => (29, 31),
+            StockUiLogTab.Unity => (17, 26),
+            _ => (11, 21), // Shout
+        };
+
+        private static readonly List<ChatLogLine> FullLogLines = new();
+
+        /// <summary>
+        /// Draws the full-screen log (Confirm while the log is selected): the <c>fulllog</c> frame from
+        /// <see cref="FullLogTop"/> down to the log's bottom edge at <paramref name="width"/> (Window 1's width), opaque,
+        /// the tab strip over its top edge, the tab's lines from the bottom up (timestamps and colours as the log
+        /// windows draw them) and a scrollbar on the right. Returns the rows shown (the page size).
+        /// </summary>
+        public static int DrawFullLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiLogFont logFont, StockUiChat chat,
+            float x, float bottom, float width, float scale, int timestampMode, StockUiSettings? settings)
+        {
+            if (!library.TryGetMenu(FullLogMenu, out var frame)) return 0;
+            float s = scale;
+            float top = FullLogTop * s;
+            float height = Math.Max(RowTop + RowPitch, (bottom - top) / s);
+            var placement = new StockUiPlacement(x, top, s, false);
+            renderer.DrawMenu(frame, placement, includeButtons: false, width, opaqueBody: true, frameHeight: height, opaqueTop: 0);
+
+            if (library.TryGetGroup("fep", out var fep))
+            {
+                float tx = x + TabStripLeft * s, ty = top - TabStripRaise * s;
+                foreach (var tab in Enum.GetValues<StockUiLogTab>())
+                {
+                    bool selected = tab == chat.FullLogTab;
+                    var (grey, orange) = TabImages(tab);
+                    int image = selected ? orange : grey;
+                    if (image < fep.Images.Count) renderer.DrawImage(fep.Images[image], tx, ty, s);
+                    tx += (selected ? SelectedTabWidth : TabPitch) * s;
+                }
+            }
+
+            int rows = Math.Max(1, (int)Math.Floor((height - RowTop - BottomPadding) / RowPitch));
+            float textWidth = width - TextLeft - TextRight - ScrollbarRoom;
+            int total = chat.Log.CopyTab(chat.FullLogTab, chat.FullLogScroll, rows, FullLogLines);
+            var visible = new List<(string Text, ChatLogLine Line, bool FirstRow)>(rows);
+            for (int i = FullLogLines.Count - 1; i >= 0 && visible.Count < rows; i--)
+            {
+                var wrapped = StockUiChatLog.GetWrappedRows(FullLogLines[i], logFont.GetAdvance, textWidth, timestampMode);
+                for (int r = wrapped.Count - 1; r >= 0 && visible.Count < rows; r--) visible.Add((wrapped[r], FullLogLines[i], r == 0));
+            }
+            int stamp = StockUiChatLog.TimestampLength(timestampMode);
+            for (int k = 0; k < visible.Count; k++)
+            {
+                float rx = x + TextLeft * s, ry = top + (RowTop + (rows - 1 - k) * RowPitch) * s;
+                var text = visible[k].Text.AsSpan();
+                if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
+                {
+                    rx = logFont.Draw(renderer, text[..stamp], rx, ry, s, TimestampColor);
+                    text = text[stamp..];
+                }
+                logFont.Draw(renderer, text, rx, ry, s, LineColor(visible[k].Line, settings));
+            }
+
+            // The scrollbar (retail: a pale pink thumb at the right edge): the track over the text area, the thumb as
+            // long as the rows' share of the tab's lines, at the scroll position.
+            if (total > 0)
+            {
+                float trackX = x + (width - ScrollbarInset) * s, trackY = top + RowTop * s, trackH = rows * RowPitch * s;
+                renderer.DrawTextureRect(CaretTexture, 30, 3, 1, 1, trackX, trackY, ScrollbarWidth * s, trackH, ScrollTrackTint);
+                float share = Math.Min(1f, rows / (float)total);
+                float thumbH = Math.Max(4 * s, trackH * share);
+                float back = Math.Clamp(chat.FullLogScroll / (float)total, 0f, 1f);
+                // At the newest lines the thumb sits at the bottom; scrolled back it rises by the share scrolled.
+                float thumbY = Math.Clamp(trackY + (trackH - thumbH) - trackH * back, trackY, trackY + trackH - thumbH);
+                renderer.DrawTextureRect(CaretTexture, 30, 12, 1, 1, trackX, thumbY, ScrollbarWidth * s, thumbH, ScrollThumbTint);
+            }
+            return rows;
+        }
+
+        private const float ScrollbarWidth = 6, ScrollbarInset = 4, ScrollbarRoom = 8;
+        private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
+        private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
+
         /// <summary>
         /// Draws the chat input line: the <c>inline</c> strip opaque (as menus are) and stretched to
         /// <paramref name="frameWidth"/>, the chat mode's tab on its top edge (while the line is not a slash

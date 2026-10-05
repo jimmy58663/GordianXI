@@ -42,6 +42,25 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>
+    /// The tabs of the full-screen log (opened with Confirm while the log is selected; retail capture 2026-10-04), in
+    /// retail's order. Keypad + / gamepad Y cycles them.
+    /// </summary>
+    public enum StockUiLogTab
+    {
+        Window1,
+        Window2,
+        Say,
+        Tell,
+        Party,
+        Linkshell,
+        Linkshell2,
+        AssistE,
+        AssistJ,
+        Unity,
+        Shout,
+    }
+
+    /// <summary>
     /// The message types of the config menu's Log page (retail routes each to Window 1 or Window 2 when the log is
     /// split), named after their rows in the config row table (ROM/165/74): the chat rows 36-47 and 196, For Self
     /// 48-53, For Others 54-59 and System 60-62. Values are bit positions of <see cref="StockUiSettingKey.LogWindow2Types"/>.
@@ -193,6 +212,12 @@ namespace Gordian.Core.Ui
                 if (lines.Count > Capacity) lines.RemoveRange(0, lines.Count - Capacity);
                 // A window scrolled back keeps showing the same lines while new ones arrive below.
                 if (_scroll[window] > 0) _scroll[window] = Math.Min(_scroll[window] + 1, lines.Count - 1);
+                if (TabOf(line.Channel) is { } tab)
+                {
+                    var history = _tabs[(int)tab];
+                    history.Add(line);
+                    if (history.Count > HistoryCapacity) history.RemoveRange(0, history.Count - HistoryCapacity);
+                }
             }
             LineAdded?.Invoke(line);
         }
@@ -206,6 +231,66 @@ namespace Gordian.Core.Ui
                     _windows[i].Clear();
                     _scroll[i] = 0;
                 }
+                foreach (var tab in _tabs) tab?.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Lines kept per chat tab of the full-screen log (Say, Tell, Party, Linkshell, Linkshell 2, Assist E / J,
+        /// Unity, Shout): the long history retail keeps of each chat type. The Window 1 / Window 2 tabs show the
+        /// windows' own <see cref="Capacity"/> lines. GordianXI's cap (not retail's, which is not known).
+        /// </summary>
+        public const int HistoryCapacity = 2000;
+
+        private readonly List<ChatLogLine>[] _tabs = CreateTabs();
+
+        private static List<ChatLogLine>[] CreateTabs()
+        {
+            var tabs = new List<ChatLogLine>[Enum.GetValues<StockUiLogTab>().Length];
+            for (int i = 0; i < tabs.Length; i++) tabs[i] = new List<ChatLogLine>();
+            return tabs;
+        }
+
+        /// <summary>The chat tab a channel's lines are kept in (Shout keeps Yell too), or null for the window-only lines.</summary>
+        public static StockUiLogTab? TabOf(ChatLogChannel channel) => channel switch
+        {
+            ChatLogChannel.Say => StockUiLogTab.Say,
+            ChatLogChannel.Tell => StockUiLogTab.Tell,
+            ChatLogChannel.Party => StockUiLogTab.Party,
+            ChatLogChannel.Linkshell => StockUiLogTab.Linkshell,
+            ChatLogChannel.Linkshell2 => StockUiLogTab.Linkshell2,
+            ChatLogChannel.AssistE => StockUiLogTab.AssistE,
+            ChatLogChannel.AssistJ => StockUiLogTab.AssistJ,
+            ChatLogChannel.Unity => StockUiLogTab.Unity,
+            ChatLogChannel.Shout or ChatLogChannel.Yell => StockUiLogTab.Shout,
+            _ => null,
+        };
+
+        /// <summary>
+        /// Copies a full-log tab's lines, oldest first: up to <paramref name="maxLines"/> ending
+        /// <paramref name="skip"/> lines before its newest. Window 1 without multi-window shows both windows' lines.
+        /// Returns how many lines the tab holds.
+        /// </summary>
+        public int CopyTab(StockUiLogTab tab, int skip, int maxLines, List<ChatLogLine> destination)
+        {
+            destination.Clear();
+            lock (_sync)
+            {
+                List<ChatLogLine> source;
+                if (tab == StockUiLogTab.Window1 && !MultiWindow)
+                {
+                    source = new List<ChatLogLine>(_windows[0].Count + _windows[1].Count);
+                    source.AddRange(_windows[0]);
+                    source.AddRange(_windows[1]);
+                    source.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
+                }
+                else if (tab == StockUiLogTab.Window1) source = _windows[0];
+                else if (tab == StockUiLogTab.Window2) source = MultiWindow ? _windows[1] : new List<ChatLogLine>();
+                else source = _tabs[(int)tab];
+                int end = Math.Max(0, source.Count - Math.Max(0, skip));
+                int start = Math.Max(0, end - maxLines);
+                for (int k = start; k < end; k++) destination.Add(source[k]);
+                return source.Count;
             }
         }
 

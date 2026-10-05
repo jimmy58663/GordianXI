@@ -897,6 +897,82 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the full-screen log (Confirm with the log selected) on its Say tab: the fulllog frame, the fep tab
+        /// strip with Say orange, and the tab's lines; writes full_log.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersFullLogWithTabs()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
+            if (library == null || logFont == null || !library.TryGetMenu(StockUiChatWindow.FullLogMenu, out _)) return;
+
+            const uint width = 900, height = 600;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiFullLogTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new Veldrid.RgbaFloat(0.2f, 0.19f, 0.18f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var chat = new StockUiChat();
+                var t = new DateTime(2026, 10, 4, 7, 0, 0);
+                for (int i = 0; i < 60; i++) chat.Log.Add(new ChatLogLine(ChatLogChannel.Say, $"Gemini : line {i}", t.AddSeconds(i)));
+                chat.Log.Add(new ChatLogLine(ChatLogChannel.Tell, "Cybin>> hello", t.AddSeconds(70)));
+                chat.CycleLogWindow();
+                chat.OpenFullLog();
+                chat.CycleLogWindow();
+                chat.CycleLogWindow();                                         // Window 1 -> Window 2 -> Say
+                Assert.Equal(StockUiLogTab.Say, chat.FullLogTab);
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                int rows = StockUiChatWindow.DrawFullLog(renderer, library, logFont, chat, 8, height - 8, 600, 1, 2, null);
+                renderer.End(framebuffer, width, height);
+                Assert.True(rows > 20, $"{rows} rows");
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "full_log.png"), pixels, (int)width, (int)height);
+                }
+                // The selected tab (Say, the third) is orange: red well over blue somewhere in its pill.
+                bool orange = false;
+                float tabX = 8 + StockUiChatWindow.TabStripLeft + 2 * StockUiChatWindow.TabPitch;
+                for (int x = (int)tabX; x < tabX + 60 && !orange; x++)
+                {
+                    for (int y = 11; y < 22 && !orange; y++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        orange = p.R > 120 && p.R > p.B + 60;
+                    }
+                }
+                Assert.True(orange, "selected tab orange");
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders the split log as the retail capture of 2026-09-27 shows it (two eight-line windows side by side,
         /// titled "Window 1:Say" and "Window 2", timestamps, the input line over Window 1's bottom with its mode tab)
         /// at 1:1; writes chat_log.png when GORDIAN_UI_DUMP is set.

@@ -301,7 +301,8 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
-            bool confirmTaken = session.ActionService.CurrentTarget != null || session.Events.IsActive;
+            // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
+            bool confirmTaken = session.ActionService.CurrentTarget != null || session.Events.IsActive || chat.IsSelecting;
             if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol, confirmTaken))
             {
                 e.Handled = true;

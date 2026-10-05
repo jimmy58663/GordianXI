@@ -90,15 +90,19 @@ namespace Gordian.Core.Ui
         public void SetMultiWindow(bool multiWindow)
         {
             Log.MultiWindow = multiWindow;
-            if (!multiWindow && SelectedLogWindow == 2) SelectedLogWindow = 0;
+            if (SelectedLogWindow > 1) SelectedLogWindow = 1;
         }
 
         /// <summary>
-        /// The log window (1 or 2) selected to scroll through, 0 for none. Retail cycles a selection with the numeric
-        /// keypad + (gamepad Y): Window 1, Window 2 when split, then the status icons (to cancel a status), then none.
-        /// A selected window is drawn opaque; Up/Down scroll it a line.
+        /// 1 while the log is selected, 0 otherwise. Retail's selection cycle (keypad +, gamepad Y; the maintainer's
+        /// comparison 2026-10-04): the first press selects the log, both windows at once (they open to their maximum
+        /// lines and are drawn opaque), the second the status icons (to cancel a status), the third ends it. While
+        /// the log is selected Up/Down scroll Window 1 a line and Confirm opens the full-screen log.
         /// </summary>
         public int SelectedLogWindow { get; set; }
+
+        /// <summary>Whether the log (both windows) is selected.</summary>
+        public bool IsLogSelected => SelectedLogWindow != 0;
 
         /// <summary>Icons per row of the status icon grid ("buff": nine per row, 26 px apart).</summary>
         public const int StatusIconsPerRow = 9;
@@ -122,36 +126,85 @@ namespace Gordian.Core.Ui
             }
         }
 
-        /// <summary>Whether a log window or a status icon is selected (the menu keys are then the selection's).</summary>
-        public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0;
+        /// <summary>Whether the log, a status icon or the full-screen log is selected (the menu keys are then the selection's).</summary>
+        public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0 || FullLogOpen;
 
         /// <summary>
-        /// The next step of the selection cycle: Window 1, Window 2 when split, the status icons when there are any,
-        /// then none. Provisional order and end (#52): whether retail wraps or stops is to be checked on a recording.
+        /// The full-screen log (the <c>fulllog</c> window with <c>fep</c> tabs; retail capture 2026-10-04): opened
+        /// with Confirm while the log is selected, its tabs cycled with keypad + / gamepad Y, closed with Cancel.
+        /// </summary>
+        public bool FullLogOpen { get; private set; }
+
+        /// <summary>The full-screen log's tab (Window 1, Window 2, then the chat types in retail's order).</summary>
+        public StockUiLogTab FullLogTab { get; private set; }
+
+        /// <summary>How many lines the full-screen log is scrolled back from the tab's newest.</summary>
+        public int FullLogScroll { get; private set; }
+
+        /// <summary>Lines the full-screen log shows at once (set by the HUD), which is how far a page moves.</summary>
+        public int FullLogPageLines { get; set; } = 20;
+
+        /// <summary>
+        /// The next step of the selection cycle: the log, the status icons when there are any, then none; with the
+        /// full-screen log open, its next tab (wrapping).
         /// </summary>
         public void CycleLogWindow()
         {
+            if (FullLogOpen)
+            {
+                int count = Enum.GetValues<StockUiLogTab>().Length;
+                FullLogTab = (StockUiLogTab)(((int)FullLogTab + 1) % count);
+                FullLogScroll = 0;
+                return;
+            }
             if (_selectedStatus >= 0)
             {
                 _selectedStatus = -1;
                 return;
             }
-            SelectedLogWindow = SelectedLogWindow switch
+            if (SelectedLogWindow == 0)
             {
-                0 => 1,
-                1 when Log.MultiWindow => 2,
-                _ => 0,
-            };
-            if (SelectedLogWindow != 0) return;
+                SelectedLogWindow = 1;
+                return;
+            }
+            SelectedLogWindow = 0;
             Log.ScrollToNewest();
             if (StatusIds().Count > 0) _selectedStatus = 0;
         }
+
+        /// <summary>Confirm while the log is selected: opens the full-screen log on its first tab (Window 1).</summary>
+        public void OpenFullLog()
+        {
+            if (!IsLogSelected) return;
+            FullLogOpen = true;
+            FullLogTab = StockUiLogTab.Window1;
+            FullLogScroll = 0;
+        }
+
+        /// <summary>Cancel in the full-screen log: closes it, back to the selected log.</summary>
+        public void CloseFullLog()
+        {
+            FullLogOpen = false;
+            FullLogScroll = 0;
+        }
+
+        /// <summary>Scrolls the full-screen log back (positive) or forward (negative) by lines, within the tab's history.</summary>
+        public void ScrollFullLog(int lines)
+        {
+            if (!FullLogOpen) return;
+            int total = Log.CopyTab(FullLogTab, 0, 0, _scratch);
+            FullLogScroll = Math.Clamp(FullLogScroll + lines, 0, Math.Max(0, total - 1));
+        }
+
+        private readonly List<ChatLogLine> _scratch = new();
 
         /// <summary>Releases the selection (log window or status icon); a log window returns to the newest lines.</summary>
         public void ReleaseLogWindow()
         {
             SelectedLogWindow = 0;
             _selectedStatus = -1;
+            FullLogOpen = false;
+            FullLogScroll = 0;
             Log.ScrollToNewest();
         }
 
