@@ -57,6 +57,10 @@ namespace Gordian.App
                 _viewportControl.RawMouseMoved += OnRawMouseMoved;
                 _viewportControl.RawMouseLeft += OnRawMouseLeft;
                 _viewportControl.PointerExited += OnViewportPointerExited;
+
+                // The focused window's character is the one heard (Phase 5H).
+                var viewport = _viewportControl;
+                Activated += (_, _) => Audio.GameAudioService.Instance.Claim(viewport);
             }
 
             var minimizeBtn = this.FindControl<Button>("MinimizeButton");

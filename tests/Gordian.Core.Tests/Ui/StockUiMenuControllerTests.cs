@@ -509,6 +509,32 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void MenuInput_RaisesTheSystemSoundCues()
+        {
+            var menus = Controller();
+            var cues = new List<StockUiSoundCue>();
+            menus.SoundCue += cues.Add;
+            var profile = InputProfile.CreateCompact();
+            var input = new InputState();
+            var dt = TimeSpan.FromMilliseconds(16);
+            void Press(GordianKey key)
+            {
+                input.SetKeyDown(key);
+                input.MenuContext = menus.IsOpen;
+                input.Update(profile, dt);
+                menus.ProcessInput(input, dt);
+                input.SetKeyUp(key);
+                input.Update(profile, dt);
+            }
+
+            Press(GordianKey.OemMinus); // open
+            Press(GordianKey.Down);     // cursor
+            Press(GordianKey.OemMinus); // page
+            Press(GordianKey.Escape);   // close
+            Assert.Equal(new[] { StockUiSoundCue.MainMenuOpen, StockUiSoundCue.CursorMove, StockUiSoundCue.PageSwitch, StockUiSoundCue.Close }, cues);
+        }
+
+        [Fact]
         public void MenuContext_ResolvesTheSharedKeysToMenuNavigation()
         {
             var profile = InputProfile.CreateCompact();

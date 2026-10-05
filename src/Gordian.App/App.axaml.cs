@@ -43,7 +43,11 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();
-            desktop.Exit += (_, _) => _zoneCollision?.Dispose();
+            desktop.Exit += (_, _) =>
+            {
+                _zoneCollision?.Dispose();
+                Gordian.App.Audio.GameAudioService.Shutdown();
+            };
         }
 
         base.OnFrameworkInitializationCompleted();
