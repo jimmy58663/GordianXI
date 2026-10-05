@@ -6,7 +6,6 @@ using System.Numerics;
 using Gordian.App.Graphics;
 using Gordian.Core.World;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.App.Tests.Graphics
 {

@@ -6,7 +6,6 @@ using System.Linq;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Resources
 {

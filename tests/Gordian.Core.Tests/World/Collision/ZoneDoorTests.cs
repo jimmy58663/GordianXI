@@ -8,7 +8,6 @@ using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.World.Collision
 {

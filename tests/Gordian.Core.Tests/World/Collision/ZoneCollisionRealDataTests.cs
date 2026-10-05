@@ -3,7 +3,6 @@ using System.Numerics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World.Collision;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.World.Collision
 {
