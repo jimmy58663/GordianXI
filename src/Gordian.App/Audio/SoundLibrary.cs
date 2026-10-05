@@ -11,7 +11,7 @@ namespace Gordian.App.Audio
 {
     /// <summary>
     /// Loads retail sounds by id: sound effects are decoded whole once and cached (they are small and replayed often),
-    /// music is streamed from the file's bytes, both through <see cref="FfxiSoundDecoder"/>. Files that cannot be decoded (ATRAC3 while no decoder is registered, the encrypted <c>.spw</c> variant)
+    /// music is streamed from the file's bytes, both through <see cref="FfxiSoundDecoder"/>. Files that cannot be decoded (ATRAC3 if the default managed decoder is unregistered, the encrypted <c>.spw</c> variant)
     /// are logged once and play as silence.
     /// </summary>
     public sealed class SoundLibrary

@@ -6,7 +6,7 @@
 
 **Decision (maintainer, 2026-10-04): OpenAL Soft through Silk.NET.OpenAL 2.23.0, with the native library from `Silk.NET.OpenAL.Soft.Native` 1.23.1.** OpenAL is the output device only: our managed `AudioMixer` makes the mix, and `OpenAlAudioOutput` streams it.
 
-Constraints it had to meet (issue #37): ATRAC3 comes from a separate decoder (still to be decided; the `IAtrac3Decoder` seam stays unregistered); 44.1 / 48 kHz sources; loops restart at a loop point; positional sound with near / far ranges; streaming of long tracks; Windows, Linux and macOS with no Windows-only APIs.
+Constraints it had to meet (issue #37): ATRAC3 comes from a separate decoder behind the `IAtrac3Decoder` seam (now GordianXI's own managed decoder, #38); 44.1 / 48 kHz sources; loops restart at a loop point; positional sound with near / far ranges; streaming of long tracks; Windows, Linux and macOS with no Windows-only APIs.
 
 Why OpenAL Soft (the options compared were OpenAL Soft, miniaudio through a .NET binding, SDL3 through SDL3-CS, and the SDL2 already shipped):
 
@@ -48,7 +48,7 @@ Header (`FfxiSoundHeader`), after the marker and the two fields above: `int32 id
 
 - **ADPCM** (`FfxiAdpcm`): a frame is a header byte (high nibble filter 0-4, low nibble range) plus packed 4-bit samples, low nibble first: `sample = (nibble << ((12 - range) & 31)) + ((h0*F0[f] + h1*F1[f]) >> 8)`, clamped, with F0 = {0, 240, 460, 392, 488}, F1 = {0, 0, -208, -220, -240}. The prediction uses an arithmetic shift (a truncating divide drifts); a filter of 5 or more is a silent block that keeps the history. Frame geometry is derived from the size (`(size - 0x30) / (blocks * channels)`), since a few effects declare 16 samples per block with smaller frames (`se018154`: 5-byte frames).
 - **PCM**: raw interleaved 16-bit little endian; the loop block is scaled by the `blockSize` byte (provisional, no looped PCM checked).
-- **ATRAC3** (format 3): not decoded by GordianXI yet. `FfxiSoundDecoder` hands it to a registered `IAtrac3Decoder`; none is registered yet, so about a third of the music (81 tracks) and 8.5 % of the effects play as silence and are logged once. The clean-room decoding spec is [audio/atrac3.md](../audio/atrac3.md): every FFXI ATRAC3 file uses 192-byte frames per channel without joint stereo, the frames are XOR-obfuscated with a key derived from the first block, the `blocks` field is the total sample count and `loopStart` a sample index (music: as is; effects: 1024 earlier, provisional), so the `loopStart x blockSize` loop frame `DecodeClip` uses today is wrong for ATRAC3.
+- **ATRAC3** (format 3): decoded by GordianXI's managed clean-room decoder (`Gordian.Core.Audio.Atrac3`: `Atrac3Stream`, `Atrac3Channel`, `Atrac3Imdct`, `Atrac3Tables`), implemented from the spec [audio/atrac3.md](../audio/atrac3.md) alone and registered by default as `FfxiSoundDecoder.Atrac3`. Every FFXI ATRAC3 file uses 192-byte frames per channel per 1024 samples without joint stereo (a unit that is not a single-channel unit is silenced and logged once), XOR-obfuscated with a key derived from the first block; the unobfuscated last blocks of `music069/071/900` are decoded raw. For ATRAC3 `FfxiSoundHeader` reads `blocks` as the total sample count (`SampleBlocks` = frames from the size) and `loopStart` as a sample index: `LoopStartFrame` = `loopStart` for music, `loopStart - 1024` for effects (provisional, spec section 2; **Differs from vgmstream**). Music streams frame by frame; loops restore a state snapshot taken before the loop frame, so the seam replays the first pass exactly. No start trim (frame 0 is a silent key frame, about 50 ms; vgmstream trims 2186 samples, retail unconfirmed). Verified (`Atrac3DecoderTests`): IMDCT against its direct sum, a hand-built unit against the spec's arithmetic, and, with the install and FFmpeg reference PCM (`GORDIAN_ATRAC3_REF`), `music040/041/069/900`, `se036124`, `se041035`, `se041044` at 134 dB SNR, 16-bit output within 1 LSB (0.01-0.09 % of samples differ by 1), loop restarts matching the reference loop; all 1,087 ATRAC3 files of the install decode with no malformed frame in 49 s (`GORDIAN_ATRAC3_ALL=1`, Release).
 - **Encrypted** `.spw` (byte 7 not zero, `se039211`-`se039225`): skipped, as every public tool does.
 - Looping: after the last block playback jumps to `loopStart` and restores the ADPCM history it had when it first decoded that block (`FfxiSoundStream`).
 
@@ -66,7 +66,7 @@ Sound pointers (`SoundEffectPointer`, DAT section 0x3D, xi-tools `docs/audio/ref
 
 **Beyond xi-tools:** the `fser` running set, and the `HHMM` time keys of the weather ambient loops (our reading: it matches the 06:00 / 18:00 switch; provisional).
 
-`SoundLibrary` (App) decodes effects whole once and caches them (about 96 MB cap), and streams music from the file bytes, both through `FfxiSoundDecoder` (ADPCM / PCM managed, ATRAC3 through the registered decoder).
+`SoundLibrary` (App) decodes effects whole once and caches them (about 96 MB cap), and streams music from the file bytes, both through `FfxiSoundDecoder` (ADPCM / PCM / ATRAC3, all managed).
 
 ## Music and ambience (#42, #114)
 
@@ -191,7 +191,7 @@ So combat sounds need the effect-routine conditional interpreter and the action-
 
 - [x] Zone effect audio: the auto-run sound generators with range, path and time-of-day volume (#39, above).
 - [x] Cross-platform audio backend: OpenAL Soft as the output device (#37, above).
-- [x] Clean-room decode of the retail sound files (#38, above; ATRAC3 open).
+- [x] Clean-room decode of the retail sound files (#38, above, ATRAC3 included).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
 - [ ] Combat and action sounds (#41: deferred, findings above).
 - [x] Event music and volume opcodes (#167, above).

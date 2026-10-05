@@ -326,7 +326,9 @@ namespace Gordian.Core.Tests.Audio
         public void Stream_SyntheticFileDecodesSilenceAndLoops()
         {
             byte[] file = SyntheticAtrac3(true, 4, 1500, 2);
-            IPcmSource source = FfxiSoundDecoder.Open(file)!;
+            // Not through FfxiSoundDecoder: another test class swaps its static decoder while tests run in parallel.
+            Assert.True(FfxiSoundHeader.TryParse(file, out FfxiSoundHeader header));
+            IPcmSource source = new Atrac3Decoder().Open(file, header, header.IsLooped)!;
             Assert.IsType<Atrac3Stream>(source);
             Assert.True(source.IsLooped);
             var buffer = new short[2 * 4096 * 3];
@@ -334,9 +336,8 @@ namespace Gordian.Core.Tests.Audio
             Assert.All(buffer, s => Assert.Equal(0, s));
             Assert.Equal(0, ((Atrac3Stream)source).MalformedFrames);
 
-            PcmClip clip = FfxiSoundDecoder.DecodeClip(SyntheticAtrac3(false, 3, 2000, 1))!;
-            Assert.Equal(3072, clip.Samples.Length);
-            Assert.Equal(2000 - 1024, clip.LoopStartFrame);
+            Assert.True(FfxiSoundHeader.TryParse(SyntheticAtrac3(false, 3, 2000, 1), out FfxiSoundHeader effect));
+            Assert.Equal(2000 - 1024, effect.LoopStartFrame);
         }
 
         [Fact]

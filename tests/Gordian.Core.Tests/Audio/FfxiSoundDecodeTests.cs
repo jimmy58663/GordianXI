@@ -155,6 +155,7 @@ namespace Gordian.Core.Tests.Audio
             byte[] file = SyntheticEffect(7, 2, -1, 48000, _ => new byte[9]);
             BitConverter.GetBytes(3).CopyTo(file, 0x0C); // format 3 = ATRAC3
             IAtrac3Decoder? previous = FfxiSoundDecoder.Atrac3;
+            Assert.IsType<Gordian.Core.Audio.Atrac3.Atrac3Decoder>(previous); // registered by default, so the App's "no decoder" log stays quiet
             try
             {
                 FfxiSoundDecoder.Atrac3 = null;
@@ -165,6 +166,16 @@ namespace Gordian.Core.Tests.Audio
                 PcmClip clip = FfxiSoundDecoder.DecodeClip(file)!;
                 Assert.Equal(10, clip.Samples.Length);
                 Assert.Equal(7, clip.Id);
+
+                // The real decoder through the seam: a synthetic one-frame ATRAC3 effect (key frame only) decodes to silence.
+                FfxiSoundDecoder.Atrac3 = previous;
+                byte[] atrac3 = new byte[FfxiSoundHeader.DataOffset + 192];
+                file.AsSpan(0, FfxiSoundHeader.DataOffset).CopyTo(atrac3);
+                BitConverter.GetBytes(atrac3.Length).CopyTo(atrac3, 0x08);
+                BitConverter.GetBytes(1024).CopyTo(atrac3, 0x14);
+                PcmClip real = FfxiSoundDecoder.DecodeClip(atrac3)!;
+                Assert.Equal(1024, real.Samples.Length);
+                Assert.All(real.Samples, s => Assert.Equal(0, s));
             }
             finally
             {

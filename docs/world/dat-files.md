@@ -126,7 +126,7 @@ Both in the zone dialog table format (`ZoneDialogTable`) and read by `ClientMess
 
 ### Sound and music
 
-No DAT holds audio. DATs carry 0x3D sound pointers (`SoundEffectPointer`) whose id names a sound file outside the DAT tree: sound effects at `sound*/win/se/seNNN/seNNNNNN.spw`, music at `sound*/win/music/data/musicNNN.bgw` (roots `sound`, `sound2`-`sound6`, `sound9`). `FfxiSoundHeader` / `FfxiAdpcm` / `FfxiSoundStream` decode them (ADPCM and PCM; ATRAC3 not yet) and `ZoneSoundTable` groups a zone model DAT's pointers (weather ambient loops, footsteps, doors). Formats and the retail census: [audio.md](../design/audio.md#sound-files-38).
+No DAT holds audio. DATs carry 0x3D sound pointers (`SoundEffectPointer`) whose id names a sound file outside the DAT tree: sound effects at `sound*/win/se/seNNN/seNNNNNN.spw`, music at `sound*/win/music/data/musicNNN.bgw` (roots `sound`, `sound2`-`sound6`, `sound9`). `FfxiSoundHeader` / `FfxiAdpcm` / `FfxiSoundStream` decode them (ADPCM and PCM; ATRAC3 through `Atrac3Stream`, whose header reads `blocks` / `loopStart` as sample counts) and `ZoneSoundTable` groups a zone model DAT's pointers (weather ambient loops, footsteps, doors). Formats and the retail census: [audio.md](../design/audio.md#sound-files-38).
 
 ## Section types (`DatSectionType`)
 
