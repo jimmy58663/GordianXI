@@ -180,7 +180,7 @@ Dates in the evidence column are the dates the docs give.
 
 | Value | Where | Status | Evidence or what would settle it | Doc |
 |---|---|---|---|---|
-| 0.35 s fade to black when zoning starts or a character is chosen, 0.6 s back | `ZoneLoadingScreen.FadeOutSeconds`, `FadeInSeconds` | guessed | retail fades to black while zoning (no loading art in the DATs); settle with a 30 fps recording of a zone line and of a character select | [character-lobby](../design/character-lobby.md#loading-screen-36) |
+| 0.6 s fade to black when zoning starts or a character is chosen, 1.0 s back (0.35 / 0.6 s until round 1 of in-game testing: too quick) | `ZoneLoadingScreen.FadeOutSeconds`, `FadeInSeconds` | guessed | retail fades to black while zoning (no loading art in the DATs); settle with a 30 fps recording of a zone line and of a character select | [character-lobby](../design/character-lobby.md#loading-screen-36) |
 | 20 s wait for a zone's geometry before showing the scene anyway | `ZoneLoadingScreen.GeometryWaitSeconds` | guessed | a safety limit (a zone that cannot load must not leave the screen black) | [character-lobby](../design/character-lobby.md#loading-screen-36) |
 | lobby layouts fitted into a 4:3 rectangle, scaled to its height | `StockUiLobby.Fit`, `Place` | guessed | settle with a retail capture of the lobby on a wide screen | [character-lobby](../design/character-lobby.md#drawing-stockuilobby-lobbyframerenderer) |
 | preview: feet at 640-space y 372, 2.4 yalms to y 160, x 150 (list) / 290 (creation), 30° view | `StockUiLobby.PreviewArea`, `PreviewCamera` | guessed | settle with retail captures of the character list and of creation | [character-lobby](../design/character-lobby.md#drawing-stockuilobby-lobbyframerenderer) |

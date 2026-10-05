@@ -17,8 +17,10 @@ namespace Gordian.Core.Ui
     /// </summary>
     public sealed class ZoneLoadingScreen
     {
-        /// <summary>Seconds to fade to black when loading starts, and back when it ends (not measured against retail).</summary>
-        public const double FadeOutSeconds = 0.35, FadeInSeconds = 0.6;
+        /// <summary>Seconds to fade to black when loading starts, and back when it ends (not measured against retail). The one place these timings live: the lobby's fade after a
+        /// character is chosen uses <see cref="FadeOutSeconds"/> too. Lengthened from 0.35 / 0.6 s after the first in-game test
+        /// (the transition felt too quick).</summary>
+        public const double FadeOutSeconds = 0.6, FadeInSeconds = 1.0;
 
         /// <summary>
         /// How long the screen stays black waiting for a zone's geometry once the session is in the world; after that the
