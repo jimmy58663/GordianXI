@@ -446,6 +446,48 @@ namespace Gordian.Core.Tests.Audio
             }
         }
 
+        [Fact]
+        public void Retail_Music178_LoopRestartsImmediatelyAndTheGapIsInTheData()
+        {
+            // In-game round 2: Aht Urhgan Whitegate (music178) went silent for ~24 s at its loop. The silence is authored:
+            // the track fades out at ~246 s and the file then holds ~23.7 s of digitally silent frames up to the header's
+            // total, with the loop back to sample 1663 (the top). Every "repeat from the top" track (loop within 0.5 s of
+            // the start: 9 ATRAC3, 13 ADPCM) has such a tail, no track with a mid-song loop does, and no header field marks
+            // an earlier loop end. So the decoder plays the file as written; this test pins that the gap comes from the
+            // data, not from the stream, and that the music resumes at once after the restart.
+            if (!Directory.Exists(GameDirectory))
+            {
+                return;
+            }
+
+            var locator = new FfxiSoundLocator(GameDirectory);
+            byte[] file = File.ReadAllBytes(locator.FindMusic(178)!);
+            Assert.True(FfxiSoundHeader.TryParse(file, out FfxiSoundHeader header));
+            Assert.Equal(1663, header.LoopStartFrame);
+            Atrac3Stream stream = Atrac3Stream.Open(file, header, loop: true)!;
+            int rate = stream.SampleRate;
+            long total = stream.TotalSamples;
+            var pcm = new short[(total + rate) * 2];
+            Assert.Equal(pcm.Length, stream.Read(pcm));
+
+            long lastLoud = -1;
+            for (long i = 0; i < total * 2; i++)
+            {
+                if (Math.Abs((int)pcm[i]) > 4) lastLoud = i / 2;
+            }
+
+            double tail = (total - lastLoud) / (double)rate;
+            long firstLoudAfter = -1;
+            for (long i = total * 2; i < pcm.Length && firstLoudAfter < 0; i++)
+            {
+                if (Math.Abs((int)pcm[i]) > 4) firstLoudAfter = i / 2 - total;
+            }
+
+            _output.WriteLine($"music178: total {total / (double)rate:F2} s, silent tail {tail:F2} s, music resumes {firstLoudAfter} samples after the restart");
+            Assert.InRange(tail, 20.0, 26.0); // the authored gap, decoded as written
+            Assert.InRange(firstLoudAfter, 0, rate / 20); // within 50 ms of the restart: the stream adds no silence
+        }
+
         private static short[] ReadWav(string path)
         {
             byte[] bytes = File.ReadAllBytes(path);
