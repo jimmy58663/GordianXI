@@ -73,7 +73,7 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>One row of the Log page's lists: its text and the message type it routes.</summary>
-    public readonly record struct StockUiLogRow(string Label, ChatLogType Type);
+    public readonly record struct StockUiLogRow(string Label, ChatLogType Type, int TextIndex = -1);
 
     /// <summary>A config page: the DAT menu that draws it and its rows.</summary>
     public sealed class StockUiConfigPage
@@ -222,66 +222,57 @@ namespace Gordian.Core.Ui
         };
 
         /// <summary>
-        /// The Log page's rows per category, worded as the config row table (ROM/165/74): Chat 36-47 and 196
-        /// (Yell, placed after Shout: provisional), For Self 48-53, For Others 54-59, System 60-62. Which rows retail
-        /// lists under which category is our reading of the table's grouping (no capture yet).
+        /// The Log page's rows per category: the Font Colors page's rows (<see cref="StockUiFontColors"/>), which list
+        /// the same message types (config row table 36-62, 196) in retail's order (the Font Colors screenshots,
+        /// 2026-10-04; that the Log page shares the order is our reading).
         /// </summary>
-        public static IReadOnlyList<StockUiLogRow> LogRows(StockUiFontColorCategory category) => category switch
+        public static IReadOnlyList<StockUiLogRow> LogRows(StockUiFontColorCategory category)
         {
-            StockUiFontColorCategory.Chat => ChatLogRows,
-            StockUiFontColorCategory.ForSelf => SelfLogRows,
-            StockUiFontColorCategory.ForOthers => OthersLogRows,
-            _ => SystemLogRows,
-        };
+            var rows = new List<StockUiLogRow>();
+            foreach (var e in StockUiFontColors.InCategory(category)) rows.Add(new StockUiLogRow(e.Label, LogTypeOf(e.Id), e.LabelIndex));
+            return rows;
+        }
 
-        private static readonly StockUiLogRow[] ChatLogRows =
+        /// <summary>The Log page message type a Font Colors row stands for.</summary>
+        public static ChatLogType LogTypeOf(StockUiFontColorId id) => id switch
         {
-            new("Immediate vicinity (\"Say\")", ChatLogType.Say),
-            new("Wide area (\"Shout\")", ChatLogType.Shout),
-            new("Extremely wide area (\"Yell\")", ChatLogType.Yell),
-            new("Tell target only (\"Tell\")", ChatLogType.Tell),
-            new("All party members (\"Party\")", ChatLogType.Party),
-            new("Linkshell group (\"Linkshell\")", ChatLogType.Linkshell),
-            new("Linkshell group 2 (\"Linkshell 2\")", ChatLogType.Linkshell2),
-            new("Assistance in Japanese (\"Assist J\")", ChatLogType.AssistJ),
-            new("Assistance in English (\"Assist E\")", ChatLogType.AssistE),
-            new("Unity group (\"Unity\")", ChatLogType.Unity),
-            new("Emotes", ChatLogType.Emote),
-            new("Messages (\"Message\")", ChatLogType.Message),
-            new("NPC conversations", ChatLogType.NpcConversation),
-        };
-
-        private static readonly StockUiLogRow[] SelfLogRows =
-        {
-            new("HP/MP you recover", ChatLogType.SelfRecover),
-            new("HP/MP you lose", ChatLogType.SelfLose),
-            new("Beneficial effects you are granted", ChatLogType.SelfBeneficial),
-            new("Detrimental effects you receive", ChatLogType.SelfDetrimental),
-            new("Effects you resist", ChatLogType.SelfResist),
-            new("Actions you evade", ChatLogType.SelfEvade),
-        };
-
-        private static readonly StockUiLogRow[] OthersLogRows =
-        {
-            new("HP/MP others recover", ChatLogType.OthersRecover),
-            new("HP/MP others lose", ChatLogType.OthersLose),
-            new("Beneficial effects others are granted", ChatLogType.OthersBeneficial),
-            new("Detrimental effects others receive", ChatLogType.OthersDetrimental),
-            new("Effects others resist", ChatLogType.OthersResist),
-            new("Actions others evade", ChatLogType.OthersEvade),
-        };
-
-        private static readonly StockUiLogRow[] SystemLogRows =
-        {
-            new("Standard battle messages", ChatLogType.StandardBattle),
-            new("Calls for help", ChatLogType.CallsForHelp),
-            new("Basic system messages", ChatLogType.BasicSystem),
+            StockUiFontColorId.Say => ChatLogType.Say,
+            StockUiFontColorId.Shout => ChatLogType.Shout,
+            StockUiFontColorId.Yell => ChatLogType.Yell,
+            StockUiFontColorId.Tell => ChatLogType.Tell,
+            StockUiFontColorId.Party => ChatLogType.Party,
+            StockUiFontColorId.Linkshell => ChatLogType.Linkshell,
+            StockUiFontColorId.Linkshell2 => ChatLogType.Linkshell2,
+            StockUiFontColorId.AssistJ => ChatLogType.AssistJ,
+            StockUiFontColorId.AssistE => ChatLogType.AssistE,
+            StockUiFontColorId.Unity => ChatLogType.Unity,
+            StockUiFontColorId.Emote => ChatLogType.Emote,
+            StockUiFontColorId.Message => ChatLogType.Message,
+            StockUiFontColorId.Npc => ChatLogType.NpcConversation,
+            StockUiFontColorId.SelfRecover => ChatLogType.SelfRecover,
+            StockUiFontColorId.SelfDamage => ChatLogType.SelfLose,
+            StockUiFontColorId.SelfBeneficial => ChatLogType.SelfBeneficial,
+            StockUiFontColorId.SelfDetrimental => ChatLogType.SelfDetrimental,
+            StockUiFontColorId.SelfNoEffect => ChatLogType.SelfResist,
+            StockUiFontColorId.SelfMiss => ChatLogType.SelfEvade,
+            StockUiFontColorId.OthersRecover => ChatLogType.OthersRecover,
+            StockUiFontColorId.OthersDamage => ChatLogType.OthersLose,
+            StockUiFontColorId.OthersBeneficial => ChatLogType.OthersBeneficial,
+            StockUiFontColorId.OthersDetrimental => ChatLogType.OthersDetrimental,
+            StockUiFontColorId.OthersNoEffect => ChatLogType.OthersResist,
+            StockUiFontColorId.OthersMiss => ChatLogType.OthersEvade,
+            StockUiFontColorId.StandardBattle => ChatLogType.StandardBattle,
+            StockUiFontColorId.CallForHelp => ChatLogType.CallsForHelp,
+            _ => ChatLogType.BasicSystem,
         };
 
         /// <summary>
         /// The Effects page's rows, worded as the config row table (ROM/165/74 153-170, CP932 0x81A8 drawn as "->"
         /// since the menu font has no arrow glyph); a row's index is its bit in <see cref="StockUiSettingKey.EffectFilters"/>.
         /// </summary>
+        /// <summary>The config row table index of the Effects page's first row.</summary>
+        public const int EffectFiltersTextIndex = 153;
+
         public static IReadOnlyList<string> EffectFilters { get; } = new[]
         {
             "All effects during battle",

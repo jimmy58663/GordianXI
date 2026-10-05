@@ -96,12 +96,10 @@ namespace Gordian.Core.Tests.Ui
             Assert.All(list.Rows, r => Assert.True(r.Marked));  // chat is in Window 1 by default
 
             menus.Move(InputAction.MenuDown);
-            menus.Move(InputAction.MenuDown);
-            menus.Move(InputAction.MenuDown);
-            menus.Move(InputAction.MenuDown);                   // Party
+            menus.Move(InputAction.MenuDown);                   // Party (retail order: Say, Tell, Party ...)
             Assert.Equal(ChatLogType.Party, list.LogRows[list.EntryIndex(list.SelectedButtonId)].Type);
             menus.Activate();                                   // OFF in Window 1 = to Window 2
-            Assert.False(list.Rows[4].Marked);
+            Assert.False(list.Rows[2].Marked);
             uint mask = (uint)menus.Settings.GetValue(StockUiSettingKey.LogWindow2Types);
             Assert.NotEqual(0u, mask & StockUiChatLog.Bit(ChatLogType.Party));
 
@@ -112,7 +110,7 @@ namespace Gordian.Core.Tests.Ui
             menus.Activate();
             Assert.Equal(2, menus.Top!.LogWindow);
             menus.Activate();                                   // Chat
-            Assert.True(menus.Top!.Rows[4].Marked);
+            Assert.True(menus.Top!.Rows[2].Marked);
             Assert.False(menus.Top.Rows[0].Marked);
             menus.CloseTop();
             menus.Move(InputAction.MenuDown);                   // For Self

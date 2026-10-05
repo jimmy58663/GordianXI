@@ -834,7 +834,7 @@ namespace Gordian.Core.Ui
                 foreach (var entry in entries)
                 {
                     bool inWindow2 = (window2 & StockUiChatLog.Bit(entry.Type)) != 0;
-                    rows.Add(new StockUiListRow(rows.Count + 1, entry.Label, inWindow2 == (menu.LogWindow == 2)));
+                    rows.Add(new StockUiListRow(rows.Count + 1, StockUiFontColors.Text(ConfigRowText, entry.TextIndex, entry.Label), inWindow2 == (menu.LogWindow == 2)));
                 }
                 menu.LogRows = entries;
                 menu.Rows = rows;
@@ -844,7 +844,12 @@ namespace Gordian.Core.Ui
                 uint filtered = (uint)_settings.GetValue(StockUiSettingKey.EffectFilters);
                 var labels = StockUiConfigPages.EffectFilters;
                 var rows = new List<StockUiListRow>(labels.Count);
-                for (int i = 0; i < labels.Count; i++) rows.Add(new StockUiListRow(i + 1, labels[i], (filtered & (1u << i)) != 0));
+                for (int i = 0; i < labels.Count; i++)
+                {
+                    // ROM/165/74 153-170; its arrow (CP932 0x81A8) has no glyph in the menu font, so it is drawn "->".
+                    string label = StockUiFontColors.Text(ConfigRowText, StockUiConfigPages.EffectFiltersTextIndex + i, labels[i]).Replace("→", "->");
+                    rows.Add(new StockUiListRow(i + 1, label, (filtered & (1u << i)) != 0));
+                }
                 menu.Rows = rows;
             }
             else if (menu.ListKind == StockUiListKind.FontColors)
