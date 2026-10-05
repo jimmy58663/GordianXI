@@ -64,6 +64,21 @@ namespace Gordian.Core.World
         /// <summary>The alliance leader (always also the leader of their own party).</summary>
         public bool IsAllianceLeader { get; set; }
 
+        /// <summary>The party's quartermaster (PartyRFlg of S2C 0x0C8 / 0x0DD / 0x0E2): the member who distributes the treasure pool.</summary>
+        public bool IsQuartermaster { get; set; }
+
+        /// <summary>The alliance's quartermaster (AllianceRFlg).</summary>
+        public bool IsAllianceQuartermaster { get; set; }
+
+        /// <summary>The member is under level sync (LevelSyncFlg, GAttr bit 8 of S2C 0x0DD / 0x0E2).</summary>
+        public bool IsLevelSynced { get; set; }
+
+        /// <summary>The member's master level (S2C 0x0DD / 0x0E2); 0 when not a master.</summary>
+        public byte MasterJobLevel { get; set; }
+
+        /// <summary>The member's master job flags (S2C 0x0DD / 0x0E2).</summary>
+        public byte MasterJobFlags { get; set; }
+
         /// <summary>
         /// The member's status effect ids in icon order (S2C 0x076, sent for the other members of your own party only).
         /// </summary>
@@ -90,6 +105,11 @@ namespace Gordian.Core.World
                 MemberNumber = MemberNumber,
                 PartyNumber = PartyNumber,
                 IsAllianceLeader = IsAllianceLeader,
+                IsQuartermaster = IsQuartermaster,
+                IsAllianceQuartermaster = IsAllianceQuartermaster,
+                IsLevelSynced = IsLevelSynced,
+                MasterJobLevel = MasterJobLevel,
+                MasterJobFlags = MasterJobFlags,
                 StatusEffectIds = StatusEffectIds
             };
         }
@@ -285,6 +305,15 @@ namespace Gordian.Core.World
                     existing.MemberNumber = member.MemberNumber;
                     existing.PartyNumber = member.PartyNumber;
                     existing.IsAllianceLeader = member.IsAllianceLeader;
+                    existing.IsQuartermaster = member.IsQuartermaster;
+                    existing.IsAllianceQuartermaster = member.IsAllianceQuartermaster;
+                    // The roster table (0x0C8) has no level sync or master fields: keep the last ones from a member list.
+                    if (includeVitals)
+                    {
+                        existing.IsLevelSynced = member.IsLevelSynced;
+                        existing.MasterJobLevel = member.MasterJobLevel;
+                        existing.MasterJobFlags = member.MasterJobFlags;
+                    }
                     notifyMember = existing.Clone();
                 }
                 else

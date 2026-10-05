@@ -70,19 +70,21 @@ namespace Gordian.Core.Tests.Network
 
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(92), 0xFFFF); // SubMapNumber must not leak in
 
-            var ack = new S2C_0x00A_LoginAck(payload);
-            Span<ushort> read = stackalloc ushort[5];
-            Assert.True(ack.TryGetMusicTable(read));
-            Assert.Equal(table, read.ToArray());
-
             var module = new LifecyclePacketModule(new SessionProfile(), (m, h) => Task.CompletedTask) { LogOutboundOnRoute = false };
             var dispatcher = new PacketDispatcher();
             module.Register(dispatcher);
             var music = new ZoneMusicState();
             music.SetSlot((int)MusicSlot.Fishing, 55);
-            module.MusicTableReceived += t => music.SetZoneTable(t);
+            ZoneLoginInfo? received = null;
+            module.ZoneLoginInfoReceived += info =>
+            {
+                received = info;
+                music.SetZoneTable(stackalloc ushort[] { info.MusicDay, info.MusicNight, info.MusicBattleSolo, info.MusicBattleParty, info.MusicMount });
+            };
             dispatcher.Dispatch(new PacketHeader(0x00A, 132, 0), payload);
 
+            Assert.NotNull(received);
+            Assert.Equal(table, new[] { received.Value.MusicDay, received.Value.MusicNight, received.Value.MusicBattleSolo, received.Value.MusicBattleParty, received.Value.MusicMount });
             Assert.Equal(107, music.Get(MusicSlot.ZoneDay));
             Assert.Equal(108, music.Get(MusicSlot.ZoneNight));
             Assert.Equal(212, music.Get(MusicSlot.Mount));

@@ -40,6 +40,11 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly DeliveryBoxState _delivery = new();
+        private readonly BlacklistState _blacklist = new();
+        private readonly SocialState _social = new();
+        private readonly SocialPacketModule _socialModule;
+        private readonly Search.SearchService _search;
         private readonly PlayerCommandState _commandState = new();
         private readonly PlayerCommandPacketModule _commandModule;
         private readonly LocalPetState _pet = new();
@@ -87,11 +92,18 @@ namespace Gordian.Core.Network
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
             };
+            _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
+            _lifecycleModule.ZoneLoginInfoReceived += info =>
+            {
+                _world.UpdateZoneLoginInfo(info);
+                // MusicNum[5] (day, night, solo battle, party battle, mount) feeds the zone music slots 0-4.
+                Span<ushort> musicTable = stackalloc ushort[] { info.MusicDay, info.MusicNight, info.MusicBattleSolo, info.MusicBattleParty, info.MusicMount };
+                _world.Music.SetZoneTable(musicTable);
+            };
             _lifecycleModule.WeatherReceived += weatherNumber =>
             {
                 _world.UpdateWeather(weatherNumber);
             };
-            _lifecycleModule.MusicTableReceived += table => _world.Music.SetZoneTable(table);
             new MusicPacketModule(_world.Music).Register(_dispatcher);
             // A zone-in event runs like a 0x032 event of the player (the zone was set just before, so it reads the new zone's scripts).
             _lifecycleModule.ZoneInEventReceived += evt =>
@@ -104,6 +116,7 @@ namespace Gordian.Core.Network
             _entityModule.Register(_dispatcher);
 
             _chatModule = new ChatPacketModule(_sendChunkCallback, LogPacket);
+            _chatModule.IsBlacklisted = _blacklist.IsBlacklisted;
             _chatModule.Register(_dispatcher);
 
             _partyModule = new PartyPacketModule(_party, _sendChunkCallback, LogPacket);
@@ -117,6 +130,10 @@ namespace Gordian.Core.Network
 
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
+
+            _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
+            _socialModule.Register(_dispatcher);
+            _search = new Gordian.Core.Network.Search.SearchService(_socialModule, _party, _inventory);
 
             _commandModule = new PlayerCommandPacketModule(_commandState, _world, _sendChunkCallback, LogPacket);
             _commandModule.Register(_dispatcher);
@@ -145,6 +162,8 @@ namespace Gordian.Core.Network
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
+            _actionService.SocialModule = _socialModule;
+            _actionService.SearchService = _search;
             _actionService.CommandModule = _commandModule;
             _actionService.LoginDataModule = _loginDataModule;
 
@@ -231,6 +250,21 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>Gets the delivery box: the incoming and outgoing slots as the server described them (S2C 0x04B).</summary>
+        public DeliveryBoxState Delivery => _delivery;
+
+        /// <summary>Gets the character's blacklist (S2C 0x041 / 0x042).</summary>
+        public BlacklistState Blacklist => _blacklist;
+
+        /// <summary>Gets the world pass, <c>/itemsearch</c>, party group id, party map position and linkshell concierge state.</summary>
+        public SocialState Social => _social;
+
+        /// <summary>Gets the search (cache) server service: Auction House lists and histories, <c>/sea</c>, party and linkshell member lists.</summary>
+        public Search.SearchService Search => _search;
+
+        /// <summary>Gets the social packet module (delivery box, blacklist, world pass, item search, linkshell items, party id and map positions).</summary>
+        public SocialPacketModule SocialModule => _socialModule;
 
         /// <summary>
         /// Gets the state behind the everyday commands: the emote list, wide scan and proposals.
