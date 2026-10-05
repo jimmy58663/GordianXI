@@ -176,6 +176,12 @@ Still missing in cutscenes (not built):
 - **Event-zone ambience**: in an event zone (0x34 / 0x35) the ambient loop and sound generators stay those of the current zone.
 - Scene tasks whose routine name reads empty (Lufaise Meadows 117 starts tasks on 51257, 30904, 30905 and 51343 with no name: "no such routine") play nothing, sounds included; that is the event VM's task opcode reading, not audio.
 
+## Debug commands
+
+Temporary, client-only commands for listening to files directly; never sent to the server (`ChatCommandRouter` → `PlayerActionService.DebugAudioCommand` → `GameAudioService.HandleDebugCommand`), listed under "Debug" in `/help`:
+
+- `/playsound <id>` plays `seNNNNNN.spw` centred on the Effects bus and replies with its format and whether it loops. A looped file loops until `/playsound stop`, so its seam can be checked (the 13 looped ATRAC3 effects: 36108 36124 36125 36128 36138 41017 41031 41035 41044 41045 41046 41052 41057).
+- `/playmusic <n>` plays `musicNNN.bgw` in place of the zone's music (the director's override, as an event's would); `/playmusic stop` returns to the zone music. Unlike LandSandBoat's `!setmusic` it involves no server.
 ## Combat and action sounds (#41): findings, deferred
 
 Not implemented. What the retail data shows (probed in `ROM/0/0.DAT` and the Hume battle pack `ROM/32/13`):

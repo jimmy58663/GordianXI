@@ -58,6 +58,12 @@ namespace Gordian.Core.Network
         Lockstyle,
         /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
         LockstyleSet,
+
+        /// <summary>Debug: <c>/playsound &lt;id&gt; | stop</c> plays a sound effect by id on the client (not sent to the server).</summary>
+        DebugPlaySound,
+
+        /// <summary>Debug: <c>/playmusic &lt;n&gt; | stop</c> plays a music track on the client (not sent to the server).</summary>
+        DebugPlayMusic,
         /// <summary><c>/lot [slot]</c>: lots on a treasure pool item (C2S 0x041); without a slot, on every item not yet entered.</summary>
         TreasureLot,
         /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
@@ -233,6 +239,10 @@ namespace Gordian.Core.Network
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
                     "lockstyleset" => new ChatCommandResult { Kind = ChatCommandResultKind.LockstyleSet, Message = args },
+
+                    // Debug audio (client only)
+                    "playsound" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlaySound, Message = args },
+                    "playmusic" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlayMusic, Message = args },
 
                     // Command Discovery & Help
                     "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)

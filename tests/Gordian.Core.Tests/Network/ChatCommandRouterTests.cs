@@ -33,6 +33,17 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Theory]
+        [InlineData("/playsound 41060", ChatCommandResultKind.DebugPlaySound, "41060")]
+        [InlineData("/playsound stop", ChatCommandResultKind.DebugPlaySound, "stop")]
+        [InlineData("/playmusic 900", ChatCommandResultKind.DebugPlayMusic, "900")]
+        public void Parse_DebugAudioCommands_StayOnTheClient(string cmd, ChatCommandResultKind kind, string args)
+        {
+            var result = ChatCommandRouter.Parse(cmd, ChatSendKind.Say, _world);
+            Assert.Equal(kind, result.Kind);
+            Assert.Equal(args, result.Message);
+        }
+
+        [Theory]
         [InlineData("/decline")]
         [InlineData("/pcmd decline")]
         public void Parse_DeclineCommands_ReturnsPartyDecline(string cmd)

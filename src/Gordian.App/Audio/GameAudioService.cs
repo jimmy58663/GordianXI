@@ -427,6 +427,7 @@ namespace Gordian.App.Audio
 
             _cueTarget = session.ActionService.CurrentTarget?.ServerId ?? 0;
             session.ActionService.Menus.SoundCue += PlayCue;
+            session.ActionService.DebugAudioCommand = HandleDebugCommand;
             session.ActionService.TargetChanged += OnTargetChanged;
             session.ChatModule.ChatMessageReceived += OnChatMessage;
         }
@@ -439,8 +440,100 @@ namespace Gordian.App.Audio
             }
 
             session.ActionService.Menus.SoundCue -= PlayCue;
+            session.ActionService.DebugAudioCommand = null;
             session.ActionService.TargetChanged -= OnTargetChanged;
             session.ChatModule.ChatMessageReceived -= OnChatMessage;
+        }
+
+        private readonly List<int> _debugSounds = new();
+
+        /// <summary>
+        /// Debug commands (client only, never sent to the server): <c>/playsound &lt;id&gt;</c> plays sound effect
+        /// <c>seNNNNNN.spw</c> centred on the Effects bus, a looped file looping until <c>/playsound stop</c>;
+        /// <c>/playmusic &lt;n&gt;</c> plays <c>musicNNN.bgw</c> in place of the zone's music until <c>/playmusic stop</c>.
+        /// </summary>
+        public string HandleDebugCommand(bool music, string args)
+        {
+            string arg = args.Trim();
+            if (music)
+            {
+                if (arg.Equals("stop", StringComparison.OrdinalIgnoreCase))
+                {
+                    _music.ClearOverride();
+                    return "Debug: back to the zone music.";
+                }
+
+                if (!int.TryParse(arg, out int track) || track < 0)
+                {
+                    return "Usage: /playmusic <n> | stop";
+                }
+
+                _music.SetOverride(track);
+                return $"Debug: playing music {track} ({Describe(_library?.Locator.FindMusic(track))}).";
+            }
+
+            if (arg.Equals("stop", StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_debugSounds)
+                {
+                    foreach (int handle in _debugSounds)
+                    {
+                        _engine.Mixer.Stop(handle, 0.2f);
+                    }
+
+                    _debugSounds.Clear();
+                }
+
+                return "Debug: sound effects stopped.";
+            }
+
+            if (!int.TryParse(arg, out int id) || id <= 0)
+            {
+                return "Usage: /playsound <id> | stop";
+            }
+
+            string? path = _library?.Locator.FindEffect(id);
+            if (path is null)
+            {
+                return $"Debug: sound effect {id} not found.";
+            }
+
+            _ = PlayEffectAsync(id, AudioCategory.Effects, 1f, null, loop: null).ContinueWith(t =>
+            {
+                if (t.Status == TaskStatus.RanToCompletion && t.Result != 0)
+                {
+                    lock (_debugSounds)
+                    {
+                        _debugSounds.Add(t.Result);
+                    }
+                }
+            }, TaskScheduler.Default);
+            return $"Debug: playing sound effect {id} ({Describe(path)}).";
+        }
+
+        private static string Describe(string? path)
+        {
+            if (path is null)
+            {
+                return "not found";
+            }
+
+            try
+            {
+                var head = new byte[FfxiSoundHeader.DataOffset];
+                using (var fs = System.IO.File.OpenRead(path))
+                {
+                    fs.ReadExactly(head);
+                }
+
+                return FfxiSoundHeader.TryParse(head, out FfxiSoundHeader h)
+                    ? $"{h.Format}, {h.Channels} ch, {h.SampleRate} Hz, {(h.IsLooped ? "looped" : "one-shot")}"
+                    : "unknown header";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
         }
 
         /// <summary>A new target plays "Target Selection"; changing from one target to another plays "Target Switch".</summary>
