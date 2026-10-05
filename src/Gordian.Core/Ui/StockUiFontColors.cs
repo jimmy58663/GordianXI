@@ -116,16 +116,14 @@ namespace Gordian.Core.Ui
     /// maintainer's install in 2026-09 (<c>USER/3</c>..<c>USER/6</c>, identical files, never edited).
     /// </para>
     /// <para>
-    /// <b>Entry to row (third reading, #53):</b> the 23-entry table is the original rows in groups: 0-7 chat (Say,
-    /// Shout, Tell, Party, Linkshell, Emotes, Messages, NPC conversations), 8-13 For Self and 14-19 For Others (each in
-    /// list order), 20-22 System (Standard battle, Calls for help, Basic system); the five later entries are the
-    /// chat types added since: Yell 0x22C, Unity 0x26C, Linkshell 2 0x278, Assist J 0x2D8, Assist E 0x2DC. Say is
-    /// settled by the diff; every row with a colour of its own matches its entry in the maintainer's retail editor
-    /// screenshots (2026-10-05: Linkshell 2 (0, 204, 0), Unity (255, 175, 63), Emotes, Messages (160, 208, 208), Yell,
-    /// HP/MP you recover / lose, effects you resist, HP/MP others recover / lose, effects and actions others resist /
-    /// evade, calls for help, basic system). Still open (all white or both blue, see docs/ui/retail-user-files.md):
-    /// NPC 7, the white For Self / For Others rows 10, 11, 13, 16, 17, Yell 0x22C against HP/MP you lose 9, and
-    /// Assist J against Assist E.
+    /// <b>Entry to row (confirmed in retail 2026-10-05, #53):</b> the 23-entry table is the original rows in groups:
+    /// 0-7 chat (Say, Shout, Tell, Party, Linkshell, Emotes, Messages, NPC conversations), 8-13 For Self and 14-19 For
+    /// Others (each in list order), 20-22 System (Standard battle, Calls for help, Basic system); the five later
+    /// entries are the chat types added since: Yell 0x22C, Unity 0x26C, Linkshell 2 0x278, Assist J 0x2D8, Assist E
+    /// 0x2DC. Evidence: the rows with a colour of their own match their entries in the maintainer's retail editor
+    /// screenshots; the eight rows whose defaults are not unique were set to unique colours in retail and the changed
+    /// cnf.dat bytes named their entries (integration commits 8dbf80e / cea3e5c: 0x6C NPC, 0x78 / 0x7C / 0x84 the white
+    /// For Self rows, 0x90 / 0x94 the white For Others rows, 0x22C Yell, 0x2D8 Assist J); Assist E is the one left.
     /// </para>
     /// <para>
     /// <b>Beyond xi-tools / LandSandBoat:</b> neither documents cnf.dat or the Font Colors table; this is our reading
