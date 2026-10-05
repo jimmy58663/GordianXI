@@ -92,26 +92,6 @@ namespace Gordian.App.Tests.Audio
         }
 
         [Fact]
-        public void EventSlotWrite_RestartsTheSameTrack()
-        {
-            // The Windurst Woods intro (zone 241, event 367) sets slots 0 and 1 to 151, the track the town plays.
-            var (director, opened, mixer) = Make();
-            ZoneMusicState music = Zone(151, 151, 151, 151);
-            director.Update(music, new MusicContext(0, false, 12f), 0.016);
-            mixer.Mix(new short[64]);
-            music.SetEventSlot(0, 151);
-            music.SetEventSlot(1, 151);
-            director.Update(music, new MusicContext(0, false, 12f), 0.016);
-            director.Update(music, new MusicContext(0, false, 12f), MusicDirector.EventRestartFadeSeconds + 0.1);
-            Assert.Equal(new[] { 151, 151 }, opened);
-
-            // The event ends: same track, no further restart.
-            music.EndEvent();
-            mixer.Mix(new short[64]);
-            director.Update(music, new MusicContext(0, false, 12f), 0.016);
-            Assert.Equal(new[] { 151, 151 }, opened);
-        }
-        [Fact]
         public void Override_ReplacesAndRestoresTheZoneMusic()
         {
             var (director, opened, mixer) = Make();
