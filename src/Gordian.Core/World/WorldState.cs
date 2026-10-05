@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
 {
@@ -214,6 +215,44 @@ namespace Gordian.Core.World
         {
             double locked = _lockedHours;
             return double.IsNaN(locked) ? VanaTime.GetTimeOfDayHours(utcNow) : (float)locked;
+        }
+
+        private WeatherTiming _weatherTiming;
+        private ZoneLoginInfo _zoneLoginInfo;
+        private bool _hasZoneLoginInfo;
+
+        /// <summary>
+        /// The schedule of the current weather: when it started and its offset (S2C 0x057, and S2C 0x00A at login), so
+        /// a transition can be timed. Default until the server sends one.
+        /// </summary>
+        public WeatherTiming WeatherTiming
+        {
+            get { lock (_syncRoot) return _weatherTiming; }
+        }
+
+        /// <summary>Records the weather schedule from S2C 0x057 or S2C 0x00A.</summary>
+        public void UpdateWeatherTiming(WeatherTiming timing)
+        {
+            lock (_syncRoot) _weatherTiming = timing;
+        }
+
+        /// <summary>
+        /// The zone set-up fields of the last S2C 0x00A (music, sub map, instance, Mog House state, job block), or
+        /// <c>null</c> before the first login packet.
+        /// </summary>
+        public ZoneLoginInfo? ZoneLoginInfo
+        {
+            get { lock (_syncRoot) return _hasZoneLoginInfo ? _zoneLoginInfo : null; }
+        }
+
+        /// <summary>Records the zone set-up fields from S2C 0x00A.</summary>
+        public void UpdateZoneLoginInfo(ZoneLoginInfo info)
+        {
+            lock (_syncRoot)
+            {
+                _zoneLoginInfo = info;
+                _hasZoneLoginInfo = true;
+            }
         }
 
         public void UpdateWeather(ushort weatherNumber)

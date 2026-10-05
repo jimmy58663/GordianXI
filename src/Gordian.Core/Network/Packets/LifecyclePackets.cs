@@ -79,6 +79,82 @@ namespace Gordian.Core.Network.Packets
                                               ushort Mode, ushort EventNo);
 
     /// <summary>
+    /// The save state a character logs in with (<c>LoginState</c> of S2C 0x00A).
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x000A</c>.
+    /// </summary>
+    public enum SaveLoginState : uint
+    {
+        None = 0,
+        MyRoom = 1,
+        Game = 2,
+        PolExit = 3,
+        JobExit = 4,
+        PolExitMyRoom = 5
+    }
+
+    /// <summary>
+    /// The zone set-up fields of S2C 0x00A that are not the position, appearance or zone-in event: the music, the
+    /// interior and instance selectors, the weather schedule, the Mog House state and the job block. The retail client
+    /// initialises its zone object from these.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x000A</c>;
+    /// server side referenced from LandSandBoat (https://github.com/LandSandBoat/server), <c>s2c/0x00a_login.cpp</c>.
+    /// </summary>
+    /// <param name="MapNumber">The zone's map number (payload +62); usually the zone id.</param>
+    /// <param name="SubMapNumber">The region (boundary) inside the zone (+92); selects the interior DATs, e.g. an airship deck.</param>
+    /// <param name="ZoneSubNo">The instance overlay id (+154); 0 outside an instance.</param>
+    /// <param name="MusicDay">Zone music by day (+82).</param>
+    /// <param name="MusicNight">Zone music by night (+84).</param>
+    /// <param name="MusicBattleSolo">Solo battle music (+86).</param>
+    /// <param name="MusicBattleParty">Party battle music (+88).</param>
+    /// <param name="MusicMount">Mount music (+90).</param>
+    /// <param name="WeatherNumber">The current weather (+100).</param>
+    /// <param name="WeatherNumber2">The previous weather (+102); the client starts with this one and changes to <paramref name="WeatherNumber"/>.</param>
+    /// <param name="WeatherTime">When the current weather started, in minutes (+104); the client multiplies it by 60.</param>
+    /// <param name="WeatherTime2">When the previous weather started, in minutes (+108).</param>
+    /// <param name="WeatherOffsetTime">The weather offset (+112); the previous weather uses the high word, in hours.</param>
+    /// <param name="ShipStart">The airship/ferry schedule start (+116).</param>
+    /// <param name="ShipEnd">The airship/ferry schedule end (+120).</param>
+    /// <param name="IsMonstrosity">Monstrosity flags (+122); non-zero while the character is a Monstrosity monster.</param>
+    /// <param name="LoginState">The save state (+124): in the game or in the Mog House.</param>
+    /// <param name="PlayTime">Seconds played (+156).</param>
+    /// <param name="DeadCounter">The death countdown in 1/60 seconds (+160); the client homepoints the character at 6 minutes.</param>
+    /// <param name="MyroomSubMapNumber">The Mog House floor (+164); 2 on the second floor.</param>
+    /// <param name="MyroomMapNumber">The Mog House model id (+166); 0x1FF outside the Mog House.</param>
+    /// <param name="SendCount">The number of extra NPCs for the upcoming cutscene (+168).</param>
+    /// <param name="MyRoomExitBit">Which city exits the Mog House menu offers (+170), as <see cref="MogHouseExitBit"/>.</param>
+    /// <param name="MogZoneFlag">Whether the Mog menu works outside the Mog House in this zone (+171).</param>
+    /// <param name="MainJob">The main job (+176).</param>
+    /// <param name="SubJob">The sub job (+179).</param>
+    /// <param name="SubJobUnlocked">Whether the sub job is unlocked (+236).</param>
+    /// <param name="MaxHp">Maximum HP (+228).</param>
+    /// <param name="MaxMp">Maximum MP (+232).</param>
+    public readonly record struct ZoneLoginInfo(
+        ushort MapNumber, ushort SubMapNumber, ushort ZoneSubNo,
+        ushort MusicDay, ushort MusicNight, ushort MusicBattleSolo, ushort MusicBattleParty, ushort MusicMount,
+        ushort WeatherNumber, ushort WeatherNumber2, uint WeatherTime, uint WeatherTime2, uint WeatherOffsetTime,
+        uint ShipStart, ushort ShipEnd, ushort IsMonstrosity, SaveLoginState LoginState,
+        uint PlayTime, uint DeadCounter, byte MyroomSubMapNumber, ushort MyroomMapNumber, ushort SendCount,
+        byte MyRoomExitBit, bool MogZoneFlag, byte MainJob, byte SubJob, bool SubJobUnlocked, int MaxHp, int MaxMp)
+    {
+        /// <summary>True while the character logs in inside the Mog House.</summary>
+        public bool InMogHouse => LoginState == SaveLoginState.MyRoom;
+
+        /// <summary>The previous weather's offset in hours (the high word of <see cref="WeatherOffsetTime"/>).</summary>
+        public ushort PreviousWeatherOffsetHours => (ushort)(WeatherOffsetTime >> 16);
+    }
+
+    /// <summary>
+    /// A weather schedule entry (S2C 0x057, and the weather fields of S2C 0x00A): the weather, when it started and its
+    /// offset. The retail client multiplies <see cref="StartTime"/> by 60 to get the start in seconds.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0057</c>.
+    /// </summary>
+    public readonly record struct WeatherTiming(ushort WeatherNumber, uint StartTime, uint OffsetTime)
+    {
+        /// <summary>The start of the weather in seconds, as the retail client computes it.</summary>
+        public uint StartSeconds => unchecked(StartTime * 60u);
+    }
+
+    /// <summary>
     /// Logout and Shutdown request mode in C2S 0x0E7 (GP_CLI_COMMAND_REQLOGOUT).
     /// </summary>
     public enum ReqLogoutMode : ushort
@@ -187,6 +263,29 @@ namespace Gordian.Core.Network.Packets
         public bool HasZoneInEvent => EventNum != 0;
 
         public bool IsValid { get; }
+
+        /// <summary>
+        /// Reads the zone set-up fields after the zone-in event (music, sub map, weather schedule, Mog House, job
+        /// block); fields beyond a short payload are 0.
+        /// </summary>
+        public ZoneLoginInfo GetZoneInfo()
+        {
+            ReadOnlySpan<byte> p = _payload;
+            return new ZoneLoginInfo(
+                MapNumber: U16(p, 62), SubMapNumber: U16(p, 92), ZoneSubNo: U16(p, 154),
+                MusicDay: U16(p, 82), MusicNight: U16(p, 84), MusicBattleSolo: U16(p, 86), MusicBattleParty: U16(p, 88), MusicMount: U16(p, 90),
+                WeatherNumber: U16(p, 100), WeatherNumber2: U16(p, 102), WeatherTime: U32(p, 104), WeatherTime2: U32(p, 108),
+                WeatherOffsetTime: U32(p, 112), ShipStart: U32(p, 116), ShipEnd: U16(p, 120), IsMonstrosity: U16(p, 122),
+                LoginState: (SaveLoginState)U32(p, 124), PlayTime: U32(p, 156), DeadCounter: U32(p, 160),
+                MyroomSubMapNumber: U8(p, 164), MyroomMapNumber: U16(p, 166), SendCount: U16(p, 168),
+                MyRoomExitBit: U8(p, 170), MogZoneFlag: U8(p, 171) != 0,
+                MainJob: U8(p, 176), SubJob: U8(p, 179), SubJobUnlocked: U8(p, 236) != 0,
+                MaxHp: (int)U32(p, 228), MaxMp: (int)U32(p, 232));
+        }
+
+        private static ushort U16(ReadOnlySpan<byte> p, int o) => p.Length >= o + 2 ? BinaryPrimitives.ReadUInt16LittleEndian(p.Slice(o, 2)) : (ushort)0;
+        private static uint U32(ReadOnlySpan<byte> p, int o) => p.Length >= o + 4 ? BinaryPrimitives.ReadUInt32LittleEndian(p.Slice(o, 4)) : 0u;
+        private static byte U8(ReadOnlySpan<byte> p, int o) => p.Length > o ? p[o] : (byte)0;
 
         public S2C_0x00A_LoginAck(ReadOnlySpan<byte> payload)
         {
@@ -449,10 +548,14 @@ namespace Gordian.Core.Network.Packets
     {
         public const ushort PacketId = 0x057;
 
+        /// <summary>When the weather started, in minutes; the client multiplies it by 60 (see <see cref="WeatherTiming"/>).</summary>
         public uint StartTime { get; }
         public ushort WeatherNumber { get; }
         public ushort WeatherOffsetTime { get; }
         public bool IsValid { get; }
+
+        /// <summary>The weather with its start and offset time.</summary>
+        public WeatherTiming Timing => new(WeatherNumber, StartTime, WeatherOffsetTime);
 
         public S2C_0x057_Weather(ReadOnlySpan<byte> payload)
         {
@@ -828,6 +931,15 @@ namespace Gordian.Core.Network.Packets
         public event Action<WorldPositionUpdate>? WorldPositionReceived;
         public event Action<ushort>? ZoneReceived;
         public event Action<ushort>? WeatherReceived;
+
+        /// <summary>
+        /// The weather schedule from S2C 0x057 or S2C 0x00A (the current weather with its start and offset time),
+        /// raised just before <see cref="WeatherReceived"/>.
+        /// </summary>
+        public event Action<WeatherTiming>? WeatherTimingReceived;
+
+        /// <summary>The zone set-up fields of S2C 0x00A (music, sub map, instance, Mog House, job block), raised before <see cref="ZoneReceived"/>.</summary>
+        public event Action<ZoneLoginInfo>? ZoneLoginInfoReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
@@ -891,11 +1003,14 @@ namespace Gordian.Core.Network.Packets
                     VanaTime.SynchronizeServerTime(ack.GameTime);
                 }
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
+                ZoneLoginInfo info = ack.GetZoneInfo();
+                ZoneLoginInfoReceived?.Invoke(info);
                 if (ack.ZoneId != 0)
                 {
                     ZoneReceived?.Invoke(ack.ZoneId);
                 }
                 // Weather 0 is Clear/Fine ("fine") in FFXI; invoke unconditionally so initial zone weather is applied
+                WeatherTimingReceived?.Invoke(new WeatherTiming(info.WeatherNumber, info.WeatherTime, info.WeatherOffsetTime));
                 WeatherReceived?.Invoke(ack.WeatherNumber);
                 if (ack.HasZoneInEvent)
                 {
@@ -964,6 +1079,7 @@ namespace Gordian.Core.Network.Packets
             if (weather.IsValid)
             {
                 GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WEATHER (0x057): Weather={weather.WeatherNumber}, Offset={weather.WeatherOffsetTime}, StartTime={weather.StartTime}");
+                WeatherTimingReceived?.Invoke(weather.Timing);
                 WeatherReceived?.Invoke(weather.WeatherNumber);
             }
         }

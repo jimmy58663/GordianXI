@@ -379,9 +379,11 @@ namespace Gordian.Core.Ui
             }
 
             if (string.IsNullOrEmpty(result.Message)) return;
+            // Search, item search and blacklist replies are server answers retail prints as plain system text (white,
+            // Basic system messages); other client results keep GordianXI's notice colour.
             var channel = result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error
                 ? ChatLogChannel.Error
-                : ChatLogChannel.Notice;
+                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System : ChatLogChannel.Notice;
             foreach (var row in result.Message.Split('\n'))
             {
                 string text = row.TrimEnd('\r');
@@ -527,6 +529,10 @@ namespace Gordian.Core.Ui
                 : $"Imported {string.Join(" and ", applied)} from USER/{chosen.Name}.");
             return true;
         }
+
+        /// <summary>The commands whose replies are the server's answers (<c>/sea</c>, <c>/itemsearch</c>, <c>/blacklist</c>), logged as system text.</summary>
+        public static bool IsSystemReply(ChatCommandResultKind kind) =>
+            kind is ChatCommandResultKind.PlayerSearch or ChatCommandResultKind.ItemSearch or ChatCommandResultKind.Blacklist;
 
         public static ChatSendKind SendKindOf(ChatInputMode mode) => mode switch
         {

@@ -91,6 +91,19 @@ namespace Gordian.Core.Network.Packets
             }
 
             var record = action.ToRecord();
+            if (record.Category == ActionCategory.SkillFinish)
+            {
+                foreach (var target in record.Targets)
+                {
+                    foreach (var result in target.Results)
+                    {
+                        if (result.HasProc)
+                        {
+                            GordianLog.Info("COMBAT", $"Skillchain {result.Skillchain} by 0x{record.ActorId:X8} on 0x{target.TargetId:X8}: {result.ProcParam} points (message {result.ProcMessageId})");
+                        }
+                    }
+                }
+            }
             _combatState.RecordAction(record);
         }
 

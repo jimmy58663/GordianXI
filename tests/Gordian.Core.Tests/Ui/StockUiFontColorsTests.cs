@@ -355,6 +355,12 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiFontColorId.SelfDamage, StockUiCombatLog.LineFor(lines[0], me, DateTime.Now).FontColor);
             Assert.Equal(StockUiFontColorId.OthersDamage, StockUiCombatLog.LineFor(lines[1], me, DateTime.Now).FontColor);
             Assert.Equal(CombatLogFormatter.FormatAction(record, _ => "X"), lines.Select(l => l.Text));
+
+            // A weapon skill's skillchain (its added effect) is a standard battle message; search replies are system text.
+            var chain = new CombatLogLine("Skillchain: Light.", me, mob, 288, ActionCategory.SkillFinish, ActionResolution.Hit, CombatLogLinePart.AddedEffect);
+            Assert.Equal(StockUiFontColorId.StandardBattle, StockUiCombatLog.LineFor(chain, me, DateTime.Now).FontColor);
+            Assert.True(StockUiChat.IsSystemReply(Gordian.Core.Network.ChatCommandResultKind.PlayerSearch));
+            Assert.False(StockUiChat.IsSystemReply(Gordian.Core.Network.ChatCommandResultKind.UiLayout));
         }
     }
 }

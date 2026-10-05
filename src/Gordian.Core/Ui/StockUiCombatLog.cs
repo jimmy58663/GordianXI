@@ -76,6 +76,8 @@ namespace Gordian.Core.Ui
                 if (line.Resolution is ActionResolution.Miss or ActionResolution.Parry) return CombatLogEffect.Evade;
                 if (line.Category == ActionCategory.MagicStart) return CombatLogEffect.Casting;
             }
+            // A weapon skill's added effect is the skillchain line ("Skillchain: Light. ..."): a standard battle message.
+            if (line.Part == CombatLogLinePart.AddedEffect && line.Category == ActionCategory.SkillFinish) return CombatLogEffect.Standard;
             if (line.Part != CombatLogLinePart.Primary) return CombatLogEffect.Lose;
             var effect = EffectOf(line.MessageId);
             if (effect == CombatLogEffect.Standard && line.Category is ActionCategory.BasicAttack or ActionCategory.RangedFinish) return CombatLogEffect.Lose;

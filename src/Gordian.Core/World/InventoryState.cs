@@ -80,8 +80,30 @@ namespace Gordian.Core.World
         ushort ItemId,
         uint Count,
         uint Price,
-        string SellerName
-    );
+        string SellerName,
+        byte Category = 0,
+        uint MarketNo = 0,
+        uint LotNo = 0,
+        uint TimeStamp = 0,
+        uint ParamStacks = 0,
+        ushort ParamWorkIndex = 0
+    )
+    {
+        /// <summary>The parcel status as a named value.</summary>
+        public AuctionParcelStat Stat => (AuctionParcelStat)ParcelStat;
+
+        /// <summary>The <c>Result</c> byte as the client switches on it (success 1, fail 0, interim 2, errors 0xC5-0xFF).</summary>
+        public AuctionResultCode ResultCode => (AuctionResultCode)(byte)Result;
+
+        /// <summary>Where the item stands in the market.</summary>
+        public AuctionResultStatus Status => (AuctionResultStatus)(byte)ResultStatus;
+    }
+
+    /// <summary>
+    /// The hours or holiday of a closed guild (S2C 0x086): the opening and closing hour of an after-hours close, or the
+    /// day-of-week number of the weekly holiday (-1 for the field that does not apply).
+    /// </summary>
+    public sealed record GuildHoursInfo(int OpenHour, int CloseHour, int HolidayDay);
 
     /// <summary>
     /// A guild shop purchase (S2C 0x082) or sale (S2C 0x084) result. <see cref="ItemId"/> is 0 when the
@@ -423,12 +445,28 @@ namespace Gordian.Core.World
         public int MogSegments { get; private set; }
         public int Gallimaufry { get; private set; }
 
+        private readonly int[] _currencies1 = new int[CurrencyLayout.Count1];
+        private readonly int[] _currencies2 = new int[CurrencyLayout.Count2];
+
+        /// <summary>The last value of a currency of S2C 0x113 (guild points, cinders, zeni, tokens, assault points ...); 0 before the packet arrives.</summary>
+        public int GetCurrency(Currency1Kind kind)
+        {
+            lock (_lock) return _currencies1[(int)kind];
+        }
+
+        /// <summary>The last value of a currency of S2C 0x118 (stones, canteens, vouchers, crafter points ...); 0 before the packet arrives.</summary>
+        public int GetCurrency(Currency2Kind kind)
+        {
+            lock (_lock) return _currencies2[(int)kind];
+        }
+
         public void UpdateCurrencies1(in S2C_0x113_Currencies1 cur)
         {
             if (!cur.IsValid) return;
 
             lock (_lock)
             {
+                for (int i = 0; i < _currencies1.Length; i++) _currencies1[i] = cur.GetCurrency((Currency1Kind)i);
                 SparksOfEminence = cur.SparksOfEminence;
                 UnityAccolades = cur.UnityAccolades;
                 ConquestSandoria = cur.ConquestSandoria;
@@ -453,6 +491,7 @@ namespace Gordian.Core.World
 
             lock (_lock)
             {
+                for (int i = 0; i < _currencies2.Length; i++) _currencies2[i] = cur.GetCurrency((Currency2Kind)i);
                 Bayld = cur.Bayld;
                 KineticUnits = cur.KineticUnits;
                 CoalitionImprimaturs = cur.CoalitionImprimaturs;
@@ -582,6 +621,16 @@ namespace Gordian.Core.World
             }
 
             ShopChanged?.Invoke();
+        }
+
+        /// <summary>Opening hours or the holiday of a closed guild (S2C 0x086), or null when it is open or no packet came.</summary>
+        public GuildHoursInfo? GuildHours { get; private set; }
+
+        /// <summary>Records a guild status (S2C 0x086) with the hours or holiday it names.</summary>
+        public void SetGuildOpenStatus(ShopOpenStatus status, GuildHoursInfo? hours)
+        {
+            lock (_lock) GuildHours = status == ShopOpenStatus.Open ? null : hours;
+            SetGuildOpenStatus(status);
         }
 
         public void SetGuildOpenStatus(ShopOpenStatus status)

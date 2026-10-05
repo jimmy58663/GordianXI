@@ -11,6 +11,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Network.Search;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using Gordian.Core.Resources.Ui;
@@ -176,6 +177,12 @@ namespace Gordian.Core.Actions
         /// <summary>The progression packet module (events, key items, Mog House, Unity); null in sessions without one.</summary>
         public ProgressionPacketModule? ProgressionModule { get; set; }
         public TreasurePacketModule? TreasureModule { get; set; }
+
+        /// <summary>The social packet module (<c>/itemsearch</c>, <c>/blacklist</c>, delivery box, linkshell items); null in sessions without one.</summary>
+        public SocialPacketModule? SocialModule { get; set; }
+
+        /// <summary>The search (cache) server service (<c>/sea</c>); null in sessions without one.</summary>
+        public Gordian.Core.Network.Search.SearchService? SearchService { get; set; }
 
         /// <summary>The everyday command packet module (<c>/heal</c>, <c>/sit</c>, <c>/random</c>, votes, wide scan); null in sessions without one.</summary>
         public PlayerCommandPacketModule? CommandModule { get; set; }
@@ -1543,6 +1550,184 @@ namespace Gordian.Core.Actions
             }
         }
 
+        /// <summary>How long <c>/itemsearch</c> and <c>/blacklist list</c> wait for the packet that answers them.</summary>
+        public TimeSpan SocialReplyTimeout { get; set; } = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// <c>/itemsearch &lt;name&gt;</c> (C2S 0x02C): asks the server which item the name is and reports the containers that
+        /// hold it from the S2C 0x049 that answers (the client's own inventory state does the container search).
+        /// </summary>
+        public async Task<PlayerActionResult> ItemSearchAsync(string itemName)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.ItemSearch;
+            var module = SocialModule;
+            if (module == null) return PlayerActionResult.Fail("/itemsearch is unavailable: no social module.", Kind);
+            if (string.IsNullOrWhiteSpace(itemName)) return PlayerActionResult.Warn("Usage: /itemsearch <item name>", Kind);
+
+            var answered = new TaskCompletionSource<ItemSearchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnResult(ItemSearchResult r) => answered.TrySetResult(r);
+            module.Social.ItemSearchReceived += OnResult;
+            try
+            {
+                await module.SendItemSearchAsync(itemName.Trim()).ConfigureAwait(false);
+                var finished = await Task.WhenAny(answered.Task, Task.Delay(SocialReplyTimeout)).ConfigureAwait(false);
+                if (finished != answered.Task) return PlayerActionResult.Warn("Item search sent; the server did not answer.", Kind);
+
+                var result = await answered.Task.ConfigureAwait(false);
+                if (result.IsAsync) return PlayerActionResult.Info($"Searching for '{result.ItemName}'.", Kind);
+                if (result.ItemId == 0) return PlayerActionResult.Info($"'{result.ItemName}' is not an item the server knows.", Kind);
+                if (result.Containers.Count == 0) return PlayerActionResult.Info($"You do not have item {result.ItemId} ('{result.ItemName}').", Kind);
+                var where = string.Join(", ", result.Containers.Select(c => $"{c.Container} ({c.Count})"));
+                return PlayerActionResult.Info($"'{result.ItemName}' is in: {where}.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/itemsearch failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/itemsearch failed: {ex.Message}", Kind);
+            }
+            finally
+            {
+                module.Social.ItemSearchReceived -= OnResult;
+            }
+        }
+
+        /// <summary>
+        /// <c>/sea [all] [name] [job] [level] [party] [friend]</c>: searches players on the search server (the current zone, or
+        /// every zone with <c>all</c>). A three-letter job code picks the job, <c>75</c> or <c>70-75</c> (also <c>lv75</c>) the level,
+        /// <c>party</c> players seeking a party, <c>friend</c> friends, and any other word is a name or name prefix. The full
+        /// result is in <c>SearchService.State.LastSearch</c>; the message lists the first names.
+        /// </summary>
+        public async Task<PlayerActionResult> PlayerSearchAsync(string arguments)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.PlayerSearch;
+            var service = SearchService;
+            if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
+
+            var query = ParseSearchQuery(arguments, _world.CurrentZoneId);
+            try
+            {
+                var result = await service.SearchAsync(query).ConfigureAwait(false);
+                if (result.Players.Count == 0)
+                {
+                    return result.Complete
+                        ? PlayerActionResult.Info("No players found.", Kind)
+                        : PlayerActionResult.Warn("The search server did not answer.", Kind);
+                }
+
+                const int Shown = 12;
+                var names = string.Join(", ", result.Players.Take(Shown).Select(p =>
+                    p.IsAnonymous ? p.Name : $"{p.Name} ({(JobId)p.MainJob} {p.MainLevel})"));
+                string more = result.Total > Shown ? $" and {result.Total - Shown} more" : string.Empty;
+                return PlayerActionResult.Info($"{result.Total} player(s) found: {names}{more}.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
+            }
+        }
+
+        /// <summary>Turns the arguments of <c>/sea</c> into a search; see <see cref="PlayerSearchAsync"/>.</summary>
+        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone)
+        {
+            var query = new SearchQuery();
+            foreach (string raw in (arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string token = raw.ToLowerInvariant();
+                if (token == "all") { query.AllAreas = true; continue; }
+                if (token is "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
+                if (token == "friend" || token == "friends") { query.FriendsOnly = true; continue; }
+
+                string levelText = token.StartsWith("lv", StringComparison.Ordinal) ? token[2..] : token;
+                if (TryParseLevelRange(levelText, out var range)) { query.Level = range; continue; }
+
+                if (token.Length == 3 && SearchJobCodes.TryGetValue(token, out var job)) { query.Job = (byte)job; continue; }
+
+                query.Name ??= raw;
+            }
+            if (!query.AllAreas && currentZone != 0) query.Areas.Add(currentZone);
+            return query;
+        }
+
+        private static bool TryParseLevelRange(string text, out (byte Min, byte Max) range)
+        {
+            range = default;
+            string[] parts = text.Split('-');
+            if (parts.Length is < 1 or > 2) return false;
+            if (!byte.TryParse(parts[0], out byte min) || min == 0 || min > 99) return false;
+            byte max = min;
+            if (parts.Length == 2 && (!byte.TryParse(parts[1], out max) || max < min || max > 99)) return false;
+            range = (min, max);
+            return true;
+        }
+
+        private static readonly Dictionary<string, JobId> SearchJobCodes = new()
+        {
+            ["war"] = JobId.Warrior, ["mnk"] = JobId.Monk, ["whm"] = JobId.WhiteMage, ["blm"] = JobId.BlackMage,
+            ["rdm"] = JobId.RedMage, ["thf"] = JobId.Thief, ["pld"] = JobId.Paladin, ["drk"] = JobId.DarkKnight,
+            ["bst"] = JobId.Beastmaster, ["brd"] = JobId.Bard, ["rng"] = JobId.Ranger, ["sam"] = JobId.Samurai,
+            ["nin"] = JobId.Ninja, ["drg"] = JobId.Dragoon, ["smn"] = JobId.Summoner, ["blu"] = JobId.BlueMage,
+            ["cor"] = JobId.Corsair, ["pup"] = JobId.Puppetmaster, ["dnc"] = JobId.Dancer, ["sch"] = JobId.Scholar,
+            ["geo"] = JobId.Geomancer, ["run"] = JobId.RuneFencer
+        };
+
+        /// <summary>
+        /// <c>/blacklist add|delete &lt;name&gt;</c> (C2S 0x03D) and <c>/blacklist [list]</c> (C2S 0x03C, then the S2C 0x041
+        /// pages): edits or lists the character's blacklist.
+        /// </summary>
+        public async Task<PlayerActionResult> BlacklistAsync(string arguments)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.Blacklist;
+            var module = SocialModule;
+            if (module == null) return PlayerActionResult.Fail("/blacklist is unavailable: no social module.", Kind);
+
+            string[] parts = (arguments ?? string.Empty).Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string verb = parts.Length > 0 ? parts[0].ToLowerInvariant() : "list";
+            string name = parts.Length > 1 ? parts[1] : string.Empty;
+
+            try
+            {
+                switch (verb)
+                {
+                    case "add" when name.Length > 0:
+                        await module.AddToBlacklistAsync(name).ConfigureAwait(false);
+                        return PlayerActionResult.Ok($"Blacklist add requested for {name}.", Kind);
+                    case "delete" or "remove" or "del" when name.Length > 0:
+                        await module.RemoveFromBlacklistAsync(name).ConfigureAwait(false);
+                        return PlayerActionResult.Ok($"Blacklist removal requested for {name}.", Kind);
+                    case "list":
+                    {
+                        if (!module.Blacklist.IsComplete)
+                        {
+                            var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            void OnChanged() { if (module.Blacklist.IsComplete) answered.TrySetResult(); }
+                            module.Blacklist.Changed += OnChanged;
+                            try
+                            {
+                                await module.RequestBlacklistAsync().ConfigureAwait(false);
+                                await Task.WhenAny(answered.Task, Task.Delay(SocialReplyTimeout)).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                module.Blacklist.Changed -= OnChanged;
+                            }
+                        }
+                        var entries = module.Blacklist.Snapshot();
+                        return entries.Count == 0
+                            ? PlayerActionResult.Info("Your blacklist is empty.", Kind)
+                            : PlayerActionResult.Info($"Blacklist ({entries.Count}): {string.Join(", ", entries.Select(e => e.Name))}.", Kind);
+                    }
+                    default:
+                        return PlayerActionResult.Warn("Usage: /blacklist add <name> | delete <name> | list", Kind);
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/blacklist failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/blacklist failed: {ex.Message}", Kind);
+            }
+        }
+
         /// <summary>How long <c>/conquest</c> waits for the S2C 0x05E that answers it.</summary>
         public TimeSpan ConquestReplyTimeout { get; set; } = TimeSpan.FromSeconds(3);
 
@@ -2019,6 +2204,15 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.ConquestRequest:
                     return await ConquestAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.PlayerSearch:
+                    return await PlayerSearchAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ItemSearch:
+                    return await ItemSearchAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Blacklist:
+                    return await BlacklistAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.JobMasterDisplay:
                     return await JobMasterDisplayAsync(cmd.Rest == RestMode.On).ConfigureAwait(false);
