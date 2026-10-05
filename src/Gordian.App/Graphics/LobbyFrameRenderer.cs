@@ -25,6 +25,7 @@ namespace Gordian.App.Graphics
         private readonly ZoneEnvironmentSettings _environment = ZoneEnvironmentSettings.CreateDay();
         private UiResourceLibrary? _fontLibrary;
         private UiFont? _font;
+        private StockUiLogFont? _logFont;
         private bool _disposed;
 
         public LobbyFrameRenderer(GraphicsDevice gd, OutputDescription outputs)
@@ -48,6 +49,7 @@ namespace Gordian.App.Graphics
             {
                 _fontLibrary = library;
                 _font = library != null ? UiFont.FromLibrary(library) : null;
+                _logFont = library != null ? StockUiLogFont.FromLibrary(library) : null;
             }
 
             preview.Show(lobby.PreviewCharacter);
@@ -82,7 +84,7 @@ namespace Gordian.App.Graphics
             if (library != null)
             {
                 _foreground.Begin(library);
-                StockUiLobby.DrawForeground(_foreground, lobby, _font, width, height, Stopwatch.GetTimestamp());
+                StockUiLobby.DrawForeground(_foreground, lobby, _font, width, height, Stopwatch.GetTimestamp(), _logFont);
                 _foreground.End(framebuffer, width, height);
             }
         }

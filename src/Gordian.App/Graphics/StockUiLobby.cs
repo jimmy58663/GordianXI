@@ -101,14 +101,30 @@ namespace Gordian.App.Graphics
             var rect = Fit(width, height);
             lock (lobby.SyncRoot)
             {
-                string background = lobby.Screen == LobbyScreen.MainMenu ? LobbyController.TitleBackgroundMenu : LobbyController.ListBackgroundMenu;
+                string background = lobby.IsLicencePending ? LicenceBackgroundMenu
+                    : lobby.Screen == LobbyScreen.MainMenu ? LobbyController.TitleBackgroundMenu : LobbyController.ListBackgroundMenu;
                 if (library.TryGetMenu(background, out var menu))
                 {
                     // The backdrop's tiled "newtex" fill spans the whole window (no bars on wide or tall windows); the art
-                    // (logo, copyright) stays at its place in the 4:3 area.
-                    var placement = Place(menu, rect);
+                    // (logo, copyright) stays at its place in the 4:3 area. The licence page follows retail (image-8, 2026-10-05):
+                    // its 640 x 480 backdrop is scaled to the window's width from the top left, the logo large at the top left.
+                    var placement = lobby.IsLicencePending ? new StockUiPlacement(0, 0, width / 640f, false) : Place(menu, rect);
                     // Stretched rather than tiled further: the fill texture darkens toward its edges, so more tiles would show seams.
                     var stretch = Matrix3x2.CreateScale(width / (float)menu.Frame.Width, height / (float)menu.Frame.Height);
+                    if (lobby.IsLicencePending)
+                    {
+                        // Retail stretches the whole 640 x 480 backdrop (lobbywin #85, though ptcbgwin's frame says 640 x 240),
+                        // logo included, over the window: image-8's logo is 4x wide and 3x tall at 2559 x 1439. Its two fill
+                        // halves are bright at the window's top and bottom edges and dark in the middle, the reverse of the
+                        // parts' corner colours as the in-game windows read them, so the corners are drawn flipped here.
+                        var licenceStretch = Matrix3x2.CreateScale(width / 640f, height / 480f);
+                        foreach (var shape in menu.Frame.Shapes)
+                        {
+                            if (shape.Kind != 0 || !library.TryGetImage(shape, out var whole)) continue;
+                            renderer.DrawImage(new UiImage { Parts = whole.Parts.Select(p => IsFill(p) ? FlipColours(p) : p).ToList() }, licenceStretch);
+                        }
+                        return;
+                    }
                     foreach (var shape in menu.Frame.Shapes)
                     {
                         if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
@@ -127,11 +143,49 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>The licence page's backdrop (lobbywin #85: the 640 x 480 fill and the large logo at the top left).</summary>
+        public const string LicenceBackgroundMenu = "ptcbgwin";
+
+        /// <summary>The licence text's layout in its window, measured on retail's image-8 (2559 x 1439, 2026-10-05).</summary>
+        private const float LicenceTextLeft = 28, LicenceTextTop = 13, LicenceLinePitch = 16;
+
+        /// <summary>The licence page's help bar band in its frame (lobyhelp's image, y 155..181), where its border lines go.</summary>
+        private const float LicenceBarTop = 155, LicenceBarHeight = 26;
+        private static readonly UiColor LicenceTextColor = new(0x80, 0x80, 0x80, 0x80);
+
+        private static bool IsLicence(UiMenuDefinition definition) =>
+            definition.Name.Equals(LobbyController.LicencePromptMenu, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Where a lobby window goes. The licence page is drawn as retail shows it: at one screen pixel per layout pixel in
+        /// a 512 x 448 box centred on the window (the in-game UI's scale; its frame at (256, 128) puts the window centred,
+        /// a little above the middle). Every other window uses <see cref="Place"/>.
+        /// </summary>
+        public static StockUiPlacement PlaceWindow(LobbyController lobby, UiMenuDefinition definition, LobbyRect rect, uint width, uint height)
+        {
+            if (!IsLicence(definition)) return Place(definition, rect);
+            float boxX = (width - UiResourceLibrary.LayoutWidth) * 0.5f, boxY = (height - UiResourceLibrary.LayoutHeight) * 0.5f;
+            return new StockUiPlacement(MathF.Round(boxX + definition.Frame.X), MathF.Round(boxY + definition.Frame.Y), 1f, false);
+        }
+
+        /// <summary>Full opacity (0x80 on the half scale): image-8's backdrop matches the corner colours drawn opaque.</summary>
+        private static UiColor Opaque(UiColor c) => c with { A = 0x80 };
+
+        /// <summary>A part with its top and bottom corner colours swapped and drawn opaque (the licence backdrop, see DrawBackground).</summary>
+        private static UiSpritePart FlipColours(UiSpritePart p) => new()
+        {
+            TopLeft = p.TopLeft, TopRight = p.TopRight, BottomLeft = p.BottomLeft, BottomRight = p.BottomRight,
+            SourceX = p.SourceX, SourceY = p.SourceY, SourceWidth = p.SourceWidth, SourceHeight = p.SourceHeight,
+            Flags = p.Flags, TextureAttributes = p.TextureAttributes, TextureName = p.TextureName,
+            ColorTopLeft = Opaque(p.ColorBottomLeft), ColorTopRight = Opaque(p.ColorBottomRight), ColorBottomLeft = Opaque(p.ColorTopLeft), ColorBottomRight = Opaque(p.ColorTopRight),
+        };
+
         private static bool IsFill(UiSpritePart part) =>
             UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The windows, their text, the prompt on top and the cursor.</summary>
-        public static void DrawForeground(StockUiRenderer renderer, LobbyController lobby, UiFont? font, uint width, uint height, long timestamp)
+        public static void DrawForeground(StockUiRenderer renderer, LobbyController lobby, UiFont? font, uint width, uint height, long timestamp,
+            StockUiLogFont? logFont = null)
         {
             var library = lobby.Library;
             if (library == null) return;
@@ -150,7 +204,17 @@ namespace Gordian.App.Graphics
                         break;
                 }
 
-                if (font != null && lobby.HelpText.Length > 0 && library.TryGetMenu(LobbyController.HelpBarMenu, out var help))
+                if (lobby.IsLicencePending && library.TryGetMenu(LobbyController.HelpBarMenu, out var licenceBar))
+                {
+                    // Retail's licence page: the empty help bar at one screen pixel per layout pixel, its authored 69 px
+                    // above the window's bottom, across the full width. Its image is a backdrop-coloured band, so the
+                    // client's border lines mark it (image-8: 3 px lines at its top and bottom, 26 px apart, fading at
+                    // the window's ends).
+                    var bar = new StockUiPlacement(256, height - (UiResourceLibrary.LayoutHeight - licenceBar.Frame.Y), 1f, false);
+                    renderer.DrawMenu(licenceBar, bar, includeButtons: false, border: false, frameWidth: width);
+                    renderer.DrawWindowBorder(0, bar.Y + LicenceBarTop, width, LicenceBarHeight, 1f);
+                }
+                else if (font != null && lobby.HelpText.Length > 0 && library.TryGetMenu(LobbyController.HelpBarMenu, out var help))
                 {
                     var placement = PlaceHelpBar(help, rect);
                     // The bar runs the window's full width; its text starts at the 4:3 area's left edge.
@@ -162,7 +226,7 @@ namespace Gordian.App.Graphics
                         placement.Y + 168 * placement.Scale - font.LineHeight * textScale * 0.5f, textScale);
                 }
 
-                if (lobby.Prompt is { } prompt) DrawPrompt(renderer, library, font, prompt, rect, timestamp);
+                if (lobby.Prompt is { } prompt) DrawPrompt(renderer, library, font, logFont, lobby, prompt, rect, width, height, timestamp);
             }
         }
 
@@ -174,7 +238,7 @@ namespace Gordian.App.Graphics
         {
             var menu = lobby.ActiveMenu;
             if (menu == null) return null;
-            var placement = Place(menu.Definition, Fit(width, height));
+            var placement = PlaceWindow(lobby, menu.Definition, Fit(width, height), width, height);
             float s = placement.Scale;
             foreach (var button in menu.Definition.Buttons)
             {
@@ -282,11 +346,14 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>A message window: its frame, the lines centred near the top, its buttons and the cursor.</summary>
-        private static void DrawPrompt(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, LobbyPrompt prompt, LobbyRect rect, long timestamp)
+        private static void DrawPrompt(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiLogFont? logFont, LobbyController lobby, LobbyPrompt prompt, LobbyRect rect,
+            uint width, uint height, long timestamp)
         {
             var definition = prompt.Menu.Definition;
-            var placement = Place(definition, rect);
-            renderer.DrawMenu(definition, placement, includeButtons: false, border: false);
+            var placement = PlaceWindow(lobby, definition, rect, width, height);
+            bool licence = IsLicence(definition);
+            // Retail draws the licence window with the in-game windows' light top and bottom border lines (image-8).
+            renderer.DrawMenu(definition, placement, includeButtons: false, border: licence);
             float s = placement.Scale;
             foreach (var button in definition.Buttons)
             {
@@ -295,7 +362,20 @@ namespace Gordian.App.Graphics
                 if (button.ButtonId == prompt.Menu.SelectedButtonId && prompt.HasButtons) StockUiMenuWindow.DrawSelectedImage(renderer, label, bx, by, s);
                 else renderer.DrawImage(label, bx, by, s);
             }
-            if (font != null && prompt.Lines.Count > 0)
+            if (prompt.Lines.Count > 0 && licence && (logFont != null || font != null))
+            {
+                // Retail's licence page (image-8): upright log-font text (not the menus' italic font), the lines
+                // left-aligned 28 px in from the window's left edge, from 13 px down, 16 px apart, one screen pixel per pixel.
+                float ly = placement.Y + LicenceTextTop * s;
+                foreach (string line in prompt.Lines)
+                {
+                    float lx = placement.X + (LicenceTextLeft - 256) * s;
+                    if (logFont != null) logFont.Draw(renderer, line, lx, ly, s, LicenceTextColor);
+                    else renderer.DrawText(font!, line, lx, ly, s);
+                    ly += LicenceLinePitch * s;
+                }
+            }
+            else if (font != null && prompt.Lines.Count > 0)
             {
                 // Long notices (the six-line licence page) are set a little smaller so they clear the buttons.
                 float textScale = prompt.Lines.Count > 4 ? s * 0.85f : s;

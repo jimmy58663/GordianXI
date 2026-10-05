@@ -53,6 +53,58 @@ namespace Gordian.App.Tests.Graphics
         internal static LobbyCharacter Free(int slot) =>
             new(slot, 0, 0, 0, 1, false, false, string.Empty, string.Empty, 0, 0, 0, 0, 0, 0, 0, 0, default, default);
 
+        /// <summary>
+        /// The licence page at the retail capture's size (image-8, 2559 x 1439): the window at one screen pixel per layout
+        /// pixel, centred (512 x 144 from about (1023, 623)), the backdrop scaled to the window's width. Writes
+        /// lobby_licence_1440.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersLicencePageLikeRetail()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.LoadLobby(rm);
+            if (library == null) return;
+            var backend = new FakeBackend();
+            backend.List.Add(Character(1, "Knot", 2, 5, 4, 75));
+            var lobby = new LobbyController(backend, library, LobbyTextTables.Load(rm.LoadDatBytes));
+            Assert.True(library.TryGetMenu(LobbyController.LicencePromptMenu, out var licence));
+            var placement = StockUiLobby.PlaceWindow(lobby, licence, StockUiLobby.Fit(2559, 1439), 2559, 1439);
+            Assert.Equal(1f, placement.Scale);
+            Assert.InRange(placement.X, 1278f, 1281f); // the capture: the window's centre at x 1279, its top at y 623
+            Assert.InRange(placement.Y, 622f, 625f);
+
+            const uint width = 2559, height = 1439;
+            IntPtr hwnd = CreateWindowExW(0, "static", "LobbyLicenceTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
+                for (int i = 0; i < 3; i++) frames.Render(lobby, new LobbyPreview(), null, rm, framebuffer, width, height, 1 / 60f);
+                var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    StockUiRendererTests.SavePng(Path.Combine(dumpDir, "lobby_licence_1440.png"), pixels, (int)width, (int)height);
+                }
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         [Fact]
         public void RendersTitleMenuCharacterListAndPreview()
         {
