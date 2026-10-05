@@ -380,6 +380,25 @@ namespace Gordian.Core.Tests.Events
         /// then the zone track 110 again mid-scene (retail: when the player wakes and talks to Joachim), and once more at
         /// the end. The event layer must give the zone music back at that mid-scene write, not at the event end.
         /// </summary>
+        /// <summary>
+        /// Lufaise Meadows 117 (#167, in-game round 3): the scene mutes every sound category, master included (0x69 mask
+        /// 0x1F), plays track 900 and unmutes only at its end. The master is the sound elements' master, not the music, so
+        /// the music must stay audible.
+        /// </summary>
+        [Fact]
+        public void LufaiseMeadows117_MutesEffectsForTheSceneAndPlaysItsMusic()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 24, 117);
+            var sound = run.Host.Sound;
+            _output.WriteLine(string.Join(", ", sound));
+            int mute = sound.IndexOf("sound 31=0/0");
+            int music = sound.IndexOf("slot 0=900");
+            int unmute = sound.IndexOf("sound 31=1/0");
+            Assert.True(mute >= 0 && music > mute && unmute > music, string.Join(", ", sound));
+        }
+
         [Fact]
         public void PortJeuno324_SetsItsOwnMusicThenGivesTheZoneMusicBack()
         {

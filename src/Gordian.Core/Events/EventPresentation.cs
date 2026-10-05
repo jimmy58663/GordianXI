@@ -159,7 +159,7 @@ namespace Gordian.Core.Events
                     _effectTasks.Add(taskId);
                 }
                 double now = Clock();
-                AddSounds(taskId, resource, routine, now, origin, casterServerId, 0);
+                AddSounds(taskId, fileId, resource, routine, now, origin, casterServerId, 0);
                 foreach (var command in routine.Commands)
                 {
                     double start = now + command.StartFrame / FramesPerSecond;
@@ -253,41 +253,64 @@ namespace Gordian.Core.Events
         /// <summary>A cutscene sound effect due at <see cref="Start"/> (presentation clock seconds).</summary>
         /// <param name="TaskId">The scheduler task.</param>
         /// <param name="Start">When it plays.</param>
-        /// <param name="SoundId">The <c>.spw</c> id.</param>
-        /// <param name="Opcode">The routine command (0x0A at the source actor, 0x0B at the target, 0x60 global), or 0x02 for a sound generator.</param>
+        /// <param name="SoundId">The <c>.spw</c> id (0 for a kill).</param>
+        /// <param name="Opcode">The routine command: 0x0A at the source actor, 0x0B at the target, 0x60 global; 0x02 a sound generator starts, 0x1E one is killed.</param>
         /// <param name="Origin">Where the task's actor stands (internal axes).</param>
         /// <param name="CasterServerId">The task's actor.</param>
-        /// <param name="Duration">For a sound generator, how long it emits (seconds; 0 = one pass): a looped sound loops that long.</param>
-        public readonly record struct SceneSound(int TaskId, double Start, int SoundId, byte Opcode, Vector3 Origin, uint CasterServerId, double Duration = 0);
+        /// <param name="Duration">For a sound generator, how long it emits (seconds; 0 = until killed or the event ends when the file loops, else one pass).</param>
+        /// <param name="FileId">The scene file.</param>
+        /// <param name="Generator">The sound generator's name, for 0x02 / 0x1E.</param>
+        /// <param name="Far">The generator's audible range (0x4C), 0 when not a generator.</param>
+        /// <param name="Near">The generator's full-volume radius.</param>
+        public readonly record struct SceneSound(int TaskId, double Start, int SoundId, byte Opcode, Vector3 Origin, uint CasterServerId,
+            double Duration = 0, int FileId = 0, string Generator = "", float Far = 0f, float Near = 0f);
 
         private readonly List<SceneSound> _sounds = new();
         private const int MaxSoundLinkDepth = 4;
+        private int _soundResets;
+
+        /// <summary>Increments when the event ends (<see cref="Reset"/>): cutscene sounds still playing should stop.</summary>
+        public int SoundResets => Volatile.Read(ref _soundResets);
 
         /// <summary>
         /// Schedules the sounds of a routine and of the routines it starts (0x03, one pass of 0x73 loops): the sound
-        /// commands (<see cref="SceneCommandKind.Sound"/>) and the generators it spawns whose linked data is a sound
-        /// (Port Jeuno 324: 57129 <c>se00</c> plays <c>1060</c> → 41060, 30905 <c>who1</c> 8158, <c>0pro</c> 34125 and
-        /// 34126). The renderer's effect player only exists for files with drawn generators, so sounds are scheduled here.
+        /// commands (<see cref="SceneCommandKind.Sound"/>), and the generators it spawns, replaces or kills whose linked
+        /// data is a sound (Port Jeuno 324: 57129 <c>se00</c> plays <c>1060</c> → 41060, 30905 <c>who1</c> 8158, <c>0pro</c>
+        /// 34125 and 34126; the lightning <c>0rak</c> spawns <c>6041</c> and the looping <c>2088</c>, which <c>krak</c>
+        /// kills). The renderer's effect player only exists for files with drawn generators, so sounds are scheduled here.
         /// </summary>
-        private void AddSounds(int taskId, EventSceneResource resource, SceneRoutine routine, double start, Vector3 origin, uint caster, int depth)
+        private void AddSounds(int taskId, int fileId, EventSceneResource resource, SceneRoutine routine, double start, Vector3 origin, uint caster, int depth)
         {
             foreach (var command in routine.Commands)
             {
                 double at = start + command.StartFrame / FramesPerSecond;
+                double duration = command.Duration / FramesPerSecond;
                 switch (command.Kind)
                 {
                     case SceneCommandKind.Sound when resource.TryGetSound(command.Reference, out int soundId):
-                        _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster));
+                        _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster, FileId: fileId));
                         break;
-                    case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out int generatorSound):
-                        _sounds.Add(new SceneSound(taskId, at, generatorSound, 0x02, origin, caster, command.Duration / FramesPerSecond));
+                    case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out var spawned):
+                        _sounds.Add(new SceneSound(taskId, at, spawned.SoundId, 0x02, origin, caster, duration, fileId, command.Reference, spawned.Far, spawned.Near));
                         break;
-                    case SceneCommandKind.ReplaceGenerator when resource.TryGetGeneratorSound(command.Reference2, out int replacedSound):
-                        _sounds.Add(new SceneSound(taskId, at, replacedSound, 0x02, origin, caster, command.Duration / FramesPerSecond));
+                    case SceneCommandKind.KillGenerator when resource.TryGetGeneratorSound(command.Reference, out _):
+                        _sounds.Add(new SceneSound(taskId, at, 0, 0x1E, origin, caster, FileId: fileId, Generator: command.Reference));
+                        break;
+                    case SceneCommandKind.ReplaceGenerator:
+                        if (resource.TryGetGeneratorSound(command.Reference, out _))
+                        {
+                            _sounds.Add(new SceneSound(taskId, at, 0, 0x1E, origin, caster, FileId: fileId, Generator: command.Reference));
+                        }
+
+                        if (resource.TryGetGeneratorSound(command.Reference2, out var replacement))
+                        {
+                            _sounds.Add(new SceneSound(taskId, at, replacement.SoundId, 0x02, origin, caster, duration, fileId, command.Reference2, replacement.Far, replacement.Near));
+                        }
+
                         break;
                     case SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine when depth < MaxSoundLinkDepth
                         && command.Reference != routine.Name && resource.TryGetRoutine(command.Reference, out var child):
-                        AddSounds(taskId, resource, child, at, origin, caster, depth + 1);
+                        AddSounds(taskId, fileId, resource, child, at, origin, caster, depth + 1);
                         break;
                 }
             }
@@ -338,6 +361,7 @@ namespace Gordian.Core.Events
                 _blurAmounts.Clear();
                 _dissolves.Clear();
                 _sounds.Clear();
+                Interlocked.Increment(ref _soundResets);
                 _sceneBase = Vector3.One;
                 _interfaceBase = Vector3.One;
                 _flashBase = Vector3.Zero;

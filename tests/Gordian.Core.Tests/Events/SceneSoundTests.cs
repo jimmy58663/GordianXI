@@ -65,6 +65,10 @@ namespace Gordian.Core.Tests.Events
             Assert.Contains(sounds, s => s.SoundId == 41060); // se00
             Assert.Contains(sounds, s => s.SoundId == 8158);  // who1
             Assert.Contains(sounds, s => s.SoundId == 34125); // 0pro
+            // The lightning (0rak): 6041 and the looping 2088, authored with a 3000-yalm range; krak kills 2088.
+            Assert.Contains(sounds, s => s.SoundId == 36041 && s.Generator == "6041" && s.Far == 3000f);
+            Assert.Contains(sounds, s => s.SoundId == 2088 && s.Far == 3000f);
+            Assert.Contains(sounds, s => s.Opcode == 0x1E && s.Generator == "2088");
             presentation.TakeDueSounds(sounds = new List<EventPresentation.SceneSound>());
             Assert.Empty(sounds); // handed out once
         }

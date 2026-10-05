@@ -248,48 +248,117 @@ namespace Gordian.App.Audio
             return FootwearInfo.Default;
         }
 
-        /// <summary>Range of a cutscene sound played at its actor (provisional; retail's per-command ranges are unread).</summary>
+        /// <summary>Range of a cutscene sound command played at its actor (provisional; generators carry their own range).</summary>
         public static readonly (float Near, float Far) SceneSoundRange = (15f, 60f);
 
         private readonly List<Gordian.Core.Events.EventPresentation.SceneSound> _sceneSounds = new();
+        private readonly Dictionary<(int FileId, string Generator), int> _sceneLoops = new();
+        private int _sceneSoundResets;
 
         /// <summary>
-        /// Plays the cutscene's routine sounds as they come due: global commands (0x60, and 0x4A / 0x53) centred, the rest
-        /// (0x0A / 0x0B, sound generators) at the task's actor.
+        /// Plays the cutscene's routine sounds as they come due. Sound commands: global ones (0x60, 0x4A, 0x53) centred,
+        /// 0x0A / 0x0B at the task's actor. Sound generators: at the task's actor with their own 0x4C range (the lightning of
+        /// Port Jeuno 324 is authored with far = 3000, so it is heard from anywhere: with a fixed 60-yalm range it was
+        /// silent, in-game round 3). A generator whose file loops keeps playing until the generator is killed (0x1E / 0x3F),
+        /// its spawn duration runs out, or the event ends.
         /// </summary>
         private void PlaySceneSounds(Gordian.Core.Events.EventPresentation presentation)
         {
+            int resets = presentation.SoundResets;
+            if (resets != _sceneSoundResets)
+            {
+                _sceneSoundResets = resets;
+                StopSceneLoops(0.5f);
+            }
+
             _sceneSounds.Clear();
             presentation.TakeDueSounds(_sceneSounds);
             foreach (var sound in _sceneSounds)
             {
-                AudioEmitter? emitter = sound.Opcode is 0x60 or 0x4A or 0x53
-                    ? null
-                    : new AudioEmitter(sound.Origin, SceneSoundRange.Near, SceneSoundRange.Far);
-                if (sound.Duration <= 0)
+                var key = (sound.FileId, sound.Generator);
+                if (sound.Opcode == 0x1E)
+                {
+                    lock (_sceneLoops)
+                    {
+                        if (_sceneLoops.Remove(key, out int killed))
+                        {
+                            _engine.Mixer.Stop(killed, 0.3f);
+                        }
+                    }
+
+                    continue;
+                }
+
+                AudioEmitter? emitter;
+                if (sound.Opcode is 0x60 or 0x4A or 0x53)
+                {
+                    emitter = null;
+                }
+                else if (sound.Opcode == 0x02 && sound.Far > 0f)
+                {
+                    emitter = new AudioEmitter(sound.Origin, Math.Clamp(sound.Near, 0f, sound.Far), sound.Far);
+                }
+                else
+                {
+                    emitter = new AudioEmitter(sound.Origin, SceneSoundRange.Near, SceneSoundRange.Far);
+                }
+
+                if (sound.Opcode != 0x02)
                 {
                     PlayEffect(sound.SoundId, AudioCategory.Effects, 1f, emitter);
                     continue;
                 }
 
-                // A sound generator emits for its command's duration: a looped file loops that long (provisional).
-                double seconds = sound.Duration;
-                _ = PlayLoopFor(sound.SoundId, emitter, seconds);
+                _ = PlaySceneGenerator(key, sound.SoundId, emitter, sound.Duration);
             }
         }
 
-        private async Task PlayLoopFor(int soundId, AudioEmitter? emitter, double seconds)
+        private async Task PlaySceneGenerator((int FileId, string Generator) key, int soundId, AudioEmitter? emitter, double seconds)
         {
+            // loop: null keeps the file's own looping: a looped file loops, a one-shot plays once.
             int handle = await PlayEffectAsync(soundId, AudioCategory.Effects, 1f, emitter, loop: null).ConfigureAwait(false);
             if (handle == 0)
             {
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
-            _engine.Mixer.Stop(handle, 0.3f);
+            lock (_sceneLoops)
+            {
+                if (_sceneLoops.Remove(key, out int previous))
+                {
+                    _engine.Mixer.Stop(previous, 0.3f);
+                }
+
+                _sceneLoops[key] = handle;
+            }
+
+            if (seconds > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
+                lock (_sceneLoops)
+                {
+                    if (_sceneLoops.TryGetValue(key, out int current) && current == handle)
+                    {
+                        _sceneLoops.Remove(key);
+                    }
+                }
+
+                _engine.Mixer.Stop(handle, 0.3f);
+            }
         }
 
+        private void StopSceneLoops(float fadeSeconds)
+        {
+            lock (_sceneLoops)
+            {
+                foreach (int handle in _sceneLoops.Values)
+                {
+                    _engine.Mixer.Stop(handle, fadeSeconds);
+                }
+
+                _sceneLoops.Clear();
+            }
+        }
         private void UpdateFootsteps(WorldState world, uint localPlayerId)
         {
             ZoneSoundTable sounds = _zoneSounds;
@@ -421,7 +490,9 @@ namespace Gordian.App.Audio
 
         /// <summary>
         /// Applies an event's category volumes (opcodes 0x69 / 0x6A) as script fades on the buses: effect → Effects,
-        /// system → System, zone → Zone, master → all of them and the music (time in 1/60 s frames, provisional).
+        /// system → System, zone → Zone, master → those three (time in 1/60 s frames, provisional). The master is the sound
+        /// elements' master (XiEvents <c>YmSoundElem_SetMasterVolume</c>), not the music: Lufaise Meadows <c>!cs 117</c> mutes
+        /// mask 0x1F for the whole scene while it plays track 900, and applying it to the music silenced the scene (round 3).
         /// </summary>
         private void ApplyEventVolumes(EventSoundVolumes volumes)
         {
@@ -437,7 +508,6 @@ namespace Gordian.App.Audio
             _engine.Mixer.FadeCategory(AudioCategory.Effects, master * volumes.Get(EventSoundCategory.Effect), seconds);
             _engine.Mixer.FadeCategory(AudioCategory.System, master * volumes.Get(EventSoundCategory.System), seconds);
             _engine.Mixer.FadeCategory(AudioCategory.Zone, master * volumes.Get(EventSoundCategory.Zone), seconds);
-            _music.SetScriptMaster(master);
         }
 
         private void UpdateListener(ViewportCamera camera)

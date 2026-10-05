@@ -347,13 +347,20 @@ namespace Gordian.Core.Resources.Events
     /// <c>56641 + p</c> for 300-599, <c>70347 + p</c> from 600.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// A sound generator of a scene file: its sound and its audible range (init op 0x4C <c>f32 far, f32 near</c>).
+    /// Port Jeuno 324's lightning (57129 <c>6041</c>, <c>2088</c>, played on the sky-flash marker) is authored with
+    /// far = 3000 yalms, so it is heard from anywhere; the <c>7124</c> rumble on the player 15.
+    /// </summary>
+    public readonly record struct SceneSoundGenerator(int SoundId, float Far, float Near);
+
     public sealed class EventSceneResource
     {
         private readonly Dictionary<string, CameraRoute> _routes;
         private readonly Dictionary<string, SceneRoutine> _routines;
 
         private readonly Dictionary<string, int> _sounds = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, int> _generatorSounds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, SceneSoundGenerator> _generatorSounds = new(StringComparer.Ordinal);
 
         private EventSceneResource(Dictionary<string, CameraRoute> routes, Dictionary<string, SceneRoutine> routines)
         {
@@ -368,7 +375,7 @@ namespace Gordian.Core.Resources.Events
         public bool TryGetSound(string name, out int soundId) => _sounds.TryGetValue(name, out soundId);
 
         /// <summary>The sound of generator <paramref name="name"/> when it is a sound generator (its linked data is a 0x3D section).</summary>
-        public bool TryGetGeneratorSound(string name, out int soundId) => _generatorSounds.TryGetValue(name, out soundId);
+        public bool TryGetGeneratorSound(string name, out SceneSoundGenerator generator) => _generatorSounds.TryGetValue(name, out generator);
 
         /// <summary>The first file id of the scheduler resources (<c>p</c> = 0).</summary>
         public const int BaseFileId = 30704;
@@ -423,7 +430,7 @@ namespace Gordian.Core.Resources.Events
             var routes = new Dictionary<string, CameraRoute>(StringComparer.Ordinal);
             var routines = new Dictionary<string, SceneRoutine>(StringComparer.Ordinal);
             var sounds = new Dictionary<string, int>(StringComparer.Ordinal);
-            var soundGenerators = new Dictionary<string, string>(StringComparer.Ordinal);
+            var soundGenerators = new Dictionary<string, (string Pointer, float Far, float Near)>(StringComparer.Ordinal);
             foreach (var header in DatSectionWalker.ReadHeaders(file))
             {
                 if (header.DataOffset + header.DataSizeBytes > file.Length) continue;
@@ -444,9 +451,19 @@ namespace Gordian.Core.Resources.Events
                 {
                     try
                     {
-                        if (Graphics.ParticleGeneratorDecoder.DecodeGenerator(payload, header.DatId) is { Setup: { LinkedDataType: Graphics.ParticleLinkedDataType.Audio } setup })
+                        if (Graphics.ParticleGeneratorDecoder.DecodeGenerator(payload, header.DatId) is { Setup: { LinkedDataType: Graphics.ParticleLinkedDataType.Audio } setup } def)
                         {
-                            soundGenerators.TryAdd(header.DatId, setup.LinkedDataId);
+                            float far = 0f, near = 0f;
+                            foreach (var op in def.Initializers)
+                            {
+                                if (op.OpCode == 0x4C && op.Args.Length >= 2)
+                                {
+                                    far = BitConverter.UInt32BitsToSingle(op.Args[0]);
+                                    near = BitConverter.UInt32BitsToSingle(op.Args[1]);
+                                }
+                            }
+
+                            soundGenerators.TryAdd(header.DatId, (setup.LinkedDataId, float.IsFinite(far) ? far : 0f, float.IsFinite(near) ? near : 0f));
                         }
                     }
                     catch (Exception)
@@ -457,9 +474,9 @@ namespace Gordian.Core.Resources.Events
             }
             var resource = new EventSceneResource(routes, routines);
             foreach (var (name, id) in sounds) resource._sounds[name] = id;
-            foreach (var (generator, pointer) in soundGenerators)
+            foreach (var (generator, link) in soundGenerators)
             {
-                if (sounds.TryGetValue(pointer, out int id)) resource._generatorSounds[generator] = id;
+                if (sounds.TryGetValue(link.Pointer, out int id)) resource._generatorSounds[generator] = new SceneSoundGenerator(id, link.Far, link.Near);
             }
             return resource;
         }
