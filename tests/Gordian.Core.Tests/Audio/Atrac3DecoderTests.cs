@@ -453,8 +453,9 @@ namespace Gordian.Core.Tests.Audio
             // the track fades out at ~246 s and the file then holds ~23.7 s of digitally silent frames up to the header's
             // total, with the loop back to sample 1663 (the top). Every "repeat from the top" track (loop within 0.5 s of
             // the start: 9 ATRAC3, 13 ADPCM) has such a tail, no track with a mid-song loop does, and no header field marks
-            // an earlier loop end. So the decoder plays the file as written; this test pins that the gap comes from the
-            // data, not from the stream, and that the music resumes at once after the restart.
+            // an earlier loop end. Retail pauses there too (the maintainer's check in Aht Urhgan Whitegate, 2026-10-05), so the
+            // decoder plays the file as written; this test pins that the gap comes from the data, not from the stream, and
+            // that the music resumes at once after the restart.
             if (!Directory.Exists(GameDirectory))
             {
                 return;
