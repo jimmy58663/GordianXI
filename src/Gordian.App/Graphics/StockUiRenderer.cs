@@ -429,35 +429,39 @@ void main()
         /// <summary>
         /// Draws the client's window border lines along the top and bottom of a frame (layout width/height).
         /// <paramref name="topGap"/> (layout pixels from the left edge) leaves a break in the top line, where retail
-        /// writes a log window's title over it.
+        /// writes a log window's title over it. <paramref name="fadeLength"/> overrides the end fade (layout pixels) and
+        /// <paramref name="sourceRow"/> the strip's first row: the lobby DAT's own <c>hfr1</c> (32 x 32) has a transparent
+        /// row 0 and its line in rows 1-3 (102 / 205 / 102), where the window skins' strip starts at row 0.
         /// </summary>
-        public void DrawWindowBorder(float x, float y, float width, float height, float scale, (float Start, float End)? topGap = null)
+        public void DrawWindowBorder(float x, float y, float width, float height, float scale, (float Start, float End)? topGap = null,
+            float? fadeLength = null, float sourceRow = 0)
         {
-            float fade = Math.Min(BorderFade, width / 2);
+            float fade = Math.Min(fadeLength ?? BorderFade, width / 2);
+            float row = sourceRow;
             bool top = true;
             foreach (float edgeY in new[] { y, y + (height - BorderThickness) * scale })
             {
                 float h = BorderThickness * scale;
-                DrawTextureRect(BorderTexture, 0, 0, fade, BorderThickness, x, edgeY, fade * scale, h, BorderClear, BorderColor, UiBlendMode.Add);
+                DrawTextureRect(BorderTexture, 0, row, fade, BorderThickness, x, edgeY, fade * scale, h, BorderClear, BorderColor, UiBlendMode.Add);
                 float from = fade, to = width - fade;
                 if (top && topGap is { } gap && gap.End > from && gap.Start < to)
                 {
-                    DrawBorderSpan(x, edgeY, from, Math.Max(from, gap.Start), h, scale);
-                    DrawBorderSpan(x, edgeY, Math.Min(to, gap.End), to, h, scale);
+                    DrawBorderSpan(x, edgeY, from, Math.Max(from, gap.Start), h, scale, row);
+                    DrawBorderSpan(x, edgeY, Math.Min(to, gap.End), to, h, scale, row);
                 }
                 else
                 {
-                    DrawBorderSpan(x, edgeY, from, to, h, scale);
+                    DrawBorderSpan(x, edgeY, from, to, h, scale, row);
                 }
-                DrawTextureRect(BorderTexture, width - fade, 0, fade, BorderThickness, x + (width - fade) * scale, edgeY, fade * scale, h, BorderColor, BorderClear, UiBlendMode.Add);
+                DrawTextureRect(BorderTexture, width - fade, row, fade, BorderThickness, x + (width - fade) * scale, edgeY, fade * scale, h, BorderColor, BorderClear, UiBlendMode.Add);
                 top = false;
             }
         }
 
-        private void DrawBorderSpan(float x, float edgeY, float from, float to, float h, float scale)
+        private void DrawBorderSpan(float x, float edgeY, float from, float to, float h, float scale, float row = 0)
         {
             if (to <= from) return;
-            DrawTextureRect(BorderTexture, from, 0, to - from, BorderThickness, x + from * scale, edgeY, (to - from) * scale, h, BorderColor, BorderColor, UiBlendMode.Add);
+            DrawTextureRect(BorderTexture, from, row, to - from, BorderThickness, x + from * scale, edgeY, (to - from) * scale, h, BorderColor, BorderColor, UiBlendMode.Add);
         }
 
         /// <summary>

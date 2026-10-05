@@ -149,8 +149,17 @@ namespace Gordian.App.Graphics
         /// <summary>The licence text's layout in its window, measured on retail's image-8 (2559 x 1439, 2026-10-05).</summary>
         private const float LicenceTextLeft = 28, LicenceTextTop = 13, LicenceLinePitch = 16;
 
-        /// <summary>The licence page's help bar band in its frame (lobyhelp's image, y 155..181), where its border lines go.</summary>
-        private const float LicenceBarTop = 155, LicenceBarHeight = 26;
+        /// <summary>
+        /// Where the licence page's help bar lines go in its frame: image-8's are on rows 1371-1373 and 1394-1396, one row
+        /// below the top of lobyhelp's band (y 155..181) and 26 rows from first to last.
+        /// </summary>
+        private const float LicenceBarTop = 156, LicenceBarHeight = 26;
+
+        /// <summary>
+        /// The licence page's border lines (image-8): 3 px, the lobby DAT's <c>hfr1</c> line from row 1 (its row 0 is
+        /// transparent), fading linearly over 24 px at each end (the in-game windows' fade is 16).
+        /// </summary>
+        private const float LicenceBorderFade = 24, LicenceBorderRow = 1;
         private static readonly UiColor LicenceTextColor = new(0x80, 0x80, 0x80, 0x80);
 
         private static bool IsLicence(UiMenuDefinition definition) =>
@@ -212,7 +221,7 @@ namespace Gordian.App.Graphics
                     // the window's ends).
                     var bar = new StockUiPlacement(256, height - (UiResourceLibrary.LayoutHeight - licenceBar.Frame.Y), 1f, false);
                     renderer.DrawMenu(licenceBar, bar, includeButtons: false, border: false, frameWidth: width);
-                    renderer.DrawWindowBorder(0, bar.Y + LicenceBarTop, width, LicenceBarHeight, 1f);
+                    renderer.DrawWindowBorder(0, bar.Y + LicenceBarTop, width, LicenceBarHeight, 1f, fadeLength: LicenceBorderFade, sourceRow: LicenceBorderRow);
                 }
                 else if (font != null && lobby.HelpText.Length > 0 && library.TryGetMenu(LobbyController.HelpBarMenu, out var help))
                 {
@@ -352,8 +361,14 @@ namespace Gordian.App.Graphics
             var definition = prompt.Menu.Definition;
             var placement = PlaceWindow(lobby, definition, rect, width, height);
             bool licence = IsLicence(definition);
-            // Retail draws the licence window with the in-game windows' light top and bottom border lines (image-8).
-            renderer.DrawMenu(definition, placement, includeButtons: false, border: licence);
+            renderer.DrawMenu(definition, placement, includeButtons: false, border: false);
+            // Retail draws the licence window with the in-game windows' light top and bottom border lines (image-8): 3 px
+            // lines on its top and bottom rows across its 512 px, with a 24 px linear fade at each end. The prompt's parts
+            // run from -256 (its origin is the layout's centre column), so the lines start 256 px left of the placement;
+            // DrawMenu's own would start at the origin (round-3 test: a short line from the middle past the right edge).
+            if (licence)
+                renderer.DrawWindowBorder(placement.X - 256 * placement.Scale, placement.Y, UiResourceLibrary.LayoutWidth, definition.Frame.Height,
+                    placement.Scale, fadeLength: LicenceBorderFade, sourceRow: LicenceBorderRow);
             float s = placement.Scale;
             foreach (var button in definition.Buttons)
             {
