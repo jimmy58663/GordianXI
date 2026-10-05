@@ -55,7 +55,8 @@ namespace Gordian.App.Tests.Graphics
 
         /// <summary>
         /// The licence page at the retail capture's size (image-8, 2559 x 1439): the window at one screen pixel per layout
-        /// pixel, centred (512 x 144 from about (1023, 623)), the backdrop scaled to the window's width. Writes
+        /// pixel, its frame origin at (1280, 624) in a 512 x 448 box centred on the window, the backdrop stretched over the
+        /// whole window. Writes
         /// lobby_licence_1440.png when GORDIAN_UI_DUMP is set.
         /// </summary>
         [Fact]
