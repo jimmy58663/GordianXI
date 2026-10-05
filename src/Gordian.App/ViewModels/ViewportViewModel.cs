@@ -285,6 +285,35 @@ namespace Gordian.App.ViewModels
 
         public ObservableCollection<ViewportCharacterTabViewModel> CharacterTabs { get; } = new();
 
+        private Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+
+        /// <summary>
+        /// The character lobby on show, if any: while set, the viewport draws the lobby and sends it the keyboard and mouse
+        /// instead of the active tab's session (one lobby at a time, as the retail client).
+        /// </summary>
+        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        {
+            get => _lobby;
+            set
+            {
+                if (SetProperty(ref _lobby, value)) OnPropertyChanged(nameof(IsLobbyOpen));
+            }
+        }
+
+        public bool IsLobbyOpen => _lobby != null;
+
+        private bool _isReturningToLobby;
+
+        /// <summary>
+        /// A Log Out is on its way back to the character select screen (#32): the window stays open with no tab and no
+        /// lobby, and the viewport shows black until the lobby appears.
+        /// </summary>
+        public bool IsReturningToLobby
+        {
+            get => _isReturningToLobby;
+            set => SetProperty(ref _isReturningToLobby, value);
+        }
+
         public ObservableCollection<ViewportCharacterTabViewModel> PipThumbnails { get; } = new();
 
         public ViewportCharacterTabViewModel? ActiveTab

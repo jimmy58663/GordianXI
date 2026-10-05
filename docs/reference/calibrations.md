@@ -134,6 +134,7 @@ Dates in the evidence column are the dates the docs give.
 | party row layout, 7/8 font size, gauge tints | `StockUiPartyWindow` (`TextScale`, `HpGaugeColor`, `MpGaugeColor`, `EmptyGaugeColor`) | measured | Windower capture at 1:1 (2026-09-25, 2560 x 1440); positions within a pixel | [ui](../ui/stock-ui.md#renderer-and-layout-model-chunk-2) |
 | party TP colour | `StockUiPartyWindow.TpColor` | guessed | opt-in, not in retail | [ui](../ui/stock-ui.md#renderer-and-layout-model-chunk-2) |
 | 8 px leader ball | `StockUiPartyWindow.BallSize` | measured, deliberate departure | retail is about 6 px; 8 by request | [ui](../ui/stock-ui.md#working-notes) |
+| licence page border lines: lobby `hfr1` rows 1-3, 24 px end fade, help bar lines one row below the band | `StockUiLobby.LicenceBorderFade`, `LicenceBorderRow`, `LicenceBarTop` | measured | retail image-8 (2559 x 1439, 2026-10-05) | [character-lobby](../design/character-lobby.md) |
 | window border: `hfr1` at about 85%, 16 px end fade | `StockUiRenderer.BorderFade`, `BorderColor` | measured | Windower captures of the party window | [ui](../ui/stock-ui.md#renderer-and-layout-model-chunk-2) |
 | target name colours: unclaimed pale yellow, claimed red | `StockUiTargetWindow.UnclaimedNameColor`, `ClaimedNameColor` | measured | sampled from Windower | [ui](../ui/stock-ui.md#live-hud-chunk-3) |
 | claimed-by-others name colour (240, 122, 180) | `StockUiTargetWindow.OtherClaimNameColor` | estimated | from an alliance capture of Tiamat; confirm on a capture where the claim is known to be another group's | [ui](../ui/stock-ui.md#live-hud-chunk-3) |
@@ -169,6 +170,20 @@ Dates in the evidence column are the dates the docs give.
 | item info window beside the gil window (x 130) | `StockUiMenuWindow.InfoOffsetX` | estimated | placement checked in game (2026-09-28); "still to be measured against a capture" | [ui](../ui/stock-ui.md#shop-window-chunk-6c) |
 | quantity field "1 /12" layout | `StockUiMenuWindow.QuantityCountRight`, `QuantityTotalX` | measured | the maintainer's in-game capture, 2026-09-28 | [ui](../ui/stock-ui.md#shop-window-chunk-6c) |
 | sell list frame reuses the buy frame | `StockUiShop` | guessed | "the sell frame is a guess" | [ui](../ui/stock-ui.md#shop-window-chunk-6c) |
+
+## Player size
+
+| Value | Where | Status | Evidence or what would settle it | Doc |
+|---|---|---|---|---|
+| model scale 0.94 / 1.0 / 1.06 for small / medium / large | `PlayerSizeScale` (`EntityRenderer`, the lobby preview) | guessed | no reference source or DAT gives the factors; settle with a retail capture of one race at the three sizes standing at the same wall | [character-lobby](../design/character-lobby.md#character-creation-33) |
+## Character lobby and loading
+
+| Value | Where | Status | Evidence or what would settle it | Doc |
+|---|---|---|---|---|
+| 0.6 s fade to black when zoning starts or a character is chosen, 1.0 s back (0.35 / 0.6 s until round 1 of in-game testing: too quick) | `ZoneLoadingScreen.FadeOutSeconds`, `FadeInSeconds` | guessed | retail fades to black while zoning (no loading art in the DATs); settle with a 30 fps recording of a zone line and of a character select | [character-lobby](../design/character-lobby.md#loading-screen-36) |
+| 20 s wait for a zone's geometry and the player's model before showing the scene anyway | `ZoneLoadingScreen.GeometryWaitSeconds` | guessed | a safety limit (a zone that cannot load must not leave the screen black) | [character-lobby](../design/character-lobby.md#loading-screen-36) |
+| lobby layouts fitted into a 4:3 rectangle, scaled to its height | `StockUiLobby.Fit`, `Place` | guessed | settle with a retail capture of the lobby on a wide screen | [character-lobby](../design/character-lobby.md#drawing-stockuilobby-lobbyframerenderer) |
+| preview: feet at 640-space y 372, 2.4 yalms to y 160, x 150 (list) / 290 (creation), 30° view | `StockUiLobby.PreviewArea`, `PreviewCamera` | guessed | settle with retail captures of the character list and of creation | [character-lobby](../design/character-lobby.md#drawing-stockuilobby-lobbyframerenderer) |
 
 ## Suggested next captures
 

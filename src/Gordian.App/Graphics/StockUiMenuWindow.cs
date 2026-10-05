@@ -492,6 +492,16 @@ namespace Gordian.App.Graphics
             renderer.DrawTextureRegion(StockUiPointerArt.Ring.Name, StockUiPointerArt.Ring, 0, 0, size, size, rx, ry, size, size, PointerColor);
         }
 
+        /// <summary>Draws a label in the selected entry's orange tint (glyphs light, capsule deeper), as the menus do.</summary>
+        internal static void DrawSelectedImage(StockUiRenderer renderer, UiImage label, float x, float y, float scale)
+        {
+            foreach (var part in label.Parts)
+            {
+                UiColor? tint = part.BlendMode != UiBlendMode.Alpha ? null : IsGlyph(part) ? SelectedGlyphTint : SelectedCapsuleTint;
+                renderer.DrawPart(part, x, y, scale, tint);
+            }
+        }
+
         public static void DrawMenuCursor(StockUiRenderer renderer, UiResourceLibrary library, UiMenuFrame frame, UiMenuButton button,
             StockUiPlacement placement, long timestamp)
         {

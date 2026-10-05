@@ -28,7 +28,7 @@
 - **Zone Transition Architecture:**
   - Parse `0x00B` `GP_SERV_COMMAND_LOGOUT` (states: `LOGOUT=1`, `ZONECHANGE=2`, `MYROOM=3`, extraction of target IP/Port from `Iwasaki` struct)
   - Build & transmit `0x05B` / `0x05E` zoneline & mog house transition requests (`RequestZoneChangeAsync`, `RequestMogHouseExitAsync`, `RequestLogoutAsync`)
-  - Dynamic UDP socket re-binding to target map server, resetting sequence numbers, and re-executing handshake seamlessly (`PerformZoneTransitionAsync`)
+  - Dynamic UDP socket re-binding to target map server, resetting sequence numbers, and re-executing handshake seamlessly (`PerformZoneTransitionAsync`); the view fades to black until the new zone is on screen ([character-lobby.md](../design/character-lobby.md#loading-screen-36))
   - Zone-in events ([#122](https://github.com/jimmy58663/GordianXI/issues/122)): when a zone's `onZoneIn` returns a cutscene, LandSandBoat sends no 0x032/0x034 but fills the event fields of S2C `0x00A` (`EventNo` +60 = text table zone, `EventNum` +94 = zone, `EventPara` +96 = event id, `EventMode` +98 = flags; all 0 otherwise) and holds the character in the event until C2S `0x05B` ends it. `LifecyclePacketModule.ZoneInEventReceived` fires after the zone is set, and `PacketParser` starts it through `ProgressionState.StartEvent` with the player as the actor, so the event VM runs it like any other ([event VM](../events/vm.md)). Fields from XiPackets `world/server/0x000A` and LandSandBoat `src/map/packets/s2c/0x00a_login.{h,cpp}`; cases: Rhapsodies of Vana'diel 1-1 (event 30035 on entering a nation city at level 3+) and, seen in-game on 2026-09-28, Seekers of Adoulin 1-1 (event 878 on entering Northern San d'Oria, once); `ZoneInCutsceneTests` replays both from the Northern San d'Oria DAT.
 - **Packet registry:** the per-opcode coverage and status of every S2C and C2S packet is in [packets.md](packets.md).
   - **Client-Side Command Router:** Full slash command routing (`/join`, `/decline`, `/pcmd`, `/invite`, `/leave`, `/disband`, `/tell`, `/say`, `/party`, `/shout`, `/yell`, `/linkshell`, `/echo`) and server `!` command pass-through
@@ -38,6 +38,27 @@
   - Packet sequence gap tracking & drop detection for UDP streams
   - Zero-allocation dispatch latency profiling (microsecond-level decode time)
 
+## Lobby session (#35)
+
+`LsbLobbySession` (`src/Gordian.Core/Network/LandSandBoat`) is the character select screen's connection: it opens the xi_data (54230) and xi_view (54001) channels after the xi_connect login and keeps them open until a character is chosen, running one request at a time. `LobbyPackets` builds the requests into caller buffers and parses the replies; `LsbLoginClient.OpenLobbyAsync` / `LoginToLobbyAsync` open one, and the old one-shot `SelectCharacterAsync` (the saved-profile fast path: a profile with a character name or slot) now runs over it unchanged in behaviour. Every packet in both directions still reaches the packet inspector.
+
+Flows (XiPackets `lobby/Protocol.md`; LandSandBoat `src/login/view_session.cpp`, `data_session.cpp`):
+
+| Operation | Wire |
+|---|---|
+| connect | data 0xFE (hash); view 0x26 → 0x05 (or 0x04, e.g. a version lock); data 0xA1 → data 0x03 and view 0x20 |
+| refresh | view 0x1F → data 0x01; data 0xA1 → data 0x03 and view 0x20 (LSB's cached list, updated by its create and delete handlers) |
+| worlds | view 0x24 → 0x23 (LSB: one world, 0x20, `main.SERVER_NAME`) |
+| create | view 0x22 (name, world) → 0x03 / 0x04 313; view 0x21 → 0x03; refresh |
+| delete | view 0x14 → 0x03 (0x04 332 when `login.CHARACTER_DELETION` is off); refresh |
+| rename | view 0x28 → 0x03 / 0x04 313; then select under the new name |
+| select | view 0x07 → data 0x02; data 0xA2 (base key) → view 0x0B (or 0x04 201 / 208 / 305 / 332); LSB then closes the view channel |
+
+- **Framing.** View packets are read by their u32 size; data channel messages by their first byte (0x01 / 0x02 are 5 bytes, 0x03 is 0x148, an error written to the data socket starts with its size byte 0x24). Each reply has a 10 s timeout.
+- **Lost requests.** LSB's view session can drop a request that arrives just as one of its writes completes (`handler_session::do_read` clears the read buffer the request was read into), which happened to the 0x1F after a deletion's OK. A refresh therefore resends 0x1F once when no 0x01 prompt comes within `PromptRetryWait` (1.5 s), waits `AfterDeletePause` (250 ms) after a deletion, and data reads skip a duplicate 0x01 ([character-lobby.md](../design/character-lobby.md#character-deletion-34)).
+- **Dropped connections.** LSB closes the view socket instead of answering when 0x21 carries an out-of-range race, size, face or nation, when 0x07's id and name do not match, and when a delete or rename names another account's character. The session then reports `IsConnected = false` and the screen has to log in again.
+- **Session key accounting (LSB-specific).** The map server decrypts with the key LSB stored from 0xA2, and LSB raises its byte 16 by 4 per deletion and per rename, 1 per selection refused with 201 (already logged in) and 6 when a character was created in the same lobby session (`data_session.cpp` 0xA2, `view_session.cpp` 0x14 / 0x28), mirroring what the retail client does to its own key. `LsbLobbySession` sends the base key (16 zero bytes, `58 E0 5D AD`) in 0xA2 and hands the ticket the key with the same increase (`KeyIncrement`), so a session that created or deleted a character first still decrypts. Checked against a loopback stand-in of the LSB behaviour (`FakeLsbLobbyServer` in the tests, `LsbLobbySessionTests`); **unverified in-game.**
+- **Not sent:** the `passwd` fields (an MD5 of PlayOnline's session password, which LSB does not read) and 0x07's `authcode_checksum`; the 0x26 `excode_client` claims every expansion.
 ## Movement packet (0x015) timing
 
 - Smooth network locomotion synchronization: retail-accurate `0x015` packet protocol (accumulating 60 FPS Run Count in `MoveFlame`, zero `MovTime`, `0x0001` stationary stance), non-starving outbound queue bundling, and high-precision `Stopwatch` delta-time calibration guaranteeing authentic 5.0 yalms/sec running across remote clients (Windower/retail)
@@ -97,7 +118,7 @@ Missing packets, grouped by feature:
 - [#117](https://github.com/jimmy58663/GordianXI/issues/117): the post-MVP backlog, including the packets LSB doesn't implement.
 
 The other XiPackets folders:
-- **`lobby/`** (TCP 54001): `LsbLoginClient` implements 0x26 login → 0x05/0x04, 0x20 character info, and 0x07 select → 0x0B. Get-character 0x1F, the world list 0x24/0x23, create 0x22/0x21, delete 0x14 and rename 0x28 are still missing ([#35](https://github.com/jimmy58663/GordianXI/issues/35)). Our 0x07 (64 bytes) and 0x26 (128) are shorter than retail (0x58 and 0x98). LSB's `view_session.cpp` doesn't check lengths, so they work on LSB.
+- **`lobby/`** (TCP 54001): every request is implemented by `LsbLobbySession` ([Lobby session](#lobby-session-35)): 0x26 login → 0x05/0x04, 0x1F / 0x20 character list, 0x24 / 0x23 world list, 0x22 / 0x21 creation, 0x14 deletion, 0x28 rename and 0x07 select → 0x0B, at the retail packet sizes. Only the GM-only 0x2B is left out.
 - **`cache/`** is the search server (LSB `src/search/`, TCP 54002). It serves AH item lists and price history, `/sea`, and party/linkshell member lists; `SearchClient` talks to it ([#119](https://github.com/jimmy58663/GordianXI/issues/119), see below). XiPackets has no per-packet pages for it yet.
 - **`patch/`** is the POL version-check and file-update protocol (8 packets). LSB has no patch server and xiloader bypasses it, so the client doesn't need it.
 

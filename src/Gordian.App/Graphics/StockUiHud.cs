@@ -55,6 +55,9 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool PointerDrawn { get; private set; }
 
+        /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Core.Ui.ZoneLoadingScreen"/>).</summary>
+        public float LoadingOpacity { get; set; }
+
         /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
@@ -200,6 +203,12 @@ namespace Gordian.App.Graphics
             Drag.EndFrame();
             if (unlocked) StockUiDragOverlay.Draw(renderer, _font, Drag.Regions, Drag.HoveredWindow, Drag.DraggingWindow);
             PointerDrawn = DrawPointer(renderer, session);
+            if (LoadingOpacity > 0f)
+            {
+                // Zoning (#36): the scene and the interface go black together.
+                renderer.Opacity = 1f;
+                renderer.DrawScreenTint(width, height, new Vector3(1f - Math.Clamp(LoadingOpacity, 0f, 1f)));
+            }
             renderer.End(framebuffer, width, height);
         }
 

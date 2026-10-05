@@ -1376,7 +1376,7 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
-        private static byte[] ReadBack(Veldrid.GraphicsDevice gd, Veldrid.Texture source, uint width, uint height)
+        internal static byte[] ReadBack(Veldrid.GraphicsDevice gd, Veldrid.Texture source, uint width, uint height)
         {
             var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, source.Format, Veldrid.TextureUsage.Staging));
             var cl = gd.ResourceFactory.CreateCommandList();
@@ -1409,7 +1409,7 @@ namespace Gordian.App.Tests.Graphics
             return (rgba[o], rgba[o + 1], rgba[o + 2]);
         }
 
-        private static void SavePng(string path, byte[] rgba, int width, int height)
+        internal static void SavePng(string path, byte[] rgba, int width, int height)
         {
             using var raw = new MemoryStream();
             for (int y = 0; y < height; y++)
