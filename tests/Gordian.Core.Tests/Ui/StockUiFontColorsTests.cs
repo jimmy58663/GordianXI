@@ -178,12 +178,13 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("Player recovers 10 HP.", list.SelectedFontColorSample!.Value.Text);
             Assert.False(list.CanScroll);
 
-            menus.Move(InputAction.MenuDown);             // HP/MP you lose: "Enemy hits Player for 1 point of damage."
+            menus.Move(InputAction.MenuDown);
+            menus.Move(InputAction.MenuDown);             // Beneficial effects you are granted (white, 0x80)
             menus.Activate();
             var editor = menus.Top!;
             Assert.Equal(StockUiConfigPages.FontColorEditPage, editor.Name);
-            Assert.Equal(StockUiFontColorId.SelfDamage, menus.FontColorEditing!.Id);
-            Assert.Equal("Enemy hits Player for 1 point of damage.", editor.SampleText);
+            Assert.Equal(StockUiFontColorId.SelfBeneficial, menus.FontColorEditing!.Id);
+            Assert.Equal("Player gains beneficial effect.", editor.SampleText);
             Assert.Equal(0x80 / 255f, editor.SliderFractions[1], 3);
             Assert.Equal(1, editor.SelectedButtonId);
 
@@ -192,26 +193,26 @@ namespace Gordian.Core.Tests.Ui
             for (int i = 0; i < 40; i++) menus.Move(InputAction.MenuRight); // G to the top
             Assert.Equal(new UiColor(0x80 - StockUiSettings.FontColorStep, 0xFF, 0x80, 0x80), editor.SampleColor);
             // The row keeps its colour until OK.
-            Assert.Equal(StockUiFontColors.Get(StockUiFontColorId.SelfDamage).Default, menus.Settings.GetFontColor(StockUiFontColorId.SelfDamage));
+            Assert.Equal(StockUiFontColors.Get(StockUiFontColorId.SelfBeneficial).Default, menus.Settings.GetFontColor(StockUiFontColorId.SelfBeneficial));
 
             menus.Activate();                             // Confirm on a bar = OK
             Assert.Same(list, menus.Top);
             Assert.Null(menus.FontColorEditing);
             var set = new StockUiRgb(0x80 - StockUiSettings.FontColorStep, 0xFF, 0x80);
-            Assert.Equal(set, menus.Settings.GetFontColor(StockUiFontColorId.SelfDamage));
-            Assert.Equal(set.ToUiColor(), list.FontColorSamples[1].Color);
+            Assert.Equal(set, menus.Settings.GetFontColor(StockUiFontColorId.SelfBeneficial));
+            Assert.Equal(set.ToUiColor(), list.FontColorSamples[2].Color);
 
             // Cancel leaves the colour alone.
             menus.Activate();
             menus.Move(InputAction.MenuRight);
             menus.CloseTop();
-            Assert.Equal(set, menus.Settings.GetFontColor(StockUiFontColorId.SelfDamage));
+            Assert.Equal(set, menus.Settings.GetFontColor(StockUiFontColorId.SelfBeneficial));
 
             // Another edit, kept with Confirm.
             menus.Activate();
             menus.Move(InputAction.MenuLeft);
             menus.Activate();
-            Assert.Equal(set with { R = (byte)(set.R - StockUiSettings.FontColorStep) }, menus.Settings.GetFontColor(StockUiFontColorId.SelfDamage));
+            Assert.Equal(set with { R = (byte)(set.R - StockUiSettings.FontColorStep) }, menus.Settings.GetFontColor(StockUiFontColorId.SelfBeneficial));
         }
 
         [Fact]
@@ -269,6 +270,13 @@ namespace Gordian.Core.Tests.Ui
             }, StockUiFontColors.InCategory(StockUiFontColorCategory.Chat).Select(e => e.Id));
             Assert.Equal(new[] { "Standard battle messages", "Calls for help", "Basic system messages" },
                 StockUiFontColors.InCategory(StockUiFontColorCategory.System).Select(e => e.Label));
+            // The settled diff: Say is entry 0 (0x50). Rows checked against the retail editor (2026-10-05).
+            Assert.Equal(StockUiFontColors.CnfTableOffset, StockUiFontColors.Get(StockUiFontColorId.Say).CnfOffset);
+            Assert.Equal(new StockUiRgb(0x00, 0xCC, 0x00), StockUiFontColors.Get(StockUiFontColorId.Linkshell2).Default);
+            Assert.Equal(new StockUiRgb(0xA0, 0xD0, 0xD0), StockUiFontColors.Get(StockUiFontColorId.Message).Default);
+            Assert.Equal(new StockUiRgb(0x60, 0x90, 0xC0), StockUiFontColors.Get(StockUiFontColorId.SelfRecover).Default);
+            Assert.Equal(new StockUiRgb(0xC0, 0x60, 0xD0), StockUiFontColors.Get(StockUiFontColorId.CallForHelp).Default);
+            Assert.Equal(new StockUiRgb(0xC0, 0xC0, 0x50), StockUiFontColors.Get(StockUiFontColorId.BasicSystem).Default);
             // NPC text draws as Say; emotes purple.
             Assert.Equal(StockUiFontColors.Get(StockUiFontColorId.Say).Default, StockUiFontColors.Get(StockUiFontColorId.Npc).Default);
             var emote = StockUiFontColors.Get(StockUiFontColorId.Emote).Default;
@@ -311,7 +319,7 @@ namespace Gordian.Core.Tests.Ui
         {
             Assert.Equal(StockUiFontColorId.Tell, new ChatLogLine(ChatLogChannel.Tell, "x", DateTime.Now).FontColor);
             Assert.Equal(StockUiFontColorId.Npc, new ChatLogLine(ChatLogChannel.Dialog, "x", DateTime.Now).FontColor);
-            Assert.Equal(StockUiFontColorId.BasicSystem, new ChatLogLine(ChatLogChannel.System, "x", DateTime.Now).FontColor);
+            Assert.Null(new ChatLogLine(ChatLogChannel.System, "x", DateTime.Now).FontColor);
             Assert.Null(new ChatLogLine(ChatLogChannel.ServerMessage, "x", DateTime.Now).FontColor);
 
             const uint me = 0x1001, mob = 0x01000F00;

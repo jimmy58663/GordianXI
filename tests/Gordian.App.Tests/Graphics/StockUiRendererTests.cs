@@ -710,7 +710,7 @@ namespace Gordian.App.Tests.Graphics
                 pixels = Render(menus, "config_font_color_edit");
                 var redBar = menus.Top.Menu.FindButton(1)!;
                 var redFill = Pixel(pixels, width, 16 + redBar.X + redBar.Width / 2, 48 + redBar.Y + 5);
-                Assert.True(redFill.B > 150, $"R bar filled past half (tell red 0xA0) {redFill}");
+                Assert.True(redFill.R > redFill.B + 40, $"R bar filled red past half (tell red 0xA0) {redFill}");
 
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
             }

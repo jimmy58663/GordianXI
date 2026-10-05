@@ -110,19 +110,22 @@ namespace Gordian.Core.Ui
     /// <para>
     /// <b>Where the defaults come from.</b> The retail client keeps the colours in <c>USER/&lt;id&gt;/cnf.dat</c>
     /// (744 bytes): a table of 23 four-byte entries at 0x50 and five more entries further on (0x22C, 0x26C, 0x278,
-    /// 0x2D8, 0x2DC). Each entry is stored <b>B, G, R, 0x80</b> (the in-memory order of a Direct3D colour), so
-    /// <c>40 50 a0 80</c> is R 0xA0, G 0x50, B 0x40. The defaults are the bytes of the four characters created on the
-    /// maintainer's install in 2026-09 (<c>USER/3</c>..<c>USER/6</c>, identical files, never edited). The values are in
-    /// the client's 0x80 half scale: the log glyphs are white, so 0x80 already draws white.
+    /// 0x2D8, 0x2DC). Each entry is <b>B, G, R, 0x80</b>, one byte per slider (0-255, 0x80 = the default white).
+    /// Settled by the maintainer's diff (2026-10-05): setting Say to R 255, G 128, B 0 in retail changed only 0x50
+    /// (0x80 to 0x00) and 0x52 (0x80 to 0xFF). The defaults are the bytes of the four characters created on the
+    /// maintainer's install in 2026-09 (<c>USER/3</c>..<c>USER/6</c>, identical files, never edited).
     /// </para>
     /// <para>
-    /// <b>Entry to row (provisional, second reading, #53):</b> entries 0-9 are Say, Shout, Tell, Party, Linkshell,
-    /// Emote, Basic system, NPC, Message, Yell; 10-15 For Self, 16-21 For Others (in list order), 22 Standard battle;
-    /// the five later entries are Calls for help (0x22C), Unity (0x26C), Linkshell 2 (0x278), Assist J (0x2D8), Assist E
-    /// (0x2DC). It rests on the first in-game round: NPC text draws like Say (entry 7, white), emotes purple (entry 5,
-    /// (192, 160, 255), a retail capture), the yell sample salmon (entry 9) and the casting sample pale yellow
-    /// (entry 22) in retail screenshots; with the 13 + 6 + 6 + 3 rows it uses all 28 entries. To settle by diffing
-    /// cnf.dat after setting one row to pure red in retail.
+    /// <b>Entry to row (third reading, #53):</b> the 23-entry table is the original rows in groups: 0-7 chat (Say,
+    /// Shout, Tell, Party, Linkshell, Emotes, Messages, NPC conversations), 8-13 For Self and 14-19 For Others (each in
+    /// list order), 20-22 System (Standard battle, Calls for help, Basic system); the five later entries are the
+    /// chat types added since: Yell 0x22C, Unity 0x26C, Linkshell 2 0x278, Assist J 0x2D8, Assist E 0x2DC. Say is
+    /// settled by the diff; every row with a colour of its own matches its entry in the maintainer's retail editor
+    /// screenshots (2026-10-05: Linkshell 2 (0, 204, 0), Unity (255, 175, 63), Emotes, Messages (160, 208, 208), Yell,
+    /// HP/MP you recover / lose, effects you resist, HP/MP others recover / lose, effects and actions others resist /
+    /// evade, calls for help, basic system). Still open (all white or both blue, see docs/ui/retail-user-files.md):
+    /// NPC 7, the white For Self / For Others rows 10, 11, 13, 16, 17, Yell 0x22C against HP/MP you lose 9, and
+    /// Assist J against Assist E.
     /// </para>
     /// <para>
     /// <b>Beyond xi-tools / LandSandBoat:</b> neither documents cnf.dat or the Font Colors table; this is our reading
@@ -153,28 +156,28 @@ namespace Gordian.Core.Ui
             Row(StockUiFontColorId.AssistE, StockUiFontColorCategory.Chat, 43, "Assistance in English (\"Assist E\")", 205, "Sample(E): AssistE text color", 0x2DC, Bgr(0xFF, 0x70, 0x00)),
             Row(StockUiFontColorId.Unity, StockUiFontColorCategory.Chat, 44, "Unity group (\"Unity\")", 69, "<Player>: Color of \"Unity\" text", 0x26C, Bgr(0x3F, 0xAF, 0xFF)),
             Row(StockUiFontColorId.Emote, StockUiFontColorCategory.Chat, 45, "Emotes", 70, "Player's and other characters' emote color", Table(5), Bgr(0xA0, 0x50, 0x60)),
-            Row(StockUiFontColorId.Message, StockUiFontColorCategory.Chat, 46, "Messages (\"Message\")", 71, "Message: Color of Friend List messages", Table(8), Bgr(0xC0, 0x90, 0x60)),
+            Row(StockUiFontColorId.Message, StockUiFontColorCategory.Chat, 46, "Messages (\"Message\")", 71, "Message: Color of Friend List messages", Table(6), Bgr(0xD0, 0xD0, 0xA0)),
             Row(StockUiFontColorId.Npc, StockUiFontColorCategory.Chat, 47, "NPC conversations", 72, "Townswoman : Color of NPC text", Table(7), Bgr(0x80, 0x80, 0x80)),
             Row(StockUiFontColorId.Shout, StockUiFontColorCategory.Chat, 37, "Wide area (\"Shout\")", 64, "Player: Color of \"shout\" text", Table(1), Bgr(0x40, 0x50, 0xA0)),
-            Row(StockUiFontColorId.Yell, StockUiFontColorCategory.Chat, 196, "Extremely wide area (\"Yell\")", 197, "Player: Color of \"yell\" text", Table(9), Bgr(0x40, 0x40, 0xA0)),
+            Row(StockUiFontColorId.Yell, StockUiFontColorCategory.Chat, 196, "Extremely wide area (\"Yell\")", 197, "Player: Color of \"yell\" text", 0x22C, Bgr(0x30, 0x40, 0xA0)),
 
-            Row(StockUiFontColorId.SelfRecover, StockUiFontColorCategory.ForSelf, 48, "HP/MP you recover", 73, "Player recovers 10 HP.", Table(10), Bgr(0x80, 0x80, 0x80)),
-            Row(StockUiFontColorId.SelfDamage, StockUiFontColorCategory.ForSelf, 49, "HP/MP you lose", 74, "Enemy hits Player for 1 point of damage.", Table(11), Bgr(0x80, 0x80, 0x80)),
-            Row(StockUiFontColorId.SelfBeneficial, StockUiFontColorCategory.ForSelf, 50, "Beneficial effects you are granted", 75, "Player gains beneficial effect.", Table(12), Bgr(0x50, 0x80, 0x80)),
-            Row(StockUiFontColorId.SelfDetrimental, StockUiFontColorCategory.ForSelf, 51, "Detrimental effects you receive", 76, "Player receives detrimental effect.", Table(13), Bgr(0x80, 0x80, 0x80)),
-            Row(StockUiFontColorId.SelfNoEffect, StockUiFontColorCategory.ForSelf, 52, "Effects you resist", 77, "No effect on Player.", Table(14), Bgr(0xF0, 0xC0, 0x90)),
-            Row(StockUiFontColorId.SelfMiss, StockUiFontColorCategory.ForSelf, 53, "Actions you evade", 78, "Enemy misses Player.", Table(15), Bgr(0x80, 0x80, 0xC0)),
+            Row(StockUiFontColorId.SelfRecover, StockUiFontColorCategory.ForSelf, 48, "HP/MP you recover", 73, "Player recovers 10 HP.", Table(8), Bgr(0xC0, 0x90, 0x60)),
+            Row(StockUiFontColorId.SelfDamage, StockUiFontColorCategory.ForSelf, 49, "HP/MP you lose", 74, "Enemy hits Player for 1 point of damage.", Table(9), Bgr(0x40, 0x40, 0xA0)),
+            Row(StockUiFontColorId.SelfBeneficial, StockUiFontColorCategory.ForSelf, 50, "Beneficial effects you are granted", 75, "Player gains beneficial effect.", Table(10), Bgr(0x80, 0x80, 0x80)),
+            Row(StockUiFontColorId.SelfDetrimental, StockUiFontColorCategory.ForSelf, 51, "Detrimental effects you receive", 76, "Player receives detrimental effect.", Table(11), Bgr(0x80, 0x80, 0x80)),
+            Row(StockUiFontColorId.SelfNoEffect, StockUiFontColorCategory.ForSelf, 52, "Effects you resist", 77, "No effect on Player.", Table(12), Bgr(0x50, 0x80, 0x80)),
+            Row(StockUiFontColorId.SelfMiss, StockUiFontColorCategory.ForSelf, 53, "Actions you evade", 78, "Enemy misses Player.", Table(13), Bgr(0x80, 0x80, 0x80)),
 
-            Row(StockUiFontColorId.OthersRecover, StockUiFontColorCategory.ForOthers, 54, "HP/MP others recover", 79, "Ally recovers 10 HP.", Table(16), Bgr(0x80, 0x80, 0x80)),
-            Row(StockUiFontColorId.OthersDamage, StockUiFontColorCategory.ForOthers, 55, "HP/MP others lose", 80, "Enemy hits Ally for 10 points of damage.", Table(17), Bgr(0x80, 0x80, 0x80)),
-            Row(StockUiFontColorId.OthersBeneficial, StockUiFontColorCategory.ForOthers, 56, "Beneficial effects others are granted", 81, "Ally gains beneficial effect.", Table(18), Bgr(0x40, 0x80, 0xA0)),
-            Row(StockUiFontColorId.OthersDetrimental, StockUiFontColorCategory.ForOthers, 57, "Detrimental effects others receive", 82, "Ally receives detrimental effect.", Table(19), Bgr(0x70, 0x70, 0x70)),
-            Row(StockUiFontColorId.OthersNoEffect, StockUiFontColorCategory.ForOthers, 58, "Effects others resist", 83, "No effect on Enemy.", Table(20), Bgr(0x10, 0x80, 0x80)),
-            Row(StockUiFontColorId.OthersMiss, StockUiFontColorCategory.ForOthers, 59, "Actions others evade", 84, "Enemy misses Ally.", Table(21), Bgr(0xD0, 0x60, 0xC0)),
+            Row(StockUiFontColorId.OthersRecover, StockUiFontColorCategory.ForOthers, 54, "HP/MP others recover", 79, "Ally recovers 10 HP.", Table(14), Bgr(0xF0, 0xC0, 0x90)),
+            Row(StockUiFontColorId.OthersDamage, StockUiFontColorCategory.ForOthers, 55, "HP/MP others lose", 80, "Enemy hits Ally for 10 points of damage.", Table(15), Bgr(0x80, 0x80, 0xC0)),
+            Row(StockUiFontColorId.OthersBeneficial, StockUiFontColorCategory.ForOthers, 56, "Beneficial effects others are granted", 81, "Ally gains beneficial effect.", Table(16), Bgr(0x80, 0x80, 0x80)),
+            Row(StockUiFontColorId.OthersDetrimental, StockUiFontColorCategory.ForOthers, 57, "Detrimental effects others receive", 82, "Ally receives detrimental effect.", Table(17), Bgr(0x80, 0x80, 0x80)),
+            Row(StockUiFontColorId.OthersNoEffect, StockUiFontColorCategory.ForOthers, 58, "Effects others resist", 83, "No effect on Enemy.", Table(18), Bgr(0x40, 0x80, 0xA0)),
+            Row(StockUiFontColorId.OthersMiss, StockUiFontColorCategory.ForOthers, 59, "Actions others evade", 84, "Enemy misses Ally.", Table(19), Bgr(0x70, 0x70, 0x70)),
 
-            Row(StockUiFontColorId.StandardBattle, StockUiFontColorCategory.System, 60, "Standard battle messages", 85, "Player starts casting Spell.", Table(22), Bgr(0x50, 0xC0, 0xC0)),
-            Row(StockUiFontColorId.CallForHelp, StockUiFontColorCategory.System, 61, "Calls for help", 86, "Player calls for help!", 0x22C, Bgr(0x30, 0x40, 0xA0)),
-            Row(StockUiFontColorId.BasicSystem, StockUiFontColorCategory.System, 62, "Basic system messages", 87, "Player's craft skill rises 0.1 points!", Table(6), Bgr(0xD0, 0xD0, 0xA0)),
+            Row(StockUiFontColorId.StandardBattle, StockUiFontColorCategory.System, 60, "Standard battle messages", 85, "Player starts casting Spell.", Table(20), Bgr(0x10, 0x80, 0x80)),
+            Row(StockUiFontColorId.CallForHelp, StockUiFontColorCategory.System, 61, "Calls for help", 86, "Player calls for help!", Table(21), Bgr(0xD0, 0x60, 0xC0)),
+            Row(StockUiFontColorId.BasicSystem, StockUiFontColorCategory.System, 62, "Basic system messages", 87, "Player's craft skill rises 0.1 points!", Table(22), Bgr(0x50, 0xC0, 0xC0)),
         };
 
         private static readonly Dictionary<StockUiFontColorId, StockUiFontColorEntry> ById = BuildIndex();
@@ -233,7 +236,7 @@ namespace Gordian.Core.Ui
             ChatLogChannel.AssistE => StockUiFontColorId.AssistE,
             ChatLogChannel.Emote => StockUiFontColorId.Emote,
             ChatLogChannel.Dialog => StockUiFontColorId.Npc,
-            ChatLogChannel.System or ChatLogChannel.Message => StockUiFontColorId.BasicSystem,
+            ChatLogChannel.Message => StockUiFontColorId.Message,
             _ => null,
         };
 

@@ -86,7 +86,7 @@ namespace Gordian.App.Graphics
                     // strip with the tint (64, 96, 127), the capture's fill reads a little more lavender).
                     var track = menu.ConfigPage?.SliderTrack ?? (0, button.Width, SliderFillTop, SliderFillHeight);
                     renderer.DrawTextureRect(SliderTexture, SliderFillSourceX, SliderFillSourceY, SliderFillSourceWidth, SliderFillSourceHeight,
-                        bx + track.Left * s, by + track.FillTop * s, track.Width * fraction * s, track.FillHeight * s, SliderFillTint);
+                        bx + track.Left * s, by + track.FillTop * s, track.Width * fraction * s, track.FillHeight * s, SliderTint(menu, button.ButtonId));
                 }
 
                 if (menu.IsMarked(button.ButtonId) && menu.Rows.Count == 0)
@@ -465,6 +465,21 @@ namespace Gordian.App.Graphics
         private const float SliderFillSourceX = 0, SliderFillSourceY = 1, SliderFillSourceWidth = 64, SliderFillSourceHeight = 6;
         private const float SliderFillTop = 1, SliderFillHeight = 12;
         private static readonly UiColor SliderFillTint = new(0x68, 0x60, 0x84, 0x80);
+
+        /// <summary>
+        /// The colour editor's bars fill in their channel's colour (retail screenshots, 2026-10-05: a dark red R bar,
+        /// green G bar, navy B bar); every other slider takes the light blue fill.
+        /// </summary>
+        private static UiColor SliderTint(StockUiOpenMenu menu, int buttonId)
+        {
+            if (!menu.Name.Equals(StockUiConfigPages.FontColorEditPage, StringComparison.OrdinalIgnoreCase)) return SliderFillTint;
+            return buttonId switch
+            {
+                1 => new UiColor(0x60, 0x08, 0x08, 0x80),
+                2 => new UiColor(0x08, 0x60, 0x08, 0x80),
+                _ => new UiColor(0x08, 0x08, 0x38, 0x80),
+            };
+        }
 
         /// <summary>
         /// A frame part that is an authored sample of a slider fill (the orange block, gauge texels 48,16, that
