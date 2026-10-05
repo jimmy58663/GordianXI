@@ -1,7 +1,7 @@
 # GordianXI Project Roadmap & Milestone Tracker
 
 ## Current State Summary
-- **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.2 + ImGui.NET
+- **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.3 + ImGui.NET
 - **Test Status:** every PR must pass `dotnet test` on Windows and Ubuntu CI (counts are in each PR's test report).
 - **Active Focus:** finishing Phase 5 (MVP): the remaining stock UI windows and menus (5E Tier 2), the Tier 3 overlays, and the open issues in the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up). Stock UI details: [docs/ui/stock-ui.md](docs/ui/stock-ui.md).
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
