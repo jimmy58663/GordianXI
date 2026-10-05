@@ -113,6 +113,12 @@ namespace Gordian.App.Graphics
         /// <summary>Timestamp colour: pale yellow, about (255, 255, 228), in a retail capture (2026-09-27).</summary>
         public static readonly UiColor TimestampColor = new(0x7F, 0x7F, 0x72, 0x7F);
 
+        /// <summary>
+        /// A log window's height (layout px, title band included) for a fractional line count: the frame "logN" is 22 px
+        /// + 16 per line after the first, plus the 16-px band; below one line it shrinks to nothing.
+        /// </summary>
+        public static float WindowHeight(float lines) => lines >= 1 ? 22 + 16 * (lines - 1) + TitleBand : Math.Max(0, lines) * (22 + TitleBand);
+
         /// <summary>Rows that fit in a window of <paramref name="textBottom"/> layout pixels (from its top) of text area.</summary>
         public static int RowsThatFit(float textBottom, int maxRows)
         {
@@ -148,7 +154,7 @@ namespace Gordian.App.Graphics
         public static void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition frame, StockUiLogFont logFont,
             UiFont? titleFallback, StockUiPlacement placement, float frameWidth, float frameHeight, int rows,
             IReadOnlyList<ChatLogLine> lines, int timestampMode, bool scrolledBack, string title, bool selected, bool dialogWaiting = false,
-            LogScrollState? scroll = null, StockUiSettings? settings = null)
+            LogScrollState? scroll = null, StockUiSettings? settings = null, float riseRows = 0)
         {
             float s = placement.Scale;
             var titles = StockUiTitleText.For(library);
@@ -173,8 +179,11 @@ namespace Gordian.App.Graphics
             }
 
             float slide = scrolledBack ? 0 : UpdateSlide(scroll, lines, logFont, textWidth, timestampMode, rows);
-            bool clipped = slide > 0;
-            if (clipped) renderer.SetClip(placement.X, placement.Y + RowTop * s, frameWidth * s, rows * RowPitch * s);
+            // A window being resized (reactive sizing) is drawn shorter than its rows: they keep their place against the
+            // bottom edge (moved up by riseRows) and the ones above the top are clipped.
+            riseRows = Math.Clamp(riseRows, 0, rows);
+            bool clipped = slide > 0 || riseRows > 0;
+            if (clipped) renderer.SetClip(placement.X, placement.Y + RowTop * s, frameWidth * s, Math.Max(0, rows - riseRows) * RowPitch * s);
 
             // A line's timestamp has its own colour whatever the line's (retail).
             int stamp = StockUiChatLog.TimestampLength(timestampMode);
@@ -183,7 +192,7 @@ namespace Gordian.App.Graphics
             {
                 float row = rows - 1 - k + slide;
                 if (row >= rows || row <= -1) continue;
-                float x = placement.X + TextLeft * s, y = placement.Y + (RowTop + row * RowPitch) * s;
+                float x = placement.X + TextLeft * s, y = placement.Y + (RowTop + (row - riseRows) * RowPitch) * s;
                 var text = visible[k].Text.AsSpan();
                 if (visible[k].FirstRow && stamp > 0 && text.Length >= stamp)
                 {
@@ -213,7 +222,7 @@ namespace Gordian.App.Graphics
 
             if (scrolledBack && library.TryGetGroup("kaipage", out var marker) && marker.Images.Count > 0)
             {
-                float bottom = RowTop + rows * RowPitch;
+                float bottom = RowTop + (rows - riseRows) * RowPitch;
                 renderer.DrawImage(marker.Images[0], placement.X + (frameWidth - MoreMarkerInset) * s,
                     placement.Y + (bottom - MoreMarkerInset + 2) * s, s);
             }

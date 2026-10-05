@@ -191,12 +191,12 @@ namespace Gordian.Core.Ui
 
             Toggle(StockUiSettingKey.Window1ReactiveSizing, true);
             Slider(StockUiSettingKey.Window1MaxLines, 8, 1, 8, 1);
-            Slider(StockUiSettingKey.Window1MinLines, 1, 1, 8, 1);
+            Slider(StockUiSettingKey.Window1MinLines, 0, 0, 8, 1); // retail default 0 (in-game comparison 2026-10-04)
             Slider(StockUiSettingKey.Window1Width, 100);
             Slider(StockUiSettingKey.Window1ResizeTime, 50);
             Toggle(StockUiSettingKey.Window2ReactiveSizing, true);
-            Slider(StockUiSettingKey.Window2MaxLines, 4, 1, 8, 1);
-            Slider(StockUiSettingKey.Window2MinLines, 1, 1, 8, 1);
+            Slider(StockUiSettingKey.Window2MaxLines, 8, 1, 8, 1); // retail default 8 for both windows
+            Slider(StockUiSettingKey.Window2MinLines, 0, 0, 8, 1);
             Slider(StockUiSettingKey.Window2Width, 100);
             Slider(StockUiSettingKey.Window2ResizeTime, 50);
 

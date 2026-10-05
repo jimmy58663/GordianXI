@@ -454,11 +454,14 @@ namespace Gordian.App.Graphics
             // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
             double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
             bool typing = chat.Input.IsOpen;
-            int lines1 = _logSizing[0].Update(now, chat.Log.AddedCount(1), Settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
+            _logSizing[0].Update(now, chat.Log.AddedCount(1), Settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
                 Settings.GetValue(StockUiSettingKey.Window1MinLines), Settings.GetValue(StockUiSettingKey.Window1MaxLines),
                 StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
                 expanded: typing || Drag.Unlocked || chat.SelectedLogWindow == 1 || chat.Log.ScrollOffset(1) > 0);
-            if (!TryGetLogFrame(library, lines1, out var menu1, out int maxRows1)) return;
+            // The drawn height follows the line count smoothly: the frame is the next whole line count up, drawn
+            // shorter, its rows held against the bottom edge (StockUiChatWindow.DrawLog's riseRows).
+            float display1 = _logSizing[0].DisplayLines;
+            if (!TryGetLogFrame(library, (int)Math.Ceiling(display1), out var menu1, out int maxRows1)) return;
             var placement = ResolveWindow(StockUiWindowIds.Log, menu1.Frame, width, height, out _);
             if (placement.Hidden) return;
             float s = placement.Scale;
@@ -489,7 +492,9 @@ namespace Gordian.App.Graphics
 
             var input = chat.Input;
             string modeLabel = StockUiChatInput.Label(input.Mode);
-            float height1 = menu1.Frame.Height + StockUiChatWindow.TitleBand;
+            float fullHeight1 = menu1.Frame.Height + StockUiChatWindow.TitleBand;
+            float height1 = Math.Min(fullHeight1, StockUiChatWindow.WindowHeight(display1));
+            float rise1 = (fullHeight1 - height1) / StockUiChatWindow.RowPitch;
             var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
             _window1Top = window1.Y;
             bool hasInline = library.TryGetMenu("inline", out var inline);
@@ -505,27 +510,34 @@ namespace Gordian.App.Graphics
                 inputPlacement = inputMoved ? chatPlacement : new StockUiPlacement(placement.X, logBottom - inline.Frame.Height * s, s, chatPlacement.Hidden);
             }
             bool inputOnWindow1 = inputOpen && !inputMoved && !inputPlacement.Hidden;
-            float textBottom1 = inputOnWindow1 ? height1 - inline.Frame.Height - 1 : height1 - StockUiChatWindow.BottomPadding;
-            DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, height1,
-                StockUiChatWindow.RowsThatFit(textBottom1, maxRows1), multi != 0 ? $"Window 1:{modeLabel}" : modeLabel,
-                chat.SelectedLogWindow == 1, logFont);
-            Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window1.X, window1.Y, width1 * s, height1 * s);
+            float textBottom1 = inputOnWindow1 ? fullHeight1 - inline.Frame.Height - 1 : fullHeight1 - StockUiChatWindow.BottomPadding;
+            // Minimum lines 0: a quiet log closes entirely (the command menu then sits on its bottom edge).
+            if (display1 > 0.01f)
+            {
+                DrawLog(renderer, library, chat.Log, 1, menu1, window1, width1, height1,
+                    StockUiChatWindow.RowsThatFit(textBottom1, maxRows1), multi != 0 ? $"Window 1:{modeLabel}" : modeLabel,
+                    chat.SelectedLogWindow == 1, logFont, rise1);
+                Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window1.X, window1.Y, width1 * s, height1 * s);
+            }
 
-            int lines2 = multi == 0 ? 0 : _logSizing[1].Update(now, chat.Log.AddedCount(2), Settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
+            if (multi != 0) _logSizing[1].Update(now, chat.Log.AddedCount(2), Settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
                 Settings.GetValue(StockUiSettingKey.Window2MinLines), Settings.GetValue(StockUiSettingKey.Window2MaxLines),
                 StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
                 expanded: Drag.Unlocked || chat.SelectedLogWindow == 2 || chat.Log.ScrollOffset(2) > 0);
-            if (multi != 0 && TryGetLogFrame(library, lines2, out var menu2, out int maxRows2))
+            float display2 = _logSizing[1].DisplayLines;
+            if (multi != 0 && display2 > 0.01f && TryGetLogFrame(library, (int)Math.Ceiling(display2), out var menu2, out int maxRows2))
             {
                 if (!horizontal) width2 = fullWidth;
                 width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
-                float height2 = menu2.Frame.Height + StockUiChatWindow.TitleBand;
+                float fullHeight2 = menu2.Frame.Height + StockUiChatWindow.TitleBand;
+                float height2 = Math.Min(fullHeight2, StockUiChatWindow.WindowHeight(display2));
+                float rise2 = (fullHeight2 - height2) / StockUiChatWindow.RowPitch;
                 var window2 = horizontal
                     ? new StockUiPlacement(placement.X + (fullWidth - width2) * s, logBottom - height2 * s, s, false)
                     : new StockUiPlacement(placement.X, window1.Y - (height2 + 2) * s, s, false);
                 DrawLog(renderer, library, chat.Log, 2, menu2, window2, width2, height2,
-                    StockUiChatWindow.RowsThatFit(height2 - StockUiChatWindow.BottomPadding, maxRows2), "Window 2",
-                    chat.SelectedLogWindow == 2, logFont);
+                    StockUiChatWindow.RowsThatFit(fullHeight2 - StockUiChatWindow.BottomPadding, maxRows2), "Window 2",
+                    chat.SelectedLogWindow == 2, logFont, rise2);
                 Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window2.X, window2.Y, width2 * s, height2 * s);
             }
 
@@ -547,7 +559,7 @@ namespace Gordian.App.Graphics
 
         private void DrawLog(StockUiRenderer renderer, UiResourceLibrary library, StockUiChatLog log, int window,
             UiMenuDefinition menu, StockUiPlacement placement, float frameWidth, float frameHeight, int rows, string title, bool selected,
-            StockUiLogFont? logFont)
+            StockUiLogFont? logFont, float riseRows = 0)
         {
             if (logFont == null)
             {
@@ -559,7 +571,7 @@ namespace Gordian.App.Graphics
             log.CopyVisible(window, rows + 2, _logLines);
             StockUiChatWindow.DrawLog(renderer, library, menu, logFont, _font, placement, frameWidth, frameHeight, rows, _logLines,
                 Settings.GetValue(StockUiSettingKey.LogTimestamp), log.ScrollOffset(window) > 0, title, selected, _dialogWaiting,
-                _logScroll[Math.Clamp(window - 1, 0, 1)], Settings);
+                _logScroll[Math.Clamp(window - 1, 0, 1)], Settings, riseRows);
         }
 
         /// <summary>Each log window's slide of newly arrived rows (see StockUiChatWindow.LogScrollState).</summary>
