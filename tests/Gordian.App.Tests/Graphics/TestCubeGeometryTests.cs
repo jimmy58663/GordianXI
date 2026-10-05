@@ -3,7 +3,7 @@ using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
-using Veldrid;
+using NeoVeldrid;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

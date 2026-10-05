@@ -13,7 +13,7 @@ using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
 using Gordian.Core.World;
-using Veldrid;
+using NeoVeldrid;
 
 namespace Gordian.App.Graphics
 {

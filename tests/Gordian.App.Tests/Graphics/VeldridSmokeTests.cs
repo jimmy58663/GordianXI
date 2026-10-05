@@ -1,5 +1,5 @@
 using System;
-using Veldrid;
+using NeoVeldrid;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

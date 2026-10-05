@@ -39,7 +39,7 @@ namespace Gordian.App.Tests.Graphics
 
             IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devMgr = new VeldridDeviceManager();
-            devMgr.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devMgr.Device!;
             try
             {
@@ -52,16 +52,16 @@ namespace Gordian.App.Tests.Graphics
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
-                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                var fb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
-                var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, Veldrid.TextureUsage.Staging));
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var fb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
+                var staging = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.Staging));
                 var cl = gd.ResourceFactory.CreateCommandList();
                 void Run(int frames) { for (int i = 0; i < frames; i++) renderer.Render(camera, env, 1 / 60f, 640, 480, entities: Array.Empty<WorldEntity>(), resourceManager: rm, present: false, targetFramebuffer: fb); }
                 double Brightness()
                 {
                     cl.Begin(); cl.CopyTexture(rtColor, staging); cl.End(); gd.SubmitCommands(cl); gd.WaitForIdle();
-                    var map = gd.Map(staging, Veldrid.MapMode.Read);
+                    var map = gd.Map(staging, NeoVeldrid.MapMode.Read);
                     double sum = 0;
                     var row = new byte[640 * 4];
                     for (int y = 120; y < 360; y++)
