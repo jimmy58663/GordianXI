@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/LobbyFrameRenderer.cs
 using System;
 using System.Diagnostics;
+using System.Numerics;
 using Gordian.Core.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
@@ -40,8 +41,12 @@ namespace Gordian.App.Graphics
         /// <summary>The preview's camera as last placed (for tests).</summary>
         public ViewportCamera Camera => _camera;
 
+        /// <summary>
+        /// Draws one lobby frame. <paramref name="brightness"/> below 1 darkens the finished frame toward black (0 = black):
+        /// the fade in when the lobby appears.
+        /// </summary>
         public void Render(LobbyController lobby, LobbyPreview preview, EntityRenderer? entities, ResourceManager? resources,
-            Framebuffer framebuffer, uint width, uint height, float deltaSeconds)
+            Framebuffer framebuffer, uint width, uint height, float deltaSeconds, float brightness = 1f)
         {
             if (_disposed || width == 0 || height == 0) return;
             var library = lobby.Library;
@@ -85,6 +90,7 @@ namespace Gordian.App.Graphics
             {
                 _foreground.Begin(library);
                 StockUiLobby.DrawForeground(_foreground, lobby, _font, width, height, Stopwatch.GetTimestamp(), _logFont);
+                if (brightness < 1f) _foreground.DrawScreenTint(width, height, new Vector3(Math.Clamp(brightness, 0f, 1f)));
                 _foreground.End(framebuffer, width, height);
             }
         }

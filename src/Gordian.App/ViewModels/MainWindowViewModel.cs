@@ -1537,6 +1537,9 @@ namespace Gordian.App.ViewModels
                 netManager.LoggedOut += state =>
                 {
                     if (state != Gordian.Core.Network.Packets.LogoutState.Logout) return;
+                    // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
+                    // the lobby fades in there once the launcher has logged in again.
+                    ViewportWindowManager.Default.BeginLobbyReturn();
                     _ = Task.Run(async () =>
                     {
                         try
@@ -1551,6 +1554,7 @@ namespace Gordian.App.ViewModels
                         }
                         finally
                         {
+                            ViewportWindowManager.Default.EndLobbyReturn();
                             _sessionRegistry.UnregisterSession(session);
                         }
                     });

@@ -417,6 +417,8 @@ namespace Gordian.App.Graphics
                 _stockUiRenderer = null;
                 _lobbyRenderer?.Dispose();
                 _lobbyRenderer = null;
+                _blackCommands?.Dispose();
+                _blackCommands = null;
 
                 _deviceManager.Dispose();
 
@@ -552,6 +554,16 @@ namespace Gordian.App.Graphics
                 {
                     RenderLobbyFrame(lobby, deltaSeconds);
                     Thread.Sleep(1);
+                    continue;
+                }
+                _lobbyShown = null;
+
+                // Between a Log Out and the lobby's title menu (the launcher logging in again): a black screen in the
+                // same window, which the lobby then fades in over.
+                if (HoldBlack)
+                {
+                    RenderBlackFrame();
+                    Thread.Sleep(15);
                     continue;
                 }
 
@@ -797,6 +809,48 @@ namespace Gordian.App.Graphics
             set => _lobby = value;
         }
 
+        /// <summary>
+        /// Draws a black screen instead of the scene while no lobby is set (a Log Out returning to the character select
+        /// screen, #32).
+        /// </summary>
+        public bool HoldBlack
+        {
+            get => _holdBlack;
+            set => _holdBlack = value;
+        }
+        private volatile bool _holdBlack;
+
+        /// <summary>How long the lobby takes to fade in from black when it appears (seconds).</summary>
+        public const float LobbyFadeInSeconds = 0.5f;
+
+        /// <summary>The lobby being drawn and when it first was (render thread only), for its fade in.</summary>
+        private Gordian.Core.Ui.Lobby.LobbyController? _lobbyShown;
+        private long _lobbyShownAt;
+
+        private void RenderBlackFrame()
+        {
+            lock (_renderLock)
+            {
+                var gd = _deviceManager.Device;
+                if (gd == null || !_deviceManager.IsInitialized) return;
+                try
+                {
+                    _blackCommands ??= gd.ResourceFactory.CreateCommandList();
+                    _blackCommands.Begin();
+                    _blackCommands.SetFramebuffer(gd.SwapchainFramebuffer);
+                    _blackCommands.ClearColorTarget(0, RgbaFloat.Black);
+                    _blackCommands.End();
+                    gd.SubmitCommands(_blackCommands);
+                    gd.SwapBuffers();
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Black frame render error: {ex.Message}");
+                }
+            }
+        }
+        private CommandList? _blackCommands;
+
         /// <summary>The viewport's size in rendering-surface pixels (for the lobby's mouse hit tests).</summary>
         public (uint Width, uint Height) SurfaceSize => (_deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
 
@@ -809,8 +863,15 @@ namespace Gordian.App.Graphics
                 try
                 {
                     _lobbyRenderer ??= new LobbyFrameRenderer(gd, gd.SwapchainFramebuffer.OutputDescription);
+                    long now = Stopwatch.GetTimestamp();
+                    if (!ReferenceEquals(_lobbyShown, lobby))
+                    {
+                        _lobbyShown = lobby;
+                        _lobbyShownAt = now;
+                    }
+                    float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
                     _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, gd.SwapchainFramebuffer,
-                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds);
+                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
                     gd.SwapBuffers();
                 }
                 catch (Exception ex)

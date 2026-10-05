@@ -292,8 +292,9 @@ namespace Gordian.Core.Network
         public event Action<IPAddress, int>? ZoneTransitionStarted;
 
         /// <summary>
-        /// Raised after the server ended the session with S2C 0x00B (Logout, PolExit or End) and the session disconnected:
-        /// a /logout or the menu's Log Out (Logout) can return to the character select screen, a shutdown (PolExit) closes.
+        /// Raised when the server ends the session with S2C 0x00B (Logout, PolExit or End), just before the session
+        /// disconnects (so a handler acts before the session's Disconnected state): a /logout or the menu's Log Out (Logout)
+        /// can return to the character select screen, a shutdown (PolExit) closes.
         /// </summary>
         public event Action<LogoutState>? LoggedOut;
 
@@ -399,8 +400,9 @@ namespace Gordian.Core.Network
                 else if (state == LogoutState.Logout || state == LogoutState.PolExit || state == LogoutState.End)
                 {
                     World.Clear();
+                    try { LoggedOut?.Invoke(state); }
+                    catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
                     Disconnect();
-                    LoggedOut?.Invoke(state);
                 }
             };
         }

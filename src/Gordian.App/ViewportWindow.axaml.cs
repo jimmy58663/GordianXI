@@ -125,7 +125,7 @@ namespace Gordian.App
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby))
+            if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
             {
                 SyncActiveSessionToViewport();
             }
@@ -139,6 +139,7 @@ namespace Gordian.App
                 viewportControl.ResourceManager = AppResourceManager.Instance;
                 viewportControl.ActiveSession = _viewModel?.ActiveTab?.Session;
                 viewportControl.Lobby = _viewModel?.Lobby;
+                viewportControl.HoldBlack = _viewModel?.IsReturningToLobby == true;
             }
         }
 
@@ -646,6 +647,7 @@ namespace Gordian.App
                     viewportControl.ActiveSession = _viewModel.ActiveTab?.Session;
                 }
                 if (!ReferenceEquals(viewportControl.Lobby, _viewModel.Lobby)) viewportControl.Lobby = _viewModel.Lobby;
+                viewportControl.HoldBlack = _viewModel.IsReturningToLobby;
                 if (viewportControl.ResourceManager == null)
                 {
                     viewportControl.ResourceManager = AppResourceManager.Instance;

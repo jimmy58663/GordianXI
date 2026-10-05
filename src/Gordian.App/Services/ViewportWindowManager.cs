@@ -1,6 +1,7 @@
 // src/Gordian.App/Services/ViewportWindowManager.cs
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using Avalonia.Threading;
 using Gordian.App.Graphics;
 using Gordian.App.ViewModels;
@@ -135,17 +136,57 @@ namespace Gordian.App.Services
             {
                 if (!ReferenceEquals(_primaryViewModel.Lobby, lobby)) return;
                 _primaryViewModel.Lobby = null;
-                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryWindow != null)
-                {
-                    try { _primaryWindow.Close(); }
-                    catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close the viewport after the lobby: {ex.Message}"); }
-                    _primaryWindow = null;
-                }
+                CloseIdlePrimaryWindow();
             });
         }
 
         /// <summary>Whether a lobby is on show.</summary>
         public bool IsLobbyOpen => _primaryViewModel.Lobby != null;
+
+        private int _lobbyReturns;
+
+        /// <summary>Whether a Log Out is returning to the character select screen (between Begin and End).</summary>
+        public bool IsReturningToLobby => Volatile.Read(ref _lobbyReturns) > 0;
+
+        /// <summary>
+        /// Starts a Log Out's return to the character select screen (#32): until <see cref="EndLobbyReturn"/>, the primary
+        /// window stays open when its last tab goes and shows black, so the lobby appears in the same window. Callable from
+        /// any thread; call it before the session disconnects.
+        /// </summary>
+        public void BeginLobbyReturn()
+        {
+            Interlocked.Increment(ref _lobbyReturns);
+            PostToUi(() => _primaryViewModel.IsReturningToLobby = IsReturningToLobby);
+        }
+
+        /// <summary>
+        /// Ends a return begun by <see cref="BeginLobbyReturn"/>, once the lobby is shown (or could not be): with no lobby
+        /// and no tab left, the window closes as it would have.
+        /// </summary>
+        public void EndLobbyReturn()
+        {
+            if (Interlocked.Decrement(ref _lobbyReturns) < 0) Interlocked.Exchange(ref _lobbyReturns, 0);
+            PostToUi(() =>
+            {
+                _primaryViewModel.IsReturningToLobby = IsReturningToLobby;
+                CloseIdlePrimaryWindow();
+            });
+        }
+
+        /// <summary>Closes the primary window when it has nothing to show: no tab, no lobby, no return under way.</summary>
+        private void CloseIdlePrimaryWindow()
+        {
+            if (_primaryViewModel.CharacterTabs.Count != 0 || _primaryViewModel.Lobby != null || IsReturningToLobby || _primaryWindow == null) return;
+            try
+            {
+                _primaryWindow.Close();
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("ViewportManager", $"Failed to cleanly close primary viewport window: {ex.Message}");
+            }
+            _primaryWindow = null;
+        }
 
         private void OnSessionRegistered(object? sender, CharacterSession session)
         {
@@ -179,19 +220,9 @@ namespace Gordian.App.Services
                     }
                 }
 
-                // If the primary viewport window has no remaining connected character tabs, close it cleanly
-                if (_primaryViewModel.CharacterTabs.Count == 0 && _primaryViewModel.Lobby == null && _primaryWindow != null)
-                {
-                    try
-                    {
-                        _primaryWindow.Close();
-                    }
-                    catch (Exception ex)
-                    {
-                        GordianLog.Warning("ViewportManager", $"Failed to cleanly close primary viewport window: {ex.Message}");
-                    }
-                    _primaryWindow = null;
-                }
+                // If the primary viewport window has no remaining connected character tabs, close it cleanly (not while a
+                // Log Out is returning to the lobby in it)
+                CloseIdlePrimaryWindow();
             });
         }
 

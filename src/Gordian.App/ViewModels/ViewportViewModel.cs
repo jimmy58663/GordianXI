@@ -302,6 +302,18 @@ namespace Gordian.App.ViewModels
 
         public bool IsLobbyOpen => _lobby != null;
 
+        private bool _isReturningToLobby;
+
+        /// <summary>
+        /// A Log Out is on its way back to the character select screen (#32): the window stays open with no tab and no
+        /// lobby, and the viewport shows black until the lobby appears.
+        /// </summary>
+        public bool IsReturningToLobby
+        {
+            get => _isReturningToLobby;
+            set => SetProperty(ref _isReturningToLobby, value);
+        }
+
         public ObservableCollection<ViewportCharacterTabViewModel> PipThumbnails { get; } = new();
 
         public ViewportCharacterTabViewModel? ActiveTab
