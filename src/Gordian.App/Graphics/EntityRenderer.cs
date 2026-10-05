@@ -85,6 +85,12 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<uint, (Vector3 Probe, string? EnvironmentId)> _entityEnvironments = new();
         private readonly Vector4[] _paletteScratch = new Vector4[ZoneShaders.MaxPaletteJoints * 3];
         private GpuEntityModel? _fallbackPlayerProxy;
+
+        /// <summary>
+        /// Leaves out the placeholder models of entities whose model has not loaded (set while the zoning screen is not
+        /// clear, #36), so the player never shows as the placeholder before its look arrives.
+        /// </summary>
+        public bool HideFallbackProxies { get; set; }
         private GpuEntityModel? _fallbackNpcProxy;
         private GpuEntityModel? _fallbackMonsterProxy;
         private bool _loggedPaletteOverflow;
@@ -505,6 +511,8 @@ namespace Gordian.App.Graphics
                         continue;
                     }
 
+                    // While the loading screen is fading, a model still on its way is drawn as nothing, not the placeholder.
+                    if (HideFallbackProxies) continue;
                     gpuModel = entity.Type switch
                     {
                         EntityType.Player => _fallbackPlayerProxy,

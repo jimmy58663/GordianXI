@@ -16,7 +16,7 @@
   - **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master Veldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
   - **Picture-in-Picture (PiP) Multi-Box Swarm Streaming:** Real-time thumbnail sub-viewports for up to 5 background characters (1 main + 5 alts) with 1-click `⇄` viewport promotion and throttled background render rates.
 
-- **Lobby and zoning (#32, #36).** While a character lobby is open (`ViewportViewModel.Lobby`) the viewport draws it instead of the active session (`LobbyFrameRenderer`: the lobby backgrounds, the preview model through the entity renderer alone, the lobby windows) and sends it the keyboard and mouse. While a session connects or zones, `ZoneLoadingScreen` fades the frame to black over the scene and the HUD. See [character-lobby.md](../design/character-lobby.md).
+- **Lobby and zoning (#32, #36).** While a character lobby is open (`ViewportViewModel.Lobby`) the viewport draws it instead of the active session (`LobbyFrameRenderer`: the lobby backgrounds, the preview model through the entity renderer alone, the lobby windows) and sends it the keyboard and mouse. While a session connects or zones, `ZoneLoadingScreen` fades the frame to black over the scene and the HUD, and the placeholder models are left out until it is clear again. Between a Log Out and the lobby's return (`ViewportViewModel.IsReturningToLobby`) the viewport draws black (`HoldBlack`), and a lobby fades in from black when it appears. See [character-lobby.md](../design/character-lobby.md).
 
 ## Camera and zone terrain (Phase 5B)
 

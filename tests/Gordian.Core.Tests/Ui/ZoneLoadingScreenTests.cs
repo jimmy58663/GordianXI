@@ -30,6 +30,23 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void InTheWorld_WaitsForThePlayersModel_ThenStaysSettled()
+        {
+            var screen = new ZoneLoadingScreen();
+            // Geometry on screen but the look not here yet: still black (no placeholder model).
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 231, 0, 231, 0, playerReady: false));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 231, 0, 231, 1, playerReady: true));
+            // Settled: a look change or geometry reload in the same zone does not black the screen again.
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 231, 0, 231, 2, playerReady: false));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 231, 0, 0, 3));
+            // The next zone change waits again, and a model that never loads is shown anyway after the wait.
+            Assert.True(screen.ComputeLoading(SessionState.LoadingWorldData, 0, 0, 231, 4));
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 232, 0, 232, 5, playerReady: false));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 232, 0, 232, 5 + ZoneLoadingScreen.GeometryWaitSeconds + 1, playerReady: false));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 232, 0, 232, 30, playerReady: false));
+        }
+
+        [Fact]
         public void AnEventsSceneZone_IsNotLoading()
         {
             var screen = new ZoneLoadingScreen();

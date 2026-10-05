@@ -730,6 +730,15 @@ namespace Gordian.App.Graphics
                                     : 0.0f;
                             }
 
+                            // Zoning (#36), worked out before the scene so this frame already hides the placeholder: black while the session connects or zones and until its zone and the player's
+                            // own model are on screen.
+                            StockUi.LoadingOpacity = _activeSession is { } loadingSession
+                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
+                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId))
+                                : 0f;
+                            // Never the placeholder model while the screen is not fully clear (it showed during the fade).
+                            if (_renderer?.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
                                 Camera,
@@ -743,12 +752,6 @@ namespace Gordian.App.Graphics
                                 isLocalPlayerEngaged,
                                 displayPlayerPos,
                                 present: false);
-
-                            // Zoning (#36): black while the session connects or zones and until its zone is on screen.
-                            StockUi.LoadingOpacity = _activeSession is { } loadingSession
-                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
-                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency)
-                                : 0f;
 
                             // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
                             RenderTier2_StockUi();
@@ -807,6 +810,16 @@ namespace Gordian.App.Graphics
         public StockUiHud StockUi { get; } = new();
 
         private readonly Gordian.Core.Ui.ZoneLoadingScreen _loadingScreen = new();
+
+        /// <summary>
+        /// Whether the session's own character is in the world with a model that loads (its look has arrived): until then
+        /// the entity renderer would draw the placeholder model, so the loading screen stays black (#36).
+        /// </summary>
+        private bool LocalPlayerModelReady(Gordian.Core.Network.CharacterSession session, uint localPlayerServerId)
+        {
+            if (localPlayerServerId == 0 || !session.World.TryGetByServerId(localPlayerServerId, out var player) || player == null) return false;
+            return ResourceManager is { } resources && resources.TryLoadEntityModel(player, out var model) && model != null;
+        }
         private volatile Gordian.Core.Ui.Lobby.LobbyController? _lobby;
         private LobbyFrameRenderer? _lobbyRenderer;
         private readonly Gordian.Core.Ui.Lobby.LobbyPreview _lobbyPreview = new();

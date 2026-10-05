@@ -33,6 +33,10 @@ namespace Gordian.Core.Ui
         private ushort _waitingZone;
         private double _waitingSince;
 
+        /// <summary>The zone whose load finished (geometry and the player's model on screen, or the wait ran out): no
+        /// later change in it (a geometry reload, a look change) blacks the screen again until the zone changes.</summary>
+        private ushort _settledZone;
+
         /// <summary>The current overlay opacity.</summary>
         public float Opacity => _opacity;
 
@@ -45,25 +49,36 @@ namespace Gordian.Core.Ui
             _opacity = black ? 1f : 0f;
             _lastSeconds = double.NaN;
             _waitingZone = 0;
+            _settledZone = 0;
             IsLoading = black;
         }
 
         /// <summary>
         /// Whether a session's view is loading: the session is connecting to or zoning into a map server (not yet in
-        /// the world), or it is in the world but its zone's geometry is not on screen yet (for at most
-        /// <see cref="GeometryWaitSeconds"/>). An event's scene zone (<paramref name="eventZone"/>) is the event's own
-        /// business and does not count.
+        /// the world), or it is in the world but its zone's geometry or the player's own model
+        /// (<paramref name="playerReady"/>) is not on screen yet (for at most <see cref="GeometryWaitSeconds"/>), so the
+        /// player never appears as the placeholder model while the look is still on its way (round-2 in-game test). Once
+        /// a zone has finished loading it stays loaded until the zone changes. An event's scene zone
+        /// (<paramref name="eventZone"/>) is the event's own business and does not count.
         /// </summary>
-        public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds)
+        public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
+            bool playerReady = true)
         {
             if (state is SessionState.ConnectingToGameServer or SessionState.ExchangingCryptoKeys or SessionState.LoadingWorldData)
             {
                 _waitingZone = 0;
+                _settledZone = 0;
                 return true;
             }
-            if (state != SessionState.ActiveInWorld || eventZone != 0 || currentZone == 0 || loadedZone == currentZone)
+            if (state != SessionState.ActiveInWorld || eventZone != 0 || currentZone == 0 || currentZone == _settledZone)
             {
                 _waitingZone = 0;
+                return false;
+            }
+            if (loadedZone == currentZone && playerReady)
+            {
+                _waitingZone = 0;
+                _settledZone = currentZone;
                 return false;
             }
             if (_waitingZone != currentZone)
@@ -71,7 +86,9 @@ namespace Gordian.Core.Ui
                 _waitingZone = currentZone;
                 _waitingSince = nowSeconds;
             }
-            return nowSeconds - _waitingSince < GeometryWaitSeconds;
+            if (nowSeconds - _waitingSince < GeometryWaitSeconds) return true;
+            _settledZone = currentZone;
+            return false;
         }
 
         /// <summary>Advances the fade toward black while <paramref name="loading"/>, toward clear otherwise; returns the opacity.</summary>
@@ -86,7 +103,8 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary><see cref="ComputeLoading"/> and <see cref="Update"/> in one call.</summary>
-        public float Update(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds) =>
-            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds), nowSeconds);
+        public float Update(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
+            bool playerReady = true) =>
+            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady), nowSeconds);
     }
 }
