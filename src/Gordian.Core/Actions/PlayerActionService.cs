@@ -146,6 +146,12 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiMenuController Menus { get; }
 
+        /// <summary>
+        /// Handles the debug audio commands <c>/playsound</c> (false) and <c>/playmusic</c> (true) with their arguments and
+        /// returns the reply; set by the client's audio engine (null: no audio).
+        /// </summary>
+        public Func<bool, string, string>? DebugAudioCommand { get; set; }
+
         private StockUiSettings _uiSettings = new();
         private ConfigPacketModule? _configModule;
 
@@ -1227,6 +1233,10 @@ namespace Gordian.Core.Actions
                         if (_profile.IsRestricted(FeatureRestrictions.Movement))
                             return "Command '/moveto' is blocked by server feature restrictions (Movement).";
                         return "Usage: /moveto <x> <y> [z] - Move to FFXI/Windower coordinates (z = height, optional).";
+                    case "playsound":
+                        return "Usage: /playsound <id> | stop - Debug: play sound effect <id> on this client (looped files loop until stop).";
+                    case "playmusic":
+                        return "Usage: /playmusic <n> | stop - Debug: play music track <n> on this client instead of the zone music.";
                     case "pos" or "where" or "loc":
                         return "Usage: /pos - Print current player coordinates, heading, and server ID.";
                     case "target" or "ta":
@@ -1346,6 +1356,9 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
+            sb.AppendLine("[Debug: audio, client only]");
+            sb.AppendLine("  /playsound <id> | stop    - Play sound effect <id> (seNNNNNN.spw) centred; looped files loop until stop");
+            sb.AppendLine("  /playmusic <n> | stop     - Play musicNNN.bgw instead of the zone music; stop returns to it");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -2219,6 +2232,17 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.Lockstyle:
                     return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.DebugPlaySound:
+                case ChatCommandResultKind.DebugPlayMusic:
+                {
+                    // Debug audio commands: handled by the client's audio engine, never sent to the server.
+                    bool music = cmd.Kind == ChatCommandResultKind.DebugPlayMusic;
+                    var handler = DebugAudioCommand;
+                    return handler is null
+                        ? PlayerActionResult.Warn("Audio is not available.", cmd.Kind)
+                        : PlayerActionResult.Info(handler(music, cmd.Message ?? string.Empty), cmd.Kind);
+                }
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

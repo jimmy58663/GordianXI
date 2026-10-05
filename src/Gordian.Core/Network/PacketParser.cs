@@ -93,11 +93,18 @@ namespace Gordian.Core.Network
                 _localPlayer.ZoneId = zoneId;
             };
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
-            _lifecycleModule.ZoneLoginInfoReceived += info => _world.UpdateZoneLoginInfo(info);
+            _lifecycleModule.ZoneLoginInfoReceived += info =>
+            {
+                _world.UpdateZoneLoginInfo(info);
+                // MusicNum[5] (day, night, solo battle, party battle, mount) feeds the zone music slots 0-4.
+                Span<ushort> musicTable = stackalloc ushort[] { info.MusicDay, info.MusicNight, info.MusicBattleSolo, info.MusicBattleParty, info.MusicMount };
+                _world.Music.SetZoneTable(musicTable);
+            };
             _lifecycleModule.WeatherReceived += weatherNumber =>
             {
                 _world.UpdateWeather(weatherNumber);
             };
+            new MusicPacketModule(_world.Music).Register(_dispatcher);
             // A zone-in event runs like a 0x032 event of the player (the zone was set just before, so it reads the new zone's scripts).
             _lifecycleModule.ZoneInEventReceived += evt =>
             {
