@@ -350,6 +350,9 @@ namespace Gordian.Core.Tests.Events
             var rm = OpenGame();
             if (rm == null) return;
             var run = RunScene(rm, zoneId, (ushort)eventId);
+            _output.WriteLine($"sound: {string.Join(", ", run.Host.Sound)}");
+            // The intros mute effects and zone sounds and set the day / night slots to the nation theme (#167).
+            if (zoneId == 241) Assert.Contains("slot 0=151", run.Host.Sound);
             Assert.True(run.Scene.IsFinished);
             Assert.NotEmpty(run.Host.Printed);
             var skipped = run.Host.Skipped.GroupBy(o => o).OrderByDescending(g => g.Count()).Select(g => $"{g.Key:X2}x{g.Count()}");

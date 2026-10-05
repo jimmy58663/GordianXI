@@ -142,6 +142,14 @@ namespace Gordian.Core.World
             Bump();
         }
 
+        /// <summary>
+        /// Increments whenever an event writes a slot (0x5C). Retail then restarts the music even when the slot's track
+        /// is the one playing (it sets the current music number to -1, XiEvents <c>OpCodes/0x005C</c>).
+        /// </summary>
+        public int RestartVersion => Volatile.Read(ref _restartVersion);
+
+        private int _restartVersion;
+
         /// <summary>Whether a running event has set any slot or the volume.</summary>
         public bool HasEventMusic
         {
@@ -171,6 +179,7 @@ namespace Gordian.Core.World
                 _eventSlots[slot] = musicNum;
             }
 
+            Interlocked.Increment(ref _restartVersion);
             Bump();
         }
 

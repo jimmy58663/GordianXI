@@ -34,6 +34,9 @@ namespace Gordian.App.Audio
         /// <summary>Fade-out before a different track starts (provisional).</summary>
         public const float TrackFadeSeconds = 1.5f;
 
+        /// <summary>Fade-out when an event restarts the track already playing (provisional).</summary>
+        public const float EventRestartFadeSeconds = 0.5f;
+
         private readonly AudioMixer _mixer;
         private readonly Func<int, IPcmSource?> _openMusic;
         private readonly Action<Action> _runInBackground;
@@ -41,6 +44,7 @@ namespace Gordian.App.Audio
         private int _currentHandle;
         private int _startToken;
         private int _loggedTrack = -1;
+        private int _restartVersion;
         private int _loading;
         private int _pendingTrack;
         private double _pendingDelay;
@@ -178,8 +182,30 @@ namespace Gordian.App.Audio
                 return;
             }
 
-            if (wanted == _currentTrack)
+            // An event's slot write restarts the music even on the same track (retail sets the current music number to -1,
+            // XiEvents OpCodes/0x005C): the new-character intros set the nation theme the town already plays.
+            int restart = music.RestartVersion;
+            bool restartRequested = restart != _restartVersion;
+            _restartVersion = restart;
+            if (wanted == _currentTrack && !(restartRequested && wanted > 0))
             {
+                return;
+            }
+
+            if (restartRequested && wanted == _currentTrack)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Info("AUDIO", $"Music: event restarts track {wanted}.");
+                int playing = System.Threading.Volatile.Read(ref _currentHandle);
+                if (playing != 0 && _mixer.IsPlaying(playing))
+                {
+                    _mixer.Stop(playing, EventRestartFadeSeconds);
+                    System.Threading.Volatile.Write(ref _currentHandle, 0);
+                    _pendingTrack = wanted;
+                    _pendingDelay = EventRestartFadeSeconds;
+                    return;
+                }
+
+                Start(wanted);
                 return;
             }
 
