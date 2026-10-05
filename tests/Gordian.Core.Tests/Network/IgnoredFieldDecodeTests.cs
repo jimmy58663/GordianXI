@@ -761,5 +761,63 @@ namespace Gordian.Core.Tests.Network
             Receive(dispatcher, 0x086, p);
             Assert.Null(parser.Inventory.GuildHours);
         }
+
+        [Fact]
+        public void WeaponSkillSkillchain_ReachesTheCombatLog()
+        {
+            var parser = NewParser(out var dispatcher);
+            var chat = new Gordian.Core.Ui.StockUiChat();
+            var lines = new List<string>();
+            chat.Log.LineAdded += line => lines.Add(line.Text);
+            chat.Attach(parser.ChatModule, parser.Party, parser.Combat, parser.ActionService.Menus,
+                id => id == 0x10001111 ? "Cybin" : id == 0x20002222 ? "Goblin" : null);
+
+            // As LandSandBoat packs a weapon skill that closes a Liquefaction chain: proc kind 8, damage 412, message 287 + 8.
+            byte[] payload = new byte[64];
+            payload[0] = 30;
+            var writer = new BitStreamWriter(payload.AsSpan(1));
+            writer.WriteUInt32(0x10001111, 32);
+            writer.WriteByte(1, 6);
+            writer.WriteByte(0, 4);
+            writer.WriteByte((byte)ActionCategory.SkillFinish, 4);
+            writer.WriteUInt32(33, 32);
+            writer.WriteUInt32(0, 32);
+            writer.WriteUInt32(0x20002222, 32);
+            writer.WriteByte(1, 4);
+            writer.WriteByte(0, 3);
+            writer.WriteByte(3, 2);
+            writer.WriteUInt16(39, 12);
+            writer.WriteByte(0, 5);
+            writer.WriteByte(0, 5);
+            writer.WriteUInt32(250, 17);
+            writer.WriteUInt16(110, 10);
+            writer.WriteUInt32(0, 31);
+            writer.WriteBool(true);
+            writer.WriteByte(8, 6);
+            writer.WriteByte(0, 4);
+            writer.WriteUInt32(412, 17);
+            writer.WriteUInt16(295, 10);
+            writer.WriteBool(false);
+            Receive(dispatcher, 0x028, payload);
+
+            Assert.Contains("Skillchain: Liquefaction. Goblin takes 412 points of damage.", lines);
+        }
+
+        [Fact]
+        public void AuctionReply_IsLoggedWithItsPrices()
+        {
+            var parser = NewParser(out var dispatcher);
+            var p = new byte[56];
+            p[0] = (byte)AuctionCommand.AskCommit;
+            p[1] = 0xFF;
+            p[2] = 1;
+            U32(p, 4, 120);
+            U16(p, 10, 4096);
+            // The state still carries the prices the log line prints.
+            Receive(dispatcher, 0x04C, p);
+            var response = parser.Inventory.LastAuctionResponse!;
+            Assert.Equal(4096, response.ItemId);
+            Assert.Equal(120u, response.Price);
+        }
     }
 }

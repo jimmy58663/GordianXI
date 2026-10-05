@@ -268,7 +268,7 @@ namespace Gordian.Core.Network.Packets
                     {
                         // On a weapon skill the proc kind is the skillchain, not an additional effect.
                         string procLine = record.Category == ActionCategory.SkillFinish
-                            ? $"Skillchain: {result.Skillchain}."
+                            ? FormatSkillchain(target, result)
                             : result.ProcParam > 0
                                 ? $"Additional effect: {target} takes {result.ProcParam} points of {result.ProcKind} damage."
                                 : $"Additional effect: {result.ProcKind}.";
@@ -288,6 +288,16 @@ namespace Gordian.Core.Network.Packets
 
             return lines;
         }
+
+        /// <summary>
+        /// The skillchain line of a weapon skill result: LandSandBoat sets the proc kind to the skillchain id, the proc param to
+        /// its damage and the proc message to 287 + id (the damage form, "Skillchain: Light. X takes N points of damage") or
+        /// 384 + id when the chain heals the target.
+        /// </summary>
+        public static string FormatSkillchain(string target, in CombatActionResult result) =>
+            result.ProcMessageId >= 385
+                ? $"Skillchain: {result.Skillchain}. {target} recovers {result.ProcParam} HP."
+                : $"Skillchain: {result.Skillchain}. {target} takes {result.ProcParam} points of damage.";
 
         private static string FormatActionResult(
             CombatActionRecord record,
