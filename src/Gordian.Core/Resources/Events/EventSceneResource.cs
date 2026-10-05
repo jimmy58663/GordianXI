@@ -180,6 +180,13 @@ namespace Gordian.Core.Resources.Events
 
         /// <summary>Op 0x5F: stops the running routine <see cref="SceneCommand.Reference"/> (its particles live out their life).</summary>
         StopRoutine,
+
+        /// <summary>
+        /// Ops 0x0A (at the source actor), 0x0B (at the target), 0x4A / 0x53 / 0x60 (player-only / nearest / global
+        /// variants): play the 0x3D sound section <see cref="SceneCommand.Reference"/> (xi-tools docs/fx/effect_system.md).
+        /// Scene files use 0x60 (57129 <c>se00</c>, 30905 <c>who1</c>).
+        /// </summary>
+        Sound,
     }
 
     /// <summary>
@@ -276,6 +283,11 @@ namespace Gordian.Core.Resources.Events
                 {
                     kind = SceneCommandKind.CrossDissolve;
                 }
+                else if (op is 0x0A or 0x0B or 0x4A or 0x53 or 0x60 && size >= 12 && p + 12 <= payload.Length)
+                {
+                    reference = ReadFourCc(payload.Slice(p + 8, 4));
+                    if (reference.Length > 0) kind = SceneCommandKind.Sound;
+                }
                 else if (EffectKind(op) is { } effect && size >= 12 && p + 12 <= payload.Length)
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
@@ -340,11 +352,23 @@ namespace Gordian.Core.Resources.Events
         private readonly Dictionary<string, CameraRoute> _routes;
         private readonly Dictionary<string, SceneRoutine> _routines;
 
+        private readonly Dictionary<string, int> _sounds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _generatorSounds = new(StringComparer.Ordinal);
+
         private EventSceneResource(Dictionary<string, CameraRoute> routes, Dictionary<string, SceneRoutine> routines)
         {
             _routes = routes;
             _routines = routines;
         }
+
+        /// <summary>
+        /// The sound effect id of the file's 0x3D section <paramref name="name"/> (what a routine's sound command names,
+        /// e.g. 57129 <c>se00</c> → <c>1060</c> → 41060; the section name is not the id).
+        /// </summary>
+        public bool TryGetSound(string name, out int soundId) => _sounds.TryGetValue(name, out soundId);
+
+        /// <summary>The sound of generator <paramref name="name"/> when it is a sound generator (its linked data is a 0x3D section).</summary>
+        public bool TryGetGeneratorSound(string name, out int soundId) => _generatorSounds.TryGetValue(name, out soundId);
 
         /// <summary>The first file id of the scheduler resources (<c>p</c> = 0).</summary>
         public const int BaseFileId = 30704;
@@ -398,6 +422,8 @@ namespace Gordian.Core.Resources.Events
         {
             var routes = new Dictionary<string, CameraRoute>(StringComparer.Ordinal);
             var routines = new Dictionary<string, SceneRoutine>(StringComparer.Ordinal);
+            var sounds = new Dictionary<string, int>(StringComparer.Ordinal);
+            var soundGenerators = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var header in DatSectionWalker.ReadHeaders(file))
             {
                 if (header.DataOffset + header.DataSizeBytes > file.Length) continue;
@@ -410,8 +436,32 @@ namespace Gordian.Core.Resources.Events
                 {
                     if (SceneRoutine.Decode(payload, header.DatId) is { } routine) routines[header.DatId] = routine;
                 }
+                else if (header.RawTypeCode == 0x3D)
+                {
+                    if (Audio.SoundEffectPointer.TryDecode(payload, out int soundId)) sounds.TryAdd(header.DatId, soundId);
+                }
+                else if (header.RawTypeCode == 0x05)
+                {
+                    try
+                    {
+                        if (Graphics.ParticleGeneratorDecoder.DecodeGenerator(payload, header.DatId) is { Setup: { LinkedDataType: Graphics.ParticleLinkedDataType.Audio } setup })
+                        {
+                            soundGenerators.TryAdd(header.DatId, setup.LinkedDataId);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // A generator that does not decode is not a sound.
+                    }
+                }
             }
-            return new EventSceneResource(routes, routines);
+            var resource = new EventSceneResource(routes, routines);
+            foreach (var (name, id) in sounds) resource._sounds[name] = id;
+            foreach (var (generator, pointer) in soundGenerators)
+            {
+                if (sounds.TryGetValue(pointer, out int id)) resource._generatorSounds[generator] = id;
+            }
+            return resource;
         }
     }
 }

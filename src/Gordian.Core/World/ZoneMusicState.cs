@@ -142,6 +142,43 @@ namespace Gordian.Core.World
             Bump();
         }
 
+        private bool _startVolumePending;
+
+        /// <summary>
+        /// The music changed to another track. An event's slot write gives the song it selects a start volume of 127
+        /// (XiEvents <c>OpCodes/0x005C</c>: <c>PTR_MusicStartVolumes[slot] = 127</c>), while 0x5D / 0x5C 0xA0 only move the
+        /// volume of the song playing. So once a slot write has led to a new track, the event's volume goes back to 127.
+        /// Port Jeuno <c>!cs 324</c> fades its own track (51) to 0 and then sets the zone track (110) again, which must be
+        /// heard (in-game round 2). Same-track writes start nothing, so they keep the volume.
+        /// </summary>
+        public void TrackStarted()
+        {
+            bool changed = false;
+            lock (_lock)
+            {
+                if (_startVolumePending)
+                {
+                    _startVolumePending = false;
+                    if (Volume != MaxVolume)
+                    {
+                        if (_savedVolume < 0)
+                        {
+                            _savedVolume = Volume;
+                        }
+
+                        Volume = MaxVolume;
+                        VolumeFadeTime = 0;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                Bump();
+            }
+        }
+
         /// <summary>Whether a running event has set any slot or the volume.</summary>
         public bool HasEventMusic
         {
@@ -169,6 +206,7 @@ namespace Gordian.Core.World
             lock (_lock)
             {
                 _eventSlots[slot] = musicNum;
+                _startVolumePending = true;
             }
 
             Bump();
@@ -202,6 +240,7 @@ namespace Gordian.Core.World
             {
                 changed = _savedVolume >= 0 || Array.Exists(_eventSlots, s => s >= 0);
                 Array.Fill(_eventSlots, -1);
+                _startVolumePending = false;
                 if (_savedVolume >= 0)
                 {
                     Volume = _savedVolume;

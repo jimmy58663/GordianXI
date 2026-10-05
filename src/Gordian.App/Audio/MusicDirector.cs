@@ -173,6 +173,7 @@ namespace Gordian.App.Audio
                 if (_pendingDelay <= 0)
                 {
                     Start(_pendingTrack);
+                    if (_pendingTrack > 0) music.TrackStarted();
                 }
 
                 return;
@@ -200,6 +201,7 @@ namespace Gordian.App.Audio
             }
 
             Start(wanted);
+            if (wanted > 0) music.TrackStarted();
         }
 
         /// <summary>Stops the music at once (zone change, logout).</summary>

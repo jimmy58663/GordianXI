@@ -154,8 +154,25 @@ Event opcodes 0x5C / 0x5D / 0x69 / 0x6A / 0x9A run in `EventVm.Sound.cs` (layout
 - 0x5C subs 0-7 / 0x80-0x87 set music slots in an event layer of `ZoneMusicState` that overrides the server's slots; 0x5C 0xA0 / 0xA1 and 0x5D set its music volume (0-127). When the event ends (`EventDialogController` finish or drop) the layer and the volume are dropped and the zone's music returns (the director crossfades back).
 - 0x69 / 0x6A set or ease the category volumes in `WorldState.EventSoundVolumes`; `GameAudioService` applies them as script fades: effects → Effects bus, system → System, zone → Zone, master → those three and the music. Reset when the event ends.
 - 0x9A yields until `MusicDirector.IsSettled` (no fade-out pending, no track loading). With no audio device it never waits, so a silent client cannot hang a scene.
+- **A slot write of the track already playing changes nothing**: the music goes on where it is. Checked by the maintainer on retail (2026-10-05): cutscenes do not restart the zone music; they keep it playing or start their own. **Differs from XiEvents:** its 0x5C pseudo-code sets the current music number to -1, which reads as "restart"; a restart rule built on that (round 1) was wrong in retail and has been removed. The new-character intros set slots 0 / 1 to the track the town already plays (Windurst 151, San d'Oria 107, Bastok 152), so their music simply continues.
+- **Start volume:** 0x5C gives the slot's song a start volume of 127 (`PTR_MusicStartVolumes[slot] = 127`), while 0x5D / 0x5C 0xA0 only move the volume of the song playing. So when a slot write leads to a different track, that track starts at 127 (`ZoneMusicState.TrackStarted`). Port Jeuno `!cs 324` (traced, `PortJeuno324_SetsItsOwnMusicThenGivesTheZoneMusicBack`): slots 110 (the zone track: no change), slots 51 (its own track), `5D` to 0 over 120, then slots 110 again mid-scene, which retail plays at full volume when the player wakes and talks to Joachim, and 110 once more at the end. Before this the 0 volume stuck until the event ended (in-game round 2).
 
 Provisional: the event time unit (read as 1/60 s frames like 0x060), the ignored 0x8n start volume, and the 1 s / 0.5 s restore fades at the event end.
+
+## Cutscene sound effects
+
+Scene resource DATs (the files scheduler opcodes play) carry their sounds as 0x3D sections, played two ways (read from Port Jeuno 324's files, 2026-10-05):
+
+- **Sound commands** in their routines: op 0x60 (global) in every case seen, with the 0x3D section name at +8; xi-tools `docs/fx/effect_system.md` names 0x0A (source), 0x0B (target), 0x4A / 0x53 / 0x60 variants. `SceneRoutine` decodes them as `SceneCommandKind.Sound`. 57129 `se00` → `1060` → 41060; 30905 `who1` → 8158, `blon` 8160; 57129 `0pro` 34125 at frame 10 and 34126 at frame 150.
+- **Sound generators** that routines spawn (op 0x02 / 0x3F): 57129 `2088`, `6041`, `8238`, `7124` / `7a24`, `1080`, `4053`; 30904 `4026`, `4007`, `7124`.
+
+`EventSceneResource` maps both to sound ids; `EventPresentation.Play` schedules them for the task (following 0x03 / 0x73 routine starts, four deep; loops one pass) and `GameAudioService` plays them as they come due: global ones centred, the others at the task's actor (15 / 60 yalms, provisional), on the Effects bus. Port Jeuno 324 now schedules 12 sounds; before, none played.
+
+Still missing in cutscenes (not built):
+- Sounds of **motions** (emotes, gestures, actor motion routines that carry 0x0A / 0x0B), which need the motion routine player to raise sound commands; `MotionRoutineDecoder` drops them today.
+- Sounds of **zone routines** an event starts (0x2D / 0x51 / 0x54 / 0x60 sub 2, `ZoneRoutinePlayer`) and of **actor-attached effects**: their generators are filtered out before playback (audio generators have no draw layer).
+- **Event-zone ambience**: in an event zone (0x34 / 0x35) the ambient loop and sound generators stay those of the current zone.
+- Looping sound generators are played once, and nothing stops a sound when its generator is killed.
 
 ## Combat and action sounds (#41): findings, deferred
 

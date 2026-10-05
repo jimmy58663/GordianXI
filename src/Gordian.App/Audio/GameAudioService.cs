@@ -180,6 +180,7 @@ namespace Gordian.App.Audio
             _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
             UpdateFootsteps(world, session.LocalPlayer.ServerId);
+            PlaySceneSounds(session.Events.Presentation);
             if (Interlocked.Exchange(ref _pendingEmitters, null) is { } loaded)
             {
                 _emitters.SetEmitters(loaded);
@@ -245,6 +246,28 @@ namespace Gordian.App.Audio
             }
 
             return FootwearInfo.Default;
+        }
+
+        /// <summary>Range of a cutscene sound played at its actor (provisional; retail's per-command ranges are unread).</summary>
+        public static readonly (float Near, float Far) SceneSoundRange = (15f, 60f);
+
+        private readonly List<Gordian.Core.Events.EventPresentation.SceneSound> _sceneSounds = new();
+
+        /// <summary>
+        /// Plays the cutscene's routine sounds as they come due: global commands (0x60, and 0x4A / 0x53) centred, the rest
+        /// (0x0A / 0x0B, sound generators) at the task's actor.
+        /// </summary>
+        private void PlaySceneSounds(Gordian.Core.Events.EventPresentation presentation)
+        {
+            _sceneSounds.Clear();
+            presentation.TakeDueSounds(_sceneSounds);
+            foreach (var sound in _sceneSounds)
+            {
+                AudioEmitter? emitter = sound.Opcode is 0x60 or 0x4A or 0x53
+                    ? null
+                    : new AudioEmitter(sound.Origin, SceneSoundRange.Near, SceneSoundRange.Far);
+                PlayEffect(sound.SoundId, AudioCategory.Effects, 1f, emitter);
+            }
         }
 
         private void UpdateFootsteps(WorldState world, uint localPlayerId)

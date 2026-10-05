@@ -92,6 +92,54 @@ namespace Gordian.App.Tests.Audio
         }
 
         [Fact]
+        public void EventSlotWrite_SameTrackKeepsPlaying()
+        {
+            // Retail (maintainer's check, round 2): a cutscene that sets the track already playing does not restart it.
+            var (director, opened, mixer) = Make();
+            ZoneMusicState music = Zone(151, 151);
+            director.Update(music, new MusicContext(0, false, 12f), 0.016);
+            mixer.Mix(new short[64]);
+            music.SetEventSlot(0, 151);
+            music.SetEventSlot(1, 151);
+            director.Update(music, new MusicContext(0, false, 12f), 0.016);
+            director.Update(music, new MusicContext(0, false, 12f), 2);
+            Assert.Equal(new[] { 151 }, opened);
+        }
+
+        [Fact]
+        public void PortJeuno324_ZoneMusicComesBackAtFullVolumeMidEvent()
+        {
+            // The script's order (traced): slots = 110 (zone), slots = 51, music volume 0 over 120, ..., slots = 110.
+            var (director, opened, mixer) = Make();
+            ZoneMusicState music = Zone(110, 110);
+            var day = new MusicContext(0, false, 12f);
+            director.Update(music, day, 0.016);
+            music.SetEventSlot(0, 110);
+            director.Update(music, day, 0.016);
+            music.SetEventSlot(0, 51);
+            mixer.Mix(new short[64]);
+            director.Update(music, day, 0.016);
+            director.Update(music, day, 2);
+            Assert.Equal(new[] { 110, 51 }, opened);
+            music.SetEventVolume(120, 0);
+            director.Update(music, day, 0.016);
+            Assert.Equal(0, music.Volume);
+
+            music.SetEventSlot(0, 110);
+            mixer.Mix(new short[64]);
+            director.Update(music, day, 0.016);
+            director.Update(music, day, 2);
+            Assert.Equal(new[] { 110, 51, 110 }, opened);
+            Assert.Equal(ZoneMusicState.MaxVolume, music.Volume); // the new track starts at its start volume
+
+            music.EndEvent(); // the same track: it simply continues
+            mixer.Mix(new short[64]);
+            director.Update(music, day, 0.016);
+            Assert.Equal(new[] { 110, 51, 110 }, opened);
+            Assert.Equal(ZoneMusicState.MaxVolume, music.Volume);
+        }
+
+        [Fact]
         public void Override_ReplacesAndRestoresTheZoneMusic()
         {
             var (director, opened, mixer) = Make();

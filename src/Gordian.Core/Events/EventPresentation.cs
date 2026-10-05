@@ -159,6 +159,7 @@ namespace Gordian.Core.Events
                     _effectTasks.Add(taskId);
                 }
                 double now = Clock();
+                AddSounds(taskId, resource, routine, now, origin, casterServerId, 0);
                 foreach (var command in routine.Commands)
                 {
                     double start = now + command.StartFrame / FramesPerSecond;
@@ -216,6 +217,7 @@ namespace Gordian.Core.Events
                 _blurTints.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 _blurAmounts.RemoveAll(f => f.TaskId == taskId && f.Start > now);
                 _dissolves.RemoveAll(d => d.TaskId == taskId && d.Start > now);
+                _sounds.RemoveAll(s => s.TaskId == taskId && s.Start > now);
                 Recompute(_sceneFades, _sceneBase);
                 Recompute(_interfaceFades, _interfaceBase);
                 Recompute(_flashFades, _flashBase);
@@ -248,6 +250,71 @@ namespace Gordian.Core.Events
             if (_effects.Count > MaxSceneEffectEvents) _effects.RemoveRange(0, _effects.Count - MaxSceneEffectEvents);
         }
 
+        /// <summary>A cutscene sound effect due at <see cref="Start"/> (presentation clock seconds).</summary>
+        /// <param name="TaskId">The scheduler task.</param>
+        /// <param name="Start">When it plays.</param>
+        /// <param name="SoundId">The <c>.spw</c> id.</param>
+        /// <param name="Opcode">The routine command (0x0A at the source actor, 0x0B at the target, 0x60 global), or 0x02 for a sound generator.</param>
+        /// <param name="Origin">Where the task's actor stands (internal axes).</param>
+        /// <param name="CasterServerId">The task's actor.</param>
+        public readonly record struct SceneSound(int TaskId, double Start, int SoundId, byte Opcode, Vector3 Origin, uint CasterServerId);
+
+        private readonly List<SceneSound> _sounds = new();
+        private const int MaxSoundLinkDepth = 4;
+
+        /// <summary>
+        /// Schedules the sounds of a routine and of the routines it starts (0x03, one pass of 0x73 loops): the sound
+        /// commands (<see cref="SceneCommandKind.Sound"/>) and the generators it spawns whose linked data is a sound
+        /// (Port Jeuno 324: 57129 <c>se00</c> plays <c>1060</c> → 41060, 30905 <c>who1</c> 8158, <c>0pro</c> 34125 and
+        /// 34126). The renderer's effect player only exists for files with drawn generators, so sounds are scheduled here.
+        /// </summary>
+        private void AddSounds(int taskId, EventSceneResource resource, SceneRoutine routine, double start, Vector3 origin, uint caster, int depth)
+        {
+            foreach (var command in routine.Commands)
+            {
+                double at = start + command.StartFrame / FramesPerSecond;
+                switch (command.Kind)
+                {
+                    case SceneCommandKind.Sound when resource.TryGetSound(command.Reference, out int soundId):
+                        _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster));
+                        break;
+                    case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out int generatorSound):
+                        _sounds.Add(new SceneSound(taskId, at, generatorSound, 0x02, origin, caster));
+                        break;
+                    case SceneCommandKind.ReplaceGenerator when resource.TryGetGeneratorSound(command.Reference2, out int replacedSound):
+                        _sounds.Add(new SceneSound(taskId, at, replacedSound, 0x02, origin, caster));
+                        break;
+                    case SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine when depth < MaxSoundLinkDepth
+                        && command.Reference != routine.Name && resource.TryGetRoutine(command.Reference, out var child):
+                        AddSounds(taskId, resource, child, at, origin, caster, depth + 1);
+                        break;
+                }
+            }
+
+            if (_sounds.Count > MaxSceneEffectEvents)
+            {
+                _sounds.RemoveRange(0, _sounds.Count - MaxSceneEffectEvents);
+            }
+        }
+
+        /// <summary>Moves the sounds due by now into <paramref name="into"/> (each is handed out once).</summary>
+        public void TakeDueSounds(List<SceneSound> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_lock)
+            {
+                double now = Clock();
+                for (int i = 0; i < _sounds.Count; i++)
+                {
+                    if (_sounds[i].Start <= now)
+                    {
+                        into.Add(_sounds[i]);
+                        _sounds.RemoveAt(i--);
+                    }
+                }
+            }
+        }
+
         /// <summary>0x46: the event takes the camera (true) or gives it back, which ends every camera move.</summary>
         public void SetCameraHeld(bool held)
         {
@@ -269,6 +336,7 @@ namespace Gordian.Core.Events
                 _blurTints.Clear();
                 _blurAmounts.Clear();
                 _dissolves.Clear();
+                _sounds.Clear();
                 _sceneBase = Vector3.One;
                 _interfaceBase = Vector3.One;
                 _flashBase = Vector3.Zero;
