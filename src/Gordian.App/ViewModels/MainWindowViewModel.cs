@@ -99,9 +99,6 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _formProfileName, value);
         }
 
-        /// <summary>
-        /// Gets or sets the LandSandBoat character slot (1-16) the profile logs in as; 0 = not set (pick by name).
-        /// </summary>
         private bool _formAutoLogin;
 
         /// <summary>The profile's login mode radio: Auto-Login (true) or the Character Select screen (false, the default).</summary>
@@ -121,10 +118,20 @@ namespace Gordian.App.ViewModels
             set => FormAutoLogin = !value;
         }
 
+        /// <summary>
+        /// The slot drop-down's entries: index 0 is "not set" (pick by name), index n is slot n (1-16), so the
+        /// drop-down's selected index is the stored <see cref="AccountProfile.CharacterSlot"/> value.
+        /// </summary>
+        public IReadOnlyList<string> CharacterSlotChoices { get; } =
+            ["Not set (use the name)", .. Enumerable.Range(1, 16).Select(n => n.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+
+        /// <summary>
+        /// Gets or sets the LandSandBoat character slot (1-16) the profile logs in as; 0 = not set (pick by name).
+        /// </summary>
         public int FormCharacterSlot
         {
             get => _formCharacterSlot;
-            set => SetProperty(ref _formCharacterSlot, value);
+            set => SetProperty(ref _formCharacterSlot, value is >= 0 and <= 16 ? value : 0);
         }
 
         public string FormCharacterName
