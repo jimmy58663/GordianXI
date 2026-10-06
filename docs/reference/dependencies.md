@@ -4,21 +4,21 @@
 
 ## Referenced packages
 
-"On `main`" is the version merged today; a "pending" decision has its change on the named branch, waiting for the in-game test and its PR.
+"Before" is the version at the start of #263; "Now" is the version after its PRs.
 
-| Package | On `main` | Latest stable (date) | Licence | Maintenance | Decision |
-|---|---|---|---|---|---|
-| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Fonts.Inter | 12.1.2 | 12.1.3 | MIT | Active | **Update** to 12.1.3 (pending: `chore/263-avalonia-12.1.3`) |
-| AvaloniaUI.DiagnosticsSupport | 2.2.3 | 2.2.3 (2026-06-21) | Not stated in the package; Debug builds only (excluded from Release output) | Active | Keep |
-| Veldrid, Veldrid.SPIRV | 4.9.0 / 1.0.15 | same (2023-02-03) | MIT | Unmaintained since 2023-02 | **Replace** with NeoVeldrid and NeoVeldrid.SPIRV 1.2.1 (2026-08), MIT, same API ([#262](https://github.com/jimmy58663/GordianXI/issues/262), pending: `rendering/262-neoveldrid`) |
-| Veldrid.ImGui | 5.72.0 | 5.72.0 | MIT | Tied to Veldrid | **Remove**: unused (the Tier 3 pass is a stub). See [ImGui](#hud-and-addon-ui-imgui-and-stock-ui-sprites) (pending: `rendering/262-neoveldrid`) |
-| Silk.NET.SDL | 2.23.0 | 2.23.0 (2026-01-23) | MIT (SDL2: zlib) | Silk.NET active; SDL2 maintenance-only | **Replace** with ppy.SDL3-CS ([#261](https://github.com/jimmy58663/GordianXI/issues/261)) |
-| Silk.NET.OpenAL | 2.23.0 | 2.23.0 (2026-01-23) | MIT | Active | Keep |
-| Silk.NET.OpenAL.Soft.Native | 1.23.1 | 1.23.1 (2024-04-23) | LGPL-2.0-or-later (OpenAL Soft, loaded dynamically) | Packaging updated rarely | Keep |
-| xunit | 2.9.3 | xunit.v3 4.0.1 (2026-09-12) | Apache-2.0 | v2 superseded by v3 | **Replace** with `xunit.v3.mtp-off` 4.0.1 (pending: `chore/263-test-tooling`). The `mtp-off` variant keeps `dotnet test` on VSTest, so CI and coverlet.collector are unchanged; plain `xunit.v3` needs `dotnet test` in Microsoft Testing Platform mode on the .NET 10 SDK |
-| xunit.runner.visualstudio | 3.1.4 | 4.0.0 (2026-08-15) | Apache-2.0 | Active | **Update** with the v3 move (pending: `chore/263-test-tooling`) |
-| Microsoft.NET.Test.Sdk | 17.14.1 | 18.10.1 | MIT | Active | **Update** (pending: `chore/263-test-tooling`) |
-| coverlet.collector | 6.0.4 | 10.1.0 (2026-09-27) | MIT | Active | **Update** and keep for coverage (`dotnet test --collect:"XPlat Code Coverage"`; not used by CI yet) (pending: `chore/263-test-tooling`) |
+| Package | Before | Now | Latest stable (date) | Licence | Maintenance | Decision |
+|---|---|---|---|---|---|---|
+| Avalonia, Avalonia.Desktop, Avalonia.Themes.Fluent, Avalonia.Fonts.Inter | 12.1.2 | 12.1.3 | 12.1.3 | MIT | Active | **Updated** ([PR #273](https://github.com/jimmy58663/GordianXI/pull/273)) |
+| AvaloniaUI.DiagnosticsSupport | 2.2.3 | 2.2.3 | 2.2.3 (2026-06-21) | Not stated in the package; Debug builds only (excluded from Release output) | Active | Keep |
+| Veldrid, Veldrid.SPIRV | 4.9.0 / 1.0.15 | NeoVeldrid, NeoVeldrid.SPIRV 1.2.1 | 1.2.1 (2026-08-09) | MIT | Veldrid unmaintained since 2023-02; NeoVeldrid active | **Replaced** with the maintained fork, same API; no Metal backend, so macOS uses Vulkan through MoltenVK ([#262](https://github.com/jimmy58663/GordianXI/issues/262), [PR #274](https://github.com/jimmy58663/GordianXI/pull/274)) |
+| Veldrid.ImGui | 5.72.0 | removed | 5.72.0 | MIT | Tied to Veldrid | **Removed**: unused (the Tier 3 pass is a stub). See [ImGui](#hud-and-addon-ui-imgui-and-stock-ui-sprites) ([PR #274](https://github.com/jimmy58663/GordianXI/pull/274)) |
+| Silk.NET.SDL | 2.23.0 | 2.23.0 | 2.23.0 (2026-01-23) | MIT (SDL2: zlib) | Silk.NET active; SDL2 maintenance-only | **Replace** with ppy.SDL3-CS ([#261](https://github.com/jimmy58663/GordianXI/issues/261)) |
+| Silk.NET.OpenAL | 2.23.0 | 2.23.0 | 2.23.0 (2026-01-23) | MIT | Active | Keep |
+| Silk.NET.OpenAL.Soft.Native | 1.23.1 | 1.23.1 | 1.23.1 (2024-04-23) | LGPL-2.0-or-later (OpenAL Soft, loaded dynamically) | Packaging updated rarely | Keep |
+| xunit | 2.9.3 | xunit.v3.mtp-off 4.0.1 | xunit.v3 4.0.1 (2026-09-12) | Apache-2.0 | v2 superseded by v3 | **Replaced** (TESTPR). The `mtp-off` variant keeps `dotnet test` on VSTest, so CI and coverlet.collector are unchanged; plain `xunit.v3` needs `dotnet test` in Microsoft Testing Platform mode on the .NET 10 SDK |
+| xunit.runner.visualstudio | 3.1.4 | 4.0.0 | 4.0.0 (2026-08-15) | Apache-2.0 | Active | **Updated** with the v3 move (TESTPR) |
+| Microsoft.NET.Test.Sdk | 17.14.1 | 18.10.1 | 18.10.1 | MIT | Active | **Updated** (TESTPR) |
+| coverlet.collector | 6.0.4 | 10.1.0 | 10.1.0 (2026-09-27) | MIT | Active | **Updated** and kept for coverage (`dotnet test --collect:"XPlat Code Coverage"`; not used by CI yet) (TESTPR) |
 
 NeoVeldrid pulls in further Silk.NET 2.23.0 packages, including the native MoltenVK (macOS), shaderc and SPIRV-Cross libraries (Apache-2.0); see THIRD_PARTY_NOTICES.md.
 
