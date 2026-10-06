@@ -21,7 +21,7 @@ namespace Gordian.App.Tests.Services
         }
 
         [Fact]
-        public void Driver_InitializesWithSilkSdl()
+        public void Driver_InitializesWithSdl3()
         {
             // On Windows (and desktop platforms with bundled SDL runtime), driver should be available
             Assert.True(_driver.IsAvailable);

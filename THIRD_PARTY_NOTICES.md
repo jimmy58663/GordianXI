@@ -68,7 +68,7 @@ SOFTWARE.
 ```
 
 ### Silk.NET
-* **Project:** [Silk.NET](https://github.com/dotnet/Silk.NET) (Silk.NET.SDL, Silk.NET.OpenAL 2.23.0, the graphics bindings NeoVeldrid uses, and the Silk.NET.OpenAL.Soft.Native 1.23.1 packaging of OpenAL Soft below)
+* **Project:** [Silk.NET](https://github.com/dotnet/Silk.NET) (Silk.NET.OpenAL 2.23.0, the graphics bindings NeoVeldrid uses, and the Silk.NET.OpenAL.Soft.Native 1.23.1 packaging of OpenAL Soft below)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2020-.NET Foundation and Contributors
 * **Notice:**
@@ -135,8 +135,35 @@ NeoVeldrid pulls in Silk.NET packages (MIT, see Silk.NET above) that ship these 
 
 The packages declare the licence as `Apache-2.0` but carry no licence or NOTICE file, so the text is at https://www.apache.org/licenses/LICENSE-2.0 and the copyright and NOTICE text are in each linked project.
 
-### Simple DirectMedia Layer (SDL)
-* **Project:** [SDL](https://www.libsdl.org/)
+### ppy.SDL3-CS
+* **Project:** [SDL3-CS](https://github.com/ppy/SDL3-CS) (ppy.SDL3-CS 2026.1002.1: C# bindings for SDL3, with the native SDL3 libraries below)
+* **License:** MIT License
+* **Copyright:** Copyright (c) 2024 ppy Pty Ltd
+* **Notice:**
+```text
+Copyright (c) 2024 ppy Pty Ltd <contact@ppy.sh>.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Simple DirectMedia Layer (SDL3)
+* **Project:** [SDL](https://www.libsdl.org/) 3, shipped as the native library of the `ppy.SDL3-CS` package (`SDL3.dll`, `libSDL3.so`, `libSDL3.dylib`) for the gamepad driver
 * **License:** zlib License
 * **Copyright:** Copyright (C) 1997-2026 Sam Lantinga
 * **Notice:**
