@@ -99,6 +99,13 @@ dotnet build
 
 ---
 
+### Verifying a Release Download
+Every release archive comes with signed build provenance and a CycloneDX SBOM (`*.cdx.json`, every package and native library inside). Both are attested by the release workflow, so you can check that a download was built from this repository:
+```bash
+gh attestation verify GordianXI-<version>-win-x64.zip -R jimmy58663/GordianXI
+```
+Add `--predicate-type https://cyclonedx.org/bom` to verify the SBOM attestation instead.
+
 ## 📊 Performance & Telemetry Reference
 
 GordianXI is engineered with a zero-allocation packet and simulation pipeline. For detailed metrics definitions, operational thresholds (Good 🟢, Warning 🟡, Bad 🔴), and troubleshooting runbooks, see **[docs/PERFORMANCE_TELEMETRY.md](docs/PERFORMANCE_TELEMETRY.md)**.

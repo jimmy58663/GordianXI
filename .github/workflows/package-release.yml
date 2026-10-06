@@ -6,7 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write          # upload release assets
+  id-token: write          # Sigstore signing certificate for attestations
+  attestations: write      # store build provenance and SBOM attestations
+  artifact-metadata: write # artifact storage records for attestations
+
+env:
+  # CycloneDX .NET tool that writes each release's SBOM (#278)
+  CYCLONEDX_VERSION: '6.2.0'
 
 jobs:
   package-windows:
@@ -69,6 +76,7 @@ jobs:
           touch staging/GordianXI/logs/.gitkeep
 
       - name: Create Zip Archive and SHA256
+        id: archive
         shell: bash
         env:
           TAG: ${{ steps.vars.outputs.tag }}
@@ -77,6 +85,32 @@ jobs:
           ARCHIVE_NAME="GordianXI-${TAG}-win-x64.zip"
           (cd staging && zip -r -9 "../dist/${ARCHIVE_NAME}" GordianXI)
           (cd dist && sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256")
+          echo "archive=dist/${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+          echo "sbom=dist/GordianXI-${TAG}-win-x64.cdx.json" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM (CycloneDX)
+        shell: bash
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          dotnet tool install CycloneDX --version "$CYCLONEDX_VERSION" --tool-path .tools
+          ./.tools/dotnet-CycloneDX src/Gordian.App/Gordian.App.csproj --recursive --include-project-references \
+            --exclude-dev --configuration Release --runtime win-x64 --framework net10.0 \
+            --set-name GordianXI --set-version "$TAG" --output-format Json \
+            --output dist --filename "GordianXI-${TAG}-win-x64.cdx.json"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ${{ steps.archive.outputs.archive }}
+            staging/GordianXI/proxy/FFXiMain.dll
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.archive.outputs.archive }}
+          sbom-path: ${{ steps.archive.outputs.sbom }}
 
       - name: Upload Release Assets
         env:
@@ -129,6 +163,7 @@ jobs:
           touch staging/GordianXI/logs/.gitkeep
 
       - name: Create Tarball Archive and SHA256
+        id: archive
         shell: bash
         env:
           TAG: ${{ steps.vars.outputs.tag }}
@@ -137,6 +172,30 @@ jobs:
           ARCHIVE_NAME="GordianXI-${TAG}-linux-x64.tar.gz"
           tar -czvf "dist/${ARCHIVE_NAME}" -C staging GordianXI
           (cd dist && sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256")
+          echo "archive=dist/${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+          echo "sbom=dist/GordianXI-${TAG}-linux-x64.cdx.json" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM (CycloneDX)
+        shell: bash
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          dotnet tool install CycloneDX --version "$CYCLONEDX_VERSION" --tool-path .tools
+          ./.tools/dotnet-CycloneDX src/Gordian.App/Gordian.App.csproj --recursive --include-project-references \
+            --exclude-dev --configuration Release --runtime linux-x64 --framework net10.0 \
+            --set-name GordianXI --set-version "$TAG" --output-format Json \
+            --output dist --filename "GordianXI-${TAG}-linux-x64.cdx.json"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.archive.outputs.archive }}
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.archive.outputs.archive }}
+          sbom-path: ${{ steps.archive.outputs.sbom }}
 
       - name: Upload Release Assets
         env:

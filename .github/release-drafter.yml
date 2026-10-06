@@ -28,6 +28,14 @@ template: |
 
   $CHANGES
 
+  ## Verify your download
+  Each archive has build provenance and a CycloneDX SBOM (`*.cdx.json`), signed by this repository's release workflow. With the [GitHub CLI](https://cli.github.com/):
+  ```
+  gh attestation verify <archive> -R jimmy58663/GordianXI
+  gh attestation verify <archive> -R jimmy58663/GordianXI --predicate-type https://cyclonedx.org/bom
+  ```
+  The Windows proxy `proxy/FFXiMain.dll` can be checked the same way after extracting. The `.sha256` files give plain checksums. These are not code signatures: Windows SmartScreen still warns until the binaries are code-signed (#279).
+
 version-resolver:
   major:
     labels:
