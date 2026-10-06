@@ -10,7 +10,7 @@
 - **This file:** phase status, MVP definition, active focus. Keep it short; do not grow it into a changelog. Active Focus stays a few sentences (the phase being finished and where to look); per-sub-phase status lives in the table, one short cell each, with details in issues and `docs/`. Update it in the same PR that changes a phase's status or the active focus.
 - **What to work on next:** open issues labelled `next-up`, then the rest of the current milestone.
 - **[`docs/`](docs/README.md):** how each subsystem works: formats, formulas, calibrations against Windower captures, verification commands. Read the matching doc before working in an area, and record new findings there.
-- **[GitHub Issues](https://github.com/jimmy58663/GordianXI/issues):** open tasks, known gaps and bugs, grouped by milestone (one per open phase) and labelled by area. Reference them from commits (`Closes #N`).
+- **[GitHub Issues](https://github.com/jimmy58663/GordianXI/issues):** open tasks, known gaps and bugs, grouped by [milestone](https://github.com/jimmy58663/GordianXI/milestones) and labelled by area: one milestone per open phase (MVP (Phase 5), Phase 5H: Audio, Phase 9: CI, packaging & releases), plus a Post-MVP backlog for enhancements no phase has scheduled yet. A later phase gets its milestone when it starts. Reference them from commits (`Closes #N`).
 - **Git history:** what was done and when.
 
 ---
