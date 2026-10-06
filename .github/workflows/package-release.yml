@@ -42,17 +42,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Setup MSVC (x86 32-bit tools)
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x86
-
-      - name: Build 32-bit Proxy (FFXiMain.dll)
-        shell: cmd
-        working-directory: src/Gordian.Proxy
-        run: |
-          cl.exe /LD /O2 /Fe:FFXiMain.dll dllmain.cpp user32.lib advapi32.lib /link /MACHINE:X86
-
       - name: Publish Gordian.App (win-x64, self-contained)
         run: |
           dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o staging/GordianXI
@@ -60,14 +49,10 @@ jobs:
       - name: Assemble Portable Folder Structure
         shell: bash
         run: |
-          mkdir -p staging/GordianXI/proxy
           mkdir -p staging/GordianXI/addons
           mkdir -p staging/GordianXI/scripts
           mkdir -p staging/GordianXI/profiles
           mkdir -p staging/GordianXI/logs
-
-          # Copy 32-bit proxy DLL into proxy folder
-          cp src/Gordian.Proxy/FFXiMain.dll staging/GordianXI/proxy/
 
           # Place gitkeep files so empty directories are preserved in the archive
           touch staging/GordianXI/addons/.gitkeep
@@ -102,9 +87,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          subject-path: |
-            ${{ steps.archive.outputs.archive }}
-            staging/GordianXI/proxy/FFXiMain.dll
+          subject-path: ${{ steps.archive.outputs.archive }}
 
       - name: Attest SBOM
         uses: actions/attest@v4
