@@ -1,7 +1,7 @@
 // tests/Gordian.App.Tests/Graphics/GraphicsBackendSelectorTests.cs
 using System;
 using Gordian.App.Graphics;
-using Veldrid;
+using NeoVeldrid;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics
@@ -25,7 +25,7 @@ namespace Gordian.App.Tests.Graphics
             }
             else if (OperatingSystem.IsMacOS())
             {
-                Assert.Equal(GraphicsBackend.Metal, candidates[0]);
+                Assert.Equal(GraphicsBackend.Vulkan, candidates[0]);
             }
         }
 
@@ -45,10 +45,11 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void MetalPreference_PrioritizesMetal()
+        public void LegacyMetalPreference_SelectsVulkan()
         {
+            // NeoVeldrid has no Metal backend; a saved Metal preference runs Vulkan (MoltenVK on macOS).
             var candidates = VeldridDeviceManager.GetBackendCandidates(GraphicsBackendPreference.Metal);
-            Assert.Equal(GraphicsBackend.Metal, candidates[0]);
+            Assert.Equal(GraphicsBackend.Vulkan, candidates[0]);
         }
     }
 }

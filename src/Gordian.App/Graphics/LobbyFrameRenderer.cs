@@ -6,7 +6,7 @@ using Gordian.Core.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui.Lobby;
-using Veldrid;
+using NeoVeldrid;
 
 namespace Gordian.App.Graphics
 {

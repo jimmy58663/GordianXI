@@ -6,8 +6,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Gordian.Core.Graphics;
 using Gordian.Core.Resources.Graphics;
-using Veldrid;
-using Veldrid.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace Gordian.App.Graphics
 {

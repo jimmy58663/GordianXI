@@ -14,8 +14,8 @@ using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
-using Veldrid;
-using Veldrid.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace Gordian.App.Graphics
 {

@@ -7,7 +7,7 @@ namespace Gordian.App.Graphics
     public enum GraphicsBackendPreference
     {
         /// <summary>
-        /// Automatically selects the best native backend: Direct3D 11 on Windows, Vulkan on Linux, Metal on macOS.
+        /// Automatically selects the best native backend: Direct3D 11 on Windows, Vulkan on Linux, Vulkan through MoltenVK on macOS.
         /// </summary>
         Auto = 0,
 
@@ -22,7 +22,8 @@ namespace Gordian.App.Graphics
         Vulkan = 2,
 
         /// <summary>
-        /// Metal backend (macOS only).
+        /// Legacy value kept so saved settings still load: NeoVeldrid has no Metal backend, so it selects
+        /// Vulkan, which runs on macOS through NeoVeldrid's bundled MoltenVK. Not offered in the settings list.
         /// </summary>
         Metal = 3,
 

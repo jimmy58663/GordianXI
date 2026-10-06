@@ -79,15 +79,15 @@ namespace Gordian.App.Tests.Graphics
             const uint width = 2559, height = 1439;
             IntPtr hwnd = CreateWindowExW(0, "static", "LobbyLicenceTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devices = new VeldridDeviceManager();
-            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devices.Device;
             if (gd == null) { DestroyWindow(hwnd); return; }
             try
             {
                 var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
-                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
                 using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                 for (int i = 0; i < 3; i++) frames.Render(lobby, new LobbyPreview(), null, rm, framebuffer, width, height, 1 / 60f);
                 var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
@@ -128,15 +128,15 @@ namespace Gordian.App.Tests.Graphics
             const uint width = 1280, height = 720;
             IntPtr hwnd = CreateWindowExW(0, "static", "LobbyCreateTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devices = new VeldridDeviceManager();
-            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devices.Device;
             if (gd == null) { DestroyWindow(hwnd); return; }
             try
             {
                 var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
-                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
                 using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                 var entities = new EntityRenderer(gd);
                 var preview = new LobbyPreview();
@@ -222,15 +222,15 @@ namespace Gordian.App.Tests.Graphics
             const uint width = 640, height = 480;
             IntPtr hwnd = CreateWindowExW(0, "static", "LobbyFadeTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devices = new VeldridDeviceManager();
-            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devices.Device;
             if (gd == null) { DestroyWindow(hwnd); return; }
             try
             {
                 var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
-                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
                 using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                 var preview = new LobbyPreview();
 
@@ -273,15 +273,15 @@ namespace Gordian.App.Tests.Graphics
             const uint width = 1280, height = 720;
             IntPtr hwnd = CreateWindowExW(0, "static", "LobbyTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devices = new VeldridDeviceManager();
-            devices.Initialize(Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devices.Device;
             if (gd == null) { DestroyWindow(hwnd); return; }
             try
             {
                 var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
-                var color = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var depth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(width, height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(depth, color));
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
                 using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                 var entities = new EntityRenderer(gd);
                 var preview = new LobbyPreview();

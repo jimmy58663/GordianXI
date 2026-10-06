@@ -264,7 +264,6 @@ namespace Gordian.App.ViewModels
             GraphicsBackendPreference.Auto,
             GraphicsBackendPreference.Direct3D11,
             GraphicsBackendPreference.Vulkan,
-            GraphicsBackendPreference.Metal,
             GraphicsBackendPreference.OpenGL
         };
 
