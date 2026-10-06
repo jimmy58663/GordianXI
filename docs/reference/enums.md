@@ -255,7 +255,7 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 
 ## Logout states (S2C 0x00B)
 
-`LogoutState`, from LandSandBoat `GP_GAME_LOGOUT_STATE`: 0 None, 1 Logout, 2 ZoneChange, 3 MyRoom, 4 Cancel, 5 PolExit, 6 JobExit, 7 PolExitMyRoom, 8 Timeout, 9 GmLogout, 10 End. The zone transition states 1-3 are the ones described in [network/session-and-packets.md](../network/session-and-packets.md#packet-engine-phase-3); how the rest are handled is not checked.
+`LogoutState`, from LandSandBoat `GP_GAME_LOGOUT_STATE`: 0 None, 1 Logout, 2 ZoneChange, 3 MyRoom, 4 Cancel, 5 PolExit, 6 JobExit, 7 PolExitMyRoom, 8 Timeout, 9 GmLogout, 10 End. The zone transition states 1-3 are the ones described in [network/session-and-packets.md](../network/session-and-packets.md#packet-engine-phase-3); LandSandBoat sends state 1 for both Log Out and Shut Down (`charutils::SendDisconnect`), so the client tells them apart by its own C2S 0x0E7 kind (1 logout, 3 shutdown). Every state but 0 and 4 suspends C2S 0x015; 1, 5 and 10 end the session. How retail handles the rest is not checked (XiPackets: the client checks only 1, 4 and 8).
 
 ## Races, look slots and jobs
 

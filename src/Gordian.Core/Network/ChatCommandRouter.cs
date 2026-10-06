@@ -94,6 +94,10 @@ namespace Gordian.Core.Network
         Blacklist,
         /// <summary><c>/jobmasterdisp on|off</c>: shows or hides the job mastery mark (C2S 0x11B); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         JobMasterDisplay,
+        /// <summary><c>/logout [on|off]</c>: asks to log out to the character select screen (C2S 0x0E7 kind 1); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
+        Logout,
+        /// <summary><c>/shutdown [on|off]</c>: asks to shut down (C2S 0x0E7 kind 3); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
+        Shutdown,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -226,6 +230,8 @@ namespace Gordian.Core.Network
                     "heal" => ParseRest(ChatCommandResultKind.Heal, "heal", args),
                     "sit" => ParseRest(ChatCommandResultKind.Sit, "sit", args),
                     "sitchair" => ParseSitChair(args),
+                    "logout" => ParseRest(ChatCommandResultKind.Logout, "logout", args),
+                    "shutdown" => ParseRest(ChatCommandResultKind.Shutdown, "shutdown", args),
                     "random" or "rand" => new ChatCommandResult { Kind = ChatCommandResultKind.Random, Message = args },
                     "nominate" or "propose" => ParsePropose(args, defaultSpeechKind),
                     "vote" => ParseVote(args),

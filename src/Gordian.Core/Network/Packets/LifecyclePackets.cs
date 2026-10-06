@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
@@ -172,6 +173,27 @@ namespace Gordian.Core.Network.Packets
     {
         Logout = 0x01,
         Shutdown = 0x03
+    }
+
+    /// <summary>
+    /// How a session ended on S2C 0x00B: the server's <see cref="LogoutState"/> and the kind of the client's own last
+    /// C2S 0x0E7 request still standing (null when none, e.g. a GM or server-forced logout).
+    /// The server does not tell Log Out and Shut Down apart: LandSandBoat (https://github.com/LandSandBoat/server,
+    /// <c>charutils::SendDisconnect</c>, reached from the LEAVEGAME effect of <c>c2s/0x0e7_reqlogout.cpp</c>) answers both
+    /// with state 1 (<see cref="LogoutState.Logout"/>), and XiPackets (https://github.com/atom0s/XiPackets,
+    /// <c>world/server/0x000B</c>) notes the retail client only checks states 1, 4 and 8. The client therefore decides from
+    /// its own request: Shut Down closes, Log Out goes back to the character select screen.
+    /// </summary>
+    public readonly record struct SessionLogout(LogoutState State, ReqLogoutKind? RequestedKind)
+    {
+        /// <summary>True when the client asked to shut down (C2S 0x0E7 kind 3), so the session closes.</summary>
+        public bool IsShutdown => RequestedKind == ReqLogoutKind.Shutdown;
+
+        /// <summary>
+        /// True when the session goes back to the character select screen: a Log Out (state 1) that was not a shutdown
+        /// request. A logout the server forced without a request also returns there.
+        /// </summary>
+        public bool ReturnsToLobby => State == LogoutState.Logout && !IsShutdown;
     }
 
     /// <summary>
@@ -1169,8 +1191,51 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
 
+        private int _pendingLogoutKind;
+
+        /// <summary>
+        /// The kind of the logout the client has asked for and not cancelled (null when none). LandSandBoat holds the request
+        /// as the LEAVEGAME effect and answers it after its countdown with S2C 0x00B state 1 for both kinds, so this is what
+        /// tells a Shut Down from a Log Out when that arrives.
+        /// </summary>
+        public ReqLogoutKind? PendingLogoutKind
+        {
+            get
+            {
+                int kind = Volatile.Read(ref _pendingLogoutKind);
+                return kind == 0 ? null : (ReqLogoutKind)kind;
+            }
+        }
+
+        /// <summary>Forgets a pending logout request (a new map server session starts without one).</summary>
+        public void ClearPendingLogout() => Volatile.Write(ref _pendingLogoutKind, 0);
+
+        /// <summary>
+        /// The pending logout kind after sending C2S 0x0E7 with <paramref name="mode"/> and <paramref name="kind"/>, from
+        /// <paramref name="pending"/>. Mirrors how LandSandBoat (https://github.com/LandSandBoat/server,
+        /// <c>c2s/0x0e7_reqlogout.cpp</c>) applies the request: Toggle starts the request of that kind or cancels any
+        /// pending one, On starts it (or changes the pending kind), Off cancels, and the mismatched On (logout kind with
+        /// the shutdown mode or the reverse) does nothing. Mode and kind values from XiPackets
+        /// (https://github.com/atom0s/XiPackets, <c>world/client/0x00E7</c>).
+        /// </summary>
+        public static ReqLogoutKind? ApplyLogoutRequest(ReqLogoutKind? pending, ReqLogoutMode mode, ReqLogoutKind kind)
+        {
+            return mode switch
+            {
+                ReqLogoutMode.Toggle => pending.HasValue ? null : kind,
+                ReqLogoutMode.LogoutOn => kind == ReqLogoutKind.Logout ? kind : pending,
+                ReqLogoutMode.ShutdownOn => kind == ReqLogoutKind.Shutdown ? kind : pending,
+                ReqLogoutMode.Off => null,
+                _ => pending
+            };
+        }
+
         public async Task RequestLogoutAsync(ReqLogoutMode mode = ReqLogoutMode.LogoutOn, ReqLogoutKind kind = ReqLogoutKind.Logout)
         {
+            ReqLogoutKind? next = ApplyLogoutRequest(PendingLogoutKind, mode, kind);
+            Volatile.Write(ref _pendingLogoutKind, next.HasValue ? (int)next.Value : 0);
+            GordianLog.Info("LIFECYCLE", $"Requesting C2S 0x0E7: Mode={mode}, Kind={kind}; pending logout now {next?.ToString() ?? "none"}.");
+
             byte[] packet = LifecycleOutboundPackets.BuildReqLogout(mode, kind);
             if (LogOutboundOnRoute)
             {

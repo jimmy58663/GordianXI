@@ -311,10 +311,41 @@ namespace Gordian.Core.Network
 
         /// <summary>
         /// Raised when the server ends the session with S2C 0x00B (Logout, PolExit or End), just before the session
-        /// disconnects (so a handler acts before the session's Disconnected state): a /logout or the menu's Log Out (Logout)
-        /// can return to the character select screen, a shutdown (PolExit) closes.
+        /// disconnects (so a handler acts before the session's Disconnected state). The server sends the same state for
+        /// Log Out and Shut Down, so the argument also carries the client's own pending request:
+        /// <see cref="SessionLogout.ReturnsToLobby"/> for a Log Out, <see cref="SessionLogout.IsShutdown"/> for a Shut Down.
         /// </summary>
-        public event Action<LogoutState>? LoggedOut;
+        public event Action<SessionLogout>? LoggedOut;
+
+        private volatile bool _positionUpdatesSuspended;
+        private volatile bool _sessionEnding;
+
+        /// <summary>
+        /// True from an S2C 0x00B that takes the character off this map server (logout, zone change, Mog House) until the
+        /// next map server's S2C 0x00A login: the client sends no C2S 0x015 position updates meanwhile. LandSandBoat
+        /// (https://github.com/LandSandBoat/server, <c>c2s/0x015_pos.cpp</c>) rejects them once the character is
+        /// disappearing (zone change) or shutting down (logout), and <c>charutils::SendToZone</c> /
+        /// <c>SendDisconnect</c> set those states as they queue the 0x00B.
+        /// </summary>
+        public bool PositionUpdatesSuspended => _positionUpdatesSuspended;
+
+        /// <summary>
+        /// True once the server has logged the character out (S2C 0x00B state 1, 5 or 10): nothing more is sent for it,
+        /// until a new <see cref="ConnectAsync"/>.
+        /// </summary>
+        public bool SessionEnding => _sessionEnding;
+
+        /// <summary>The kind of logout the client has asked for with C2S 0x0E7 and not cancelled (null when none).</summary>
+        public ReqLogoutKind? PendingLogoutKind => _parser.LifecycleModule.PendingLogoutKind;
+
+        /// <summary>
+        /// Whether an S2C 0x00B state takes the character off this map server. Cancel (4) keeps it in the zone, as
+        /// XiPackets (https://github.com/atom0s/XiPackets, <c>world/server/0x000B</c>) describes; None is not a state.
+        /// </summary>
+        internal static bool LeavesMapServer(LogoutState state) => state is not (LogoutState.None or LogoutState.Cancel);
+
+        /// <summary>Whether an S2C 0x00B state ends the session (the client handles these as a logout).</summary>
+        internal static bool EndsSession(LogoutState state) => state is LogoutState.Logout or LogoutState.PolExit or LogoutState.End;
 
         /// <summary>
         /// Raised whenever a sub-packet is parsed from an inbound stream or queued for outbound dispatch.
@@ -350,6 +381,12 @@ namespace Gordian.Core.Network
             };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
             {
+                // Raised by the S2C 0x00A login: the character is on this map server, so position updates resume.
+                if (_positionUpdatesSuspended)
+                {
+                    _positionUpdatesSuspended = false;
+                    GordianLog.Debug("NET", "S2C 0x00A login received: resuming C2S 0x015 position updates.");
+                }
                 PositionX = x;
                 PositionY = y;
                 PositionZ = z;
@@ -403,7 +440,8 @@ namespace Gordian.Core.Network
             _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex, _moveFrame, _isWalking);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
-                GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}");
+                GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}, PendingLogout={PendingLogoutKind?.ToString() ?? "none"}");
+                if (LeavesMapServer(state)) SuspendPositionUpdates(state);
                 if ((state == LogoutState.ZoneChange || state == LogoutState.MyRoom) && ZoneTransitionPending)
                 {
                     // The server resends 0x00B until the client reappears on the new map server; act on it once.
@@ -415,14 +453,62 @@ namespace Gordian.Core.Network
                     World.Clear();
                     _ = HandleZoneTransitionAsync(targetIp, targetPort);
                 }
-                else if (state == LogoutState.Logout || state == LogoutState.PolExit || state == LogoutState.End)
+                else if (EndsSession(state))
                 {
+                    _sessionEnding = true;
+                    var logout = new SessionLogout(state, PendingLogoutKind);
+                    GordianLog.Info("NET", $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
+                                           $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.");
                     World.Clear();
-                    try { LoggedOut?.Invoke(state); }
+                    try { LoggedOut?.Invoke(logout); }
                     catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
                     Disconnect();
                 }
             };
+        }
+
+        private void SuspendPositionUpdates(LogoutState state)
+        {
+            if (_positionUpdatesSuspended) return;
+            _positionUpdatesSuspended = true;
+            GordianLog.Info("NET", $"S2C 0x00B {state}: suspending C2S 0x015 position updates until the next map server login.");
+        }
+
+        /// <summary>
+        /// Whether an outbound sub-packet may still be sent: nothing once the session is ending, and no C2S 0x015 while
+        /// position updates are suspended (see <see cref="PositionUpdatesSuspended"/>).
+        /// </summary>
+        private bool MaySend(ushort packetId) => !_sessionEnding && !(packetId == 0x015 && _positionUpdatesSuspended);
+
+        /// <summary>
+        /// Drops the queued sub-packets <see cref="MaySend"/> refuses from the outbound staging buffer (they may have been
+        /// queued before the S2C 0x00B arrived). Call under <see cref="_writeLock"/>.
+        /// </summary>
+        private void DropRefusedQueuedSubPackets()
+        {
+            if (_currentBufferLength == 0 || (!_sessionEnding && !_positionUpdatesSuspended)) return;
+            if (_sessionEnding)
+            {
+                _currentBufferLength = 0;
+                return;
+            }
+
+            int read = 0, write = 0;
+            while (read + 4 <= _currentBufferLength)
+            {
+                int subSize = (_outboundQueueBuffer[read + 1] & 0xFE) * 2;
+                if (subSize < 4 || read + subSize > _currentBufferLength) break;
+                ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(read, 2)) & 0x1FF);
+                if (MaySend(packetId))
+                {
+                    if (write != read) _outboundQueueBuffer.AsSpan(read, subSize).CopyTo(_outboundQueueBuffer.AsSpan(write));
+                    write += subSize;
+                }
+                read += subSize;
+            }
+            int rest = _currentBufferLength - read;
+            if (rest > 0 && write != read) _outboundQueueBuffer.AsSpan(read, rest).CopyTo(_outboundQueueBuffer.AsSpan(write));
+            _currentBufferLength = write + rest;
         }
 
         /// <summary>
@@ -600,6 +686,9 @@ namespace Gordian.Core.Network
             }
 
             _cts = new CancellationTokenSource();
+            _sessionEnding = false;
+            _positionUpdatesSuspended = false;
+            _parser.LifecycleModule.ClearPendingLogout();
 
             try
             {
@@ -710,6 +799,16 @@ namespace Gordian.Core.Network
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
 
+            if (chunkData.Length >= 2)
+            {
+                ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(chunkData.Span) & 0x1FF);
+                if (!MaySend(packetId))
+                {
+                    GordianLog.Debug("NET", $"Dropped outbound 0x{packetId:X3}: {(_sessionEnding ? "the session is logging out" : "position updates are suspended")}.");
+                    return;
+                }
+            }
+
             if (OutboundChunkOverride != null)
             {
                 await OutboundChunkOverride(chunkData, isHighPriority).ConfigureAwait(false);
@@ -748,6 +847,7 @@ namespace Gordian.Core.Network
         /// </summary>
         private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token)
         {
+            DropRefusedQueuedSubPackets();
             if (_currentBufferLength == 0) return;
 
             try
@@ -834,7 +934,8 @@ namespace Gordian.Core.Network
                         {
                             // In ActiveInWorld or LoadingWorldData, ensure the 0x015 GP_CLI_POS keepalive heartbeat
                             // is bundled into outbound transmission with active MoveFlame and RunMode flags.
-                            if (CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData)
+                            // Not while the character is leaving this map server (S2C 0x00B) or before the next one's login.
+                            if ((CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData) && MaySend(0x015))
                             {
                                 // Pull latest position, heading, and locomotion speed from WorldState if available
                                 if (_parser.LocalPlayer.ServerId != 0 &&
