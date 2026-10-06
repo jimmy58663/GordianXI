@@ -8,12 +8,14 @@ using Gordian.Core.Network;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Tests.World;
 using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
 {
-    public class WeatherPacketTests
+    [Collection(VanaClockCollection.Name)]
+    public class WeatherPacketTests : VanaClockTestBase
     {
         [Fact]
         public void S2C_0x057_Weather_DecodesWirePayload()

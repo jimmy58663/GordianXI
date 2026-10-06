@@ -5,7 +5,8 @@ using Xunit;
 
 namespace Gordian.Core.Tests.World
 {
-    public class VanaTimeTests
+    [Collection(VanaClockCollection.Name)]
+    public class VanaTimeTests : VanaClockTestBase
     {
         [Fact]
         public void VanaTime_EpochReturnsZeroHour()

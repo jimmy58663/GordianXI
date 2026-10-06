@@ -27,6 +27,7 @@ namespace Gordian.Core.World
         /// </summary>
         public const int SecondsPerVanadielDay = 86400;
 
+        // Process-wide. Tests that change it belong in the non-parallel "VanaClock" test collection (#268).
         private static long _serverClockOffsetSeconds = 0;
 
         /// <summary>
