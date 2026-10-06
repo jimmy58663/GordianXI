@@ -1,0 +1,51 @@
+# Dependabot version updates (#263). Weekly, grouped so each family arrives as one PR.
+# Decisions and the package list: docs/reference/dependencies.md
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directories:
+      - "/src/*"
+      - "/tests/*"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # One NuGet PR open at a time, matching the one-PR-in-flight workflow.
+    open-pull-requests-limit: 1
+    labels:
+      - "chore"
+    commit-message:
+      prefix: "Deps"
+    groups:
+      avalonia:
+        patterns:
+          - "Avalonia*"
+          - "AvaloniaUI.*"
+      graphics:
+        patterns:
+          - "NeoVeldrid*"
+      silk-net:
+        patterns:
+          - "Silk.NET.*"
+      test-tooling:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet.*"
+      other:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 1
+    labels:
+      - "chore"
+    commit-message:
+      prefix: "CI"
+    groups:
+      actions:
+        patterns:
+          - "*"
