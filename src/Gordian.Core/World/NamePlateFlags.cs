@@ -68,5 +68,12 @@ namespace Gordian.Core.World
         /// (flags3 <c>unknown_3_5</c>).
         /// </summary>
         NameHidden = 1 << 16,
+
+        /// <summary>
+        /// An NPC or monster whose HP gauge the target window does not draw: 0x00E flags1 <c>PlayOnelineFlag</c>
+        /// (bit 16), which XiPackets documents as hiding the health bar when the entity is targeted on 0x00E (on 0x00D it
+        /// is the PlayOnline icon). LandSandBoat's <c>entity_flags.hide_hp</c> (0x100) lands on this bit.
+        /// </summary>
+        HealthBarHidden = 1 << 17,
     }
 }
