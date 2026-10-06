@@ -168,6 +168,13 @@ namespace Gordian.App.Graphics
                 else renderer.DrawText(font, shown, placement.X + SampleTextX * s, sampleY, s, menu.SampleColor);
             }
 
+            if (font != null && menu.TitleSuffix?.Invoke() is { Length: > 0 } suffix)
+            {
+                // Client text after the frame's title (the dead window's time left after "Time Left:"), on the title's
+                // line: its glyphs sit at y 5-16 in the frame.
+                renderer.DrawText(font, suffix, placement.X + menu.TitleSuffixX * s, placement.Y + TitleSuffixY * s, s);
+            }
+
             if (menu.Message is { Length: > 0 } message && font != null)
             {
                 float textWidth = font.MeasureWidth(message) * s;
@@ -184,6 +191,9 @@ namespace Gordian.App.Graphics
         /// into a row its text starts: a retail recording (2026-09-28, 1:1) has the question 14 px in at y 8 and the
         /// options 37 px in (the cursor arrow sits in the 28 px before the row buttons).
         /// </summary>
+        /// <summary>Top of the title line's text (the "Time Left:" glyphs of the dead window start at y 5).</summary>
+        private const float TitleSuffixY = 5;
+
         private const float QueryCommentX = 14, QueryCommentY = 8, QueryCommentPitch = 16, QueryOptionTextInset = 9;
 
         /// <summary>

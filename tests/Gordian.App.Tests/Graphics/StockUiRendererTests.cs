@@ -250,6 +250,92 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the dead character's window ("dead": "Time Left:" with the time after it, "Back to Home Point") at its
+        /// authored top-left place with the Raise prompt over it (#103); writes gpu_dead.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersDeadWindowWithTimeLeftAndRaisePrompt()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiDeadTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new NeoVeldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var menus = new StockUiMenuController { Library = library };
+                var dead = menus.OpenPinned(StockUiDeathMenu.MenuName, () => "59:30", StockUiDeathMenu.TimeLeftX);
+                Assert.NotNull(dead);
+                Assert.NotNull(menus.OpenYesNo(StockUiDeathMenu.RaiseQuestion, defaultYes: true, _ => { }));
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var frame = dead!.Menu.Frame;
+                var placement = layout.Resolve(StockUiWindowIds.Death, frame, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, dead, placement, 0);
+                var promptMenu = menus.OpenMenus[1];
+                var promptFrame = promptMenu.Menu.Frame;
+                var promptPlacement = StockUiLayout.Place(promptFrame.Anchor, promptFrame.X, promptFrame.Y, promptFrame.Width, promptFrame.Height, 1, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, promptMenu, promptPlacement, 0);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_dead.png"), pixels, (int)width, (int)height);
+                }
+
+                // Authored top-left at (16, 94).
+                Assert.Equal(16, placement.X, 3);
+                Assert.Equal(94, placement.Y, 3);
+                // The time after "Time Left:" is drawn: bright glyph pixels right of the title's end (x 66).
+                bool text = false;
+                for (int y = (int)placement.Y + 5; y < (int)placement.Y + 16 && !text; y++)
+                {
+                    for (int x = (int)(placement.X + StockUiDeathMenu.TimeLeftX); x < (int)placement.X + frame.Width - 4 && !text; x++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        text = p.R > 180 && p.G > 180 && p.B > 180;
+                    }
+                }
+                Assert.True(text, "no time-left text after the title");
+                menus.CloseMenu(dead);
+                Assert.False(menus.IsOpen);
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders the target command menu composed for yourself (Chat, Magic, Abilities, Trust, Items, Trade, Check)
         /// at the bottom left with the chat-mode list opened from its Chat entry beside it: the rebuilt seven-row
         /// frame, the tell partner's name after Tell's red arrow, and the greyed Linkshell 2 / Unity rows with their
