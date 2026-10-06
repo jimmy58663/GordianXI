@@ -27,7 +27,7 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(vm.IsVsyncEnabled);
                 Assert.Contains(GraphicsBackendPreference.Direct3D11, vm.AvailableBackends);
                 Assert.Contains(GraphicsBackendPreference.Vulkan, vm.AvailableBackends);
-                Assert.Contains(GraphicsBackendPreference.Metal, vm.AvailableBackends);
+                Assert.DoesNotContain(GraphicsBackendPreference.Metal, vm.AvailableBackends);
             }
             finally
             {

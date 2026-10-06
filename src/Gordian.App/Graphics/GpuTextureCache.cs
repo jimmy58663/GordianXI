@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Graphics;
-using Veldrid;
+using NeoVeldrid;
 
 namespace Gordian.App.Graphics
 {

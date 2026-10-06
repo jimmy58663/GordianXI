@@ -7,7 +7,6 @@ using Gordian.Core.Events;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Events
 {

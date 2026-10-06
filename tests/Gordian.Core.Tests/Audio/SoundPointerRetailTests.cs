@@ -5,7 +5,6 @@ using Gordian.Core.Audio;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Audio
 {

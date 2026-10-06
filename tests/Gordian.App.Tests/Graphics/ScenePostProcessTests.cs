@@ -7,7 +7,6 @@ using Gordian.App.Graphics;
 using Gordian.Core.Events;
 using Gordian.Core.Resources.Events;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.App.Tests.Graphics
 {
@@ -32,10 +31,10 @@ namespace Gordian.App.Tests.Graphics
         {
             private readonly IntPtr _hwnd;
             private readonly VeldridDeviceManager _devMgr;
-            private readonly Veldrid.GraphicsDevice _gd;
-            private readonly Veldrid.Framebuffer _fb;
-            private readonly Veldrid.Texture _color, _depth, _staging, _depthStaging;
-            private readonly Veldrid.CommandList _cl;
+            private readonly NeoVeldrid.GraphicsDevice _gd;
+            private readonly NeoVeldrid.Framebuffer _fb;
+            private readonly NeoVeldrid.Texture _color, _depth, _staging, _depthStaging;
+            private readonly NeoVeldrid.CommandList _cl;
             private readonly Gordian.Core.Resources.ResourceManager _rm;
             private readonly Gordian.Core.Graphics.ZoneEnvironmentSettings _env;
             public readonly ZoneTerrainRenderer Renderer;
@@ -49,7 +48,7 @@ namespace Gordian.App.Tests.Graphics
                 _rm = rm;
                 _hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, Width, Height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 _devMgr = new VeldridDeviceManager();
-                _devMgr.Initialize(Veldrid.SwapchainSource.CreateWin32(_hwnd, IntPtr.Zero), Width, Height, GraphicsBackendPreference.Direct3D11, vsync: false);
+                _devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(_hwnd, IntPtr.Zero), Width, Height, GraphicsBackendPreference.Direct3D11, vsync: false);
                 _gd = _devMgr.Device!;
                 // A still picture: no drifting clouds or rolling surf between the frames compared.
                 Renderer = new ZoneTerrainRenderer(_gd) { EnableWeatherClouds = false, EnableZoneEffects = false };
@@ -58,11 +57,11 @@ namespace Gordian.App.Tests.Graphics
                 _env.WeatherId = "fine";
                 Renderer.SkyDomeRenderer?.UpdateDome(_env);
                 var format = _gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
-                _color = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, format, Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                _depth = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.DepthStencil));
-                _fb = _gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(_depth, _color));
-                _staging = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, format, Veldrid.TextureUsage.Staging));
-                _depthStaging = _gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(Width, Height, 1, 1, Veldrid.PixelFormat.R32_Float, Veldrid.TextureUsage.Staging));
+                _color = _gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                _depth = _gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                _fb = _gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(_depth, _color));
+                _staging = _gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, format, NeoVeldrid.TextureUsage.Staging));
+                _depthStaging = _gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.Staging));
                 _cl = _gd.ResourceFactory.CreateCommandList();
                 Presentation = new EventPresentation { Clock = () => Now };
                 Renderer.EventPresentation = Presentation;
@@ -83,7 +82,7 @@ namespace Gordian.App.Tests.Graphics
             public byte[] Capture()
             {
                 _cl.Begin(); _cl.CopyTexture(_color, _staging); _cl.End(); _gd.SubmitCommands(_cl); _gd.WaitForIdle();
-                var map = _gd.Map(_staging, Veldrid.MapMode.Read);
+                var map = _gd.Map(_staging, NeoVeldrid.MapMode.Read);
                 var pixels = new byte[Width * Height * 4];
                 for (int y = 0; y < Height; y++) System.Runtime.InteropServices.Marshal.Copy(map.Data + (int)(y * map.RowPitch), pixels, y * Width * 4, Width * 4);
                 _gd.Unmap(_staging);
@@ -94,7 +93,7 @@ namespace Gordian.App.Tests.Graphics
             public float[] CaptureDepth()
             {
                 _cl.Begin(); _cl.CopyTexture(_depth, _depthStaging); _cl.End(); _gd.SubmitCommands(_cl); _gd.WaitForIdle();
-                var map = _gd.Map(_depthStaging, Veldrid.MapMode.Read);
+                var map = _gd.Map(_depthStaging, NeoVeldrid.MapMode.Read);
                 var depth = new float[Width * Height];
                 for (int y = 0; y < Height; y++) System.Runtime.InteropServices.Marshal.Copy(map.Data + (int)(y * map.RowPitch), depth, y * Width, Width);
                 _gd.Unmap(_depthStaging);

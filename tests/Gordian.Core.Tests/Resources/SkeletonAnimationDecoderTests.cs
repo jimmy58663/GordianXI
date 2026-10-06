@@ -230,9 +230,9 @@ namespace Gordian.Core.Tests.Resources
             Assert.All(track!.Scales, s => Assert.Equal(Vector3.Zero, s));
         }
 
-        private readonly Xunit.Abstractions.ITestOutputHelper _output;
+        private readonly ITestOutputHelper _output;
 
-        public SkeletonAnimationDecoderTests(Xunit.Abstractions.ITestOutputHelper output)
+        public SkeletonAnimationDecoderTests(ITestOutputHelper output)
         {
             _output = output;
         }

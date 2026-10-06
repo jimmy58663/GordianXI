@@ -17,13 +17,13 @@ using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
-using Veldrid;
+using NeoVeldrid;
 
 namespace Gordian.App.Graphics
 {
     /// <summary>
     /// Avalonia control embedding a native hardware-accelerated Veldrid 3D viewport surface.
-    /// Supports Direct3D 11 (Windows), Vulkan (Linux/Windows), and Metal (macOS).
+    /// Supports Direct3D 11 (Windows) and Vulkan (Windows, Linux, and macOS through MoltenVK).
     /// </summary>
     public class VeldridViewportControl : NativeControlHost
     {

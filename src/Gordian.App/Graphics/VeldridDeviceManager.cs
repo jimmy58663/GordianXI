@@ -1,7 +1,7 @@
 // src/Gordian.App/Graphics/VeldridDeviceManager.cs
 using System;
 using Gordian.Core.Diagnostics;
-using Veldrid;
+using NeoVeldrid;
 
 namespace Gordian.App.Graphics
 {
@@ -87,7 +87,6 @@ namespace Gordian.App.Graphics
                     {
                         GraphicsBackend.Direct3D11 => GraphicsDevice.CreateD3D11(options, scDesc),
                         GraphicsBackend.Vulkan => GraphicsDevice.CreateVulkan(options, scDesc),
-                        GraphicsBackend.Metal => GraphicsDevice.CreateMetal(options, scDesc),
                         _ => throw new PlatformNotSupportedException($"Direct swapchain creation not supported for backend: {backend}")
                     };
                 }
@@ -112,7 +111,8 @@ namespace Gordian.App.Graphics
             {
                 GraphicsBackendPreference.Direct3D11 => [GraphicsBackend.Direct3D11, GraphicsBackend.Vulkan],
                 GraphicsBackendPreference.Vulkan => [GraphicsBackend.Vulkan, GraphicsBackend.Direct3D11],
-                GraphicsBackendPreference.Metal => [GraphicsBackend.Metal],
+                // NeoVeldrid has no Metal backend: macOS runs Vulkan through its bundled MoltenVK.
+                GraphicsBackendPreference.Metal => [GraphicsBackend.Vulkan],
                 _ => GetAutoCandidates()
             };
         }
@@ -133,8 +133,8 @@ namespace Gordian.App.Graphics
 
             if (OperatingSystem.IsMacOS())
             {
-                // On macOS: Metal is native
-                return [GraphicsBackend.Metal];
+                // On macOS: Vulkan through NeoVeldrid's bundled MoltenVK (no native Metal backend)
+                return [GraphicsBackend.Vulkan];
             }
 
             return [GraphicsBackend.Direct3D11, GraphicsBackend.Vulkan];

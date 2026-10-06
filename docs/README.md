@@ -12,7 +12,7 @@ All formats described here were researched clean-room from public sources (LandS
 | World | [world/entities-and-animation.md](world/entities-and-animation.md) | Character assembly, NPC/monster models, skeletal animation, combat animation plan, knockback |
 | World | [world/collision-and-physics.md](world/collision-and-physics.md) | Collision soup, ground following, falling, walls, elevators, camera collision, WPOS authority |
 | Input | [input/console-and-input.md](input/console-and-input.md) | Command console, `PlayerActionService`, keyboard/mouse/gamepad |
-| Rendering | [rendering/viewport-and-terrain.md](rendering/viewport-and-terrain.md) | Veldrid context, viewport windows, camera, terrain, back-face culling, frame tiers |
+| Rendering | [rendering/viewport-and-terrain.md](rendering/viewport-and-terrain.md) | NeoVeldrid context, viewport windows, camera, terrain, back-face culling, frame tiers |
 | Rendering | [rendering/sky-and-weather.md](rendering/sky-and-weather.md) | Sky dome, stars, moon, clouds, sun, lens flares, live weather |
 | Rendering | [rendering/lighting.md](rendering/lighting.md) | 0x2F light conversion, point lights, sub-environments, actor lighting |
 | Rendering | [rendering/particles.md](rendering/particles.md) | Zone particle runtime, water surfaces, emitters, weather routines |
