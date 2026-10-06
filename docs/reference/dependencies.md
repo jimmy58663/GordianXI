@@ -57,4 +57,4 @@ Design detail: [ui/stock-ui.md](../ui/stock-ui.md#tier-3-overlays-and-stock-ui-s
 
 ## Staying current
 
-Re-run `dotnet list package --outdated` (and check the "Chosen for later" rows by hand) when starting a phase. Dependabot for NuGet is proposed in #263 and ties into Phase 9 CI.
+Dependabot ([.github/dependabot.yml](../../.github/dependabot.yml)) checks NuGet and GitHub Actions every Monday. Each family arrives as one grouped PR: `avalonia`, `graphics` (NeoVeldrid), `silk-net`, `test-tooling` and `other` for NuGet, plus one PR for all actions. Each ecosystem has at most one Dependabot PR open, and the PRs carry the `chore` label for Release Drafter. A Dependabot PR is handled like any other: CI must pass, and an update that touches the app (Avalonia, graphics, Silk.NET) is tested in-game before it merges. Update this table when one lands. Dependabot only proposes stable releases while we are on stable ones; the "Chosen for later" rows are checked by hand when starting a phase.
