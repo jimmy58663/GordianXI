@@ -98,6 +98,7 @@ jobs:
           sbom-path: ${{ steps.archive.outputs.sbom }}
 
       - name: Upload Release Assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.vars.outputs.tag }}
@@ -183,6 +184,7 @@ jobs:
           sbom-path: ${{ steps.archive.outputs.sbom }}
 
       - name: Upload Release Assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.vars.outputs.tag }}
