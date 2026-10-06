@@ -6,7 +6,6 @@ using System.Threading;
 using Gordian.App.Audio;
 using Gordian.Core.Audio;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.App.Tests.Audio
 {

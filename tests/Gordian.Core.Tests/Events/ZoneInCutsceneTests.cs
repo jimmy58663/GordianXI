@@ -14,7 +14,6 @@ using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Ui;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Events
 {

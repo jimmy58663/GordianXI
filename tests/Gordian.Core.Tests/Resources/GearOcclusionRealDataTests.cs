@@ -7,7 +7,6 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Resources
 {

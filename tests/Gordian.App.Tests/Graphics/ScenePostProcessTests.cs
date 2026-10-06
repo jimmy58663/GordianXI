@@ -7,7 +7,6 @@ using Gordian.App.Graphics;
 using Gordian.Core.Events;
 using Gordian.Core.Resources.Events;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.App.Tests.Graphics
 {

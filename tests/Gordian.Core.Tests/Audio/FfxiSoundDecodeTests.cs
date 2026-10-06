@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using Gordian.Core.Audio;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Gordian.Core.Tests.Audio
 {
