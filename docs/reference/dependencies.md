@@ -15,10 +15,10 @@
 | Silk.NET.SDL | 2.23.0 | 2.23.0 | 2.23.0 (2026-01-23) | MIT (SDL2: zlib) | Silk.NET active; SDL2 maintenance-only | **Replace** with ppy.SDL3-CS ([#261](https://github.com/jimmy58663/GordianXI/issues/261)) |
 | Silk.NET.OpenAL | 2.23.0 | 2.23.0 | 2.23.0 (2026-01-23) | MIT | Active | Keep |
 | Silk.NET.OpenAL.Soft.Native | 1.23.1 | 1.23.1 | 1.23.1 (2024-04-23) | LGPL-2.0-or-later (OpenAL Soft, loaded dynamically) | Packaging updated rarely | Keep |
-| xunit | 2.9.3 | xunit.v3.mtp-off 4.0.1 | xunit.v3 4.0.1 (2026-09-12) | Apache-2.0 | v2 superseded by v3 | **Replaced** (TESTPR). The `mtp-off` variant keeps `dotnet test` on VSTest, so CI and coverlet.collector are unchanged; plain `xunit.v3` needs `dotnet test` in Microsoft Testing Platform mode on the .NET 10 SDK |
-| xunit.runner.visualstudio | 3.1.4 | 4.0.0 | 4.0.0 (2026-08-15) | Apache-2.0 | Active | **Updated** with the v3 move (TESTPR) |
-| Microsoft.NET.Test.Sdk | 17.14.1 | 18.10.1 | 18.10.1 | MIT | Active | **Updated** (TESTPR) |
-| coverlet.collector | 6.0.4 | 10.1.0 | 10.1.0 (2026-09-27) | MIT | Active | **Updated** and kept for coverage (`dotnet test --collect:"XPlat Code Coverage"`; not used by CI yet) (TESTPR) |
+| xunit | 2.9.3 | xunit.v3.mtp-off 4.0.1 | xunit.v3 4.0.1 (2026-09-12) | Apache-2.0 | v2 superseded by v3 | **Replaced** ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)). The `mtp-off` variant keeps `dotnet test` on VSTest, so CI and coverlet.collector are unchanged; plain `xunit.v3` needs `dotnet test` in Microsoft Testing Platform mode on the .NET 10 SDK |
+| xunit.runner.visualstudio | 3.1.4 | 4.0.0 | 4.0.0 (2026-08-15) | Apache-2.0 | Active | **Updated** with the v3 move ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
+| Microsoft.NET.Test.Sdk | 17.14.1 | 18.10.1 | 18.10.1 | MIT | Active | **Updated** ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
+| coverlet.collector | 6.0.4 | 10.1.0 | 10.1.0 (2026-09-27) | MIT | Active | **Updated** and kept for coverage (`dotnet test --collect:"XPlat Code Coverage"`; not used by CI yet) ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
 
 NeoVeldrid pulls in further Silk.NET 2.23.0 packages, including the native MoltenVK (macOS), shaderc and SPIRV-Cross libraries (Apache-2.0); see THIRD_PARTY_NOTICES.md.
 
