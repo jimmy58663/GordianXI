@@ -213,7 +213,7 @@ namespace Gordian.Core.Tests.Network
 
             // Old zone traffic up to server Seq 176, then the zone change.
             Assert.True(mgr.ProcessInboundDatagram(BuildEncryptedDatagram(oldServer, 176, chat)));
-            await mgr.PerformZoneTransitionAsync(System.Net.IPAddress.Loopback, 54230);
+            await mgr.PerformZoneTransitionAsync(System.Net.IPAddress.Loopback, 54230, TestContext.Current.CancellationToken);
             Assert.True(mgr.ZoneTransitionPending);
 
             // A straggler from the old map server (retransmitted, old key, old sequence) must be ignored entirely.
@@ -258,7 +258,7 @@ namespace Gordian.Core.Tests.Network
             Assert.False(mgr.ProcessInboundDatagram(d1)); // duplicate
 
             // Perform zone transition
-            await mgr.PerformZoneTransitionAsync(System.Net.IPAddress.Loopback, 54231);
+            await mgr.PerformZoneTransitionAsync(System.Net.IPAddress.Loopback, 54231, TestContext.Current.CancellationToken);
 
             // Sequence 1 should now be accepted again for the new zone
             Assert.True(mgr.ProcessInboundDatagram(d1));

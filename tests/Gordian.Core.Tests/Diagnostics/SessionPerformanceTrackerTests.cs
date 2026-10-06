@@ -38,7 +38,7 @@ namespace Gordian.Core.Tests.Diagnostics
             tracker.RecordSequenceDiscrepancy();
 
             // Wait for rate interval window
-            await Task.Delay(260);
+            await Task.Delay(260, TestContext.Current.CancellationToken);
 
             var snapshot = tracker.GetSnapshot();
 
@@ -110,7 +110,7 @@ namespace Gordian.Core.Tests.Diagnostics
             tracker.RecordOutboundDatagram(512);
 
             // Wait 1.1s so 30-second rolling sample is recorded
-            await Task.Delay(1100);
+            await Task.Delay(1100, TestContext.Current.CancellationToken);
 
             var snapshot = tracker.GetSnapshot();
 

@@ -62,7 +62,7 @@ namespace Gordian.Core.Tests.Network
         {
             using var server = Server();
             await using var lobby = await Connect(server);
-            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[1]);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[1], TestContext.Current.CancellationToken);
 
             Assert.Equal((21900u, "Blm", "127.0.0.1", 54230), (ticket.CharacterId, ticket.CharacterName, ticket.ZoneIp, ticket.ZonePort));
             Assert.Equal(LsbLobbySession.CreateBaseKey(), ticket.BlowfishKey);
@@ -76,7 +76,7 @@ namespace Gordian.Core.Tests.Network
             using var server = Server();
             await using var lobby = await Connect(server);
             server.Characters.RemoveAt(1);
-            var characters = await lobby.RefreshCharactersAsync();
+            var characters = await lobby.RefreshCharactersAsync(TestContext.Current.CancellationToken);
 
             Assert.Equal("Knot", characters[0].Name);
             Assert.True(characters[1].IsEmpty);
@@ -91,14 +91,14 @@ namespace Gordian.Core.Tests.Network
             await using var lobby = await Connect(server);
             var freeSlot = lobby.Characters.First(c => c.IsEmpty);
             var creation = new LobbyCharacterCreation("Newbie", Race: 5, Face: 3, Hair: 1, MainJob: 4, Size: 1, Nation: 2);
-            await lobby.CreateCharacterAsync(freeSlot, creation);
+            await lobby.CreateCharacterAsync(freeSlot, creation, TestContext.Current.CancellationToken);
 
             var created = lobby.Characters.Single(c => c.Name == "Newbie");
             Assert.Equal((5, 7, 4, 1, 2), (created.Race, created.Face, created.MainJob, created.Size, created.Nation));
             Assert.Equal(6, lobby.KeyIncrement);
             Assert.Equal(new byte[] { 0x26, 0x22, 0x21, 0x1F }, server.ViewCommands.ToArray());
 
-            var ticket = await lobby.SelectCharacterAsync(created);
+            var ticket = await lobby.SelectCharacterAsync(created, TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 6, ticket.BlowfishKey[16]);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
@@ -110,13 +110,13 @@ namespace Gordian.Core.Tests.Network
             await using var lobby = await Connect(server);
             var freeSlot = lobby.Characters.First(c => c.IsEmpty);
             var ex = await Assert.ThrowsAsync<LobbyRequestException>(() =>
-                lobby.CreateCharacterAsync(freeSlot, new LobbyCharacterCreation("knot", 1, 0, 0, 1, 0, 0)));
+                lobby.CreateCharacterAsync(freeSlot, new LobbyCharacterCreation("knot", 1, 0, 0, 1, 0, 0), TestContext.Current.CancellationToken));
             Assert.Equal(LobbyErrorCode.CharacterNameUnavailable, ex.ErrorCode);
             Assert.True(lobby.IsConnected);
             Assert.Equal(0, lobby.KeyIncrement);
 
-            await lobby.CheckNameAsync(freeSlot, "Fresh", "Gordian");
-            Assert.Equal(4, (await lobby.RefreshCharactersAsync()).Count);
+            await lobby.CheckNameAsync(freeSlot, "Fresh", "Gordian", TestContext.Current.CancellationToken);
+            Assert.Equal(4, (await lobby.RefreshCharactersAsync(TestContext.Current.CancellationToken)).Count);
         }
 
         [Fact]
@@ -126,7 +126,7 @@ namespace Gordian.Core.Tests.Network
             await using var lobby = await Connect(server);
             var freeSlot = lobby.Characters.First(c => c.IsEmpty);
             var ex = await Assert.ThrowsAsync<LobbyRequestException>(() =>
-                lobby.CreateCharacterAsync(freeSlot, new LobbyCharacterCreation("Valid", Race: 9, 0, 0, 1, 0, 0)));
+                lobby.CreateCharacterAsync(freeSlot, new LobbyCharacterCreation("Valid", Race: 9, 0, 0, 1, 0, 0), TestContext.Current.CancellationToken));
             Assert.False(ex.IsServerError);
             Assert.False(lobby.IsConnected);
         }
@@ -136,11 +136,11 @@ namespace Gordian.Core.Tests.Network
         {
             using var server = Server();
             await using var lobby = await Connect(server);
-            await lobby.DeleteCharacterAsync(lobby.Characters[0]);
+            await lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
 
             Assert.Equal("Blm", lobby.Characters[0].Name);
             Assert.Equal(4, lobby.KeyIncrement);
-            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 4, ticket.BlowfishKey[16]);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
@@ -155,7 +155,7 @@ namespace Gordian.Core.Tests.Network
             using var server = Server();
             server.LoseRequestAfterDelete = true;
             await using var lobby = await Connect(server);
-            await lobby.DeleteCharacterAsync(lobby.Characters[0]);
+            await lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
 
             Assert.Equal(1, server.DroppedRequests);
             Assert.True(lobby.IsConnected);
@@ -163,7 +163,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(new byte[] { 0x26, 0x14, 0x1F }, server.ViewCommands.ToArray());
 
             // Playing another character in the same session: the map key carries the deletion's +4.
-            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 4, ticket.BlowfishKey[16]);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
@@ -175,9 +175,9 @@ namespace Gordian.Core.Tests.Network
             using var server = Server();
             server.DelayRequestAfterDeleteMs = 2000;
             await using var lobby = await Connect(server);
-            await lobby.DeleteCharacterAsync(lobby.Characters[0]);
+            await lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal("Blm", lobby.Characters[0].Name);
-            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
 
@@ -187,7 +187,7 @@ namespace Gordian.Core.Tests.Network
             using var server = Server();
             server.DeletionEnabled = false;
             await using var lobby = await Connect(server);
-            var ex = await Assert.ThrowsAsync<LobbyRequestException>(() => lobby.DeleteCharacterAsync(lobby.Characters[0]));
+            var ex = await Assert.ThrowsAsync<LobbyRequestException>(() => lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken));
             Assert.Equal(LobbyErrorCode.CouldNotConnectToLobbyServer, ex.ErrorCode);
             Assert.Equal(0, lobby.KeyIncrement);
             Assert.Equal(2, lobby.Characters.Count(c => !c.IsEmpty));
@@ -199,11 +199,11 @@ namespace Gordian.Core.Tests.Network
             using var server = Server();
             server.AlreadyLoggedInOnce = true;
             await using var lobby = await Connect(server);
-            var ex = await Assert.ThrowsAsync<LobbyRequestException>(() => lobby.SelectCharacterAsync(lobby.Characters[0]));
+            var ex = await Assert.ThrowsAsync<LobbyRequestException>(() => lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken));
             Assert.Equal(LobbyErrorCode.CharacterAlreadyLoggedIn, ex.ErrorCode);
             Assert.Contains("CHARACTER_ALREADY_LOGGED_IN", ex.Message);
 
-            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0]);
+            var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 1, ticket.BlowfishKey[16]);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
         }
@@ -215,7 +215,7 @@ namespace Gordian.Core.Tests.Network
             server.Characters[0].Rename = true;
             await using var lobby = await Connect(server);
             Assert.True(lobby.Characters[0].RenameRequired);
-            var ticket = await lobby.RenameAndSelectAsync(lobby.Characters[0], "Renamed");
+            var ticket = await lobby.RenameAndSelectAsync(lobby.Characters[0], "Renamed", TestContext.Current.CancellationToken);
 
             Assert.Equal("Renamed", ticket.CharacterName);
             Assert.Equal(0x58 + 4, ticket.BlowfishKey[16]);
@@ -227,7 +227,7 @@ namespace Gordian.Core.Tests.Network
         {
             using var server = Server();
             await using var lobby = await Connect(server);
-            var worlds = await lobby.GetWorldsAsync();
+            var worlds = await lobby.GetWorldsAsync(TestContext.Current.CancellationToken);
             Assert.Equal(new LobbyWorld(0x20, "Gordian"), Assert.Single(worlds));
         }
 
@@ -238,13 +238,13 @@ namespace Gordian.Core.Tests.Network
             var client = new LsbLoginClient();
             int inspected = 0;
             client.PacketInspected += (_, _) => inspected++;
-            var ticket = await client.SelectCharacterAsync("127.0.0.1", server.DataPort, server.ViewPort, Account, Hash, targetCharacterSlot: 2);
+            var ticket = await client.SelectCharacterAsync("127.0.0.1", server.DataPort, server.ViewPort, Account, Hash, targetCharacterSlot: 2, ct: TestContext.Current.CancellationToken);
             Assert.Equal("Blm", ticket.CharacterName);
             Assert.True(inspected >= 8);
             // A slot that is free is refused rather than logging in as another character.
             using var server2 = Server();
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                client.SelectCharacterAsync("127.0.0.1", server2.DataPort, server2.ViewPort, Account, Hash, targetCharacterSlot: 3));
+                client.SelectCharacterAsync("127.0.0.1", server2.DataPort, server2.ViewPort, Account, Hash, targetCharacterSlot: 3, ct: TestContext.Current.CancellationToken));
         }
 
         [Fact]

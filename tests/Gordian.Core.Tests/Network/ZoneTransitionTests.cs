@@ -318,7 +318,7 @@ namespace Gordian.Core.Tests.Network
             var targetIp = IPAddress.Parse("127.0.0.2");
             int targetPort = 54235;
 
-            await netManager.PerformZoneTransitionAsync(targetIp, targetPort);
+            await netManager.PerformZoneTransitionAsync(targetIp, targetPort, TestContext.Current.CancellationToken);
 
             Assert.True(transitionStarted);
             Assert.Equal(targetIp, transitionedIp);

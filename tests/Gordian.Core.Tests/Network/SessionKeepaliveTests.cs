@@ -336,7 +336,7 @@ namespace Gordian.Core.Tests.Network
             Assert.False(mgr.IsWalking);
 
             // Time elapses while continuing movement (~100ms => ~6 frames)
-            await Task.Delay(100);
+            await Task.Delay(100, TestContext.Current.CancellationToken);
             mgr.NotifyLocomotionChanged(new System.Numerics.Vector3(1.5f, 2f, 3.5f), direction: 64, speed: 50);
             Assert.True(mgr.MoveFrame > SessionNetworkManager.InitialRunCount);
 
