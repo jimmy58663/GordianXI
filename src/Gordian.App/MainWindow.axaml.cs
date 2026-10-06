@@ -72,7 +72,7 @@ namespace Gordian.App
             _ipcServer.SessionReceived += OnSessionTokenIntercepted;
             _ipcServer.Start();
 
-            // Initialize cross-platform Gamepad Driver via Silk.NET.SDL (supports XInput, DirectInput, DualSense, HID)
+            // Initialize cross-platform Gamepad Driver via SDL3 (ppy.SDL3-CS; supports XInput, DirectInput, DualSense, HID)
             var sdlDriver = new SdlGamepadDriver();
             if (sdlDriver.IsAvailable)
             {

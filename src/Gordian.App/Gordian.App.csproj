@@ -32,7 +32,7 @@
     </PackageReference>
     <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
-    <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
+    <PackageReference Include="ppy.SDL3-CS" Version="2026.1002.1" />
     <PackageReference Include="NeoVeldrid" Version="1.2.1" />
     <PackageReference Include="NeoVeldrid.SPIRV" Version="1.2.1" />
   </ItemGroup>
