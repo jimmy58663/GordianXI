@@ -42,6 +42,7 @@ Lookup tables of the ids, codes and values the subsystems share: what each one i
 | [reference/enums.md](reference/enums.md) | Wire enums shared across subsystems (emotes, action kinds, cutscene flags...) |
 | [reference/conventions.md](reference/conventions.md) | Axes, headings, units, clocks, offsets |
 | [reference/calibrations.md](reference/calibrations.md) | Tuned and guessed constants, and whether retail has confirmed them |
+| [reference/dependencies.md](reference/dependencies.md) | Every third-party package: version, latest stable, licence, maintenance, decision; the ImGui and HUD UI choice |
 
 ## Keeping these docs useful
 - One doc per subsystem. When a finding changes how something works (a new calibration, a decoded field, a corrected assumption), update the doc in the same commit as the code.

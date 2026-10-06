@@ -49,7 +49,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 
 ## 🎨 UI & Addon Standards
 *   **Desktop App Shell:** Handled strictly via Avalonia UI using the MVVM design pattern. Supporting pop-out windows for character settings is an architectural core layout requirement.
-*   **In-game HUD Overlays:** Handled strictly via **ImGui.NET** inside the 3D viewport thread.
+*   **In-game HUD Overlays:** Handled via **Dear ImGui (Hexa.NET.ImGui)** inside the 3D viewport thread, and via the Tier 2 stock UI renderer for retail-look pieces. See `docs/reference/dependencies.md` for the choice.
 *   **Visual Aesthetic:** Maintain a dark, sleek, translucent profile with rounded corners (`WindowRounding = 6.0f`) to emulate modern custom automation dashboards.
 
 ---
