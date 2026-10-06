@@ -430,14 +430,14 @@ namespace Gordian.Core.Tests.Ui
 
             // Cancelling keeps the player logged in and back on the menu.
             menus.CloseTop();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.Empty(requests);
             Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top!.Name);
 
             menus.Activate();
             menus.Move(InputAction.MenuUp);    // Yes
             menus.Activate();
-            for (int i = 0; i < 50 && requests.Count == 0; i++) await Task.Delay(20);
+            for (int i = 0; i < 50 && requests.Count == 0; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
             Assert.Equal(new[] { false }, requests);
             Assert.False(menus.IsOpen);
         }

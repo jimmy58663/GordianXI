@@ -206,7 +206,7 @@ namespace Gordian.App.Tests.ViewModels
             var deadline = System.Diagnostics.Stopwatch.StartNew();
             while (_vm.IsBenchmarking && deadline.Elapsed < System.TimeSpan.FromSeconds(10))
             {
-                await System.Threading.Tasks.Task.Delay(10);
+                await System.Threading.Tasks.Task.Delay(10, TestContext.Current.CancellationToken);
             }
 
             Assert.False(_vm.IsBenchmarking);

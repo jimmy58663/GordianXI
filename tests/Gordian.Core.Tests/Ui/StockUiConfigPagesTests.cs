@@ -340,7 +340,7 @@ namespace Gordian.Core.Tests.Ui
 
             // Turning auto-target on clears the AutoTargetOff flag with 0x0DC.
             service.UiSettings.SetValue(StockUiSettingKey.AutoTarget, 1);
-            await Task.Delay(10);
+            await Task.Delay(10, TestContext.Current.CancellationToken);
             var flagPacket = Assert.Single(sent);
             Assert.Equal(0x0DC, BitConverter.ToUInt16(flagPacket, 0) & 0x1FF);
             Assert.Equal((uint)PlayerConfigFlags.AutoTargetOff, BitConverter.ToUInt32(flagPacket, 4));
@@ -349,7 +349,7 @@ namespace Gordian.Core.Tests.Ui
 
             // A chat-filter change sends both words and echoes the server's flag word (with AutoTargetOff now clear).
             service.UiSettings.SetChatFilters((uint)ChatFilter1.Shout | (uint)ChatFilter1.Say, (uint)ChatFilter2.Yell);
-            await Task.Delay(10);
+            await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.Equal(2, sent.Count);
             var filterPacket = sent[1];
             Assert.Equal(0x0DB, BitConverter.ToUInt16(filterPacket, 0) & 0x1FF);
@@ -360,7 +360,7 @@ namespace Gordian.Core.Tests.Ui
 
             // Client settings never reach the server.
             service.UiSettings.SetValue(StockUiSettingKey.MusicVolume, 10);
-            await Task.Delay(10);
+            await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.Equal(2, sent.Count);
         }
     }

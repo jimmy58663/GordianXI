@@ -254,7 +254,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(2, menus.Top.SelectedButtonId); // No by default
             menus.Move(InputAction.MenuUp);
             menus.Activate();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(menus.Settings.HasFontColor(StockUiFontColorId.Tell));
         }
 

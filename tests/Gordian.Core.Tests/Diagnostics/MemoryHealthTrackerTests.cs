@@ -38,7 +38,7 @@ namespace Gordian.Core.Tests.Diagnostics
             }
 
             // Wait for 260ms window
-            await Task.Delay(260);
+            await Task.Delay(260, TestContext.Current.CancellationToken);
 
             var snapshot = tracker.GetSnapshot();
 

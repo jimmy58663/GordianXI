@@ -748,7 +748,7 @@ namespace Gordian.App.Graphics
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId))
                                 : 0f;
                             // Never the placeholder model while the screen is not fully clear (it showed during the fade).
-                            if (_renderer?.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+                            if (_renderer.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(

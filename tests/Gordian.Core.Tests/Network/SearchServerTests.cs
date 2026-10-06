@@ -462,7 +462,7 @@ namespace Gordian.Core.Tests.Network
             };
             var client = NewClient(transport);
 
-            var result = await client.GetAuctionListAsync(4, new byte[] { 9 });
+            var result = await client.GetAuctionListAsync(4, new byte[] { 9 }, TestContext.Current.CancellationToken);
 
             Assert.True(result.Complete);
             Assert.Equal(3, result.Total);
@@ -490,15 +490,15 @@ namespace Gordian.Core.Tests.Network
             };
             var client = NewClient(transport, timeoutMs: 150);
 
-            var history = await client.GetAuctionHistoryAsync(4096, stack: true);
+            var history = await client.GetAuctionHistoryAsync(4096, stack: true, cancellationToken: TestContext.Current.CancellationToken);
             Assert.NotNull(history);
             Assert.True(history!.Stack);
             Assert.Equal(700u, history.Sales[0].Price);
             Assert.Equal(6, transport.Bodies[0][0x0B]);
 
-            Assert.Equal("Hello", await client.GetSearchCommentAsync(7));
+            Assert.Equal("Hello", await client.GetSearchCommentAsync(7, TestContext.Current.CancellationToken));
             // LandSandBoat sends nothing for an empty comment: the request runs out its wait.
-            Assert.Null(await client.GetSearchCommentAsync(8));
+            Assert.Null(await client.GetSearchCommentAsync(8, TestContext.Current.CancellationToken));
         }
 
         [Fact]
@@ -521,17 +521,17 @@ namespace Gordian.Core.Tests.Network
             };
             var client = NewClient(transport);
 
-            var search = await client.SearchAsync(new SearchQuery { Name = "A", AllAreas = true });
+            var search = await client.SearchAsync(new SearchQuery { Name = "A", AllAreas = true }, TestContext.Current.CancellationToken);
             Assert.True(search.Complete);
             Assert.Equal(2, search.Total);
             Assert.Equal(new[] { "Ayame", "Cybin" }, search.Players.Select(p => p.Name).ToArray());
             Assert.Equal(0x00, transport.Bodies[0][0x0B]);
 
-            var party = await client.GetPartyListAsync(0x42);
+            var party = await client.GetPartyListAsync(0x42, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("Zed", Assert.Single(party.Players).Name);
             Assert.Equal(0x42u, BinaryPrimitives.ReadUInt32LittleEndian(transport.Bodies[1].AsSpan(0x10)));
 
-            var linkshell = await client.GetLinkshellListAsync(0x99);
+            var linkshell = await client.GetLinkshellListAsync(0x99, TestContext.Current.CancellationToken);
             Assert.Equal("Moogle", Assert.Single(linkshell.Players).Name);
             Assert.Equal(0x99u, BinaryPrimitives.ReadUInt32LittleEndian(transport.Bodies[2].AsSpan(0x18)));
         }
@@ -543,7 +543,7 @@ namespace Gordian.Core.Tests.Network
             transport.Server = _ => new[] { (AuctionHistoryAnswer(1, 1, 1, (5, 6, "A", "B")), 8) };
             var client = NewClient(transport, timeoutMs: 500);
 
-            var history = await client.GetAuctionHistoryAsync(1, false);
+            var history = await client.GetAuctionHistoryAsync(1, false, TestContext.Current.CancellationToken);
 
             Assert.NotNull(history);
             Assert.Equal(5u, history!.Sales[0].Price);
@@ -568,10 +568,10 @@ namespace Gordian.Core.Tests.Network
                 // Two answers in one write: the client has to cut them by their length words.
                 byte[] a = SearchFrame.EncryptResponse(CommentAnswer(5, "Hi"), key, 8);
                 await stream.WriteAsync(a);
-            });
+            }, TestContext.Current.CancellationToken);
 
             var client = new SearchClient("127.0.0.1", port) { Timeout = TimeSpan.FromSeconds(5) };
-            string? comment = await client.GetSearchCommentAsync(5);
+            string? comment = await client.GetSearchCommentAsync(5, TestContext.Current.CancellationToken);
             await server;
 
             Assert.Equal("Hi", comment);
@@ -605,7 +605,7 @@ namespace Gordian.Core.Tests.Network
         {
             var parser = new PacketParser(new SessionProfile(), (_, _) => Task.CompletedTask);
             Assert.False(parser.Search.IsConfigured);
-            await Assert.ThrowsAsync<InvalidOperationException>(() => parser.Search.SearchAsync(new SearchQuery()));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => parser.Search.SearchAsync(new SearchQuery(), TestContext.Current.CancellationToken));
 
             parser.Search.ConfigureDefault("10.0.0.5");
             Assert.Equal("10.0.0.5", parser.Search.Host);
@@ -631,13 +631,13 @@ namespace Gordian.Core.Tests.Network
 
             // No group id answer: the party list is not fetched.
             service.GroupIdTimeout = TimeSpan.FromMilliseconds(50);
-            Assert.Null(await service.RefreshPartyListAsync());
+            Assert.Null(await service.RefreshPartyListAsync(TestContext.Current.CancellationToken));
             Assert.Equal(0x078, Header(session.Sent[^1]).Id);
 
             // The world server answers the group id request, and the search server's party list follows.
             service.GroupIdTimeout = TimeSpan.FromSeconds(3);
-            var pending = service.RefreshPartyListAsync();
-            await Task.Delay(50);
+            var pending = service.RefreshPartyListAsync(TestContext.Current.CancellationToken);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             var id = new byte[4];
             BinaryPrimitives.WriteUInt32LittleEndian(id, 0x4242);
             session.Dispatcher.Dispatch(new PacketHeader(0x0E1, 8, 1), id);
@@ -647,7 +647,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x4242u, BinaryPrimitives.ReadUInt32LittleEndian(session.Transport.Bodies[^1].AsSpan(0x10)));
             Assert.Same(party, service.State.PartyList);
 
-            var list = await service.RefreshAuctionListAsync(3);
+            var list = await service.RefreshAuctionListAsync(3, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(4096, service.State.GetAuctionList(3)!.Items[0].ItemId);
             Assert.Equal(new byte[] { 3 }, service.State.AuctionCategories.ToArray());
             Assert.Same(list, service.State.GetAuctionList(3));
@@ -667,7 +667,7 @@ namespace Gordian.Core.Tests.Network
                 : Array.Empty<(byte[], int)>());
             var service = session.Parser.Search;
 
-            Assert.Null(await service.RefreshLinkshellListAsync(1));            // nothing worn
+            Assert.Null(await service.RefreshLinkshellListAsync(1, TestContext.Current.CancellationToken));            // nothing worn
 
             var ext = new byte[24];
             BinaryPrimitives.WriteUInt32LittleEndian(ext, 0x5678);
@@ -676,7 +676,7 @@ namespace Gordian.Core.Tests.Network
             session.Parser.Party.SetLinkshellItem(1, 9, ContainerId.Inventory);
 
             Assert.Equal(0x5678u, service.GetWornLinkshellId(1));
-            var members = await service.RefreshLinkshellListAsync(1);
+            var members = await service.RefreshLinkshellListAsync(1, TestContext.Current.CancellationToken);
             Assert.Equal("Moogle", Assert.Single(members!.Players).Name);
             Assert.Equal(0x5678u, BinaryPrimitives.ReadUInt32LittleEndian(session.Transport.Bodies[^1].AsSpan(0x18)));
             Assert.NotNull(service.State.GetLinkshellList(0x5678));

@@ -140,7 +140,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiMenuEntries.YesNoMenu, menus.Top!.Name);
             menus.Move(InputAction.MenuUp);                     // Yes
             menus.Activate();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.Equal((int)StockUiChatLog.DefaultWindow2Types, menus.Settings.GetValue(StockUiSettingKey.LogWindow2Types));
         }
 
