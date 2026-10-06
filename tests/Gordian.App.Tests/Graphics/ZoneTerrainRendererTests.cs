@@ -96,7 +96,7 @@ namespace Gordian.App.Tests.Graphics
 
             IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devMgr = new VeldridDeviceManager();
-            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            var swapchainSource = NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
             devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devMgr.Device;
             if (gd == null) return;
@@ -118,25 +118,25 @@ namespace Gordian.App.Tests.Graphics
                 renderer.SkyDomeRenderer?.UpdateDome(env);
 
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
-                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
-                    Veldrid.PixelFormat.R32_Float,
-                    Veldrid.TextureUsage.DepthStencil));
-                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+                    NeoVeldrid.PixelFormat.R32_Float,
+                    NeoVeldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
 
                 renderer.Render(camera, env, 0.016f, 640, 480, present: false, targetFramebuffer: offscreenFb);
                 Assert.True(renderer.DrawCalls > 0);
                 Assert.True(renderer.WeatherSkySubmeshCount > 0);
 
                 var cl = gd.ResourceFactory.CreateCommandList();
-                var stagingDesc = Veldrid.TextureDescription.Texture2D(
+                var stagingDesc = NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.Staging);
+                    NeoVeldrid.TextureUsage.Staging);
                 var staging = gd.ResourceFactory.CreateTexture(stagingDesc);
 
                 cl.Begin();
@@ -145,7 +145,7 @@ namespace Gordian.App.Tests.Graphics
                 gd.SubmitCommands(cl);
                 gd.WaitForIdle();
 
-                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                var map = gd.Map(staging, NeoVeldrid.MapMode.Read);
                 // Sample pixels across sky region to ensure soft atmospheric clouds blend over sky dome without channel corruption
                 int skyPixelCount = 0;
                 for (int y = 20; y <= 80; y += 30)
@@ -192,7 +192,7 @@ namespace Gordian.App.Tests.Graphics
 
             IntPtr hwnd = CreateWindowExW(0, "static", "TestSuny", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devMgr = new VeldridDeviceManager();
-            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            var swapchainSource = NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
             devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devMgr.Device;
             if (gd == null) return;
@@ -222,15 +222,15 @@ namespace Gordian.App.Tests.Graphics
                 renderer.SkyDomeRenderer?.UpdateDome(env);
 
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
-                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
-                    Veldrid.PixelFormat.R32_Float,
-                    Veldrid.TextureUsage.DepthStencil));
-                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+                    NeoVeldrid.PixelFormat.R32_Float,
+                    NeoVeldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
 
                 var sunyLayer = System.Linq.Enumerable.FirstOrDefault(zone.WeatherSkyLayers, l => string.Equals(l.WeatherId, "suny", StringComparison.OrdinalIgnoreCase));
                 var kfSb = new System.Text.StringBuilder();
@@ -255,10 +255,10 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(renderer.WeatherSkySubmeshCount > 0);
 
                 var cl = gd.ResourceFactory.CreateCommandList();
-                var stagingDesc = Veldrid.TextureDescription.Texture2D(
+                var stagingDesc = NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.Staging);
+                    NeoVeldrid.TextureUsage.Staging);
                 var staging = gd.ResourceFactory.CreateTexture(stagingDesc);
 
                 cl.Begin();
@@ -267,7 +267,7 @@ namespace Gordian.App.Tests.Graphics
                 gd.SubmitCommands(cl);
                 gd.WaitForIdle();
 
-                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                var map = gd.Map(staging, NeoVeldrid.MapMode.Read);
                 uint rowPitch = map.RowPitch;
                 IntPtr basePtr = map.Data;
                 int brightPixels = 0;
@@ -584,7 +584,7 @@ namespace Gordian.App.Tests.Graphics
 
             IntPtr hwnd = CreateWindowExW(0, "static", "TestStarNight", unchecked((uint)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             var devMgr = new VeldridDeviceManager();
-            var swapchainSource = Veldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
+            var swapchainSource = NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero);
             devMgr.Initialize(swapchainSource, 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
             var gd = devMgr.Device;
             if (gd == null) return;
@@ -620,23 +620,23 @@ namespace Gordian.App.Tests.Graphics
                 renderer.SkyDomeRenderer?.UpdateDome(env);
 
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
-                var rtColor = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.RenderTarget | Veldrid.TextureUsage.Sampled));
-                var rtDepth = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                    NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
-                    Veldrid.PixelFormat.R32_Float,
-                    Veldrid.TextureUsage.DepthStencil));
-                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new Veldrid.FramebufferDescription(rtDepth, rtColor));
+                    NeoVeldrid.PixelFormat.R32_Float,
+                    NeoVeldrid.TextureUsage.DepthStencil));
+                var offscreenFb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
 
                 renderer.Render(camera, env, 0.016f, 640, 480, present: false, targetFramebuffer: offscreenFb);
 
                 var cl = gd.ResourceFactory.CreateCommandList();
-                var staging = gd.ResourceFactory.CreateTexture(Veldrid.TextureDescription.Texture2D(
+                var staging = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
                     640, 480, 1, 1,
                     colorTarget.Format,
-                    Veldrid.TextureUsage.Staging));
+                    NeoVeldrid.TextureUsage.Staging));
 
                 cl.Begin();
                 cl.CopyTexture(rtColor, staging);
@@ -644,7 +644,7 @@ namespace Gordian.App.Tests.Graphics
                 gd.SubmitCommands(cl);
                 gd.WaitForIdle();
 
-                var map = gd.Map(staging, Veldrid.MapMode.Read);
+                var map = gd.Map(staging, NeoVeldrid.MapMode.Read);
                 uint rowPitch = map.RowPitch;
                 IntPtr basePtr = map.Data;
 

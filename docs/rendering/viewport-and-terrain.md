@@ -1,19 +1,19 @@
 # Viewport, Camera & Zone Terrain
 
-> Veldrid graphics context, viewport windows, camera, and the zone terrain renderer (Phases 5A and 5B), plus the three-tier frame composition. Status and open work: [ROADMAP.md](../../ROADMAP.md) and GitHub Issues.
+> NeoVeldrid graphics context, viewport windows, camera, and the zone terrain renderer (Phases 5A and 5B), plus the three-tier frame composition. Status and open work: [ROADMAP.md](../../ROADMAP.md) and GitHub Issues.
 
 ## Graphics context and viewport windows (Phase 5A)
 
-- Integrate Veldrid, Veldrid.SPIRV, and Veldrid.ImGui into client infrastructure
+- Graphics through [NeoVeldrid](https://github.com/jhm-ciberman/neo-veldrid) and NeoVeldrid.SPIRV 1.2.1 (#262, 2026-10-05), the maintained fork of Veldrid 4.9.0 with the same API (namespace `NeoVeldrid`). It has no Metal backend: macOS runs Vulkan through the bundled MoltenVK. `Veldrid.ImGui` was dropped unused; the ImGui binding and renderer for Tier 3 are chosen in #263.
 - Avalonia `NativeControlHost` cross-platform viewport control (`VeldridViewportControl`) supporting Windows (`HWND`), Linux (`X11`/`Wayland`), and macOS (`NSView`)
-- Multi-backend auto-selection (Direct3D 11 on Windows, Vulkan on Linux/Windows, Metal on macOS, OpenGL fallback)
+- Multi-backend auto-selection (Direct3D 11 on Windows, Vulkan on Linux/Windows, Vulkan through MoltenVK on macOS; a saved `Metal` preference from before #262 selects Vulkan)
 - Resilient 60/120 FPS render loop with device recreation on viewport resize
 - Verification test scene: textured spinning 3D test cube and color gradient clearing to confirm GPU pipeline integrity
 - **Decoupled 3D Rendering Window (`ViewportWindow`) & Lifecycle Coordinator (`ViewportWindowManager`):**
   - Gameplay graphics run in a separate hardware-accelerated window, preserving `MainWindow` as the central Control Panel (profiles, packet inspection, state diagnostics, chat console, and display settings).
   - Three display modes: **Borderless Window** (default, borderless work area alignment), **Windowed** (movable & resizable with min dimension safeguards), and **Fullscreen** (`WindowState.FullScreen`, toggleable via `F11`).
   - Multi-option character tab switcher styles: **Floating Pill** (top-center glass dynamic island - default), **Top Ribbon** (auto-hiding), **Side Rail** (vertical party deck with live HP/MP vitals), and **Hotkeys Only** (`Ctrl+Tab` / `Ctrl+Shift+Tab`).
-  - **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master Veldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
+  - **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master NeoVeldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
   - **Picture-in-Picture (PiP) Multi-Box Swarm Streaming:** Real-time thumbnail sub-viewports for up to 5 background characters (1 main + 5 alts) with 1-click `⇄` viewport promotion and throttled background render rates.
 
 - **Lobby and zoning (#32, #36).** While a character lobby is open (`ViewportViewModel.Lobby`) the viewport draws it instead of the active session (`LobbyFrameRenderer`: the lobby backgrounds, the preview model through the entity renderer alone, the lobby windows) and sends it the keyboard and mouse. While a session connects or zones, `ZoneLoadingScreen` fades the frame to black over the scene and the HUD, and the placeholder models are left out until it is clear again. Between a Log Out and the lobby's return (`ViewportViewModel.IsReturningToLobby`) the viewport draws black (`HoldBlack`), and a lobby fades in from black when it appears. See [character-lobby.md](../design/character-lobby.md).
@@ -23,7 +23,7 @@
 - Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](../../src/Gordian.Core/Input/PlayerLocomotionController.cs)
 - Event camera ([#165](https://github.com/jimmy58663/GordianXI/issues/165)): while a running event's scene routine plays a camera Route (`EventDialogController.Presentation`), the viewport shows that pose instead of the orbit camera (`ViewportCamera.SetEventView`: eye, look-at, vertical field of view from the Route's focal length, roll), converted to display axes (-x, -y, z); the orbit camera keeps its state and takes over again when the event releases the camera. Routes, easing and the fades are in [events/vm.md](../events/vm.md#cutscene-schedulers).
 - GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
-- Texture palette decoding and Veldrid GPU texture sampler caching
+- Texture palette decoding and NeoVeldrid GPU texture sampler caching
 - Directional sun/moon lighting, ambient color, and authentic FFXI distance fog shader pipeline
 - Back-face culling as the client does it (2026-09-25): zone meshes without the 0x2E double-sided flag (0x2000) draw with back faces culled (front face = the side the stored normals point out of, clockwise on screen; 99.4% of culled triangles in Bibiki Bay and Southern San d'Oria follow it once mirrored placements, negative scale determinant, have their winding reversed as the client's `ClockwiseCulling` does). Drawing everything double-sided had shown a mountain's inner faces inside Bibiki Bay's entrance cave, covering the smooth tunnel mesh with its angular panels. `DisableZoneBackFaceCulling` restores the old behaviour (code only; no in-game toggle yet). Watch for any retail object that now shows missing faces.
 - Zone submesh render state and draw order (#251, 2026-10-04): the client takes a 0x2E submesh's state from its flag word and its mesh name only (xi-tools `docs/zone/format.md`, `docs/zone/export.md` "Clipped floors and walls"; xi-model-viewer `ui/js/zoneModel.js` after xim `GLDrawer.drawXim`). `ZoneSubmeshPasses.Classify` maps it:
@@ -53,4 +53,4 @@ A cache key must say what the data *is*, unique across the whole install, not wh
 
 ## Frame composition and fog (Tier 1)
 
-- *Tier 1 (3D Scene):* Veldrid terrain, skybox/celestial sky dome (`SkyDomeRenderer`), entity models, directional sun/moon lighting, and authentic FFXI distance fog pass. Clean-room DAT Section `0x2F` Environment decoder (`EnvironmentDecoder`, `ZoneEnvironmentData`) supporting time-of-day keyframe extraction, 8-slice sky dome gradients, and time-of-day cycling (`F10` shortcut / `CycleTimeOfDay`). Fog calibration overhaul with authentic clear visibility presets (Day, Dusk, Night), soft atmospheric haze (Overcast), distant horizon projection for retail `FogStart = 0` keyframes, shader `FogParams.y > 0.0` guards, and runtime fog toggle (`Ctrl+F10` shortcut / `ToggleFog`). Frame composition decoupled into a 3-tier presentation pipeline (`RenderTier1_Scene3D` -> `RenderTier2_StockUi` -> `RenderTier3_ImGuiOverlays`).
+- *Tier 1 (3D Scene):* NeoVeldrid terrain, skybox/celestial sky dome (`SkyDomeRenderer`), entity models, directional sun/moon lighting, and authentic FFXI distance fog pass. Clean-room DAT Section `0x2F` Environment decoder (`EnvironmentDecoder`, `ZoneEnvironmentData`) supporting time-of-day keyframe extraction, 8-slice sky dome gradients, and time-of-day cycling (`F10` shortcut / `CycleTimeOfDay`). Fog calibration overhaul with authentic clear visibility presets (Day, Dusk, Night), soft atmospheric haze (Overcast), distant horizon projection for retail `FogStart = 0` keyframes, shader `FogParams.y > 0.0` guards, and runtime fog toggle (`Ctrl+F10` shortcut / `ToggleFog`). Frame composition decoupled into a 3-tier presentation pipeline (`RenderTier1_Scene3D` -> `RenderTier2_StockUi` -> `RenderTier3_ImGuiOverlays`).

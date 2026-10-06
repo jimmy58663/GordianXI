@@ -7,8 +7,8 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
-using Veldrid;
-using Veldrid.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace Gordian.App.Graphics
 {

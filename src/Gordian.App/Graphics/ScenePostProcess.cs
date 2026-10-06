@@ -3,8 +3,8 @@ using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
-using Veldrid;
-using Veldrid.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace Gordian.App.Graphics
 {
