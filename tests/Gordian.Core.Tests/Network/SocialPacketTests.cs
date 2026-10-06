@@ -193,10 +193,10 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void DeliveryQuery_RecordsWhetherTheNameExists()
+        public async Task DeliveryQuery_RecordsWhetherTheNameExists()
         {
             var parser = NewParser(out var dispatcher);
-            parser.SocialModule.QueryRecipientAsync("ayame").Wait();
+            await parser.SocialModule.QueryRecipientAsync("ayame");
 
             Assert.Equal("ayame", parser.Delivery.LastQueriedName);
             Receive(dispatcher, 0x04B, PbxResult(DeliveryCommand.Query, -1, -1, 1, p1: 1));
@@ -524,15 +524,19 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public async Task ItemSearchCommand_ReportsTheContainers()
         {
-            var parser = NewParser(out var dispatcher);
+            var sent = new List<byte[]>();
+            var parser = NewParser(out var dispatcher, sent);
             parser.Inventory.GetContainer(ContainerId.Inventory)._items[5] = new InventoryItem(4096, 12, 5, ContainerId.Inventory, 0, ItemLockFlag.Normal);
 
             var task = parser.ActionService.ItemSearchAsync("Cure Potion");
+            // The command subscribes to the answer and sends the request before its first real await, so the request is out
+            // by now; answer at once. (A fixed delay here raced the command's reply timeout on a busy thread pool: the timeout
+            // completes on the timer thread, while the delayed answer needed a pool thread to run.)
+            Assert.False(task.IsCompleted);
+            Assert.Equal(0x02C, Header(Assert.Single(sent)).Id);
             var search = new byte[68];
             U16(search, 0, 4096);
             Text(search, 4, "Cure Potion");
-            // The command sends the request, then waits for the answer; give it the answer once the request is out.
-            await Task.Delay(50);
             Receive(dispatcher, 0x049, search);
             var result = await task;
 
