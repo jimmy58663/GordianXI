@@ -316,6 +316,7 @@ namespace Gordian.Core.Actions
                 CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
                 PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
                 TargetCommand = RunMenuTargetCommandAsync,
+                Clock = _world.Clock,
             };
             Menus.Settings = _uiSettings;
             _uiSettings.Changed += OnUiSettingChanged;

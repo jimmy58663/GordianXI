@@ -306,7 +306,7 @@ namespace Gordian.App.Graphics
 
                             if (zoneGeom?.EnvironmentData != null)
                             {
-                                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                float vanaHour = CurrentVanaHour();
                                 string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
                                 _lastVanaHour = vanaHour;
                                 _lastWeatherId = weather;
@@ -646,7 +646,7 @@ namespace Gordian.App.Graphics
                     if (ridingId.Length > 0 && _activeSession != null)
                     {
                         foreach (var platform in Gordian.Core.World.Collision.MovingPlatforms.Evaluate(
-                                     _activeSession.World.Collision, _activeSession.World, VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow)))
+                                     _activeSession.World.Collision, _activeSession.World, _activeSession.World.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow)))
                         {
                             if (platform.Platform.Id == ridingId) rideHeight = platform.Height;
                         }
@@ -713,7 +713,7 @@ namespace Gordian.App.Graphics
                             // Only advances automatically when in live mode (_timeOfDayCycleIndex == 0); manual F10 presets are preserved.
                             if (_currentZoneGeom?.EnvironmentData != null && _timeOfDayCycleIndex == 0)
                             {
-                                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                                float vanaHour = CurrentVanaHour();
                                 string activeWeather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
                                 if (Math.Abs(vanaHour - _lastVanaHour) >= 0.05f || activeWeather != _lastWeatherId)
                                 {
@@ -925,6 +925,17 @@ namespace Gordian.App.Graphics
         /// every actor when it opens the zone and the scene places its own again (Lower Jeuno event 70 stands seven NPCs in
         /// Ru'Lude Gardens, #197); the Windurst intros place none and show only camera shots.
         /// </summary>
+        /// <summary>
+        /// The Vana'diel hour now for the displayed scene: the active session's (its server clock, or an event's stopped
+        /// clock), else the shown world's clock, else the local clock (no session: lobby, previews).
+        /// </summary>
+        private float CurrentVanaHour()
+        {
+            DateTime now = DateTime.UtcNow;
+            if (_activeSession is { } session) return session.World.GetTimeOfDayHours(now);
+            return WorldState?.Clock.GetTimeOfDayHours(now) ?? VanaTime.GetTimeOfDayHours(now);
+        }
+
         private System.Collections.Generic.List<WorldEntity> SceneZoneEntities(WorldState? world)
         {
             _sceneZoneEntities.Clear();
@@ -1021,7 +1032,7 @@ namespace Gordian.App.Graphics
                 _timeOfDayCycleIndex = 0;
                 if (_currentZoneGeom?.EnvironmentData != null)
                 {
-                    float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                    float vanaHour = CurrentVanaHour();
                     var kf = _currentZoneGeom.EnvironmentData.Interpolate(vanaHour, currentWeather);
                     if (kf != null)
                     {
@@ -1137,7 +1148,7 @@ namespace Gordian.App.Graphics
             _lastWeatherId = weatherId;
             if (_renderer?.LoadedZone?.EnvironmentData != null)
             {
-                float vanaHour = _activeSession?.World.GetTimeOfDayHours(DateTime.UtcNow) ?? VanaTime.GetTimeOfDayHours(DateTime.UtcNow);
+                float vanaHour = CurrentVanaHour();
                 var kf = _renderer.LoadedZone.EnvironmentData.Interpolate(vanaHour, weatherId);
                 if (kf != null)
                 {

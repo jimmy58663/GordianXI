@@ -419,6 +419,12 @@ namespace Gordian.Core.Ui
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
 
+        /// <summary>
+        /// The session's Vana'diel clock (<see cref="WorldState.Clock"/>) for the "Current Time" entry; without one the
+        /// entry reads the local clock.
+        /// </summary>
+        public VanaClock? Clock { get; set; }
+
         /// <summary>The window skin currently in effect (1-8), for the Windows config page's marker.</summary>
         public Func<int>? CurrentWindowSkin { get; set; }
 
@@ -1523,7 +1529,7 @@ namespace Gordian.Core.Ui
                     break;
 
                 case StockUiMenuCommand.CurrentTime:
-                    NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow));
+                    NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
                     break;
 
                 case StockUiMenuCommand.LogOut:
@@ -1642,10 +1648,13 @@ namespace Gordian.Core.Ui
             }
         }
 
-        /// <summary>The "Current Time" entry's text: Vana'diel date and time, then Earth time.</summary>
-        public static string DescribeCurrentTime(DateTime utcNow)
+        /// <summary>
+        /// The "Current Time" entry's text: Vana'diel date and time on <paramref name="clock"/> (the local clock when
+        /// null), then Earth time.
+        /// </summary>
+        public static string DescribeCurrentTime(DateTime utcNow, VanaClock? clock = null)
         {
-            long vanaSeconds = VanaTime.GetVanadielSeconds(utcNow);
+            long vanaSeconds = clock?.GetVanadielSeconds(utcNow) ?? VanaTime.GetVanadielSeconds(utcNow);
             long day = vanaSeconds / VanaTime.SecondsPerVanadielDay;
             int hour = (int)(vanaSeconds % VanaTime.SecondsPerVanadielDay / 3600);
             int minute = (int)(vanaSeconds % 3600 / 60);
