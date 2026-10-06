@@ -68,7 +68,9 @@ jobs:
         run: |
           mkdir -p dist
           ARCHIVE_NAME="GordianXI-${TAG}-win-x64.zip"
-          (cd staging && zip -r -9 "../dist/${ARCHIVE_NAME}" GordianXI)
+          # The Windows runner has no `zip` in Git Bash; 7-Zip ships with the image.
+          SEVENZIP="$(command -v 7z || echo '/c/Program Files/7-Zip/7z.exe')"
+          (cd staging && "$SEVENZIP" a -tzip -mx=9 "../dist/${ARCHIVE_NAME}" GordianXI)
           (cd dist && sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256")
           echo "archive=dist/${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
           echo "sbom=dist/GordianXI-${TAG}-win-x64.cdx.json" >> $GITHUB_OUTPUT
