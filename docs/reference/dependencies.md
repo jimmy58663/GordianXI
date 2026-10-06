@@ -55,6 +55,15 @@ Decided 2026-10-05 (maintainer), after comparing the .NET ImGui bindings for #26
 
 Design detail: [ui/stock-ui.md](../ui/stock-ui.md#tier-3-overlays-and-stock-ui-suppression) (Tier 3) and [design/post-mvp.md](../design/post-mvp.md) (`gordian.imgui`, `gordian.ui`).
 
+## Build tools
+
+| Tool | Version | Licence | Used for |
+|---|---|---|---|
+| CycloneDX .NET tool (`CycloneDX`) | 6.2.0, pinned in `package-release.yml` (`CYCLONEDX_VERSION`) | Apache-2.0 | Release SBOMs (#278). Not shipped, so not in THIRD_PARTY_NOTICES |
+| `actions/attest` | v4 (Dependabot keeps it current) | MIT | Build provenance and SBOM attestations (#278) |
+
+Each release's SBOM (`GordianXI-<version>-<rid>.cdx.json`, CycloneDX 1.7) lists every NuGet package of `Gordian.App` and its project references for that runtime, about 55 components. Native libraries appear as the packages that carry them (`Silk.NET.OpenAL.Soft.Native`, `ppy.SDL3-CS`, `Silk.NET.MoltenVK.Native`, `Silk.NET.Shaderc.Native`, `Silk.NET.SPIRV.Cross.Native`), not as separate files. The Debug-only `AvaloniaUI.DiagnosticsSupport` and the test packages are excluded. Bump `CYCLONEDX_VERSION` by hand: Dependabot does not see it.
+
 ## Staying current
 
 Dependabot ([.github/dependabot.yml](../../.github/dependabot.yml)) checks NuGet and GitHub Actions every Monday. Each family arrives as one grouped PR: `avalonia`, `graphics` (NeoVeldrid), `silk-net`, `test-tooling` and `other` for NuGet, plus one PR for all actions. Each ecosystem has at most one Dependabot PR open, and the PRs carry the `chore` label for Release Drafter. A Dependabot PR is handled like any other: CI must pass, and an update that touches the app (Avalonia, graphics, Silk.NET) is tested in-game before it merges. Update this table when one lands. Dependabot only proposes stable releases while we are on stable ones; the "Chosen for later" rows are checked by hand when starting a phase.
