@@ -656,8 +656,9 @@ namespace Gordian.Core.Network.Packets
         public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
 
         /// <summary>
-        /// The name plate flags an NPC or monster carries: flags1 YellFlag (13, orange name), flags3 MentorFlag (24, the
-        /// A.M.A.N. Liaison's tutorial "i") and flags3 <c>unknown_3_5</c> (29, health bar and name not drawn).
+        /// The name plate flags an NPC or monster carries: flags1 YellFlag (13, orange name), flags1 PlayOnelineFlag (16,
+        /// on 0x00E the health bar is hidden when targeted), flags3 MentorFlag (24, the A.M.A.N. Liaison's tutorial "i")
+        /// and flags3 <c>unknown_3_5</c> (29, health bar and name not drawn).
         /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t / flags3_t.
         /// </summary>
         public NamePlateFlags NamePlate
@@ -666,6 +667,7 @@ namespace Gordian.Core.Network.Packets
             {
                 var flags = NamePlateFlags.None;
                 if ((Flags1 & (1u << 13)) != 0) flags |= NamePlateFlags.CalledForHelp;
+                if ((Flags1 & (1u << 16)) != 0) flags |= NamePlateFlags.HealthBarHidden;
                 if ((Flags3 & (1u << 24)) != 0) flags |= NamePlateFlags.InfoNpc;
                 if ((Flags3 & (1u << 29)) != 0) flags |= NamePlateFlags.NameHidden;
                 return flags;

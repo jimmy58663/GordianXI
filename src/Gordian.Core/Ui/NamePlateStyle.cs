@@ -72,27 +72,58 @@ namespace Gordian.Core.Ui
         /// <summary>
         /// Whether the client draws a name over the entity. Hidden and invisible entities, entities a running event hides
         /// the name of (opcode 0x92, <see cref="WorldEntity.HidesEventName"/>), NPCs flagged to hide their
-        /// name, and NPCs whose model is one the client never names (Home Point crystals and other model ids 50-59,
-        /// nation and beastmen flags 814-817, invisible models 1847-1862, special coffers 2425-2429 and Confluxes
-        /// 2490-2494, from the client's 0x00E sub-kind 0 handling in XiPackets) have none.
+        /// name, and NPCs that have no name plate at all (<see cref="HasNamePlate"/>) have none.
         /// </summary>
         public static bool ShowsName(WorldEntity entity, NamePlateFlags flags)
         {
             if (!entity.IsSpawned || (entity.IsHidden && !entity.IsInEvent) || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
             if (entity.HidesEventName) return false;
+            return HasNamePlate(entity, flags);
+        }
+
+        /// <summary>
+        /// Whether the entity is one that carries a name plate at all, leaving aside the passing states
+        /// <see cref="ShowsName"/> also checks (hidden, invisible, an event hiding names). Players always do. NPCs do not
+        /// when 0x00E flags3 <c>unknown_3_5</c> is set (<see cref="NamePlateFlags.NameHidden"/>: "health bar hidden and
+        /// name not rendered", XiPackets), when they are doors, elevators or ships (no model is drawn for them), or when
+        /// their model is one the client never names (<see cref="ModelHidesName"/>).
+        /// </summary>
+        public static bool HasNamePlate(WorldEntity entity, NamePlateFlags flags)
+        {
             if (entity is PlayerEntity) return true;
+            if (entity.Type is EntityType.Door or EntityType.Elevator or EntityType.Ship) return false;
             if ((flags & NamePlateFlags.NameHidden) != 0) return false;
             return !ModelHidesName(entity.Appearance.ModelId);
         }
 
         /// <summary>
-        /// Model ids whose NPCs the client draws without a name.
+        /// Whether the target window draws the target's HP gauge. Retail draws none for an NPC that has no name plate
+        /// (maintainer's retail check in Port Jeuno, 2026-10-04, #259: Synthesis Focuser II, Abyssea Campaign, Treasure
+        /// Coffer, the Door: NPCs and ??? have neither; Mewk Chorosap and Raging Lion have both), and none for an NPC
+        /// with 0x00E flags1 <c>PlayOnelineFlag</c> set (<see cref="NamePlateFlags.HealthBarHidden"/>; XiPackets: "the
+        /// entities health bar, when targeted, should be hidden").
+        /// Flag meanings referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E.
+        /// </summary>
+        public static bool ShowsTargetHealthBar(WorldEntity entity, NamePlateFlags flags)
+        {
+            if (entity is PlayerEntity) return true;
+            return (flags & NamePlateFlags.HealthBarHidden) == 0 && HasNamePlate(entity, flags);
+        }
+
+        /// <summary>
+        /// Model ids whose NPCs the client draws without a name: Home Point crystals and other model ids 50-59, nation
+        /// and beastmen flags 814-817, invisible models 1847-1862, special coffers 2425-2429 and Confluxes 2490-2494, from
+        /// the client's 0x00E sub-kind 0 handling in XiPackets; and treasure chests and coffers 960-969, which that
+        /// handling sends down a separate branch whose effect XiPackets does not show. Retail draws no plate and no
+        /// target HP gauge for the Port Jeuno Treasure Coffer (model 968) and Abyssea Campaign (962) NPCs, whose
+        /// LandSandBoat entries set no flag that hides a name (maintainer's retail check, 2026-10-04, #259).
         /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E, SubKind 0.
         /// </summary>
         public static bool ModelHidesName(uint modelId) => modelId switch
         {
             >= 50 and <= 59 => true,
             >= 814 and <= 817 => true,
+            >= 960 and <= 969 => true,
             >= 1847 and <= 1862 => true,
             >= 2425 and <= 2429 => true,
             >= 2490 and <= 2494 => true,

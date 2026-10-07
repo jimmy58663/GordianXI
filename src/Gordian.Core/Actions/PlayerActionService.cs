@@ -319,6 +319,7 @@ namespace Gordian.Core.Actions
                 CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
                 PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
                 TargetCommand = RunMenuTargetCommandAsync,
+                Clock = _world.Clock,
             };
             Menus.Settings = _uiSettings;
             DeathMenu = new StockUiDeathMenu(Menus, _localPlayer, HomePointAsync, AnswerDeathOfferAsync);

@@ -39,6 +39,52 @@ namespace Gordian.Core.Tests.Ui
                 new S2C_0x00E_CharNpc(payload).NamePlate);
         }
 
+        /// <summary>0x00E flags1 bit 16 (PlayOnelineFlag) hides an NPC's HP gauge when targeted (XiPackets 0x000E).</summary>
+        [Fact]
+        public void CharNpc_DecodesHealthBarHidden()
+        {
+            byte[] payload = new byte[0x50];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(28, 4), 1u << 16);
+
+            Assert.Equal(NamePlateFlags.HealthBarHidden, new S2C_0x00E_CharNpc(payload).NamePlate);
+        }
+
+        /// <summary>
+        /// The target window's HP gauge follows the name plate (#259, Port Jeuno retail check 2026-10-04): Synthesis
+        /// Focuser II (flags3 bit 29 from LandSandBoat name_vis 0x60), Treasure Coffer (model 968), Abyssea Campaign
+        /// (962), the Door: NPCs and ??? (model 52) have none; Mewk Chorosap and Raging Lion keep it.
+        /// </summary>
+        [Fact]
+        public void ShowsTargetHealthBar_OnlyForEntitiesWithANamePlate()
+        {
+            var mewk = new WorldEntity(1, 1, EntityType.Npc) { Name = "Mewk Chorosap" };
+            Assert.True(NamePlateStyle.ShowsTargetHealthBar(mewk, NamePlateFlags.None));
+            Assert.True(NamePlateStyle.ShowsTargetHealthBar(new WorldEntity(2, 2, EntityType.Monster) { Name = "Island Rarab" }, NamePlateFlags.None));
+            Assert.True(NamePlateStyle.ShowsTargetHealthBar(new PlayerEntity(3, 3) { Name = "Tarudrake" }, NamePlateFlags.NameHidden));
+
+            var focuser = new WorldEntity(4, 4, EntityType.Npc) { Name = "Synthesis Focuser II" };
+            focuser.Appearance.ModelId = 2335;
+            Assert.True(NamePlateStyle.ShowsTargetHealthBar(focuser, NamePlateFlags.None));
+            Assert.False(NamePlateStyle.ShowsTargetHealthBar(focuser, NamePlateFlags.NameHidden));
+            Assert.False(NamePlateStyle.ShowsTargetHealthBar(mewk, NamePlateFlags.HealthBarHidden));
+
+            foreach (uint model in new uint[] { 968, 962, 52 })
+            {
+                var npc = new WorldEntity(5, 5, EntityType.Npc) { Name = "Treasure Coffer" };
+                npc.Appearance.ModelId = model;
+                Assert.False(NamePlateStyle.ShowsTargetHealthBar(npc, NamePlateFlags.None));
+                Assert.False(NamePlateStyle.ShowsName(npc, NamePlateFlags.None));
+            }
+
+            var door = new WorldEntity(6, 6, EntityType.Door) { Name = "Door: Chocobo Stables" };
+            Assert.False(NamePlateStyle.ShowsTargetHealthBar(door, NamePlateFlags.None));
+            Assert.False(NamePlateStyle.HasNamePlate(door, NamePlateFlags.None));
+
+            // Passing states that hide a plate (an event hiding names) do not take the gauge away.
+            mewk.HidesEventName = true;
+            Assert.True(NamePlateStyle.ShowsTargetHealthBar(mewk, NamePlateFlags.None));
+        }
+
         [Fact]
         public void CharStatus_DecodesNamePlateFlagsAtItsOwnBitPositions()
         {

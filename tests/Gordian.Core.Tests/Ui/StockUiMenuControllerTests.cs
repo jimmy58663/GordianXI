@@ -591,6 +591,18 @@ namespace Gordian.Core.Tests.Ui
             Assert.Contains("Earth time:", text);
         }
 
+        [Fact]
+        public void CurrentTime_ReadsTheSessionClock()
+        {
+            var now = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
+            var local = new VanaClock();
+            var ahead = new VanaClock();
+            ahead.SetServerClockOffset(3600); // one Earth hour: a Vana'diel day and an hour ahead
+
+            Assert.Equal(StockUiMenuController.DescribeCurrentTime(now), StockUiMenuController.DescribeCurrentTime(now, local));
+            Assert.NotEqual(StockUiMenuController.DescribeCurrentTime(now, local), StockUiMenuController.DescribeCurrentTime(now, ahead));
+        }
+
         /// <summary>
         /// Against the retail DATs: every selectable button of the menus the controller drives has a client meaning,
         /// and the main menu's navigation ring visits all twelve entries.

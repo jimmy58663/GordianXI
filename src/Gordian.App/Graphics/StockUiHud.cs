@@ -423,7 +423,9 @@ namespace Gordian.App.Graphics
             var partyIds = new List<uint>();
             foreach (var member in session.Party.Members) partyIds.Add(member.ServerId);
             var kind = StockUiTargetWindow.Classify(target, session.LocalPlayer.ServerId, partyIds);
-            StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind);
+            // No HP gauge for an NPC without a name plate (#259); its name then has room for a third line (#258).
+            bool showGauge = NamePlateStyle.ShowsTargetHealthBar(target, target.NamePlate);
+            StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind, showGauge);
 
             if (session.ActionService.IsLockedOn) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
         }

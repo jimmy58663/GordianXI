@@ -31,6 +31,15 @@
     | `0x0AE` / `0x0AD` / `0x08E` mounts, Maze Mongers, Trust points | `ProgressionState.HasMount`, `HasMazeVoucher` / `HasMazeRune`, `AlterEgoPoints` ([#115](https://github.com/jimmy58663/GordianXI/issues/115)) |
     | `0x044` extended job (BLU, PUP, Monstrosity) | `LocalPlayerState.MainJobData` / `SubJobData` ([#115](https://github.com/jimmy58663/GordianXI/issues/115)) |
 
+## Vana'diel clock
+
+Each session keeps its own server clock ([#290](https://github.com/jimmy58663/GordianXI/issues/290)), so several sessions in one process (multi-boxing) on servers whose clocks differ each show their own time.
+
+- **`WorldState.Clock`** (`VanaClock`, one per session) holds the offset in Earth seconds from the local clock to that session's server clock. `LifecyclePacketModule` raises `ServerGameTimeReceived` with the non-zero `GameTime` of S2C 0x00A, and `PacketParser` calls `Clock.SynchronizeServerTime` on its own world: offset = game time minus the local Earth seconds since the epoch at arrival. The offset is one atomic 64-bit value (written by the network thread, read by render, audio and input); reads allocate nothing.
+- **Readers take the clock of the session they serve:** `WorldState.GetTimeOfDayHours` (sky, lighting, audio day/night; the event-stopped hour wins), `EntityPacketModule` (transport leg arrival times), `PlayerLocomotionController` (moving platform clock), `StockUiMenuController.Clock` (the "Current Time" entry, set by `PlayerActionService`), `ZoneTerrainRenderer` (day of week and moon phase of the displayed `World`, platform evaluation) and `VeldridViewportControl` (time of day, riding platform).
+- **No session** (lobby, title screen, previews): the renderer and viewport fall back to the shown world's clock, else to the static `VanaTime` helpers, which read the local clock with offset 0.
+- **`VanaTime`** is pure and has no state: epoch and multiplier constants, `ComputeServerClockOffset`, the calendar maths (`GetVanadielSeconds`, `GetTimeOfDayHours`, `GetDayOfWeekIndex`, `GetMoonPhase`, `GetMoonPhaseIndex`, `GetMoonDirection`, `GetEarthSecondsSinceEpoch`, each with an overload taking the offset), `GetSunDirection` and the weather-id mapping. Tests build their own `VanaClock` or `WorldState`, so they need no shared test collection.
+
 ## DAT decoders
 
 File ids, paths, section types and encodings in one registry: [dat-files.md](dat-files.md).
