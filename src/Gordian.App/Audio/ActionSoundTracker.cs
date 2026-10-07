@@ -66,11 +66,17 @@ namespace Gordian.App.Audio
             _ => null,
         };
 
-        /// <summary>Snapshot of a world entity.</summary>
+        /// <summary>
+        /// Snapshot of a world entity. Only a routine of the actor's own model counts: an event gesture from a motion
+        /// bank is not one, and the model's routine of the same name would be the wrong sounds.
+        /// </summary>
         public static ActorSoundState Snapshot(WorldEntity entity)
         {
             EntityAnimationState a = entity.Animation;
-            return new ActorSoundState(entity.ServerId, entity.Position, a.Model, a.ActiveRoutine?.Name, a.ActionSerial, a.ActionTicks,
+            MotionRoutine? active = a.ActiveRoutine;
+            string? routine = active is not null && a.Model is { } model && model.MotionRoutines.TryGetValue(active.Name, out var own)
+                && ReferenceEquals(own, active) ? active.Name : null;
+            return new ActorSoundState(entity.ServerId, entity.Position, a.Model, routine, a.ActionSerial, a.ActionTicks,
                 a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death);
         }
 
