@@ -1533,10 +1533,15 @@ namespace Gordian.App.ViewModels
             if (afterLogout != null)
             {
                 // A session that came through the character select screen goes back to its title menu on Log Out (/logout or
-                // the menu), as retail does; a shutdown or a dropped connection does not.
-                netManager.LoggedOut += state =>
+                // the menu), as retail does; a shutdown or a dropped connection does not. The server answers Log Out and Shut
+                // Down with the same S2C 0x00B state, so the client's own request decides (#270).
+                netManager.LoggedOut += logout =>
                 {
-                    if (state != Gordian.Core.Network.Packets.LogoutState.Logout) return;
+                    if (!logout.ReturnsToLobby)
+                    {
+                        GordianLog.Info("SESSION", $"'{session.CharacterName}' {(logout.IsShutdown ? "shut down" : $"logged out ({logout.State})")}: ending the session.");
+                        return;
+                    }
                     // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
                     // the lobby fades in there once the launcher has logged in again.
                     ViewportWindowManager.Default.BeginLobbyReturn();

@@ -1381,6 +1381,10 @@ namespace Gordian.Core.Actions
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
                         return "Usage: /sit [on|off] - Sit down or stand up.";
+                    case "logout":
+                        return "Usage: /logout [on|off] - Log out to the character select screen after 30 seconds; again (or off) cancels.";
+                    case "shutdown":
+                        return "Usage: /shutdown [on|off] - Shut down after 30 seconds, closing the session; again (or off) cancels.";
                     case "sitchair":
                         return "Usage: /sitchair [chair 0-20] [on|off] - Sit in a chair (0 is the plain chair; 1-11 need the matching key item).";
                     case "random" or "rand":
@@ -1456,6 +1460,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /widescan, /track [target|off] - Wide Scan (Ranger, Beastmaster) and tracking");
             sb.AppendLine("  /conquest                 - Conquest points and Imperial Standing (/cq)");
             sb.AppendLine("  /jobmasterdisp on|off     - Show or hide the job mastery mark");
+            sb.AppendLine("  /logout [on|off]          - Log out to the character select screen (30 seconds)");
+            sb.AppendLine("  /shutdown [on|off]        - Shut down and close the session (30 seconds)");
             sb.AppendLine("[Communication]");
             sb.AppendLine("  /say <msg>                - Send chat to Say (/s)");
             sb.AppendLine("  /party <msg>              - Send chat to Party (/p)");
@@ -1547,6 +1553,35 @@ namespace Gordian.Core.Actions
         /// </summary>
         public Task<PlayerActionResult> HealAsync(RestMode mode = RestMode.Toggle)
             => SendCommandAsync(ChatCommandResultKind.Heal, "heal", "Heal requested.", m => m.SendHealAsync(mode));
+
+        /// <summary>
+        /// <c>/logout</c> and <c>/shutdown</c> (C2S 0x0E7): no argument toggles the request, <c>on</c> starts it, <c>off</c>
+        /// cancels it. The server counts down 30 seconds (LandSandBoat's LEAVEGAME effect, with the character resting) and
+        /// then sends S2C 0x00B; standing up cancels. Modes from XiPackets (https://github.com/atom0s/XiPackets,
+        /// <c>world/client/0x00E7</c>).
+        /// </summary>
+        public async Task<PlayerActionResult> RequestLogoutAsync(bool shutdown, RestMode mode = RestMode.Toggle)
+        {
+            var kindResult = shutdown ? ChatCommandResultKind.Shutdown : ChatCommandResultKind.Logout;
+            var kind = shutdown ? ReqLogoutKind.Shutdown : ReqLogoutKind.Logout;
+            var reqMode = mode switch
+            {
+                RestMode.On => shutdown ? ReqLogoutMode.ShutdownOn : ReqLogoutMode.LogoutOn,
+                RestMode.Off => ReqLogoutMode.Off,
+                _ => ReqLogoutMode.Toggle
+            };
+            string name = shutdown ? "shutdown" : "logout";
+            try
+            {
+                await _lifecycleModule.RequestLogoutAsync(reqMode, kind).ConfigureAwait(false);
+                return PlayerActionResult.Ok(shutdown ? "Shutdown requested." : "Logout requested.", kindResult);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/{name} failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/{name} failed: {ex.Message}", kindResult);
+            }
+        }
 
         /// <summary><c>/sit</c> (C2S 0x0EA): sits down or stands up; it also stops resting.</summary>
         public Task<PlayerActionResult> SitAsync(RestMode mode = RestMode.Toggle)
@@ -2266,6 +2301,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.Sit:
                     return await SitAsync(cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Logout:
+                    return await RequestLogoutAsync(shutdown: false, cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Shutdown:
+                    return await RequestLogoutAsync(shutdown: true, cmd.Rest).ConfigureAwait(false);
 
                 case ChatCommandResultKind.SitChair:
                     return await SitChairAsync(cmd.ActionParam, cmd.Rest).ConfigureAwait(false);

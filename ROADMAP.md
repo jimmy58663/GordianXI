@@ -51,7 +51,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates and event dialog done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
-| 5G Character lobby, creation & deletion (blocking) | ✅ (follow-ups #266, #270) | [design/character-lobby.md](docs/design/character-lobby.md) |
+| 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |
 | 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; open: combat sounds #41, footprints #40, sound controls #265 | [design/audio.md](docs/design/audio.md) |
 
 ### 🚀 Post-MVP (Phases 6-10)
