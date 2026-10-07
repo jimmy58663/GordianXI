@@ -630,8 +630,12 @@ namespace Gordian.Core.Tests.Ui
                 StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
                 StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorListMenu,
                 StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogCategoryMenu, StockUiConfigPages.LogListMenu,
-                StockUiConfigPages.EffectsPage,
+                StockUiConfigPages.EffectsPage, StockUiDeathMenu.MenuName,
             };
+            // The dead character's window (#103): "Time Left:" at the top left, one "Back to Home Point" button.
+            Assert.True(library.TryGetMenu(StockUiDeathMenu.MenuName, out var dead));
+            Assert.Equal((16, 94, UiAnchor.TopLeft), (dead.Frame.X, dead.Frame.Y, dead.Frame.Anchor));
+            Assert.Equal(StockUiDeathMenu.HomePointButton, Assert.Single(dead.Buttons).ButtonId);
             driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
             foreach (string name in driven)
             {

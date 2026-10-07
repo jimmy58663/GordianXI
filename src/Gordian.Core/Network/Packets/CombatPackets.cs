@@ -187,6 +187,51 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// ActionBuf[0] (<c>StatusId</c>) of a C2S 0x01A <see cref="CliActionId.HomepointMenu"/> answer: 0 returns the dead
+    /// character to its home point; 1 and 2 are the Monstrosity death menu's Cancel and Retry. LandSandBoat rejects the
+    /// request unless the character is dead (<c>c2s/0x01a_action.cpp</c>).
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A) and
+    /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.h).
+    /// </summary>
+    public enum HomepointMenuChoice : uint
+    {
+        ReturnToHomePoint = 0,
+        MonstrosityCancel = 1,
+        MonstrosityRetry = 2
+    }
+
+    /// <summary>
+    /// ActionBuf[0] (<c>StatusId</c>) of a C2S 0x01A <see cref="CliActionId.RaiseMenu"/> or
+    /// <see cref="CliActionId.TractorMenu"/> answer. LandSandBoat drops a declined Raise (the caster must cast again)
+    /// and moves the corpse to the caster on an accepted Tractor.
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A) and
+    /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.h).
+    /// </summary>
+    public enum ReviveMenuAnswer : uint
+    {
+        Accept = 0,
+        Decline = 1
+    }
+
+    /// <summary>
+    /// The <c>type</c> of S2C 0x0F9 (GP_SERV_COMMAND_RES): what the dead character's menu offers. The client treats
+    /// any other value as <see cref="HomePoint"/>.
+    /// Values referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00F9) and
+    /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0f9_res.h).
+    /// </summary>
+    public enum DeathMenuType : ushort
+    {
+        /// <summary>Only the home point menu (also: no Raise or Tractor offered any more).</summary>
+        HomePoint = 0,
+
+        /// <summary>A Raise was cast on the character, or its Reraise took effect: the Raise yes/no sub-menu.</summary>
+        Raise = 1,
+
+        /// <summary>A Tractor was cast on the character: the Tractor yes/no sub-menu.</summary>
+        Tractor = 2
+    }
+
+    /// <summary>
     /// Emote ids sent as C2S 0x05D <c>Number</c> (and played by event opcode 0x6E). Point is 0; there is no "none" value.
     /// <c>/sit</c> is not an emote: it is its own packet (C2S 0x0EA). Ids referenced from XiPackets
     /// (https://github.com/atom0s/XiPackets/tree/main/world/client/0x005D) and LandSandBoat
@@ -610,6 +655,43 @@ namespace Gordian.Core.Network.Packets
             {
                 reader.ReadBits(6 + 4 + 14 + 10);
             }
+        }
+    }
+
+    /// <summary>
+    /// S2C 0x0F9 (GP_SERV_COMMAND_RES): changes the dead character's menu. Payload (12-byte packet): 0 u32
+    /// <c>UniqueNo</c>, 4 u16 <c>ActIndex</c> (both the character's own; the client does not use them), 6 u16
+    /// <c>type</c> (<see cref="DeathMenuType"/>: 0 back to the plain home point menu, 1 the Raise sub-menu, 2 the
+    /// Tractor sub-menu; any other value counts as 0). LandSandBoat sends type 1 when Raise is cast on a dead
+    /// character (<c>CLuaBaseEntity::sendRaise</c>) and about 12 s after a death with Reraise active
+    /// (<c>CDeathState::Update</c>), and type 2 for Tractor (<c>sendTractor</c>); it never sends type 0.
+    /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x00F9)
+    /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x0f9_res.h,
+    /// ai/states/death_state.cpp, lua/lua_base_entity.cpp).
+    /// </summary>
+    public readonly ref struct S2C_0x0F9_Res
+    {
+        public const ushort PacketId = 0x0F9;
+        public const int PayloadLength = 8;
+
+        public bool IsValid { get; }
+        public uint UniqueNo { get; }
+        public ushort ActIndex { get; }
+
+        /// <summary>The raw <c>type</c> as sent.</summary>
+        public ushort RawType { get; }
+
+        /// <summary>The menu the client shows: <see cref="RawType"/>, with unknown values read as <see cref="DeathMenuType.HomePoint"/> (XiPackets).</summary>
+        public DeathMenuType Type => RawType is (ushort)DeathMenuType.Raise or (ushort)DeathMenuType.Tractor ? (DeathMenuType)RawType : DeathMenuType.HomePoint;
+
+        public S2C_0x0F9_Res(ReadOnlySpan<byte> payload)
+        {
+            this = default;
+            if (payload.Length < PayloadLength) return;
+            UniqueNo = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+            ActIndex = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4, 2));
+            RawType = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            IsValid = true;
         }
     }
 
@@ -1053,6 +1135,33 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public static int BuildMountRequest(Span<byte> destination, ushort sequenceId, uint mountId)
             => BuildAction(destination, sequenceId, CliActionId.Mount, param: mountId);
+
+        /// <summary>
+        /// C2S 0x01A <see cref="CliActionId.HomepointMenu"/> (0x0B): the dead character's home point menu answer,
+        /// ActionBuf[0] = <paramref name="choice"/> (0 = return to the home point). UniqueNo / ActIndex are the
+        /// character's own (LandSandBoat does not read them for this kind; what retail sends there is not captured).
+        /// Packet layout referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x01a_action.cpp).
+        /// </summary>
+        public static int BuildHomepointMenuRequest(Span<byte> destination, ushort sequenceId, uint playerId, ushort playerIndex,
+            HomepointMenuChoice choice = HomepointMenuChoice.ReturnToHomePoint)
+            => BuildAction(destination, sequenceId, CliActionId.HomepointMenu, playerId, playerIndex, (uint)choice);
+
+        /// <summary>
+        /// C2S 0x01A <see cref="CliActionId.RaiseMenu"/> (0x0D): accepts (ActionBuf[0] = 0) or declines (1) the Raise
+        /// offered by S2C 0x0F9 type 1. Layout as <see cref="BuildHomepointMenuRequest"/>; values referenced from
+        /// XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A).
+        /// </summary>
+        public static int BuildRaiseMenuRequest(Span<byte> destination, ushort sequenceId, uint playerId, ushort playerIndex, ReviveMenuAnswer answer)
+            => BuildAction(destination, sequenceId, CliActionId.RaiseMenu, playerId, playerIndex, (uint)answer);
+
+        /// <summary>
+        /// C2S 0x01A <see cref="CliActionId.TractorMenu"/> (0x13): accepts (ActionBuf[0] = 0) or declines (1) the Tractor
+        /// offered by S2C 0x0F9 type 2. Layout as <see cref="BuildHomepointMenuRequest"/>; values referenced from
+        /// XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x001A).
+        /// </summary>
+        public static int BuildTractorMenuRequest(Span<byte> destination, ushort sequenceId, uint playerId, ushort playerIndex, ReviveMenuAnswer answer)
+            => BuildAction(destination, sequenceId, CliActionId.TractorMenu, playerId, playerIndex, (uint)answer);
 
         /// <summary>
         /// C2S 0x01A: Requests dismounting from current mount or chocobo.

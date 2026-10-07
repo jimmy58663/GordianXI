@@ -82,6 +82,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>A row of the Effects page: confirm toggles the filter.</summary>
         EffectFilter,
+
+        /// <summary>The dead window's "Back to Home Point" (<see cref="StockUiDeathMenu"/>).</summary>
+        HomePoint,
     }
 
     /// <summary>
@@ -204,6 +207,9 @@ namespace Gordian.Core.Ui
             // The NPC shop's Buy / Sell window ("shopmain", opened by S2C 0x03E; Tier 2 chunk 6c).
             [(StockUiShop.MenuName, StockUiShop.BuyButton)] = new("Buy", Command: StockUiMenuCommand.ShopBuy),
             [(StockUiShop.MenuName, StockUiShop.SellButton)] = new("Sell", Command: StockUiMenuCommand.ShopSell),
+
+            // The dead character's window ("dead": "Time Left:" title, one button, label sprite windowps #254).
+            [(StockUiDeathMenu.MenuName, StockUiDeathMenu.HomePointButton)] = new("Back to Home Point", Command: StockUiMenuCommand.HomePoint),
 
             // Chat modes (the command menu's Chat entry): each sets the default chat mode as /chatmode does.
             [(ChatModeMenu, 1)] = new("Say", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Say),

@@ -74,6 +74,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The NPC shop's Buy / Sell window ("shopmain", bottom-left); its list and prompts follow it.</summary>
         public const string Shop = "shop";
+
+        /// <summary>The dead character's home point window ("dead", top-left); its prompts follow it.</summary>
+        public const string Death = "dead";
     }
 
     /// <summary>

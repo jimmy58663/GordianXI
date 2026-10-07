@@ -74,15 +74,15 @@ GordianXI type: `CliActionId`; every request goes through `CombatPacketBuilder.B
 | 0x05 | Help | `/callforhelp` (`/cfh`) |
 | 0x07 | Weaponskill | `/ws` |
 | 0x09 | JobAbility | `/ja` |
-| 0x0B | HomepointMenu | no named caller (death menus [#103](https://github.com/jimmy58663/GordianXI/issues/103)) |
+| 0x0B | HomepointMenu | the dead window's Back to Home Point, `/homepoint`; `ActionBuf[0]` = `HomepointMenuChoice` 0 home point, 1 / 2 Monstrosity Cancel / Retry ([#103](https://github.com/jimmy58663/GordianXI/issues/103)) |
 | 0x0C | Assist | `/assist` |
-| 0x0D | RaiseMenu | no named caller (#103) |
+| 0x0D | RaiseMenu | the Raise prompt, `/acceptraise [decline]`; `ActionBuf[0]` = `ReviveMenuAnswer` 0 accept, 1 decline (#103) |
 | 0x0E | Fish | `/fish` |
 | 0x0F | ChangeTarget | `/attack` on another target while engaged |
 | 0x10 | Shoot | `/shoot` |
 | 0x11 | ChocoboDig | `/dig` (then S2C 0x02F and C2S 0x063) |
 | 0x12 | Dismount | builder only |
-| 0x13 | TractorMenu | no named caller (#103) |
+| 0x13 | TractorMenu | the Tractor prompt, `/accepttractor [decline]`; `ActionBuf[0]` = `ReviveMenuAnswer` 0 accept, 1 decline (#103) |
 | 0x14 | SendResRdy | no named caller |
 | 0x15 | Quarry | no named caller |
 | 0x16 | Sprint | `/sprint` (LandSandBoat does nothing with it) |

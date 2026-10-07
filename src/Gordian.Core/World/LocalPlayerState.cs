@@ -231,6 +231,33 @@ namespace Gordian.Core.World
         public ushort CostumeId { get; private set; }
         /// <summary>Seconds left before a dead character is force-homepointed (S2C 0x037 <c>dead_counter1</c>).</summary>
         public uint HomepointSecondsRemaining { get; private set; }
+
+        /// <summary><see cref="ServerStatus"/> of a dead character (LandSandBoat <c>xi.animation.DEATH</c>).</summary>
+        public const byte StatusDead = 3;
+
+        /// <summary>Whether the character is dead (S2C 0x037 status 3).</summary>
+        public bool IsDead => ServerStatus == StatusDead;
+
+        /// <summary>
+        /// What the dead character's menu offers besides the home point: a Raise or Tractor from S2C 0x0F9, kept until
+        /// it is answered, the server sends type 0, or the character is no longer dead.
+        /// </summary>
+        public DeathMenuType DeathMenu { get; private set; }
+
+        /// <summary>Raised with the new <see cref="DeathMenu"/> when it changes.</summary>
+        public event Action<DeathMenuType>? DeathMenuChanged;
+
+        /// <summary>Applies S2C 0x0F9 (or clears the offer after it was answered, with <see cref="DeathMenuType.HomePoint"/>).</summary>
+        public void ApplyDeathMenu(DeathMenuType type)
+        {
+            lock (_lock)
+            {
+                // A repeated Raise / Tractor is passed on (the prompt opens again); a repeated home point is not news.
+                if (DeathMenu == type && type == DeathMenuType.HomePoint) return;
+                DeathMenu = type;
+            }
+            DeathMenuChanged?.Invoke(type);
+        }
         #endregion
 
         #region Locomotion & Speed
@@ -468,6 +495,8 @@ namespace Gordian.Core.World
 
             if (previousStatus != status.ServerStatus)
             {
+                // A Raise or Tractor offer ends with the death (raised, home point, or a fresh life).
+                if (previousStatus == StatusDead) ApplyDeathMenu(DeathMenuType.HomePoint);
                 ServerStatusChanged?.Invoke(previousStatus, status.ServerStatus);
             }
 
