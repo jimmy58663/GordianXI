@@ -190,6 +190,12 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => _parser.TreasureModule;
 
+        /// <summary>Gets the crafting state (S2C 0x06F, 0x070, 0x031).</summary>
+        public CraftingState Crafting => _parser.Crafting;
+
+        /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
+        public CraftingPacketModule CraftingModule => _parser.CraftingModule;
+
         /// <summary>Gets the delivery box state (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => _parser.Delivery;
 

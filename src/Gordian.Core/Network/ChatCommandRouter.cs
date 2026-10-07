@@ -74,6 +74,10 @@ namespace Gordian.Core.Network
         TreasureLot,
         /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
         TreasurePass,
+        /// <summary><c>/synth &lt;crystal slot&gt; &lt;slot&gt; [slot...]</c>: synthesizes with inventory slots (C2S 0x096). A GordianXI extension until the synthesis menu exists.</summary>
+        Synthesize,
+        /// <summary><c>/guild buylist|selllist|buy &lt;item id&gt; [n]|sell &lt;slot&gt; [n]</c>: guild shop requests (C2S 0x0AA-0x0AD). A GordianXI extension until the guild shop window exists.</summary>
+        GuildShop,
         /// <summary><c>/heal [on|off]</c>: rests (C2S 0x0E8); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         Heal,
         /// <summary><c>/sit [on|off]</c>: sits down or stands up (C2S 0x0EA); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
@@ -256,6 +260,10 @@ namespace Gordian.Core.Network
                     // Treasure pool
                     "lot" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasureLot, Message = args },
                     "pass" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasurePass, Message = args },
+
+                    // Crafting and guild shops
+                    "synth" or "synthesize" => new ChatCommandResult { Kind = ChatCommandResultKind.Synthesize, Message = args },
+                    "guild" => new ChatCommandResult { Kind = ChatCommandResultKind.GuildShop, Message = args },
 
                     // Stock UI layout
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },

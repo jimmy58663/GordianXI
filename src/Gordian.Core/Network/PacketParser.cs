@@ -40,6 +40,8 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly CraftingState _crafting = new();
+        private readonly CraftingPacketModule _craftingModule;
         private readonly DeliveryBoxState _delivery = new();
         private readonly BlacklistState _blacklist = new();
         private readonly SocialState _social = new();
@@ -132,6 +134,9 @@ namespace Gordian.Core.Network
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
 
+            _craftingModule = new CraftingPacketModule(_crafting, _sendChunkCallback, LogPacket);
+            _craftingModule.Register(_dispatcher);
+
             _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
             _socialModule.Register(_dispatcher);
             _search = new Gordian.Core.Network.Search.SearchService(_socialModule, _party, _inventory);
@@ -163,6 +168,7 @@ namespace Gordian.Core.Network
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
+            _actionService.CraftingModule = _craftingModule;
             _actionService.SocialModule = _socialModule;
             _actionService.SearchService = _search;
             _actionService.CommandModule = _commandModule;
@@ -251,6 +257,12 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>Gets the crafting state: the last synthesis results and recipes (S2C 0x06F, 0x070, 0x031).</summary>
+        public CraftingState Crafting => _crafting;
+
+        /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
+        public CraftingPacketModule CraftingModule => _craftingModule;
 
         /// <summary>Gets the delivery box: the incoming and outgoing slots as the server described them (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => _delivery;

@@ -104,6 +104,12 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
 
+        /// <summary>Gets the crafting state (S2C 0x06F, 0x070, 0x031).</summary>
+        public CraftingState Crafting => NetworkManager.Crafting;
+
+        /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
+        public CraftingPacketModule CraftingModule => NetworkManager.CraftingModule;
+
         /// <summary>Gets the delivery box state (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => NetworkManager.Delivery;
 
@@ -275,6 +281,15 @@ namespace Gordian.Core.Network
             Treasure.Solved += solution =>
             {
                 foreach (string line in treasureLog.FormatSolution(solution)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            // Synthesis results print to the message log as the retail client does.
+            Crafting.SynthesisCompleted += outcome =>
+            {
+                foreach (string line in Ui.CraftingLog.FormatOwn(outcome, id => ActionService.Menus.ItemLookup?.Invoke(id))) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Crafting.OtherSynthesisCompleted += outcome =>
+            {
+                foreach (string line in Ui.CraftingLog.FormatOther(outcome, id => ActionService.Menus.ItemLookup?.Invoke(id))) Chat.Log.Add(Ui.ChatLogChannel.System, line);
             };
             World.ZoneChanged += _ =>
             {
