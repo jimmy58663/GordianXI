@@ -50,7 +50,7 @@ namespace Gordian.Core.Ui
     /// Instances are immutable to readers except the fields the controller updates (selection, markers, slider
     /// fills, list rows), which are replaced whole so the render thread can read them without a lock.
     /// </summary>
-    public sealed class StockUiOpenMenu
+    public sealed partial class StockUiOpenMenu
     {
         private static readonly IReadOnlyDictionary<int, float> NoSliders = new Dictionary<int, float>();
         private HashSet<int>? _marked;
@@ -340,7 +340,7 @@ namespace Gordian.Core.Ui
     /// </para>
     /// The retail client remembers the cursor position of each menu; so does this controller (per menu name).
     /// </summary>
-    public sealed class StockUiMenuController
+    public sealed partial class StockUiMenuController
     {
         /// <summary>Delay before a held direction starts repeating, then the interval between repeats.</summary>
         public static readonly TimeSpan RepeatDelay = TimeSpan.FromSeconds(0.4);
@@ -1423,6 +1423,12 @@ namespace Gordian.Core.Ui
             if (top.IsShopList)
             {
                 ActivateShopRow(top);
+                return;
+            }
+
+            if (top.IsCheck)
+            {
+                ActivateCheck(top, button);
                 return;
             }
 

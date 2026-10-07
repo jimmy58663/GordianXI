@@ -57,7 +57,15 @@ namespace Gordian.App.Graphics
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
                 if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
                 {
-                    if (!isSelected)
+                    if (menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
+                    {
+                        // A check window slot with an item: the slot box without its label; the icon covers it.
+                        foreach (var part in label.Parts)
+                        {
+                            if (!IsGlyph(part)) renderer.DrawPart(part, bx, by, s);
+                        }
+                    }
+                    else if (!isSelected)
                     {
                         renderer.DrawImage(label, bx, by, s);
                     }
@@ -103,6 +111,10 @@ namespace Gordian.App.Graphics
             else if (font != null && menu.IsQuantity)
             {
                 DrawQuantity(renderer, library, font, menu, placement);
+            }
+            else if (font != null && menu.Check is { } check)
+            {
+                StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement);
             }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {
@@ -278,7 +290,7 @@ namespace Gordian.App.Graphics
             return icon;
         }
 
-        private static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size)
+        internal static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size)
         {
             var icon = ItemIcon(menu, itemId);
             if (icon != null) renderer.DrawTexture($"item:{itemId}", icon, x, y, size, size, PointerColor);
@@ -360,11 +372,22 @@ namespace Gordian.App.Graphics
             float originX = placement.X + (gil.Frame.X - list.Frame.X) * s + shift.X;
             float originY = placement.Y + (gil.Frame.Y - list.Frame.Y) * s + shift.Y;
             var at = new StockUiPlacement(originX + InfoOffsetX * s, originY, s, false);
+            DrawItemInfo(renderer, info, font, menu, at, row.ItemId, row.Name);
+        }
+
+        /// <summary>
+        /// The "iteminfo" window at a place: the item's 32 x 32 icon, its long name, then the DAT description wrapped to
+        /// the lines that fit (the shop's item info window; the check window's item under the cursor).
+        /// </summary>
+        internal static void DrawItemInfo(StockUiRenderer renderer, UiMenuDefinition info, UiFont font, StockUiOpenMenu menu,
+            StockUiPlacement at, ushort itemId, string fallbackName)
+        {
+            float s = at.Scale;
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            DrawItemIcon(renderer, menu, row.ItemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            var record = menu.ItemLookup?.Invoke(row.ItemId);
+            DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
+            var record = menu.ItemLookup?.Invoke(itemId);
             float x = at.X + InfoTextX * s, y = at.Y + InfoTextY * s;
-            renderer.DrawText(font, record != null ? StockUiShop.LongName(record) : row.Name, x, y, s);
+            renderer.DrawText(font, record != null ? StockUiShop.LongName(record) : fallbackName, x, y, s);
             int width = (int)(info.Frame.Width - InfoTextX - InfoRightInset);
             int maxLines = (int)((info.Frame.Height - InfoTextY - InfoLinePitch) / InfoLinePitch);
             string? description = record?.Description;

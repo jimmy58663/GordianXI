@@ -265,6 +265,12 @@ namespace Gordian.Core.Network
                 }
             };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            // A player check (#64): S2C 0x0C9's general block, sent last, opens the check window.
+            Commands.Equipment.Completed += info =>
+            {
+                string name = ResolveEntityName(info.ServerId) is { Length: > 0 } known ? known : info.Message?.Name ?? string.Empty;
+                ActionService.Menus.OpenCheck(new Ui.StockUiCheckData(name, info));
+            };
             // Treasure pool events print to the message log as the retail client does; a zone change empties the pool
             // (the server sends it again for a party that is still in it).
             var treasureLog = new Ui.StockUiTreasure(id => ActionService.Menus.ItemLookup?.Invoke(id), ResolveEntityName, () => LocalPlayer.ServerId);
