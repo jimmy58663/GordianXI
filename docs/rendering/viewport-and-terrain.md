@@ -12,11 +12,51 @@
 - **Decoupled 3D Rendering Window (`ViewportWindow`) & Lifecycle Coordinator (`ViewportWindowManager`):**
   - Gameplay graphics run in a separate hardware-accelerated window, preserving `MainWindow` as the central Control Panel (profiles, packet inspection, state diagnostics, chat console, and display settings).
   - Three display modes: **Borderless Window** (default, borderless work area alignment), **Windowed** (movable & resizable with min dimension safeguards), and **Fullscreen** (`WindowState.FullScreen`, toggleable via `F11`).
-  - Multi-option character tab switcher styles: **Floating Pill** (top-center glass dynamic island - default), **Top Ribbon** (auto-hiding), **Side Rail** (vertical party deck with live HP/MP vitals), and **Hotkeys Only** (`Ctrl+Tab` / `Ctrl+Shift+Tab`).
-  - **Multi-Monitor Tear-Off / Pop-Out (`⧉`):** Single master NeoVeldrid `GraphicsDevice` context driving multiple independent window `Swapchain` instances across monitors with zero VRAM waste or asset duplication.
-  - **Picture-in-Picture (PiP) Multi-Box Swarm Streaming:** Real-time thumbnail sub-viewports for up to 5 background characters (1 main + 5 alts) with 1-click `⇄` viewport promotion and throttled background render rates.
+  - Character tab switcher styles (`ViewportTabStyle`, saved as `ViewportSettings.SelectedTabStyle`; a change in Settings applies at once, to pop-out windows too). See [Multi-box](#multi-box-windows-switching-and-input-154) for how each behaves.
+  - **Pop-Out (`⧉`):** a character gets its own `ViewportWindow` (windowed, its own view model with `IsPrimary = false`); the main window moves on to the next character not popped out. Each window currently creates its own `GraphicsDevice` ([#300](https://github.com/jimmy58663/GordianXI/issues/300)).
+  - **Picture-in-Picture (PiP) deck:** cards for up to `MaxPipStreams` (5) background characters with 1-click `⇄` promotion into the main view and `⧉`. Cards show name, job and HP; live scene thumbnails are [#302](https://github.com/jimmy58663/GordianXI/issues/302).
 
 - **Lobby and zoning (#32, #36).** While a character lobby is open (`ViewportViewModel.Lobby`) the viewport draws it instead of the active session (`LobbyFrameRenderer`: the lobby backgrounds, the preview model through the entity renderer alone, the lobby windows) and sends it the keyboard and mouse. While a session connects or zones, `ZoneLoadingScreen` fades the frame to black over the scene and the HUD, and the placeholder models are left out until it is clear again. Between a Log Out and the lobby's return (`ViewportViewModel.IsReturningToLobby`) the viewport draws black (`HoldBlack`), and a lobby fades in from black when it appears. See [character-lobby.md](../design/character-lobby.md).
+
+## Multi-box: windows, switching and input (#154)
+
+One process can hold several characters (`CharacterSession`, one per character; one per account, see [desktop-shell.md](../app/desktop-shell.md)). `ViewportWindowManager` gives all of them tabs in the main viewport window (`ViewportViewModel.CharacterTabs`; `ActiveTab` is the character drawn and driven there) and opens a pop-out window per torn-off character.
+
+**Airspace (#152, 2026-10-07).** On Windows the 3D surface is a native child window (`Win32ChildWindowHelper`), and Avalonia cannot draw over it: every switcher overlaid on it was invisible (all four styles, the PiP deck and the free camera banner). Now nothing in the window overlaps the surface. The top ribbon and side rail take their own row / column beside it; the floating pill, the PiP deck and the free camera banner are `Popup`s (small owned windows, not topmost, not light-dismissed, not taking focus) placed over it, opened while their view model flag is set and closed while the window is hidden or minimised (`ViewportWindow.UpdateOverlayPopups`). Switcher buttons are not focusable, so a click leaves the keyboard with the game.
+
+| Style | Shows | Where |
+|---|---|---|
+| `FloatingPill` (default) | active character, job, `⧉`, a button per other character, camera mode button | popup at the top centre of the view, while a character is shown (not over a lobby or the black return to it) |
+| `TopRibbon` | a tab per character (name, job, `⧉`), FPS and backend, display mode, minimise and close | strip above the view, always (also over a lobby, for its window buttons) |
+| `SideRail` | a card per character (name, job, HP, `⧉`, Focus) | 180 px column left of the view, while a character is shown |
+| `HotkeysOnly` | nothing | Ctrl+Tab / Ctrl+Shift+Tab only |
+
+Checked 2026-10-07 by launching the shell with three unconnected sessions (Gordian, Knot, Claude) and screen captures of each style: all four show as above, the PiP deck shows two cards, and Ctrl+Tab / Ctrl+Shift+Tab (sent to the window) move the pill's active character Gordian -> Knot, then back twice -> Claude.
+
+**Switching (#151).** Ctrl+Tab / Ctrl+Shift+Tab (`ViewportShortcuts`) are read on the window's tunnelling key-down with the other window shortcuts (F8-F11). They were on the bubbling key-down, where Avalonia's keyboard navigation can take Tab (Ctrl+Tab included) when a control in the window has the focus. Cycling wraps and skips characters popped out into their own window. Each switch is logged (`Viewport` `Ctrl+Tab: A -> B (n tabs)`). The keys and buttons the previous character held are released (`InputState.Reset`), otherwise the Ctrl of Ctrl+Tab or a held movement key stayed down for it; the same happens when a viewport window loses the focus. The camera mode button and the free camera banner's Exit now switch the active character's camera (`PlayerLocomotionController.CameraMode`); they had only changed a view model field nothing read.
+
+**Gamepad focus (#150).** `ViewportWindowManager.InputFocus` (`InputFocusTracker`) records which viewport window has the focus and which character it shows; any feature that should follow focus can read it. The pad drives the focused viewport's character (none while it shows a lobby); with the control panel or another program focused, the character of the viewport focused last. Every other character gets a disconnected pad. Before, the pad went to `SessionRegistry.PrimaryRenderingSession`, which each pop-out took when it opened, so the last window popped out kept the pad whatever had the focus. Across processes, SDL's Raw Input, GameInput and Windows.Gaming.Input joystick drivers are turned off on Windows so every GordianXI process can read the pad (see [console-and-input.md](../input/console-and-input.md#input-subsystem)).
+
+**Audit checklist (2026-10-07, without a game login; "unit" = App tests, "shell" = the capture above):**
+
+| Item | Result | How checked |
+|---|---|---|
+| One session per character; tabs added / removed on login, logout, disconnect | works; a removed active tab hands over to the first tab not popped out; a pop-out closes with its session | code, existing `ViewportWindowManagerTests` |
+| Ctrl+Tab / Ctrl+Shift+Tab, `⇄`, switcher buttons switch the primary render | fixed (#151) | unit (`CycleCharacter_*`, `ViewportShortcutsTests`), shell |
+| Four switcher styles show and update live | fixed (#152) | unit (`SwitcherVisibility_*`), shell |
+| Tab names, jobs and HP update | fixed: they only refreshed when a session was re-added; now on the 250 ms telemetry tick | code |
+| Keyboard and mouse reach only the window's active character | works (each window feeds its own `ActiveTab`); held keys released on switch and focus loss | unit (`SwitchingCharacter_ReleasesTheKeysHeldForThePreviousOne`) |
+| Gamepad follows focus, incl. pop-outs and Always Enable Gamepad | fixed (#150); Always Enable reads the target character's profile | unit (`InputFocusTrackerTests`); in game: pending |
+| Gamepad across several GordianXI processes | SDL driver hints changed; not verifiable here | in game: pending |
+| Pop-out shares one `GraphicsDevice` | no: one device per window | code; [#300](https://github.com/jimmy58663/GordianXI/issues/300) |
+| Background / unfocused render throttling | none | code; [#301](https://github.com/jimmy58663/GordianXI/issues/301) |
+| PiP live thumbnails | status cards only | code, shell; [#302](https://github.com/jimmy58663/GordianXI/issues/302) |
+| Reopening the main viewport after closing it | added: Settings -> 3D Viewport -> Open Viewport Window (the command existed but had no button) | shell build |
+| Per-session state isolation (world, appearance, camera, stock UI, target) | each `CharacterSession` owns its `WorldState`, `PlayerActionService` (menus, UI layout, target) and locomotion camera; the viewport rebinds them on a switch. The same-gear bug (#153) is closed | code |
+| Shared `ResourceManager` caches | keyed by content, not entity ids ([Resource cache keys](#resource-cache-keys)) | code |
+| Frame time with 1 / 2 / 6 characters | not measured (needs logins); with #301 | pending |
+
+Open, not filed: `MainWindowViewModel` still writes `SessionRegistry.PrimaryRenderingSession` from the console's selected character; nothing reads it for input any more.
 
 ## Camera and zone terrain (Phase 5B)
 

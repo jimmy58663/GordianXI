@@ -177,55 +177,44 @@ namespace Gordian.App
                 elapsed = TimeSpan.FromMilliseconds(100);
             }
 
-            // In multi-boxing, only the primary client rendering 3D graphics receives gamepad input.
-            var primarySession = SessionRegistry.Default.PrimaryRenderingSession 
-                                 ?? _viewModel.Console.SelectedSession;
+            // The gamepad drives one character: the one in the focused viewport window (main or popped out), else the
+            // one in the viewport focused last (#150). Every other character gets a disconnected pad.
+            var viewports = ViewportWindowManager.Default;
+            var gamepadTarget = viewports.InputFocus.ResolveGamepadTarget(
+                viewports.PrimaryViewModel.ActiveTab?.Session ?? _viewModel.Console.SelectedSession);
 
-            var gamepadSettings = primarySession?.Locomotion?.Profile?.GamepadSettings;
+            var gamepadSettings = gamepadTarget?.Locomotion?.Profile?.GamepadSettings;
 
             bool isGamepadEnabled = gamepadSettings?.GamepadEnabled ?? _viewModel.Controls.GamepadEnabled;
             bool alwaysEnable = gamepadSettings?.AlwaysEnableGamepad ?? _viewModel.Controls.AlwaysEnableGamepad;
             bool rumbleEnabled = gamepadSettings?.RumbleEnabled ?? _viewModel.Controls.GamepadRumbleEnabled;
-            bool windowFocused = this.IsActive || ViewportWindowManager.Default.IsAnyViewportActive();
+            bool windowFocused = this.IsActive || viewports.InputFocus.IsViewportFocused;
 
             _gamepadDriver.RumbleEnabled = rumbleEnabled;
 
-            // Polling only occurs if enabled AND (window is active OR AlwaysEnableGamepad is set)
+            // Polling only occurs if enabled AND (a GordianXI window is active OR AlwaysEnableGamepad is set)
             bool shouldPoll = isGamepadEnabled && (windowFocused || alwaysEnable);
             var padState = shouldPoll ? _gamepadDriver.Poll(0) : GamepadState.Disconnected;
 
             var activeSessions = SessionRegistry.Default.ActiveSessions;
-            if (activeSessions.Count > 0)
+            foreach (var session in activeSessions)
             {
-                foreach (var session in activeSessions)
+                if (ReferenceEquals(session, gamepadTarget))
                 {
-                    if (session == primarySession && session.IsRendering3D)
-                    {
-                        session.InputState.SetGamepadState(padState);
-                    }
-                    else
-                    {
-                        // Background headless characters must NEVER receive gamepad input
-                        if (session.InputState.CurrentGamepad.IsConnected)
-                        {
-                            session.InputState.SetGamepadState(GamepadState.Disconnected);
-                        }
-                    }
+                    session.InputState.SetGamepadState(padState);
+                }
+                else if (session.InputState.CurrentGamepad.IsConnected)
+                {
+                    // Characters that are not the gamepad's must never receive its input
+                    session.InputState.SetGamepadState(GamepadState.Disconnected);
+                }
 
-                    session.Locomotion.Update(elapsed);
-                }
+                session.Locomotion.Update(elapsed);
             }
-            else if (primarySession != null)
+            if (activeSessions.Count == 0 && gamepadTarget != null)
             {
-                if (primarySession.IsRendering3D)
-                {
-                    primarySession.InputState.SetGamepadState(padState);
-                }
-                else
-                {
-                    primarySession.InputState.SetGamepadState(GamepadState.Disconnected);
-                }
-                primarySession.Locomotion.Update(elapsed);
+                gamepadTarget.InputState.SetGamepadState(padState);
+                gamepadTarget.Locomotion.Update(elapsed);
             }
 
             _viewModel.Controls.UpdateTelemetry();

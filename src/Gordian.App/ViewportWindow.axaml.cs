@@ -3,6 +3,7 @@ using System;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -29,6 +30,10 @@ namespace Gordian.App
         private DispatcherTimer? _telemetryTimer;
         private Point? _lastPointerPosition;
         private bool _isRightDragging;
+        private readonly Popup? _pillPopup;
+        private readonly Popup? _pipPopup;
+        private readonly Popup? _freeCamPopup;
+        private bool _isShown;
 
         // The last pointer position over the rendering surface (framebuffer pixels), from the raw Win32 mouse
         // messages; a raw button event carries no position of its own, but a move always precedes it.
@@ -76,7 +81,20 @@ namespace Gordian.App
             }
 
             DataContextChanged += OnDataContextChanged;
-            KeyDown += OnKeyDown;
+
+            // Overlays over the native 3D surface are popups (it cannot be drawn over in this window; see the .axaml).
+            _pillPopup = this.FindControl<Popup>("FloatingPillPopup");
+            _pipPopup = this.FindControl<Popup>("PipDeckPopup");
+            _freeCamPopup = this.FindControl<Popup>("FreeCamPopup");
+            Opened += (_, _) =>
+            {
+                _isShown = true;
+                UpdateOverlayPopups();
+            };
+            PropertyChanged += (_, e) =>
+            {
+                if (e.Property == WindowStateProperty || e.Property == IsVisibleProperty) UpdateOverlayPopups();
+            };
 
             // Gameplay keyboard/mouse-button input is captured here (the window that actually
             // renders and receives focus during play), not on MainWindow, which never has focus
@@ -125,6 +143,7 @@ namespace Gordian.App
                 ApplyDisplayMode(_viewModel.SelectedDisplayMode);
                 SyncActiveSessionToViewport();
             }
+            UpdateOverlayPopups();
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -132,6 +151,38 @@ namespace Gordian.App
             if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
             {
                 SyncActiveSessionToViewport();
+            }
+            if (e.PropertyName is nameof(ViewportViewModel.ShowFloatingPill) or nameof(ViewportViewModel.ShowPipDeck)
+                or nameof(ViewportViewModel.IsFreeCamActive) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
+            {
+                UpdateOverlayPopups();
+            }
+        }
+
+        /// <summary>
+        /// Opens or closes the popups drawn over the native 3D surface (floating pill, PiP deck, free camera banner): open
+        /// while their view model flag is set and the window is on screen, closed while it is hidden or minimised (a
+        /// popup is its own window and would otherwise be left floating).
+        /// </summary>
+        private void UpdateOverlayPopups()
+        {
+            bool onScreen = _isShown && IsVisible && WindowState != WindowState.Minimized;
+            bool showsWorld = _viewModel is { IsLobbyOpen: false, IsReturningToLobby: false } && _viewModel.ActiveTab != null;
+            SetPopupOpen(_pillPopup, onScreen && _viewModel?.ShowFloatingPill == true);
+            SetPopupOpen(_pipPopup, onScreen && _viewModel?.ShowPipDeck == true);
+            SetPopupOpen(_freeCamPopup, onScreen && showsWorld && _viewModel?.IsFreeCamActive == true);
+        }
+
+        private static void SetPopupOpen(Popup? popup, bool open)
+        {
+            if (popup == null || popup.IsOpen == open) return;
+            try
+            {
+                popup.IsOpen = open;
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("Viewport", $"Could not {(open ? "open" : "close")} the {popup.Name} overlay: {ex.Message}");
             }
         }
 
@@ -239,82 +290,46 @@ namespace Gordian.App
             }
         }
 
-        private void OnKeyDown(object? sender, KeyEventArgs e)
+        /// <summary>
+        /// The window's own shortcuts (see <see cref="ViewportShortcuts"/>): character switching, display mode, and the
+        /// fog / post-process / ocean / weather / time-of-day debug toggles. They never reach the character's input.
+        /// </summary>
+        private void ApplyShortcut(ViewportShortcut shortcut)
         {
-            // Ctrl+Tab / Ctrl+Shift+Tab to cycle character viewports
-            if (e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            switch (shortcut)
             {
-                if ((e.KeyModifiers & KeyModifiers.Shift) != 0)
-                {
-                    _viewModel?.CyclePreviousCharacter();
-                }
-                else
-                {
-                    _viewModel?.CycleNextCharacter();
-                }
-                e.Handled = true;
-                return;
-            }
-
-            // F11 toggles Fullscreen / Borderless
-            if (e.Key == Key.F11 && _viewModel != null)
-            {
-                _viewModel.SelectedDisplayMode = _viewModel.SelectedDisplayMode == ViewportDisplayMode.Fullscreen
-                    ? ViewportDisplayMode.BorderlessWindow
-                    : ViewportDisplayMode.Fullscreen;
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F10 toggles distance fog on/off
-            if (e.Key == Key.F10 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.ToggleFog();
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F8 toggles the cutscene post-process (blur, cross-dissolve) on/off
-            if (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.TogglePostProcess();
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F9 toggles base sea-level ocean water plane on/off
-            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.ToggleOceanWater();
-                e.Handled = true;
-                return;
-            }
-
-            // F9 cycles active Weather presets (Clear "fine" -> Sunshine "suny" -> Clouds "clod" -> Fog "mist")
-            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) == 0)
-            {
-                _viewportControl?.CycleWeather();
-                e.Handled = true;
-                return;
-            }
-
-            // F10 cycles Time of Day presets (Day -> Dusk -> Night -> Overcast)
-            if (e.Key == Key.F10)
-            {
-                _viewportControl?.CycleTimeOfDay();
-                e.Handled = true;
-                return;
+                case ViewportShortcut.NextCharacter:
+                case ViewportShortcut.PreviousCharacter:
+                    if (_viewModel == null) return;
+                    var before = _viewModel.ActiveTab;
+                    if (shortcut == ViewportShortcut.NextCharacter) _viewModel.CycleNextCharacter();
+                    else _viewModel.CyclePreviousCharacter();
+                    GordianLog.Info("Viewport", $"{(shortcut == ViewportShortcut.NextCharacter ? "Ctrl+Tab" : "Ctrl+Shift+Tab")}: " +
+                        $"{before?.CharacterName ?? "none"} -> {_viewModel.ActiveTab?.CharacterName ?? "none"} ({_viewModel.CharacterTabs.Count} tabs)");
+                    break;
+                case ViewportShortcut.ToggleFullscreen:
+                    if (_viewModel == null) return;
+                    _viewModel.SelectedDisplayMode = _viewModel.SelectedDisplayMode == ViewportDisplayMode.Fullscreen
+                        ? ViewportDisplayMode.BorderlessWindow
+                        : ViewportDisplayMode.Fullscreen;
+                    break;
+                case ViewportShortcut.ToggleFog: _viewportControl?.ToggleFog(); break;
+                case ViewportShortcut.TogglePostProcess: _viewportControl?.TogglePostProcess(); break;
+                case ViewportShortcut.ToggleOceanWater: _viewportControl?.ToggleOceanWater(); break;
+                case ViewportShortcut.CycleWeather: _viewportControl?.CycleWeather(); break;
+                case ViewportShortcut.CycleTimeOfDay: _viewportControl?.CycleTimeOfDay(); break;
             }
         }
 
         private void OnGameKeyDown(object? sender, KeyEventArgs e)
         {
-            // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle, TOD cycle);
-            // don't also feed these into the character's InputState.
-            if ((e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0) ||
-                e.Key == Key.F11 || e.Key == Key.F10 || e.Key == Key.F9 ||
-                (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0))
+            // Window-level shortcuts are taken here, on the tunnelling pass, before a focused control (or Avalonia's
+            // Tab navigation) can take the key, and are not fed into the character's InputState.
+            var shortcut = ViewportShortcuts.Classify(e.Key, e.KeyModifiers);
+            if (shortcut != ViewportShortcut.None)
             {
+                ApplyShortcut(shortcut);
+                e.Handled = true;
                 return;
             }
 
@@ -672,6 +687,7 @@ namespace Gordian.App
                 _viewModel.FrameTimeMs = viewportControl.FrameTimeMs;
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
                 _viewModel.GpuName = viewportControl.GpuDeviceName;
+                _viewModel.SyncFromActiveSession();
 
                 UpdateViewportCursor();
             }
@@ -709,6 +725,8 @@ namespace Gordian.App
         {
             _telemetryTimer?.Stop();
             _telemetryTimer = null;
+            _isShown = false;
+            UpdateOverlayPopups();
 
             if (_viewModel != null)
             {
