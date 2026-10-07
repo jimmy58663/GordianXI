@@ -591,6 +591,18 @@ namespace Gordian.Core.Tests.Ui
             Assert.Contains("Earth time:", text);
         }
 
+        [Fact]
+        public void CurrentTime_ReadsTheSessionClock()
+        {
+            var now = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
+            var local = new VanaClock();
+            var ahead = new VanaClock();
+            ahead.SetServerClockOffset(3600); // one Earth hour: a Vana'diel day and an hour ahead
+
+            Assert.Equal(StockUiMenuController.DescribeCurrentTime(now), StockUiMenuController.DescribeCurrentTime(now, local));
+            Assert.NotEqual(StockUiMenuController.DescribeCurrentTime(now, local), StockUiMenuController.DescribeCurrentTime(now, ahead));
+        }
+
         /// <summary>
         /// Against the retail DATs: every selectable button of the menus the controller drives has a client meaning,
         /// and the main menu's navigation ring visits all twelve entries.
@@ -618,8 +630,12 @@ namespace Gordian.Core.Tests.Ui
                 StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
                 StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorListMenu,
                 StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogCategoryMenu, StockUiConfigPages.LogListMenu,
-                StockUiConfigPages.EffectsPage,
+                StockUiConfigPages.EffectsPage, StockUiDeathMenu.MenuName,
             };
+            // The dead character's window (#103): "Time Left:" at the top left, one "Back to Home Point" button.
+            Assert.True(library.TryGetMenu(StockUiDeathMenu.MenuName, out var dead));
+            Assert.Equal((16, 94, UiAnchor.TopLeft), (dead.Frame.X, dead.Frame.Y, dead.Frame.Anchor));
+            Assert.Equal(StockUiDeathMenu.HomePointButton, Assert.Single(dead.Buttons).ButtonId);
             driven.AddRange(StockUiConfigPages.All.Select(p => p.Menu));
             foreach (string name in driven)
             {

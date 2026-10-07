@@ -8,14 +8,12 @@ using Gordian.Core.Network;
 using Gordian.Core.Network.Compression;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Tests.World;
 using Gordian.Core.World;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
 {
-    [Collection(VanaClockCollection.Name)]
-    public class WeatherPacketTests : VanaClockTestBase
+    public class WeatherPacketTests
     {
         [Fact]
         public void S2C_0x057_Weather_DecodesWirePayload()
@@ -54,9 +52,8 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void LifecyclePacketModule_LoginAck_DispatchesWeatherZeroAndSynchronizesServerTime()
+        public void LifecyclePacketModule_LoginAck_DispatchesWeatherZeroAndServerGameTime()
         {
-            VanaTime.ResetClockOffset();
             var profile = new SessionProfile();
             var module = new LifecyclePacketModule(profile, (m, h) => Task.CompletedTask);
             int weatherEventsCount = 0;
@@ -68,6 +65,8 @@ namespace Gordian.Core.Tests.Network
             };
 
             var dispatcher = new PacketDispatcher();
+            uint receivedGameTime = 0;
+            module.ServerGameTimeReceived += t => receivedGameTime = t;
             module.Register(dispatcher);
 
             byte[] subPacket = new byte[132]; // 4-byte header + 128-byte payload
@@ -85,8 +84,59 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Equal(1, weatherEventsCount);
             Assert.Equal(0, receivedWeather);
-            Assert.NotEqual(0, VanaTime.ServerClockOffsetSeconds);
-            VanaTime.ResetClockOffset();
+            Assert.Equal(simulatedServerGameTime, receivedGameTime);
+        }
+
+        private static void DispatchLoginAck(PacketDispatcher dispatcher, uint gameTime)
+        {
+            byte[] subPacket = new byte[132]; // 4-byte header + 128-byte payload
+            PacketHeader.Write(subPacket.AsSpan(), 0x00A, (ushort)(subPacket.Length / 4), 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(subPacket.AsSpan(4, 4), 0xABCD);
+            BinaryPrimitives.WriteUInt16LittleEndian(subPacket.AsSpan(8, 2), 10);
+            BinaryPrimitives.WriteUInt16LittleEndian(subPacket.AsSpan(4 + 44, 2), 4); // Zone 4
+            BinaryPrimitives.WriteUInt32LittleEndian(subPacket.AsSpan(4 + 56, 4), gameTime);
+            dispatcher.Dispatch(new PacketHeader(0x00A, (ushort)subPacket.Length, 0), subPacket.AsSpan(4));
+        }
+
+        /// <summary>
+        /// Two sessions in one process (multi-boxing, #290): each login ack synchronizes only its own session's clock,
+        /// so sessions on servers whose clocks differ keep different Vana'diel times.
+        /// </summary>
+        [Fact]
+        public void PacketParser_LoginAck_SynchronizesOnlyItsOwnSessionClock()
+        {
+            var worldA = new WorldState();
+            var worldB = new WorldState();
+            var dispatcherA = new PacketDispatcher();
+            var dispatcherB = new PacketDispatcher();
+            _ = new PacketParser(new SessionProfile(), (m, h) => Task.CompletedTask, dispatcher: dispatcherA, world: worldA);
+            _ = new PacketParser(new SessionProfile(), (m, h) => Task.CompletedTask, dispatcher: dispatcherB, world: worldB);
+
+            long localDelta = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds;
+            DispatchLoginAck(dispatcherA, (uint)(localDelta + 3600)); // server A one Earth hour ahead
+            DispatchLoginAck(dispatcherB, (uint)(localDelta - 7200)); // server B two Earth hours behind
+
+            // Allow a second of slack for the clock ticking between building and handling the packet.
+            Assert.InRange(worldA.Clock.ServerClockOffsetSeconds, 3599, 3601);
+            Assert.InRange(worldB.Clock.ServerClockOffsetSeconds, -7201, -7199);
+
+            var now = DateTime.UtcNow;
+            long gap = worldA.Clock.GetVanadielSeconds(now) - worldB.Clock.GetVanadielSeconds(now);
+            Assert.Equal((worldA.Clock.ServerClockOffsetSeconds - worldB.Clock.ServerClockOffsetSeconds) * VanaTime.TimeMultiplier, gap);
+            Assert.NotEqual(worldA.GetTimeOfDayHours(now), worldB.GetTimeOfDayHours(now));
+        }
+
+        [Fact]
+        public void PacketParser_LoginAckWithoutGameTime_LeavesClockAlone()
+        {
+            var world = new WorldState();
+            world.Clock.SetServerClockOffset(42);
+            var dispatcher = new PacketDispatcher();
+            _ = new PacketParser(new SessionProfile(), (m, h) => Task.CompletedTask, dispatcher: dispatcher, world: world);
+
+            DispatchLoginAck(dispatcher, 0);
+
+            Assert.Equal(42, world.Clock.ServerClockOffsetSeconds);
         }
 
         [Fact]

@@ -195,6 +195,22 @@ namespace Gordian.Core.Ui
         /// <summary>Completes a prompt when set: true on Yes, false on No or cancel.</summary>
         internal TaskCompletionSource<bool>? Prompt { get; init; }
 
+        /// <summary>Set when the menu was closed without an answer (Cancel, or closed from outside) rather than answered.</summary>
+        internal bool Cancelled { get; set; }
+
+        /// <summary>
+        /// A window that stays open until its owner closes it (the dead character's home point window): Cancel does not
+        /// close it and closing every menu leaves it, but the main menu can still open over it.
+        /// </summary>
+        public bool Pinned { get; init; }
+
+        /// <summary>
+        /// Client text drawn after the frame's title at <see cref="TitleSuffixX"/> (layout px from the frame's left), read
+        /// every frame (the dead window's time left); null for other windows.
+        /// </summary>
+        public Func<string?>? TitleSuffix { get; init; }
+        public float TitleSuffixX { get; init; }
+
         public bool IsPrompt => Prompt != null;
 
         /// <summary>An event query's comment lines (the question), drawn above its options.</summary>
@@ -396,6 +412,9 @@ namespace Gordian.Core.Ui
         /// <summary>A client message for the log window (entries without a window, the current time).</summary>
         public event Action<string>? NoticePosted;
 
+        /// <summary>Posts a client message to the log, as the menus' own notices are (used by windows driven from outside, like the dead window).</summary>
+        public void PostNotice(string message) => NoticePosted?.Invoke(message);
+
         /// <summary>A system sound the keyboard / gamepad menu input calls for (cursor, select, close, open, page).</summary>
         public event Action<StockUiSoundCue>? SoundCue;
 
@@ -418,6 +437,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
+
+        /// <summary>
+        /// The session's Vana'diel clock (<see cref="WorldState.Clock"/>) for the "Current Time" entry; without one the
+        /// entry reads the local clock.
+        /// </summary>
+        public VanaClock? Clock { get; set; }
 
         /// <summary>The window skin currently in effect (1-8), for the Windows config page's marker.</summary>
         public Func<int>? CurrentWindowSkin { get; set; }
@@ -463,6 +488,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Item records (name, stack size, icon, description); without one names come from the item DATs alone.</summary>
         public Func<ushort, ItemRecord?>? ItemLookup { get; set; }
+
+        /// <summary>The dead window's "Back to Home Point" was confirmed (<see cref="StockUiDeathMenu"/> asks and answers).</summary>
+        public Action? HomePointSelected { get; set; }
 
         /// <summary>Sends C2S 0x083 (count, ShopNo, shop slot).</summary>
         public Func<uint, ushort, ushort, Task>? ShopBuy { get; set; }
@@ -540,7 +568,8 @@ namespace Gordian.Core.Ui
         {
             lock (_sync)
             {
-                if (_open.Length > 0) return true;
+                // Over a pinned window alone (the dead character's home point window) the main menu still opens.
+                if (_open.Length > 0 && !(_open.Length == 1 && _open[0].Pinned)) return true;
                 return Push(_mainMenuPage, null, StockUiMenuEntries.MainMenuPages, null, null) != null;
             }
         }
@@ -565,9 +594,11 @@ namespace Gordian.Core.Ui
             {
                 if (_open.Length == 0) return;
                 closed = _open[^1];
+                if (closed.Pinned) return;
                 Remember(closed);
                 _open = _open[..^1];
             }
+            closed.Cancelled = true;
             closed.Prompt?.TrySetResult(false);
             closed.QueryCompleted?.Invoke(255);
             if (IsFontColorEditor(closed)) _fontColorEditing = null;
@@ -577,20 +608,22 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Closes every menu (prompts close as "No").</summary>
+        /// <summary>Closes every menu (prompts close as "No") except a <see cref="StockUiOpenMenu.Pinned"/> root.</summary>
         public void CloseAll()
         {
             StockUiOpenMenu[] closed;
             lock (_sync)
             {
-                if (_open.Length == 0) return;
-                closed = _open;
+                int keep = _open.Length > 0 && _open[0].Pinned ? 1 : 0;
+                if (_open.Length <= keep) return;
+                closed = _open[keep..];
                 foreach (var menu in closed) Remember(menu);
-                _open = Array.Empty<StockUiOpenMenu>();
+                _open = _open[..keep];
             }
             bool shop = false;
             foreach (var menu in closed)
             {
+                menu.Cancelled = true;
                 menu.Prompt?.TrySetResult(false);
                 menu.QueryCompleted?.Invoke(255);
                 shop |= menu.IsShopMenu;
@@ -616,6 +649,90 @@ namespace Gordian.Core.Ui
             if (prompt == null) tcs.TrySetResult(false);
             else Changed?.Invoke();
             return tcs.Task;
+        }
+
+        /// <summary>
+        /// Asks a yes/no question with the stock prompt window ("comyn") and reports the answer through
+        /// <paramref name="answered"/>: true on Yes, false on No, null when the prompt was cancelled or closed without
+        /// an answer. Returns the open prompt (for <see cref="CloseMenu"/>), or null when the UI is not loaded.
+        /// </summary>
+        public StockUiOpenMenu? OpenYesNo(string message, bool defaultYes, Action<bool?> answered)
+        {
+            ArgumentNullException.ThrowIfNull(answered);
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StockUiOpenMenu? prompt;
+            lock (_sync)
+            {
+                prompt = Push(StockUiMenuEntries.MessageYesNoMenu, Top, Array.Empty<string>(), message, tcs);
+                if (prompt != null) prompt.SelectedButtonId = defaultYes ? 1 : 2;
+            }
+            if (prompt == null) return null;
+            var menu = prompt;
+            _ = tcs.Task.ContinueWith(t => answered(menu.Cancelled ? null : t.Result), TaskScheduler.Default);
+            Changed?.Invoke();
+            return prompt;
+        }
+
+        /// <summary>
+        /// Opens a <see cref="StockUiOpenMenu.Pinned"/> DAT window as the root, closing whatever was open (prompts
+        /// answer No): it stays until <see cref="CloseMenu"/>. Returns it, or null when the UI is not loaded.
+        /// </summary>
+        public StockUiOpenMenu? OpenPinned(string menuName, Func<string?>? titleSuffix = null, float titleSuffixX = 0)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(menuName, out var definition)) return null;
+            StockUiOpenMenu[] closed;
+            var menu = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
+            {
+                Pinned = true,
+                TitleSuffix = titleSuffix,
+                TitleSuffixX = titleSuffixX,
+            };
+            menu.SelectedButtonId = FirstSelectable(definition);
+            lock (_sync)
+            {
+                closed = _open;
+                foreach (var m in closed) Remember(m);
+                _open = new[] { menu };
+            }
+            bool shop = false;
+            foreach (var m in closed)
+            {
+                m.Cancelled = true;
+                m.Prompt?.TrySetResult(false);
+                m.QueryCompleted?.Invoke(255);
+                shop |= m.IsShopMenu;
+            }
+            if (shop) EndShopSession();
+            Changed?.Invoke();
+            return menu;
+        }
+
+        /// <summary>
+        /// Closes one menu and every window opened over it, whatever kind it is (a pinned window included); prompts
+        /// among them close unanswered. Does nothing when the menu is no longer open.
+        /// </summary>
+        public void CloseMenu(StockUiOpenMenu menu)
+        {
+            StockUiOpenMenu[] closed;
+            lock (_sync)
+            {
+                int index = Array.IndexOf(_open, menu);
+                if (index < 0) return;
+                closed = _open[index..];
+                foreach (var m in closed) Remember(m);
+                _open = _open[..index];
+            }
+            bool shop = false;
+            foreach (var m in closed)
+            {
+                m.Cancelled = true;
+                m.Prompt?.TrySetResult(false);
+                m.QueryCompleted?.Invoke(255);
+                shop |= m.IsShopMenu;
+            }
+            if (shop) EndShopSession();
+            Changed?.Invoke();
         }
 
         /// <summary>The DAT window an event query is built from (bottom-left, three invisible 20 px rows authored).</summary>
@@ -963,9 +1080,10 @@ namespace Gordian.Core.Ui
             {
                 // The menu button opens the main menu; pressed again it turns the page of a paged menu (retail
                 // behaviour, confirmed in-game 2026-09-26). Only Cancel closes menus.
-                if (!wasOpen)
+                if (!wasOpen || Top is { Pinned: true })
                 {
-                    if (OpenMainMenu() && IsOpen) SoundCue?.Invoke(StockUiSoundCue.MainMenuOpen);
+                    int before = _open.Length;
+                    if (OpenMainMenu() && _open.Length > before) SoundCue?.Invoke(StockUiSoundCue.MainMenuOpen);
                 }
                 else if (Top is { PageRing.Count: > 1 })
                 {
@@ -983,6 +1101,7 @@ namespace Gordian.Core.Ui
 
             if (input.WasActionTriggered(InputAction.Cancel))
             {
+                if (Top is { Pinned: true }) return true;
                 CloseTop();
                 SoundCue?.Invoke(StockUiSoundCue.Close);
                 return true;
@@ -1523,7 +1642,7 @@ namespace Gordian.Core.Ui
                     break;
 
                 case StockUiMenuCommand.CurrentTime:
-                    NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow));
+                    NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
                     break;
 
                 case StockUiMenuCommand.LogOut:
@@ -1591,6 +1710,11 @@ namespace Gordian.Core.Ui
                     if (opened) Changed?.Invoke();
                     break;
 
+                case StockUiMenuCommand.HomePoint:
+                    if (HomePointSelected != null) HomePointSelected();
+                    else NoticePosted?.Invoke("Back to Home Point is not available in this session.");
+                    break;
+
                 case StockUiMenuCommand.Attack:
                 case StockUiMenuCommand.Disengage:
                 case StockUiMenuCommand.Invite:
@@ -1642,10 +1766,13 @@ namespace Gordian.Core.Ui
             }
         }
 
-        /// <summary>The "Current Time" entry's text: Vana'diel date and time, then Earth time.</summary>
-        public static string DescribeCurrentTime(DateTime utcNow)
+        /// <summary>
+        /// The "Current Time" entry's text: Vana'diel date and time on <paramref name="clock"/> (the local clock when
+        /// null), then Earth time.
+        /// </summary>
+        public static string DescribeCurrentTime(DateTime utcNow, VanaClock? clock = null)
         {
-            long vanaSeconds = VanaTime.GetVanadielSeconds(utcNow);
+            long vanaSeconds = clock?.GetVanadielSeconds(utcNow) ?? VanaTime.GetVanadielSeconds(utcNow);
             long day = vanaSeconds / VanaTime.SecondsPerVanadielDay;
             int hour = (int)(vanaSeconds % VanaTime.SecondsPerVanadielDay / 3600);
             int minute = (int)(vanaSeconds % 3600 / 60);
@@ -1774,6 +1901,7 @@ namespace Gordian.Core.Ui
             }
             foreach (var menu in closed)
             {
+                menu.Cancelled = true;
                 menu.Prompt?.TrySetResult(false);
                 menu.QueryCompleted?.Invoke(255);
             }
@@ -2113,7 +2241,11 @@ namespace Gordian.Core.Ui
                 CloseTop();
                 return true;
             }
-            foreach (var m in closed) m.Prompt?.TrySetResult(false);
+            foreach (var m in closed)
+            {
+                m.Cancelled = true;
+                m.Prompt?.TrySetResult(false);
+            }
             if (edit is { } e) changed |= ApplyEdit(e.Key, e.Value);
             if (changed) Changed?.Invoke();
             if (activate) Activate();

@@ -960,6 +960,12 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public event Action<WeatherTiming>? WeatherTimingReceived;
 
+        /// <summary>
+        /// The server's game time from S2C 0x00A (Earth seconds since the Vana'diel epoch, non-zero only), raised before
+        /// <see cref="PlayerPositionUpdated"/>; the session synchronizes its <see cref="WorldState.Clock"/> with it.
+        /// </summary>
+        public event Action<uint>? ServerGameTimeReceived;
+
         /// <summary>The zone set-up fields of S2C 0x00A (music, sub map, instance, Mog House, job block), raised before <see cref="ZoneReceived"/>.</summary>
         public event Action<ZoneLoginInfo>? ZoneLoginInfoReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
@@ -1022,7 +1028,7 @@ namespace Gordian.Core.Network.Packets
                 GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}, GameTime={ack.GameTime}");
                 if (ack.GameTime > 0)
                 {
-                    VanaTime.SynchronizeServerTime(ack.GameTime);
+                    ServerGameTimeReceived?.Invoke(ack.GameTime);
                 }
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
                 ZoneLoginInfo info = ack.GetZoneInfo();

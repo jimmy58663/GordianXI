@@ -307,6 +307,7 @@ namespace Gordian.App.Graphics
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
                 : open[0].IsShopMenu ? StockUiWindowIds.Shop
+                : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
             if ((open[0].IsCommandMenu || open[0].IsShopMenu) && !rootMoved && _window1Top is { } logTop)
@@ -422,7 +423,9 @@ namespace Gordian.App.Graphics
             var partyIds = new List<uint>();
             foreach (var member in session.Party.Members) partyIds.Add(member.ServerId);
             var kind = StockUiTargetWindow.Classify(target, session.LocalPlayer.ServerId, partyIds);
-            StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind);
+            // No HP gauge for an NPC without a name plate (#259); its name then has room for a third line (#258).
+            bool showGauge = NamePlateStyle.ShowsTargetHealthBar(target, target.NamePlate);
+            StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind, showGauge);
 
             if (session.ActionService.IsLockedOn) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
         }

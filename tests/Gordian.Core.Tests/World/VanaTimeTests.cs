@@ -5,8 +5,7 @@ using Xunit;
 
 namespace Gordian.Core.Tests.World
 {
-    [Collection(VanaClockCollection.Name)]
-    public class VanaTimeTests : VanaClockTestBase
+    public class VanaTimeTests
     {
         [Fact]
         public void VanaTime_EpochReturnsZeroHour()
@@ -180,29 +179,90 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
-        public void VanaTime_SynchronizeServerTime_AdjustsClockOffsetAndVanadielSeconds()
+        public void VanaClock_SynchronizeServerTime_AdjustsClockOffsetAndVanadielSeconds()
         {
-            VanaTime.ResetClockOffset();
-            Assert.Equal(0, VanaTime.ServerClockOffsetSeconds);
+            var clock = new VanaClock();
+            Assert.Equal(0, clock.ServerClockOffsetSeconds);
 
             var nowUtc = DateTime.UtcNow;
-            long baselineVanaSeconds = VanaTime.GetVanadielSeconds(nowUtc);
+            long baselineVanaSeconds = clock.GetVanadielSeconds(nowUtc);
+            Assert.Equal(VanaTime.GetVanadielSeconds(nowUtc), baselineVanaSeconds);
 
             // Simulate server clock 60 Earth seconds ahead
-            long clientDeltaEarthSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds;
+            long clientDeltaEarthSeconds = new DateTimeOffset(nowUtc).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds;
             uint simulatedServerGameTime = (uint)(clientDeltaEarthSeconds + 60);
 
-            VanaTime.SynchronizeServerTime(simulatedServerGameTime);
-            Assert.Equal(60, VanaTime.ServerClockOffsetSeconds);
+            clock.SynchronizeServerTime(simulatedServerGameTime, nowUtc);
+            Assert.Equal(60, clock.ServerClockOffsetSeconds);
 
             // 60 Earth seconds * 25 multiplier = 1,500 Vana'diel seconds ahead
-            long adjustedVanaSeconds = VanaTime.GetVanadielSeconds(nowUtc);
-            Assert.Equal(baselineVanaSeconds + 1500, adjustedVanaSeconds);
+            Assert.Equal(baselineVanaSeconds + 1500, clock.GetVanadielSeconds(nowUtc));
+            Assert.Equal(VanaTime.GetEarthSecondsSinceEpoch(nowUtc) + 60, clock.GetEarthSecondsSinceEpoch(nowUtc), 6);
 
-            // Reset restores baseline
-            VanaTime.ResetClockOffset();
-            Assert.Equal(0, VanaTime.ServerClockOffsetSeconds);
-            Assert.Equal(baselineVanaSeconds, VanaTime.GetVanadielSeconds(nowUtc));
+            // A zero game time is ignored; reset restores baseline
+            clock.SynchronizeServerTime(0, nowUtc);
+            Assert.Equal(60, clock.ServerClockOffsetSeconds);
+            clock.Reset();
+            Assert.Equal(0, clock.ServerClockOffsetSeconds);
+            Assert.Equal(baselineVanaSeconds, clock.GetVanadielSeconds(nowUtc));
+        }
+
+        /// <summary>
+        /// Two sessions' clocks (#290): different server offsets give different Vana'diel times for the same Earth
+        /// time, and one clock synchronizing leaves the other (and the static local-clock helpers) unchanged.
+        /// </summary>
+        [Fact]
+        public void VanaClock_TwoSessionsWithDifferentOffsets_ComputeDifferentTimes()
+        {
+            var epoch = DateTimeOffset.FromUnixTimeSeconds(VanaTime.VanadielEpochUnixSeconds).UtcDateTime;
+            var sessionA = new VanaClock();
+            var sessionB = new VanaClock();
+
+            // Server A is 144 Earth seconds ahead (one Vana'diel hour); server B is one Earth hour ahead
+            // (25 Vana'diel hours: one day and one hour).
+            sessionA.SynchronizeServerTime(144, epoch);
+            sessionB.SetServerClockOffset(3600);
+
+            Assert.Equal(144, sessionA.ServerClockOffsetSeconds);
+            Assert.Equal(3600, sessionB.ServerClockOffsetSeconds);
+
+            Assert.Equal(1.0f, sessionA.GetTimeOfDayHours(epoch), 4);
+            Assert.Equal(1.0f, sessionB.GetTimeOfDayHours(epoch), 4);
+            Assert.Equal(0, sessionA.GetDayOfWeekIndex(epoch)); // still Firesday
+            Assert.Equal(1, sessionB.GetDayOfWeekIndex(epoch)); // Earthsday
+            Assert.Equal(144.0, sessionA.GetEarthSecondsSinceEpoch(epoch), 6);
+            Assert.Equal(3600.0, sessionB.GetEarthSecondsSinceEpoch(epoch), 6);
+            Assert.NotEqual(sessionA.GetVanadielSeconds(epoch), sessionB.GetVanadielSeconds(epoch));
+
+            // Six Earth hours ahead: six Vana'diel days and six hours, so the time of day differs too.
+            sessionB.SetServerClockOffset(6 * 3600);
+            Assert.Equal(6.0f, sessionB.GetTimeOfDayHours(epoch), 4);
+            Assert.Equal(1.0f, sessionA.GetTimeOfDayHours(epoch), 4);
+
+            // The static helpers read the local clock, untouched by either session.
+            Assert.Equal(0.0f, VanaTime.GetTimeOfDayHours(epoch), 4);
+            Assert.Equal(0, VanaTime.GetDayOfWeekIndex(epoch));
+
+            // Moon readings follow each clock's own day count.
+            var later = epoch.AddDays(10);
+            sessionB.SetServerClockOffset(0);
+            Assert.Equal(VanaTime.GetMoonPhase(later), sessionB.GetMoonPhase(later));
+            Assert.Equal(VanaTime.GetMoonPhaseIndex(later), sessionB.GetMoonPhaseIndex(later));
+            Assert.Equal(VanaTime.GetMoonDirection(later), sessionB.GetMoonDirection(later));
+            long dayOffsetSeconds = (long)(VanaTime.SecondsPerVanadielDay / VanaTime.TimeMultiplier) * 21; // 21 Vana'diel days
+            Assert.Equal(VanaTime.GetMoonPhase(later.AddSeconds(dayOffsetSeconds)), VanaTime.GetMoonPhase(later, dayOffsetSeconds));
+        }
+
+        [Fact]
+        public void WorldState_TimeOfDay_UsesItsOwnClock()
+        {
+            var epoch = DateTimeOffset.FromUnixTimeSeconds(VanaTime.VanadielEpochUnixSeconds).UtcDateTime;
+            var worldA = new WorldState();
+            var worldB = new WorldState();
+            worldB.Clock.SetServerClockOffset(144 * 3); // three Vana'diel hours ahead
+
+            Assert.Equal(0.0f, worldA.GetTimeOfDayHours(epoch), 4);
+            Assert.Equal(3.0f, worldB.GetTimeOfDayHours(epoch), 4);
         }
     }
 }

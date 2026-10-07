@@ -216,11 +216,18 @@ namespace Gordian.Core.World
             }
         }
 
-        /// <summary>The time of day in hours [0, 24): the event's stopped clock, else Vana'diel time now.</summary>
+        /// <summary>
+        /// This session's Vana'diel clock, synchronized from its S2C 0x00A login ack. Every Vana'diel time reading for
+        /// what this session shows (time of day, day of week, moon, weather timing, transport legs) goes through it, so
+        /// sessions on different servers in one process each keep their own server clock.
+        /// </summary>
+        public VanaClock Clock { get; } = new VanaClock();
+
+        /// <summary>The time of day in hours [0, 24): the event's stopped clock, else this session's Vana'diel time now.</summary>
         public float GetTimeOfDayHours(DateTime utcNow)
         {
             double locked = _lockedHours;
-            return double.IsNaN(locked) ? VanaTime.GetTimeOfDayHours(utcNow) : (float)locked;
+            return double.IsNaN(locked) ? Clock.GetTimeOfDayHours(utcNow) : (float)locked;
         }
 
         private WeatherTiming _weatherTiming;

@@ -38,6 +38,12 @@ namespace Gordian.Core.Network
         MonsterSkill,
         /// <summary><c>/refa &lt;name|all&gt;</c>: releases Trusts (C2S 0x01A Talk on each).</summary>
         ReleaseTrust,
+        /// <summary><c>/homepoint</c>: a dead character returns to its home point (C2S 0x01A HomepointMenu 0). Not a retail command.</summary>
+        HomePoint,
+        /// <summary><c>/acceptraise [decline]</c>: answers a Raise offer (C2S 0x01A RaiseMenu); <see cref="ChatCommandResult.ActionParam"/> is the <see cref="ReviveMenuAnswer"/>. Not a retail command.</summary>
+        RaiseAnswer,
+        /// <summary><c>/accepttractor [decline]</c>: answers a Tractor offer (C2S 0x01A TractorMenu); <see cref="ChatCommandResult.ActionParam"/> is the <see cref="ReviveMenuAnswer"/>. Not a retail command.</summary>
+        TractorAnswer,
         Emote,
         InspectPos,
         InspectTargetInfo,
@@ -206,6 +212,9 @@ namespace Gordian.Core.Network
                     "blockaid" => ParseBlockaid(args),
                     "callforhelp" or "cfh" => new ChatCommandResult { Kind = ChatCommandResultKind.CallForHelp },
                     "monsterskill" or "ms" => ParseMonsterSkill(args, world),
+                    "homepoint" => new ChatCommandResult { Kind = ChatCommandResultKind.HomePoint },
+                    "acceptraise" => ParseReviveAnswer(ChatCommandResultKind.RaiseAnswer, "acceptraise", args),
+                    "accepttractor" => ParseReviveAnswer(ChatCommandResultKind.TractorAnswer, "accepttractor", args),
                     "refa" or "returnfaith" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
                     "emote" or "em" => ParseEmote(args, world),
 
@@ -595,6 +604,20 @@ namespace Gordian.Core.Network
                 TargetIndex = targetIndex,
                 TargetName = targetName
             };
+        }
+
+        /// <summary><c>/acceptraise</c> and <c>/accepttractor</c>: bare (or yes/accept) accepts; no/decline declines.</summary>
+        private static ChatCommandResult ParseReviveAnswer(ChatCommandResultKind kind, string verb, string args)
+        {
+            ReviveMenuAnswer? answer = args.Trim().ToLowerInvariant() switch
+            {
+                "" or "yes" or "y" or "accept" => ReviveMenuAnswer.Accept,
+                "no" or "n" or "decline" => ReviveMenuAnswer.Decline,
+                _ => null
+            };
+            return answer is { } a
+                ? new ChatCommandResult { Kind = kind, ActionParam = (ushort)a }
+                : new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = $"Usage: /{verb} [decline]" };
         }
 
         private static ChatCommandResult ParseBlockaid(string args)

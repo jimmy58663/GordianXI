@@ -52,7 +52,7 @@ Notes:
 | Camera field of view | Route focal length f → vertical FOV `2 · atan2(192, f)` (350 = 57.5 degrees) | scene DAT Section 0x06 | `CameraRoute` (layout from xi-tools `docs/events/scene_dat_writer.md`; see [ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6)) |
 | Dead counter | 1/60 s ticks plus 6 minutes | 0x037 `dead_counter1` | `S2C_0x037_CharStatus.DeadCounterToSeconds` (LandSandBoat `char_status.cpp`) |
 | Status icon end time | Vana'diel seconds x 60, meant to wrap a u32 | S2C 0x063 type 0x09 | `LocalPlayerState.GetStatusIconRemainingSeconds`; read from LandSandBoat only, not checked against a capture ([network/session-and-packets.md](../network/session-and-packets.md#s2c-0x063-misc-data)) |
-| Transport leg start | Earth seconds since the Vana'diel epoch | 0x00E elevator / ship data (payload 0x34) | `S2C_0x00E_CharNpc.TryGetTransport`, `VanaTime.GetEarthSecondsSinceEpoch` |
+| Transport leg start | Earth seconds since the Vana'diel epoch | 0x00E elevator / ship data (payload 0x34) | `S2C_0x00E_CharNpc.TryGetTransport`, the session's `WorldState.Clock.GetEarthSecondsSinceEpoch` |
 
 ## Clocks
 
@@ -65,7 +65,7 @@ Notes:
 | Motion routines | 60 Hz ticks | Section 0x07 routine delays, blend ticks | `EntityAnimationState.RoutineTicksPerSecond`, `MotionRoutine` |
 | Effect and scene routines | 60 Hz frames | particle generators, Section 0x07 effect routines, scene DAT routines (header +0x1C) | `ZoneParticleEmitter`, `EffectRoutineDecoder`, `EventSceneResource` |
 | Skeletal clips | `KeyFrameDuration x 30` frames per second | Section 0x2B | `AnimationClip.DurationSeconds` (after xi-model-viewer) |
-| Vana'diel time | 25 x Earth; epoch Unix 1009810800 (2002-01-01 00:00 JST); 86,400 Vana'diel seconds a day; 8-day week (0 Firesday ... 7 Darksday); 84-day moon cycle | S2C 0x00A `GameTime` (Earth seconds since the Vana'diel epoch) | `VanaTime` (`SynchronizeServerTime` from `LifecyclePackets`; LandSandBoat epoch); event 0x77 stops it at an hour (`WorldState.LockTimeOfDay`) |
+| Vana'diel time | 25 x Earth; epoch Unix 1009810800 (2002-01-01 00:00 JST); 86,400 Vana'diel seconds a day; 8-day week (0 Firesday ... 7 Darksday); 84-day moon cycle | S2C 0x00A `GameTime` (Earth seconds since the Vana'diel epoch) | per session `WorldState.Clock` (`VanaClock`, synchronized from S2C 0x00A by `PacketParser`; [world-state](../world/world-state-and-resources.md#vanadiel-clock)); pure maths in `VanaTime` (LandSandBoat epoch); event 0x77 stops it at an hour (`WorldState.LockTimeOfDay`) |
 | Sun position | angle = hour · π / 12 | | `VanaTime.GetSunDirection` (display `(-sin a, -cos a, 0)`, after xi-model-viewer) |
 
 ## Byte and bit order

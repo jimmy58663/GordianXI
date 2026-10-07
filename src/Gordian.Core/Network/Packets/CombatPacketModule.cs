@@ -51,6 +51,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x0AA_MagicData.PacketId, HandleMagicData);
             dispatcher.Register(S2C_0x0AC_CommandData.PacketId, HandleCommandData);
             dispatcher.Register(S2C_0x119_AbilRecast.PacketId, HandleAbilRecast);
+            dispatcher.Register(S2C_0x0F9_Res.PacketId, HandleRes);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -66,6 +67,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x0AA_MagicData.PacketId);
             dispatcher.Unregister(S2C_0x0AC_CommandData.PacketId);
             dispatcher.Unregister(S2C_0x119_AbilRecast.PacketId);
+            dispatcher.Unregister(S2C_0x0F9_Res.PacketId);
         }
 
         #region Inbound Packet Handlers
@@ -241,9 +243,46 @@ namespace Gordian.Core.Network.Packets
             _combatState.UpdateRecasts(recast);
         }
 
+        /// <summary>
+        /// S2C 0x0F9: the dead character's menu now offers a Raise or a Tractor (or only the home point again). The
+        /// client does not read the packet's UniqueNo (XiPackets), so it is applied whoever it names.
+        /// </summary>
+        private void HandleRes(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var res = new S2C_0x0F9_Res(payload);
+            if (!res.IsValid) return;
+
+            GordianLog.Info("COMBAT", $"Death menu 0x0F9: type {res.RawType} ({res.Type}) for 0x{res.UniqueNo:X8}.");
+            _localPlayerState.ApplyDeathMenu(res.Type);
+        }
+
         #endregion
 
         #region Outbound Action Methods
+
+        /// <summary>
+        /// Sends a death menu answer (C2S 0x01A <see cref="CliActionId.HomepointMenu"/>, <see cref="CliActionId.RaiseMenu"/>
+        /// or <see cref="CliActionId.TractorMenu"/>) for the local player with ActionBuf[0] = <paramref name="statusId"/>.
+        /// </summary>
+        public async Task RequestDeathMenuAsync(CliActionId action, uint statusId, ushort playerIndex)
+        {
+            if (action is not (CliActionId.HomepointMenu or CliActionId.RaiseMenu or CliActionId.TractorMenu))
+            {
+                throw new ArgumentOutOfRangeException(nameof(action), action, "Not a death menu action.");
+            }
+            byte[] buffer = new byte[CombatPacketBuilder.ActionPacketSize];
+            ushort seq = ++_sequenceNumber;
+            uint playerId = _localPlayerState.ServerId;
+            int length = action switch
+            {
+                CliActionId.HomepointMenu => CombatPacketBuilder.BuildHomepointMenuRequest(buffer, seq, playerId, playerIndex, (HomepointMenuChoice)statusId),
+                CliActionId.RaiseMenu => CombatPacketBuilder.BuildRaiseMenuRequest(buffer, seq, playerId, playerIndex, (ReviveMenuAnswer)statusId),
+                _ => CombatPacketBuilder.BuildTractorMenuRequest(buffer, seq, playerId, playerIndex, (ReviveMenuAnswer)statusId),
+            };
+
+            LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
+            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+        }
 
         public async Task RequestAttackAsync(uint targetId, ushort targetIndex)
         {

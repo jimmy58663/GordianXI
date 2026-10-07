@@ -99,7 +99,7 @@ namespace Gordian.Core.Input
         private DoorBlocker[] _closedDoors = Array.Empty<DoorBlocker>();
 
         /// <summary>
-        /// Test hook: the Earth seconds since the Vana'diel epoch used to place moving platforms (defaults to now).
+        /// Test hook: the Earth seconds since the Vana'diel epoch used to place moving platforms (defaults to now on the session's <see cref="WorldState.Clock"/>).
         /// </summary>
         internal Func<double>? PlatformClock { get; set; }
 
@@ -705,7 +705,7 @@ namespace Gordian.Core.Input
             }
 
             var previousPlatforms = _platforms;
-            double platformClock = PlatformClock?.Invoke() ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
+            double platformClock = PlatformClock?.Invoke() ?? _world.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
             _platforms = MovingPlatforms.Evaluate(_world.Collision, _world, platformClock);
             _closedDoors = ZoneDoors.EvaluateClosed(_world.Collision, _world);
             LogPlatformJumps(previousPlatforms, platformClock);

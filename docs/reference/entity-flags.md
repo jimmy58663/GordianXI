@@ -46,7 +46,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 13 | YellFlag | called for help: orange name | `NamePlateFlags.CalledForHelp` (both packets) |
 | 14 | AwayFlag | 0x00D: `/away` | 0x00D `NamePlateFlags.Away` |
 | 15 | Gender | 0 female, 1 male; used for "sir / ma'am" text | 0x00D decoded (`Gender`), not used: `[his/her]` picks by the look's race byte ([ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6)) |
-| 16 | PlayOnelineFlag | 0x00D: PlayOnline icon. 0x00E: the HP bar is hidden when targeted | 0x00D `NamePlateFlags.PlayOnline`; the 0x00E meaning is not applied |
+| 16 | PlayOnelineFlag | 0x00D: PlayOnline icon. 0x00E: the HP bar is hidden when targeted | 0x00D `NamePlateFlags.PlayOnline`; 0x00E `NamePlateFlags.HealthBarHidden` → `NamePlateStyle.ShowsTargetHealthBar` (no HP gauge in the target window, #259) |
 | 17 | LinkShellFlag | 0x00D: wears a linkshell (pearl icon) | 0x00D `NamePlateFlags.Linkshell` |
 | 18 | LinkDeadFlag | 0x00D: disconnecting | 0x00D `NamePlateFlags.LinkDead` |
 | 19 | TargetOffFlag | cannot be targeted by normal means | not decoded |
@@ -101,7 +101,7 @@ LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix
 | 26 | | sub-animation is 3 bits; also used at spawn | | |
 | 27 | | entity-dependent: untargetable, off the compass, name hidden | name visibility 0x08 (`hide_name`) lands here | not applied ([ui/stock-ui.md](../ui/stock-ui.md#name-plates-28) lists it as open) |
 | 28 | | non-blocking: skipped by the client's actor contact check | | `IsNonBlocking`: skipped by `EntityBumpCollision` |
-| 29 | | the HP bar and the overhead name are not drawn | | 0x00E `NamePlateFlags.NameHidden` → `NamePlateStyle.ShowsName` |
+| 29 | | the HP bar and the overhead name are not drawn | name visibility 0x20 lands here (Port Jeuno's Synthesis Focuser II has name_vis 0x60, bits 29 and 30) | 0x00E `NamePlateFlags.NameHidden` → `NamePlateStyle.ShowsName` and `ShowsTargetHealthBar` (no name plate, no target HP gauge; retail check 2026-10-04, #259) |
 | 30 | | off the compass | | |
 | 31 | | half-transparent (alpha 0.5 by distance) | name visibility 0x80 (`ghost_phase`) lands here | not decoded |
 

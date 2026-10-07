@@ -7,6 +7,8 @@ namespace Gordian.Core.World
     /// <summary>
     /// Vana'diel calendar and time utilities for Final Fantasy XI.
     /// Time runs 25 times faster than Earth time (1 Earth second = 25 Vana'diel seconds).
+    /// These helpers are pure: the single-argument forms use the local clock (offset 0, for the lobby and previews),
+    /// and each session's server clock offset lives on its own <see cref="VanaClock"/> (<see cref="WorldState.Clock"/>).
     /// Protocol specifications and epoch reference from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public static class VanaTime
@@ -27,43 +29,36 @@ namespace Gordian.Core.World
         /// </summary>
         public const int SecondsPerVanadielDay = 86400;
 
-        // Process-wide. Tests that change it belong in the non-parallel "VanaClock" test collection (#268).
-        private static long _serverClockOffsetSeconds = 0;
-
         /// <summary>
-        /// Synchronizes the local Vana'diel clock with the authoritative game time sent by the server.
+        /// The server clock offset (Earth seconds) that S2C 0x00A's game time implies when it arrives at
+        /// <paramref name="utcNow"/>: server game time minus the local clock's Earth seconds since the epoch.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
         /// and XiPackets (https://github.com/atom0s/XiPackets).
         /// </summary>
         /// <param name="serverGameTime">The server's Earth seconds since the Vana'diel epoch (1009810800).</param>
-        public static void SynchronizeServerTime(uint serverGameTime)
+        /// <param name="utcNow">The local time the game time was received.</param>
+        public static long ComputeServerClockOffset(uint serverGameTime, DateTime utcNow)
         {
-            if (serverGameTime == 0) return;
-            long clientDeltaEarthSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - VanadielEpochUnixSeconds;
-            _serverClockOffsetSeconds = (long)serverGameTime - clientDeltaEarthSeconds;
+            long clientDeltaEarthSeconds = new DateTimeOffset(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc)).ToUnixTimeSeconds() - VanadielEpochUnixSeconds;
+            return (long)serverGameTime - clientDeltaEarthSeconds;
         }
 
         /// <summary>
-        /// Gets the current server clock offset in Earth seconds.
+        /// Earth seconds (fractional) since the Vana'diel epoch on the local clock (no server offset). A session uses
+        /// its own <see cref="VanaClock"/> (<see cref="WorldState.Clock"/>) instead.
         /// </summary>
-        public static long ServerClockOffsetSeconds => _serverClockOffsetSeconds;
+        public static double GetEarthSecondsSinceEpoch(DateTime utcTime) => GetEarthSecondsSinceEpoch(utcTime, 0);
 
         /// <summary>
-        /// Earth seconds (fractional) since the Vana'diel epoch on the server's clock: the timebase of transport legs
+        /// Earth seconds (fractional) since the Vana'diel epoch on a server's clock: the timebase of transport legs
         /// (elevators, ships) in entity updates.
         /// </summary>
-        public static double GetEarthSecondsSinceEpoch(DateTime utcTime)
+        /// <param name="utcTime">Local Earth time.</param>
+        /// <param name="serverClockOffsetSeconds">The server clock offset, see <see cref="ComputeServerClockOffset"/>.</param>
+        public static double GetEarthSecondsSinceEpoch(DateTime utcTime, long serverClockOffsetSeconds)
         {
             double unixSeconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds() / 1000.0;
-            return (unixSeconds - VanadielEpochUnixSeconds) + _serverClockOffsetSeconds;
-        }
-
-        /// <summary>
-        /// Resets the server clock offset to zero (used for testing and disconnection).
-        /// </summary>
-        public static void ResetClockOffset()
-        {
-            _serverClockOffsetSeconds = 0;
+            return (unixSeconds - VanadielEpochUnixSeconds) + serverClockOffsetSeconds;
         }
 
         /// <summary>
@@ -95,23 +90,31 @@ namespace Gordian.Core.World
         };
 
         /// <summary>
-        /// Converts an Earth UTC date/time into total accumulated Vana'diel seconds since the epoch,
-        /// including any synchronized server clock offset.
+        /// Converts an Earth UTC date/time into total accumulated Vana'diel seconds since the epoch on the local clock
+        /// (no server offset).
         /// </summary>
-        public static long GetVanadielSeconds(DateTime utcTime)
+        public static long GetVanadielSeconds(DateTime utcTime) => GetVanadielSeconds(utcTime, 0);
+
+        /// <summary>
+        /// Converts an Earth UTC date/time into total accumulated Vana'diel seconds since the epoch on a server's clock.
+        /// </summary>
+        public static long GetVanadielSeconds(DateTime utcTime, long serverClockOffsetSeconds)
         {
             long earthUnixSeconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
-            long deltaEarthSeconds = (earthUnixSeconds - VanadielEpochUnixSeconds) + _serverClockOffsetSeconds;
+            long deltaEarthSeconds = (earthUnixSeconds - VanadielEpochUnixSeconds) + serverClockOffsetSeconds;
             return deltaEarthSeconds * TimeMultiplier;
         }
 
         /// <summary>
-        /// Computes the current Vana'diel time of day as fractional hours in the range [0.0f .. 24.0f).
-        /// (e.g. 12.0 = 12:00 PM noon, 14.5 = 2:30 PM).
+        /// Computes the Vana'diel time of day on the local clock (no server offset) as fractional hours in the range
+        /// [0.0f .. 24.0f) (e.g. 12.0 = 12:00 PM noon, 14.5 = 2:30 PM).
         /// </summary>
-        public static float GetTimeOfDayHours(DateTime utcTime)
+        public static float GetTimeOfDayHours(DateTime utcTime) => GetTimeOfDayHours(utcTime, 0);
+
+        /// <summary>Computes the Vana'diel time of day in hours [0, 24) on a server's clock.</summary>
+        public static float GetTimeOfDayHours(DateTime utcTime, long serverClockOffsetSeconds)
         {
-            long vanaSeconds = GetVanadielSeconds(utcTime);
+            long vanaSeconds = GetVanadielSeconds(utcTime, serverClockOffsetSeconds);
             long daySecond = ((vanaSeconds % SecondsPerVanadielDay) + SecondsPerVanadielDay) % SecondsPerVanadielDay;
             return (float)daySecond / 3600.0f;
         }
@@ -154,9 +157,12 @@ namespace Gordian.Core.World
         /// Computes the authentic Vana'diel moon phase percentage (0% to 100%) for a given Earth UTC date/time.
         /// Protocol specification and 84-day lunar calendar referenced from LandSandBoat (https://github.com/LandSandBoat/server).
         /// </summary>
-        public static int GetMoonPhase(DateTime utcTime)
+        public static int GetMoonPhase(DateTime utcTime) => GetMoonPhase(utcTime, 0);
+
+        /// <summary>As <see cref="GetMoonPhase(DateTime)"/>, on a server's clock.</summary>
+        public static int GetMoonPhase(DateTime utcTime, long serverClockOffsetSeconds)
         {
-            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long totalDays = (GetVanadielSeconds(utcTime, serverClockOffsetSeconds) / SecondsPerVanadielDay) + (886L * 360L);
             long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
 
             if (daysMod >= 42L)
@@ -173,9 +179,12 @@ namespace Gordian.Core.World
         /// Computes the moon direction (0 = neither, 1 = waning, 2 = waxing).
         /// Referenced from LandSandBoat (https://github.com/LandSandBoat/server).
         /// </summary>
-        public static int GetMoonDirection(DateTime utcTime)
+        public static int GetMoonDirection(DateTime utcTime) => GetMoonDirection(utcTime, 0);
+
+        /// <summary>As <see cref="GetMoonDirection(DateTime)"/>, on a server's clock.</summary>
+        public static int GetMoonDirection(DateTime utcTime, long serverClockOffsetSeconds)
         {
-            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long totalDays = (GetVanadielSeconds(utcTime, serverClockOffsetSeconds) / SecondsPerVanadielDay) + (886L * 360L);
             long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
 
             if (daysMod == 42L || daysMod == 0L) return 0;
@@ -187,9 +196,12 @@ namespace Gordian.Core.World
         /// 4 = Iceday, 5 = Lightningday, 6 = Lightsday, 7 = Darksday) as whole days since the epoch modulo 8.
         /// Weekday ordering and derivation referenced from LandSandBoat (https://github.com/LandSandBoat/server).
         /// </summary>
-        public static int GetDayOfWeekIndex(DateTime utcTime)
+        public static int GetDayOfWeekIndex(DateTime utcTime) => GetDayOfWeekIndex(utcTime, 0);
+
+        /// <summary>As <see cref="GetDayOfWeekIndex(DateTime)"/>, on a server's clock.</summary>
+        public static int GetDayOfWeekIndex(DateTime utcTime, long serverClockOffsetSeconds)
         {
-            long totalDays = Math.DivRem(GetVanadielSeconds(utcTime), SecondsPerVanadielDay, out long rem);
+            long totalDays = Math.DivRem(GetVanadielSeconds(utcTime, serverClockOffsetSeconds), SecondsPerVanadielDay, out long rem);
             if (rem < 0) totalDays--;
             return (int)(((totalDays % 8L) + 8L) % 8L);
         }
@@ -199,9 +211,12 @@ namespace Gordian.Core.World
         /// 0: New Moon, 6: Full Moon.
         /// Derived from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
-        public static int GetMoonPhaseIndex(DateTime utcTime)
+        public static int GetMoonPhaseIndex(DateTime utcTime) => GetMoonPhaseIndex(utcTime, 0);
+
+        /// <summary>As <see cref="GetMoonPhaseIndex(DateTime)"/>, on a server's clock.</summary>
+        public static int GetMoonPhaseIndex(DateTime utcTime, long serverClockOffsetSeconds)
         {
-            long totalDays = (GetVanadielSeconds(utcTime) / SecondsPerVanadielDay) + (886L * 360L);
+            long totalDays = (GetVanadielSeconds(utcTime, serverClockOffsetSeconds) / SecondsPerVanadielDay) + (886L * 360L);
             long daysMod = ((totalDays + 26L) % 84L + 84L) % 84L;
 
             // 84 days per lunar cycle / 12 phases = 7 days per phase.

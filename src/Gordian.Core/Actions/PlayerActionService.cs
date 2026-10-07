@@ -146,6 +146,9 @@ namespace Gordian.Core.Actions
         /// </summary>
         public StockUiMenuController Menus { get; }
 
+        /// <summary>The dead character's home point window and its Raise / Tractor prompts (#103).</summary>
+        public StockUiDeathMenu DeathMenu { get; }
+
         /// <summary>
         /// Handles the debug audio commands <c>/playsound</c> (false) and <c>/playmusic</c> (true) with their arguments and
         /// returns the reply; set by the client's audio engine (null: no audio).
@@ -316,8 +319,10 @@ namespace Gordian.Core.Actions
                 CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
                 PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
                 TargetCommand = RunMenuTargetCommandAsync,
+                Clock = _world.Clock,
             };
             Menus.Settings = _uiSettings;
+            DeathMenu = new StockUiDeathMenu(Menus, _localPlayer, HomePointAsync, AnswerDeathOfferAsync);
             _uiSettings.Changed += OnUiSettingChanged;
             _uiSettings.ChatFiltersChanged += OnChatFiltersChanged;
 
@@ -854,6 +859,63 @@ namespace Gordian.Core.Actions
             }
         }
 
+        #region Death Menus (#103)
+
+        /// <summary>The local player's target index, for the actions about itself (0 when its entity is not known).</summary>
+        private ushort SelfIndex => _world.TryGetByServerId(_localPlayer.ServerId, out var self) && self != null ? self.TargetIndex : (ushort)0;
+
+        /// <summary>
+        /// Returns the dead character to its home point: C2S 0x01A HomepointMenu with ActionBuf[0] = 0 (the dead
+        /// window's "Back to Home Point", and <c>/homepoint</c>). LandSandBoat ignores it unless the character is dead,
+        /// then warps it to its home point (zone change).
+        /// </summary>
+        public async Task<PlayerActionResult> HomePointAsync()
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.HomePoint;
+            if (!_localPlayer.IsDead) return PlayerActionResult.Warn("You can only return to your home point while unconscious.", Kind);
+            try
+            {
+                await _combatModule.RequestDeathMenuAsync(CliActionId.HomepointMenu, (uint)HomepointMenuChoice.ReturnToHomePoint, SelfIndex).ConfigureAwait(false);
+                return PlayerActionResult.Ok("Returning to your home point.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Home point failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Home point failed: {ex.Message}", Kind);
+            }
+        }
+
+        /// <summary>
+        /// Answers the Raise (<see cref="DeathMenuType.Raise"/>) or Tractor offer of S2C 0x0F9: C2S 0x01A RaiseMenu or
+        /// TractorMenu with ActionBuf[0] = 0 to accept, 1 to decline. The offer is cleared once answered. Sent only
+        /// while dead (LandSandBoat rejects it otherwise); without a recorded offer it is still sent, since the server
+        /// keeps its own (for testing a missed 0x0F9).
+        /// </summary>
+        public async Task<PlayerActionResult> AnswerDeathOfferAsync(DeathMenuType offer, bool accept)
+        {
+            var kind = offer == DeathMenuType.Tractor ? ChatCommandResultKind.TractorAnswer : ChatCommandResultKind.RaiseAnswer;
+            string name = offer == DeathMenuType.Tractor ? "Tractor" : "Raise";
+            if (offer == DeathMenuType.HomePoint) return PlayerActionResult.Warn("Nothing to answer.", kind);
+            if (!_localPlayer.IsDead) return PlayerActionResult.Warn($"You can only answer a {name} while unconscious.", kind);
+            var action = offer == DeathMenuType.Tractor ? CliActionId.TractorMenu : CliActionId.RaiseMenu;
+            var answer = accept ? ReviveMenuAnswer.Accept : ReviveMenuAnswer.Decline;
+            try
+            {
+                bool offered = _localPlayer.DeathMenu == offer;
+                await _combatModule.RequestDeathMenuAsync(action, (uint)answer, SelfIndex).ConfigureAwait(false);
+                if (offered) _localPlayer.ApplyDeathMenu(DeathMenuType.HomePoint);
+                string done = accept ? $"{name} accepted." : $"{name} declined.";
+                return offered ? PlayerActionResult.Ok(done, kind) : PlayerActionResult.Info($"{done} (no {name} was offered; the server decides)", kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"{name} answer failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"{name} answer failed: {ex.Message}", kind);
+            }
+        }
+
+        #endregion
+
         /// <summary><c>/fish</c>: casts a line (0x01A Fish); the server starts the fishing mini-game (0x115).</summary>
         public Task<PlayerActionResult> FishAsync()
             => SelfActionAsync(CliActionId.Fish, 0, "Cast a line.", ChatCommandResultKind.Fish);
@@ -1279,6 +1341,12 @@ namespace Gordian.Core.Actions
                         return "Usage: /callforhelp - Call for help against the monster you are fighting.";
                     case "monsterskill" or "ms":
                         return "Usage: /monsterskill <skill_id> [target] - Use a Monstrosity monster skill.";
+                    case "homepoint":
+                        return "Usage: /homepoint - While unconscious, return to your home point (the dead window's Back to Home Point). GordianXI command.";
+                    case "acceptraise":
+                        return "Usage: /acceptraise [decline] - While unconscious, accept (or decline) the Raise you were offered. GordianXI command.";
+                    case "accepttractor":
+                        return "Usage: /accepttractor [decline] - While unconscious, accept (or decline) the Tractor you were offered. GordianXI command.";
                     case "refa" or "returnfaith":
                         return "Usage: /refa <name|all> - Release one or all of your Trusts (the current target without an argument).";
                     case "say" or "s":
@@ -1379,6 +1447,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /refa <name|all>          - Release Trusts (/returnfaith)");
             sb.AppendLine("  /monsterskill <id> [target] - Monstrosity monster skill (/ms)");
             sb.AppendLine("  /fish, /dig, /sprint      - Fish, dig with your chocobo, sprint");
+            sb.AppendLine("  /homepoint                - While unconscious: return to your home point");
+            sb.AppendLine("  /acceptraise [decline]    - While unconscious: answer a Raise (/accepttractor for a Tractor)");
             sb.AppendLine("[Emotes]");
             sb.AppendLine("  /emote <name>             - Perform emote (/em)");
             sb.AppendLine("  /cheer, /wave, /bow, ...  - Standard emote shortcuts");
@@ -1992,14 +2062,14 @@ namespace Gordian.Core.Actions
 
         private const string UiLayoutUsage =
             "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
-            "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
+            "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop, dead. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
         private static readonly string[] UiWindowIds =
         {
             StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance1, StockUiWindowIds.Alliance2,
             StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu, StockUiWindowIds.Query, StockUiWindowIds.CommandMenu,
-            StockUiWindowIds.Shop,
+            StockUiWindowIds.Shop, StockUiWindowIds.Death,
         };
 
         /// <summary>
@@ -2340,6 +2410,14 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.MonsterSkill:
                     return await MonsterSkillAsync(cmd.ActionParam, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+
+                case ChatCommandResultKind.HomePoint:
+                    return await HomePointAsync().ConfigureAwait(false);
+
+                case ChatCommandResultKind.RaiseAnswer:
+                case ChatCommandResultKind.TractorAnswer:
+                    return await AnswerDeathOfferAsync(cmd.Kind == ChatCommandResultKind.TractorAnswer ? DeathMenuType.Tractor : DeathMenuType.Raise,
+                        (ReviveMenuAnswer)cmd.ActionParam == ReviveMenuAnswer.Accept).ConfigureAwait(false);
 
                 case ChatCommandResultKind.ReleaseTrust:
                     return await ReleaseTrustAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

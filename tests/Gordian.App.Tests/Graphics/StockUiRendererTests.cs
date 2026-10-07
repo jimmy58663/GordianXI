@@ -250,6 +250,92 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>
+        /// Renders the dead character's window ("dead": "Time Left:" with the time after it, "Back to Home Point") at its
+        /// authored top-left place with the Raise prompt over it (#103); writes gpu_dead.png when GORDIAN_UI_DUMP is set.
+        /// </summary>
+        [Fact]
+        public void RendersDeadWindowWithTimeLeftAndRaisePrompt()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null) return;
+
+            const uint width = 1024, height = 768;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiDeadTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(depth, color));
+
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new NeoVeldrid.RgbaFloat(0.16f, 0.24f, 0.16f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                var menus = new StockUiMenuController { Library = library };
+                var dead = menus.OpenPinned(StockUiDeathMenu.MenuName, () => "59:30", StockUiDeathMenu.TimeLeftX);
+                Assert.NotNull(dead);
+                Assert.NotNull(menus.OpenYesNo(StockUiDeathMenu.RaiseQuestion, defaultYes: true, _ => { }));
+
+                var layout = new StockUiLayout();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var frame = dead!.Menu.Frame;
+                var placement = layout.Resolve(StockUiWindowIds.Death, frame, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, dead, placement, 0);
+                var promptMenu = menus.OpenMenus[1];
+                var promptFrame = promptMenu.Menu.Frame;
+                var promptPlacement = StockUiLayout.Place(promptFrame.Anchor, promptFrame.X, promptFrame.Y, promptFrame.Width, promptFrame.Height, 1, width, height);
+                StockUiMenuWindow.Draw(renderer, library, font, promptMenu, promptPlacement, 0);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_dead.png"), pixels, (int)width, (int)height);
+                }
+
+                // Authored top-left at (16, 94).
+                Assert.Equal(16, placement.X, 3);
+                Assert.Equal(94, placement.Y, 3);
+                // The time after "Time Left:" is drawn: bright glyph pixels right of the title's end (x 66).
+                bool text = false;
+                for (int y = (int)placement.Y + 5; y < (int)placement.Y + 16 && !text; y++)
+                {
+                    for (int x = (int)(placement.X + StockUiDeathMenu.TimeLeftX); x < (int)placement.X + frame.Width - 4 && !text; x++)
+                    {
+                        var p = Pixel(pixels, width, x, y);
+                        text = p.R > 180 && p.G > 180 && p.B > 180;
+                    }
+                }
+                Assert.True(text, "no time-left text after the title");
+                menus.CloseMenu(dead);
+                Assert.False(menus.IsOpen);
+
+                framebuffer.Dispose(); depth.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
         /// Renders the target command menu composed for yourself (Chat, Magic, Abilities, Trust, Items, Trade, Check)
         /// at the bottom left with the chat-mode list opened from its Chat entry beside it: the rebuilt seven-row
         /// frame, the tell partner's name after Tell's red arrow, and the greyed Linkshell 2 / Unity rows with their
@@ -1137,6 +1223,150 @@ namespace Gordian.App.Tests.Graphics
                 // The first status icon lands at (144, 50) (buff frame (142, 48) + slot (2, 2)); its centre differs from the clear colour.
                 var icon = Pixel(pixels, width, 144 + 12, 50 + 12);
                 Assert.NotEqual(Pixel(pixels, width, 100, 100), icon);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
+        /// Wrapping without a font: first line at the first break, the rest greedy and narrower by the indent, a hard
+        /// break for a word with no break, ".." on the last allowed line (#258).
+        /// </summary>
+        [Fact]
+        public void WrapName_FirstBreakThenGreedyThenTruncate()
+        {
+            static float Measure(ReadOnlySpan<char> text) => text.Length * 6f;
+            static string Wrap(string name, float width, int lines) =>
+                string.Join("|", StockUiTargetWindow.WrapName(Measure, name, width, 4, lines));
+
+            Assert.Equal("Mewk", Wrap("Mewk", 40, 2));
+            Assert.Equal("Aaaa|Bbbb", Wrap("Aaaa Bbbb", 40, 2));
+            // The first line takes the first break even where more would fit; the rest is filled by width, after a hyphen too.
+            Assert.Equal("Door:|Jeuno Duty-|Free", Wrap("Door: Jeuno Duty-Free", 80, 3));
+            Assert.Equal("Abcdef|ghijkl|mnop", Wrap("Abcdefghijklmnop", 40, 3));
+            Assert.Equal("Aaaa|Bbbb C..", Wrap("Aaaa Bbbb Cccc Dddd", 40, 2));
+            Assert.Equal("Aaaa Bbbb Cccc D..", Wrap("Aaaa Bbbb Cccc Dddd", 100, 1));
+            Assert.Empty(StockUiTargetWindow.WrapName(Measure, "  ", 40, 4, 2));
+        }
+
+        /// <summary>
+        /// The retail target window's lines for the Port Jeuno names the maintainer checked (2026-10-04, #258/#259):
+        /// NPCs with a name plate keep the gauge (two lines at most), those without one have three.
+        /// </summary>
+        [Theory]
+        [InlineData("Chudigrimane", true, "Chudigrimane")]
+        [InlineData("Raging Lion", true, "Raging Lion")]
+        [InlineData("Mewk Chorosap", true, "Mewk Chorosap")]
+        [InlineData("Red Ghost", true, "Red Ghost")]
+        [InlineData("Squintrox Dryeyes", true, "Squintrox|Dryeyes")]
+        [InlineData("Synergy Enthusiast", true, "Synergy|Enthusiast")]
+        [InlineData("Synergy Furnace", true, "Synergy|Furnace")]
+        [InlineData("Synergy Engineer", true, "Synergy|Engineer")]
+        [InlineData("Synthesis Focuser II", false, "Synthesis|Focuser II")]
+        [InlineData("Abyssea Campaign", false, "Abyssea|Campaign")]
+        [InlineData("Treasure Coffer", false, "Treasure|Coffer")]
+        [InlineData("Door: Chocobo Stables", false, "Door:|Chocobo|Stables")]
+        [InlineData("Door: Jeuno Duty-Free", false, "Door:|Jeuno Duty-|Free")]
+        [InlineData("???", false, "???")]
+        public void WrapName_MatchesRetailTargetWindow(string name, bool gauge, string expected)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (font == null) return;
+            Assert.Equal(expected, string.Join("|", StockUiTargetWindow.WrapName(font, name, gauge)));
+        }
+
+        /// <summary>
+        /// Two target windows at 1:1: "Squintrox Dryeyes" with its HP gauge on two lines, and "Door: Jeuno Duty-Free"
+        /// without a gauge on three, each line 12 pixels below the last (#258, #259). Writes target_wrap.png when
+        /// GORDIAN_UI_DUMP is set, for comparison with the retail captures.
+        /// </summary>
+        [Fact]
+        public void RendersTargetWindowWrappedNamesWithAndWithoutGauge()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            var font = library != null ? UiFont.FromLibrary(library) : null;
+            if (library == null || font == null || !library.TryGetMenu("targetwi", out var target)) return;
+
+            const uint width = 256, height = 64;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiTargetWrapTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                cl.Begin();
+                cl.SetFramebuffer(framebuffer);
+                cl.ClearColorTarget(0, new NeoVeldrid.RgbaFloat(0.2f, 0.19f, 0.18f, 1.0f));
+                cl.End();
+                gd.SubmitCommands(cl);
+
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                renderer.Begin(library);
+                var withGauge = new StockUiPlacement(4, 12, 1, false);
+                var withoutGauge = new StockUiPlacement(136, 12, 1, false);
+                renderer.DrawMenu(target, withGauge, includeButtons: false);
+                StockUiTargetWindow.Draw(renderer, font, target, withGauge, "Squintrox Dryeyes", 100, TargetNameKind.Neutral, showGauge: true);
+                renderer.DrawMenu(target, withoutGauge, includeButtons: false);
+                StockUiTargetWindow.Draw(renderer, font, target, withoutGauge, "Door: Jeuno Duty-Free", 100, TargetNameKind.Neutral, showGauge: false);
+                renderer.End(framebuffer, width, height);
+
+                var pixels = ReadBack(gd, color, width, height);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "target_wrap.png"), pixels, (int)width, (int)height);
+                }
+
+                bool Pink(StockUiPlacement p)
+                {
+                    for (int x = (int)p.X + 30; x < (int)p.X + 90; x++)
+                    {
+                        var px = Pixel(pixels, width, x, (int)p.Y + 28 + 4);
+                        if (px.R > 200 && px.G < 190) return true;
+                    }
+                    return false;
+                }
+                // Text pixels in a line's band: its glyphs' ink lies about 2-10 pixels below the line's top.
+                bool Text(StockUiPlacement p, float top, int x0, int x1)
+                {
+                    for (int y = (int)(p.Y + top) + 1; y < (int)(p.Y + top) + 10; y++)
+                        for (int x = (int)p.X + x0; x < (int)p.X + x1; x++)
+                        {
+                            var px = Pixel(pixels, width, x, y);
+                            if (px.R > 200 && px.G > 200 && px.B > 200) return true;
+                        }
+                    return false;
+                }
+
+                Assert.True(Pink(withGauge), "a target with a name plate keeps its HP gauge");
+                Assert.False(Pink(withoutGauge), "a target without a name plate draws no HP gauge");
+
+                const float top = StockUiTargetWindow.WrappedNameY, pitch = StockUiTargetWindow.LinePitch;
+                Assert.True(Text(withGauge, top, 4, 60), "first line of the wrapped name");
+                Assert.True(Text(withGauge, top + pitch, 8, 60), "second line of the wrapped name");
+                Assert.True(Text(withoutGauge, top, 4, 40), "Door:");
+                Assert.True(Text(withoutGauge, top + pitch, 8, 80), "Jeuno Duty-");
+                Assert.True(Text(withoutGauge, top + 2 * pitch, 12, 50), "Free");
+                Assert.False(Text(withoutGauge, top + 2 * pitch, 52, 100), "the third line holds only \"Free\"");
 
                 framebuffer.Dispose(); color.Dispose(); cl.Dispose();
             }
