@@ -430,6 +430,8 @@ namespace Gordian.App.Graphics
             if (session.ActionService.IsLockedOn) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
         }
 
+        private readonly List<float> _statusOpacities = new();
+
         private void DrawStatusIcons(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var icons = _statusIcons;
@@ -444,7 +446,13 @@ namespace Gordian.App.Graphics
                 if (Drag.Unlocked) Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height, placeholder: true);
                 return;
             }
-            StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids);
+            // Icons blink before they expire (#17): the end times come from S2C 0x063 type 0x09, on the server's clock.
+            double now = session.World.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
+            var remaining = StockUiStatusBlink.MatchRemaining(ids, session.LocalPlayer.GetStatusIconTimers(now));
+            double clock = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+            _statusOpacities.Clear();
+            foreach (var left in remaining) _statusOpacities.Add(StockUiStatusBlink.Opacity(left, clock));
+            StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids, _statusOpacities);
             int selected = session.Chat.SelectedStatusIcon;
             if (selected >= 0) StockUiTargetWindow.DrawStatusCursor(renderer, library, grid, placement, selected, Stopwatch.GetTimestamp());
             Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height);

@@ -335,16 +335,22 @@ namespace Gordian.App.Graphics
             return (placement.X + left * s, placement.Y + top * s, (right - left) * s, (bottom - top) * s);
         }
 
+        /// <summary>
+        /// Draws the status icons on the "buff" grid. <paramref name="opacities"/> (one per icon, optional) fades the
+        /// icons that blink before they expire (#17, <see cref="StockUiStatusBlink"/>).
+        /// </summary>
         public static void DrawStatusIcons(StockUiRenderer renderer, StatusIconLibrary icons, UiMenuDefinition grid,
-            StockUiPlacement placement, IReadOnlyList<ushort> statusIds)
+            StockUiPlacement placement, IReadOnlyList<ushort> statusIds, IReadOnlyList<float>? opacities = null)
         {
             float s = placement.Scale;
             for (int i = 0; i < statusIds.Count && i < grid.Buttons.Count; i++)
             {
                 if (!icons.TryGetIcon(statusIds[i], out DecodedTexture icon)) continue;
                 var slot = grid.Buttons[i];
+                float opacity = opacities != null && i < opacities.Count ? Math.Clamp(opacities[i], 0f, 1f) : 1f;
+                var tint = opacity >= 1f ? Neutral : Neutral with { A = (byte)Math.Round(Neutral.A * opacity) };
                 renderer.DrawTexture($"status:{statusIds[i]}", icon, placement.X + slot.X * s, placement.Y + slot.Y * s,
-                    slot.Width * s, slot.Height * s, Neutral);
+                    slot.Width * s, slot.Height * s, tint);
             }
         }
     }
