@@ -24,6 +24,7 @@ namespace Gordian.App.Audio
             yield return (AudioCategory.Effects, effects);
             yield return (AudioCategory.System, effects);
             yield return (AudioCategory.Zone, effects);
+            yield return (AudioCategory.Notification, effects);
         }
     }
 }

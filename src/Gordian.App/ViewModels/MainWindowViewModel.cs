@@ -77,6 +77,11 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public ViewportViewModel Viewport { get; } = new();
 
+        /// <summary>
+        /// ViewModel driving the Sound tab: GordianXI-only sound controls (#265).
+        /// </summary>
+        public SoundSettingsViewModel Sound { get; } = new();
+
         private bool _showStateInspector = true;
 
         /// <summary>

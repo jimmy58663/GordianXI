@@ -52,6 +52,9 @@ namespace Gordian.App.Audio
         private int _appliedMusicVolume = -1;
         private int _eventVolumeVersion = -1;
         private int _appliedEffectsVolume = -1;
+        private int _controlVersion = -1;
+        private volatile bool _heardIsPreferred;
+        private readonly Dictionary<CharacterSession, Action<Gordian.Core.Network.Packets.ChatMessage>> _tellHandlers = new();
 
         private GameAudioService()
         {
@@ -70,6 +73,15 @@ namespace Gordian.App.Audio
             _music = new MusicDirector(_engine.Mixer, id => _library?.OpenMusic(id));
             _emitters = new ZoneEmitterAudio(_engine.Mixer, id => _library?.GetEffectAsync(id) ?? Task.FromResult<PcmClip?>(null));
             Gordian.Core.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || _music.IsSettled;
+
+            // Tell cues come from every session (#265: the cue of a character not heard can be let through).
+            SessionRegistry.Default.SessionRegistered += (_, s) => WatchTells(s);
+            SessionRegistry.Default.SessionUnregistered += (_, s) => UnwatchTells(s);
+            foreach (CharacterSession s in SessionRegistry.Default.ActiveSessions)
+            {
+                WatchTells(s);
+            }
+
             _created = true;
         }
 
@@ -106,8 +118,19 @@ namespace Gordian.App.Audio
         /// <summary>The session being heard.</summary>
         public CharacterSession? Session => Volatile.Read(ref _session);
 
-        /// <summary>Makes <paramref name="owner"/> (a viewport) the one whose session is heard.</summary>
-        public void Claim(object owner) => Volatile.Write(ref _owner, owner);
+        /// <summary>
+        /// Makes <paramref name="owner"/> (a viewport whose window was activated) the one whose session is heard, unless
+        /// the multi-box policy (#265) prefers the character heard now: then focus does not take the sound away from it.
+        /// </summary>
+        public void Claim(object owner)
+        {
+            if (_heardIsPreferred && SoundControls.Current.MultiBoxPolicy != MultiBoxSoundPolicy.FocusedWindow)
+            {
+                return;
+            }
+
+            Volatile.Write(ref _owner, owner);
+        }
 
         /// <summary>Whether <paramref name="owner"/> is heard; the first caller claims an unowned service.</summary>
         public bool IsOwner(object owner)
@@ -127,6 +150,7 @@ namespace Gordian.App.Audio
         {
             if (Interlocked.CompareExchange(ref _owner, null, owner) == owner)
             {
+                _heardIsPreferred = false;
                 DetachSession(_session);
                 Volatile.Write(ref _session, null);
                 _music.StopAll(1f);
@@ -141,10 +165,22 @@ namespace Gordian.App.Audio
         /// </summary>
         public void Update(object owner, CharacterSession? session, ViewportCamera camera, double deltaSeconds)
         {
+            // The multi-box policy (#265): a viewport showing the preferred character takes the sound.
+            SoundControlSettings controls = SoundControls.Current;
+            bool preferred = session is not null && SoundControls.IsPreferred(controls, session.CharacterName,
+                ReferenceEquals(session, SessionRegistry.Default.PrimaryRenderingSession));
+            if (preferred && !_heardIsPreferred)
+            {
+                Volatile.Write(ref _owner, owner);
+            }
+
             if (!IsOwner(owner))
             {
                 return;
             }
+
+            _heardIsPreferred = preferred;
+            ApplyControls(controls);
 
             if (!ReferenceEquals(session, _session))
             {
@@ -429,7 +465,6 @@ namespace Gordian.App.Audio
             session.ActionService.Menus.SoundCue += PlayCue;
             session.ActionService.DebugAudioCommand = HandleDebugCommand;
             session.ActionService.TargetChanged += OnTargetChanged;
-            session.ChatModule.ChatMessageReceived += OnChatMessage;
         }
 
         private void DetachSession(CharacterSession? session)
@@ -442,7 +477,57 @@ namespace Gordian.App.Audio
             session.ActionService.Menus.SoundCue -= PlayCue;
             session.ActionService.DebugAudioCommand = null;
             session.ActionService.TargetChanged -= OnTargetChanged;
-            session.ChatModule.ChatMessageReceived -= OnChatMessage;
+        }
+
+        private void WatchTells(CharacterSession session)
+        {
+            void Handler(Gordian.Core.Network.Packets.ChatMessage message) => OnChatMessage(session, message);
+            lock (_tellHandlers)
+            {
+                if (!_tellHandlers.TryAdd(session, Handler))
+                {
+                    return;
+                }
+            }
+
+            session.ChatModule.ChatMessageReceived += Handler;
+        }
+
+        private void UnwatchTells(CharacterSession session)
+        {
+            Action<Gordian.Core.Network.Packets.ChatMessage>? handler;
+            lock (_tellHandlers)
+            {
+                _tellHandlers.Remove(session, out handler);
+            }
+
+            if (handler is not null)
+            {
+                session.ChatModule.ChatMessageReceived -= handler;
+            }
+        }
+
+        /// <summary>
+        /// Applies the GordianXI sound controls (#265) as the buses' control gains when the settings or the focus change.
+        /// With the defaults every gain stays 1, the retail mix.
+        /// </summary>
+        private void ApplyControls(SoundControlSettings controls)
+        {
+            int version = SoundControls.Version;
+            if (version == _controlVersion)
+            {
+                return;
+            }
+
+            bool first = _controlVersion < 0;
+            _controlVersion = version;
+            bool active = SoundControls.IsActive(controls, SoundControls.AnyWindowActive, SoundControls.ViewportWindowActive);
+            float seconds = first ? 0f : Math.Max(0f, controls.FadeSeconds);
+            for (int c = 0; c < AudioMixer.CategoryCount; c++)
+            {
+                var category = (AudioCategory)c;
+                _engine.Mixer.FadeControl(category, SoundControls.CategoryGain(controls, category, active), seconds);
+            }
         }
 
         private readonly List<int> _debugSounds = new();
@@ -549,14 +634,21 @@ namespace Gordian.App.Audio
             PlayCue(previous == 0 ? StockUiSoundCue.TargetSelect : StockUiSoundCue.TargetSwitch);
         }
 
-        /// <summary>An incoming tell plays "Message Arrival".</summary>
-        private void OnChatMessage(Gordian.Core.Network.Packets.ChatMessage message)
+        /// <summary>
+        /// An incoming tell plays "Message Arrival" on the Notification bus: the heard character's always, another
+        /// character's only when the sound controls let it through (#265).
+        /// </summary>
+        private void OnChatMessage(CharacterSession receiver, Gordian.Core.Network.Packets.ChatMessage message)
         {
-            CharacterSession? session = Session;
-            if (message.Type == Gordian.Core.Network.Packets.ChatMessageType.Tell && session is not null
-                && !string.Equals(message.Sender, session.CharacterName, StringComparison.OrdinalIgnoreCase))
+            if (message.Type != Gordian.Core.Network.Packets.ChatMessageType.Tell
+                || string.Equals(message.Sender, receiver.CharacterName, StringComparison.OrdinalIgnoreCase))
             {
-                PlayCue(StockUiSoundCue.MessageArrival);
+                return;
+            }
+
+            if (SoundControls.PlaysTellCue(SoundControls.Current, ReferenceEquals(receiver, Session)))
+            {
+                PlayEffect((int)StockUiSoundCue.MessageArrival, AudioCategory.Notification);
             }
         }
 
@@ -600,6 +692,7 @@ namespace Gordian.App.Audio
             float master = volumes.Get(EventSoundCategory.Master);
             _engine.Mixer.FadeCategory(AudioCategory.Effects, master * volumes.Get(EventSoundCategory.Effect), seconds);
             _engine.Mixer.FadeCategory(AudioCategory.System, master * volumes.Get(EventSoundCategory.System), seconds);
+            _engine.Mixer.FadeCategory(AudioCategory.Notification, master * volumes.Get(EventSoundCategory.System), seconds);
             _engine.Mixer.FadeCategory(AudioCategory.Zone, master * volumes.Get(EventSoundCategory.Zone), seconds);
         }
 

@@ -32,7 +32,7 @@ Layout (layer rules from AGENTS.md):
   - `IAudioOutput`: the device seam: open stereo S16 near 48 kHz (the device may pick its own rate; the mixer follows it), report queued frames, accept PCM. `OpenAlAudioOutput` is the device; `NullAudioOutput` is the silent fallback.
   - `AudioEngine`: the output plus the mixing thread, which keeps 2048 frames (about 43 ms) queued and mixes 512 frames at a time.
 
-Buses (`AudioCategory`) follow the retail categories that the event VM's volume opcodes address by mask (XiEvents `OpCodes/0x0069`: 0x01 effects, 0x02 system, 0x04 zone, 0x08 master): **Music**, **Effects**, **System**, **Zone**, plus the master gain.
+Buses (`AudioCategory`) follow the retail categories that the event VM's volume opcodes address by mask (XiEvents `OpCodes/0x0069`: 0x01 effects, 0x02 system, 0x04 zone, 0x08 master): **Music**, **Effects**, **System**, **Zone**, plus the master gain. A fifth bus, **Notification** (the incoming tell cue), follows System exactly (effects slider, event system volume); it exists only so the sound controls (#265, below) can let tells through on their own.
 Provisional: the distance curve (full volume inside `near`, linear to silence at `far`) and the 0.8 pan width of positional voices are not yet compared with retail.
 
 ## Sound files (#38)
@@ -91,11 +91,25 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 **Ambient loops** (`GameAudioService`): on each zone change the zone model DAT's sound pointers are read on a worker (`ZoneSoundTable`). The loop for the current weather (`WorldState.WeatherId`, falling back to its sky category, then `fine`, then any authored weather) and Vana'diel minute plays on the Zone bus, looped, crossfading over 2 s (provisional) when weather or time selects another. The indoor (`indo`) sets are not used.
 
-**Who is heard:** one device for the app. The viewport whose window was last activated owns the sound (multi-boxing plays only that character); its render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
+**Who is heard:** one device for the app. By default the viewport whose window was last activated owns the sound (multi-boxing plays only that character); the opt-in multi-box policy (#265, below) can prefer another character. The owner's render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
 
 ## Volume (#44)
 
-The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x master. No GordianXI-only master or per-bus sliders exist yet; they would be an opt-in enhancement.
+The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x control gain (#265) x master. The control gain is 1 unless a GordianXI sound control is switched on.
+
+## Sound controls (#265)
+
+GordianXI-only switches that retail does not have, on the desktop shell's **Sound** tab (`SoundSettingsViewModel`, `MainWindow.axaml`), saved for the whole app in `%LocalAppData%/GordianXI/sound_settings.json` (`SoundControlSettings`). **Every default keeps the retail mix**: sound on, playing with or without focus, the focused window's character heard. They act through a third per-bus gain in the mixer (`AudioMixer.FadeControl`), separate from the retail sliders and the event fades, eased over `FadeSeconds` (0.5 s). The decisions are pure functions in `SoundControls` (tests: `SoundControlsTests`).
+
+| Control | Default | Effect |
+|---|---|---|
+| Sound on | on | Off sets every bus' control gain to 0, exceptions included; the volume sliders are not moved. |
+| Play only while active | off | When GordianXI loses focus, buses fade to 0, except those marked "also while inactive". "Active" is any GordianXI window (default) or only a viewport window (`SoundActiveScope`). Focus comes from Avalonia window activation (`SoundFocusTracker`), recomputed after activation events settle so moving between two GordianXI windows never counts as inactive. |
+| Multi-box policy | FocusedWindow | `FocusedWindow`: the last activated viewport window (as before). `PrimaryViewport`: the main viewport's character (`SessionRegistry.PrimaryRenderingSession`), even while a pop-out has focus. `NamedCharacter`: that character whenever a viewport shows it. A viewport showing the preferred character takes the sound, and activating another window does not take it away; while no viewport shows it, the focused window is heard. |
+| Tell sound from every character | off | The tell cue is raised for every session (`SessionRegistry`), but plays for a character other than the heard one only when this is on. |
+| Per category: on / also while inactive | on / off | Music, Effects, System, Zone, Notification. E.g. music off with tells still on, or every bus muted while inactive except Notification. |
+
+Not done: hearing a character that no viewport shows (a background tab has no camera for a listener), and mixing several characters' sound at once ("all of them" in the issue): one device plays one listener's mix, so only the tell cue crosses characters.
 
 ## UI sound cues (#43)
 
@@ -199,3 +213,4 @@ So combat sounds need the effect-routine conditional interpreter and the action-
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [x] UI/menu sound cues (#43, above).
 - [x] Master/category volume mixing from the config sliders (#44, above).
+- [x] GordianXI sound controls: master off, mute while inactive, multi-box policy, per-category exceptions (#265, above).
