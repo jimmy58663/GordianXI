@@ -1,0 +1,64 @@
+name: Dependency Review
+
+# Fails a PR that adds or updates a dependency (NuGet package or GitHub Action) with a known vulnerability of
+# moderate severity or higher, or with a licence outside the allowlist (#280). Policy: docs/reference/dependencies.md
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+    branches: [ main ]
+
+# A new push to a PR cancels that PR's in-flight run.
+concurrency:
+  group: dependency-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # Runs on every PR so the check always reports (it can be a required status check); a docs-only PR (only docs/
+    # and Markdown files changed) skips the review and passes, the same way ci.yml does.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        run: |
+          changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qvE '^docs/|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change: skipping dependency review."
+          fi
+
+      # Licence allowlist (SPDX). Anything not listed fails, so GPL and AGPL are denied by omission
+      # (allow-licenses and deny-licenses cannot be combined). A dependency whose licence GitHub cannot detect is
+      # reported but does not fail the check.
+      #   MIT                 Avalonia, SkiaSharp, HarfBuzzSharp, Silk.NET, NeoVeldrid, ppy.SDL3-CS, Microsoft.*, most actions
+      #   Apache-2.0          xunit v3, Silk.NET MoltenVK / shaderc / SPIRV-Cross natives, OpenSSF Scorecard action
+      #   BSD-2-Clause        common permissive licence; nothing today
+      #   BSD-3-Clause        ANGLE (Avalonia.Angle.Windows.Natives)
+      #   Zlib                SDL3 (carried by ppy.SDL3-CS)
+      #   ISC                 release-drafter action
+      #   LGPL-2.0-or-later   OpenAL Soft (Silk.NET.OpenAL.Soft.Native), loaded dynamically
+      #   LGPL-2.1-or-later   the same OpenAL Soft licence as some licence databases record it
+      - name: Review dependency changes
+        if: steps.changes.outputs.code == 'true'
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, ISC, LGPL-2.0-or-later, LGPL-2.1-or-later

@@ -67,3 +67,26 @@ Each release's SBOM (`GordianXI-<version>-<rid>.cdx.json`, CycloneDX 1.7) lists 
 ## Staying current
 
 Dependabot ([.github/dependabot.yml](../../.github/dependabot.yml)) checks NuGet and GitHub Actions every Monday. Each family arrives as one grouped PR: `avalonia`, `graphics` (NeoVeldrid), `silk-net`, `test-tooling` and `other` for NuGet, plus one PR for all actions. Each ecosystem has at most one Dependabot PR open, and the PRs carry the `chore` label for Release Drafter. A Dependabot PR is handled like any other: CI must pass, and an update that touches the app (Avalonia, graphics, Silk.NET) is tested in-game before it merges. Update this table when one lands. Dependabot only proposes stable releases while we are on stable ones; the "Chosen for later" rows are checked by hand when starting a phase.
+
+## Security scanning
+
+Three workflows check the code and its dependencies. Actions are pinned by version tag, like the rest of our workflows, and Dependabot keeps them current. How to report a vulnerability: [SECURITY.md](../../SECURITY.md).
+
+| Workflow | Runs on | What it does |
+|---|---|---|
+| [dependency-review.yml](../../.github/workflows/dependency-review.yml) (#280) | Every PR to `main` | Fails the PR if it adds or updates a dependency (NuGet package or action) with a known vulnerability of moderate severity or higher, or with a licence outside the allowlist below. A docs-only PR skips the review and passes, like `ci.yml`, so it can be a required check |
+| [codeql.yml](../../.github/workflows/codeql.yml) (#282) | PRs, pushes to `main`, Tuesdays | CodeQL for `csharp` (build mode `none`: no build needed; CodeQL supports C# 14, .NET 10 and `.slnx`), `c-cpp` (the proxy DLL, built with MSVC x86 by `build_proxy.bat` on `windows-latest`) and `actions` (the workflows). Results go to Security > Code scanning |
+| [scorecard.yml](../../.github/workflows/scorecard.yml) (#282) | Pushes to `main`, branch protection changes, Tuesdays | OpenSSF Scorecard: grades supply-chain practices and publishes the badge in README.md. It marks our tag-pinned actions down under Pinned-Dependencies; we accept that for now |
+
+**Licence allowlist** (dependency review, SPDX ids). Anything else fails, so GPL and AGPL code cannot come in (the action cannot combine an allowlist with a denylist). A dependency whose licence GitHub cannot detect is reported but does not fail: check it by hand.
+
+| Licence | Why it is allowed |
+|---|---|
+| MIT | Avalonia, SkiaSharp, HarfBuzzSharp, Silk.NET, NeoVeldrid, ppy.SDL3-CS, the Microsoft packages, most actions |
+| Apache-2.0 | xunit v3; the MoltenVK, shaderc and SPIRV-Cross natives; the Scorecard action |
+| BSD-2-Clause, BSD-3-Clause | Permissive. ANGLE (`Avalonia.Angle.Windows.Natives`) is BSD-3-Clause |
+| Zlib | SDL3, inside ppy.SDL3-CS |
+| ISC | The Release Drafter action |
+| LGPL-2.0-or-later, LGPL-2.1-or-later | OpenAL Soft (`Silk.NET.OpenAL.Soft.Native`), loaded dynamically. The package says LGPL-2.0-or-later; 2.1 is listed in case GitHub's licence data records it that way |
+
+`AvaloniaUI.DiagnosticsSupport` declares no licence (Debug builds only), so the review reports it as unknown. Licences were read from each package's nuspec on 2026-10-05.
