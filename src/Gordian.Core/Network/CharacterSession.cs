@@ -104,6 +104,9 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
 
+        /// <summary>Gets the actor and magic schedulers the server asked to play (S2C 0x038, 0x03A); decode only.</summary>
+        public SchedulerState Scheduler => NetworkManager.Scheduler;
+
         /// <summary>Gets the delivery box state (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => NetworkManager.Delivery;
 
