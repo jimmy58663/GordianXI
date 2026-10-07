@@ -1505,6 +1505,7 @@ namespace Gordian.App.ViewModels
                 ProfileName = profile.ProfileName
             };
 
+            bool timedOut = false;
             netManager.StateChanged += (s, state) =>
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -1516,7 +1517,7 @@ namespace Gordian.App.ViewModels
                         SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
                         SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
                         SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
-                        SessionState.Disconnected => $"[{session.CharacterName}] Session disconnected.",
+                        SessionState.Disconnected => timedOut ? $"[{session.CharacterName}] Lost connection to the server." : $"[{session.CharacterName}] Session disconnected.",
                         _ => StatusMessage
                     };
                 });
@@ -1528,6 +1529,15 @@ namespace Gordian.App.ViewModels
                 {
                     StatusMessage = $"[{session.CharacterName}] Crossing zoneline... Transitioning to map server {targetIp}:{targetPort}...";
                 });
+            };
+
+            // The server stopped answering for the timeout (#235): the session ends like a shutdown, and Online goes off
+            // when it reaches Disconnected (SessionRegistry unregisters it).
+            netManager.LoggedOut += logout =>
+            {
+                if (logout.State != Gordian.Core.Network.Packets.LogoutState.Timeout) return;
+                GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
+                timedOut = true;
             };
 
             if (afterLogout != null)

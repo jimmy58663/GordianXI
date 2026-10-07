@@ -121,6 +121,8 @@ namespace Gordian.App.Graphics
 
                 bool isLocal = entity.ServerId == localId;
                 var flags = isLocal ? session.LocalPlayer.NamePlate | entity.NamePlate : entity.NamePlate;
+                // The server has stopped answering (#235): the player's own name shows the link-dead red circle.
+                if (isLocal && session.NetworkManager.IsConnectionLost) flags |= NamePlateFlags.LinkDead;
                 if (!NamePlateStyle.ShowsName(entity, flags)) continue;
                 byte gmLevel = isLocal ? session.LocalPlayer.GmLevel : (entity as PlayerEntity)?.GmLevel ?? 0;
 
