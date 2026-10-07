@@ -267,6 +267,11 @@ namespace Gordian.Core.Network
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
             // Treasure pool events print to the message log as the retail client does; a zone change empties the pool
             // (the server sends it again for a party that is still in it).
+            // The Treasure Pool window (#143): the command menus' Treasure opens it; Cast Lot / Pass send 0x041 / 0x042.
+            ActionService.Menus.TreasurePool = Treasure;
+            ActionService.Menus.TreasureLot = slot => TreasureModule.SendLotAsync(slot);
+            ActionService.Menus.TreasurePass = slot => TreasureModule.SendPassAsync(slot);
+            Treasure.Changed += ActionService.Menus.OnTreasureChanged;
             var treasureLog = new Ui.StockUiTreasure(id => ActionService.Menus.ItemLookup?.Invoke(id), ResolveEntityName, () => LocalPlayer.ServerId);
             Treasure.Found += found =>
             {

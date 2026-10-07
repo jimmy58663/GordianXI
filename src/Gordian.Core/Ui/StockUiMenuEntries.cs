@@ -85,6 +85,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The dead window's "Back to Home Point" (<see cref="StockUiDeathMenu"/>).</summary>
         HomePoint,
+
+        /// <summary>The command menu's Treasure: opens the Treasure Pool window (<see cref="StockUiTreasurePool"/>).</summary>
+        TreasurePool,
     }
 
     /// <summary>

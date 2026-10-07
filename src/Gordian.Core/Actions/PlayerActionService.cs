@@ -644,7 +644,8 @@ namespace Gordian.Core.Actions
                 }
             }
             var context = new StockUiTargetContext(kind, target.ServerId, target.Name, engaged,
-                EngagedWithTarget: engaged && combat!.TargetServerId == target.ServerId, CanInvite: canInvite);
+                EngagedWithTarget: engaged && combat!.TargetServerId == target.ServerId, CanInvite: canInvite,
+                HasTreasure: TreasureModule?.Pool.Count > 0);
             return Menus.OpenCommandMenu(context);
         }
 

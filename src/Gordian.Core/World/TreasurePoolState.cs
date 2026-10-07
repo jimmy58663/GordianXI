@@ -48,6 +48,19 @@ namespace Gordian.Core.World
         private readonly object _sync = new();
         private readonly TreasureSlot?[] _slots = new TreasureSlot?[SlotCount];
 
+        /// <summary>
+        /// How long an item stays in the pool before it goes to the highest lot (or is lost): five minutes. LandSandBoat
+        /// <c>treasure_pool.cpp</c> (<c>treasure_livetime = 5min</c>, the slot's time stamp set 3 s early).
+        /// </summary>
+        public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+
+        /// <summary>The local clock, in milliseconds (tests replace it).</summary>
+        internal Func<long> LocalMilliseconds { get; set; } = () => Environment.TickCount64;
+
+        // The server clock's lead over the local clock (ms), estimated as the largest StartTime - local time seen: a newly
+        // found item's StartTime is the server's "now" (minus LandSandBoat's 3 s), an older one's is behind it.
+        private long? _serverLeadMs;
+
         /// <summary>Raised after an item or gil was found, on the network thread.</summary>
         public event Action<TreasureFound>? Found;
 
@@ -91,6 +104,23 @@ namespace Gordian.Core.World
             }
         }
 
+        /// <summary>
+        /// Time left before a slot's item is given out (the five-minute countdown, #143), from its
+        /// <see cref="TreasureSlot.StartTime"/> on the server clock as estimated from the items found so far; never
+        /// negative. The server's own clock is not sent (LandSandBoat's StartTime is milliseconds since its process
+        /// started), so after a zone change, when only older items are re-sent, the estimate runs long until a new item
+        /// is found.
+        /// </summary>
+        public TimeSpan GetRemaining(TreasureSlot slot)
+        {
+            ArgumentNullException.ThrowIfNull(slot);
+            long lead;
+            lock (_sync) lead = _serverLeadMs ?? (long)slot.StartTime - LocalMilliseconds();
+            long elapsed = LocalMilliseconds() + lead - slot.StartTime;
+            long left = (long)Lifetime.TotalMilliseconds - Math.Max(0, elapsed);
+            return TimeSpan.FromMilliseconds(Math.Max(0, left));
+        }
+
         /// <summary>Empties the pool (a zone change: the server sends the pool again for a party that is still in it).</summary>
         public void Clear()
         {
@@ -98,6 +128,7 @@ namespace Gordian.Core.World
             lock (_sync)
             {
                 had = false;
+                _serverLeadMs = null; // another zone may be another map server, with its own clock
                 for (int i = 0; i < SlotCount; i++)
                 {
                     if (_slots[i] != null) had = true;
@@ -118,6 +149,11 @@ namespace Gordian.Core.World
 
             if (hasItem)
             {
+                long lead = (long)packet.StartTime - LocalMilliseconds();
+                lock (_sync)
+                {
+                    if (_serverLeadMs == null || lead > _serverLeadMs) _serverLeadMs = lead;
+                }
                 var slot = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
                     packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, packet.Entry,
                     packet.IsLocallyLotted ? packet.LocalLot : (ushort)0,

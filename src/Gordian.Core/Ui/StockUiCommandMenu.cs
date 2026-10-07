@@ -21,7 +21,7 @@ namespace Gordian.Core.Ui
     /// an Invite would be allowed (you lead your party, or have none).
     /// </summary>
     public readonly record struct StockUiTargetContext(StockUiTargetKind Kind, uint TargetServerId, string TargetName,
-        bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true);
+        bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true, bool HasTreasure = false);
 
     /// <summary>A label sprite of the command menus: the DAT menu and button that carry it.</summary>
     public readonly record struct StockUiCommandLabel(string Text, string Menu, int Button);
@@ -79,6 +79,13 @@ namespace Gordian.Core.Ui
 
         private static StockUiCommandRow Unavailable(StockUiCommandLabel label) => Row(label, StockUiMenuCommand.NotAvailable);
 
+        /// <summary>
+        /// Treasure (help 27 "Distribute currently pooled treasure among party members."), offered while the treasure pool
+        /// holds an item and placed before Check as the DAT lists ("playermo": ... Invite, Treasure, Check; "attackmo":
+        /// ... Disengage, Treasure, Check). PROVISIONAL: that retail shows it only with items in the pool (#143).
+        /// </summary>
+        private static readonly StockUiCommandRow TreasureRow = Row(Treasure, StockUiMenuCommand.TreasurePool);
+
         /// <summary>The rows the menu shows for a target; empty when that kind of target has no command menu.</summary>
         public static IReadOnlyList<StockUiCommandRow> Compose(in StockUiTargetContext context)
         {
@@ -96,6 +103,7 @@ namespace Gordian.Core.Ui
                     rows.Add(Unavailable(Trust));
                     rows.Add(Unavailable(Items));
                     rows.Add(Unavailable(Trade));
+                    if (context.HasTreasure) rows.Add(TreasureRow);
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
                     break;
 
@@ -110,6 +118,7 @@ namespace Gordian.Core.Ui
                         rows.Add(Unavailable(Trust));
                         rows.Add(Unavailable(Items));
                         rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
+                        if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
                     }
                     else
@@ -120,6 +129,7 @@ namespace Gordian.Core.Ui
                         rows.Add(Unavailable(Abilities));
                         rows.Add(Unavailable(Trust));
                         rows.Add(Unavailable(Items));
+                        if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
                     }
                     break;

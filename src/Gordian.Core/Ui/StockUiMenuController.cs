@@ -50,7 +50,7 @@ namespace Gordian.Core.Ui
     /// Instances are immutable to readers except the fields the controller updates (selection, markers, slider
     /// fills, list rows), which are replaced whole so the render thread can read them without a lock.
     /// </summary>
-    public sealed class StockUiOpenMenu
+    public sealed partial class StockUiOpenMenu
     {
         private static readonly IReadOnlyDictionary<int, float> NoSliders = new Dictionary<int, float>();
         private HashSet<int>? _marked;
@@ -340,7 +340,7 @@ namespace Gordian.Core.Ui
     /// </para>
     /// The retail client remembers the cursor position of each menu; so does this controller (per menu name).
     /// </summary>
-    public sealed class StockUiMenuController
+    public sealed partial class StockUiMenuController
     {
         /// <summary>Delay before a held direction starts repeating, then the interval between repeats.</summary>
         public static readonly TimeSpan RepeatDelay = TimeSpan.FromSeconds(0.4);
@@ -1271,6 +1271,7 @@ namespace Gordian.Core.Ui
         /// <summary>On a list page, only rows showing an entry take the cursor (the rows past the end do not).</summary>
         private static bool IsPopulated(StockUiOpenMenu menu, int buttonId)
         {
+            if (menu.IsTreasureList) return buttonId >= 1 && buttonId <= menu.TreasureRows.Count;
             if (menu.VisibleRows == 0) return true;
             int index = menu.EntryIndex(buttonId);
             return index >= 0 && index < menu.Rows.Count;
@@ -1423,6 +1424,18 @@ namespace Gordian.Core.Ui
             if (top.IsShopList)
             {
                 ActivateShopRow(top);
+                return;
+            }
+
+            if (top.IsTreasureList)
+            {
+                ActivateTreasureRow(top);
+                return;
+            }
+
+            if (top.TreasureActionSlot != null)
+            {
+                ActivateTreasureAction(top, button);
                 return;
             }
 
@@ -1708,6 +1721,10 @@ namespace Gordian.Core.Ui
                     bool opened;
                     lock (_sync) opened = OpenShopList(entry.Command == StockUiMenuCommand.ShopBuy ? StockUiShopSide.Buy : StockUiShopSide.Sell, from) != null;
                     if (opened) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.TreasurePool:
+                    OpenTreasurePool(from);
                     break;
 
                 case StockUiMenuCommand.HomePoint:

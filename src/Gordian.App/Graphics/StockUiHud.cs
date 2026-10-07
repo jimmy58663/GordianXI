@@ -344,8 +344,8 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // The shop's list and quantity prompt keep their authored places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null;
+                    // The shop's list and quantity prompt and the Treasure Pool windows keep their own places; the other windows follow the root.
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
