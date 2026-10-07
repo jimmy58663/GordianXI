@@ -549,10 +549,11 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// A ranged weapon DAT's RangeType: Info section (0x45) byte 14, or -1. Read from the retail Hume male ranged DATs
-        /// (2026-10-07): the flutes (model ids 64-71) carry 1, the harps (72-81) 2, the guns and crossbows 3, the throwing
-        /// weapons 4 and 5, the bows (their meshes also bind to the bowstring joints) 6, the handbells (113, 121) 11, and the
-        /// 3-vertex stubs (1-21, 159-255) 0. The values match the race base's ranged routines <c>lc01</c>-<c>lc11</c> /
+        /// A ranged weapon DAT's RangeType: Info section (0x45) byte 14, or -1. Field from xi-model-viewer
+        /// (https://github.com/vekien/xi-model-viewer, ui/js/dat/inspect.js RANGE_TYPE: 1 wind, 2 string, 3 marksmanship,
+        /// 4 throwing weapon, 5 throwing ammo, 6 archery, 10 / 11 handbell); on the retail Hume male ranged DATs
+        /// (2026-10-07) the flutes (model ids 64-71) carry 1, the harps (72-81) 2, the guns and crossbows 3, the bows (their
+        /// meshes also bind to the bowstring joints) 6, the handbells (113, 121) 11, and the 3-vertex stubs (1-21, 159-255) 0. The values match the race base's ranged routines <c>lc01</c>-<c>lc11</c> /
         /// <c>ls01</c>-<c>ls11</c> (wind <c>sf?</c>, string <c>sh?</c>, gun <c>gu?</c>, throw <c>na?</c>, bow <c>yu?</c>,
         /// geomancy <c>gc?</c>), which xi-tools docs/ability/mixer.md numbers by the weapon's RangeType. A stub's 0 reads as
         /// none: <c>lc00</c> / <c>ls00</c> are the singing routines (played by songs, not by a ranged attack).

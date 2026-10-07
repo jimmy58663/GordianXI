@@ -118,8 +118,8 @@ namespace Gordian.Core.Resources.Models
     /// list of op 0x75 commands (slot, hide). Read from the retail <c>ROM/0/0.DAT</c> (2026-10-07,
     /// <c>SharedWeaponRoutines_MatchTheRetailDat</c>): the PC <c>init</c> links <c>hwpc</c> (the ranged weapon starts hidden),
     /// the casts and item uses link <c>hwmg</c>, the ranged routines <c>calg</c> / <c>shlg</c> / <c>ls06</c>... link
-    /// <c>hwso</c>. <c>hwat</c>, <c>stlg</c> and <c>splg</c> put the melee weapons back; no PC routine links them, so the
-    /// client presumably runs them itself when an action ends. Op meaning from xi-tools
+    /// <c>hwso</c>. <c>hwat</c>, <c>stlg</c> and <c>splg</c> put the melee weapons back: every battle pack's basic attack
+    /// <c>atk0</c> and counter <c>cnt0</c> link <c>hwat</c>. Op meaning from xi-tools
     /// docs/reference/ps2_decomp_crosscheck.md (HideWepControl).
     /// </summary>
     public static class SharedWeaponRoutines

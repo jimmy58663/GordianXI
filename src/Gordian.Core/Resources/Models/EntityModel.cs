@@ -31,7 +31,7 @@ namespace Gordian.Core.Resources.Models
 
         /// <summary>
         /// The equipped ranged weapon's RangeType (its DAT's Info byte 14: 1 wind instrument, 2 string instrument,
-        /// 3 marksmanship, 4 / 5 throwing, 6 archery, 11 handbell), which picks the <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c> routines a
+        /// 3 marksmanship, 4 / 5 throwing, 6 archery, 10 / 11 handbell), which picks the <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c> routines a
         /// ranged attack plays; -1 without one.
         /// </summary>
         public int RangedType { get; set; } = -1;
