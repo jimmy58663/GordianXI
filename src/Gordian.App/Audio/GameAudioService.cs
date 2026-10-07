@@ -216,6 +216,7 @@ namespace Gordian.App.Audio
             _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
             UpdateFootsteps(world, session.LocalPlayer.ServerId);
+            UpdateActionSounds(world);
             PlaySceneSounds(session.Events.Presentation);
             if (Interlocked.Exchange(ref _pendingEmitters, null) is { } loaded)
             {
@@ -395,6 +396,24 @@ namespace Gordian.App.Audio
                 _sceneLoops.Clear();
             }
         }
+        /// <summary>Near / far range of combat and action sounds (provisional: the routines' range fields read 0).</summary>
+        public static readonly (float Near, float Far) ActionSoundRange = (15f, ActionSoundTracker.HearingRange);
+
+        private readonly ActionSoundTracker _actionSounds = new();
+        private readonly List<ActionSoundEvent> _actionEvents = new();
+
+        /// <summary>Combat and action sounds of the actors near the listener (#41), on the Effects bus.</summary>
+        private void UpdateActionSounds(WorldState world)
+        {
+            _actionEvents.Clear();
+            _actionSounds.Update(world.Entities, _listenerPosition,
+                id => world.TryGetByServerId(id, out WorldEntity? e) ? ActionSoundTracker.Snapshot(e) : null, _actionEvents);
+            foreach (ActionSoundEvent sound in _actionEvents)
+            {
+                PlayEffect(sound.SoundId, AudioCategory.Effects, 1f, new AudioEmitter(sound.Position, ActionSoundRange.Near, ActionSoundRange.Far));
+            }
+        }
+
         private void UpdateFootsteps(WorldState world, uint localPlayerId)
         {
             ZoneSoundTable sounds = _zoneSounds;

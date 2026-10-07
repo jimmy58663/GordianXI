@@ -58,6 +58,8 @@ namespace Gordian.Core.Resources.Graphics
             if (commandsOffset < 0 || commandsOffset >= payload.Length) return null;
 
             var commands = new List<MotionRoutineCommand>();
+            var sounds = new List<RoutineSoundCommand>();
+            int choiceGroup = -1, choiceGroups = 0;
             int clock = 0;
             int p = commandsOffset;
             while (p + 8 <= payload.Length)
@@ -70,6 +72,7 @@ namespace Gordian.Core.Resources.Graphics
                 clock += BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 4));
                 int duration = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 6));
                 var command = payload.Slice(p, Math.Min(sizeBytes, payload.Length - p));
+                RoutineSoundCollector.ReadCommand(op, command, start, sounds, ref choiceGroup, ref choiceGroups);
 
                 switch (op)
                 {
@@ -116,7 +119,8 @@ namespace Gordian.Core.Resources.Graphics
             {
                 Name = name ?? string.Empty,
                 TotalTicks = totalTicks > 0 ? totalTicks : clock,
-                Commands = commands
+                Commands = commands,
+                SoundCommands = sounds
             };
         }
 

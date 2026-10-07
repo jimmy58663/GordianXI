@@ -192,15 +192,25 @@ Temporary, client-only commands for listening to files directly; never sent to t
 
 - `/playsound <id>` plays `seNNNNNN.spw` centred on the Effects bus and replies with its format and whether it loops. A looped file loops until `/playsound stop`, so its seam can be checked (the 13 looped ATRAC3 effects: 36108 36124 36125 36128 36138 41017 41031 41035 41044 41045 41046 41052 41057).
 - `/playmusic <n>` plays `musicNNN.bgw` in place of the zone's music (the director's override, as an event's would); `/playmusic stop` returns to the zone music. Unlike LandSandBoat's `!setmusic` it involves no server.
-## Combat and action sounds (#41): findings, deferred
+## Combat and action sounds (#41)
 
-Not implemented. What the retail data shows (probed in `ROM/0/0.DAT` and the Hume battle pack `ROM/32/13`):
+Retail keeps an action's sounds in the actor's own motion routines (Section 0x07), so they play with the motion that the action playback (Phase 5D.1, S2C 0x028) starts. Sound commands are ops 0x0A (at the source), 0x0B (at the target) and the 0x4A / 0x53 / 0x60 variants, naming a 0x3D pointer at +0x08 (xi-tools `docs/fx/effect_system.md`); links are 0x03 / 0x3B / 0x57 / 0x3C on the actor and 0x09 on the other actor; 0x3D ... 0x3E is a random choice of one child. What the retail data holds (read 2026-10-07 from monster model 10, the Hume male base motion `ROM/27/82`, battle pack `ROM/32/13` and main weapon DATs 8393-8404; a scan of monster models 1-1499 finds sound commands in 900 of 1,493, mostly `vdam`, `vatk`, `vded`, `vswy`, `sdam`, `chit`, `ati0`-`ati2`, `atf0`):
 
-- Sound commands in effect routines are ops 0x0A (at the source) and 0x0B (at the target), 32 bytes: +0x08 the 0x3D section name (`5045`, `7129`...), +0x14 f32 60 in most (a range). xi-tools `docs/fx/effect_system.md` also lists 0x4A / 0x53 / 0x60 variants.
-- The battle pack carries no sound pointers; the hit sounds live in `ROM/0/0.DAT` (98 pointers, `se005xxx` combat sounds), in the hit routines `hit1/hi10`-`hi19`, which spawn generators (`g10s`...) whose linked data is a sound.
-- The motions link `dada` at the hit moment; `dada` runs `atpr`, `crtl` and `dam0`, which pick the hit routine (`hit3`, `hit5`, `hi14`...) and the damage reaction (`sb00`-`sb05`) through the conditional ops 0x64 / 0x67 / 0x69 / 0x6A / 0x6B on registers the action result sets.
+| Routine | Sounds | Example |
+|---|---|---|
+| swing `ati0`-`ati2`, `atf0`... | the whoosh `skaz`: a monster's own pointer, a character's battle pack links its weapon DAT's routine `skaz` (0x57 at tick 34) | model 10 `skaz` 6062; Hume male + main weapon 1: 6030 |
+| `atk0` (a monster) | links the cry `vatk`: a random choice of four cries and six silent 0x50 entries | model 10: 264003-264006 |
+| hit reaction `damg` (on the target) | 0x09 `chit` on the attacker, its own `sdam` and cry `vdam` (random, with silent entries) | a monster's `chit` plays its `shit` (model 10: 6063); a character's `chit` (`ROM/27/82`) links its weapon's `se h`, which plays the weapon's `shit` (main weapon 1: 6031) |
+| draw `out0` / sheathe `in 0` | the weapon's `sotr` / `sinr` (0x57 at tick 36) | main weapon 1: 6072 / 6071 |
+| `dead` | the death cry `vded` | |
 
-So combat sounds need the effect-routine conditional interpreter and the action-result registers (and the same routine player would draw the hit sparks), plus spell / ability effect DATs played from S2C 0x028, which nothing plays yet. That is effect-routine work rather than audio work; the audio side (`GameAudioService.PlayEffect` with a positional emitter) is ready for it.
+**Beyond xi-tools:** 0x50 is the silent member of a random choice (our reading of `vatk` / `vdam`), and a routine's sound pointer resolves by name within its own DAT. Main and sub weapon both carry `skaz` / `se h`; the later DAT replaces the routine, so with two weapons the sub weapon's sounds win (provisional).
+
+Implementation: `MotionRoutineDecoder` also records these commands in `RawMotionRoutine.SoundCommands` (the playback `Commands` are unchanged); `EntityModelLoader.ParseDatContainer` resolves their names against the DAT's 0x3D pointers; `RoutineSoundCollector.Collect` flattens a routine's sounds through the actor's links (blocking links shift the rest, as for the clips), cached per model (`EntityModel.GetRoutineSounds`). `ActionSoundTracker` (App) follows each drawn actor within 60 yalms each frame on its routine clock (`EntityAnimationState.ActiveRoutine` / `ActionTicks` / `ActionSerial`): it plays a routine's cues as the clock passes them; a new hit reaction (`ReactionSerial`) plays `damg` (hit), `gurd` (guard), `pary` (parry) or `gur1` (block) and the attacker's `chit`; the switch to the death animation plays `dead`. Sounds play at the actor on the Effects bus, full volume within 15 yalms, silent at 60 (the commands' range fields read 0). Tests: `RoutineSoundCollectorTests` (synthetic and retail), `ActionSoundTrackerTests`.
+
+Provisional: a random choice is uniform; reactions play their routine from its start when applied; the 0x0B "at the target" sounds play at the actor. Not done:
+- The shared `ROM/0/0` routines the swing reaches through `dada` (`atpr`, `crtl`, `dam0`): they pick hit sparks and their sound generators (`g03s`...: `hit3` 5033 / 7129, `sb00` 5045...) by conditional ops 0x64 / 0x67 / 0x69 / 0x6A / 0x6B on action-result registers (`atpr` compares register 0x2F with 0-23, picking `wapr`, `hit3`, `hit5`, `hit9`...; `crtl` register 0x2B and 0x38 for the critical `hi14` / `hi29`; `dam0` register 0x33 with 1-10 for `sb00`-`sb09`). Which packet field feeds which register is unknown; that is effect-routine work, shared with the hit sparks.
+- Spell, ability and weapon skill sounds (their effect DATs, which nothing plays yet), and ranged attacks.
 
 ## Phase 5H plan
 
@@ -208,7 +218,7 @@ So combat sounds need the effect-routine conditional interpreter and the action-
 - [x] Cross-platform audio backend: OpenAL Soft as the output device (#37, above).
 - [x] Clean-room decode of the retail sound files (#38, above, ATRAC3 included).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
-- [ ] Combat and action sounds (#41: deferred, findings above).
+- [x] Combat and action sounds from the actors' motion routines (#41, above; the `ROM/0/0` conditional hit routines and spell / ability effects open).
 - [x] Event music and volume opcodes (#167, above).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [x] UI/menu sound cues (#43, above).
