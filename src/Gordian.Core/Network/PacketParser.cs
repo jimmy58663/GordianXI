@@ -93,6 +93,7 @@ namespace Gordian.Core.Network
                 _localPlayer.ZoneId = zoneId;
             };
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
+            _lifecycleModule.ServerGameTimeReceived += gameTime => _world.Clock.SynchronizeServerTime(gameTime);
             _lifecycleModule.ZoneLoginInfoReceived += info =>
             {
                 _world.UpdateZoneLoginInfo(info);

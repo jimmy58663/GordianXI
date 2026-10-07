@@ -427,7 +427,7 @@ namespace Gordian.Core.Network.Packets
 
             if (npcPacket.TryGetTransport(out string transportId, out uint legStart, out uint travel))
             {
-                double arrival = VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
+                double arrival = _world.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow);
                 if (!isNew && legStart != entity.TransportStartSeconds)
                 {
                     // A new leg is sent as it starts: play it from here (see MovingPlatforms.LegStart).

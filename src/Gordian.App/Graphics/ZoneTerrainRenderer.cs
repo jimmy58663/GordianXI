@@ -47,6 +47,20 @@ namespace Gordian.App.Graphics
         /// </summary>
         public WorldState? World { get; set; }
 
+        /// <summary>The Vana'diel day of the week now on the displayed session's clock (the local clock without one).</summary>
+        private int CurrentDayOfWeek()
+        {
+            DateTime now = DateTime.UtcNow;
+            return World?.Clock.GetDayOfWeekIndex(now) ?? VanaTime.GetDayOfWeekIndex(now);
+        }
+
+        /// <summary>The 12-step moon phase index now on the displayed session's clock (the local clock without one).</summary>
+        private int CurrentMoonPhaseIndex()
+        {
+            DateTime now = DateTime.UtcNow;
+            return World?.Clock.GetMoonPhaseIndex(now) ?? VanaTime.GetMoonPhaseIndex(now);
+        }
+
         /// <summary>The moving platform the displayed session's player is riding (empty when none): an event pose keeps it on it.</summary>
         public string LocalPlayerRidingPlatformId { get; set; } = string.Empty;
 
@@ -955,7 +969,7 @@ namespace Gordian.App.Graphics
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
             UpdateSubEnvironmentScenes(sceneUniform, environment);
             _platformHeights = World != null
-                ? MovingPlatforms.Evaluate(LoadedZone?.Collision, World, VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
+                ? MovingPlatforms.Evaluate(LoadedZone?.Collision, World, World.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
                 : Array.Empty<PlatformHeight>();
 
             // Clear to atmospheric clear/horizon color for authentic FFXI horizon blending
@@ -991,8 +1005,8 @@ namespace Gordian.App.Graphics
                 Vector3 sunDir = Vector3.Normalize(environment.SunDirection);
                 Vector3 moonDir = -sunDir;
 
-                int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
-                int moonPhaseIndex = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                int dayOfWeek = CurrentDayOfWeek();
+                int moonPhaseIndex = CurrentMoonPhaseIndex();
                 float dayFraction = environment.TimeOfDayHours / 24.0f;
 
                 // Sky layers come from the zone's directory for the active weather; zones that author no directory for an
@@ -1211,8 +1225,8 @@ namespace Gordian.App.Graphics
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
-                int effectDayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
-                int effectMoonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                int effectDayOfWeek = CurrentDayOfWeek();
+                int effectMoonPhase = CurrentMoonPhaseIndex();
                 float effectDayFraction = environment.TimeOfDayHours / 24.0f;
 
                 _effectDrawList.Clear();
@@ -1764,8 +1778,8 @@ namespace Gordian.App.Graphics
                 float frames = Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f;
                 float dayFraction = environment.TimeOfDayHours / 24.0f;
                 Vector3 daylight = StrongestLight(environment);
-                int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
-                int moonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+                int dayOfWeek = CurrentDayOfWeek();
+                int moonPhase = CurrentMoonPhaseIndex();
                 foreach (var entity in entities)
                 {
                     uint modelId = entity.Appearance.ModelId;
@@ -1877,8 +1891,8 @@ namespace Gordian.App.Graphics
             float frames = Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f;
             float dayFraction = environment.TimeOfDayHours / 24.0f;
             Vector3 daylight = StrongestLight(environment);
-            int dayOfWeek = VanaTime.GetDayOfWeekIndex(DateTime.UtcNow);
-            int moonPhase = VanaTime.GetMoonPhaseIndex(DateTime.UtcNow);
+            int dayOfWeek = CurrentDayOfWeek();
+            int moonPhase = CurrentMoonPhaseIndex();
             // Camera space in raw DAT axes: the eye at the origin looking down +Z, -Y up. The effect pass hands the frame
             // display-space positions (-x, -y, z), so the camera's basis (the billboard basis) at the eye takes them to the
             // world as they are: raw -Y rises on screen (the 70443 sparkles drift up, #192).
@@ -1983,7 +1997,7 @@ namespace Gordian.App.Graphics
         {
             _effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
             var frame = new ZoneParticleFrame(ToDisplay(camera.Position), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
-                ToDisplay(camera.Forward), VanaTime.GetDayOfWeekIndex(DateTime.UtcNow), VanaTime.GetMoonPhaseIndex(DateTime.UtcNow),
+                ToDisplay(camera.Forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
                 IsViewerInSubEnvironment(camera.Position));
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
             // Lightning strikes and other short weather routines start their generators at random.
