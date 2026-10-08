@@ -73,20 +73,13 @@ namespace Gordian.App.Audio
         }
 
         /// <summary>
-        /// Whether <paramref name="characterName"/> is the character the policy prefers (and so takes the sound from the
+        /// Whether a viewport's character is the one the policy prefers (and so takes the sound from the
         /// focused window). Always false for <see cref="MultiBoxSoundPolicy.FocusedWindow"/>.
         /// </summary>
         /// <param name="settings">The settings.</param>
-        /// <param name="characterName">The character a viewport shows.</param>
-        /// <param name="isPrimaryRendering">Whether that character is the primary rendering session (main viewport).</param>
-        public static bool IsPreferred(SoundControlSettings settings, string? characterName, bool isPrimaryRendering) =>
-            settings.MultiBoxPolicy switch
-            {
-                MultiBoxSoundPolicy.PrimaryViewport => isPrimaryRendering,
-                MultiBoxSoundPolicy.NamedCharacter => !string.IsNullOrWhiteSpace(characterName)
-                    && string.Equals(characterName.Trim(), settings.PreferredCharacter?.Trim(), StringComparison.OrdinalIgnoreCase),
-                _ => false,
-            };
+        /// <param name="isPrimaryRendering">Whether the viewport's character is the primary rendering session (main viewport).</param>
+        public static bool IsPreferred(SoundControlSettings settings, bool isPrimaryRendering) =>
+            settings.MultiBoxPolicy == MultiBoxSoundPolicy.PrimaryViewport && isPrimaryRendering;
 
         /// <summary>
         /// Whether an incoming tell of a character plays its cue: always for the character heard, and for the others

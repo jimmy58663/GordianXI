@@ -22,38 +22,51 @@ namespace Gordian.App.Audio
     /// <param name="ReactionSerial">Changes with every hit reaction (<see cref="EntityAnimationState.ReactionSerial"/>).</param>
     /// <param name="LastReaction">The last hit reaction.</param>
     /// <param name="IsDead">Whether the actor is dead (its death motion plays).</param>
+    /// <param name="IsAttackRound">Whether the playing action is a melee attack (a swing or counter, S2C 0x028 basic attack).</param>
+    /// <param name="OffHand">Whether the playing action is an off-hand attack (the result's <c>sub_kind</c> 1).</param>
     public readonly record struct ActorSoundState(uint Id, Vector3 Position, EntityModel? Model, string? Routine, int ActionSerial,
-        float ActionTicks, int ReactionSerial, HitReaction LastReaction, bool IsDead);
+        float ActionTicks, int ReactionSerial, HitReaction LastReaction, bool IsDead, bool IsAttackRound = false, bool OffHand = false);
 
     /// <summary>
     /// Combat and action sounds (#41): plays the sounds an actor's motion routines carry, on the routine clock, so they
     /// follow the motions the action playback (Phase 5D.1) starts from S2C 0x028: the swing's whoosh and the weapon's
-    /// draw / sheathe, cries, a hit's sounds (the target's <c>damg</c>, which runs the attacker's <c>chit</c>: its weapon's
-    /// or its own hit sound), guard / parry / block, and the death cry of <c>dead</c>. Which routine holds which sound is
-    /// documented on <see cref="Gordian.Core.Resources.Graphics.RoutineSoundCollector"/>.
+    /// draw / sheathe, the attack cry (<c>atk0</c>), a hit's sounds (the target's <c>damg</c>, which runs the attacker's
+    /// <c>chit</c>: its weapon's or its own hit sound), guard / parry / block, and the death cry of <c>dead</c>. Which
+    /// routine holds which sound is documented on <see cref="Gordian.Core.Resources.Graphics.RoutineSoundCollector"/>.
     /// </summary>
     /// <remarks>
-    /// Provisional: a random choice (op 0x3D / 0x3E) is uniform, silent members included; every sound plays at its actor
-    /// with the cutscene sound range; the reaction's routines play from their start at the moment the reaction is applied.
+    /// Retail runs <c>atk0</c> for every melee attack: it links the cry <c>vatk</c> and picks the swing with op 0x24, which
+    /// GordianXI's playback does instead (it plays the swing routine directly), so the tracker adds <c>atk0</c>'s sounds when
+    /// a melee swing starts; before that no attack cry was ever heard (in-game round 1, Pinetorum Mandragora).
+    /// With dual wield an off-hand swing or hit uses the sub weapon's routines (<see cref="EntityModel.GetRoutineSounds"/>).
+    /// Provisional: a random choice (op 0x3D / 0x3E) is uniform, silent members included (a Mandragora's <c>vatk</c>: four
+    /// cries, three silent, 57 %, close to the 60-70 % of rounds heard in retail); every sound plays at its actor; the
+    /// reaction's routines play from their start when the reaction is applied, with the hand of the attacker's current swing.
     /// Not done: sounds the shared <c>ROM/0/0</c> hit routines spawn through sound generators (picked by conditional ops on
     /// the action result, which are not interpreted yet), and the spell, ability and weapon skill effect DATs.
     /// </remarks>
     public sealed class ActionSoundTracker
     {
-        /// <summary>Actors further than this from the listener are not tracked (the far end of the sound range).</summary>
-        public const float HearingRange = 60f;
+        /// <summary>
+        /// Actors further than this from the listener are not tracked: retail combat sounds fade with distance and are
+        /// silent by about 25-30 yalms (the maintainer's retail check, 2026-10-07; 30 chosen).
+        /// </summary>
+        public const float HearingRange = 30f;
+
+        /// <summary>The routine retail runs for each melee attack (its sounds: the attack cry).</summary>
+        public const string AttackRoundRoutine = "atk0";
 
         private readonly Dictionary<uint, Tracked> _actors = new();
         private readonly HashSet<uint> _seen = new();
         private readonly Func<int, int> _random;
-        private readonly Func<EntityModel, string, IReadOnlyList<RoutineSoundCue>> _sounds;
+        private readonly Func<EntityModel, string, bool, IReadOnlyList<RoutineSoundCue>> _sounds;
 
         /// <param name="random">Picks an index below its argument (a random choice); <see cref="Random.Shared"/> by default.</param>
-        /// <param name="sounds">A model's sounds for a routine; <see cref="EntityModel.GetRoutineSounds"/> by default.</param>
-        public ActionSoundTracker(Func<int, int>? random = null, Func<EntityModel, string, IReadOnlyList<RoutineSoundCue>>? sounds = null)
+        /// <param name="sounds">A model's sounds for a routine and hand; <see cref="EntityModel.GetRoutineSounds"/> by default.</param>
+        public ActionSoundTracker(Func<int, int>? random = null, Func<EntityModel, string, bool, IReadOnlyList<RoutineSoundCue>>? sounds = null)
         {
             _random = random ?? Random.Shared.Next;
-            _sounds = sounds ?? ((model, name) => model.GetRoutineSounds(name));
+            _sounds = sounds ?? ((model, name, offHand) => model.GetRoutineSounds(name, offHand));
         }
 
         /// <summary>The routine whose sounds a hit reaction plays, by its resolution.</summary>
@@ -76,8 +89,10 @@ namespace Gordian.App.Audio
             MotionRoutine? active = a.ActiveRoutine;
             string? routine = active is not null && a.Model is { } model && model.MotionRoutines.TryGetValue(active.Name, out var own)
                 && ReferenceEquals(own, active) ? active.Name : null;
+            ActionRequest? request = a.ActiveRequest;
+            bool attack = request is { Motion: ActionMotion.Swing or ActionMotion.Counter };
             return new ActorSoundState(entity.ServerId, entity.Position, a.Model, routine, a.ActionSerial, a.ActionTicks,
-                a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death);
+                a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death, attack, attack && request!.SubKind == 1);
         }
 
         /// <summary>Checks every drawn actor near the listener and adds the sounds due this frame.</summary>
@@ -109,28 +124,27 @@ namespace Gordian.App.Audio
             EntityModel? model = actor.Model;
             if (model is not null && actor.Routine is { Length: > 0 } routine)
             {
-                float from = actor.ActionSerial != last.ActionSerial ? -1f : last.ActionTicks;
-                foreach (RoutineSoundCue cue in _sounds(model, routine))
+                bool started = actor.ActionSerial != last.ActionSerial;
+                float from = started ? -1f : last.ActionTicks;
+                Play(_sounds(model, routine, actor.OffHand), from, actor.ActionTicks, actor.Position, into);
+                if (started && actor.IsAttackRound)
                 {
-                    if (cue.Tick > from && cue.Tick <= actor.ActionTicks && !cue.IsTargetLink)
-                    {
-                        Emit(cue, actor.Position, into);
-                    }
+                    Play(_sounds(model, AttackRoundRoutine, actor.OffHand), float.NegativeInfinity, float.PositiveInfinity, actor.Position, into);
                 }
             }
 
             if (model is not null && actor.ReactionSerial != last.ReactionSerial && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
             {
-                foreach (RoutineSoundCue cue in _sounds(model, reaction))
+                foreach (RoutineSoundCue cue in _sounds(model, reaction, false))
                 {
                     if (!cue.IsTargetLink)
                     {
                         Emit(cue, actor.Position, into);
                     }
-                    else if (lookup(actor.LastReaction.AttackerId) is { Model: { } attackerModel })
+                    else if (lookup(actor.LastReaction.AttackerId) is { Model: { } attackerModel } attacker)
                     {
-                        // damg runs chit on the attacker: its weapon's (or its own) hit sound, heard where the hit lands.
-                        foreach (RoutineSoundCue hit in _sounds(attackerModel, cue.TargetRoutine))
+                        // damg runs chit on the attacker: the hand's weapon (or its own) hit sound, heard where the hit lands.
+                        foreach (RoutineSoundCue hit in _sounds(attackerModel, cue.TargetRoutine, attacker.OffHand))
                         {
                             if (!hit.IsTargetLink)
                             {
@@ -143,13 +157,7 @@ namespace Gordian.App.Audio
 
             if (model is not null && actor.IsDead && !last.IsDead)
             {
-                foreach (RoutineSoundCue cue in _sounds(model, "dead"))
-                {
-                    if (!cue.IsTargetLink)
-                    {
-                        Emit(cue, actor.Position, into);
-                    }
-                }
+                Play(_sounds(model, "dead", false), float.NegativeInfinity, float.PositiveInfinity, actor.Position, into);
             }
 
             _actors[actor.Id] = new Tracked(actor.ActionSerial, actor.ActionTicks, actor.ReactionSerial, actor.IsDead);
@@ -176,6 +184,17 @@ namespace Gordian.App.Audio
             }
 
             _seen.Clear();
+        }
+
+        private void Play(IReadOnlyList<RoutineSoundCue> cues, float after, float upTo, Vector3 position, List<ActionSoundEvent> into)
+        {
+            foreach (RoutineSoundCue cue in cues)
+            {
+                if (cue.Tick > after && cue.Tick <= upTo && !cue.IsTargetLink)
+                {
+                    Emit(cue, position, into);
+                }
+            }
         }
 
         private void Emit(RoutineSoundCue cue, Vector3 position, List<ActionSoundEvent> into)

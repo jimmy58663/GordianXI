@@ -16,9 +16,6 @@ namespace Gordian.App.Audio
 
         /// <summary>The character of the main viewport window (the primary rendering session), even while a pop-out has focus.</summary>
         PrimaryViewport = 1,
-
-        /// <summary>A named character, whichever window shows it; the focused window while it is not shown.</summary>
-        NamedCharacter = 2,
     }
 
     /// <summary>What counts as "the window is active" for <see cref="SoundControlSettings.MuteWhenInactive"/>.</summary>
@@ -73,9 +70,6 @@ namespace Gordian.App.Audio
         /// <summary>Which character is heard with several logged in.</summary>
         public MultiBoxSoundPolicy MultiBoxPolicy { get; set; } = MultiBoxSoundPolicy.FocusedWindow;
 
-        /// <summary>The character heard with <see cref="MultiBoxSoundPolicy.NamedCharacter"/>.</summary>
-        public string PreferredCharacter { get; set; } = string.Empty;
-
         /// <summary>Play the tell cue of every logged-in character, not only the one heard (opt-in).</summary>
         public bool NotificationsFromAllCharacters { get; set; }
 
@@ -113,7 +107,6 @@ namespace Gordian.App.Audio
             ActiveScope = ActiveScope,
             FadeSeconds = FadeSeconds,
             MultiBoxPolicy = MultiBoxPolicy,
-            PreferredCharacter = PreferredCharacter,
             NotificationsFromAllCharacters = NotificationsFromAllCharacters,
             Music = Music.Clone(),
             Effects = Effects.Clone(),
@@ -155,7 +148,9 @@ namespace Gordian.App.Audio
             {
                 try
                 {
-                    SoundControlSettings? settings = JsonSerializer.Deserialize<SoundControlSettings>(File.ReadAllText(filePath), JsonOptions);
+                    // A file saved while the named-character policy existed (removed after in-game round 1) reads as the default.
+                    string json = File.ReadAllText(filePath).Replace("\"NamedCharacter\"", "\"FocusedWindow\"", StringComparison.Ordinal);
+                    SoundControlSettings? settings = JsonSerializer.Deserialize<SoundControlSettings>(json, JsonOptions);
                     if (settings is not null)
                     {
                         settings.Music ??= new();
@@ -163,7 +158,6 @@ namespace Gordian.App.Audio
                         settings.System ??= new();
                         settings.Zone ??= new();
                         settings.Notification ??= new();
-                        settings.PreferredCharacter ??= string.Empty;
                         return settings;
                     }
                 }

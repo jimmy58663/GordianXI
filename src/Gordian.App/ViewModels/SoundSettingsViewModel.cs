@@ -77,23 +77,7 @@ namespace Gordian.App.ViewModels
         public MultiBoxSoundPolicy MultiBoxPolicy
         {
             get => _settings.MultiBoxPolicy;
-            set
-            {
-                if (Set(_settings.MultiBoxPolicy, value, v => _settings.MultiBoxPolicy = v))
-                {
-                    OnPropertyChanged(nameof(IsNamedCharacterPolicy));
-                }
-            }
-        }
-
-        /// <summary>Whether the character name box applies.</summary>
-        public bool IsNamedCharacterPolicy => _settings.MultiBoxPolicy == MultiBoxSoundPolicy.NamedCharacter;
-
-        /// <summary>The character heard with the named-character policy.</summary>
-        public string PreferredCharacter
-        {
-            get => _settings.PreferredCharacter;
-            set => Set(_settings.PreferredCharacter, value ?? string.Empty, v => _settings.PreferredCharacter = v);
+            set => Set(_settings.MultiBoxPolicy, value, v => _settings.MultiBoxPolicy = v);
         }
 
         /// <summary>Play every character's tell cue, not only the heard one's.</summary>

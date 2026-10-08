@@ -1924,11 +1924,7 @@
                             <TextBlock Text="Multi-box: whose sound plays" Foreground="#A0A0A0" FontSize="12"/>
                             <ComboBox ItemsSource="{Binding Sound.AvailablePolicies}"
                                       SelectedItem="{Binding Sound.MultiBoxPolicy, Mode=TwoWay}" MinWidth="240" HorizontalAlignment="Left"/>
-                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding Sound.IsNamedCharacterPolicy}">
-                                <TextBlock Text="Character:" Foreground="#A0A0A0" FontSize="12" VerticalAlignment="Center"/>
-                                <TextBox Text="{Binding Sound.PreferredCharacter, Mode=TwoWay}" MinWidth="200"/>
-                            </StackPanel>
-                            <TextBlock Text="FocusedWindow: the character in the viewport window you used last (default). PrimaryViewport: the main viewport's character, even while a pop-out has focus. NamedCharacter: that character whenever a viewport shows it."
+                            <TextBlock Text="FocusedWindow: the character in the viewport window you used last (default). PrimaryViewport: the main viewport's character, even while a pop-out has focus."
                                        Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                             <CheckBox IsChecked="{Binding Sound.NotificationsFromAllCharacters, Mode=TwoWay}"
                                       Content="Play the tell sound for every logged-in character, not only the one heard"

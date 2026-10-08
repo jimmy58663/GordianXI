@@ -138,6 +138,48 @@ namespace Gordian.Core.Tests.Audio
         }
 
         [Fact]
+        public void Retail_MandragoraAttackCry_IsFourCriesInSeven()
+        {
+            if (!Directory.Exists(GameDirectory))
+            {
+                return;
+            }
+
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            // Pinetorum Mandragora (LandSandBoat yahse_hunting_grounds mobs.yaml: model 301); retail cries on about 60-70 %
+            // of its attack rounds (maintainer, 2026-10-07).
+            var routines = RoutinesOf(rm.LoadDatBytesByFileId(CharacterEquipmentResolver.GetMonsterFileId(301))!);
+            var cry = Assert.Single(RoutineSoundCollector.Collect(routines, "atk0"));
+            Assert.Equal(new[] { 0, 0, 0, 220006, 220005, 220004, 220003 }, cry.Choices);
+            Assert.Contains(RoutineSoundCollector.Collect(routines, "damg"), c => c.Choices.Count(id => id > 0) == 4);
+        }
+
+        [Fact]
+        public void Retail_DualWield_EachHandKeepsItsWeaponsSounds()
+        {
+            if (!Directory.Exists(GameDirectory))
+            {
+                return;
+            }
+
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            Assert.True(CharacterEquipmentResolver.TryResolveGearFileId(CharacterRace.HumeMale, CharacterSlot.Main, 1, out int main));
+            // Sub weapon 64 names its routines for the left hand (skal / sehl), so it does not replace the main's.
+            Assert.True(CharacterEquipmentResolver.TryResolveGearFileId(CharacterRace.HumeMale, CharacterSlot.Sub, 64, out int sub));
+            var routines = RoutinesOf(
+                rm.LoadDatBytes(Path.Combine("ROM", "27", "82.DAT"))!,
+                rm.LoadDatBytes(Path.Combine("ROM", "32", "13.DAT"))!,
+                rm.LoadDatBytesByFileId(main)!,
+                rm.LoadDatBytesByFileId(sub)!);
+            Assert.Contains(RoutineSoundCollector.Collect(routines, "chit"), c => c.Choices.Contains(6031));
+            Assert.Contains(RoutineSoundCollector.Collect(routines, "chit", offHand: true), c => c.Choices.Contains(6061));
+            Assert.Contains(RoutineSoundCollector.Collect(routines, "ati0"), c => c.Choices.Contains(6030));
+            Assert.Contains(RoutineSoundCollector.Collect(routines, "ati0", offHand: true), c => c.Choices.Contains(6060));
+        }
+
+        [Fact]
         public void Retail_CharacterChitPlaysItsWeaponsHitSound_AndTheSwingItsWhoosh()
         {
             if (!Directory.Exists(GameDirectory))

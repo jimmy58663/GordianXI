@@ -25,7 +25,7 @@ namespace Gordian.App.Tests.Audio
             }
 
             Assert.Equal(MultiBoxSoundPolicy.FocusedWindow, settings.MultiBoxPolicy);
-            Assert.False(SoundControls.IsPreferred(settings, "Anyone", isPrimaryRendering: true));
+            Assert.False(SoundControls.IsPreferred(settings, isPrimaryRendering: true));
         }
 
         [Fact]
@@ -69,13 +69,9 @@ namespace Gordian.App.Tests.Audio
         public void Policies_PickThePreferredCharacter()
         {
             var primary = new SoundControlSettings { MultiBoxPolicy = MultiBoxSoundPolicy.PrimaryViewport };
-            Assert.True(SoundControls.IsPreferred(primary, "Alpha", isPrimaryRendering: true));
-            Assert.False(SoundControls.IsPreferred(primary, "Beta", isPrimaryRendering: false));
-
-            var named = new SoundControlSettings { MultiBoxPolicy = MultiBoxSoundPolicy.NamedCharacter, PreferredCharacter = " beta " };
-            Assert.True(SoundControls.IsPreferred(named, "Beta", isPrimaryRendering: false));
-            Assert.False(SoundControls.IsPreferred(named, "Alpha", isPrimaryRendering: true));
-            Assert.False(SoundControls.IsPreferred(new SoundControlSettings { MultiBoxPolicy = MultiBoxSoundPolicy.NamedCharacter }, "", false));
+            Assert.True(SoundControls.IsPreferred(primary, isPrimaryRendering: true));
+            Assert.False(SoundControls.IsPreferred(primary, isPrimaryRendering: false));
+            Assert.Equal(new[] { MultiBoxSoundPolicy.FocusedWindow, MultiBoxSoundPolicy.PrimaryViewport }, Enum.GetValues<MultiBoxSoundPolicy>());
         }
 
         [Fact]
@@ -98,8 +94,7 @@ namespace Gordian.App.Tests.Audio
                 var settings = new SoundControlSettings
                 {
                     MuteWhenInactive = true,
-                    MultiBoxPolicy = MultiBoxSoundPolicy.NamedCharacter,
-                    PreferredCharacter = "Beta",
+                    MultiBoxPolicy = MultiBoxSoundPolicy.PrimaryViewport,
                     NotificationsFromAllCharacters = true,
                 };
                 settings.Music.Enabled = false;
@@ -108,8 +103,7 @@ namespace Gordian.App.Tests.Audio
 
                 SoundControlSettings loaded = SoundControlSettings.LoadOrDefault(path);
                 Assert.True(loaded.MuteWhenInactive);
-                Assert.Equal(MultiBoxSoundPolicy.NamedCharacter, loaded.MultiBoxPolicy);
-                Assert.Equal("Beta", loaded.PreferredCharacter);
+                Assert.Equal(MultiBoxSoundPolicy.PrimaryViewport, loaded.MultiBoxPolicy);
                 Assert.True(loaded.NotificationsFromAllCharacters);
                 Assert.False(loaded.Music.Enabled);
                 Assert.True(loaded.Notification.PlayWhenInactive);
@@ -137,6 +131,11 @@ namespace Gordian.App.Tests.Audio
                 Assert.True(SoundControlSettings.LoadOrDefault(path).SoundEnabled);
                 File.WriteAllText(path, "{ \"Music\": null }");
                 Assert.True(SoundControlSettings.LoadOrDefault(path).Music.Enabled);
+                // The removed named-character policy reads as the default, keeping the file's other settings.
+                File.WriteAllText(path, "{ \"MuteWhenInactive\": true, \"MultiBoxPolicy\": \"NamedCharacter\" }");
+                SoundControlSettings old = SoundControlSettings.LoadOrDefault(path);
+                Assert.Equal(MultiBoxSoundPolicy.FocusedWindow, old.MultiBoxPolicy);
+                Assert.True(old.MuteWhenInactive);
             }
             finally
             {
@@ -163,13 +162,12 @@ namespace Gordian.App.Tests.Audio
                 var vm = new SoundSettingsViewModel(path, enableAutoSave: true, publish: false);
                 Assert.Equal(AllCategories.Length, vm.Categories.Count);
                 vm.MuteWhenInactive = true;
-                vm.MultiBoxPolicy = MultiBoxSoundPolicy.NamedCharacter;
-                Assert.True(vm.IsNamedCharacterPolicy);
+                vm.MultiBoxPolicy = MultiBoxSoundPolicy.PrimaryViewport;
                 vm.Categories.Single(c => c.Category == AudioCategory.Music).Enabled = false;
 
                 SoundControlSettings saved = SoundControlSettings.LoadOrDefault(path);
                 Assert.True(saved.MuteWhenInactive);
-                Assert.Equal(MultiBoxSoundPolicy.NamedCharacter, saved.MultiBoxPolicy);
+                Assert.Equal(MultiBoxSoundPolicy.PrimaryViewport, saved.MultiBoxPolicy);
                 Assert.False(saved.Music.Enabled);
             }
             finally

@@ -80,6 +80,9 @@ namespace Gordian.Core.Animation
         /// <summary>Counts every new <see cref="ActiveRoutine"/> start, so a routine restarted by name can be told apart (#41).</summary>
         public int ActionSerial { get; private set; }
 
+        /// <summary>The request of the action playing now (its motion and hand, #41), or null.</summary>
+        public ActionRequest? ActiveRequest => _actionRequest;
+
         /// <summary>The model the state last advanced with, or null.</summary>
         public EntityModel? Model => _lastModel;
 

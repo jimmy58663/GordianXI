@@ -167,7 +167,7 @@ namespace Gordian.App.Audio
         {
             // The multi-box policy (#265): a viewport showing the preferred character takes the sound.
             SoundControlSettings controls = SoundControls.Current;
-            bool preferred = session is not null && SoundControls.IsPreferred(controls, session.CharacterName,
+            bool preferred = session is not null && SoundControls.IsPreferred(controls,
                 ReferenceEquals(session, SessionRegistry.Default.PrimaryRenderingSession));
             if (preferred && !_heardIsPreferred)
             {
@@ -396,8 +396,12 @@ namespace Gordian.App.Audio
                 _sceneLoops.Clear();
             }
         }
-        /// <summary>Near / far range of combat and action sounds (provisional: the routines' range fields read 0).</summary>
-        public static readonly (float Near, float Far) ActionSoundRange = (15f, ActionSoundTracker.HearingRange);
+        /// <summary>
+        /// Near / far range of combat and action sounds: full volume within 5 yalms (provisional), fading to silence at 30
+        /// (the maintainer's retail check, 2026-10-07: retail fades with distance and is silent by 25-30 yalms). The
+        /// routines' own range fields read 0.
+        /// </summary>
+        public static readonly (float Near, float Far) ActionSoundRange = (5f, ActionSoundTracker.HearingRange);
 
         private readonly ActionSoundTracker _actionSounds = new();
         private readonly List<ActionSoundEvent> _actionEvents = new();
@@ -654,7 +658,7 @@ namespace Gordian.App.Audio
         }
 
         /// <summary>
-        /// An incoming tell plays "Message Arrival" on the Notification bus: the heard character's always, another
+        /// An incoming tell plays the tell sound (<see cref="StockUiSoundCue.TellArrival"/>) on the Notification bus: the heard character's always, another
         /// character's only when the sound controls let it through (#265).
         /// </summary>
         private void OnChatMessage(CharacterSession receiver, Gordian.Core.Network.Packets.ChatMessage message)
@@ -667,7 +671,7 @@ namespace Gordian.App.Audio
 
             if (SoundControls.PlaysTellCue(SoundControls.Current, ReferenceEquals(receiver, Session)))
             {
-                PlayEffect((int)StockUiSoundCue.MessageArrival, AudioCategory.Notification);
+                PlayEffect((int)StockUiSoundCue.TellArrival, AudioCategory.Notification);
             }
         }
 

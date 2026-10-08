@@ -105,7 +105,10 @@ namespace Gordian.Core.Resources.Graphics
         /// (a blocking link, 0x3B / 0x3C, pushes the rest back by the child's length, as for the clips). Sorted by tick.
         /// Empty when the routine is unknown or plays no sound.
         /// </summary>
-        public static IReadOnlyList<RoutineSoundCue> Collect(IReadOnlyDictionary<string, RawMotionRoutine> routines, string name)
+        /// <param name="routines">The actor's routines by name.</param>
+        /// <param name="name">The routine.</param>
+        /// <param name="offHand">An off-hand action: links follow <see cref="OffHandRoutine"/> where the sub weapon has one.</param>
+        public static IReadOnlyList<RoutineSoundCue> Collect(IReadOnlyDictionary<string, RawMotionRoutine> routines, string name, bool offHand = false)
         {
             ArgumentNullException.ThrowIfNull(routines);
             if (string.IsNullOrEmpty(name) || !routines.TryGetValue(name, out RawMotionRoutine? root))
@@ -122,6 +125,16 @@ namespace Gordian.Core.Resources.Graphics
 
             cues.Sort((a, b) => a.Tick.CompareTo(b.Tick));
             return cues;
+
+            RawMotionRoutine? Resolve(string link)
+            {
+                if (offHand && OffHandRoutine(link) is { } left && routines.TryGetValue(left, out RawMotionRoutine? sub))
+                {
+                    return sub;
+                }
+
+                return routines.TryGetValue(link, out RawMotionRoutine? own) ? own : null;
+            }
 
             void Walk(RawMotionRoutine routine, int baseTick, int depth)
             {
@@ -160,7 +173,7 @@ namespace Gordian.Core.Resources.Graphics
                         cues.Add(new RoutineSoundCue(at, Array.Empty<int>(), command.Op, command.Name));
                     }
                     else if (IsLinkOp(command.Op) && depth < MaxLinkDepth && command.Name != routine.Name
-                             && routines.TryGetValue(command.Name, out RawMotionRoutine? child))
+                             && Resolve(command.Name) is { } child)
                     {
                         Walk(child, at, depth + 1);
                         if (command.Op is OpLinkWait or OpLinkActorWait)
@@ -179,6 +192,22 @@ namespace Gordian.Core.Resources.Graphics
                 }
             }
         }
+
+        /// <summary>
+        /// The sub weapon's left-hand counterpart of a main weapon sound routine, or null. A weapon DAT for the main slot
+        /// names its routines <c>skaz</c> (swing), <c>se h</c> (hit), <c>ef h</c> (hit effect), <c>sotr</c> / <c>sinr</c>
+        /// (draw / sheathe); one for the sub slot names them <c>skal</c>, <c>sehl</c>, <c>efhl</c>, <c>sotl</c>,
+        /// <c>sinl</c> (Hume male sub weapons 64-79, read 2026-10-07; shields carry none), so the two never replace each
+        /// other. No battle pack routine links the left-hand names, so an off-hand swing or hit (S2C 0x028
+        /// <c>sub_kind</c> 1) is read as using them in place of the right-hand ones. <b>Beyond xi-tools.</b>
+        /// </summary>
+        public static string? OffHandRoutine(string routine) => routine switch
+        {
+            "skaz" => "skal",
+            "se h" => "sehl",
+            "ef h" => "efhl",
+            _ => null,
+        };
 
         private static string ReadName(ReadOnlySpan<byte> span)
         {
