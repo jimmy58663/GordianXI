@@ -85,19 +85,78 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void InfoLines_DescribeTheStandings()
+        public void Row_LotAndPassRules()
         {
             var row = new StockUiTreasureRow(0, 4096, "Fire Crystal", 1, TreasureEntryKind.None, 0, string.Empty, 0);
-            Assert.Equal("No one has cast lots.", StockUiTreasurePool.DescribeLeader(row));
-            Assert.Equal("You have not cast lots.", StockUiTreasurePool.DescribeEntry(row));
-            row = row with { Entry = TreasureEntryKind.Lot, LocalLot = 337, LeaderName = "Gemini", LeaderLot = 512 };
-            Assert.Equal("Highest lot: Gemini 512", StockUiTreasurePool.DescribeLeader(row));
-            Assert.Equal("Your lot: 337", StockUiTreasurePool.DescribeEntry(row));
+            Assert.True(row.CanLot);
+            row = row with { Entry = TreasureEntryKind.Lot, LocalLot = 337 };
             Assert.False(row.CanLot);
             Assert.True(row.CanPass);
             row = row with { Entry = TreasureEntryKind.Pass };
-            Assert.Equal("You passed.", StockUiTreasurePool.DescribeEntry(row));
             Assert.False(row.CanPass);
+        }
+
+        [Fact]
+        public void MemberEntries_FollowTheLotsAndPassesForTheRollColumn()
+        {
+            var f = new Fixture();
+            const uint Knot = 0x01000002;
+            f.Found(0, 4096, 497_000);
+            Assert.Equal("?", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, LocalId, LocalId)));
+            Assert.Equal("?", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, Knot, LocalId)));
+
+            // 0x0D3 progress: we lot 408, Knot passes (the retail screenshots' "408" and "---").
+            var lot = new byte[56];
+            BinaryPrimitives.WriteUInt32LittleEndian(lot.AsSpan(0, 4), LocalId);
+            BinaryPrimitives.WriteUInt32LittleEndian(lot.AsSpan(4, 4), LocalId);
+            BinaryPrimitives.WriteInt16LittleEndian(lot.AsSpan(10, 2), 408);
+            BinaryPrimitives.WriteUInt16LittleEndian(lot.AsSpan(12, 2), 0x8000);
+            BinaryPrimitives.WriteInt16LittleEndian(lot.AsSpan(14, 2), 408);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), lot));
+            var pass = new byte[56];
+            BinaryPrimitives.WriteUInt32LittleEndian(pass.AsSpan(0, 4), LocalId);
+            BinaryPrimitives.WriteUInt32LittleEndian(pass.AsSpan(4, 4), Knot);
+            BinaryPrimitives.WriteInt16LittleEndian(pass.AsSpan(10, 2), 408);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), pass));
+            Assert.Equal("408", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, LocalId, LocalId)));
+            Assert.Equal("---", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, Knot, LocalId)));
+
+            // A re-sent 0x0D2 (after a zone change) carries our own lot on the slot.
+            f.Found(1, 4097, 497_000, entry: (byte)TreasureEntryKind.Lot, localLot: 120);
+            Assert.Equal("120", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(1, LocalId, LocalId)));
+
+            // A judgement forgets the slot's entries.
+            var judge = new byte[56];
+            judge[17] = (byte)TreasureJudge.Win;
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), judge));
+            Assert.Null(f.Pool.GetMemberEntry(0, Knot, LocalId));
+        }
+
+        [Fact]
+        public void Done_PassesEveryItemNotLottedAndTogglesWithPlus()
+        {
+            var (f, menus, sent, _) = Setup();
+            f.Found(0, 4096, 497_000);
+            f.Found(1, 4097, 497_000, entry: (byte)TreasureEntryKind.Lot, localLot: 300);
+            f.Found(2, 4098, 497_000, entry: (byte)TreasureEntryKind.Pass);
+            f.Found(3, 4099, 497_000);
+            var list = menus.OpenTreasurePool(null)!;
+
+            // + / Y: the cursor to Done and back.
+            Assert.True(menus.ToggleTreasureDone());
+            Assert.True(menus.Top!.IsTreasureDone);
+            Assert.True(menus.Top.IsTreasureWindow);
+            Assert.True(menus.ToggleTreasureDone());
+            Assert.Same(list, menus.Top);
+
+            Assert.True(menus.ToggleTreasureDone());
+            menus.Activate(); // Done
+            Assert.Equal(new[] { ("pass", (byte)0), ("pass", (byte)3) }, sent.OrderBy(x => x.Item2));
+            Assert.Same(list, menus.Top);
+
+            // Outside the list + does nothing here.
+            menus.CloseAll();
+            Assert.False(menus.ToggleTreasureDone());
         }
 
         private static UiMenuDefinition LootMenu()
@@ -126,6 +185,14 @@ namespace Gordian.Core.Tests.Ui
             },
         };
 
+        private static UiMenuDefinition DoneMenu() => new()
+        {
+            Category = "menu",
+            Name = StockUiTreasurePool.DoneMenu,
+            Frame = new UiMenuFrame { X = 384, Y = 48, Width = 112, Height = 45, Anchor = UiAnchor.TopRight },
+            Buttons = new[] { new UiMenuButton { ButtonId = 1, X = 16, Y = 22, Width = 88, Height = 16, NavUp = -1, NavDown = -1, NavLeft = -1, NavRight = -1 } },
+        };
+
         private static (Fixture F, StockUiMenuController Menus, List<(string, byte)> Sent, List<string> Notices) Setup()
         {
             var f = new Fixture();
@@ -133,7 +200,7 @@ namespace Gordian.Core.Tests.Ui
             var notices = new List<string>();
             var menus = new StockUiMenuController
             {
-                Library = UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu() }),
+                Library = UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu(), DoneMenu() }),
                 TreasurePool = f.Pool,
                 ItemLookup = id => new ItemRecord { ItemId = id, Name = $"Item {id}", LogName = $"item {id}" },
                 TreasureLot = slot => { sent.Add(("lot", slot)); return Task.CompletedTask; },
@@ -272,6 +339,9 @@ namespace Gordian.Core.Tests.Ui
                 Assert.Contains(button.Shapes, s => s.Kind == 0 && ui.TryGetImage(s, out _));
                 Assert.Contains(button.Shapes, s => s.Kind == 4 && ui.TryGetImage(s, out _)); // greyed
             }
+            Assert.True(ui.TryGetMenu(StockUiTreasurePool.DoneMenu, out var done));
+            Assert.Equal((384, 48, UiAnchor.TopRight), ((int)done.Frame.X, (int)done.Frame.Y, done.Frame.Anchor));
+            Assert.NotNull(done.FindButton(StockUiTreasurePool.DoneButton));
             // The command menus' Treasure label resolves.
             Assert.True(ui.TryGetMenu(StockUiCommandMenu.Treasure.Menu, out var playermo));
             Assert.NotNull(playermo.FindButton(StockUiCommandMenu.Treasure.Button));

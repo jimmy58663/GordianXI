@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Gordian.App.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
 using Gordian.Core.World;
 using Xunit;
@@ -62,9 +63,18 @@ namespace Gordian.App.Tests.Graphics
                 var frame = menu.Menu.Frame;
                 return StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
             }
+            float window1Top = screen.Height - 150;
+            var layout = new StockUiScreen(screen.Width, screen.Height, window1Top);
+            // The party window with the roll column for the selected cloth: we lotted 337, the other member has not acted.
+            Assert.True(screen.Library.TryGetMenu("ptw2", out var party));
+            var partyAt = StockUiLayout.Place(party.Frame.Anchor, party.Frame.X, party.Frame.Y, party.Frame.Width, party.Frame.Height, 1, screen.Width, screen.Height);
+            var rolls = new[] { StockUiTreasurePool.RollText(pool.GetMemberEntry(1, 1, 1)), StockUiTreasurePool.RollText(pool.GetMemberEntry(1, 2, 1)) };
+            Assert.Equal(new[] { "337", "?" }, rolls);
             var shot = screen.Render(r =>
             {
-                foreach (var menu in menus.OpenMenus) StockUiMenuWindow.Draw(r, screen.Library, screen.Font, menu, Place(menu), 0, logFont: screen.LogFont);
+                foreach (var menu in menus.OpenMenus) StockUiMenuWindow.Draw(r, screen.Library, screen.Font, menu, Place(menu), 0, logFont: screen.LogFont, screen: layout);
+                r.DrawMenu(party, partyAt, includeButtons: false);
+                StockUiTreasureWindow.DrawRollColumn(r, screen.Font, party, partyAt, rolls, label: true);
             }, "gpu_treasure_pool.png");
 
             var at = Place(list);
@@ -72,8 +82,19 @@ namespace Gordian.App.Tests.Graphics
             // Row names after the icon boxes and the countdowns at the right.
             Assert.True(screen.HasLightPixel(shot, px + 22, px + 120, py + 5 + 8), "no name on the first row");
             Assert.True(screen.HasLightPixel(shot, px + 140, px + 176, py + 5 + 8), "no countdown on the first row");
-            // The info window under the list (layout y 240) with the cloth's standings.
-            Assert.True(screen.HasLightPixel(shot, px + 48, px + 300, py + 192 + 8 + 14 + 5), "no highest lot line");
+            // The cloth was lotted: its name is orange-red, not white.
+            bool lotted = false;
+            for (int x = px + 22; x < px + 120 && !lotted; x++)
+            {
+                var p = screen.Pixel(shot, x, py + 23 + 8);
+                lotted = p.R > 200 && p.G > 90 && p.G < 190 && p.B < 140;
+            }
+            Assert.True(lotted, "the lotted row is not orange-red");
+            // The description alone sits on Window 1's top edge: the name line and a description line.
+            Assert.True(screen.HasLightPixel(shot, px + 48, px + 300, (int)window1Top - 56 + 4 + 8), "no item name above the log");
+            // The roll column left of the party window: light digits in the first member's box.
+            var firstRow = party.Buttons[0];
+            Assert.True(screen.HasLightPixel(shot, (int)partyAt.X - 27, (int)partyAt.X - 1, (int)partyAt.Y + firstRow.Y + 6, 170), "no lot beside the party row");
             // The Cast Lot / Pass window right of the list.
             var lot = Place(menus.Top!);
             Assert.True(lot.X >= px + 182);

@@ -30,8 +30,11 @@ namespace Gordian.Core.Ui
         /// <summary>The pool slot a Cast Lot / Pass window (<see cref="StockUiTreasurePool.ActionMenu"/>) is for, else null.</summary>
         public byte? TreasureActionSlot { get; init; }
 
+        /// <summary>The "Spoils Options" window (<see cref="StockUiTreasurePool.DoneMenu"/>) with the cursor on Done.</summary>
+        public bool IsTreasureDone { get; init; }
+
         /// <summary>A Treasure Pool window, drawn at its own place rather than following the root.</summary>
-        public bool IsTreasureWindow => IsTreasureList || TreasureActionSlot != null;
+        public bool IsTreasureWindow => IsTreasureList || TreasureActionSlot != null || IsTreasureDone;
 
         /// <summary>The pool the Treasure Pool list shows (for the countdown).</summary>
         public TreasurePoolState? TreasurePool { get; init; }
@@ -176,6 +179,52 @@ namespace Gordian.Core.Ui
                 _open = open;
             }
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// + on the keyboard or Y on the gamepad in the Treasure Pool (retail): from the list the cursor goes to the Spoils
+        /// Options window's Done; pressed again (or Cancel) it goes back to the list. Returns whether it applied.
+        /// </summary>
+        public bool ToggleTreasureDone()
+        {
+            var library = _library;
+            StockUiOpenMenu? top = Top;
+            if (top is { IsTreasureDone: true })
+            {
+                CloseMenu(top);
+                return true;
+            }
+            if (top is not { IsTreasureList: true } || library == null || !library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var definition)) return false;
+            var done = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsTreasureDone = true };
+            done.SelectedButtonId = StockUiTreasurePool.DoneButton;
+            lock (_sync)
+            {
+                var open = new StockUiOpenMenu[_open.Length + 1];
+                Array.Copy(_open, open, _open.Length);
+                open[^1] = done;
+                _open = open;
+            }
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// Done: passes on every item you have neither lotted nor passed on (help 922; the maintainer's retail check,
+        /// 2026-10-07) and returns the cursor to the list.
+        /// </summary>
+        private void ActivateTreasureDone(StockUiOpenMenu done)
+        {
+            CloseMenu(done);
+            var pass = TreasurePass;
+            if (pass == null)
+            {
+                NoticePosted?.Invoke("The treasure pool is not available in this session.");
+                return;
+            }
+            foreach (var slot in TreasurePool?.Snapshot() ?? Array.Empty<TreasureSlot>())
+            {
+                if (slot.Entry == Network.Packets.TreasureEntryKind.None) _ = SendTreasureAsync(pass, slot.Slot, lot: false);
+            }
         }
 
         /// <summary>Confirm on Cast Lot or Pass: sends 0x041 / 0x042 and returns to the list (the 0x0D3 answer updates it).</summary>

@@ -32,7 +32,7 @@ namespace Gordian.App.Graphics
         /// list menus) at the selected button's origin plus the cursor offsets.
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
-            long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null)
+            long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null, StockUiScreen? screen = null)
         {
             var definition = menu.Menu;
             var frame = definition.Frame;
@@ -106,7 +106,7 @@ namespace Gordian.App.Graphics
             }
             else if (font != null && menu.IsTreasureList)
             {
-                StockUiTreasureWindow.Draw(renderer, library, font, menu, placement);
+                StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default);
             }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {

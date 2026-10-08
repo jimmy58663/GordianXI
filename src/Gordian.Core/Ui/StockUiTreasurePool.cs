@@ -26,13 +26,16 @@ namespace Gordian.Core.Ui
     /// rows' navigation links stopping at the ends; and <c>lootope</c> (authored at 0,0, 112 x 40: "Cast Lot" windowps
     /// #239 / greyed #434, help 301, and "Pass" #240 / #435, help 302), which the client places beside the row. The
     /// command menus' Treasure entry (playermo 7, attackmo 6, battlemo / normalmo 5, help 27 "Distribute currently pooled
-    /// treasure among party members.") opens it; no main menu entry in the DAT does. <c>lno</c> / <c>lnowin</c> (top
-    /// right, "Option: + : Spoils Options" and a "Done" button, help 922 "Relinquish the right to cast lots on all
-    /// spoils...") are not driven.
+    /// treasure among party members.") opens it while the pool holds an item (confirmed in game); no main menu entry in
+    /// the DAT does. <c>lnowin</c> (top right, "Option" / "+ : Spoils Options" and "Done", help 922 "Relinquish the right
+    /// to cast lots on all spoils for which you have not yet done so.") shows beside the list; + on the keyboard or Y on
+    /// the gamepad puts the cursor on Done, which passes on every item you have not lotted on (the maintainer's retail
+    /// check, 2026-10-07).
     /// <para>
-    /// PROVISIONAL (no retail capture of the window yet): when the Treasure entry shows (here: while the pool holds an
-    /// item), the row layout (icon, name, the time left on the right; a passed row greyed), the info window under the list
-    /// (the shop's <c>iteminfo</c>: name, highest lot, your lot) and where <c>lootope</c> sits.
+    /// From the maintainer's retail screenshots (2026-10-07): a row's name is white until you lot, orange-red after a lot,
+    /// grey after a pass; the item's description shows in the item info window above the log; and the selected item's
+    /// lots stand beside each member in the party and alliance windows (<see cref="RollText"/>) under a "roll" label.
+    /// PROVISIONAL: where <c>lootope</c> sits and the countdown on the rows.
     /// </para>
     /// </summary>
     public static class StockUiTreasurePool
@@ -42,6 +45,10 @@ namespace Gordian.Core.Ui
         public const string InfoMenu = "iteminfo";
 
         public const int LotButton = 1, PassButton = 2;
+
+        /// <summary>The "Spoils Options" window with its Done button (PC: "+" on the keyboard).</summary>
+        public const string DoneMenu = "lnowin";
+        public const int DoneButton = 1;
 
         /// <summary>Layout gap between the list's right edge and the Cast Lot / Pass window placed beside the row.</summary>
         public const int ActionWindowGap = 2;
@@ -67,18 +74,15 @@ namespace Gordian.Core.Ui
             return string.Create(CultureInfo.InvariantCulture, $"{seconds / 60}:{seconds % 60:00}");
         }
 
-        /// <summary>The highest lot line of the info window: "Highest lot: Name 512", or that nobody has cast lots.</summary>
-        public static string DescribeLeader(in StockUiTreasureRow row) =>
-            row.LeaderLot > 0 && row.LeaderName.Length > 0
-                ? string.Create(CultureInfo.InvariantCulture, $"Highest lot: {row.LeaderName} {row.LeaderLot}")
-                : "No one has cast lots.";
-
-        /// <summary>The local player's line of the info window: the lot cast, a pass, or nothing yet.</summary>
-        public static string DescribeEntry(in StockUiTreasureRow row) => row.Entry switch
+        /// <summary>
+        /// A member's entry beside its party row while an item is selected (retail screenshots, 2026-10-07): the lot value
+        /// ("408"), "---" after a pass, "?" while the member has done neither.
+        /// </summary>
+        public static string RollText(TreasureMemberEntry? entry) => entry switch
         {
-            TreasureEntryKind.Lot => string.Create(CultureInfo.InvariantCulture, $"Your lot: {row.LocalLot}"),
-            TreasureEntryKind.Pass => "You passed.",
-            _ => "You have not cast lots.",
+            null => "?",
+            { Passed: true } => "---",
+            { } lot => lot.Lot.ToString(CultureInfo.InvariantCulture),
         };
     }
 }

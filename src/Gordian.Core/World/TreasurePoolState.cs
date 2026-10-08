@@ -1,5 +1,6 @@
 // src/Gordian.Core/World/TreasurePoolState.cs
 using System;
+using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -36,6 +37,9 @@ namespace Gordian.Core.World
     public sealed record TreasureSolution(byte Slot, ushort ItemId, TreasureJudge Judge, uint LeaderId, string LeaderName,
         uint EntryId, string EntryName, bool EntryIsLot, short EntryLot);
 
+    /// <summary>A party or alliance member's entry on a pool item: a lot (its value) or a pass.</summary>
+    public readonly record struct TreasureMemberEntry(bool Passed, ushort Lot);
+
     /// <summary>
     /// The treasure pool: 10 slots filled by S2C 0x0D2 and updated by 0x0D3 (a lot or pass) until a judgement
     /// (win, loss) empties the slot. Read by the render thread while the network thread writes, so every access takes
@@ -47,6 +51,10 @@ namespace Gordian.Core.World
 
         private readonly object _sync = new();
         private readonly TreasureSlot?[] _slots = new TreasureSlot?[SlotCount];
+
+        // Every member's lot or pass per slot, from the 0x0D3 progress packets (and the leader a 0x0D2 names), for the
+        // party window's lot column (#143): character id -> entry.
+        private readonly Dictionary<uint, TreasureMemberEntry>?[] _entries = new Dictionary<uint, TreasureMemberEntry>?[SlotCount];
 
         /// <summary>
         /// How long an item stays in the pool before it goes to the highest lot (or is lost): five minutes. LandSandBoat
@@ -121,6 +129,29 @@ namespace Gordian.Core.World
             return TimeSpan.FromMilliseconds(Math.Max(0, left));
         }
 
+        /// <summary>
+        /// A member's lot or pass on a slot's item, or null while the member has done neither. The local player's own
+        /// entry also comes from the slot (0x0D2 carries it when the pool is re-sent, e.g. after a zone change).
+        /// </summary>
+        public TreasureMemberEntry? GetMemberEntry(int slot, uint memberId, uint localId)
+        {
+            if ((uint)slot >= SlotCount) return null;
+            lock (_sync)
+            {
+                if (_entries[slot] is { } entries && entries.TryGetValue(memberId, out var entry)) return entry;
+                if (memberId == localId && _slots[slot] is { } own)
+                {
+                    return own.Entry switch
+                    {
+                        TreasureEntryKind.Lot => new TreasureMemberEntry(false, own.LocalLot),
+                        TreasureEntryKind.Pass => new TreasureMemberEntry(true, 0),
+                        _ => null,
+                    };
+                }
+                return null;
+            }
+        }
+
         /// <summary>Empties the pool (a zone change: the server sends the pool again for a party that is still in it).</summary>
         public void Clear()
         {
@@ -133,6 +164,7 @@ namespace Gordian.Core.World
                 {
                     if (_slots[i] != null) had = true;
                     _slots[i] = null;
+                    _entries[i] = null;
                 }
             }
             if (had) Changed?.Invoke();
@@ -154,6 +186,9 @@ namespace Gordian.Core.World
                 {
                     if (_serverLeadMs == null || lead > _serverLeadMs) _serverLeadMs = lead;
                 }
+                var entries = new Dictionary<uint, TreasureMemberEntry>();
+                if (packet.LeaderId != 0 && packet.LeaderLot > 0) entries[packet.LeaderId] = new TreasureMemberEntry(false, packet.LeaderLot);
+                lock (_sync) _entries[packet.Slot] = entries;
                 var slot = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
                     packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, packet.Entry,
                     packet.IsLocallyLotted ? packet.LocalLot : (ushort)0,
@@ -184,9 +219,17 @@ namespace Gordian.Core.World
                     if (packet.Judge != TreasureJudge.Progress)
                     {
                         _slots[packet.Slot] = null;
+                        _entries[packet.Slot] = null;
                     }
                     else
                     {
+                        var entries = _entries[packet.Slot] ??= new Dictionary<uint, TreasureMemberEntry>();
+                        if (packet.EntryId != 0)
+                        {
+                            entries[packet.EntryId] = packet.EntryIsLot
+                                ? new TreasureMemberEntry(false, (ushort)Math.Max((short)0, packet.EntryLot))
+                                : new TreasureMemberEntry(true, 0);
+                        }
                         bool mine = packet.EntryId == localId;
                         _slots[packet.Slot] = slot with
                         {

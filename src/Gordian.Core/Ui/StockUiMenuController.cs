@@ -1099,6 +1099,12 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && ToggleTreasureDone())
+            {
+                // The Treasure Pool's + / Y: the cursor to Done and back.
+                SoundCue?.Invoke(StockUiSoundCue.CursorMove);
+                return true;
+            }
             if (input.WasActionTriggered(InputAction.Cancel))
             {
                 if (Top is { Pinned: true }) return true;
@@ -1436,6 +1442,12 @@ namespace Gordian.Core.Ui
             if (top.TreasureActionSlot != null)
             {
                 ActivateTreasureAction(top, button);
+                return;
+            }
+
+            if (top.IsTreasureDone)
+            {
+                ActivateTreasureDone(top);
                 return;
             }
 
