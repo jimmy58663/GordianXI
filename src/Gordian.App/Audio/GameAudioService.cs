@@ -546,12 +546,28 @@ namespace Gordian.App.Audio
             _controlVersion = version;
             bool active = SoundControls.IsActive(controls, SoundControls.AnyWindowActive, SoundControls.ViewportWindowActive);
             float seconds = first ? 0f : Math.Max(0f, controls.FadeSeconds);
+            var muted = new List<string>();
             for (int c = 0; c < AudioMixer.CategoryCount; c++)
             {
                 var category = (AudioCategory)c;
-                _engine.Mixer.FadeControl(category, SoundControls.CategoryGain(controls, category, active), seconds);
+                float gain = SoundControls.CategoryGain(controls, category, active);
+                _engine.Mixer.FadeControl(category, gain, seconds);
+                if (gain <= 0f)
+                {
+                    muted.Add(category.ToString());
+                }
+            }
+
+            // A bus the Sound tab mutes is easy to forget (#309: Music left off after testing read as "no zone music").
+            string summary = muted.Count == 0 ? "none" : string.Join(", ", muted);
+            if (summary != _loggedMuted)
+            {
+                _loggedMuted = summary;
+                GordianLog.Info("AUDIO", $"Sound controls: muted buses: {summary}{(active ? string.Empty : " (GordianXI inactive)")}.");
             }
         }
+
+        private string _loggedMuted = "none";
 
         private readonly List<int> _debugSounds = new();
 

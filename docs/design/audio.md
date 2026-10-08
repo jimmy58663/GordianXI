@@ -109,6 +109,8 @@ GordianXI-only switches that retail does not have, on the desktop shell's **Soun
 | Tell sound from every character | off | The tell cue is raised for every session (`SessionRegistry`), but plays for a character other than the heard one only when this is on. |
 | Per category: on / also while inactive | on / off | Music, Effects, System, Zone, Notification. E.g. music off with tells still on, or every bus muted while inactive except Notification. |
 
+The settings persist across runs, so a bus switched off while testing stays off: each change of the muted buses is logged (`AUDIO Sound controls: muted buses: Music`). #309 (no music in Yahse Hunting Grounds, 2026-10-07) was most likely that: `sound_settings.json` had Music off, while tracks 60 and 57 (in `sound9`, ATRAC3, 48 kHz) resolve, decode and mix audibly offline.
+
 Not done: hearing a character that no viewport shows (a background tab has no camera for a listener), and mixing several characters' sound at once ("all of them" in the issue): one device plays one listener's mix, so only the tell cue crosses characters.
 
 ## UI sound cues (#43)
