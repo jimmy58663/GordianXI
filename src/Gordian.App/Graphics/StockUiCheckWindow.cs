@@ -9,12 +9,6 @@ using Gordian.Core.World;
 namespace Gordian.App.Graphics
 {
     /// <summary>
-    /// The screen a menu is drawn on, for windows placed against it: its size in pixels and Window 1's top edge (null
-    /// while the log is hidden). The default (zero size) makes such windows fall back to their authored places.
-    /// </summary>
-    public readonly record struct StockUiScreen(float Width, float Height, float? Window1Top);
-
-    /// <summary>
     /// Draws the player check window's client content (#64) over the <c>inspect</c> DAT frame, whose 4 x 4 slot grid,
     /// labels and View Wares button <see cref="StockUiMenuWindow"/> draws. Laid out after the maintainer's retail
     /// screenshots (2026-10-07):
