@@ -431,6 +431,7 @@ namespace Gordian.App.Graphics
         }
 
         private readonly List<float> _statusOpacities = new();
+        private readonly List<string?> _statusDurations = new();
 
         private void DrawStatusIcons(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
@@ -451,8 +452,13 @@ namespace Gordian.App.Graphics
             var remaining = StockUiStatusBlink.MatchRemaining(ids, session.LocalPlayer.GetStatusIconTimers(now));
             double clock = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
             _statusOpacities.Clear();
-            foreach (var left in remaining) _statusOpacities.Add(StockUiStatusBlink.Opacity(left, clock));
-            StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids, _statusOpacities);
+            _statusDurations.Clear();
+            foreach (var left in remaining)
+            {
+                _statusOpacities.Add(StockUiStatusBlink.Opacity(left, clock));
+                _statusDurations.Add(StockUiStatusBlink.DurationText(left));
+            }
+            StockUiTargetWindow.DrawStatusIcons(renderer, icons, grid, placement, ids, _statusOpacities, _statusDurations, _font);
             int selected = session.Chat.SelectedStatusIcon;
             if (selected >= 0) StockUiTargetWindow.DrawStatusCursor(renderer, library, grid, placement, selected, Stopwatch.GetTimestamp());
             Drag.Register(StockUiWindowIds.StatusIcons, grid.Frame, placement, extent.X, extent.Y, extent.Width, extent.Height);

@@ -25,6 +25,16 @@ namespace Gordian.App.Tests.Graphics
             var frame = screen.Render(r => StockUiTargetWindow.DrawStatusIcons(r, icons, grid, placement, ids, opacities), "gpu_status_blink.png");
             var background = screen.Render(_ => { });
 
+            // The time left under the second icon only (a minute or less left), in light glyphs from its lower edge down.
+            var durations = new[] { null, StockUiStatusBlink.DurationText(42) };
+            var timed = screen.Render(r => StockUiTargetWindow.DrawStatusIcons(r, icons, grid, placement, ids, null, durations, screen.Font), "gpu_status_duration.png");
+            var first = grid.Buttons[0];
+            var second = grid.Buttons[1];
+            Assert.False(screen.HasLightPixel(timed, (int)placement.X + first.X, (int)placement.X + first.X + first.Width, (int)placement.Y + first.Y + first.Height + 2),
+                "a duration under the first icon");
+            Assert.True(screen.HasLightPixel(timed, (int)placement.X + second.X, (int)placement.X + second.X + second.Width, (int)placement.Y + second.Y + second.Height + 1, 150),
+                "no duration under the second icon");
+
             int Difference(int slot)
             {
                 var button = grid.Buttons[slot];

@@ -11,14 +11,31 @@ namespace Gordian.Core.Ui
     /// shown icon is matched to the n-th timer of the same id (<see cref="MatchRemaining"/>; the two packets can arrive
     /// apart, so an id that does not line up is matched to the first unused timer of that id).
     /// <para>
-    /// PROVISIONAL (to check against retail): an icon blinks once fewer than <see cref="BlinkThresholdSeconds"/> are
-    /// left, fading out and back once every <see cref="BlinkPeriodSeconds"/> down to <see cref="MinimumOpacity"/>.
+    /// An icon blinks once fewer than <see cref="BlinkThresholdSeconds"/> are left (15 s, the maintainer's retail check,
+    /// 2026-10-07), fading out and back once every <see cref="BlinkPeriodSeconds"/> down to <see cref="MinimumOpacity"/>
+    /// (the fade was accepted in game; its period and depth are ours). Under an icon with a minute or less left the time
+    /// left counts down in seconds (<see cref="DurationText"/>; retail screenshot, 2026-10-07).
     /// </para>
     /// </summary>
     public static class StockUiStatusBlink
     {
-        /// <summary>Seconds left below which an icon blinks.</summary>
-        public const double BlinkThresholdSeconds = 30;
+        /// <summary>Seconds left below which an icon blinks (retail: 15).</summary>
+        public const double BlinkThresholdSeconds = 15;
+
+        /// <summary>The longest time left the duration under an icon shows (retail counts down from 60 s).</summary>
+        public const double DurationShownSeconds = 60;
+
+        /// <summary>
+        /// The time left drawn under an icon: whole seconds, rounded up ("60" ... "1"), once a minute or less is left;
+        /// null (nothing drawn) above that, for an effect without a timer, or once it has run out.
+        /// PROVISIONAL: the text's form (a bare number here); see docs/ui/stock-ui.md.
+        /// </summary>
+        public static string? DurationText(double? remainingSeconds)
+        {
+            if (remainingSeconds is not { } left || left <= 0 || left > DurationShownSeconds) return null;
+            int seconds = (int)Math.Ceiling(left);
+            return seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         /// <summary>One fade out and back in.</summary>
         public const double BlinkPeriodSeconds = 1.0;

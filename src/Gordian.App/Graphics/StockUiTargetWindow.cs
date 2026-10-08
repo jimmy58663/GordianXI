@@ -336,11 +336,19 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// The time left under a status icon (retail screenshot, 2026-10-07, 1:1): <c>fontshp</c> at 7/8, centred on the
+        /// icon, its glyphs from about 19 px below the icon's top, so they overlap the icon's bottom edge and run 4 px below it.
+        /// </summary>
+        private const float DurationTextTop = 19;
+
+        /// <summary>
         /// Draws the status icons on the "buff" grid. <paramref name="opacities"/> (one per icon, optional) fades the
-        /// icons that blink before they expire (#17, <see cref="StockUiStatusBlink"/>).
+        /// icons that blink before they expire, and <paramref name="durations"/> (one per icon, null for none) is the time
+        /// left drawn under each (#17, <see cref="StockUiStatusBlink"/>).
         /// </summary>
         public static void DrawStatusIcons(StockUiRenderer renderer, StatusIconLibrary icons, UiMenuDefinition grid,
-            StockUiPlacement placement, IReadOnlyList<ushort> statusIds, IReadOnlyList<float>? opacities = null)
+            StockUiPlacement placement, IReadOnlyList<ushort> statusIds, IReadOnlyList<float>? opacities = null,
+            IReadOnlyList<string?>? durations = null, UiFont? font = null)
         {
             float s = placement.Scale;
             for (int i = 0; i < statusIds.Count && i < grid.Buttons.Count; i++)
@@ -351,6 +359,15 @@ namespace Gordian.App.Graphics
                 var tint = opacity >= 1f ? Neutral : Neutral with { A = (byte)Math.Round(Neutral.A * opacity) };
                 renderer.DrawTexture($"status:{statusIds[i]}", icon, placement.X + slot.X * s, placement.Y + slot.Y * s,
                     slot.Width * s, slot.Height * s, tint);
+            }
+            if (font == null || durations == null) return;
+            float ts = s * StockUiPartyWindow.TextScale;
+            for (int i = 0; i < statusIds.Count && i < grid.Buttons.Count && i < durations.Count; i++)
+            {
+                if (durations[i] is not { Length: > 0 } text) continue;
+                var slot = grid.Buttons[i];
+                float x = placement.X + (slot.X + slot.Width * 0.5f) * s - font.MeasureWidth(text) * ts * 0.5f;
+                renderer.DrawText(font, text, x, placement.Y + (slot.Y + DurationTextTop) * s, ts);
             }
         }
     }

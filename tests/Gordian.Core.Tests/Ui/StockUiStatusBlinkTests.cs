@@ -58,6 +58,29 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Threshold_IsRetailsFifteenSeconds()
+        {
+            Assert.Equal(15, StockUiStatusBlink.BlinkThresholdSeconds);
+            Assert.False(StockUiStatusBlink.IsBlinking(20));
+            Assert.True(StockUiStatusBlink.IsBlinking(14.9));
+        }
+
+        [Theory]
+        [InlineData(null, null)]
+        [InlineData(3600.0, null)]
+        [InlineData(60.5, null)] // nothing above a minute
+        [InlineData(60.0, "60")]
+        [InlineData(59.2, "60")] // whole seconds, rounded up
+        [InlineData(12.0, "12")]
+        [InlineData(0.3, "1")]
+        [InlineData(0.0, null)]
+        [InlineData(-2.0, null)]
+        public void DurationText_CountsDownTheLastMinuteInSeconds(double? left, string? expected)
+        {
+            Assert.Equal(expected, StockUiStatusBlink.DurationText(left));
+        }
+
+        [Fact]
         public void Opacity_FadesOnlyBelowTheThreshold()
         {
             Assert.Equal(1f, StockUiStatusBlink.Opacity(null, 0.5));
