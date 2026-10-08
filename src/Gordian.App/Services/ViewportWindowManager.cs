@@ -281,6 +281,7 @@ namespace Gordian.App.Services
                 var secondaryVm = new ViewportViewModel(enableAutoSave: false)
                 {
                     IsPrimary = false,
+                    SwitchTarget = _primaryViewModel,
                     SelectedBackend = _primaryViewModel.SelectedBackend,
                     SelectedDisplayMode = ViewportDisplayMode.Windowed,
                     SelectedTabStyle = _primaryViewModel.SelectedTabStyle

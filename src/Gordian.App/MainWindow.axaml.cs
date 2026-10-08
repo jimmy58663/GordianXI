@@ -183,11 +183,12 @@ namespace Gordian.App
             var gamepadTarget = viewports.InputFocus.ResolveGamepadTarget(
                 viewports.PrimaryViewModel.ActiveTab?.Session ?? _viewModel.Console.SelectedSession);
 
-            var gamepadSettings = gamepadTarget?.Locomotion?.Profile?.GamepadSettings;
-
-            bool isGamepadEnabled = gamepadSettings?.GamepadEnabled ?? _viewModel.Controls.GamepadEnabled;
-            bool alwaysEnable = gamepadSettings?.AlwaysEnableGamepad ?? _viewModel.Controls.AlwaysEnableGamepad;
-            bool rumbleEnabled = gamepadSettings?.RumbleEnabled ?? _viewModel.Controls.GamepadRumbleEnabled;
+            // Enable, Always Enable and Rumble are the pad's own settings (Controls & Input), the same whichever character
+            // it drives. Read from the character's profile they only held for the console's selected character: the
+            // others run on a default profile, so a popped-out character lost the pad on alt-tab (#150, round 2).
+            bool isGamepadEnabled = _viewModel.Controls.GamepadEnabled;
+            bool alwaysEnable = _viewModel.Controls.AlwaysEnableGamepad;
+            bool rumbleEnabled = _viewModel.Controls.GamepadRumbleEnabled;
             bool windowFocused = this.IsActive || viewports.InputFocus.IsViewportFocused;
 
             _gamepadDriver.RumbleEnabled = rumbleEnabled;

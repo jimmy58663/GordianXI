@@ -102,7 +102,11 @@ namespace Gordian.App.ViewModels
                     : CameraMode.FreeCam;
             });
 
-            CharacterTabs.CollectionChanged += (_, _) => RaiseSwitcherVisibility();
+            CharacterTabs.CollectionChanged += (_, _) =>
+            {
+                RaiseSwitcherVisibility();
+                OnPropertyChanged(nameof(CharacterCountText));
+            };
         }
 
         /// <summary>
@@ -452,7 +456,7 @@ namespace Gordian.App.ViewModels
 
             var newTab = new ViewportCharacterTabViewModel(
                 session,
-                onSelect: tab => ActiveTab = tab,
+                onSelect: SelectTab,
                 onPopOut: tab => TabPoppedOut?.Invoke(this, tab)
             );
 
@@ -491,32 +495,61 @@ namespace Gordian.App.ViewModels
             }
         }
 
-        /// <summary>Ctrl+Tab: the next character in tab order, skipping those popped out into their own window.</summary>
-        public void CycleNextCharacter() => Cycle(+1);
+        /// <summary>
+        /// For a pop-out window's view model: the main window's view model, whose tab order Ctrl+Tab follows from the
+        /// pop-out (so it can move on to the main window or another pop-out). Null for the main window.
+        /// </summary>
+        public ViewportViewModel? SwitchTarget { get; set; }
 
-        /// <summary>Ctrl+Shift+Tab: the previous character in tab order, skipping those popped out into their own window.</summary>
-        public void CyclePreviousCharacter() => Cycle(-1);
+        /// <summary>
+        /// Raised when a switcher click or Ctrl+Tab chose this window's character, so the window takes the focus (the
+        /// switchers are popups that never activate it, and the gamepad follows the focused window).
+        /// </summary>
+        public event EventHandler? WindowActivationRequested;
 
-        private void Cycle(int step)
+        /// <summary>
+        /// Chooses a character from a switcher or Ctrl+Tab: one popped out into its own window brings that window to the
+        /// front (<see cref="TabPoppedOut"/>, which the window manager answers by activating it); any other becomes the
+        /// active character here and this window takes the focus.
+        /// </summary>
+        public void SelectTab(ViewportCharacterTabViewModel tab)
         {
-            int count = CharacterTabs.Count;
-            if (count == 0) return;
-            if (ActiveTab == null)
+            ArgumentNullException.ThrowIfNull(tab);
+            if (tab.IsPoppedOut)
             {
-                ActiveTab = CharacterTabs.FirstOrDefault(t => !t.IsPoppedOut) ?? CharacterTabs[0];
+                TabPoppedOut?.Invoke(this, tab);
                 return;
             }
+            ActiveTab = tab;
+            WindowActivationRequested?.Invoke(this, EventArgs.Empty);
+            ViewportWindowRequested?.Invoke(this, EventArgs.Empty);
+        }
 
-            int start = CharacterTabs.IndexOf(ActiveTab);
-            for (int i = 1; i < count; i++)
+        /// <summary>Ctrl+Tab: the next character in tab order, popped-out ones included (their window is focused).</summary>
+        public ViewportCharacterTabViewModel? CycleNextCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, +1);
+
+        /// <summary>Ctrl+Shift+Tab: the previous character in tab order, popped-out ones included.</summary>
+        public ViewportCharacterTabViewModel? CyclePreviousCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, -1);
+
+        /// <summary>
+        /// Chooses the character <paramref name="step"/> tabs on from <paramref name="from"/> (the active tab when it is
+        /// not one of ours), wrapping, with <see cref="SelectTab"/>.
+        /// </summary>
+        public ViewportCharacterTabViewModel? CycleFrom(CharacterSession? from, int step)
+        {
+            int count = CharacterTabs.Count;
+            if (count == 0) return null;
+            int start = -1;
+            for (int i = 0; i < count && from != null; i++)
             {
-                var candidate = CharacterTabs[((start + step * i) % count + count) % count];
-                if (!candidate.IsPoppedOut)
-                {
-                    ActiveTab = candidate;
-                    return;
-                }
+                if (ReferenceEquals(CharacterTabs[i].Session, from)) start = i;
             }
+            if (start < 0) start = ActiveTab != null ? CharacterTabs.IndexOf(ActiveTab) : 0;
+            if (count == 1 && ReferenceEquals(CharacterTabs[0].Session, from)) return null;
+
+            var next = CharacterTabs[((start + step) % count + count) % count];
+            SelectTab(next);
+            return next;
         }
 
         /// <summary>
@@ -525,8 +558,23 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public void MoveOffPoppedOutTab()
         {
-            if (ActiveTab is { IsPoppedOut: true }) CycleNextCharacter();
+            if (ActiveTab is { IsPoppedOut: true })
+            {
+                int at = CharacterTabs.IndexOf(ActiveTab);
+                for (int i = 1; i < CharacterTabs.Count; i++)
+                {
+                    var candidate = CharacterTabs[(at + i) % CharacterTabs.Count];
+                    if (!candidate.IsPoppedOut)
+                    {
+                        ActiveTab = candidate;
+                        break;
+                    }
+                }
+            }
             RefreshPipThumbnails();
         }
+
+        /// <summary>The collapsed floating pill's hint: how many characters the switcher holds.</summary>
+        public string CharacterCountText => CharacterTabs.Count == 1 ? "1 char" : $"{CharacterTabs.Count} chars";
     }
 }

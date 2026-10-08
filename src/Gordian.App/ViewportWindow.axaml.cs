@@ -33,7 +33,16 @@ namespace Gordian.App
         private readonly Popup? _pillPopup;
         private readonly Popup? _pipPopup;
         private readonly Popup? _freeCamPopup;
+        private readonly Popup? _ribbonPopup;
+        private readonly Popup? _railPopup;
+        private readonly ComboBox? _displayModeCombo;
+        private readonly DispatcherTimer _repositionTimer;
         private bool _isShown;
+        private bool _ribbonRevealed;
+        private bool _railRevealed;
+
+        /// <summary>How close to the top / left edge of the view (in device-independent pixels) reveals the ribbon / rail.</summary>
+        private const double EdgeRevealDip = 6.0;
 
         // The last pointer position over the rendering surface (framebuffer pixels), from the raw Win32 mouse
         // messages; a raw button event carries no position of its own, but a move always precedes it.
@@ -86,6 +95,9 @@ namespace Gordian.App
             _pillPopup = this.FindControl<Popup>("FloatingPillPopup");
             _pipPopup = this.FindControl<Popup>("PipDeckPopup");
             _freeCamPopup = this.FindControl<Popup>("FreeCamPopup");
+            _ribbonPopup = this.FindControl<Popup>("TopRibbonPopup");
+            _railPopup = this.FindControl<Popup>("SideRailPopup");
+            _displayModeCombo = this.FindControl<ComboBox>("DisplayModeCombo");
             Opened += (_, _) =>
             {
                 _isShown = true;
@@ -94,6 +106,53 @@ namespace Gordian.App
             PropertyChanged += (_, e) =>
             {
                 if (e.Property == WindowStateProperty || e.Property == IsVisibleProperty) UpdateOverlayPopups();
+            };
+
+            // The floating pill is minimal until the pointer is over it, then lists every character.
+            if (this.FindControl<Panel>("PillRoot") is { } pillRoot)
+            {
+                var collapsed = this.FindControl<Border>("PillCollapsed");
+                var expanded = this.FindControl<Border>("PillExpanded");
+                pillRoot.PointerEntered += (_, _) => SetPillExpanded(collapsed, expanded, true);
+                pillRoot.PointerExited += (_, _) => SetPillExpanded(collapsed, expanded, false);
+            }
+
+            // The auto-hiding ribbon and rail hide again once the pointer leaves them (unless a drop-down of theirs is open).
+            if (this.FindControl<Border>("TopRibbonBorder") is { } ribbonBorder)
+            {
+                ribbonBorder.PointerExited += (_, _) =>
+                {
+                    if (_displayModeCombo?.IsDropDownOpen == true) return;
+                    _ribbonRevealed = false;
+                    UpdateOverlayPopups();
+                };
+            }
+            if (this.FindControl<Border>("SideRailBorder") is { } railBorder)
+            {
+                railBorder.PointerExited += (_, _) =>
+                {
+                    _railRevealed = false;
+                    UpdateOverlayPopups();
+                };
+            }
+
+            // Popups follow the window when it moves; the PiP deck was left behind on the old monitor in game, so once a
+            // move settles every open popup is placed again from scratch.
+            _repositionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _repositionTimer.Tick += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                ReopenOverlayPopups();
+            };
+            PositionChanged += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                _repositionTimer.Start();
+            };
+            ScalingChanged += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                _repositionTimer.Start();
             };
 
             // Gameplay keyboard/mouse-button input is captured here (the window that actually
@@ -132,6 +191,7 @@ namespace Gordian.App
             {
                 _viewModel.DisplayModeChanged -= OnDisplayModeChanged;
                 _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+                _viewModel.WindowActivationRequested -= OnWindowActivationRequested;
             }
 
             _viewModel = DataContext as ViewportViewModel;
@@ -140,6 +200,7 @@ namespace Gordian.App
             {
                 _viewModel.DisplayModeChanged += OnDisplayModeChanged;
                 _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+                _viewModel.WindowActivationRequested += OnWindowActivationRequested;
                 ApplyDisplayMode(_viewModel.SelectedDisplayMode);
                 SyncActiveSessionToViewport();
             }
@@ -153,6 +214,7 @@ namespace Gordian.App
                 SyncActiveSessionToViewport();
             }
             if (e.PropertyName is nameof(ViewportViewModel.ShowFloatingPill) or nameof(ViewportViewModel.ShowPipDeck)
+                or nameof(ViewportViewModel.ShowTopRibbon) or nameof(ViewportViewModel.ShowSideRail)
                 or nameof(ViewportViewModel.IsFreeCamActive) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
             {
                 UpdateOverlayPopups();
@@ -160,9 +222,19 @@ namespace Gordian.App
         }
 
         /// <summary>
-        /// Opens or closes the popups drawn over the native 3D surface (floating pill, PiP deck, free camera banner): open
-        /// while their view model flag is set and the window is on screen, closed while it is hidden or minimised (a
-        /// popup is its own window and would otherwise be left floating).
+        /// A switcher chose this window's character (a click, or Ctrl+Tab from another window): take the focus, so the
+        /// gamepad and keyboard follow at once. The switchers are popups that never activate the window themselves.
+        /// </summary>
+        private void OnWindowActivationRequested(object? sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        /// <summary>
+        /// Opens or closes the popups drawn over the native 3D surface: the floating pill, PiP deck and free camera banner
+        /// while their view model flag is set, the ribbon and rail while also revealed by the pointer; all closed while the
+        /// window is hidden or minimised (a popup is its own window and would otherwise be left floating).
         /// </summary>
         private void UpdateOverlayPopups()
         {
@@ -171,6 +243,42 @@ namespace Gordian.App
             SetPopupOpen(_pillPopup, onScreen && _viewModel?.ShowFloatingPill == true);
             SetPopupOpen(_pipPopup, onScreen && _viewModel?.ShowPipDeck == true);
             SetPopupOpen(_freeCamPopup, onScreen && showsWorld && _viewModel?.IsFreeCamActive == true);
+            SetPopupOpen(_ribbonPopup, onScreen && _ribbonRevealed && _viewModel?.ShowTopRibbon == true);
+            SetPopupOpen(_railPopup, onScreen && _railRevealed && _viewModel?.ShowSideRail == true);
+        }
+
+        /// <summary>Closes and reopens every open popup so it is placed again against the window where it now is.</summary>
+        private void ReopenOverlayPopups()
+        {
+            foreach (var popup in new[] { _pillPopup, _pipPopup, _freeCamPopup, _ribbonPopup, _railPopup })
+            {
+                if (popup is not { IsOpen: true }) continue;
+                SetPopupOpen(popup, false);
+                SetPopupOpen(popup, true);
+            }
+        }
+
+        /// <summary>
+        /// The pointer over the 3D surface (surface pixels): at the top edge it reveals the ribbon, at the left edge the
+        /// rail; anywhere else on the surface it hides them (the pointer is off them, since they cover their edge).
+        /// </summary>
+        private void UpdateEdgeReveal(Point surfacePoint)
+        {
+            if (_viewModel == null || _isRightDragging) return;
+            double edge = EdgeRevealDip * RenderScaling;
+            bool ribbon = _viewModel.ShowTopRibbon && surfacePoint.Y <= edge;
+            bool rail = _viewModel.ShowSideRail && surfacePoint.X <= edge;
+            if (_displayModeCombo?.IsDropDownOpen == true) ribbon = _ribbonRevealed;
+            if (ribbon == _ribbonRevealed && rail == _railRevealed) return;
+            _ribbonRevealed = ribbon;
+            _railRevealed = rail;
+            UpdateOverlayPopups();
+        }
+
+        private static void SetPillExpanded(Border? collapsed, Border? expanded, bool expand)
+        {
+            if (collapsed != null) collapsed.IsVisible = !expand;
+            if (expanded != null) expanded.IsVisible = expand;
         }
 
         private static void SetPopupOpen(Popup? popup, bool open)
@@ -302,10 +410,9 @@ namespace Gordian.App
                 case ViewportShortcut.PreviousCharacter:
                     if (_viewModel == null) return;
                     var before = _viewModel.ActiveTab;
-                    if (shortcut == ViewportShortcut.NextCharacter) _viewModel.CycleNextCharacter();
-                    else _viewModel.CyclePreviousCharacter();
+                    var chosen = shortcut == ViewportShortcut.NextCharacter ? _viewModel.CycleNextCharacter() : _viewModel.CyclePreviousCharacter();
                     GordianLog.Info("Viewport", $"{(shortcut == ViewportShortcut.NextCharacter ? "Ctrl+Tab" : "Ctrl+Shift+Tab")}: " +
-                        $"{before?.CharacterName ?? "none"} -> {_viewModel.ActiveTab?.CharacterName ?? "none"} ({_viewModel.CharacterTabs.Count} tabs)");
+                        $"{before?.CharacterName ?? "none"} -> {chosen?.CharacterName ?? "none"}{(chosen?.IsPoppedOut == true ? " (its own window)" : string.Empty)}");
                     break;
                 case ViewportShortcut.ToggleFullscreen:
                     if (_viewModel == null) return;
@@ -500,6 +607,7 @@ namespace Gordian.App
 
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
+            if (TryGetViewportPoint(e, out var edgePoint)) UpdateEdgeReveal(edgePoint);
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint)) LobbyPointer(lobby, lobbyPoint, null);
@@ -647,6 +755,7 @@ namespace Gordian.App
         private void OnRawMouseMoved(double x, double y)
         {
             _lastRawMouse = new Point(x, y);
+            UpdateEdgeReveal(new Point(x, y));
             if (ActiveLobby is { } lobby)
             {
                 LobbyPointer(lobby, new Point(x, y), null);
@@ -725,8 +834,10 @@ namespace Gordian.App
         {
             _telemetryTimer?.Stop();
             _telemetryTimer = null;
+            _repositionTimer.Stop();
             _isShown = false;
             UpdateOverlayPopups();
+            if (_viewModel != null) _viewModel.WindowActivationRequested -= OnWindowActivationRequested;
 
             if (_viewModel != null)
             {

@@ -24,19 +24,37 @@
             <Setter Property="Fill" Value="#4EC9B0"/>
         </Style>
         <Style Selector="Ellipse.inactiveDot">
-            <Setter Property="Fill" Value="#707585"/>
+            <Setter Property="Fill" Value="#8A90A0"/>
+        </Style>
+        <Style Selector="Button.pillRow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.pillRow.active">
+            <Setter Property="Background" Value="#512BD4"/>
+        </Style>
+        <Style Selector="Button.pillRow:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2A2E3B"/>
+        </Style>
+        <Style Selector="Button.pillRow.active:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#6239E0"/>
         </Style>
     </Window.Styles>
 
     <!--
         The 3D surface is a native child window on Windows (VeldridViewportControl, Win32ChildWindowHelper): Avalonia
-        cannot draw over it (airspace), so nothing in this window may overlap it (#152). The top ribbon and the side rail
-        take their own row and column beside the surface; the floating pill, the PiP deck and the free camera banner are
-        popups (their own small windows, owned by this one) placed over it. ViewportWindow.axaml.cs opens and closes them.
+        cannot draw over it (airspace, #152), so every switcher is a popup (a small window owned by this one, not topmost,
+        never taking the focus) placed over it. ViewportWindow.axaml.cs opens and closes them: the floating pill, PiP deck
+        and free camera banner while their flag is set; the top ribbon and side rail only while the pointer is at the top
+        or left edge of the view or over them (auto-hide).
     -->
-    <Grid RowDefinitions="Auto,*" ColumnDefinitions="Auto,*">
+    <Grid>
         <!-- MAIN 3D VIEWPORT SURFACE -->
-        <Border x:Name="ViewportHost" Grid.Row="1" Grid.Column="1" Background="#0A0C10">
+        <Border x:Name="ViewportHost" Background="#0A0C10">
             <gfx:VeldridViewportControl x:Name="ViewportControl"
                                         BackendPreference="{Binding SelectedBackend}"
                                         HorizontalAlignment="Stretch"
@@ -44,208 +62,223 @@
         </Border>
 
         <!-- ============================================================= -->
-        <!-- STYLE: TOP RIBBON (a strip above the render) -->
+        <!-- STYLE: TOP RIBBON (auto-hiding: slides in at the top edge) -->
         <!-- ============================================================= -->
-        <Border x:Name="TopRibbonBorder"
-                Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                IsVisible="{Binding ShowTopRibbon}"
-                Background="#181A22"
-                BorderBrush="#2C313C"
-                BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*, Auto" Margin="8,4,8,4">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <TextBlock Text="GORDIAN" FontWeight="Bold" FontSize="11" Foreground="#512BD4" VerticalAlignment="Center" Margin="2,0,6,0"/>
-
-                    <ItemsControl ItemsSource="{Binding CharacterTabs}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="4"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
-                                <Border Classes.activeTab="{Binding IsActive}"
-                                        Classes.inactiveTab="{Binding !IsActive}"
-                                        CornerRadius="4" Padding="8,4"
-                                        BorderThickness="1">
-                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <Ellipse Width="6" Height="6"
-                                                 Classes.activeDot="{Binding IsActive}"
-                                                 Classes.inactiveDot="{Binding !IsActive}"
-                                                 VerticalAlignment="Center"/>
-                                        <Button Command="{Binding SelectTabCommand}" Focusable="False"
-                                                Background="Transparent" Padding="0" Margin="0" BorderThickness="0">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <TextBlock Text="{Binding CharacterName}" FontWeight="SemiBold" FontSize="11" Foreground="#FFFFFF"/>
-                                                <TextBlock Text="{Binding JobDisplay}" FontSize="10" Foreground="#8A909E"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Command="{Binding PopOutCommand}" Focusable="False"
-                                                ToolTip.Tip="Pop out into dedicated window"
-                                                Background="Transparent" Padding="2,0" Margin="2,0,0,0" BorderThickness="0" Foreground="#8A909E">
-                                            <TextBlock Text="⧉" FontSize="10"/>
-                                        </Button>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <TextBlock Text="(Ctrl+Tab to switch)" FontSize="10" Foreground="#555B6D" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border Background="#101218" CornerRadius="4" Padding="6,2" BorderBrush="#2C313C" BorderThickness="1">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="{Binding Fps, StringFormat='{}{0:F1} FPS'}" Foreground="#98C379" FontSize="10" FontWeight="Bold" FontFamily="Consolas, monospace"/>
-                            <TextBlock Text="|" Foreground="#444856" FontSize="10"/>
-                            <TextBlock Text="{Binding ActiveBackend}" Foreground="#4EC9B0" FontSize="10" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Border>
-                    <ComboBox ItemsSource="{Binding AvailableDisplayModes}"
-                              SelectedItem="{Binding SelectedDisplayMode, Mode=TwoWay}"
-                              Height="24" FontSize="10" Width="135"/>
-                    <Button x:Name="MinimizeButton" Content="—" Focusable="False" Background="#222530" Foreground="#A0A5B5" FontSize="10" Padding="6,2" Height="24" CornerRadius="3"/>
-                    <Button x:Name="CloseButton" Content="✕" Focusable="False" Background="#3E2025" Foreground="#E06C75" FontSize="10" Padding="6,2" Height="24" CornerRadius="3"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- ============================================================= -->
-        <!-- STYLE: SIDE RAIL CHARACTER DECK (a column left of the render) -->
-        <!-- ============================================================= -->
-        <Border x:Name="SideRailContainer"
-                Grid.Row="1" Grid.Column="0"
-                IsVisible="{Binding ShowSideRail}"
-                Background="#181A22"
-                BorderBrush="#2C313C"
-                BorderThickness="0,0,1,0"
-                Width="180"
-                Padding="8">
-            <Grid RowDefinitions="Auto, *, Auto">
-                <!-- Header -->
-                <TextBlock Grid.Row="0" Text="PARTY SWARM" FontWeight="Bold" FontSize="11" Foreground="#512BD4" Margin="2,4,2,8"/>
-
-                <!-- Character Deck List -->
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding CharacterTabs}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
-                                <Border Classes.activeTab="{Binding IsActive}"
-                                        Classes.inactiveTab="{Binding !IsActive}"
-                                        CornerRadius="5" Padding="8,6" Margin="0,0,0,6"
-                                        BorderThickness="1">
-                                    <StackPanel Spacing="3">
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Grid.Column="0" Text="{Binding CharacterName}" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF"/>
-                                            <Button Grid.Column="1" Command="{Binding PopOutCommand}" Focusable="False"
-                                                    ToolTip.Tip="Pop Out"
-                                                    Background="Transparent" Padding="2,0" BorderThickness="0" Foreground="#4EC9B0">
-                                                <TextBlock Text="⧉" FontSize="10"/>
-                                            </Button>
-                                        </Grid>
-                                        <TextBlock Text="{Binding JobDisplay}" FontSize="10" Foreground="#A0A5B5"/>
-                                        <TextBlock Text="{Binding VitalsSummary}" FontSize="9" Foreground="#98C379" FontFamily="Consolas, monospace"/>
-
-                                        <Button Command="{Binding SelectTabCommand}" Focusable="False"
-                                                Content="Focus"
-                                                IsVisible="{Binding !IsActive}"
-                                                Background="#2E3342" Foreground="#DCDCDC"
-                                                FontSize="9" Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,2,0,0" CornerRadius="3"/>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-
-                <!-- Footer Telemetry -->
-                <StackPanel Grid.Row="2" Spacing="2" Margin="0,6,0,0">
-                    <TextBlock Text="{Binding Fps, StringFormat='FPS: {0:F1}'}" FontSize="10" Foreground="#98C379" FontFamily="Consolas, monospace"/>
-                    <TextBlock Text="{Binding ActiveBackend}" FontSize="10" Foreground="#4EC9B0"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- ============================================================= -->
-        <!-- STYLE: FLOATING ISLAND PILL (Default) - a popup over the top centre of the render -->
-        <!-- ============================================================= -->
-        <Popup x:Name="FloatingPillPopup"
-               Grid.Row="1" Grid.Column="1"
+        <Popup x:Name="TopRibbonPopup"
                PlacementTarget="{Binding #ViewportHost}"
-               Placement="AnchorAndGravity" PlacementAnchor="Top" PlacementGravity="Bottom"
-               VerticalOffset="8"
+               Placement="AnchorAndGravity" PlacementAnchor="TopLeft" PlacementGravity="BottomRight"
                IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
-            <Border Background="#1A1C24E0"
-                    BorderBrush="#3E4452"
-                    BorderThickness="1"
-                    CornerRadius="16"
-                    Padding="10,5">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <!-- Status Indicator -->
-                    <Ellipse Width="7" Height="7" Fill="#4EC9B0" VerticalAlignment="Center"/>
+            <Border x:Name="TopRibbonBorder"
+                    Width="{Binding #ViewportHost.Bounds.Width}"
+                    Background="#181A22"
+                    BorderBrush="#2C313C"
+                    BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*, Auto" Margin="8,4,8,4">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="GORDIAN" FontWeight="Bold" FontSize="12" Foreground="#7E57C2" VerticalAlignment="Center" Margin="2,0,6,0"/>
 
-                    <!-- Active Character Name & Job -->
-                    <TextBlock Text="{Binding ActiveTab.CharacterName, FallbackValue='GordianXI'}"
-                               FontWeight="Bold" FontSize="12" Foreground="#FFFFFF" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding ActiveTab.JobDisplay, FallbackValue=''}"
-                               FontSize="10" Foreground="#61AFEF" VerticalAlignment="Center"/>
+                        <ItemsControl ItemsSource="{Binding CharacterTabs}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
+                                    <Border Classes.activeTab="{Binding IsActive}"
+                                            Classes.inactiveTab="{Binding !IsActive}"
+                                            CornerRadius="4" Padding="8,4"
+                                            BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Ellipse Width="7" Height="7"
+                                                     Classes.activeDot="{Binding IsActive}"
+                                                     Classes.inactiveDot="{Binding !IsActive}"
+                                                     VerticalAlignment="Center"/>
+                                            <Button Command="{Binding SelectTabCommand}" Focusable="False"
+                                                    Background="Transparent" Padding="0" Margin="0" BorderThickness="0">
+                                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                                    <TextBlock Text="{Binding CharacterName}" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFF"/>
+                                                    <TextBlock Text="{Binding JobDisplay}" FontSize="11" Foreground="#C3C8D4" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="(own window)" IsVisible="{Binding IsPoppedOut}" FontSize="11" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Command="{Binding PopOutCommand}" Focusable="False" IsVisible="{Binding !IsPoppedOut}"
+                                                    ToolTip.Tip="Pop out into dedicated window"
+                                                    Background="Transparent" Padding="2,0" Margin="2,0,0,0" BorderThickness="0" Foreground="#C3C8D4">
+                                                <TextBlock Text="⧉" FontSize="11"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
 
-                    <!-- Tear-off Button for Active Tab -->
-                    <Button Command="{Binding ActiveTab.PopOutCommand, FallbackValue={x:Null}}" Focusable="False"
-                            ToolTip.Tip="Pop active character into dedicated window"
-                            Background="Transparent" Padding="4,0" BorderThickness="0" Foreground="#4EC9B0">
-                        <TextBlock Text="⧉" FontSize="11"/>
-                    </Button>
+                        <TextBlock Text="Ctrl+Tab to switch" FontSize="11" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    </StackPanel>
 
-                    <TextBlock Text="|" Foreground="#3E4452" VerticalAlignment="Center"/>
-
-                    <!-- Mini Tabs for Other Connected Characters -->
-                    <ItemsControl ItemsSource="{Binding CharacterTabs}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="4"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
-                                <Button Command="{Binding SelectTabCommand}" Focusable="False"
-                                        IsVisible="{Binding !IsActive}"
-                                        Background="#282C38" Padding="6,2" CornerRadius="10"
-                                        BorderThickness="0" VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Ellipse Width="5" Height="5" Fill="#707585" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding CharacterName}" FontSize="10" Foreground="#A0A5B5"/>
-                                    </StackPanel>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <!-- Camera Mode Indicator / Switcher -->
-                    <Button Command="{Binding ToggleCameraModeCommand}" Focusable="False"
-                            ToolTip.Tip="Toggle Camera Mode (Orbital / 1st Person / FreeCam)"
-                            Background="#282C38" Padding="6,2" CornerRadius="8"
-                            BorderThickness="0" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="🎥" FontSize="9" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ActiveCameraMode}" FontSize="10" Foreground="#E5C07B" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-
-                    <TextBlock Text="[Ctrl+Tab]" FontSize="9" Foreground="#555B6D" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Border Background="#101218" CornerRadius="4" Padding="6,2" BorderBrush="#2C313C" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Fps, StringFormat='{}{0:F1} FPS'}" Foreground="#98C379" FontSize="11" FontWeight="Bold" FontFamily="Consolas, monospace"/>
+                                <TextBlock Text="|" Foreground="#444856" FontSize="11"/>
+                                <TextBlock Text="{Binding ActiveBackend}" Foreground="#4EC9B0" FontSize="11" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                        <ComboBox x:Name="DisplayModeCombo"
+                                  ItemsSource="{Binding AvailableDisplayModes}"
+                                  SelectedItem="{Binding SelectedDisplayMode, Mode=TwoWay}"
+                                  Height="26" FontSize="11" Width="140"/>
+                        <Button x:Name="MinimizeButton" Content="—" Focusable="False" Background="#222530" Foreground="#C3C8D4" FontSize="11" Padding="7,2" Height="26" CornerRadius="3"/>
+                        <Button x:Name="CloseButton" Content="✕" Focusable="False" Background="#3E2025" Foreground="#E06C75" FontSize="11" Padding="7,2" Height="26" CornerRadius="3"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </Popup>
 
         <!-- ============================================================= -->
-        <!-- PICTURE-IN-PICTURE (PiP) MULTI-BOX DECK - a popup over the bottom right of the render -->
+        <!-- STYLE: SIDE RAIL CHARACTER DECK (auto-hiding: slides in at the left edge) -->
+        <!-- ============================================================= -->
+        <Popup x:Name="SideRailPopup"
+               PlacementTarget="{Binding #ViewportHost}"
+               Placement="AnchorAndGravity" PlacementAnchor="TopLeft" PlacementGravity="BottomRight"
+               IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
+            <Border x:Name="SideRailBorder"
+                    Height="{Binding #ViewportHost.Bounds.Height}"
+                    Background="#181A22"
+                    BorderBrush="#2C313C"
+                    BorderThickness="0,0,1,0"
+                    Width="190"
+                    Padding="8">
+                <Grid RowDefinitions="Auto, *, Auto">
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="2,4,2,8">
+                        <TextBlock Text="Character Deck" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CharacterCountText}" FontSize="11" Foreground="#9AA0AE"/>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding CharacterTabs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
+                                    <Border Classes.activeTab="{Binding IsActive}"
+                                            Classes.inactiveTab="{Binding !IsActive}"
+                                            CornerRadius="5" Padding="8,6" Margin="0,0,0,6"
+                                            BorderThickness="1">
+                                        <StackPanel Spacing="3">
+                                            <Grid ColumnDefinitions="*, Auto">
+                                                <TextBlock Grid.Column="0" Text="{Binding CharacterName}" FontWeight="Bold" FontSize="12" Foreground="#FFFFFF"/>
+                                                <Button Grid.Column="1" Command="{Binding PopOutCommand}" Focusable="False" IsVisible="{Binding !IsPoppedOut}"
+                                                        ToolTip.Tip="Pop Out"
+                                                        Background="Transparent" Padding="2,0" BorderThickness="0" Foreground="#4EC9B0">
+                                                    <TextBlock Text="⧉" FontSize="11"/>
+                                                </Button>
+                                            </Grid>
+                                            <TextBlock Text="{Binding JobDisplay}" FontSize="11" Foreground="#C3C8D4"/>
+                                            <TextBlock Text="{Binding VitalsSummary}" FontSize="11" Foreground="#98C379" FontFamily="Consolas, monospace"/>
+                                            <TextBlock Text="In its own window" IsVisible="{Binding IsPoppedOut}" FontSize="11" Foreground="#4EC9B0"/>
+
+                                            <Button Command="{Binding SelectTabCommand}" Focusable="False"
+                                                    Content="Focus"
+                                                    IsVisible="{Binding !IsActive}"
+                                                    Background="#2E3342" Foreground="#E6E8EE"
+                                                    FontSize="11" Padding="4,3" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,2,0,0" CornerRadius="3"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Spacing="2" Margin="0,6,0,0">
+                        <TextBlock Text="{Binding Fps, StringFormat='FPS: {0:F1}'}" FontSize="11" Foreground="#98C379" FontFamily="Consolas, monospace"/>
+                        <TextBlock Text="{Binding ActiveBackend}" FontSize="11" Foreground="#4EC9B0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Popup>
+
+        <!-- ============================================================= -->
+        <!-- STYLE: FLOATING ISLAND PILL (default) - minimal, expands on mouse-over -->
+        <!-- ============================================================= -->
+        <Popup x:Name="FloatingPillPopup"
+               PlacementTarget="{Binding #ViewportHost}"
+               Placement="AnchorAndGravity" PlacementAnchor="Top" PlacementGravity="Bottom"
+               VerticalOffset="10"
+               IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
+            <Panel x:Name="PillRoot" Background="Transparent">
+                <!-- Collapsed: status dot, active character, character count -->
+                <Border x:Name="PillCollapsed"
+                        Background="#E0161820" BorderBrush="#363A48" BorderThickness="1"
+                        CornerRadius="16" Padding="14,6">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Ellipse Width="8" Height="8" Fill="#4EC9B0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding ActiveTab.CharacterName, FallbackValue='GordianXI'}"
+                                   FontWeight="SemiBold" FontSize="13" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding CharacterCountText, StringFormat='▼ {0}'}"
+                                   FontSize="11" Foreground="#A9AFBD" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Expanded (on mouse-over): switch, detach, camera mode -->
+                <Border x:Name="PillExpanded" IsVisible="False" MinWidth="340"
+                        Background="#F2161820" BorderBrush="#512BD4" BorderThickness="1"
+                        CornerRadius="12" Padding="8">
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*, Auto" Margin="4,0,4,2">
+                            <TextBlock Text="Switch Character View" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
+                            <TextBlock Grid.Column="1" Text="Ctrl+Tab" FontSize="11" Foreground="#A9AFBD"/>
+                        </Grid>
+                        <Border Height="1" Background="#2A2E3B"/>
+                        <ItemsControl ItemsSource="{Binding CharacterTabs}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="2"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
+                                    <Button Classes="pillRow" Classes.active="{Binding IsActive}"
+                                            Command="{Binding SelectTabCommand}" Focusable="False">
+                                        <Grid ColumnDefinitions="Auto, *, Auto">
+                                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                     Classes.activeDot="{Binding IsActive}"
+                                                     Classes.inactiveDot="{Binding !IsActive}"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding CharacterName}" FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                                                <TextBlock Text="{Binding JobDisplay}" FontSize="12" Foreground="#C3C8D4" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="own window" IsVisible="{Binding IsPoppedOut}"
+                                                       FontSize="11" Foreground="#4EC9B0" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <Button Grid.Column="2" Command="{Binding PopOutCommand}" Focusable="False" IsVisible="{Binding !IsPoppedOut}"
+                                                    ToolTip.Tip="Pop this character into its own window"
+                                                    Background="#2A2E3B" Foreground="#E6E8EE" Padding="6,2" CornerRadius="4" BorderThickness="0"
+                                                    FontSize="11" Content="Detach ⧉" Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Height="1" Background="#2A2E3B"/>
+                        <Button Command="{Binding ToggleCameraModeCommand}" Focusable="False"
+                                ToolTip.Tip="Toggle Camera Mode (Orbital / 1st Person / FreeCam)"
+                                Background="#232733" Padding="8,3" CornerRadius="6" BorderThickness="0" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="Camera:" FontSize="11" Foreground="#A9AFBD" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ActiveCameraMode}" FontSize="12" Foreground="#E5C07B" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Panel>
+        </Popup>
+
+        <!-- ============================================================= -->
+        <!-- PICTURE-IN-PICTURE (PiP) MULTI-BOX DECK - over the bottom right of the render -->
         <!-- ============================================================= -->
         <Popup x:Name="PipDeckPopup"
-               Grid.Row="1" Grid.Column="1"
                PlacementTarget="{Binding #ViewportHost}"
                Placement="AnchorAndGravity" PlacementAnchor="BottomRight" PlacementGravity="TopLeft"
                HorizontalOffset="-12" VerticalOffset="-12"
+               PlacementConstraintAdjustment="SlideX, SlideY"
                IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
             <ItemsControl ItemsSource="{Binding PipThumbnails}">
                 <ItemsControl.ItemsPanel>
@@ -255,35 +288,34 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
-                        <!-- Small Inset Card (up to 5); a status card until the thumbnails render the scene (#154 follow-up) -->
-                        <Border Width="160" Height="100"
+                        <!-- A status card per background character until the thumbnails render the scene (#302) -->
+                        <Border Width="170" Height="100"
                                 Background="#141620"
                                 BorderBrush="#512BD4"
                                 BorderThickness="1.5"
                                 CornerRadius="6"
                                 ClipToBounds="True">
                             <Grid RowDefinitions="Auto, *">
-                                <!-- Inset Header -->
                                 <Border Grid.Row="0" Background="#1E202C" Padding="6,2">
                                     <Grid ColumnDefinitions="*, Auto, Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding CharacterName}" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                        <TextBlock Grid.Column="0" Text="{Binding CharacterName}" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF"/>
                                         <Button Grid.Column="1" Command="{Binding SelectTabCommand}" Focusable="False"
                                                 ToolTip.Tip="Swap with main viewport"
                                                 Background="Transparent" Padding="4,0" BorderThickness="0" Foreground="#61AFEF">
-                                            <TextBlock Text="⇄" FontSize="10"/>
+                                            <TextBlock Text="⇄" FontSize="12"/>
                                         </Button>
                                         <Button Grid.Column="2" Command="{Binding PopOutCommand}" Focusable="False"
                                                 ToolTip.Tip="Tear off to monitor"
                                                 Background="Transparent" Padding="4,0" BorderThickness="0" Foreground="#4EC9B0">
-                                            <TextBlock Text="⧉" FontSize="10"/>
+                                            <TextBlock Text="⧉" FontSize="12"/>
                                         </Button>
                                     </Grid>
                                 </Border>
 
                                 <Border Grid.Row="1" Background="#0C0E14">
-                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
-                                        <TextBlock Text="{Binding JobDisplay}" FontSize="9" Foreground="#8A909E" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding VitalsSummary}" FontSize="9" Foreground="#98C379" FontFamily="Consolas, monospace" HorizontalAlignment="Center"/>
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="{Binding JobDisplay}" FontSize="11" Foreground="#C3C8D4" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding VitalsSummary}" FontSize="11" Foreground="#98C379" FontFamily="Consolas, monospace" HorizontalAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -294,24 +326,24 @@
         </Popup>
 
         <!-- ============================================================= -->
-        <!-- FREECAM ACTIVE BANNER - a popup over the bottom centre of the render -->
+        <!-- FREECAM ACTIVE BANNER - over the bottom centre of the render -->
         <!-- ============================================================= -->
         <Popup x:Name="FreeCamPopup"
-               Grid.Row="1" Grid.Column="1"
                PlacementTarget="{Binding #ViewportHost}"
                Placement="AnchorAndGravity" PlacementAnchor="Bottom" PlacementGravity="Top"
                VerticalOffset="-24"
+               PlacementConstraintAdjustment="SlideX, SlideY"
                IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
-            <Border Background="#1E222BEA"
+            <Border Background="#EA1E222B"
                     BorderBrush="#E5C07B"
                     BorderThickness="1.5"
                     CornerRadius="8"
                     Padding="12,6">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <Ellipse Width="8" Height="8" Fill="#E5C07B" VerticalAlignment="Center"/>
-                    <TextBlock Text="FREECAM ACTIVE" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF" VerticalAlignment="Center"/>
-                    <TextBlock Text="[WASD Fly • Right Mouse Look]" FontSize="10" Foreground="#ABB2BF" VerticalAlignment="Center"/>
-                    <Button Command="{Binding ToggleFreeCamCommand}" Focusable="False" Content="Exit" Background="#282C34" Foreground="#E5C07B" FontSize="9" Padding="8,2" CornerRadius="4"/>
+                    <TextBlock Text="FREECAM ACTIVE" FontWeight="Bold" FontSize="12" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+                    <TextBlock Text="Move: WASD / left stick  •  Look: right mouse / right stick" FontSize="11" Foreground="#C3C8D4" VerticalAlignment="Center"/>
+                    <Button Command="{Binding ToggleFreeCamCommand}" Focusable="False" Content="Exit" Background="#282C34" Foreground="#E5C07B" FontSize="11" Padding="8,2" CornerRadius="4"/>
                 </StackPanel>
             </Border>
         </Popup>

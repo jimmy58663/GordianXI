@@ -231,7 +231,7 @@ namespace Gordian.App.Tests.Graphics
             new(name, id, $"user_{name}", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230));
 
         [Fact]
-        public void CycleCharacter_WrapsBothWaysAndSkipsPoppedOutTabs()
+        public void CycleCharacter_WrapsBothWays()
         {
             var vm = new ViewportViewModel(enableAutoSave: false);
             var a = vm.AddSession(NewSession("Gordian", 3));
@@ -246,14 +246,59 @@ namespace Gordian.App.Tests.Graphics
             Assert.Same(a, vm.ActiveTab); // wraps
             vm.CyclePreviousCharacter();
             Assert.Same(c, vm.ActiveTab); // wraps back
+        }
 
+        [Fact]
+        public void CycleCharacter_IntoAPoppedOutCharacter_FocusesItsWindow()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            vm.AddSession(NewSession("Claude", 4));
             b.IsPoppedOut = true; // Knot has its own window
+            ViewportCharacterTabViewModel? focused = null;
+            vm.TabPoppedOut += (_, t) => focused = t; // the window manager activates the pop-out on this
+
             vm.CycleNextCharacter();
-            Assert.Same(a, vm.ActiveTab);
-            vm.CycleNextCharacter();
-            Assert.Same(c, vm.ActiveTab);
-            vm.CyclePreviousCharacter();
-            Assert.Same(a, vm.ActiveTab);
+
+            Assert.Same(b, focused);
+            Assert.Same(a, vm.ActiveTab); // the main window keeps its character
+        }
+
+        [Fact]
+        public void CycleCharacter_FromAPopOut_FollowsTheMainWindowsTabOrder()
+        {
+            var main = new ViewportViewModel(enableAutoSave: false);
+            var a = main.AddSession(NewSession("Gordian", 3));
+            var b = main.AddSession(NewSession("Knot", 1));
+            var c = main.AddSession(NewSession("Claude", 4));
+            b.IsPoppedOut = true;
+            Assert.Same(a, main.ActiveTab);
+
+            var popOut = new ViewportViewModel(enableAutoSave: false) { IsPrimary = false, SwitchTarget = main };
+            popOut.AddSession(b.Session);
+            int mainActivations = 0;
+            main.WindowActivationRequested += (_, _) => mainActivations++;
+
+            popOut.CycleNextCharacter(); // Knot -> Claude, shown in the main window
+
+            Assert.Same(c, main.ActiveTab);
+            Assert.Equal(1, mainActivations);
+        }
+
+        [Fact]
+        public void SwitcherClick_RequestsTheWindowFocus()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            int activations = 0;
+            vm.WindowActivationRequested += (_, _) => activations++;
+
+            b.SelectTabCommand.Execute(null);
+
+            Assert.Same(b, vm.ActiveTab);
+            Assert.Equal(1, activations);
         }
 
         [Fact]
@@ -313,6 +358,7 @@ namespace Gordian.App.Tests.Graphics
             b.IsPoppedOut = true; // every character popped out: the window keeps the one it shows
             vm.MoveOffPoppedOutTab();
             Assert.Same(b, vm.ActiveTab);
+            Assert.Equal("2 chars", vm.CharacterCountText);
         }
 
         [Fact]
