@@ -32,7 +32,7 @@ namespace Gordian.App.Graphics
         /// list menus) at the selected button's origin plus the cursor offsets.
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
-            long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null)
+            long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null, StockUiScreen? screen = null)
         {
             var definition = menu.Menu;
             var frame = definition.Frame;
@@ -114,7 +114,7 @@ namespace Gordian.App.Graphics
             }
             else if (font != null && menu.Check is { } check)
             {
-                StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement);
+                StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement, screen ?? default, timestamp);
             }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {
@@ -195,7 +195,9 @@ namespace Gordian.App.Graphics
             }
 
             var selected = menu.SelectedButton;
-            if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp);
+            // The check window's View Wares takes the plain arrow, not the grid's slot box (retail screenshot, 2026-10-07).
+            string? cursorGroup = menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton ? DefaultCursorGroup : null;
+            if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp, cursorGroup);
         }
 
         /// <summary>
@@ -290,10 +292,10 @@ namespace Gordian.App.Graphics
             return icon;
         }
 
-        internal static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size)
+        internal static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size, UiColor? tint = null)
         {
             var icon = ItemIcon(menu, itemId);
-            if (icon != null) renderer.DrawTexture($"item:{itemId}", icon, x, y, size, size, PointerColor);
+            if (icon != null) renderer.DrawTexture($"item:{itemId}", icon, x, y, size, size, tint ?? PointerColor);
         }
 
         /// <summary>
@@ -607,12 +609,12 @@ namespace Gordian.App.Graphics
         }
 
         public static void DrawMenuCursor(StockUiRenderer renderer, UiResourceLibrary library, UiMenuFrame frame, UiMenuButton button,
-            StockUiPlacement placement, long timestamp)
+            StockUiPlacement placement, long timestamp, string? groupOverride = null)
         {
-            string groupName = DefaultCursorGroup;
+            string groupName = groupOverride ?? DefaultCursorGroup;
             foreach (var shape in frame.Shapes)
             {
-                if (shape.Kind == 6) { groupName = shape.GroupId; break; }
+                if (groupOverride == null && shape.Kind == 6) { groupName = shape.GroupId; break; }
             }
             if (!library.TryGetGroup(groupName, out var group) || group.Images.Count == 0) return;
             var image = StockUiTargetWindow.SelectCursorFrame(group, timestamp);

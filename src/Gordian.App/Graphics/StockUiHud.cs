@@ -351,7 +351,8 @@ namespace Gordian.App.Graphics
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
-                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont);
+                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
+                    screen: new StockUiScreen(width, height, _window1Top));
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
             menus.SetScreenPlacements(_menuPlacements);

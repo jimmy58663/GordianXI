@@ -420,6 +420,9 @@ namespace Gordian.Core.Actions
         {
             if (CurrentTarget != target)
             {
+                // Retail cannot target anything else while a check window is open (in-game check 2026-10-07); clearing
+                // the target (it went away) still goes through.
+                if (target != null && Menus.IsCheckOpen) return;
                 // The command menu is about the target it was opened on; it closes with it.
                 if (Menus.CommandMenuTarget is { } open && open.TargetServerId != target?.ServerId) Menus.CloseCommandMenu();
                 CurrentTarget = target;

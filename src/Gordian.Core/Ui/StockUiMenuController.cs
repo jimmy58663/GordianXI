@@ -149,7 +149,17 @@ namespace Gordian.Core.Ui
         public int TellIndex { get; internal set; }
 
         /// <summary>ButtonId of the button under the cursor (0 when the menu has no selectable button).</summary>
-        public int SelectedButtonId { get; internal set; }
+        public int SelectedButtonId
+        {
+            get => _selectedButtonId;
+            internal set
+            {
+                if (_selectedButtonId != value) _checkPage = 0; // a check window's description starts on its first page
+                _selectedButtonId = value;
+            }
+        }
+
+        private int _selectedButtonId;
 
         /// <summary>Menus this one flips between with left/right (the main menu's two pages); empty otherwise.</summary>
         public IReadOnlyList<string> PageRing { get; }
@@ -1089,6 +1099,11 @@ namespace Gordian.Core.Ui
                 {
                     Move(InputAction.MenuRight);
                     SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
+                }
+                else if (Top is { IsCheck: true })
+                {
+                    // The check window: the gamepad's X pages the item description (retail screenshot, 2026-10-07).
+                    if (NextCheckPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
                 }
                 Array.Clear(_repeat);
                 return wasOpen;

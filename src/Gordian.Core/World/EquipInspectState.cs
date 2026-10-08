@@ -5,6 +5,21 @@ using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
 {
+    /// <summary>A character's rank in a linkshell, by the linkshell item they hold.</summary>
+    public enum LinkshellRank : byte
+    {
+        None = 0,
+        Pearl,
+        Sackholder,
+        Leader,
+    }
+
+    /// <summary>The three linkshell item ids (the retail item DAT: Linkshell, Pearlsack, Linkpearl).</summary>
+    public static class LinkshellItemIds
+    {
+        public const ushort Linkshell = 513, Pearlsack = 514, Linkpearl = 515;
+    }
+
     /// <summary>
     /// What a player check (S2C 0x0C9) told about a character: its equipment by slot and the general block (jobs, levels,
     /// mastery, linkshell). <see cref="Message"/> is the S2C 0x0CA that came with it (name, bazaar message, title), if any.
@@ -30,6 +45,20 @@ namespace Gordian.Core.World
 
         /// <summary>Whether the character wears a linkshell.</summary>
         public bool HasLinkshell => LinkshellItemId != 0 || LinkshellName.Length > 0;
+
+        /// <summary>
+        /// The checked character's rank in the linkshell, from the item in the linkshell slot that 0x0C9 names
+        /// (<c>ItemNo</c>): 513 Linkshell (the leader), 514 Pearlsack (a sackholder), 515 Linkpearl. LandSandBoat sends the
+        /// equipped linkshell item's id (<c>0x0c9_equip_inspect_general.cpp</c>); the item ids are the retail item DAT's
+        /// (LandSandBoat <c>item_linkshell.h</c> ranks the same three items).
+        /// </summary>
+        public LinkshellRank LinkshellRank => LinkshellItemId switch
+        {
+            LinkshellItemIds.Linkshell => LinkshellRank.Leader,
+            LinkshellItemIds.Pearlsack => LinkshellRank.Sackholder,
+            LinkshellItemIds.Linkpearl => LinkshellRank.Pearl,
+            _ => HasLinkshell ? LinkshellRank.Pearl : LinkshellRank.None,
+        };
 
         /// <summary>The item in a slot, or 0 when the slot is empty.</summary>
         public ushort ItemIn(EquipSlotId slot) => Equipment.TryGetValue(slot, out ushort id) ? id : (ushort)0;

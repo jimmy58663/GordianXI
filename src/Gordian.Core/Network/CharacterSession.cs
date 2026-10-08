@@ -269,7 +269,9 @@ namespace Gordian.Core.Network
             Commands.Equipment.Completed += info =>
             {
                 string name = ResolveEntityName(info.ServerId) is { Length: > 0 } known ? known : info.Message?.Name ?? string.Empty;
-                ActionService.Menus.OpenCheck(new Ui.StockUiCheckData(name, info));
+                // Items for sale: the entity update's BazaarFlag (0x00D), not 0x0CA's, which LandSandBoat always sets.
+                bool bazaar = World.TryGetByServerId(info.ServerId, out var entity) && entity is PlayerEntity { HasBazaar: true };
+                ActionService.Menus.OpenCheck(new Ui.StockUiCheckData(name, info, bazaar));
             };
             // Treasure pool events print to the message log as the retail client does; a zone change empties the pool
             // (the server sends it again for a party that is still in it).
