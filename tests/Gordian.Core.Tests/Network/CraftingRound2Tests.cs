@@ -122,16 +122,7 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void SynthesisMotion_MapsTheResultToTheRoutinePair()
-        {
-            Assert.Equal("lc01", SynthesisMotion.StartRoutine(0));
-            Assert.Equal("ls02", SynthesisMotion.EndRoutine(1));
-            Assert.Equal("lc05", SynthesisMotion.StartRoutine(4));
-            Assert.Equal("lc06", SynthesisMotion.StartRoutine(200));
-        }
-
-        [Fact]
-        public void SynthesisAnimation_PlaysTheStartOnTheCrafter_AndTheEndOnTheResult()
+        public void SynthesisEffect_ConfirmsTheLock_ForTheCharacterOnly_AndPlaysNothing()
         {
             var combat = new CombatState();
             var crafting = new CraftingState();
@@ -139,60 +130,22 @@ namespace Gordian.Core.Tests.Network
             var player = new LocalPlayerState { ServerId = 0x01000001 };
             world.UpsertEntity(new WorldEntity(0x01000001, 5, EntityType.Player) { Name = "Me" });
             world.UpsertEntity(new WorldEntity(0x01000002, 6, EntityType.Player) { Name = "Gemini" });
-            var controller = new SynthesisAnimationController();
-            controller.Attach(combat, crafting, world, player);
+            new SynthesisAnimationController().Attach(combat, crafting, world, player);
+
+            combat.SetCraftEffect(new CraftEffectInfo(0x01000002, 6, SynthesisEffect.Fire, 2, 44, 0));
+            Assert.False(crafting.IsSynthesizing);
+
+            combat.SetCraftEffect(new CraftEffectInfo(0x01000001, 5, SynthesisEffect.None, 0, 0, 0));
+            Assert.False(crafting.IsSynthesizing);
+
+            combat.SetCraftEffect(new CraftEffectInfo(0x01000001, 5, SynthesisEffect.Water, 0, 44, 0));
+            Assert.True(crafting.IsSynthesizing);
+
             var module = new CraftingPacketModule(crafting, (_, _) => Task.CompletedTask);
             var dispatcher = new PacketDispatcher();
             module.Register(dispatcher);
-
-            // Another crafter: the start plays on them, the lock is untouched.
-            combat.SetCraftEffect(new CraftEffectInfo(0x01000002, 6, SynthesisEffect.Fire, 2, 44, 0));
-            Assert.Equal("lc03", controller.LastRoutine);
-            Assert.False(crafting.IsSynthesizing);
-
-            // Their result (S2C 0x070 names them by index) plays the end.
-            var inf = new byte[44];
-            BinaryPrimitives.WriteUInt16LittleEndian(inf.AsSpan(24, 2), 6);
-            dispatcher.Dispatch(new PacketHeader(S2C_0x070_CombineInf.PacketId, 48, 1), inf);
-            Assert.Equal("ls03", controller.LastRoutine);
-
-            // The character: the start confirms the lock, the result plays the end and releases it.
-            combat.SetCraftEffect(new CraftEffectInfo(0x01000001, 5, SynthesisEffect.Water, 0, 44, 0));
-            Assert.Equal("lc01", controller.LastRoutine);
-            Assert.True(crafting.IsSynthesizing);
             dispatcher.Dispatch(new PacketHeader(S2C_0x06F_CombineAns.PacketId, 56, 2), new byte[52]);
-            Assert.Equal("ls01", controller.LastRoutine);
             Assert.False(crafting.IsSynthesizing);
-        }
-
-        [Fact]
-        public void SynthesisAnimation_IgnoresAnEffectOfNone()
-        {
-            var combat = new CombatState();
-            var world = new WorldState();
-            var player = new LocalPlayerState { ServerId = 1 };
-            world.UpsertEntity(new WorldEntity(1, 5, EntityType.Player));
-            var controller = new SynthesisAnimationController();
-            controller.Attach(combat, new CraftingState(), world, player);
-
-            combat.SetCraftEffect(new CraftEffectInfo(1, 5, SynthesisEffect.None, 0, 0, 0));
-
-            Assert.Equal(string.Empty, controller.LastRoutine);
-        }
-
-        [Fact]
-        public void RetailBaseMotion_HasTheSynthesisRoutines()
-        {
-            if (!Directory.Exists(GameDirectory)) return;
-            var rm = new ResourceManager(GameDirectory);
-            rm.InitializeFileTable();
-            var container = EntityModelLoader.ParseDatContainer(rm.LoadDatBytes(Path.Combine("ROM", "32", "58.DAT"))!, "base");
-            var names = container.Routines.Select(r => r.Name).ToHashSet();
-            for (byte type = 0; type <= 4; type++)
-            {
-                Assert.Contains(SynthesisMotion.StartRoutine(type), names);
-                Assert.Contains(SynthesisMotion.EndRoutine(type), names);
-            }
         }
 
         // ---- guild shop ----

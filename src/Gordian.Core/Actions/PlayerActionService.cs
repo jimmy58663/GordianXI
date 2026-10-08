@@ -1890,14 +1890,14 @@ namespace Gordian.Core.Actions
 
         /// <summary>
         /// Debug: <c>/playroutine &lt;name&gt;</c> plays a motion routine of the character's own model (a four-character
-        /// name such as <c>lc01</c>, <c>ls01</c>, <c>sit0</c>), on the client only. Used to compare the synthesis routines
-        /// <c>lc00</c>-<c>lc06</c> / <c>ls00</c>-<c>ls06</c> with retail.
+        /// name such as <c>sit0</c> or <c>cabk</c>), on the client only. Used to look for routines, such as the synthesis
+        /// motion (#112), that have not been identified.
         /// </summary>
         public PlayerActionResult PlayRoutineCommand(string args)
         {
             const ChatCommandResultKind kind = ChatCommandResultKind.DebugPlayRoutine;
             string name = args.Trim();
-            if (name.Length is < 1 or > 4) return PlayerActionResult.Warn("Usage: /playroutine <routine name, e.g. lc01>", kind);
+            if (name.Length is < 1 or > 4) return PlayerActionResult.Warn("Usage: /playroutine <routine name, e.g. sit0>", kind);
             if (!_world.TryGetByServerId(_localPlayer.ServerId, out var self) || self == null) return PlayerActionResult.Warn("There is no character to animate.", kind);
             self.Animation.EnqueueAction(new Gordian.Core.Animation.ActionRequest
             {
