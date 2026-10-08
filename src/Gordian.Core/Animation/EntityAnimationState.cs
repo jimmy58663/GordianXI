@@ -99,6 +99,13 @@ namespace Gordian.Core.Animation
         /// </summary>
         public bool? WeaponGripOverride => ActiveRoutine == null || _weaponMotion == WeaponMotion.None ? null : false;
 
+        /// <summary>
+        /// Bit mask of the weapon slots not drawn this frame (bit n = the <c>wepN</c> meshes, <see cref="AnimatedMeshGroup.WeaponSlot"/>):
+        /// the playing routine's show / hide changes so far (a ranged attack shows the ranged weapon and hides the melee ones,
+        /// a cast hides the melee ones), else the model's default (a PC's ranged weapon hidden).
+        /// </summary>
+        public int HiddenWeaponSlots => ActiveRoutine != null ? _actionHiddenWeapons : _lastModel?.DefaultHiddenWeaponSlots ?? 0;
+
         /// <summary>The pose blended over the clips this frame (hit flinch or guard / parry flash), or null.</summary>
         public SkeletonPoseEvaluator.PoseOverlay? Overlay
         {
@@ -131,6 +138,8 @@ namespace Gordian.Core.Animation
         private bool _actionAllowsLocomotion;
         private int _actionHitTick = -1;
         private WeaponMotion _weaponMotion;
+        private int _actionHiddenWeapons;
+        private int _weaponChangeIndex;
 
         /// <summary>The event motion banks loaded onto the entity, most recent last (replaced as a whole: other threads add them).</summary>
         private volatile EventMotionBank[] _eventBanks = Array.Empty<EventMotionBank>();
@@ -522,8 +531,24 @@ namespace Gordian.Core.Animation
             _weaponMotion = weaponMotion;
             _actionHitTick = routine.HitTicks.Count > 0 ? routine.HitTicks[0] : DefaultHitTick(request, routine);
             if (routine.IsSustained && routine.Name.StartsWith("ca", StringComparison.Ordinal)) LastChantRoutine = routine.Name;
+            _actionHiddenWeapons = model.DefaultHiddenWeaponSlots;
+            _weaponChangeIndex = 0;
+            ApplyWeaponChanges(routine);
             request?.MarkStarted(now, _actionHitTick);
             EnterSegment(model, 0);
+        }
+
+        /// <summary>Applies the routine's weapon show / hide changes the routine clock has reached.</summary>
+        private void ApplyWeaponChanges(MotionRoutine routine)
+        {
+            var changes = routine.WeaponChanges;
+            while (_weaponChangeIndex < changes.Count && changes[_weaponChangeIndex].Tick <= _actionTicks)
+            {
+                var change = changes[_weaponChangeIndex++];
+                if (change.Slot is < 0 or >= 32) continue;
+                if (change.Hide) _actionHiddenWeapons |= 1 << change.Slot;
+                else _actionHiddenWeapons &= ~(1 << change.Slot);
+            }
         }
 
         /// <summary>
@@ -560,6 +585,8 @@ namespace Gordian.Core.Animation
                 EnterSegment(model, next);
                 next++;
             }
+
+            ApplyWeaponChanges(routine);
 
             if (_actionRequest is { HitsDelivered: false } && _actionHitTick >= 0 && _actionTicks >= _actionHitTick)
             {
