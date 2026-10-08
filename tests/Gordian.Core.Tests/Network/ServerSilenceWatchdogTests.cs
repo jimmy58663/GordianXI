@@ -12,7 +12,7 @@ using Xunit;
 namespace Gordian.Core.Tests.Network
 {
     /// <summary>
-    /// A dropped map session (#235): the connection-lost indicator after 5 s without a server datagram, and the session
+    /// A dropped map session (#235): the connection-lost indicator after 10 s without a server datagram, and the session
     /// ending itself (LogoutState Timeout) after 60 s, each session on its own clock.
     /// </summary>
     public sealed class ServerSilenceWatchdogTests
@@ -78,7 +78,7 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void Thresholds_MatchTheServerSideLinkDeadAndSessionTimeout()
         {
-            Assert.Equal(TimeSpan.FromSeconds(5), SessionNetworkManager.DefaultConnectionLostAfter);
+            Assert.Equal(TimeSpan.FromSeconds(10), SessionNetworkManager.DefaultConnectionLostAfter);
             Assert.Equal(TimeSpan.FromSeconds(60), SessionNetworkManager.DefaultServerSilenceTimeout);
         }
 
@@ -91,10 +91,10 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public void ConnectionLost_TurnsOnAfterFiveSecondsOfSilence()
+        public void ConnectionLost_TurnsOnAfterTenSecondsOfSilence()
         {
             var f = new Fixture();
-            f.Wait(4.9);
+            f.Wait(9.9);
             Assert.False(f.Net.IsConnectionLost);
             Assert.Empty(f.LostChanges);
 
@@ -111,7 +111,7 @@ namespace Gordian.Core.Tests.Network
         public void ServerDatagram_ClearsTheIndicatorAndRestartsTheClock()
         {
             var f = new Fixture();
-            f.Wait(10);
+            f.Wait(15);
             Assert.True(f.Net.IsConnectionLost);
 
             Assert.True(f.ReceiveServerDatagram());
@@ -119,18 +119,18 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(new[] { true, false }, f.LostChanges);
             Assert.Equal(TimeSpan.Zero, f.Net.TimeSinceLastServerPacket);
 
-            f.Wait(55);
-            Assert.Empty(f.Logouts); // 65 s since the session came up, 55 s since the server last answered
+            f.Wait(50);
+            Assert.Empty(f.Logouts); // 65 s since the session came up, 50 s since the server last answered
         }
 
         [Fact]
         public void DatagramThatDoesNotParse_DoesNotCountAsServerTraffic()
         {
             var f = new Fixture();
-            f.Wait(6);
+            f.Wait(11);
             Assert.False(f.Net.ProcessInboundDatagram(new byte[20]));
             Assert.True(f.Net.IsConnectionLost);
-            Assert.Equal(TimeSpan.FromSeconds(6), f.Net.TimeSinceLastServerPacket);
+            Assert.Equal(TimeSpan.FromSeconds(11), f.Net.TimeSinceLastServerPacket);
         }
 
         [Fact]
@@ -143,7 +143,7 @@ namespace Gordian.Core.Tests.Network
             f.Wait(0.1);
             var logout = Assert.Single(f.Logouts);
             Assert.Equal(LogoutState.Timeout, logout.State);
-            Assert.False(logout.ReturnsToLobby);
+            Assert.True(logout.ReturnsToLobby); // retail tries to reconnect to the lobby
             Assert.False(logout.IsShutdown);
             Assert.True(f.Net.SessionEnding);
             Assert.False(f.Net.IsConnectionLost);
@@ -164,7 +164,7 @@ namespace Gordian.Core.Tests.Network
             f.Wait(60);
             var logout = Assert.Single(f.Logouts);
             Assert.Equal(ReqLogoutKind.Logout, logout.RequestedKind);
-            Assert.False(logout.ReturnsToLobby); // only a server 0x00B Logout goes back to character select
+            Assert.True(logout.ReturnsToLobby);
         }
 
         [Fact]

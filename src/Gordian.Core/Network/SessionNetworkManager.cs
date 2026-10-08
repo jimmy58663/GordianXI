@@ -341,12 +341,12 @@ namespace Gordian.Core.Network
         public ReqLogoutKind? PendingLogoutKind => _parser.LifecycleModule.PendingLogoutKind;
 
         /// <summary>
-        /// Default for <see cref="ConnectionLostAfter"/>: 5 seconds without a server datagram. LandSandBoat
-        /// (https://github.com/LandSandBoat/server, <c>map_session_container.cpp</c> <c>cleanupSessions</c>) marks a
-        /// character link dead (the red circle others see, <c>isLinkDead</c>) after 5 seconds without a client packet;
-        /// the client uses the same gap the other way. The retail client's own threshold is not measured yet (#235).
+        /// Default for <see cref="ConnectionLostAfter"/>: 10 seconds without a server datagram, the maintainer's call from
+        /// retail play (2026-10-07, #235): retail's Send/Receive tracker reads R0 and the red circle shows a couple of
+        /// seconds later. (LandSandBoat, https://github.com/LandSandBoat/server <c>map_session_container.cpp</c>
+        /// <c>cleanupSessions</c>, marks a character link dead for others after 5 seconds without a client packet.)
         /// </summary>
-        public static readonly TimeSpan DefaultConnectionLostAfter = TimeSpan.FromSeconds(5);
+        public static readonly TimeSpan DefaultConnectionLostAfter = TimeSpan.FromSeconds(10);
 
         /// <summary>
         /// Default for <see cref="ServerSilenceTimeout"/>: 60 seconds without a server datagram. LandSandBoat clears a map
@@ -409,7 +409,7 @@ namespace Gordian.Core.Network
         /// <see cref="IsConnectionLost"/> on after <see cref="ConnectionLostAfter"/> without a server datagram, and after
         /// <see cref="ServerSilenceTimeout"/> ends the session as a logout with state Timeout (8,
         /// <c>GP_GAME_LOGOUT_STATE_TIMEOUT</c>, "the client has timed out", XiPackets https://github.com/atom0s/XiPackets
-        /// <c>world/server/0x000B</c>), through the same path as a logout S2C 0x00B. Each session runs its own.
+        /// <c>world/server/0x000B</c>), through the same path as a logout S2C 0x00B; like a Log Out it goes back to the character select screen (<see cref="SessionLogout.ReturnsToLobby"/>). Each session runs its own.
         /// </summary>
         internal void CheckServerSilence()
         {
@@ -421,7 +421,7 @@ namespace Gordian.Core.Network
             }
 
             TimeSpan silence = TimeSinceLastServerPacket;
-            // A zone change has its own loading screen; the indicator is for a session that should be hearing from its server.
+            // Not during a zone change (its own loading screen). Harmless: retail cannot zone while disconnecting (maintainer, 2026-10-07).
             SetConnectionLost(silence >= ConnectionLostAfter && !ZoneTransitionPending);
             if (silence >= ServerSilenceTimeout)
             {

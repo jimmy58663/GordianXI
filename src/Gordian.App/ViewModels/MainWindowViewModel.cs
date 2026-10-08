@@ -1313,7 +1313,10 @@ namespace Gordian.App.ViewModels
                                 targetCharacterSlot: profile.CharacterSlot
                             ).ConfigureAwait(false);
 
-                            await StartLsbSessionAsync(profile, ticket).ConfigureAwait(false);
+                            // A dropped connection goes to the character select screen, as retail does (#235); Log Out keeps the fast path.
+                            Func<Task> lobbyOnTimeout = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
+                                !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
+                            await StartLsbSessionAsync(profile, ticket, lobbyOnTimeout: lobbyOnTimeout).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1459,7 +1462,8 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
+            Func<Task>? lobbyOnTimeout = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1531,50 +1535,50 @@ namespace Gordian.App.ViewModels
                 });
             };
 
-            // The server stopped answering for the timeout (#235): the session ends like a shutdown, and Online goes off
-            // when it reaches Disconnected (SessionRegistry unregisters it).
+            // A session goes back to the character select screen on Log Out (/logout or the menu), as retail does, when it
+            // came through that screen (afterLogout); a shutdown does not. The server answers Log Out and Shut Down with the
+            // same S2C 0x00B state, so the client's own request decides (#270). When the map server stops answering for the
+            // timeout (#235), retail also tries to go back to the lobby, and shuts down when that fails (maintainer,
+            // 2026-10-07); a fast-path session uses lobbyOnTimeout for that. If the lobby cannot be reached, the error is
+            // shown and the session ends; Online goes off when the registry drops it.
             netManager.LoggedOut += logout =>
             {
-                if (logout.State != Gordian.Core.Network.Packets.LogoutState.Timeout) return;
-                GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
-                timedOut = true;
-            };
-
-            if (afterLogout != null)
-            {
-                // A session that came through the character select screen goes back to its title menu on Log Out (/logout or
-                // the menu), as retail does; a shutdown or a dropped connection does not. The server answers Log Out and Shut
-                // Down with the same S2C 0x00B state, so the client's own request decides (#270).
-                netManager.LoggedOut += logout =>
+                bool timeout = logout.State == Gordian.Core.Network.Packets.LogoutState.Timeout;
+                if (timeout)
                 {
-                    if (!logout.ReturnsToLobby)
+                    GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
+                    timedOut = true;
+                }
+                Func<Task>? toLobby = timeout ? afterLogout ?? lobbyOnTimeout : afterLogout;
+                if (toLobby == null) return;
+                if (!logout.ReturnsToLobby)
+                {
+                    GordianLog.Info("SESSION", $"'{session.CharacterName}' {(logout.IsShutdown ? "shut down" : $"logged out ({logout.State})")}: ending the session.");
+                    return;
+                }
+                // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
+                // the lobby fades in there once the launcher has logged in again.
+                ViewportWindowManager.Default.BeginLobbyReturn();
+                _ = Task.Run(async () =>
+                {
+                    try
                     {
-                        GordianLog.Info("SESSION", $"'{session.CharacterName}' {(logout.IsShutdown ? "shut down" : $"logged out ({logout.State})")}: ending the session.");
-                        return;
+                        GordianLog.Info("SESSION", $"'{session.CharacterName}' {(timeout ? "lost the connection" : "logged out")}: back to the character select screen.");
+                        await toLobby().ConfigureAwait(false);
                     }
-                    // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
-                    // the lobby fades in there once the launcher has logged in again.
-                    ViewportWindowManager.Default.BeginLobbyReturn();
-                    _ = Task.Run(async () =>
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            GordianLog.Info("SESSION", $"'{session.CharacterName}' logged out: back to the character select screen.");
-                            await afterLogout().ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            GordianLog.Error("SESSION", $"Could not reopen the character select screen for '{profile.ProfileName}'", ex);
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Could not return to character select: {ex.Message}");
-                        }
-                        finally
-                        {
-                            ViewportWindowManager.Default.EndLobbyReturn();
-                            _sessionRegistry.UnregisterSession(session);
-                        }
-                    });
-                };
-            }
+                        GordianLog.Error("SESSION", $"Could not reopen the character select screen for '{profile.ProfileName}'", ex);
+                        string prefix = timeout ? "Lost connection to the server; could not" : "Could not";
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] {prefix} return to character select: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ViewportWindowManager.Default.EndLobbyReturn();
+                        _sessionRegistry.UnregisterSession(session);
+                    }
+                });
+            };
 
             _sessionRegistry.RegisterSession(session);
             registered?.Invoke();
