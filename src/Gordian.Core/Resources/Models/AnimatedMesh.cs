@@ -36,6 +36,12 @@ namespace Gordian.Core.Resources.Models
         public Vector3 MinBounds { get; set; }
         public Vector3 MaxBounds { get; set; }
 
+        /// <summary>
+        /// The weapon slot the group belongs to (0 main, 1 sub, 2 ranged: the <c>N</c> of its <c>wepN</c> section), shown or
+        /// hidden by the actor's routines (op 0x75); -1 for the body and armour.
+        /// </summary>
+        public int WeaponSlot { get; set; } = -1;
+
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"AnimatedSubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";
