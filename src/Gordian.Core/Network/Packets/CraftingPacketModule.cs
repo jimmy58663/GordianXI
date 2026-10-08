@@ -160,6 +160,7 @@ namespace Gordian.Core.Network.Packets
             try
             {
                 int len = CraftingPacketBuilders.BuildCombineAsk(buf, NextSequence(), crystalItemId, crystalSlot, ingredients);
+                if (len > 0) _state.BeginSynthesis();
                 await SendAsync(0x096, buf, len).ConfigureAwait(false);
                 return len > 0;
             }

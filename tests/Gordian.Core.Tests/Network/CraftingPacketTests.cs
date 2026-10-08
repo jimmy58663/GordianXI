@@ -420,7 +420,7 @@ namespace Gordian.Core.Tests.Network
             var lost = new ushort[8];
             lost[0] = 640;
             var fail = new OtherSynthesisOutcome(SynthesisAnswer.Failed, 1, -1, 1, 0, lost, 1, 1, "Ayame");
-            Assert.Equal("Ayame lost Bronze Ingot.", CraftingLog.FormatOther(fail, Item).Single());
+            Assert.Equal("Ayame lost a bronze ingot.", CraftingLog.FormatOther(fail, Item).Single());
         }
 
         #endregion

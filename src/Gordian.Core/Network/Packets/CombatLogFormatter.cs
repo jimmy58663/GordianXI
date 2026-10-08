@@ -147,6 +147,28 @@ namespace Gordian.Core.Network.Packets
             return first + "\n" + second;
         }
 
+        /// <summary>
+        /// A skill id (LandSandBoat's <c>SkillType</c>: 1 hand-to-hand ... 12 staff, 25-45 ranged, defense and magic skills,
+        /// 48 fishing, 49-56 the eight crafts, 57 synergy) as retail words it in "Gemini's bonecraft skill rises 0.1 points."
+        /// (lower case, a retail capture 2026-10-07). An unknown id prints as "#N".
+        /// </summary>
+        public static string SkillName(uint skillId) => skillId switch
+        {
+            1 => "hand-to-hand", 2 => "dagger", 3 => "sword", 4 => "great sword", 5 => "axe", 6 => "great axe", 7 => "scythe",
+            8 => "polearm", 9 => "katana", 10 => "great katana", 11 => "club", 12 => "staff",
+            25 => "archery", 26 => "marksmanship", 27 => "throwing", 28 => "guarding", 29 => "evasion", 30 => "shield", 31 => "parrying",
+            32 => "divine magic", 33 => "healing magic", 34 => "enhancing magic", 35 => "enfeebling magic", 36 => "elemental magic",
+            37 => "dark magic", 38 => "summoning magic", 39 => "ninjutsu", 40 => "singing", 41 => "string instrument", 42 => "wind instrument",
+            43 => "blue magic", 44 => "geomancy", 45 => "handbell",
+            48 => "fishing", 49 => "woodworking", 50 => "smithing", 51 => "goldsmithing", 52 => "clothcraft", 53 => "leathercraft",
+            54 => "bonecraft", 55 => "alchemy", 56 => "cooking", 57 => "synergy", 58 => "riding", 59 => "digging",
+            _ => $"#{skillId}",
+        };
+
+        /// <summary>A skill gain in tenths as retail prints it: 1 is "0.1", 25 is "2.5".</summary>
+        public static string FormatSkillTenths(uint tenths) =>
+            $"{tenths / 10}.{tenths % 10}";
+
         public static string FormatBattleMessage(
             CombatMessageRecord record,
             Func<uint, string?> resolveEntityName,
@@ -189,12 +211,12 @@ namespace Gordian.Core.Network.Packets
                 34 => $"{caster} does not have enough MP to cast.",
                 36 => $"You lose sight of {target}.",
                 37 => "You are too far from the battle to gain experience.",
-                38 => $"{target}'s skill rises by {record.Param} points.",
+                38 => $"{target}'s {SkillName(record.Param)} skill rises {FormatSkillTenths(record.Value)} points.",
                 43 => $"{caster} readies {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}.",
                 44 => $"{target}'s spikes deal {record.Param} damage to {caster}.",
                 47 => $"{caster} cannot cast spells.",
                 50 => $"{caster} earns a merit point! (Total: {record.Param})",
-                53 => $"{target}'s skill reaches level {record.Param}.",
+                53 => $"{target}'s {SkillName(record.Param)} skill reaches level {record.Value}.",
                 67 => $"{caster} scores a critical hit! {target} takes {record.Param} points of damage.",
                 70 => $"{target} parries {caster}'s attack.",
                 75 => $"{caster}'s spell has no effect on {target}.",

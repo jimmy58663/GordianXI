@@ -70,6 +70,9 @@ namespace Gordian.Core.Network
 
         /// <summary>Debug: <c>/playmusic &lt;n&gt; | stop</c> plays a music track on the client (not sent to the server).</summary>
         DebugPlayMusic,
+
+        /// <summary>Debug: <c>/playroutine &lt;name&gt;</c> plays a motion routine of the character's model on the client (not sent to the server).</summary>
+        DebugPlayRoutine,
         /// <summary><c>/lot [slot]</c>: lots on a treasure pool item (C2S 0x041); without a slot, on every item not yet entered.</summary>
         TreasureLot,
         /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
@@ -275,6 +278,7 @@ namespace Gordian.Core.Network
                     // Debug audio (client only)
                     "playsound" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlaySound, Message = args },
                     "playmusic" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlayMusic, Message = args },
+                    "playroutine" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlayRoutine, Message = args },
 
                     // Command Discovery & Help
                     "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)

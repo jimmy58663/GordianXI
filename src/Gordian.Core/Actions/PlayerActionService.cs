@@ -1888,6 +1888,27 @@ namespace Gordian.Core.Actions
 
         #region Crafting and guild shops
 
+        /// <summary>
+        /// Debug: <c>/playroutine &lt;name&gt;</c> plays a motion routine of the character's own model (a four-character
+        /// name such as <c>lc01</c>, <c>ls01</c>, <c>sit0</c>), on the client only. Used to compare the synthesis routines
+        /// <c>lc00</c>-<c>lc06</c> / <c>ls00</c>-<c>ls06</c> with retail.
+        /// </summary>
+        public PlayerActionResult PlayRoutineCommand(string args)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.DebugPlayRoutine;
+            string name = args.Trim();
+            if (name.Length is < 1 or > 4) return PlayerActionResult.Warn("Usage: /playroutine <routine name, e.g. lc01>", kind);
+            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var self) || self == null) return PlayerActionResult.Warn("There is no character to animate.", kind);
+            self.Animation.EnqueueAction(new Gordian.Core.Animation.ActionRequest
+            {
+                ActorId = self.ServerId,
+                Motion = Gordian.Core.Animation.ActionMotion.EventMotion,
+                Routine = name,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+            return PlayerActionResult.Info($"Routine {name} queued.", kind);
+        }
+
         private const string SynthUsage = "Usage: /synth <crystal slot> <ingredient slot> [ingredient slot ...] (inventory slots; repeat a slot to use several of a stack, 8 at most)";
         private const string GuildUsage = "Usage: /guild buylist | selllist | buy <item id> [count] | sell <inventory slot> [count]";
 
@@ -1899,6 +1920,9 @@ namespace Gordian.Core.Actions
         public async Task<PlayerActionResult> SynthesizeCommandAsync(string args)
         {
             const ChatCommandResultKind kind = ChatCommandResultKind.Synthesize;
+            // Retail refuses commands while the character synthesizes, in its own words, and sends nothing.
+            if (CraftingModule?.State.IsSynthesizing == true) return PlayerActionResult.Warn("You cannot use that command during synthesis.", kind);
+
             var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (parts.Length < 2 || parts.Length > 1 + CraftingPacketBuilders.MaxIngredients) return PlayerActionResult.Warn(SynthUsage, kind);
 
@@ -1928,7 +1952,8 @@ namespace Gordian.Core.Actions
             try
             {
                 await module.SynthesizeAsync(crystal.ItemId, slots[0], ingredients).ConfigureAwait(false);
-                return PlayerActionResult.Info("Synthesis requested.", kind);
+                // Retail prints nothing for the request; the animation and the result lines follow.
+                return PlayerActionResult.Ok(string.Empty, kind);
             }
             catch (Exception ex)
             {
@@ -2493,6 +2518,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.DebugPlayRoutine:
+                    return PlayRoutineCommand(cmd.Message ?? string.Empty);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:
