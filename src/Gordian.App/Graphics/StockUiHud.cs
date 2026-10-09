@@ -307,6 +307,7 @@ namespace Gordian.App.Graphics
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
                 : open[0].IsShopMenu ? StockUiWindowIds.Shop
+                : open[0].IsCheck ? StockUiWindowIds.Check
                 : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
@@ -350,7 +351,8 @@ namespace Gordian.App.Graphics
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
-                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont);
+                StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
+                    screen: new StockUiScreen(width, height, _window1Top));
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
             menus.SetScreenPlacements(_menuPlacements);
