@@ -277,7 +277,6 @@
         <Popup x:Name="PipDeckPopup"
                PlacementTarget="{Binding #ViewportHost}"
                Placement="AnchorAndGravity" PlacementAnchor="BottomRight" PlacementGravity="TopLeft"
-               HorizontalOffset="-12" VerticalOffset="-12"
                PlacementConstraintAdjustment="SlideX, SlideY"
                IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
             <ItemsControl ItemsSource="{Binding PipThumbnails}">
@@ -331,7 +330,6 @@
         <Popup x:Name="FreeCamPopup"
                PlacementTarget="{Binding #ViewportHost}"
                Placement="AnchorAndGravity" PlacementAnchor="Bottom" PlacementGravity="Top"
-               VerticalOffset="-24"
                PlacementConstraintAdjustment="SlideX, SlideY"
                IsLightDismissEnabled="False" Topmost="False" TakesFocusFromNativeControl="False">
             <Border Background="#EA1E222B"

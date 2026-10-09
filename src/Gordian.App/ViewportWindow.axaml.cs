@@ -40,6 +40,12 @@ namespace Gordian.App
         private bool _isShown;
         private bool _ribbonRevealed;
         private bool _railRevealed;
+        private readonly Border? _ribbonBorder;
+        private readonly Border? _railBorder;
+        private readonly DispatcherTimer? _autoHideTimer;
+
+        /// <summary>How long a revealed ribbon or rail stays after the pointer leaves it.</summary>
+        private const int AutoHideDelayMs = 300;
 
         /// <summary>How close to the top / left edge of the view (in device-independent pixels) reveals the ribbon / rail.</summary>
         private const double EdgeRevealDip = 6.0;
@@ -117,24 +123,23 @@ namespace Gordian.App
                 pillRoot.PointerExited += (_, _) => SetPillExpanded(collapsed, expanded, false);
             }
 
-            // The auto-hiding ribbon and rail hide again once the pointer leaves them (unless a drop-down of theirs is open).
-            if (this.FindControl<Border>("TopRibbonBorder") is { } ribbonBorder)
+            // The auto-hiding ribbon and rail stay while the pointer is over them (or a drop-down of theirs is open) and
+            // hide a moment after it leaves them.
+            _ribbonBorder = this.FindControl<Border>("TopRibbonBorder");
+            _railBorder = this.FindControl<Border>("SideRailBorder");
+            foreach (var bar in new[] { _ribbonBorder, _railBorder })
             {
-                ribbonBorder.PointerExited += (_, _) =>
-                {
-                    if (_displayModeCombo?.IsDropDownOpen == true) return;
-                    _ribbonRevealed = false;
-                    UpdateOverlayPopups();
-                };
+                if (bar == null) continue;
+                bar.PointerEntered += (_, _) => _autoHideTimer?.Stop();
+                bar.PointerExited += (_, _) => ScheduleAutoHide();
             }
-            if (this.FindControl<Border>("SideRailBorder") is { } railBorder)
+            _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AutoHideDelayMs) };
+            if (_displayModeCombo != null) _displayModeCombo.DropDownClosed += (_, _) => ScheduleAutoHide();
+            _autoHideTimer.Tick += (_, _) =>
             {
-                railBorder.PointerExited += (_, _) =>
-                {
-                    _railRevealed = false;
-                    UpdateOverlayPopups();
-                };
-            }
+                _autoHideTimer.Stop();
+                HideBarsThePointerLeft();
+            };
 
             // Popups follow the window when it moves; the PiP deck was left behind on the old monitor in game, so once a
             // move settles every open popup is placed again from scratch.
@@ -144,6 +149,16 @@ namespace Gordian.App
                 _repositionTimer.Stop();
                 ReopenOverlayPopups();
             };
+            // The PiP deck and free camera banner anchor at a point inside the 3D view (see PlaceBottomPopups).
+            if (this.FindControl<Border>("ViewportHost") is { } host)
+            {
+                host.SizeChanged += (_, e) =>
+                {
+                    PlaceBottomPopups(e.NewSize);
+                    _repositionTimer.Stop();
+                    _repositionTimer.Start();
+                };
+            }
             PositionChanged += (_, _) =>
             {
                 _repositionTimer.Stop();
@@ -259,21 +274,83 @@ namespace Gordian.App
         }
 
         /// <summary>
-        /// The pointer over the 3D surface (surface pixels): at the top edge it reveals the ribbon, at the left edge the
-        /// rail; anywhere else on the surface it hides them (the pointer is off them, since they cover their edge).
+        /// The pointer over the 3D surface itself (surface pixels): at the top edge it reveals the ribbon, at the left
+        /// edge the rail; elsewhere on the surface a revealed bar is hidden after <see cref="AutoHideDelayMs"/> unless the
+        /// pointer is back over it by then.
         /// </summary>
         private void UpdateEdgeReveal(Point surfacePoint)
         {
             if (_viewModel == null || _isRightDragging) return;
             double edge = EdgeRevealDip * RenderScaling;
-            bool ribbon = _viewModel.ShowTopRibbon && surfacePoint.Y <= edge;
-            bool rail = _viewModel.ShowSideRail && surfacePoint.X <= edge;
-            if (_displayModeCombo?.IsDropDownOpen == true) ribbon = _ribbonRevealed;
-            if (ribbon == _ribbonRevealed && rail == _railRevealed) return;
-            _ribbonRevealed = ribbon;
-            _railRevealed = rail;
-            UpdateOverlayPopups();
+            bool revealRibbon = _viewModel.ShowTopRibbon && surfacePoint.Y <= edge;
+            bool revealRail = _viewModel.ShowSideRail && surfacePoint.X <= edge;
+            if (revealRibbon || revealRail)
+            {
+                _autoHideTimer?.Stop();
+                if ((revealRibbon && !_ribbonRevealed) || (revealRail && !_railRevealed))
+                {
+                    _ribbonRevealed |= revealRibbon;
+                    _railRevealed |= revealRail;
+                    UpdateOverlayPopups();
+                }
+                return;
+            }
+            if (_ribbonRevealed || _railRevealed) ScheduleAutoHide();
         }
+
+        /// <summary>Margin (device-independent pixels) between the PiP deck and the bottom-right corner of the view.</summary>
+        private const double PipMargin = 12.0;
+
+        /// <summary>Gap (device-independent pixels) between the free camera banner and the bottom of the view.</summary>
+        private const double FreeCamBannerMargin = 24.0;
+
+        /// <summary>
+        /// Anchors the PiP deck and the free camera banner at points inside the view (<see cref="Popup.PlacementRect"/>),
+        /// not on its bottom / right edge. The positioner keeps a popup on the screen that holds its anchor point, and the
+        /// view's bottom-right corner of a window filling its monitor (borderless) is the first pixel of the monitor to
+        /// its right or below: the PiP deck was slid onto that monitor, whatever the window did after (round 3).
+        /// </summary>
+        private void PlaceBottomPopups(Size viewSize)
+        {
+            double width = Math.Max(1.0, viewSize.Width);
+            double height = Math.Max(1.0, viewSize.Height);
+            if (_pipPopup != null)
+            {
+                _pipPopup.PlacementRect = new Rect(0, 0, Math.Max(1.0, width - PipMargin), Math.Max(1.0, height - PipMargin));
+            }
+            if (_freeCamPopup != null)
+            {
+                _freeCamPopup.PlacementRect = new Rect(0, 0, width, Math.Max(1.0, height - FreeCamBannerMargin));
+            }
+        }
+
+        /// <summary>Starts (or restarts) the delay after which a revealed bar the pointer has left is hidden.</summary>
+        private void ScheduleAutoHide()
+        {
+            if (_autoHideTimer == null) return;
+            _autoHideTimer.Stop();
+            _autoHideTimer.Start();
+        }
+
+        /// <summary>Hides the ribbon and rail unless the pointer is over them or one of their drop-downs is open.</summary>
+        private void HideBarsThePointerLeft()
+        {
+            bool keepRibbon = _ribbonBorder?.IsPointerOver == true || _displayModeCombo?.IsDropDownOpen == true;
+            bool keepRail = _railBorder?.IsPointerOver == true;
+            bool changed = false;
+            if (_ribbonRevealed && !keepRibbon) { _ribbonRevealed = false; changed = true; }
+            if (_railRevealed && !keepRail) { _railRevealed = false; changed = true; }
+            if (changed) UpdateOverlayPopups();
+        }
+
+        /// <summary>
+        /// True when a routed pointer event came from one of this window's popups (pill, ribbon, rail, PiP deck,
+        /// banner). Popup content routes its events up through the Popup into this window, so without this check a
+        /// move over the ribbon read as a move over the 3D surface (hiding the ribbon at once) and a switcher click
+        /// reached the character as a game mouse press.
+        /// </summary>
+        private bool IsFromOverlay(RoutedEventArgs e) =>
+            e.Source is Visual source && TopLevel.GetTopLevel(source) is { } root && !ReferenceEquals(root, this);
 
         private static void SetPillExpanded(Border? collapsed, Border? expanded, bool expand)
         {
@@ -552,6 +629,7 @@ namespace Gordian.App
 
         private void OnGamePointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint))
@@ -585,6 +663,7 @@ namespace Gordian.App
 
         private void OnGamePointerReleased(object? sender, PointerReleasedEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -607,6 +686,7 @@ namespace Gordian.App
 
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             if (TryGetViewportPoint(e, out var edgePoint)) UpdateEdgeReveal(edgePoint);
             if (ActiveLobby is { } lobby)
             {
@@ -629,6 +709,7 @@ namespace Gordian.App
 
         private void OnGamePointerWheelChanged(object? sender, PointerWheelEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
