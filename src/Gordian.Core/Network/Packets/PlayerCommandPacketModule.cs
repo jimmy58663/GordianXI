@@ -13,7 +13,7 @@ namespace Gordian.Core.Network.Packets
     /// (0x113), <c>/random</c> (0x0A2), proposals and votes (0x0A0 / 0x0A1, answered by S2C 0x078 / 0x079), wide scan
     /// (0x0F4-0x0F6, answered by S2C 0x0F4-0x0F6), the emote list (0x119, answered by 0x11A), the synthesis effect end
     /// (0x059), other players' <c>/jump</c> (S2C 0x11E), the emote echo of everyone in range (S2C 0x05A), system messages
-    /// (S2C 0x053) and bazaar messages (S2C 0x0CA, set with C2S 0x0DE). Decoded data goes to <see cref="PlayerCommandState"/>.
+    /// (S2C 0x053) and bazaar messages (S2C 0x0CA, set with C2S 0x0DE) and player checks (S2C 0x0C9). Decoded data goes to <see cref="PlayerCommandState"/>.
     /// </summary>
     public sealed class PlayerCommandPacketModule
     {
@@ -51,6 +51,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x053_SystemMes.PacketId, HandleSystemMes);
             dispatcher.Register(S2C_0x05A_MotionMes.PacketId, HandleMotionMes);
             dispatcher.Register(S2C_0x0CA_InspectMessage.PacketId, HandleInspectMessage);
+            dispatcher.Register(S2C_0x0C9_EquipInspect.PacketId, HandleEquipInspect);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -66,6 +67,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x053_SystemMes.PacketId);
             dispatcher.Unregister(S2C_0x05A_MotionMes.PacketId);
             dispatcher.Unregister(S2C_0x0CA_InspectMessage.PacketId);
+            dispatcher.Unregister(S2C_0x0C9_EquipInspect.PacketId);
         }
 
         #region Inbound
@@ -159,6 +161,29 @@ namespace Gordian.Core.Network.Packets
             var info = new InspectMessageInfo(inspect.Name, inspect.Message, inspect.HasBazaar, inspect.IsSelf, inspect.Race, inspect.TitleId);
             GordianLog.Debug("INSPECT", $"Inspect message 0x0CA: '{info.Name}' self={info.IsSelf} bazaar={info.HasBazaar} title={info.TitleId} message='{info.Message.Replace('\n', '|')}'");
             _state.Inspect.Apply(info);
+        }
+
+        /// <summary>
+        /// S2C 0x0C9: a player check's reply. The equipment packets (mode 3, or the older 0 / 2) collect per character; the
+        /// general block (mode 1), sent last, completes the check with the bazaar message (0x0CA) that preceded it.
+        /// </summary>
+        private void HandleEquipInspect(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var inspect = new S2C_0x0C9_EquipInspect(payload);
+            if (!inspect.IsValid) return;
+            if (inspect.Mode != EquipInspectMode.General)
+            {
+                Span<EquipInspectItem> items = stackalloc EquipInspectItem[S2C_0x0C9_EquipInspect.MaxItemsPerPacket];
+                int count = inspect.ReadItems(items);
+                GordianLog.Debug("INSPECT", $"Equip inspect 0x0C9 mode {inspect.OptionFlag}: id=0x{inspect.ServerId:X8} items={count}");
+                _state.Equipment.AddItems(inspect.ServerId, items[..count]);
+                return;
+            }
+            GordianLog.Debug("INSPECT", $"Equip inspect 0x0C9 general: id=0x{inspect.ServerId:X8} job={inspect.MainJob}/{inspect.SubJob} " +
+                $"lv={inspect.MainJobLevel}/{inspect.SubJobLevel} ls='{inspect.LinkshellName}'");
+            _state.Equipment.Complete(inspect.ServerId, inspect.TargetIndex, inspect.MainJob, inspect.MainJobLevel, inspect.SubJob, inspect.SubJobLevel,
+                inspect.MasteryJob, inspect.MasteryLevel, inspect.MasteryFlags, inspect.LinkshellItemId, inspect.LinkshellName, inspect.LinkshellColor,
+                _state.Inspect.Last);
         }
 
         #endregion
