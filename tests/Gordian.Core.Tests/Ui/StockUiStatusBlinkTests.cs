@@ -67,15 +67,18 @@ namespace Gordian.Core.Tests.Ui
 
         [Theory]
         [InlineData(null, null)]
-        [InlineData(3600.0, null)]
-        [InlineData(60.5, null)] // nothing above a minute
+        [InlineData(5400.0, "90m")] // minutes past an hour (hours unconfirmed)
+        [InlineData(120.0, "2m")]
+        [InlineData(119.0, "2m")]
+        [InlineData(61.0, "2m")] // rounded up, like the seconds
+        [InlineData(60.5, "2m")]
         [InlineData(60.0, "60")]
         [InlineData(59.2, "60")] // whole seconds, rounded up
         [InlineData(12.0, "12")]
         [InlineData(0.3, "1")]
         [InlineData(0.0, null)]
         [InlineData(-2.0, null)]
-        public void DurationText_CountsDownTheLastMinuteInSeconds(double? left, string? expected)
+        public void DurationText_MinutesThenTheLastMinuteInSeconds(double? left, string? expected)
         {
             Assert.Equal(expected, StockUiStatusBlink.DurationText(left));
         }

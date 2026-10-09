@@ -26,7 +26,8 @@ namespace Gordian.App.Tests.Graphics
             var background = screen.Render(_ => { });
 
             // The time left under the second icon only (a minute or less left), in light glyphs from its lower edge down.
-            var durations = new[] { null, StockUiStatusBlink.DurationText(42) };
+            Assert.True(screen.Font.TryGetGlyph('m', out _)); // fontshp carries the minutes' "m"
+            var durations = new[] { null, StockUiStatusBlink.DurationText(120) }; // "2m", as the retail screenshot
             var timed = screen.Render(r => StockUiTargetWindow.DrawStatusIcons(r, icons, grid, placement, ids, null, durations, screen.Font), "gpu_status_duration.png");
             var first = grid.Buttons[0];
             var second = grid.Buttons[1];

@@ -13,8 +13,9 @@ namespace Gordian.Core.Ui
     /// <para>
     /// An icon blinks once fewer than <see cref="BlinkThresholdSeconds"/> are left (15 s, the maintainer's retail check,
     /// 2026-10-07), fading out and back once every <see cref="BlinkPeriodSeconds"/> down to <see cref="MinimumOpacity"/>
-    /// (the fade was accepted in game; its period and depth are ours). Under an icon with a minute or less left the time
-    /// left counts down in seconds (<see cref="DurationText"/>; retail screenshot, 2026-10-07).
+    /// (the fade was accepted in game; its period and depth are ours). Under each timed icon the time left shows in whole
+    /// minutes ("2m") and, from 60 s, counts down in seconds (<see cref="DurationText"/>; retail screenshot and the
+    /// maintainer's answer, 2026-10-08).
     /// </para>
     /// </summary>
     public static class StockUiStatusBlink
@@ -22,19 +23,22 @@ namespace Gordian.Core.Ui
         /// <summary>Seconds left below which an icon blinks (retail: 15).</summary>
         public const double BlinkThresholdSeconds = 15;
 
-        /// <summary>The longest time left the duration under an icon shows (retail counts down from 60 s).</summary>
-        public const double DurationShownSeconds = 60;
+        /// <summary>The time left from which the duration counts down in seconds (retail: 60 s); above it, whole minutes.</summary>
+        public const double SecondsShownFrom = 60;
 
         /// <summary>
-        /// The time left drawn under an icon: whole seconds, rounded up ("60" ... "1"), once a minute or less is left;
-        /// null (nothing drawn) above that, for an effect without a timer, or once it has run out.
-        /// PROVISIONAL: the text's form (a bare number here); see docs/ui/stock-ui.md.
+        /// The time left drawn under an icon, as retail shows it (the maintainer, 2026-10-08): above a minute, whole minutes
+        /// with an "m" ("2m", "15m", "90m"); from 60 s, plain seconds ("60" ... "1"). Both round up, so "2m" covers 61-120 s
+        /// and the minutes hand over to "60". Null (nothing drawn) for an effect without a timer or once it has run out.
+        /// UNCONFIRMED: the minutes' rounding (the screenshot shows "2m" without the exact time left) and whether retail
+        /// switches to hours past 60 minutes (minutes are kept here).
         /// </summary>
         public static string? DurationText(double? remainingSeconds)
         {
-            if (remainingSeconds is not { } left || left <= 0 || left > DurationShownSeconds) return null;
-            int seconds = (int)Math.Ceiling(left);
-            return seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (remainingSeconds is not { } left || left <= 0) return null;
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            if (left <= SecondsShownFrom) return ((int)Math.Ceiling(left)).ToString(culture);
+            return ((long)Math.Ceiling(left / 60)).ToString(culture) + "m";
         }
 
         /// <summary>One fade out and back in.</summary>
