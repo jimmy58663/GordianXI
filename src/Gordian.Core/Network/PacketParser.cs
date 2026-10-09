@@ -40,6 +40,8 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly SchedulerState _scheduler = new();
+        private readonly SchedulerPacketModule _schedulerModule;
         private readonly DeliveryBoxState _delivery = new();
         private readonly BlacklistState _blacklist = new();
         private readonly SocialState _social = new();
@@ -131,6 +133,10 @@ namespace Gordian.Core.Network
 
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
+
+            _schedulerModule = new SchedulerPacketModule(_scheduler, _world);
+            _schedulerModule.Register(_dispatcher);
+            _world.ZoneChanged += _ => _scheduler.Clear();
 
             _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
             _socialModule.Register(_dispatcher);
@@ -251,6 +257,9 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>Gets the actor and magic schedulers the server asked to play (S2C 0x038, 0x03A); decode only.</summary>
+        public SchedulerState Scheduler => _scheduler;
 
         /// <summary>Gets the delivery box: the incoming and outgoing slots as the server described them (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => _delivery;

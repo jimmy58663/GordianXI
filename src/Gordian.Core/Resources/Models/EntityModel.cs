@@ -29,10 +29,24 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The raw routines <see cref="MotionRoutines"/> is built from; a later source replaces a same-named one.</summary>
         internal Dictionary<string, RawMotionRoutine> RawMotionRoutines { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// The equipped ranged weapon's RangeType (its DAT's Info byte 14: 1 wind instrument, 2 string instrument,
+        /// 3 marksmanship, 4 / 5 throwing, 6 archery, 10 / 11 handbell), which picks the <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c> routines a
+        /// ranged attack plays; -1 without one.
+        /// </summary>
+        public int RangedType { get; set; } = -1;
+
+        /// <summary>
+        /// Bit mask of the weapon slots (bit n = the <c>wepN</c> meshes) hidden while no routine says otherwise: what the
+        /// model's <c>init</c> routine hides. A PC's <c>init</c> links <c>hwpc</c>, so its ranged weapon (slot 2) is hidden
+        /// until a ranged attack shows it.
+        /// </summary>
+        public int DefaultHiddenWeaponSlots { get; set; }
+
         /// <summary>Rebuilds <see cref="MotionRoutines"/> from <see cref="RawMotionRoutines"/> against the current clips.</summary>
         internal void RebuildMotionRoutines()
         {
-            MotionRoutines = MotionRoutineDecoder.BuildAll(RawMotionRoutines, clip => Animations.ContainsKey(clip));
+            MotionRoutines = MotionRoutineDecoder.BuildAll(RawMotionRoutines, clip => Animations.ContainsKey(clip), RangedType);
         }
 
         public Vector3 MinBounds { get; private set; } = new(float.MaxValue);
@@ -77,14 +91,24 @@ namespace Gordian.Core.Resources.Models
             {
                 var g = AnimatedMeshGroups[i];
                 if (g.Vertices.Length == 0) continue;
+                // A weapon hidden until an action shows it (a stowed bow) lies at its bind pose, by the feet: not part of the body.
+                if (IsWeaponSlotHidden(DefaultHiddenWeaponSlots, g.WeaponSlot)) continue;
 
                 min = Vector3.Min(min, g.MinBounds);
                 max = Vector3.Max(max, g.MaxBounds);
             }
 
+            if (min.X > max.X)
+            {
+                min = -Vector3.One;
+                max = Vector3.One;
+            }
             MinBounds = min;
             MaxBounds = max;
         }
+
+        /// <summary>Whether a mesh group of weapon slot <paramref name="slot"/> (-1 for none) is hidden under a slot mask.</summary>
+        public static bool IsWeaponSlotHidden(int hiddenSlotMask, int slot) => slot is >= 0 and < 32 && (hiddenSlotMask & (1 << slot)) != 0;
 
         public override string ToString() => $"EntityModel [{Name}] ({AnimatedMeshGroups.Count} meshes, {Textures.Count} textures, {TotalTriangles} tris)";
     }
