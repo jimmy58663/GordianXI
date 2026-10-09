@@ -330,6 +330,23 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// The weapon animation type (main weapon Info byte 3) of a race's hand-to-hand weapons, which an unarmed character
+        /// fights with too. The numbering is per race: the hand-to-hand weapons (model ids 1, 117-121) carry 2 on Hume male,
+        /// 3 on Hume female, 0 on Elvaan male, Tarutaru and Galka, 1 on Elvaan female and Mithra (read from the retail weapon
+        /// DATs, 2026-10-07), and in each race's table that index is the one pack with the off-hand and kick swings
+        /// (<c>bti0</c> / <c>bti1</c> / <c>cti0</c> / <c>dti0</c>: Hume male <c>ROM/32/15</c>). Kicks also come unarmed (XiPackets
+        /// world/server/0x0028 <c>sub_kind</c> 2 / 3: "using hand-to-hand weapons, or no weapon equipped"), so unarmed uses that
+        /// pack, not index 0 (Hume male's index 0, <c>ROM/32/13</c>, is the club and staff pack, #138).
+        /// </summary>
+        public static int GetUnarmedWeaponType(CharacterRace race) => race switch
+        {
+            CharacterRace.HumeMale => 2,
+            CharacterRace.HumeFemale => 3,
+            CharacterRace.ElvaanFemale or CharacterRace.Mithra => 1,
+            _ => 0
+        };
+
+        /// <summary>
         /// Resolves the battle-stance motion-pack relative DAT path (e.g. ROM/32/14.DAT for Dagger on Hume Male)
         /// for a race and retail weaponAnimationType index (0 = H2H, 1 = Dagger, 2 = 1H Sword, etc.).
         /// Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/public/lists/characters.json.

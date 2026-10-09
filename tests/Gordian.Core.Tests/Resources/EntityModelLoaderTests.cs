@@ -149,7 +149,8 @@ namespace Gordian.Core.Tests.Resources
             // Locomotion and battle motion packs are enabled by default and loaded via path (and fileId fallback).
             Assert.Contains(Path.Combine("ROM", "27", "83.DAT"), loadedPaths);
             Assert.Contains(Path.Combine("ROM", "27", "85.DAT"), loadedPaths);
-            Assert.Contains(Path.Combine("ROM", "32", "13.DAT"), loadedPaths);
+            // Unarmed: the hand-to-hand pack (Hume male ROM/32/15), not index 0 (ROM/32/13, clubs and staves; #138).
+            Assert.Contains(Path.Combine("ROM", "32", "15.DAT"), loadedPaths);
         }
 
         [Fact]

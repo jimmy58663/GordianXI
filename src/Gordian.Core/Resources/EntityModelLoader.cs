@@ -351,7 +351,8 @@ namespace Gordian.Core.Resources
                 }
 
                 // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
-                int weaponAnimType = 0; // 0 = H2H / Unarmed default
+                // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138).
+                int weaponAnimType = CharacterEquipmentResolver.GetUnarmedWeaponType(race);
                 for (int w = 0; w < weaponDats.Count; w++)
                 {
                     var (slot, dat) = weaponDats[w];
@@ -376,7 +377,7 @@ namespace Gordian.Core.Resources
                 }
 
                 // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
-                // number (folder * 1000 + file, 32013 for Hume male hand-to-hand) as a file id, which names no file or an
+                // number (folder * 1000 + file, 32013 for Hume male club and staff) as a file id, which names no file or an
                 // unrelated one (#203); the path already goes through the VFS and the game directory.
                 string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
                 byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
