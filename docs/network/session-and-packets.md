@@ -108,7 +108,7 @@ Missing packets, grouped by feature:
 - ~~[#106](https://github.com/jimmy58663/GordianXI/issues/106)~~: treasure pool is decoded and `/lot` / `/pass` work, see below. The stock Treasure Pool window is [#143](https://github.com/jimmy58663/GordianXI/issues/143).
 - ~~[#107](https://github.com/jimmy58663/GordianXI/issues/107)~~: `0x067`/`0x068` char, entity and pet sync are decoded, see below.
 - ~~[#108](https://github.com/jimmy58663/GordianXI/issues/108)~~: `0x051` `GRAP_LIST` is decoded (#153): payload 0-17 is the nine-entry grap id table (race/face, head, body, hands, legs, feet, main, sub, ranged), which becomes the local player's appearance. `0x04F` `EQUIP_CLEAR` (4 bytes of padding) empties every slot in `InventoryState` (`ClearEquipment`); the 0x050s that follow re-equip what is still worn. LSB sends it at login and from `resyncEquipment` after an item transaction.
-- [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`.
+- [#109](https://github.com/jimmy58663/GordianXI/issues/109): scheduler packets `0x038`-`0x03A`. `0x039` plays zone routines (#210); `0x038` and `0x03A` are decoded only, see Scheduler packets below.
 - ~~[#110](https://github.com/jimmy58663/GordianXI/issues/110)~~: message and event-parameter packets, including the `0x05A` emote echo, are decoded, see below.
 - ~~[#111](https://github.com/jimmy58663/GordianXI/issues/111)~~: `/heal`, `/sit`, `/sitchair`, `/random`, votes, wide scan and the emote list are done, see below.
 - [#112](https://github.com/jimmy58663/GordianXI/issues/112): synthesis and guild-shop requests.
@@ -311,3 +311,12 @@ The search server runs next to the world server on its own TCP port (LSB `SEARCH
 **Findings.** LSB answers a search comment request with nothing when the comment is empty, so the request runs out its wait (a timeout is not an error). The party list needs the party's group id from the world server (C2S 0x078 / S2C 0x0E1); the linkshell list needs the id in the first word of the worn linkshell item's extra data. LSB's Auction House history packet writes the item's listing counts into the price slot of its header; the sales list (price, date, seller, buyer) is the useful part.
 
 **To verify against a live server.** The frame, key derivation and every layout are from reading LSB; no live search server was available. Check in game: open a connection and `/sea all` (a non-empty result proves the frame, the keys and the player entry layout); `GetAuctionListAsync(1)` and a history for a listed item; the party list in a party; the linkshell list with a linkshell equipped; and `/sea` with a name, a job and a level range (the request bit stream).
+
+
+## Scheduler packets (#109)
+
+`SchedulerPacketModule` decodes S2C 0x038 (`GP_SERV_COMMAND_SCHEDULOR`) and 0x03A (`GP_SERV_COMMAND_MAGICSCHEDULOR`) into `SchedulerState`, which `CharacterSession.Scheduler` exposes. The requests are bounded (64 each), kept in arrival order, and dropped on a zone change. This is **decode only**: nothing plays them. The playback runtime (effect routines, #9, #10, #227, #232, #233) is what should call `TakeActorSchedulers` / `TakeMagicSchedulers`, or subscribe to `ActorSchedulerPosted` / `MagicSchedulerPosted`.
+
+- **0x038** carries the caster and target (server id and index) and a FourCC naming a script in the caster's animation DATs. The layout is that of 0x039 (`S2C_0x039_MapSchedulor`), which instead names a routine of the zone DAT. LandSandBoat's keys: `kesu` fades an entity out (despawn state, battlefield exit), `hitl` is the sweating animation of fishing, and the Trust and gambit code sends animation strings straight from Lua, so an unknown key is normal. A key that is not four printable ASCII characters decodes with an empty `Routine` but keeps `RoutineId`.
+- **0x03A** names an effect script by number (`FileNumber`) with a family `Type` (0 cast spell, 1 item, 2 ability, 6 weapon skill, 9 monster skill, 3 / 4 event animations and banners, the rest unknown). LandSandBoat only sends it from `independentAnimation(target, animId, mode)`. Which DAT `FileNumber` indexes (the spell / ability effect files that 0x028 actions use, or a separate table) is not yet established; the playback work has to settle that.
+- Seen in logs: 0x038 once per session so far, with no 0x03A.
