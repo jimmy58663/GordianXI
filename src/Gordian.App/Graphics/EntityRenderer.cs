@@ -169,6 +169,9 @@ namespace Gordian.App.Graphics
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public uint IndexCount { get; init; }
 
+            /// <summary>The weapon slot of the mesh (<see cref="AnimatedMeshGroup.WeaponSlot"/>), or -1.</summary>
+            public int WeaponSlot { get; init; } = -1;
+
             public void Dispose()
             {
                 VertexBuffer?.Dispose();
@@ -566,6 +569,7 @@ namespace Gordian.App.Graphics
 
                 cl.SetPipeline(faded ? (isSkinned ? _skinnedDepthPipeline : _depthPipeline) : (isSkinned ? _skinnedPipeline : _pipeline));
                 ResourceSet? paletteSet = null;
+                int hiddenWeapons = 0; // weapon slots the actor's routines hide (a stowed ranged weapon, melee during a cast)
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
 
                 if (skinnedModel != null)
@@ -597,6 +601,7 @@ namespace Gordian.App.Graphics
                     _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { Skeleton = skinnedModel.Skeleton, Pose = pose };
                     cl.SetGraphicsResourceSet(2, palette.Set);
                     paletteSet = palette.Set;
+                    hiddenWeapons = entity.Animation.HiddenWeaponSlots;
                 }
 
                 float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
@@ -604,14 +609,14 @@ namespace Gordian.App.Graphics
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
 
-                draws += DrawSubmeshes(cl, gpuModel);
+                draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.
                     cl.SetPipeline(isSkinned ? _skinnedFadePipeline : _fadePipeline);
                     cl.SetGraphicsResourceSet(0, _entityResourceSet);
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
-                    draws += DrawSubmeshes(cl, gpuModel);
+                    draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
                 }
             }
 
@@ -620,12 +625,17 @@ namespace Gordian.App.Graphics
             CulledEntities = culled;
         }
 
-        /// <summary>Draws every submesh of a model with the bound pipeline; returns the draw calls made.</summary>
-        private int DrawSubmeshes(CommandList cl, GpuEntityModel gpuModel)
+        /// <summary>
+        /// Draws every submesh of a model with the bound pipeline, except the weapon slots in <paramref name="hiddenWeapons"/>;
+        /// returns the draw calls made.
+        /// </summary>
+        private int DrawSubmeshes(CommandList cl, GpuEntityModel gpuModel, int hiddenWeapons)
         {
+            int draws = 0;
             for (int m = 0; m < gpuModel.Submeshes.Count; m++)
             {
                 var submesh = gpuModel.Submeshes[m];
+                if (EntityModel.IsWeaponSlotHidden(hiddenWeapons, submesh.WeaponSlot)) continue;
                 // The model's own texture of that name, uploaded by its source (never by name: #163).
                 var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
 
@@ -633,8 +643,9 @@ namespace Gordian.App.Graphics
                 cl.SetVertexBuffer(0, submesh.VertexBuffer);
                 cl.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 cl.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                draws++;
             }
-            return gpuModel.Submeshes.Count;
+            return draws;
         }
 
         private JointPaletteEntry CreateJointPalette()
@@ -912,7 +923,8 @@ namespace Gordian.App.Graphics
                     TextureName = mg.TextureName,
                     VertexBuffer = vb,
                     IndexBuffer = ib,
-                    IndexCount = (uint)ushortIndices.Length
+                    IndexCount = (uint)ushortIndices.Length,
+                    WeaponSlot = mg.WeaponSlot
                 });
             }
 
