@@ -55,9 +55,9 @@ namespace Gordian.Core.Ui
         MessageArrival = 39,
 
         /// <summary>
-        /// An incoming tell. Provisional, pending a retail listen: <c>se000040</c> is the one unnamed entry of the client's
-        /// system sound table (<c>ROM/0/0.DAT</c> <c>/syst/soun/0040</c>, after Message Arrival's <c>0039</c>) of a
-        /// notification's length (1.26 s); the other unnamed entries are a 31 s sound (5) and a 40 ms click (6).
+        /// An incoming tell: <c>se000040</c>, the entry of the client's system sound table (<c>ROM/0/0.DAT</c>
+        /// <c>/syst/soun/0040</c>, after Message Arrival's <c>0039</c>). Confirmed as the retail tell sound by the
+        /// maintainer's retail check, 2026-10-08, comparing it with <c>/playsound 40</c>.
         /// </summary>
         TellArrival = 40,
     }

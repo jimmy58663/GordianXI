@@ -126,7 +126,7 @@ System sounds live in `se000` (ids and names from the Windower pol-utils list bu
 | Close Menu | 15 | Cancel in a menu |
 | Target Selection | 9 | `PlayerActionService.TargetChanged` from no target |
 | Target Switch | 10 | `TargetChanged` from one target to another |
-| Tell (`TellArrival`) | 40 | an incoming tell (`ChatMessageType.Tell` not from the player), on the Notification bus. Provisional, pending a retail listen: 40 is the one unnamed entry of the client's system sound table (`ROM/0/0` `/syst/soun/0001`-`0040`) of a notification's length (1.26 s); the other unnamed entries are 5 (31 s) and 6 (a 40 ms click). Unnamed `se000` candidates outside that table: 41-43 (1.3-1.6 s), 44 (`sound9`), 46-48, 50. Until round 2 this played 39, "Message Arrival", which the maintainer identified in game (2026-10-07) as PlayOnline's message sound (a friend's message through POL), not the tell sound; nothing plays 39 now |
+| Tell (`TellArrival`) | 40 | an incoming tell (`ChatMessageType.Tell` not from the player), on the Notification bus. Confirmed as the retail tell sound by the maintainer's retail check, 2026-10-08 (via `/playsound 40`); it is entry `0040` of the client's system sound table (`ROM/0/0` `/syst/soun`). Until round 2 this played 39, "Message Arrival", which the maintainer identified in game (2026-10-07) as PlayOnline's message sound (a friend's message through POL), not the tell sound; nothing plays 39 now |
 
 Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), level-up (7) and quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
 
