@@ -67,11 +67,13 @@ namespace Gordian.Core.Tests.Ui
 
         [Theory]
         [InlineData(null, null)]
-        [InlineData(5400.0, "90m")] // minutes past an hour (hours unconfirmed)
+        [InlineData(5400.0, "90m")] // minutes past an hour (the maintainer's choice; retail likely "1h")
+        [InlineData(179.0, "2m")]
         [InlineData(120.0, "2m")]
-        [InlineData(119.0, "2m")]
-        [InlineData(61.0, "2m")] // rounded up, like the seconds
-        [InlineData(60.5, "2m")]
+        [InlineData(119.0, "1m")] // rounded down, as retail (1 min 59 s reads "1m")
+        [InlineData(61.0, "1m")]
+        [InlineData(60.5, "1m")] // just above 60 s: still minutes
+        [InlineData(60.01, "1m")]
         [InlineData(60.0, "60")]
         [InlineData(59.2, "60")] // whole seconds, rounded up
         [InlineData(12.0, "12")]

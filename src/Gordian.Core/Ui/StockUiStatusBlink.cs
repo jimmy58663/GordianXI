@@ -27,18 +27,18 @@ namespace Gordian.Core.Ui
         public const double SecondsShownFrom = 60;
 
         /// <summary>
-        /// The time left drawn under an icon, as retail shows it (the maintainer, 2026-10-08): above a minute, whole minutes
-        /// with an "m" ("2m", "15m", "90m"); from 60 s, plain seconds ("60" ... "1"). Both round up, so "2m" covers 61-120 s
-        /// and the minutes hand over to "60". Null (nothing drawn) for an effect without a timer or once it has run out.
-        /// UNCONFIRMED: the minutes' rounding (the screenshot shows "2m" without the exact time left) and whether retail
-        /// switches to hours past 60 minutes (minutes are kept here).
+        /// The time left drawn under an icon, as retail shows it (the maintainer's retail checks, 2026-10-08 and 2026-10-09):
+        /// above 60 s, whole minutes rounded down with an "m" (61-119 s "1m", 120-179 s "2m", "15m"); from 60 s, plain seconds
+        /// rounded up ("60" ... "1"), so "1m" hands over to "60" with no gap and no value shown twice. Null (nothing drawn)
+        /// for an effect without a timer or once it has run out. Past an hour the minutes go on ("90m"): retail likely shows
+        /// hours ("1h"), and staying in minutes is a deliberate difference, the maintainer's choice of 2026-10-09.
         /// </summary>
         public static string? DurationText(double? remainingSeconds)
         {
             if (remainingSeconds is not { } left || left <= 0) return null;
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             if (left <= SecondsShownFrom) return ((int)Math.Ceiling(left)).ToString(culture);
-            return ((long)Math.Ceiling(left / 60)).ToString(culture) + "m";
+            return ((long)Math.Floor(left / 60)).ToString(culture) + "m";
         }
 
         /// <summary>One fade out and back in.</summary>
