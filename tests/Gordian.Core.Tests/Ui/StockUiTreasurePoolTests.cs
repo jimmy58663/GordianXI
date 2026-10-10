@@ -132,6 +132,59 @@ namespace Gordian.Core.Tests.Ui
             Assert.Null(f.Pool.GetMemberEntry(0, Knot, LocalId));
         }
 
+        /// <summary>
+        /// S2C 0x0D3 as LandSandBoat builds it (0x0d3_trophy_solution.cpp, treasure_pool.cpp): the highest lotter at 0,
+        /// the entry's id at 4, the highest lot at 10, the entry's index at 12 with EntryFlg never set, the entry's roll at
+        /// 14 (0xFFFF for a pass), the slot at 16, judge 0.
+        /// </summary>
+        private static byte[] LsbEntry(byte slot, uint entryId, ushort entryIndex, short entryPoint, uint leaderId, short leaderLot)
+        {
+            var p = new byte[56];
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0, 4), leaderId);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4, 4), entryId);
+            BinaryPrimitives.WriteInt16LittleEndian(p.AsSpan(10, 2), leaderLot);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(12, 2), entryIndex); // bit 15 (EntryFlg) clear, as LSB sends it
+            BinaryPrimitives.WriteInt16LittleEndian(p.AsSpan(14, 2), entryPoint);
+            p[16] = slot;
+            return p;
+        }
+
+        [Fact]
+        public void LandSandBoatLotAndPass_ColourTheRowsAndFillTheRollColumn()
+        {
+            var (f, menus, _, _) = Setup();
+            const uint Knot = 0x01000002;
+            f.Found(0, 4096, 497_000);
+            f.Found(1, 4097, 497_000);
+            var list = menus.OpenTreasurePool(null)!;
+
+            // Our lot of 408 on slot 0: EntryFlg clear, the roll in EntryPoint.
+            var lot = LsbEntry(0, LocalId, 0x0400, 408, LocalId, 408);
+            var decoded = new S2C_0x0D3_TrophySolution(lot);
+            Assert.True(decoded.EntryIsLot);
+            Assert.Equal(408, decoded.EntryLot);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), lot));
+            Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[0].Entry); // orange-red, not the pass grey
+            Assert.Equal(408, list.TreasureRows[0].LocalLot);
+            Assert.Equal("408", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, LocalId, LocalId)));
+            Assert.Equal("?", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, Knot, LocalId)));
+
+            // Knot passes on slot 0 (EntryPoint 0xFFFF), we pass on slot 1.
+            var knotPass = LsbEntry(0, Knot, 0x0401, -1, LocalId, 408);
+            Assert.False(new S2C_0x0D3_TrophySolution(knotPass).EntryIsLot);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), knotPass));
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(1, LocalId, 0x0400, -1, 0, 0)));
+            Assert.Equal("---", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, Knot, LocalId)));
+            Assert.Equal("408", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, LocalId, LocalId))); // Knot's pass leaves ours
+            Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[0].Entry);
+            Assert.Equal(TreasureEntryKind.Pass, list.TreasureRows[1].Entry); // grey
+            Assert.Equal("---", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(1, LocalId, LocalId)));
+
+            // XiPackets' layout (EntryFlg set on a lot) still reads as a lot.
+            var retail = LsbEntry(1, Knot, 0x8401, 77, Knot, 77);
+            Assert.True(new S2C_0x0D3_TrophySolution(retail).EntryIsLot);
+        }
+
         [Fact]
         public void Done_PassesEveryItemNotLottedAndTogglesWithPlus()
         {
