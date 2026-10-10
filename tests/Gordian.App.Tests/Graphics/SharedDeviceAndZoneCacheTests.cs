@@ -106,6 +106,23 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(tracker.IsFocusTarget(popOut));
         }
 
+        /// <summary>
+        /// A character's camera placed outright (delta 0, as on a switch to a view not updated lately) sits at the
+        /// character's height at once; with a frame delta it would ease there from the previous height (the rise / drop
+        /// seen on cross-zone Ctrl+Tab before each character kept its own camera, #322 round 2).
+        /// </summary>
+        [Fact]
+        public void Camera_PlacedOutright_HasNoFollowHeightEase()
+        {
+            var camera = new ViewportCamera();
+            camera.Update(new Vector3(0, 0, 0), 15f, 0f, 6f, 1.5f, 1 / 60f);
+            camera.Update(new Vector3(0, 5, 0), 15f, 0f, 6f, 1.5f, 1 / 60f);
+            float eased = camera.Target.Y;
+            camera.Update(new Vector3(0, 5, 0), 15f, 0f, 6f, 1.5f, 0f);
+            Assert.True(eased < 5f + camera.EyeOffset.Y - 0.5f, $"a frame delta eases the follow height (was {eased})");
+            Assert.Equal(5f + camera.EyeOffset.Y, camera.Target.Y, 3);
+        }
+
         [Fact]
         public void RenderSettings_ClampAndApply()
         {

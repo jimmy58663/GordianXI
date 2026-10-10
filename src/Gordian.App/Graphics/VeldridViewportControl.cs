@@ -122,14 +122,20 @@ namespace Gordian.App.Graphics
             private set => SetAndRaise(CulledMeshesProperty, ref _culledMeshes, value);
         }
 
-        public ViewportCamera Camera { get; set; } = new();
+        /// <summary>The camera of the character drawn now (each character keeps its own, see <see cref="SessionView"/>).</summary>
+        public ViewportCamera Camera
+        {
+            get => _view.Camera;
+            set => _view.Camera = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
+        public VeldridViewportControl()
+        {
+            _view = _sessionlessView;
+        }
         public ZoneEnvironmentSettings Environment { get; set; } = ZoneEnvironmentSettings.CreateDay();
         public ZoneTerrainRenderer? TerrainRenderer => _renderer;
 
-        // The free camera's start (display space) and the controller's free camera position at that moment.
-        private bool _freeCamActive;
-        private Vector3 _freeCamStart;
-        private Vector3 _freeCamControllerStart;
 
         // The session drawn, and the one the window asked for: a switch to a character in a zone that is not on the GPU
         // waits (at most DeferredSwitchTimeout) while the zone uploads in the background, showing the old view (#322).
@@ -190,7 +196,8 @@ namespace Gordian.App.Graphics
                     }
 
                     _activeSession = value;
-                    _freeCamActive = false;
+                    // The new character's own camera, kept up to date while it was not shown (#322 round 2).
+                    _view = ViewFor(value);
                     WorldState = value?.World;
                     // A session still connecting starts black (#36); one already in the world shows at once.
                     _loadingScreen.Reset(black: value != null && value.State != SessionState.ActiveInWorld);
@@ -343,11 +350,7 @@ namespace Gordian.App.Graphics
         private int _loadedZoneGeneration;
         private static double TickSeconds(long timestamp) => (double)timestamp / Stopwatch.Frequency;
 
-        private readonly TickPositionSmoother _playerSmoother = new();
-        private uint _smoothedPlayerServerId;
-        private readonly TickPositionSmoother _cameraOrbitSmoother = new(snapDistance: 120.0f);
-        private float _lastRawCameraYaw;
-        private float _unwrappedCameraYaw;
+
         private volatile int _pendingZoneLoad;
         private int _isZoneLoading;
         private ZoneGeometry? _currentZoneGeom;
@@ -797,134 +800,26 @@ namespace Gordian.App.Graphics
 
                 float aspect = Math.Max(0.1f, (float)_deviceManager.CurrentWidth / Math.Max(1, _deviceManager.CurrentHeight));
 
-                Vector3 playerPos = Vector3.Zero;
-                bool hasPlayerPos = false;
                 uint localPlayerServerId = 0;
                 bool isLocalPlayerEngaged = false;
-
                 if (_activeSession != null)
                 {
-                    localPlayerServerId = _activeSession.LocalPlayer.ServerId != 0
-                        ? _activeSession.LocalPlayer.ServerId
-                        : _activeSession.CharacterId;
+                    localPlayerServerId = LocalPlayerServerId(_activeSession);
                     isLocalPlayerEngaged = _activeSession.Combat.IsEngaged;
 
                     // Shows the hits of actions whose actor is not animated this frame (off screen, no model).
                     _activeSession.ActionPlayback.Update();
-
-                    if (localPlayerServerId != 0 && _activeSession.World.TryGetByServerId(localPlayerServerId, out var localEnt) && localEnt != null)
-                    {
-                        playerPos = localEnt.Position;
-                        hasPlayerPos = true;
-                    }
-                }
-                
-                if (!hasPlayerPos && WorldState != null)
-                {
-                    foreach (var ent in WorldState.Entities)
-                    {
-                        if (ent.Type == EntityType.Player)
-                        {
-                            playerPos = ent.Position;
-                            hasPlayerPos = true;
-                            break;
-                        }
-                    }
                 }
 
-                if (_activeSession?.Locomotion != null)
-                {
-                    // The orbit angles also advance on the locomotion tick (turning, swinging in behind a runner), so
-                    // interpolate them too; yaw is unwrapped first so 359 -> 1 degrees never spins the long way round.
-                    var locomotion = _activeSession.Locomotion;
-                    float rawYaw = locomotion.CameraYaw;
-                    float yawStep = rawYaw - _lastRawCameraYaw;
-                    yawStep -= 360.0f * MathF.Round(yawStep / 360.0f);
-                    _unwrappedCameraYaw += yawStep;
-                    _lastRawCameraYaw = rawYaw;
-                    var orbit = _cameraOrbitSmoother.Update(
-                        new Vector3(_unwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
-                        TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
-                    Camera.Yaw = orbit.X;
-                    Camera.Pitch = orbit.Y;
-                    Camera.Distance = orbit.Z;
-                    Camera.Mode = locomotion.Camera.Mode;
-                    // Lock-on: the view turns toward the target (the zoom is in EffectiveCameraDistance above).
-                    locomotion.ApplyLockOnAim(Camera);
-                }
-
-                // Locomotion ticks on a UI timer (irregular ~16/31 ms); interpolate between ticks so the camera and the
-                // player move evenly every frame instead of in uneven jumps.
-                if (localPlayerServerId != _smoothedPlayerServerId)
-                {
-                    _playerSmoother.Reset();
-                    _smoothedPlayerServerId = localPlayerServerId;
-                }
-                if (hasPlayerPos)
-                {
-                    // Riding a moving platform: stand on its live height this frame. The tick-smoothed height trails a
-                    // moving lift by a tick, which sinks the feet into it going up and floats them going down.
-                    string ridingId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
-                    float? rideHeight = null;
-                    if (ridingId.Length > 0 && _activeSession != null)
-                    {
-                        foreach (var platform in Gordian.Core.World.Collision.MovingPlatforms.Evaluate(
-                                     _activeSession.World.Collision, _activeSession.World, _activeSession.World.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow)))
-                        {
-                            if (platform.Platform.Id == ridingId) rideHeight = platform.Height;
-                        }
-                    }
-
-                    long tick = _activeSession?.Locomotion?.LastUpdateTimestamp ?? 0;
-                    long frameTimestamp = Stopwatch.GetTimestamp();
-                    playerPos = _playerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
-                    if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
-                }
-
-                Vector3? displayPlayerPos = hasPlayerPos
-                    ? new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z)
-                    : null;
-
-                // The orbital camera stays in front of the zone's walls (it pulls in rather than clipping outside).
-                Camera.Collision = (_activeSession?.World ?? WorldState)?.Collision;
-
-                if (_activeSession?.Events.Presentation is { } presentation && presentation.TryGetCamera(out var shot))
-                {
-                    // An event's cutscene camera (#165) holds the view; the orbit camera keeps its state for afterwards.
-                    Camera.SetEventView(new Vector3(-shot.Eye.X, -shot.Eye.Y, shot.Eye.Z), new Vector3(-shot.LookAt.X, -shot.LookAt.Y, shot.LookAt.Z),
-                        shot.FieldOfView, shot.Roll, aspect);
-                }
-                else if (Camera.Mode == CameraMode.FreeCam && _activeSession?.Locomotion is { } freeLocomotion)
-                {
-                    // The free camera starts where the view was and moves by what the controller's free camera has moved
-                    // since (WASD / left stick, display space); it looks along the controller's yaw and pitch. Before,
-                    // this branch only kept the aspect ratio, so the view froze in free camera mode.
-                    var controllerEye = freeLocomotion.Camera.Position;
-                    if (!_freeCamActive)
-                    {
-                        _freeCamActive = true;
-                        _freeCamStart = Camera.Position;
-                        _freeCamControllerStart = controllerEye;
-                    }
-                    Camera.SetFreeCamPose(_freeCamStart + (controllerEye - _freeCamControllerStart), freeLocomotion.CameraPitch,
-                        freeLocomotion.CameraYaw, aspect);
-                }
-                else if (Camera.Mode != CameraMode.FreeCam)
-                {
-                    _freeCamActive = false;
-                    if (displayPlayerPos.HasValue)
-                    {
-                        Camera.Update(displayPlayerPos.Value, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect, deltaSeconds);
-                    }
-                    else
-                    {
-                        Camera.AspectRatio = aspect;
-                    }
-                }
-                else
-                {
-                    Camera.AspectRatio = aspect;
-                }
+                // The shown character's camera, then the cameras of the characters not on screen, kept up to date so a
+                // switch to one shows its view at once (#322 round 2).
+                var view = _view;
+                bool snap = view.NeedsSnap();
+                var cameraFrame = UpdateSessionCamera(view, _activeSession, WorldState, snap ? 0.0f : deltaSeconds, aspect);
+                Vector3 playerPos = cameraFrame.PlayerPosition;
+                bool hasPlayerPos = cameraFrame.HasPlayerPosition;
+                Vector3? displayPlayerPos = cameraFrame.DisplayPlayerPosition;
+                TickHiddenCameras(aspect);
 
                 // Sound follows the viewport that last had focus (Phase 5H); never let it break a frame.
                 try
@@ -1054,6 +949,242 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// One character's view in this viewport: its camera (orbit, zoom, follow height, the collision-resolved eye, free
+        /// camera) and the smoothing state that feeds it. Every character logged in keeps one, updated while it is not on
+        /// screen (<see cref="TickHiddenCameras"/>), so a switch shows its view where it already is instead of easing in
+        /// from the previous character's camera (#322 round 2; pop-out windows already behaved so, each with its own camera).
+        /// </summary>
+        private sealed class SessionView
+        {
+            public ViewportCamera Camera { get; set; } = new();
+            public TickPositionSmoother PlayerSmoother { get; } = new();
+            public TickPositionSmoother OrbitSmoother { get; } = new(snapDistance: 120.0f);
+            public uint SmoothedPlayerServerId { get; set; }
+            public float LastRawCameraYaw { get; set; }
+            public float UnwrappedCameraYaw { get; set; }
+            public bool HasYaw { get; set; }
+            public bool FreeCamActive { get; set; }
+            public Vector3 FreeCamStart { get; set; }
+            public Vector3 FreeCamControllerStart { get; set; }
+
+            /// <summary>When the camera was last updated (0: never).</summary>
+            public long LastUpdate { get; set; }
+
+            /// <summary>
+            /// Whether the next update should place the camera outright (no follow-height ease, no collision release): it
+            /// has never been updated, or not for longer than <see cref="StaleAfter"/>.
+            /// </summary>
+            public bool NeedsSnap() => LastUpdate == 0 || Stopwatch.GetElapsedTime(LastUpdate) > StaleAfter;
+
+            public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(0.5);
+        }
+
+        /// <summary>The camera state of the characters this viewport may show, by session.</summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<CharacterSession, SessionView> _views = new(System.Collections.Generic.ReferenceEqualityComparer.Instance);
+
+        /// <summary>The view of a world shown without a session (offscreen tools, previews).</summary>
+        private readonly SessionView _sessionlessView = new();
+
+        /// <summary>The view drawn now: the displayed session's.</summary>
+        private SessionView _view;
+
+        private SessionView ViewFor(CharacterSession? session) =>
+            session == null ? _sessionlessView : _views.GetOrAdd(session, _ => new SessionView());
+
+        private long _lastHiddenCameraTick;
+
+        /// <summary>How often the cameras of characters not on screen are updated.</summary>
+        private static readonly TimeSpan HiddenCameraInterval = TimeSpan.FromMilliseconds(33);
+
+        private readonly record struct CameraFrame(Vector3 PlayerPosition, bool HasPlayerPosition, Vector3? DisplayPlayerPosition);
+
+        private static uint LocalPlayerServerId(CharacterSession session) =>
+            session.LocalPlayer.ServerId != 0 ? session.LocalPlayer.ServerId : session.CharacterId;
+
+        /// <summary>
+        /// Advances one character's camera: its player position (tick-smoothed, on a ridden lift's live height), the
+        /// locomotion orbit (yaw unwrapped, tick-smoothed), lock-on aim, collision against its own zone, an event's camera
+        /// or the free camera. <paramref name="deltaSeconds"/> 0 places the camera outright.
+        /// </summary>
+        private CameraFrame UpdateSessionCamera(SessionView view, CharacterSession? session, WorldState? world, float deltaSeconds, float aspect)
+        {
+            var camera = view.Camera;
+            bool snap = deltaSeconds <= 0.0f;
+            if (snap)
+            {
+                view.PlayerSmoother.Reset();
+                view.OrbitSmoother.Reset();
+                view.HasYaw = false;
+            }
+
+            Vector3 playerPos = Vector3.Zero;
+            bool hasPlayerPos = false;
+            uint localPlayerServerId = 0;
+            if (session != null)
+            {
+                localPlayerServerId = LocalPlayerServerId(session);
+                if (localPlayerServerId != 0 && session.World.TryGetByServerId(localPlayerServerId, out var localEnt) && localEnt != null)
+                {
+                    playerPos = localEnt.Position;
+                    hasPlayerPos = true;
+                }
+            }
+            if (!hasPlayerPos && world != null)
+            {
+                foreach (var ent in world.Entities)
+                {
+                    if (ent.Type == EntityType.Player)
+                    {
+                        playerPos = ent.Position;
+                        hasPlayerPos = true;
+                        break;
+                    }
+                }
+            }
+
+            if (session?.Locomotion is { } locomotion)
+            {
+                // The orbit angles also advance on the locomotion tick (turning, swinging in behind a runner), so
+                // interpolate them too; yaw is unwrapped first so 359 -> 1 degrees never spins the long way round.
+                float rawYaw = locomotion.CameraYaw;
+                if (!view.HasYaw)
+                {
+                    view.UnwrappedCameraYaw = rawYaw;
+                    view.HasYaw = true;
+                }
+                else
+                {
+                    float yawStep = rawYaw - view.LastRawCameraYaw;
+                    yawStep -= 360.0f * MathF.Round(yawStep / 360.0f);
+                    view.UnwrappedCameraYaw += yawStep;
+                }
+                view.LastRawCameraYaw = rawYaw;
+                var orbit = view.OrbitSmoother.Update(
+                    new Vector3(view.UnwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
+                    TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
+                camera.Yaw = orbit.X;
+                camera.Pitch = orbit.Y;
+                camera.Distance = orbit.Z;
+                camera.Mode = locomotion.Camera.Mode;
+                // Lock-on: the view turns toward the target (the zoom is in EffectiveCameraDistance above).
+                locomotion.ApplyLockOnAim(camera);
+            }
+
+            // Locomotion ticks on a UI timer (irregular ~16/31 ms); interpolate between ticks so the camera and the
+            // player move evenly every frame instead of in uneven jumps.
+            if (localPlayerServerId != view.SmoothedPlayerServerId)
+            {
+                view.PlayerSmoother.Reset();
+                view.SmoothedPlayerServerId = localPlayerServerId;
+            }
+            if (hasPlayerPos)
+            {
+                // Riding a moving platform: stand on its live height this frame. The tick-smoothed height trails a
+                // moving lift by a tick, which sinks the feet into it going up and floats them going down.
+                string ridingId = session?.Locomotion?.RidingPlatformId ?? string.Empty;
+                float? rideHeight = null;
+                if (ridingId.Length > 0 && session != null)
+                {
+                    foreach (var platform in Gordian.Core.World.Collision.MovingPlatforms.Evaluate(
+                                 session.World.Collision, session.World, session.World.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow)))
+                    {
+                        if (platform.Platform.Id == ridingId) rideHeight = platform.Height;
+                    }
+                }
+
+                long tick = session?.Locomotion?.LastUpdateTimestamp ?? 0;
+                long frameTimestamp = Stopwatch.GetTimestamp();
+                playerPos = view.PlayerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
+            }
+
+            Vector3? displayPlayerPos = hasPlayerPos
+                ? new Vector3(-playerPos.X, -playerPos.Y, playerPos.Z)
+                : null;
+
+            // The orbital camera stays in front of its zone's walls (it pulls in rather than clipping outside).
+            camera.Collision = (session?.World ?? world)?.Collision;
+
+            if (session?.Events.Presentation is { } presentation && presentation.TryGetCamera(out var shot))
+            {
+                // An event's cutscene camera (#165) holds the view; the orbit camera keeps its state for afterwards.
+                camera.SetEventView(new Vector3(-shot.Eye.X, -shot.Eye.Y, shot.Eye.Z), new Vector3(-shot.LookAt.X, -shot.LookAt.Y, shot.LookAt.Z),
+                    shot.FieldOfView, shot.Roll, aspect);
+            }
+            else if (camera.Mode == CameraMode.FreeCam && session?.Locomotion is { } freeLocomotion)
+            {
+                // The free camera starts where the view was and moves by what the controller's free camera has moved
+                // since (WASD / left stick, display space); it looks along the controller's yaw and pitch. Before,
+                // this branch only kept the aspect ratio, so the view froze in free camera mode.
+                var controllerEye = freeLocomotion.Camera.Position;
+                if (!view.FreeCamActive)
+                {
+                    view.FreeCamActive = true;
+                    view.FreeCamStart = camera.Position;
+                    view.FreeCamControllerStart = controllerEye;
+                }
+                camera.SetFreeCamPose(view.FreeCamStart + (controllerEye - view.FreeCamControllerStart), freeLocomotion.CameraPitch,
+                    freeLocomotion.CameraYaw, aspect);
+            }
+            else if (camera.Mode != CameraMode.FreeCam)
+            {
+                view.FreeCamActive = false;
+                if (displayPlayerPos.HasValue)
+                {
+                    camera.Update(displayPlayerPos.Value, camera.Pitch, camera.Yaw, camera.Distance, aspect, deltaSeconds);
+                }
+                else
+                {
+                    camera.AspectRatio = aspect;
+                }
+            }
+            else
+            {
+                camera.AspectRatio = aspect;
+            }
+
+            view.LastUpdate = Stopwatch.GetTimestamp();
+            return new CameraFrame(playerPos, hasPlayerPos, displayPlayerPos);
+        }
+
+        /// <summary>
+        /// Keeps the cameras of the logged-in characters not on screen moving with them (about 30 times a second), each
+        /// against its own zone's collision, so a Ctrl+Tab to one shows its settled view on the first frame.
+        /// </summary>
+        private void TickHiddenCameras(float aspect)
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (_lastHiddenCameraTick != 0 && Stopwatch.GetElapsedTime(_lastHiddenCameraTick, now) < HiddenCameraInterval) return;
+            _lastHiddenCameraTick = now;
+            foreach (var (session, view) in _views)
+            {
+                if (ReferenceEquals(session, _activeSession) || session.State != SessionState.ActiveInWorld) continue;
+                try
+                {
+                    float delta = view.NeedsSnap() ? 0.0f : (float)Stopwatch.GetElapsedTime(view.LastUpdate, now).TotalSeconds;
+                    UpdateSessionCamera(view, session, session.World, delta, aspect);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Debug("Graphics", $"Background camera update for {session.CharacterName} failed: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>Starts a view for every logged-in character and forgets those that left (once a second).</summary>
+        private void SyncSessionViews(System.Collections.Generic.IReadOnlyList<CharacterSession> sessions)
+        {
+            foreach (var session in sessions) ViewFor(session);
+            foreach (var session in _views.Keys)
+            {
+                if (!ReferenceEquals(session, _activeSession) && !ReferenceEquals(session, _requestedSession) && !System.Linq.Enumerable.Contains(sessions, session))
+                {
+                    _views.TryRemove(session, out _);
+                }
+            }
+        }
+
         private volatile ViewportRenderMode _renderMode = ViewportRenderMode.Full;
 
         /// <summary>
@@ -1117,12 +1248,23 @@ namespace Gordian.App.Graphics
             }
         }
 
-        /// <summary>The game logic a paused viewport still runs: zone loads, action playback and sound.</summary>
+        /// <summary>The game logic a paused viewport still runs: zone loads, action playback, the cameras and sound.</summary>
         private void TickWhilePaused(float deltaSeconds)
         {
             CheckAndLoadPendingZone();
             var session = _activeSession;
             session?.ActionPlayback.Update();
+            float aspect = Math.Max(0.1f, (float)_deviceManager.CurrentWidth / Math.Max(1, _deviceManager.CurrentHeight));
+            try
+            {
+                var view = _view;
+                UpdateSessionCamera(view, session, WorldState, view.NeedsSnap() ? 0.0f : deltaSeconds, aspect);
+                TickHiddenCameras(aspect);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Debug("Graphics", $"Paused camera update failed: {ex.Message}");
+            }
             try
             {
                 Audio.GameAudioService.Instance.Update(this, session, Camera, deltaSeconds);
@@ -1140,7 +1282,9 @@ namespace Gordian.App.Graphics
             _lastPreloadTick = Stopwatch.GetTimestamp();
             try
             {
-                _renderer?.SharedResources.Zones.PreloadSessionZones(ResourceManager, SessionRegistry.Default.ActiveSessions);
+                var sessions = SessionRegistry.Default.ActiveSessions;
+                SyncSessionViews(sessions);
+                _renderer?.SharedResources.Zones.PreloadSessionZones(ResourceManager, sessions);
             }
             catch (Exception ex)
             {
