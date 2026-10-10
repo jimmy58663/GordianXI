@@ -367,7 +367,8 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName);
+            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e?.Type == Gordian.Core.World.EntityType.Monster);
             if (!string.IsNullOrEmpty(line))
             {
                 DispatchToUi(() =>

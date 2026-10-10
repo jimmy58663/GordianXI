@@ -226,7 +226,9 @@ namespace Gordian.Core.Network
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
-            Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
+            // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...".
+            Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
+                id => World.TryGetByServerId(id, out var e) && e?.Type == EntityType.Monster);
             // The command menu's chat-mode list (Tier 2 chunk 6b): picks the default chat mode, shows the last tell
             // partner, and greys the linkshell modes until the server has shown a linkshell in that slot.
             ActionService.Menus.ChatModeSelected = mode => Chat.OpenInputInMode(mode);

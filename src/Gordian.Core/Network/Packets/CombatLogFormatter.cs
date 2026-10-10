@@ -4,6 +4,8 @@
 
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Events;
+using Gordian.Core.Resources.Tables;
 
 namespace Gordian.Core.Network.Packets
 {
@@ -169,17 +171,41 @@ namespace Gordian.Core.Network.Packets
         public static string FormatSkillTenths(uint tenths) =>
             $"{tenths / 10}.{tenths % 10}";
 
+        /// <summary>
+        /// The basic-message table the S2C 0x029 lines are worded from (message id to decoded message, null when the DAT
+        /// or the message is missing): the client's file 7027 (<see cref="ClientMessageTables.BattleMessages"/>), set by
+        /// the app. Null (tests, no install): the hand-written text below.
+        /// </summary>
+        public static Func<int, EventMessage?>? BattleMessages { get; set; }
+
+        /// <summary>
+        /// Formats an S2C 0x029 battle message. The text comes from the basic-message table (<paramref name="battleMessages"/>,
+        /// else <see cref="BattleMessages"/>) with the packet's Data / Data2 as number parameters 0 / 1 and its caster /
+        /// target as message entities 0 / 1; the hand-written text is the fallback when the table or the message is missing,
+        /// for the monster check (170-178, worded from a retail capture by <see cref="FormatCheck"/>), and for messages
+        /// that read a number the packet does not carry (index 2 and up). Lines are joined with '\n'.
+        /// </summary>
+        /// <param name="entityTakesArticle">Whether an entity's name takes "the" (a monster's); picks the "[The /]" of the table's lines.</param>
         public static string FormatBattleMessage(
             CombatMessageRecord record,
             Func<uint, string?> resolveEntityName,
             Func<ushort, string?>? resolveSpellName = null,
-            Func<ushort, string?>? resolveAbilityName = null)
+            Func<ushort, string?>? resolveAbilityName = null,
+            Func<uint, bool>? entityTakesArticle = null,
+            Func<int, EventMessage?>? battleMessages = null)
         {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
 
             string caster = resolveEntityName(record.CasterId) ?? $"Entity_{record.CasterId:X}";
             string target = resolveEntityName(record.TargetId) ?? $"Entity_{record.TargetId:X}";
+
+            if (record.MessageId is < 170 or > 178
+                && (battleMessages ?? BattleMessages)?.Invoke(record.MessageId) is { } message
+                && FormatFromTable(message, record, caster, target, resolveSpellName, resolveAbilityName, entityTakesArticle) is { } fromTable)
+            {
+                return fromTable;
+            }
 
             return record.MessageId switch
             {
@@ -267,6 +293,60 @@ namespace Gordian.Core.Network.Packets
                     ? $"{caster} -> {target}: Msg#{record.MessageId} (Param={record.Param}, Val={record.Value})"
                     : $"{caster} -> {target}: Msg#{record.MessageId}"
             };
+        }
+
+        /// <summary>
+        /// A basic-message table line with the packet's values: null when the message is empty or reads a number parameter
+        /// the packet does not carry (S2C 0x029 has two, Data and Data2), so the caller falls back to its own text.
+        /// </summary>
+        private static string? FormatFromTable(EventMessage message, CombatMessageRecord record, string caster, string target,
+            Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle)
+        {
+            if (message.Segments.Count == 0 || ReadsNumberAbove(message, 1)) return null;
+            var context = new SimpleMessageContext(new[] { unchecked((int)record.Param), unchecked((int)record.Value) }, string.Empty, string.Empty,
+                EventDialogController.NameResolver)
+            {
+                Entities = new MessageEntity?[]
+                {
+                    new MessageEntity(caster, null, entityTakesArticle?.Invoke(record.CasterId) ?? false),
+                    new MessageEntity(target, null, entityTakesArticle?.Invoke(record.TargetId) ?? false),
+                },
+                ActionNames = (code, id) => code switch
+                {
+                    0x05 => SkillName(unchecked((uint)id)),
+                    0x10 => ResolveSpellName(unchecked((ushort)id), resolveSpellName),
+                    0x16 => ResolveWeaponSkillName(unchecked((ushort)id), resolveAbilityName),
+                    0x8F => ResolveAbilityName(unchecked((ushort)id), resolveAbilityName),
+                    _ => null,
+                },
+            };
+            var lines = EventMessageFormatter.FormatLines(message, context);
+            string text = string.Join('\n', lines);
+            return text.Length > 0 ? text : null;
+        }
+
+        /// <summary>Whether any code of <paramref name="message"/> reads a number parameter above <paramref name="highest"/>.</summary>
+        private static bool ReadsNumberAbove(EventMessage message, int highest)
+        {
+            foreach (var segment in message.Segments)
+            {
+                switch (segment.Kind)
+                {
+                    case EventMessageSegmentKind.Number:
+                    case EventMessageSegmentKind.ActionName:
+                    case EventMessageSegmentKind.DateField:
+                    case EventMessageSegmentKind.Selector when segment.Code is 0x0C or 0x86 or 0x92:
+                        if (segment.Argument > highest) return true;
+                        break;
+                    case EventMessageSegmentKind.Name when segment.Values is { } values:
+                        foreach (int value in values)
+                        {
+                            if (value > highest) return true;
+                        }
+                        break;
+                }
+            }
+            return false;
         }
 
         /// <summary>
