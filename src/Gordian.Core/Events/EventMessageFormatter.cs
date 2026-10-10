@@ -68,6 +68,12 @@ namespace Gordian.Core.Events
         /// 0x8F job ability), or null when not known (the code then prints nothing).
         /// </summary>
         string? ResolveActionName(byte code, int id) => null;
+
+        /// <summary>
+        /// The text of the 0x7F 0x84 code (xi-tools ABILITY_MODIFIERS): an action result's "Resist! ", "Magic Burst! "...
+        /// before the second line of a battle message, or empty.
+        /// </summary>
+        string ModifierText => string.Empty;
     }
 
     /// <summary>
@@ -206,6 +212,9 @@ namespace Gordian.Core.Events
                         break;
                     case EventMessageSegmentKind.Heading:
                         Substitute(context.Heading ?? string.Empty);
+                        break;
+                    case EventMessageSegmentKind.Unknown when segment.Code == 0x84:
+                        line.Append(context.ModifierText);
                         break;
                     case EventMessageSegmentKind.ActionName:
                         Substitute(context.ResolveActionName(segment.Code, context.GetNumber(segment.Argument)) ?? string.Empty);
@@ -395,6 +404,9 @@ namespace Gordian.Core.Events
         public Func<byte, int, string?>? ActionNames { get; init; }
 
         public string? ResolveActionName(byte code, int id) => ActionNames?.Invoke(code, id);
+
+        /// <summary>The 0x7F 0x84 modifier text (<see cref="IEventMessageContext.ModifierText"/>).</summary>
+        public string ModifierText { get; init; } = string.Empty;
 
         private readonly IReadOnlyList<int> _numbers;
         private readonly Func<int, string?>? _partyMemberName;

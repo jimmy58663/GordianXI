@@ -55,6 +55,12 @@ namespace Gordian.Core.Tests.Network
                 "[/s] of damage to ", Article(0), "[the /]", Entity(0), ".", Prompt),
             [53] = Bytes(Article(1), "[The /]", Entity(1), Verb(1), "['s/'] ", new byte[] { 0x05, 0x00 }, " skill reaches level ",
                 Number(1), ".", Prompt),
+            [67] = Bytes(Article(0), "[The /]", Entity(0), " ", Verb(0), "[scores/score] a critical hit!", new byte[] { 0x07 },
+                new byte[] { 0x7F, 0x84, 0x00 }, Article(1), "[The /]", Entity(1), " ", Verb(1), "[takes/take] ", Number(1), " point",
+                Plural(1), "[/s] of damage.", Prompt),
+            [85] = Bytes(Article(0), "[The /]", Entity(0), " ", Verb(0), "[casts/cast] ", new byte[] { 0x10, 0x00 }, ".", new byte[] { 0x07 },
+                new byte[] { 0x7F, 0x84, 0x00 }, Article(1), "[The /]", Entity(1), " ", Verb(1), "[resists/resist] the spell.", Prompt),
+            [163] = Bytes("Additional effect: ", Number(2), " point", Plural(2), "[/s] of damage.", Prompt),
             [174] = Bytes("from the table", Prompt),
             [565] = Bytes(Entity(1), " obtains ", new byte[] { 0x7F, 0xB4, 0x00 }, ".", Prompt),
         };
@@ -103,6 +109,61 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal("The Wild Rabbit seems to be level 40 (EM).", Format(174, Knot, Rabbit, 40, 68));
         }
 
+        private static CombatActionRecord Action(ActionCategory category, uint actionId, CombatActionResult result) => new()
+        {
+            ActorId = Knot,
+            Category = category,
+            ActionId = actionId,
+            Targets = { new CombatActionTargetRecord { TargetId = Rabbit, Results = new() { result } } },
+        };
+
+        private static string[] ActionLines(CombatActionRecord record) =>
+            CombatLogFormatter.FormatActionLines(record, Names, entityTakesArticle: IsMonster, battleMessages: Lookup)
+                .Select(l => l.Text).ToArray();
+
+        [Fact]
+        public void ActionCriticalHit_IsTwoLinesFromTheTable()
+        {
+            var lines = CombatLogFormatter.FormatActionLines(
+                Action(ActionCategory.BasicAttack, 0, new CombatActionResult { Resolution = ActionResolution.Hit, Param = 25, MessageId = 67 }),
+                Names, entityTakesArticle: IsMonster, battleMessages: Lookup);
+
+            Assert.Equal(new[] { "Knot scores a critical hit!", "The Wild Rabbit takes 25 points of damage." }, lines.Select(l => l.Text));
+            Assert.All(lines, l => Assert.Equal(CombatLogLinePart.Primary, l.Part));
+        }
+
+        [Fact]
+        public void ActionSpell_WithAddedEffectAndResist_UsesNumbersZeroToTwoAndTheModifier()
+        {
+            Assert.Equal(new[] { "Knot casts Fire.", "Resist! The Wild Rabbit resists the spell." },
+                ActionLines(Action(ActionCategory.MagicFinish, 144,
+                    new CombatActionResult { Resolution = ActionResolution.Hit, MessageId = 85, Modifier = (uint)ActionResultFlags.Resist })));
+
+            Assert.Equal(new[] { "Knot scores a critical hit!", "The Wild Rabbit takes 9 points of damage.", "Additional effect: 4 points of damage." },
+                ActionLines(Action(ActionCategory.BasicAttack, 0, new CombatActionResult
+                {
+                    Resolution = ActionResolution.Hit, Param = 9, MessageId = 67, HasProc = true, ProcParam = 4, ProcMessageId = 163,
+                })));
+        }
+
+        [Fact]
+        public void ActionReaction_ReadsNumberThree()
+        {
+            // Spikes (message 44 "{12 03} points"): the target's spikes hurt the attacker.
+            Assert.Equal("The Wild Rabbit's spikes deal 6 points of damage to Knot.",
+                ActionLines(Action(ActionCategory.BasicAttack, 0, new CombatActionResult
+                {
+                    Resolution = ActionResolution.Hit, Param = 9, MessageId = 1, HasReaction = true, ReactionParam = 6, ReactionMessageId = 44,
+                })).Last());
+        }
+
+        [Fact]
+        public void ActionWithoutAMessage_KeepsTheHandWrittenText()
+        {
+            Assert.Equal(new[] { "Knot hits Wild Rabbit for 9 points of damage." },
+                ActionLines(Action(ActionCategory.BasicAttack, 0, new CombatActionResult { Resolution = ActionResolution.Hit, Param = 9, MessageId = 0 })));
+        }
+
         [Fact]
         public void Decoder_ReadsTheBasicMessageCodes()
         {
@@ -147,6 +208,20 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal("The Wild Rabbit hits Gemini for 3 points of damage.", Retail(1, Rabbit, Knot, 0, 3));
             Assert.Equal("Gemini defeats the Wild Rabbit.", Retail(6, Knot, Rabbit, 0, 0));
             Assert.Equal("Gemini obtains 120 gil.", Retail(565, Knot, Knot, 120, 0));
+
+            // S2C 0x028 reads the same table: a critical hit is two lines, a monster's spell and its effect too.
+            var crit = CombatLogFormatter.FormatActionLines(
+                Action(ActionCategory.BasicAttack, 0, new CombatActionResult { Resolution = ActionResolution.Hit, Param = 25, MessageId = 67 }),
+                id => id == Knot ? "Gemini" : Names(id), entityTakesArticle: IsMonster, battleMessages: table.GetMessage);
+            Assert.Equal(new[] { "Gemini scores a critical hit!", "The Wild Rabbit takes 25 points of damage." }, crit.Select(l => l.Text));
+            var spell = CombatLogFormatter.FormatActionLines(
+                new CombatActionRecord
+                {
+                    ActorId = Rabbit, Category = ActionCategory.MagicFinish, ActionId = 144,
+                    Targets = { new CombatActionTargetRecord { TargetId = Knot, Results = new() { new CombatActionResult { Param = 30, MessageId = 2 } } } },
+                },
+                id => id == Knot ? "Gemini" : Names(id), entityTakesArticle: IsMonster, battleMessages: table.GetMessage);
+            Assert.Equal(new[] { "The Wild Rabbit casts Fire.", "Gemini takes 30 points of damage." }, spell.Select(l => l.Text));
         }
     }
 }

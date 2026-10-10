@@ -250,7 +250,7 @@ namespace Gordian.Core.Ui
             {
                 // Each line takes its Font Colors row and Log page type from what it reports and whom (StockUiCombatLog).
                 uint me = LocalPlayerId();
-                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName))
+                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName, entityTakesArticle: entityTakesArticle))
                 {
                     Log.Add(StockUiCombatLog.LineFor(line, me, DateTime.Now));
                 }

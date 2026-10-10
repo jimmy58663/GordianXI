@@ -336,7 +336,8 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName);
+            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e?.Type == Gordian.Core.World.EntityType.Monster);
             if (lines.Count > 0)
             {
                 DispatchToUi(() =>
@@ -373,7 +374,11 @@ namespace Gordian.App.ViewModels
             {
                 DispatchToUi(() =>
                 {
-                    AddMessageItem(ChatItemViewModel.CreateCombat(line));
+                    // A battle message may span lines (a critical hit, a spell and its effect): one item each.
+                    foreach (string part in line.Split('\n'))
+                    {
+                        if (part.Length > 0) AddMessageItem(ChatItemViewModel.CreateCombat(part));
+                    }
                 });
             }
         }
