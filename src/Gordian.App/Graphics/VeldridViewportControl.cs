@@ -131,11 +131,52 @@ namespace Gordian.App.Graphics
         private Vector3 _freeCamStart;
         private Vector3 _freeCamControllerStart;
 
+        // The session drawn, and the one the window asked for: a switch to a character in a zone that is not on the GPU
+        // waits (at most DeferredSwitchTimeout) while the zone uploads in the background, showing the old view (#322).
         private CharacterSession? _activeSession;
+        private CharacterSession? _requestedSession;
+        private long _deferredSince;
+        private ZoneTerrainRenderer.ResidentZone? _preparedZone;
+        private int _preparingZoneId;
+
+        /// <summary>Longest a switch to a character in another zone waits for that zone's upload before showing it anyway.</summary>
+        public static readonly TimeSpan DeferredSwitchTimeout = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// The character this viewport shows. Switching to one whose zone is not resident on the GPU keeps drawing the
+        /// current character until that zone has uploaded in the background (#322); <see cref="DisplayedSession"/> is the one
+        /// drawn meanwhile.
+        /// </summary>
         public CharacterSession? ActiveSession
         {
-            get => _activeSession;
+            get => _requestedSession;
             set
+            {
+                lock (_sessionGate)
+                {
+                    if (ReferenceEquals(_requestedSession, value)) return;
+                    _requestedSession = value;
+                    if (ShouldDeferSwitch(value))
+                    {
+                        _deferredSince = Stopwatch.GetTimestamp();
+                        PrepareZone(value!.World.CurrentZoneId);
+                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.CurrentZoneId} is not on the GPU yet; showing the current view while it loads.");
+                        return;
+                    }
+                    ShowSession(value);
+                }
+            }
+        }
+
+        /// <summary>The character drawn now (lags <see cref="ActiveSession"/> while a deferred switch waits for its zone).</summary>
+        public CharacterSession? DisplayedSession => _activeSession;
+
+        // Serialises the window's session changes (UI thread) with deferred switches applied by the render thread.
+        private readonly object _sessionGate = new();
+
+        private void ShowSession(CharacterSession? value)
+        {
+            lock (_sessionGate)
             {
                 if (_activeSession != value)
                 {
@@ -180,6 +221,89 @@ namespace Gordian.App.Graphics
             Camera.Pitch = pitch;
             Camera.Yaw = yaw;
             Camera.Distance = distance;
+        }
+
+        /// <summary>
+        /// Whether a switch to <paramref name="next"/> waits for its zone (#322): another character is on screen, the new
+        /// one is in the world in a zone other than the one shown, and that zone is not resident on the GPU.
+        /// </summary>
+        private bool ShouldDeferSwitch(CharacterSession? next)
+        {
+            if (next == null || _activeSession == null || _renderer == null || Lobby != null || HoldBlack) return false;
+            if (next.State != SessionState.ActiveInWorld) return false;
+            ushort zone = next.World.CurrentZoneId;
+            return zone != 0 && zone != _loadedZoneId && !IsZoneResident(zone);
+        }
+
+        private bool IsZoneResident(int zoneId)
+        {
+            var zones = _renderer?.SharedResources.Zones;
+            if (zones == null) return false;
+            var prepared = Volatile.Read(ref _preparedZone);
+            if (prepared != null && prepared.ZoneId == zoneId && !prepared.IsDisposed) return true;
+            return ResourceManager?.TryGetLoadedZone(zoneId) is { } geometry && zones.IsResident(geometry);
+        }
+
+        /// <summary>
+        /// Uploads a zone in the background and holds it (<see cref="_preparedZone"/>) until the view shows it, so the zone
+        /// cache cannot drop it first whatever its budget.
+        /// </summary>
+        private void PrepareZone(int zoneId)
+        {
+            var rm = ResourceManager;
+            var zones = _renderer?.SharedResources.Zones;
+            if (rm == null || zones == null || Interlocked.Exchange(ref _preparingZoneId, zoneId) == zoneId) return;
+            Task.Run(() =>
+            {
+                try
+                {
+                    var watch = Stopwatch.StartNew();
+                    int generation = rm.CacheGeneration;
+                    if (!zones.TryReadZone(rm, zoneId, out var geometry, out var textures)) return;
+                    double readMs = watch.Elapsed.TotalMilliseconds;
+                    var resident = zones.Acquire(geometry, textures, generation);
+                    zones.Release(Interlocked.Exchange(ref _preparedZone, resident));
+                    GordianLog.Info("Graphics", $"Zone {zoneId} ready for the switch: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms.");
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Could not prepare Zone {zoneId} for the switch: {ex.Message}");
+                }
+                finally
+                {
+                    Interlocked.CompareExchange(ref _preparingZoneId, 0, zoneId);
+                }
+            });
+        }
+
+        /// <summary>Gives back the reference <see cref="PrepareZone"/> held (once the zone is shown or no longer wanted).</summary>
+        private void ReleasePreparedZone()
+        {
+            var prepared = Interlocked.Exchange(ref _preparedZone, null);
+            if (prepared != null) _renderer?.SharedResources.Zones.Release(prepared);
+        }
+
+        /// <summary>
+        /// Shows the requested character once a deferred switch can go ahead (render thread): its zone is resident, it left
+        /// the world, or <see cref="DeferredSwitchTimeout"/> passed.
+        /// </summary>
+        private void ApplyDeferredSession()
+        {
+            var requested = _requestedSession;
+            if (ReferenceEquals(requested, _activeSession)) return;
+            bool ready = requested == null
+                         || requested.State != SessionState.ActiveInWorld
+                         || requested.World.CurrentZoneId == 0
+                         || requested.World.CurrentZoneId == _loadedZoneId
+                         || IsZoneResident(requested.World.CurrentZoneId)
+                         || Stopwatch.GetElapsedTime(_deferredSince) >= DeferredSwitchTimeout;
+            if (!ready) return;
+            lock (_sessionGate)
+            {
+                if (!ReferenceEquals(requested, _requestedSession)) return;
+                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.CurrentZoneId}).");
+                ShowSession(requested);
+            }
         }
 
         private WorldState? _worldState;
@@ -265,10 +389,15 @@ namespace Gordian.App.Graphics
             return true;
         }
 
+        // Bumped whenever the view picks a zone to show, so a background load that finishes after a newer choice (a switch
+        // to a resident zone meanwhile) does not replace it.
+        private int _zoneLoadSerial;
+
         private void CheckAndLoadPendingZone()
         {
             var rm = ResourceManager;
-            if (rm == null) return;
+            var zones = _renderer?.SharedResources.Zones;
+            if (rm == null || zones == null) return;
 
             int generation = rm.CacheGeneration;
             // An event may show another zone for a scene (0x34 / 0x35) and then the session's own again.
@@ -281,6 +410,10 @@ namespace Gordian.App.Graphics
             int targetZone = _pendingZoneLoad != 0 ? _pendingZoneLoad : (loadedZoneStale ? _loadedZoneId : 0);
             if (targetZone == 0 || (targetZone == _loadedZoneId && !loadedZoneStale)) return;
 
+            // A zone already on the GPU (shown in another window, preloaded for a character in it, or shown before) is
+            // only rebound, on this frame: the Ctrl+Tab case of #322.
+            if (TryShowResidentZone((ushort)targetZone, generation, rm, zones)) return;
+
             if (Interlocked.CompareExchange(ref _isZoneLoading, 1, 0) != 0)
             {
                 // Already loading a zone in the background
@@ -289,45 +422,39 @@ namespace Gordian.App.Graphics
 
             _pendingZoneLoad = 0;
             ushort zoneToLoad = (ushort)targetZone;
+            int serial = Interlocked.Increment(ref _zoneLoadSerial);
 
             Task.Run(() =>
             {
                 try
                 {
                     GordianLog.Info("Graphics", $"Starting background load for Zone {zoneToLoad}...");
-                    if (rm.TryLoadZone(zoneToLoad, out var zoneGeom, out var zoneTextures))
+                    var watch = Stopwatch.StartNew();
+                    if (zones.TryReadZone(rm, zoneToLoad, out var zoneGeom, out var zoneTextures))
                     {
+                        double readMs = watch.Elapsed.TotalMilliseconds;
+                        // Uploads in chunks under the device lock; other windows (and this one's old zone) keep drawing.
+                        var resident = zones.Acquire(zoneGeom, zoneTextures, generation);
+                        double uploadMs = watch.Elapsed.TotalMilliseconds - readMs;
+                        bool shown = false;
                         lock (_renderLock)
                         {
-                            _renderer?.LoadZone(zoneGeom, zoneTextures);
-                            _loadedZoneId = zoneToLoad;
-                            // Read before the load, so a reload that lands mid-load triggers another one.
-                            _loadedZoneGeneration = generation;
-                            _currentZoneGeom = zoneGeom;
-                            ShareZoneCollision();
-                            foreach (var world in new[] { _activeSession?.World, WorldState })
+                            if (_renderer != null && serial == Volatile.Read(ref _zoneLoadSerial))
                             {
-                                if (world != null) world.DisplayedZoneId = zoneToLoad;
-                            }
-
-                            if (zoneGeom?.EnvironmentData != null)
-                            {
-                                float vanaHour = CurrentVanaHour();
-                                string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
-                                _lastVanaHour = vanaHour;
-                                _lastWeatherId = weather;
-                                var keyframe = zoneGeom.EnvironmentData.Interpolate(vanaHour, weather);
-                                if (keyframe != null)
-                                {
-                                    Environment.ApplyKeyframe(keyframe);
-                                    Environment.SetTimeOfDay(vanaHour);
-                                    Environment.WeatherId = weather;
-                                    _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-                                    GordianLog.Info("Graphics", $"Applied Zone {zoneToLoad} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
-                                }
+                                ShowZone(zoneToLoad, zoneGeom, resident, generation);
+                                shown = true;
                             }
                         }
-                        GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU.");
+                        if (!shown)
+                        {
+                            // A newer choice won meanwhile; the zone stays resident for later.
+                            zones.Release(resident);
+                            GordianLog.Info("Graphics", $"Loaded Zone {zoneToLoad} after the view moved on; kept resident.");
+                        }
+                        else
+                        {
+                            GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU (DATs {readMs:F0} ms, GPU upload {uploadMs:F0} ms).");
+                        }
                     }
                     else if (!KeepLoadedZoneAfterFailedReload(zoneToLoad, generation))
                     {
@@ -348,12 +475,75 @@ namespace Gordian.App.Graphics
             });
         }
 
-        private readonly VeldridDeviceManager _deviceManager = new();
+        /// <summary>
+        /// Shows a zone that is resident on the GPU right away (render thread), with no DAT read or upload (#322). False
+        /// when it is not resident (it then loads in the background).
+        /// </summary>
+        private bool TryShowResidentZone(ushort zoneId, int generation, ResourceManager rm, ZoneResidencyCache zones)
+        {
+            var geometry = rm.TryGetLoadedZone(zoneId);
+            if (geometry == null || !zones.TryAcquireResident(geometry, out var resident) || resident == null) return false;
+            var watch = Stopwatch.StartNew();
+            _pendingZoneLoad = 0;
+            Interlocked.Increment(ref _zoneLoadSerial);
+            lock (_renderLock)
+            {
+                if (_renderer == null)
+                {
+                    zones.Release(resident);
+                    return false;
+                }
+                ShowZone(zoneId, geometry, resident, generation);
+            }
+            GordianLog.Info("Graphics", $"Showing Zone {zoneId} from the GPU zone cache in {watch.Elapsed.TotalMilliseconds:F1} ms ({zones.Count} zones resident, {zones.ResidentBytes >> 20} MB).");
+            return true;
+        }
+
+        /// <summary>
+        /// Makes a resident zone the one drawn (under the render lock): the renderer takes over the reference, collision is
+        /// handed to the worlds in it, and its 0x2F environment lighting applies.
+        /// </summary>
+        private void ShowZone(ushort zoneId, ZoneGeometry zoneGeom, ZoneTerrainRenderer.ResidentZone resident, int generation)
+        {
+            _renderer!.ActivateZone(resident);
+            _loadedZoneId = zoneId;
+            // Read before the load, so a reload that lands mid-load triggers another one.
+            _loadedZoneGeneration = generation;
+            _currentZoneGeom = zoneGeom;
+            ShareZoneCollision();
+            foreach (var world in new[] { _activeSession?.World, WorldState })
+            {
+                if (world != null) world.DisplayedZoneId = zoneId;
+            }
+            ReleasePreparedZone();
+
+            if (zoneGeom.EnvironmentData != null)
+            {
+                float vanaHour = CurrentVanaHour();
+                string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
+                _lastVanaHour = vanaHour;
+                _lastWeatherId = weather;
+                var keyframe = zoneGeom.EnvironmentData.Interpolate(vanaHour, weather);
+                if (keyframe != null)
+                {
+                    Environment.ApplyKeyframe(keyframe);
+                    Environment.SetTimeOfDay(vanaHour);
+                    Environment.WeatherId = weather;
+                    _renderer.SkyDomeRenderer?.UpdateDome(Environment);
+                    GordianLog.Info("Graphics", $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
+                }
+            }
+        }
+
+        private VeldridDeviceManager _deviceManager = new();
         private ZoneTerrainRenderer? _renderer;
         private StockUiRenderer? _stockUiRenderer;
         private IntPtr _childHwnd = IntPtr.Zero;
         private IntPtr _arrowCursor = IntPtr.Zero;
-        private readonly object _renderLock = new();
+
+        // Every window's frames and zone uploads share the device's lock (#300): one frame is recorded, submitted and
+        // presented at a time across all viewport windows.
+        private object _renderLock => _deviceManager.GpuLock;
         private CancellationTokenSource? _renderLoopCts;
         private Task? _renderTask;
 
@@ -377,21 +567,25 @@ namespace Gordian.App.Graphics
                 Win32ChildWindowHelper.SetCursorQuery(_childHwnd, () => StockUi.PointerDrawn ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null);
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
+                // One swapchain per window on the process's shared device (#300); the first window creates the device.
+                _deviceManager = new VeldridDeviceManager();
+                _deviceManager.InitializeShared(
+                    swapchainSource,
+                    (uint)pixelW,
+                    (uint)pixelH,
+                    BackendPreference,
+                    vsync: ViewportRenderSettings.VsyncEnabled);
+                _swapchainVsync = ViewportRenderSettings.VsyncEnabled;
+
                 lock (_renderLock)
                 {
-                    _deviceManager.Initialize(
-                        swapchainSource,
-                        (uint)pixelW,
-                        (uint)pixelH,
-                        BackendPreference,
-                        vsync: true);
-
-                    if (_deviceManager.Device != null)
+                    if (_deviceManager.Device != null && _deviceManager.SharedDevice is { } sharedDevice && _deviceManager.Framebuffer is { } framebuffer)
                     {
                         ActiveBackendName = _deviceManager.ActiveBackend.ToString();
                         GpuDeviceName = _deviceManager.DeviceName;
-                        _renderer = new ZoneTerrainRenderer(_deviceManager.Device);
-                        _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, _deviceManager.Device.SwapchainFramebuffer.OutputDescription);
+                        var outputs = framebuffer.OutputDescription;
+                        _renderer = new ZoneTerrainRenderer(sharedDevice.Resources, outputs);
+                        _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, outputs);
 
                         ushort initialZone = _activeSession?.World.CurrentZoneId ?? _worldState?.CurrentZoneId ?? 0;
                         if (initialZone != 0)
@@ -419,6 +613,8 @@ namespace Gordian.App.Graphics
                 _currentZoneGeom = null;
                 _lastVanaHour = -1f;
                 _lastWeatherId = null;
+                ReleasePreparedZone();
+                // Gives back the resident zone's reference; the zone stays in the shared cache for other windows.
                 _renderer?.Dispose();
                 _renderer = null;
                 _stockUiRenderer?.Dispose();
@@ -428,6 +624,7 @@ namespace Gordian.App.Graphics
                 _blackCommands?.Dispose();
                 _blackCommands = null;
 
+                // This window's swapchain; the last window to close also disposes the shared device.
                 _deviceManager.Dispose();
 
                 if (OperatingSystem.IsWindows() && _childHwnd != IntPtr.Zero)
@@ -558,11 +755,30 @@ namespace Gordian.App.Graphics
 
                 var frameStart = Stopwatch.GetTimestamp();
 
+                // #301: the focused window draws every frame, the others at the background rate, and a minimised, hidden or
+                // covered one not at all (its game logic still ticks).
+                var mode = EffectiveRenderMode();
+                ApplyDeferredSession();
+                PreloadSessionZones();
+                if (mode == ViewportRenderMode.Paused)
+                {
+                    TickWhilePaused(deltaSeconds);
+                    if ((currentTicks - fpsLastTicks) >= Stopwatch.Frequency)
+                    {
+                        frameCount = 0;
+                        fpsLastTicks = currentTicks;
+                        Dispatcher.UIThread.Post(() => CurrentFps = 0);
+                    }
+                    WaitForNextFrame(frameStart, ViewportRenderPolicy.PausedTickInterval, cancellationToken);
+                    continue;
+                }
+                UpdateSwapchainSync(mode);
+
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
                 {
                     RenderLobbyFrame(lobby, deltaSeconds);
-                    Thread.Sleep(1);
+                    ThrottleFrame(frameStart, mode, cancellationToken);
                     continue;
                 }
                 _lobbyShown = null;
@@ -572,7 +788,8 @@ namespace Gordian.App.Graphics
                 if (HoldBlack)
                 {
                     RenderBlackFrame();
-                    Thread.Sleep(15);
+                    if (mode == ViewportRenderMode.Background) ThrottleFrame(frameStart, mode, cancellationToken);
+                    else Thread.Sleep(15);
                     continue;
                 }
 
@@ -784,7 +1001,8 @@ namespace Gordian.App.Graphics
                                 localPlayerServerId,
                                 isLocalPlayerEngaged,
                                 displayPlayerPos,
-                                present: false);
+                                present: false,
+                                targetFramebuffer: _deviceManager.Framebuffer);
 
                             // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
                             RenderTier2_StockUi();
@@ -793,7 +1011,7 @@ namespace Gordian.App.Graphics
                             RenderTier3_ImGuiOverlays();
 
                             // Final composite present
-                            _deviceManager.Device?.SwapBuffers();
+                            _deviceManager.Present();
                         }
                         catch (Exception ex)
                         {
@@ -832,9 +1050,125 @@ namespace Gordian.App.Graphics
                     });
                 }
 
+                ThrottleFrame(frameStart, mode, cancellationToken);
+            }
+        }
+
+        private volatile ViewportRenderMode _renderMode = ViewportRenderMode.Full;
+
+        /// <summary>
+        /// How often this viewport draws (#301), set by its window from focus and window state
+        /// (<see cref="ViewportRenderPolicy.Resolve"/>). A background window that other windows fully cover pauses too.
+        /// </summary>
+        public ViewportRenderMode RenderMode
+        {
+            get => _renderMode;
+            set
+            {
+                if (_renderMode == value) return;
+                _renderMode = value;
+                GordianLog.Debug("Graphics", $"Viewport render mode: {value}.");
+            }
+        }
+
+        private bool _swapchainVsync = true;
+        private long _lastOcclusionCheck;
+        private bool _surfaceCovered;
+        private long _lastPreloadTick;
+
+        /// <summary><see cref="RenderMode"/>, paused while a background window is fully covered (checked twice a second).</summary>
+        private ViewportRenderMode EffectiveRenderMode()
+        {
+            var mode = _renderMode;
+            if (mode != ViewportRenderMode.Background || !OperatingSystem.IsWindows())
+            {
+                _surfaceCovered = false;
+                return mode;
+            }
+            if (_lastOcclusionCheck == 0 || Stopwatch.GetElapsedTime(_lastOcclusionCheck) >= ViewportRenderPolicy.OcclusionCheckInterval)
+            {
+                _lastOcclusionCheck = Stopwatch.GetTimestamp();
+                bool covered = Win32OcclusionProbe.IsFullyCovered(_childHwnd);
+                if (covered != _surfaceCovered) GordianLog.Debug("Graphics", covered ? "Viewport fully covered: paused." : "Viewport visible again.");
+                _surfaceCovered = covered;
+            }
+            return _surfaceCovered ? ViewportRenderMode.Paused : mode;
+        }
+
+        /// <summary>
+        /// The focused window presents on the vertical blank (when VSync is on); background windows never wait for it, so
+        /// they do not hold the shared device's lock through a blank.
+        /// </summary>
+        private void UpdateSwapchainSync(ViewportRenderMode mode)
+        {
+            bool vsync = mode == ViewportRenderMode.Full && ViewportRenderSettings.VsyncEnabled;
+            if (vsync == _swapchainVsync) return;
+            _swapchainVsync = vsync;
+            lock (_renderLock)
+            {
+                try
+                {
+                    _deviceManager.SyncToVerticalBlank = vsync;
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("Graphics", $"Could not change VSync: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>The game logic a paused viewport still runs: zone loads, action playback and sound.</summary>
+        private void TickWhilePaused(float deltaSeconds)
+        {
+            CheckAndLoadPendingZone();
+            var session = _activeSession;
+            session?.ActionPlayback.Update();
+            try
+            {
+                Audio.GameAudioService.Instance.Update(this, session, Camera, deltaSeconds);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Keeps the zones of the logged-in characters resident on the GPU (#322), checked once a second.</summary>
+        private void PreloadSessionZones()
+        {
+            if (_lastPreloadTick != 0 && Stopwatch.GetElapsedTime(_lastPreloadTick).TotalSeconds < 1.0) return;
+            _lastPreloadTick = Stopwatch.GetTimestamp();
+            try
+            {
+                _renderer?.SharedResources.Zones.PreloadSessionZones(ResourceManager, SessionRegistry.Default.ActiveSessions);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("Graphics", $"Zone preload check failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Waits out the rest of the frame: a 1 ms yield at full rate, the background frame interval otherwise.</summary>
+        private void ThrottleFrame(long frameStart, ViewportRenderMode mode, CancellationToken cancellationToken)
+        {
+            if (mode == ViewportRenderMode.Full)
+            {
                 // If VSync is off or running faster than display, yield slightly
                 Thread.Sleep(1);
+                return;
             }
+            WaitForNextFrame(frameStart, ViewportRenderPolicy.FrameInterval(ViewportRenderSettings.BackgroundFrameRate), cancellationToken);
+        }
+
+        private static void WaitForNextFrame(long frameStart, TimeSpan interval, CancellationToken cancellationToken)
+        {
+            var remaining = interval - Stopwatch.GetElapsedTime(frameStart);
+            if (remaining <= TimeSpan.Zero)
+            {
+                Thread.Sleep(1);
+                return;
+            }
+            cancellationToken.WaitHandle.WaitOne(remaining);
         }
 
         /// <summary>
@@ -887,16 +1221,17 @@ namespace Gordian.App.Graphics
             lock (_renderLock)
             {
                 var gd = _deviceManager.Device;
-                if (gd == null || !_deviceManager.IsInitialized) return;
+                var framebuffer = _deviceManager.Framebuffer;
+                if (gd == null || framebuffer == null || !_deviceManager.IsInitialized) return;
                 try
                 {
                     _blackCommands ??= gd.ResourceFactory.CreateCommandList();
                     _blackCommands.Begin();
-                    _blackCommands.SetFramebuffer(gd.SwapchainFramebuffer);
+                    _blackCommands.SetFramebuffer(framebuffer);
                     _blackCommands.ClearColorTarget(0, RgbaFloat.Black);
                     _blackCommands.End();
                     gd.SubmitCommands(_blackCommands);
-                    gd.SwapBuffers();
+                    _deviceManager.Present();
                 }
                 catch (Exception ex)
                 {
@@ -914,10 +1249,11 @@ namespace Gordian.App.Graphics
             lock (_renderLock)
             {
                 var gd = _deviceManager.Device;
-                if (gd == null || !_deviceManager.IsInitialized) return;
+                var framebuffer = _deviceManager.Framebuffer;
+                if (gd == null || framebuffer == null || !_deviceManager.IsInitialized) return;
                 try
                 {
-                    _lobbyRenderer ??= new LobbyFrameRenderer(gd, gd.SwapchainFramebuffer.OutputDescription);
+                    _lobbyRenderer ??= new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                     long now = Stopwatch.GetTimestamp();
                     if (!ReferenceEquals(_lobbyShown, lobby))
                     {
@@ -925,9 +1261,9 @@ namespace Gordian.App.Graphics
                         _lobbyShownAt = now;
                     }
                     float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
-                    _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, gd.SwapchainFramebuffer,
+                    _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, framebuffer,
                         _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
-                    gd.SwapBuffers();
+                    _deviceManager.Present();
                 }
                 catch (Exception ex)
                 {
@@ -972,7 +1308,8 @@ namespace Gordian.App.Graphics
         private void RenderTier2_StockUi()
         {
             var gd = _deviceManager.Device;
-            if (_stockUiRenderer == null || gd == null) return;
+            var framebuffer = _deviceManager.Framebuffer;
+            if (_stockUiRenderer == null || gd == null || framebuffer == null) return;
             StockUi.EnsureLoading(ResourceManager);
             uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
             var viewProjection = Camera.ViewMatrix * Camera.ProjectionMatrix;
@@ -993,7 +1330,7 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
-            StockUi.Render(_stockUiRenderer, _activeSession, gd.SwapchainFramebuffer, width, height, cursor, _namePlateAnchors);
+            StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors);
         }
 
         private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();

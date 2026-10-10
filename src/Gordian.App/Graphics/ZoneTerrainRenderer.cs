@@ -25,20 +25,30 @@ namespace Gordian.App.Graphics
     public sealed class ZoneTerrainRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
+        // Layouts, light table, texture cache and resident zones shared by every window on the device (#300, #322).
+        private readonly GpuSharedResources _shared;
+        private readonly bool _ownsShared;
+        private readonly OutputDescription _outputs;
         private DeviceBuffer _sceneUniformBuffer = null!;
         private DeviceBuffer _waterUniformBuffer = null!;
         private ResourceLayout _sceneLayout = null!;
         private ResourceLayout _textureLayout = null!;
         private ResourceSet _sceneResourceSet = null!;
 
-        // Moving platform (elevator) parts, drawn at their platform's live height.
-        private readonly List<GpuSubmesh> _platformSubmeshes = new();
+        // The resident zone on screen (its GPU buffers are shared, #322) and this renderer's simulation state per resident
+        // zone shown (emitters, routines, doors, sub-environment uniforms), kept so a switch back resumes it.
+        private ResidentZone? _resident;
+        private ZoneRuntime? _runtime;
+        private readonly Dictionary<ResidentZone, ZoneRuntime> _runtimes = new(ReferenceEqualityComparer.Instance);
+
+        // Moving platform (elevator) parts, drawn at their platform's live height (the resident zone's list).
+        private List<GpuSubmesh> _platformSubmeshes = new();
         private readonly Dictionary<string, ZoneSceneUniform> _subEnvironmentUniforms = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, ActorLighting> _subEnvironmentActorLights = new(StringComparer.OrdinalIgnoreCase);
         private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
 
-        // Door leaves, drawn at their door's live pose.
-        private readonly List<GpuSubmesh> _doorSubmeshes = new();
+        // Door leaves, drawn at their door's live pose (the resident zone's list).
+        private List<GpuSubmesh> _doorSubmeshes = new();
         private DoorAnimator? _doorAnimator;
         private static readonly double TimestampSeconds = 1.0 / System.Diagnostics.Stopwatch.Frequency;
 
@@ -71,7 +81,7 @@ namespace Gordian.App.Graphics
         public Gordian.Core.Events.EventPresentation? EventPresentation { get; set; }
 
         // Sub-environment lighting (indoor areas such as Metalworks' ev01/ev02): one scene uniform and set per id.
-        private readonly Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
+        private Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
             new(StringComparer.OrdinalIgnoreCase);
         private ResourceSet _waterResourceSet = null!;
         private Pipeline _pipeline = null!;
@@ -111,9 +121,10 @@ namespace Gordian.App.Graphics
         public SkyDomeRenderer? SkyDomeRenderer => _skyDomeRenderer;
         public ZoneGeometry? LoadedZone { get; private set; }
 
-        private readonly List<GpuSubmesh> _zoneSubmeshes = new();
-        private readonly List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
-        private readonly List<GpuWeatherSkySubmesh> _effectSubmeshes = new();
+        // The resident zone's GPU submeshes (shared with other windows; never modified here).
+        private List<GpuSubmesh> _zoneSubmeshes = new();
+        private List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
+        private List<GpuWeatherSkySubmesh> _effectSubmeshes = new();
         private readonly List<EffectDraw> _effectDrawList = new();
 
         // Actor effects (model-embedded generators, e.g. the Home Point crystal): GPU meshes per model effect set, kept
@@ -147,7 +158,7 @@ namespace Gordian.App.Graphics
         /// effect, the transform from the zone-effect display frame to the world (the actor's placement and joint).
         /// </summary>
         private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor);
-        private readonly Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
+        private Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private ScenePostProcess? _postProcess;
 
         /// <summary>
@@ -161,7 +172,7 @@ namespace Gordian.App.Graphics
         private DeviceBuffer _noLightRefsBuffer = null!;
         private ResourceSet _noLightSet = null!;
         private readonly float[] _lightTable = new float[PointLightTableLayout.SizeInBytes / sizeof(float)];
-        private readonly List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> _pointLights = new();
+        private List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> _pointLights = new();
         private string _effectWeather = "fine";
 
         /// <summary>
@@ -185,7 +196,7 @@ namespace Gordian.App.Graphics
         /// orange. The client's exact light pipeline is not decoded.
         /// </summary>
         public float PointLightStrength { get; set; } = 0.75f;
-        private readonly Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
+        private Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
         private ZoneRoutinePlayer? _mapRoutines;
         private ushort _mapRoutineZoneId;
@@ -265,7 +276,7 @@ namespace Gordian.App.Graphics
         public Vector3 FirstSubmeshMinBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MinBounds : Vector3.Zero;
         public Vector3 FirstSubmeshMaxBounds => _zoneSubmeshes.Count > 0 ? _zoneSubmeshes[0].MaxBounds : Vector3.Zero;
 
-        private sealed class GpuSubmesh : IDisposable
+        internal sealed class GpuSubmesh : IDisposable
         {
             public string Name { get; init; } = string.Empty;
             public string TextureName { get; init; } = string.Empty;
@@ -317,7 +328,7 @@ namespace Gordian.App.Graphics
             }
         }
 
-        private sealed class GpuWeatherSkySubmesh : IDisposable
+        internal sealed class GpuWeatherSkySubmesh : IDisposable
         {
             public string Name { get; init; } = string.Empty;
             public string LayerName { get; init; } = string.Empty;
@@ -363,14 +374,38 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// A renderer with GPU resources of its own, drawing into the device's main swapchain format (offscreen tests and
+        /// single-window use).
+        /// </summary>
         public ZoneTerrainRenderer(GraphicsDevice gd)
+            : this(new GpuSharedResources(gd ?? throw new ArgumentNullException(nameof(gd))), gd.SwapchainFramebuffer.OutputDescription, ownsShared: true)
         {
-            _gd = gd ?? throw new ArgumentNullException(nameof(gd));
+        }
+
+        /// <summary>
+        /// A viewport window's renderer on the shared device (#300): layouts, textures, entity models and resident zones
+        /// come from <paramref name="shared"/>; pipelines are built for <paramref name="outputs"/> (the window's swapchain).
+        /// </summary>
+        public ZoneTerrainRenderer(GpuSharedResources shared, OutputDescription outputs)
+            : this(shared, outputs, ownsShared: false)
+        {
+        }
+
+        private ZoneTerrainRenderer(GpuSharedResources shared, OutputDescription outputs, bool ownsShared)
+        {
+            _shared = shared ?? throw new ArgumentNullException(nameof(shared));
+            _ownsShared = ownsShared;
+            _gd = shared.Device;
+            _outputs = outputs;
             InitializePipeline();
-            _entityRenderer = new EntityRenderer(_gd);
+            _entityRenderer = new EntityRenderer(_shared, _outputs);
             BuildFallbackScene();
             BuildOceanWaterPlane();
         }
+
+        /// <summary>The GPU resources this renderer draws with (shared with the other windows on the device).</summary>
+        public GpuSharedResources SharedResources => _shared;
 
         private void InitializePipeline()
         {
@@ -384,27 +419,18 @@ namespace Gordian.App.Graphics
                 ZoneSceneUniform.SizeInBytes,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
-            // 2. Resource Layouts
-            // Set 0: Scene Uniforms (World, View, Proj, Sun, Ambient, Fog, Eye, WeatherParams)
-            _sceneLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("ZoneSceneUniforms", ResourceKind.UniformBuffer, ShaderStages.Vertex | ShaderStages.Fragment)));
-
-            // Set 1: Diffuse Texture + Bilinear Sampler
-            _textureLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("uTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
-                new ResourceLayoutElementDescription("uSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
-
-            // Set 2: zone point lights (the frame's light table and the placement's light slots)
-            _lightLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("PointLightTable", ResourceKind.UniformBuffer, ShaderStages.Fragment),
-                new ResourceLayoutElementDescription("PointLightRefs", ResourceKind.UniformBuffer, ShaderStages.Fragment)));
-            _lightTableBuffer = factory.CreateBuffer(new BufferDescription(PointLightTableLayout.SizeInBytes, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
-            _noLightRefsBuffer = CreateLightRefsBuffer(Array.Empty<int>());
-            _noLightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, _noLightRefsBuffer));
+            // 2. Resource layouts, shared by every window (GpuSharedResources): set 0 scene uniforms, set 1 texture and
+            // sampler, set 2 zone point lights (the frame's light table and the placement's light slots).
+            _sceneLayout = _shared.SceneLayout;
+            _textureLayout = _shared.TextureLayout;
+            _lightLayout = _shared.LightLayout;
+            _lightTableBuffer = _shared.LightTableBuffer;
+            _noLightRefsBuffer = _shared.NoLightRefsBuffer;
+            _noLightSet = _shared.NoLightSet;
 
             _sceneResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _sceneUniformBuffer));
             _waterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _waterUniformBuffer));
-            _textureCache = new GpuTextureCache(_gd, _textureLayout);
+            _textureCache = _shared.ZoneTextures;
 
             // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky)
             var vsDesc = new ShaderDescription(
@@ -488,7 +514,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, opaqueShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
             _culledPipelines[_pipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(pipelineDesc));
@@ -516,7 +542,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, decalShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _terrainBlendPipeline = factory.CreateGraphicsPipeline(terrainBlendPipelineDesc);
             _culledPipelines[_terrainBlendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(terrainBlendPipelineDesc));
@@ -538,7 +564,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, cutoutShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _cutoutPipeline = factory.CreateGraphicsPipeline(cutoutPipelineDesc);
             _culledPipelines[_cutoutPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(cutoutPipelineDesc));
@@ -560,7 +586,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, blendShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
             _culledPipelines[_blendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(blendPipelineDesc));
@@ -584,7 +610,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout, _lightLayout },
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, waterShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _waterPipeline = factory.CreateGraphicsPipeline(waterPipelineDesc);
 
@@ -606,7 +632,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _sceneLayout, _textureLayout },
                 ShaderSet = new ShaderSetDescription(new[] { weatherSkyVertexLayout }, weatherSkyShaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             };
             _weatherSkyPipeline = factory.CreateGraphicsPipeline(weatherSkyPipelineDesc);
 
@@ -666,182 +692,393 @@ namespace Gordian.App.Graphics
             lensFlareDesc.DepthStencilState = DepthStencilStateDescription.Disabled;
             _lensFlarePipeline = factory.CreateGraphicsPipeline(lensFlareDesc);
 
-            _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _gd.SwapchainFramebuffer.OutputDescription);
+            _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _outputs);
             _commandList = factory.CreateCommandList();
         }
 
         /// <summary>
-        /// Loads a ZoneGeometry model and its decoded textures into GPU buffers.
+        /// Shows a zone: its GPU copy is taken from the device's <see cref="ZoneResidencyCache"/> (#322), uploaded first
+        /// when no window has it resident, and this renderer's simulation of it (emitters, routines, doors) resumes where it
+        /// was or starts. Null shows the fallback scene.
         /// </summary>
         public void LoadZone(ZoneGeometry? zone, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
         {
-            ClearZoneSubmeshes();
-            ClearWeatherSkySubmeshes();
-            foreach (var meshes in _actorEffectMeshes.Values)
+            ActivateZone(zone == null ? null : _shared.Zones.Acquire(zone, textures));
+        }
+
+        /// <summary>The resident zone on screen, or null for the fallback scene.</summary>
+        public ResidentZone? ActiveResidentZone => _resident;
+
+        /// <summary>
+        /// Shows a resident zone, taking over the reference the caller acquired from <see cref="ZoneResidencyCache"/>
+        /// (<see cref="ZoneResidencyCache.Acquire"/> or <see cref="ZoneResidencyCache.TryAcquireResident"/>) and giving
+        /// back the previous zone's, so a switch between resident zones uploads nothing. Null shows the fallback scene.
+        /// Call under the device lock.
+        /// </summary>
+        public void ActivateZone(ResidentZone? resident)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (resident is { IsDisposed: true }) throw new ObjectDisposedException(nameof(ResidentZone), $"Zone {resident.ZoneId} left the GPU before it was shown.");
+            if (ReferenceEquals(resident, _resident))
             {
-                foreach (var list in meshes.Values)
-                {
-                    foreach (var mesh in list) mesh.Dispose();
-                }
+                // Already on screen: the caller's reference is not needed.
+                _shared.Zones.Release(resident);
+                return;
             }
-            _actorEffectMeshes.Clear();
+
+            SaveRuntime();
+            var previous = _resident;
+            _resident = resident;
+            var zone = resident?.Zone;
             LoadedZone = zone;
-            CreateSubEnvironmentScenes(zone);
+            _zoneSubmeshes = resident?.ZoneSubmeshes ?? new List<GpuSubmesh>();
+            _platformSubmeshes = resident?.PlatformSubmeshes ?? new List<GpuSubmesh>();
+            _doorSubmeshes = resident?.DoorSubmeshes ?? new List<GpuSubmesh>();
+            _weatherSkySubmeshes = resident?.WeatherSkySubmeshes ?? new List<GpuWeatherSkySubmesh>();
+            _effectSubmeshes = resident?.EffectSubmeshes ?? new List<GpuWeatherSkySubmesh>();
+            _activeDecodedTextures = resident?.Textures;
+            TotalVertices = resident?.TotalVertices ?? 0;
+
+            bool resumed = false;
+            ZoneRuntime runtime;
+            if (resident == null)
+            {
+                runtime = new ZoneRuntime();
+            }
+            else if (_runtimes.TryGetValue(resident, out var kept))
+            {
+                runtime = kept;
+                resumed = true;
+            }
+            else
+            {
+                runtime = CreateRuntime(resident.Zone);
+                _runtimes[resident] = runtime;
+            }
+            ApplyRuntime(runtime);
+
             _entityRenderer?.ResetEnvironmentProbes();
             _lightSourceVisibility.Clear();
+            _actorEffects.Clear();
+            _subEnvironmentUniforms.Clear();
+            _subEnvironmentActorLights.Clear();
+            _viewerFloorProbe = new Vector3(float.NaN);
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
                 ? envWaterUv.Value
                 : new Vector2(0.012f, -0.016f);
-            _activeDecodedTextures = textures;
 
-            if (zone == null || (zone.MeshGroups.Count == 0 && zone.WeatherSkyLayers.Count == 0 && zone.EffectLayers.Count == 0))
+            if (previous != null) _shared.Zones.Release(previous);
+            PruneRuntimes();
+
+            if (resident != null)
             {
-                return;
+                GordianLog.Info("Graphics", $"Showing Zone {resident.ZoneId}: {_zoneSubmeshes.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) resident on the GPU{(resumed ? ", its effects resumed" : string.Empty)}.");
             }
+        }
 
-            var factory = _gd.ResourceFactory;
-            int vertCount = 0;
+        /// <summary>This renderer's simulation of one zone: what <see cref="ActivateZone"/> swaps with the zone.</summary>
+        private sealed class ZoneRuntime
+        {
+            public Dictionary<WeatherSkyLayer, ZoneParticleEmitter> Emitters { get; } = new(ReferenceEqualityComparer.Instance);
+            public Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> EmittersByTemplate { get; } = new(ReferenceEqualityComparer.Instance);
+            public List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> PointLights { get; } = new();
+            public Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> SubEnvironmentScenes { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+            public WeatherRoutinePlayer? WeatherRoutines { get; set; }
+            public ZoneRoutinePlayer? MapRoutines { get; set; }
+            public ushort MapRoutineZoneId { get; set; }
+            public bool EmittersWarm { get; set; }
+            public DoorAnimator? DoorAnimator { get; set; }
 
-            var allGroups = new List<(MeshGroup Group, string PlatformId, string DoorId, DoorLeaf? Leaf)>(zone.MeshGroups.Count);
-            foreach (var group in zone.MeshGroups) allGroups.Add((group, string.Empty, string.Empty, null));
-            foreach (var (platformId, parts) in zone.MovingPlatformGroups)
-            {
-                foreach (var part in parts) allGroups.Add((part, platformId, string.Empty, null));
-            }
-            foreach (var (doorId, leaves) in zone.DoorLeaves)
-            {
-                foreach (var leaf in leaves)
-                {
-                    foreach (var part in leaf.Submeshes) allGroups.Add((part, string.Empty, doorId, leaf));
-                }
-            }
-            _doorAnimator = zone.DoorRoutines.Count > 0 ? new DoorAnimator(zone.DoorRoutines) : null;
+            public void Dispose() => DisposeSubEnvironmentScenes(SubEnvironmentScenes);
+        }
 
-            for (int i = 0; i < allGroups.Count; i++)
-            {
-                var (group, platformId, doorId, leaf) = allGroups[i];
-                if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
-
-                var vb = factory.CreateBuffer(new BufferDescription(
-                    (uint)(group.Vertices.Length * 36),
-                    BufferUsage.VertexBuffer));
-                _gd.UpdateBuffer(vb, 0, group.Vertices);
-
-                // Convert int[] indices to ushort[]
-                var ushortIndices = new ushort[group.Indices.Length];
-                for (int idx = 0; idx < group.Indices.Length; idx++)
-                {
-                    ushortIndices[idx] = (ushort)group.Indices[idx];
-                }
-
-                var ib = factory.CreateBuffer(new BufferDescription(
-                    (uint)(ushortIndices.Length * sizeof(ushort)),
-                    BufferUsage.IndexBuffer));
-                _gd.UpdateBuffer(ib, 0, ushortIndices);
-
-                DeviceBuffer? lightRefs = null;
-                ResourceSet? lightSet = null;
-                if (group.PointLightSlots.Length > 0)
-                {
-                    lightRefs = CreateLightRefsBuffer(group.PointLightSlots);
-                    lightSet = factory.CreateResourceSet(new ResourceSetDescription(_lightLayout, _lightTableBuffer, lightRefs));
-                }
-
-                (doorId.Length > 0 ? _doorSubmeshes : platformId.Length > 0 ? _platformSubmeshes : _zoneSubmeshes).Add(new GpuSubmesh
-                {
-                    PlatformId = platformId,
-                    DoorId = doorId,
-                    DoorPart = leaf?.Part ?? 0,
-                    DoorPlacement = leaf?.Placement ?? default,
-                    LightRefsBuffer = lightRefs,
-                    LightSet = lightSet,
-                    Name = group.Name,
-                    TextureName = group.TextureName,
-                    VertexBuffer = vb,
-                    IndexBuffer = ib,
-                    IndexCount = (uint)ushortIndices.Length,
-                    MinBounds = group.MinBounds,
-                    MaxBounds = group.MaxBounds,
-                    IsBlend = group.IsBlend,
-                    NoCull = group.NoCull,
-                    IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
-                    IsWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName),
-                    UVScroll = group.UVScroll,
-                    EnvironmentId = group.EnvironmentId
-                });
-
-                vertCount += group.Vertices.Length;
-            }
-
-            // Stream Section 0x05 / WeatherSky dynamic cloud layers and celestial discs
-            if (zone.WeatherSkyLayers.Count > 0)
-            {
-                for (int i = 0; i < zone.WeatherSkyLayers.Count; i++)
-                {
-                    vertCount += UploadGeneratorLayer(zone.WeatherSkyLayers[i], _weatherSkySubmeshes);
-                }
-
-                // Painter's order: sky generators draw in authored DAT order within their weather (the daytime sun glow
-                // precedes the clouds that veil it); stable, so each layer keeps its submesh order.
-                var authoredOrder = _weatherSkySubmeshes.OrderBy(s => s.Layer.AuthoredOrder).ToList();
-                _weatherSkySubmeshes.Clear();
-                _weatherSkySubmeshes.AddRange(authoredOrder);
-            }
-
-            // Stream world-space zone effects (sea surfaces, and the meshes of surf / wave-crest particle emitters)
+        private ZoneRuntime CreateRuntime(ZoneGeometry zone)
+        {
+            var runtime = new ZoneRuntime { SubEnvironmentScenes = CreateSubEnvironmentScenes(zone) };
+            runtime.DoorAnimator = zone.DoorRoutines.Count > 0 ? new DoorAnimator(zone.DoorRoutines) : null;
             for (int i = 0; i < zone.EffectLayers.Count; i++)
             {
                 var effectLayer = zone.EffectLayers[i];
-                vertCount += UploadGeneratorLayer(effectLayer, _effectSubmeshes);
                 if (effectLayer.Emitter != null)
                 {
-                    _emitters[effectLayer] = new ZoneParticleEmitter(effectLayer.Emitter, seed: i);
+                    runtime.Emitters[effectLayer] = new ZoneParticleEmitter(effectLayer.Emitter, seed: i);
                 }
             }
 
             // Parents spawn into their child generators' emitters.
-            var emittersByTemplate = _emittersByTemplate;
-            emittersByTemplate.Clear();
-            foreach (var emitter in _emitters.Values) emittersByTemplate[emitter.Template] = emitter;
-            foreach (var emitter in _emitters.Values)
+            var emittersByTemplate = runtime.EmittersByTemplate;
+            foreach (var emitter in runtime.Emitters.Values) emittersByTemplate[emitter.Template] = emitter;
+            foreach (var emitter in runtime.Emitters.Values)
             {
                 emitter.ChildResolver = template => emittersByTemplate.TryGetValue(template, out var child) ? child : null;
             }
-            _weatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
-            _mapRoutines = zone.MapRoutines.RoutineCount > 0 ? new ZoneRoutinePlayer(zone.MapRoutines) : null;
-            _mapRoutineZoneId = (ushort)zone.ZoneId;
-            _pointLights.Clear();
-            foreach (var (layer, emitter) in _emitters)
+            runtime.WeatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
+            runtime.MapRoutines = zone.MapRoutines.RoutineCount > 0 ? new ZoneRoutinePlayer(zone.MapRoutines) : null;
+            runtime.MapRoutineZoneId = (ushort)zone.ZoneId;
+            foreach (var (layer, emitter) in runtime.Emitters)
             {
-                if (layer.PointLightSlot >= 0 && layer.PointLightSlot < PointLightTableLayout.Slots) _pointLights.Add((layer, emitter));
+                if (layer.PointLightSlot >= 0 && layer.PointLightSlot < PointLightTableLayout.Slots) runtime.PointLights.Add((layer, emitter));
             }
-            _emittersWarm = false;
-            _viewerFloorProbe = new Vector3(float.NaN);
+            runtime.EmittersWarm = false;
+            return runtime;
+        }
 
-            TotalVertices = vertCount;
-            GordianLog.Info("Graphics", $"Streamed {zone.MeshGroups.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) to GPU.");
+        private void ApplyRuntime(ZoneRuntime runtime)
+        {
+            _runtime = runtime;
+            _emitters = runtime.Emitters;
+            _emittersByTemplate = runtime.EmittersByTemplate;
+            _pointLights = runtime.PointLights;
+            _subEnvironmentScenes = runtime.SubEnvironmentScenes;
+            _weatherRoutines = runtime.WeatherRoutines;
+            _mapRoutines = runtime.MapRoutines;
+            _mapRoutineZoneId = runtime.MapRoutineZoneId;
+            _emittersWarm = runtime.EmittersWarm;
+            _doorAnimator = runtime.DoorAnimator;
+        }
+
+        /// <summary>Writes the zone's scalar simulation state back into its runtime before another zone is shown.</summary>
+        private void SaveRuntime()
+        {
+            if (_runtime == null) return;
+            _runtime.WeatherRoutines = _weatherRoutines;
+            _runtime.MapRoutines = _mapRoutines;
+            _runtime.MapRoutineZoneId = _mapRoutineZoneId;
+            _runtime.EmittersWarm = _emittersWarm;
+            _runtime.DoorAnimator = _doorAnimator;
+        }
+
+        /// <summary>Drops the runtimes of zones that left the GPU (the zone cache evicted them).</summary>
+        private void PruneRuntimes()
+        {
+            List<ResidentZone>? gone = null;
+            foreach (var resident in _runtimes.Keys)
+            {
+                if (resident.IsDisposed && !ReferenceEquals(resident, _resident)) (gone ??= new()).Add(resident);
+            }
+            if (gone == null) return;
+            foreach (var resident in gone)
+            {
+                _runtimes[resident].Dispose();
+                _runtimes.Remove(resident);
+            }
         }
 
         /// <summary>
-        /// A placement's light-slot uniform: four zero-based light-table slots, -1 for none.
+        /// A zone's GPU copy, shared by every viewport window on the device and kept by <see cref="ZoneResidencyCache"/>
+        /// (#322): vertex and index buffers of its placed submeshes, moving platforms and door leaves, its Section 0x05
+        /// generator meshes, and its textures (uploaded with it). Never changed once built; the per-window simulation of
+        /// the zone (emitters, routines) lives in each renderer.
         /// </summary>
-        private DeviceBuffer CreateLightRefsBuffer(int[] slots)
+        public sealed class ResidentZone : IDisposable
         {
-            var refs = new int[4] { -1, -1, -1, -1 };
-            for (int i = 0; i < Math.Min(4, slots.Length); i++) refs[i] = slots[i];
-            var buffer = _gd.ResourceFactory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
-            _gd.UpdateBuffer(buffer, 0, refs);
-            return buffer;
+            private ResidentZone(ZoneGeometry zone, IReadOnlyDictionary<string, DecodedTexture>? textures, int generation)
+            {
+                Zone = zone;
+                Textures = textures;
+                Generation = generation;
+            }
+
+            public ZoneGeometry Zone { get; }
+            public int ZoneId => Zone.ZoneId;
+            public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; }
+
+            /// <summary>The ResourceManager cache generation the zone was read under (a VFS reload makes it stale).</summary>
+            public int Generation { get; }
+            internal List<GpuSubmesh> ZoneSubmeshes { get; } = new();
+            internal List<GpuSubmesh> PlatformSubmeshes { get; } = new();
+            internal List<GpuSubmesh> DoorSubmeshes { get; } = new();
+            internal List<GpuWeatherSkySubmesh> WeatherSkySubmeshes { get; } = new();
+            internal List<GpuWeatherSkySubmesh> EffectSubmeshes { get; } = new();
+            public int TotalVertices { get; private set; }
+
+            /// <summary>GPU memory held: buffers and the textures uploaded with the zone.</summary>
+            public long Bytes { get; private set; }
+
+            /// <summary>How long the upload took (milliseconds, device lock waits included).</summary>
+            public double BuildMilliseconds { get; private set; }
+            public bool IsDisposed { get; private set; }
+
+            /// <summary>Submeshes uploaded per hold of the device lock, so other windows draw between chunks.</summary>
+            private const int GroupsPerChunk = 256;
+
+            /// <summary>Textures uploaded per hold of the device lock.</summary>
+            private const int TexturesPerChunk = 8;
+
+            /// <summary>
+            /// Uploads a zone (any thread): the device lock is taken per chunk of submeshes, generator layers and textures.
+            /// Every texture of the zone is uploaded here, so the first frame after a switch does not upload them one by one.
+            /// </summary>
+            internal static ResidentZone Build(GpuSharedResources shared, ZoneGeometry zone, IReadOnlyDictionary<string, DecodedTexture>? textures, int generation)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var resident = new ResidentZone(zone, textures, generation);
+                try
+                {
+                    resident.Upload(shared);
+                }
+                catch
+                {
+                    lock (shared.GpuLock) resident.Dispose();
+                    throw;
+                }
+                resident.BuildMilliseconds = watch.Elapsed.TotalMilliseconds;
+                GordianLog.Info("Graphics", $"Uploaded Zone {zone.ZoneId} to the GPU in {resident.BuildMilliseconds:F0} ms: {resident.ZoneSubmeshes.Count} zone submeshes, {resident.WeatherSkySubmeshes.Count} weather sky submeshes, {resident.EffectSubmeshes.Count} zone effect submeshes ({resident.TotalVertices} vertices), {textures?.Count ?? 0} textures, {resident.Bytes >> 20} MB.");
+                return resident;
+            }
+
+            private void Upload(GpuSharedResources shared)
+            {
+                var zone = Zone;
+                var gd = shared.Device;
+                var factory = gd.ResourceFactory;
+                int vertCount = 0;
+                long bytes = 0;
+
+                var allGroups = new List<(MeshGroup Group, string PlatformId, string DoorId, DoorLeaf? Leaf)>(zone.MeshGroups.Count);
+                foreach (var group in zone.MeshGroups) allGroups.Add((group, string.Empty, string.Empty, null));
+                foreach (var (platformId, parts) in zone.MovingPlatformGroups)
+                {
+                    foreach (var part in parts) allGroups.Add((part, platformId, string.Empty, null));
+                }
+                foreach (var (doorId, leaves) in zone.DoorLeaves)
+                {
+                    foreach (var leaf in leaves)
+                    {
+                        foreach (var part in leaf.Submeshes) allGroups.Add((part, string.Empty, doorId, leaf));
+                    }
+                }
+
+                for (int start = 0; start < allGroups.Count; start += GroupsPerChunk)
+                {
+                    lock (shared.GpuLock)
+                    {
+                        int end = Math.Min(allGroups.Count, start + GroupsPerChunk);
+                        for (int i = start; i < end; i++)
+                        {
+                            var (group, platformId, doorId, leaf) = allGroups[i];
+                            if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
+
+                            var vb = factory.CreateBuffer(new BufferDescription(
+                                (uint)(group.Vertices.Length * 36),
+                                BufferUsage.VertexBuffer));
+                            gd.UpdateBuffer(vb, 0, group.Vertices);
+
+                            // Convert int[] indices to ushort[]
+                            var ushortIndices = new ushort[group.Indices.Length];
+                            for (int idx = 0; idx < group.Indices.Length; idx++)
+                            {
+                                ushortIndices[idx] = (ushort)group.Indices[idx];
+                            }
+
+                            var ib = factory.CreateBuffer(new BufferDescription(
+                                (uint)(ushortIndices.Length * sizeof(ushort)),
+                                BufferUsage.IndexBuffer));
+                            gd.UpdateBuffer(ib, 0, ushortIndices);
+
+                            DeviceBuffer? lightRefs = null;
+                            ResourceSet? lightSet = null;
+                            if (group.PointLightSlots.Length > 0)
+                            {
+                                lightRefs = shared.CreateLightRefsBuffer(group.PointLightSlots);
+                                lightSet = factory.CreateResourceSet(new ResourceSetDescription(shared.LightLayout, shared.LightTableBuffer, lightRefs));
+                            }
+
+                            (doorId.Length > 0 ? DoorSubmeshes : platformId.Length > 0 ? PlatformSubmeshes : ZoneSubmeshes).Add(new GpuSubmesh
+                            {
+                                PlatformId = platformId,
+                                DoorId = doorId,
+                                DoorPart = leaf?.Part ?? 0,
+                                DoorPlacement = leaf?.Placement ?? default,
+                                LightRefsBuffer = lightRefs,
+                                LightSet = lightSet,
+                                Name = group.Name,
+                                TextureName = group.TextureName,
+                                VertexBuffer = vb,
+                                IndexBuffer = ib,
+                                IndexCount = (uint)ushortIndices.Length,
+                                MinBounds = group.MinBounds,
+                                MaxBounds = group.MaxBounds,
+                                IsBlend = group.IsBlend,
+                                NoCull = group.NoCull,
+                                IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
+                                IsWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName),
+                                UVScroll = group.UVScroll,
+                                EnvironmentId = group.EnvironmentId
+                            });
+
+                            vertCount += group.Vertices.Length;
+                            bytes += vb.SizeInBytes + ib.SizeInBytes;
+                        }
+                    }
+                }
+
+                // Stream Section 0x05 / WeatherSky dynamic cloud layers and celestial discs
+                foreach (var layer in zone.WeatherSkyLayers)
+                {
+                    lock (shared.GpuLock) vertCount += UploadGeneratorLayer(shared, layer, WeatherSkySubmeshes);
+                }
+                if (WeatherSkySubmeshes.Count > 0)
+                {
+                    // Painter's order: sky generators draw in authored DAT order within their weather (the daytime sun glow
+                    // precedes the clouds that veil it); stable, so each layer keeps its submesh order.
+                    var authoredOrder = WeatherSkySubmeshes.OrderBy(s => s.Layer.AuthoredOrder).ToList();
+                    WeatherSkySubmeshes.Clear();
+                    WeatherSkySubmeshes.AddRange(authoredOrder);
+                }
+
+                // Stream world-space zone effects (sea surfaces, and the meshes of surf / wave-crest particle emitters)
+                foreach (var effectLayer in zone.EffectLayers)
+                {
+                    lock (shared.GpuLock) vertCount += UploadGeneratorLayer(shared, effectLayer, EffectSubmeshes);
+                }
+                foreach (var mesh in WeatherSkySubmeshes.Concat(EffectSubmeshes))
+                {
+                    bytes += mesh.VertexBuffer.SizeInBytes + mesh.IndexBuffer.SizeInBytes + mesh.UniformBuffer.SizeInBytes;
+                }
+
+                if (Textures != null)
+                {
+                    var all = Textures.Values.Where(t => t != null).ToList();
+                    for (int start = 0; start < all.Count; start += TexturesPerChunk)
+                    {
+                        lock (shared.GpuLock)
+                        {
+                            for (int i = start; i < Math.Min(all.Count, start + TexturesPerChunk); i++)
+                            {
+                                shared.ZoneTextures.GetOrCreateResourceSet(all[i]);
+                                bytes += (long)Math.Max(1, all[i].Width) * Math.Max(1, all[i].Height) * 4;
+                            }
+                        }
+                    }
+                }
+
+                TotalVertices = vertCount;
+                Bytes = bytes;
+            }
+
+            /// <summary>Frees the buffers (call under the device lock); the textures are the cache's to evict.</summary>
+            public void Dispose()
+            {
+                if (IsDisposed) return;
+                IsDisposed = true;
+                foreach (var submesh in ZoneSubmeshes) submesh.Dispose();
+                foreach (var submesh in PlatformSubmeshes) submesh.Dispose();
+                foreach (var submesh in DoorSubmeshes) submesh.Dispose();
+                foreach (var mesh in WeatherSkySubmeshes) mesh.Dispose();
+                foreach (var mesh in EffectSubmeshes) mesh.Dispose();
+            }
         }
 
         /// <summary>
         /// Uploads a Section 0x05 generator layer's meshes (sky layer or world effect), one GPU submesh with its own
-        /// uniform buffer per mesh group. Returns the number of vertices streamed.
+        /// uniform buffer per mesh group. Returns the number of vertices streamed. Call under the device lock.
         /// </summary>
-        private int UploadGeneratorLayer(WeatherSkyLayer layer, List<GpuWeatherSkySubmesh> target, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
+        private static int UploadGeneratorLayer(GpuSharedResources shared, WeatherSkyLayer layer, List<GpuWeatherSkySubmesh> target, IReadOnlyDictionary<string, DecodedTexture>? textures = null)
         {
-            var factory = _gd.ResourceFactory;
+            var gd = shared.Device;
+            var factory = gd.ResourceFactory;
             int vertCount = 0;
             for (int g = 0; g < layer.MeshGroups.Count; g++)
             {
@@ -853,7 +1090,7 @@ namespace Gordian.App.Graphics
                 var vb = factory.CreateBuffer(new BufferDescription(
                     (uint)(group.Vertices.Length * 36),
                     morph != null ? BufferUsage.VertexBuffer | BufferUsage.Dynamic : BufferUsage.VertexBuffer));
-                _gd.UpdateBuffer(vb, 0, group.Vertices);
+                gd.UpdateBuffer(vb, 0, group.Vertices);
 
                 var ushortIndices = new ushort[group.Indices.Length];
                 for (int idx = 0; idx < group.Indices.Length; idx++)
@@ -864,12 +1101,12 @@ namespace Gordian.App.Graphics
                 var ib = factory.CreateBuffer(new BufferDescription(
                     (uint)(ushortIndices.Length * sizeof(ushort)),
                     BufferUsage.IndexBuffer));
-                _gd.UpdateBuffer(ib, 0, ushortIndices);
+                gd.UpdateBuffer(ib, 0, ushortIndices);
 
                 var ub = factory.CreateBuffer(new BufferDescription(
                     ZoneSceneUniform.SizeInBytes,
                     BufferUsage.UniformBuffer | BufferUsage.Dynamic));
-                var rSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, ub));
+                var rSet = factory.CreateResourceSet(new ResourceSetDescription(shared.SceneLayout, ub));
 
                 float radiusSquared = 0.0f;
                 foreach (var vertex in group.Vertices) radiusSquared = MathF.Max(radiusSquared, vertex.Position.LengthSquared());
@@ -923,7 +1160,7 @@ namespace Gordian.App.Graphics
             bool present = true,
             Framebuffer? targetFramebuffer = null)
         {
-            if (_disposed || _gd == null || (_gd.MainSwapchain == null && targetFramebuffer == null)) return;
+            if (_disposed || _gd == null || (targetFramebuffer == null && _gd.MainSwapchain == null)) return;
 
             // 1. Update Uniform Buffer
             float aspect = Math.Max(0.1f, (float)width / Math.Max(1, height));
@@ -1333,7 +1570,7 @@ namespace Gordian.App.Graphics
 
             // 4. Submit & Present
             _gd.SubmitCommands(_commandList);
-            if (present)
+            if (present && _gd.MainSwapchain != null)
             {
                 _gd.SwapBuffers();
             }
@@ -1817,7 +2054,7 @@ namespace Gordian.App.Graphics
             foreach (var layer in effects.Layers)
             {
                 var meshes = new List<GpuWeatherSkySubmesh>();
-                UploadGeneratorLayer(layer, meshes, effects.Textures);
+                UploadGeneratorLayer(_shared, layer, meshes, effects.Textures);
                 byLayer[layer] = meshes;
             }
             _actorEffectMeshes[effects] = byLayer;
@@ -2261,23 +2498,30 @@ namespace Gordian.App.Graphics
                 center.X, center.Y, center.Z, 1f);
         }
 
-        private void CreateSubEnvironmentScenes(ZoneGeometry? zone)
+        /// <summary>One scene uniform buffer and set per sub-environment of the zone (this renderer's, rewritten each frame).</summary>
+        private Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> CreateSubEnvironmentScenes(ZoneGeometry? zone)
         {
-            foreach (var (buffer, set) in _subEnvironmentScenes.Values)
-            {
-                set.Dispose();
-                buffer.Dispose();
-            }
-            _subEnvironmentScenes.Clear();
-            if (zone?.EnvironmentData == null) return;
+            var scenes = new Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)>(StringComparer.OrdinalIgnoreCase);
+            if (zone?.EnvironmentData == null) return scenes;
 
             var factory = _gd.ResourceFactory;
             foreach (string id in zone.EnvironmentData.SubEnvironmentIds)
             {
                 var buffer = factory.CreateBuffer(new BufferDescription(ZoneSceneUniform.SizeInBytes, BufferUsage.UniformBuffer | BufferUsage.Dynamic));
                 var set = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, buffer));
-                _subEnvironmentScenes[id] = (buffer, set);
+                scenes[id] = (buffer, set);
             }
+            return scenes;
+        }
+
+        private static void DisposeSubEnvironmentScenes(Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> scenes)
+        {
+            foreach (var (buffer, set) in scenes.Values)
+            {
+                set.Dispose();
+                buffer.Dispose();
+            }
+            scenes.Clear();
         }
 
         /// <summary>
@@ -2418,49 +2662,26 @@ namespace Gordian.App.Graphics
                 ? scene.Set
                 : _sceneResourceSet;
 
-        private void ClearZoneSubmeshes()
-        {
-            for (int i = 0; i < _zoneSubmeshes.Count; i++)
-            {
-                _zoneSubmeshes[i].Dispose();
-            }
-            _zoneSubmeshes.Clear();
-            foreach (var submesh in _platformSubmeshes) submesh.Dispose();
-            _platformSubmeshes.Clear();
-            foreach (var submesh in _doorSubmeshes) submesh.Dispose();
-            _doorSubmeshes.Clear();
-            _doorAnimator = null;
-            _textureCache?.Clear();
-            TotalVertices = 0;
-        }
-
-        private void ClearWeatherSkySubmeshes()
-        {
-            for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
-            {
-                _weatherSkySubmeshes[i].Dispose();
-            }
-            _weatherSkySubmeshes.Clear();
-
-            for (int i = 0; i < _effectSubmeshes.Count; i++)
-            {
-                _effectSubmeshes[i].Dispose();
-            }
-            _effectSubmeshes.Clear();
-            _emitters.Clear();
-            _emittersByTemplate.Clear();
-            _weatherRoutines = null;
-            _mapRoutines = null;
-            _actorEffects.Clear();
-        }
-
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
 
-            ClearZoneSubmeshes();
-            ClearWeatherSkySubmeshes();
+            // The zone's GPU copy belongs to the device's zone cache: only the reference is given back.
+            var resident = _resident;
+            _resident = null;
+            if (resident != null) _shared.Zones.Release(resident);
+            foreach (var runtime in _runtimes.Values) runtime.Dispose();
+            _runtimes.Clear();
+            _runtime = null;
+            foreach (var meshes in _actorEffectMeshes.Values)
+            {
+                foreach (var list in meshes.Values)
+                {
+                    foreach (var mesh in list) mesh.Dispose();
+                }
+            }
+            _actorEffectMeshes.Clear();
 
             for (int i = 0; i < _fallbackSubmeshes.Count; i++)
             {
@@ -2475,7 +2696,6 @@ namespace Gordian.App.Graphics
             _entityRenderer?.Dispose();
             _skyDomeRenderer?.Dispose();
             _postProcess?.Dispose();
-            _textureCache?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();
             _terrainBlendPipeline?.Dispose();
@@ -2491,15 +2711,10 @@ namespace Gordian.App.Graphics
             _lensFlarePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();
-            _sceneLayout?.Dispose();
-            _textureLayout?.Dispose();
-            _noLightSet?.Dispose();
-            _noLightRefsBuffer?.Dispose();
-            _lightTableBuffer?.Dispose();
-            _lightLayout?.Dispose();
-            CreateSubEnvironmentScenes(null);
             _sceneUniformBuffer?.Dispose();
             _waterUniformBuffer?.Dispose();
+            // Layouts, the light table and the texture cache are the shared resources'.
+            if (_ownsShared) _shared.Dispose();
         }
     }
 }

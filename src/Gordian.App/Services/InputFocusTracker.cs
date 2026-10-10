@@ -32,6 +32,18 @@ namespace Gordian.App.Services
         /// <summary>The character shown in the viewport window focused last (the focused one while one is).</summary>
         public CharacterSession? LastFocusedSession => _lastFocusedWindow != null ? _windows.GetValueOrDefault(_lastFocusedWindow) : null;
 
+        /// <summary>
+        /// Whether <paramref name="window"/> is the viewport the player is looking at (#301): the focused viewport window,
+        /// or, while none has the focus (the control panel or another program does), the one focused last; every window
+        /// before any has been focused. It draws every frame; the others draw at the background rate.
+        /// </summary>
+        public bool IsFocusTarget(object window)
+        {
+            ArgumentNullException.ThrowIfNull(window);
+            if (_focusedWindow != null) return ReferenceEquals(_focusedWindow, window);
+            return _lastFocusedWindow == null || ReferenceEquals(_lastFocusedWindow, window);
+        }
+
         /// <summary>Starts tracking a window, or records that it now shows another character (null: none).</summary>
         public void SetWindowSession(object window, CharacterSession? session)
         {

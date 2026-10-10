@@ -39,6 +39,10 @@ namespace Gordian.App.Graphics
     public sealed class EntityRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
+        // Layouts, texture cache and GPU models shared by every window on the device (#300).
+        private readonly GpuSharedResources _shared;
+        private readonly bool _ownsShared;
+        private readonly OutputDescription _outputs;
         private readonly DeviceBuffer _entityUniformBuffer;
         private readonly ResourceLayout _sceneLayout;
         private readonly ResourceLayout _textureLayout;
@@ -73,12 +77,12 @@ namespace Gordian.App.Graphics
             (AnimationCategory.Death, "ded"),
         };
 
-        // Keyed by the model instance: ResourceManager already caches one EntityModel per race, face and full grap id
-        // table. Model names are not unique (every PC of a race and face is "{race}_Face{n}" whatever it wears), so a
-        // name key drew every such character in the gear of the first one uploaded (#153).
-        private readonly ConcurrentDictionary<EntityModel, GpuEntityModel> _gpuModelCache = new(ReferenceEqualityComparer.Instance);
-        // ResourceManager.CacheGeneration the GPU cache was filled under; a change means its models were dropped.
-        private int _gpuModelCacheGeneration;
+        // GPU models live in GpuSharedResources.EntityModels (one copy per device, #300), keyed by the model instance:
+        // ResourceManager already caches one EntityModel per race, face and full grap id table. Model names are not
+        // unique (every PC of a race and face is "{race}_Face{n}" whatever it wears), so a name key drew every such
+        // character in the gear of the first one uploaded (#153). GpuSharedResources.EntityModelGeneration is the
+        // ResourceManager.CacheGeneration they were filled under; a change means its models were dropped.
+        private ConcurrentDictionary<EntityModel, GpuEntityModel> _gpuModelCache => _shared.EntityModels;
         private readonly ConcurrentDictionary<uint, JointPaletteEntry> _jointPaletteByEntity = new();
 
         // Per entity: where its floor was last probed and the sub-environment that floor links (null = outdoors).
@@ -162,7 +166,7 @@ namespace Gordian.App.Graphics
         /// <summary>Poses sampled across the idle loop for the fallback in <see cref="CursorHeight"/>.</summary>
         private const int CursorHeightSamples = 32;
 
-        private sealed class GpuSubmesh : IDisposable
+        internal sealed class GpuSubmesh : IDisposable
         {
             public string TextureName { get; init; } = string.Empty;
             public DeviceBuffer VertexBuffer { get; init; } = null!;
@@ -179,7 +183,7 @@ namespace Gordian.App.Graphics
             }
         }
 
-        private sealed class GpuEntityModel : IDisposable
+        internal sealed class GpuEntityModel : IDisposable
         {
             public List<GpuSubmesh> Submeshes { get; } = new();
             public Vector3 MinBounds { get; init; } = -Vector3.One;
@@ -221,27 +225,36 @@ namespace Gordian.App.Graphics
             public uint ColorRgba;
         }
 
+        /// <summary>An entity renderer with GPU resources of its own, drawing into the device's main swapchain format.</summary>
         public EntityRenderer(GraphicsDevice gd)
+            : this(new GpuSharedResources(gd ?? throw new ArgumentNullException(nameof(gd))), gd.SwapchainFramebuffer.OutputDescription, ownsShared: true)
         {
-            _gd = gd ?? throw new ArgumentNullException(nameof(gd));
+        }
+
+        /// <summary>A viewport window's entity renderer on the shared device (#300), with pipelines for <paramref name="outputs"/>.</summary>
+        public EntityRenderer(GpuSharedResources shared, OutputDescription outputs)
+            : this(shared, outputs, ownsShared: false)
+        {
+        }
+
+        private EntityRenderer(GpuSharedResources shared, OutputDescription outputs, bool ownsShared)
+        {
+            _shared = shared ?? throw new ArgumentNullException(nameof(shared));
+            _ownsShared = ownsShared;
+            _outputs = outputs;
+            _gd = shared.Device;
             var factory = _gd.ResourceFactory;
 
             _entityUniformBuffer = factory.CreateBuffer(new BufferDescription(
                 ZoneSceneUniform.SizeInBytes,
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
 
-            _sceneLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("ZoneSceneUniforms", ResourceKind.UniformBuffer, ShaderStages.Vertex | ShaderStages.Fragment)));
-
-            _textureLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("uTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
-                new ResourceLayoutElementDescription("uSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
-
-            _jointPaletteLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("JointPalette", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
+            _sceneLayout = shared.SceneLayout;
+            _textureLayout = shared.TextureLayout;
+            _jointPaletteLayout = shared.JointPaletteLayout;
 
             _entityResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _entityUniformBuffer));
-            _textureCache = new GpuTextureCache(_gd, _textureLayout);
+            _textureCache = shared.EntityTextures;
 
             var vsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
@@ -310,7 +323,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = layouts,
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, shaders),
-                Outputs = _gd.SwapchainFramebuffer.OutputDescription
+                Outputs = _outputs
             });
 
         /// <summary>
@@ -364,12 +377,12 @@ namespace Gordian.App.Graphics
         {
             if (_disposed || cl == null || entities == null) return;
 
-            if (resourceManager != null && resourceManager.CacheGeneration != _gpuModelCacheGeneration)
+            if (resourceManager != null && resourceManager.CacheGeneration != _shared.EntityModelGeneration)
             {
                 // The resource cache was cleared (a VFS reload): its models are rebuilt from the new files, so the
                 // GPU copies of the old ones would never be drawn again. Free them rather than keep them to exit.
-                _gpuModelCacheGeneration = resourceManager.CacheGeneration;
-                ClearGpuModelCache();
+                _shared.EntityModelGeneration = resourceManager.CacheGeneration;
+                _shared.ClearEntityModels();
             }
 
             int draws = 0;
@@ -1036,21 +1049,10 @@ namespace Gordian.App.Graphics
             return model;
         }
 
-        private void ClearGpuModelCache()
-        {
-            foreach (var kvp in _gpuModelCache)
-            {
-                kvp.Value.Dispose();
-            }
-            _gpuModelCache.Clear();
-        }
-
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-
-            ClearGpuModelCache();
 
             foreach (var kvp in _jointPaletteByEntity)
             {
@@ -1063,9 +1065,6 @@ namespace Gordian.App.Graphics
             _fallbackMonsterProxy?.Dispose();
 
             _entityUniformBuffer?.Dispose();
-            _sceneLayout?.Dispose();
-            _textureLayout?.Dispose();
-            _jointPaletteLayout?.Dispose();
             _entityResourceSet?.Dispose();
             _pipeline?.Dispose();
             _skinnedPipeline?.Dispose();
@@ -1073,7 +1072,8 @@ namespace Gordian.App.Graphics
             _skinnedDepthPipeline?.Dispose();
             _fadePipeline?.Dispose();
             _skinnedFadePipeline?.Dispose();
-            _textureCache?.Dispose();
+            // GPU models, textures and layouts are the shared resources'.
+            if (_ownsShared) _shared.Dispose();
         }
     }
 }
