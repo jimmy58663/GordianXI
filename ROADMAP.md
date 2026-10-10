@@ -48,7 +48,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D.1 Transient combat & action animation | ✅ (follow-ups #132, #307, #308) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
-| 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates, event dialog and check window done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
+| 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates, event dialog, check window and treasure pool done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |

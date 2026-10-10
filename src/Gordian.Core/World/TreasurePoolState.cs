@@ -1,5 +1,6 @@
 // src/Gordian.Core/World/TreasurePoolState.cs
 using System;
+using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -36,6 +37,9 @@ namespace Gordian.Core.World
     public sealed record TreasureSolution(byte Slot, ushort ItemId, TreasureJudge Judge, uint LeaderId, string LeaderName,
         uint EntryId, string EntryName, bool EntryIsLot, short EntryLot);
 
+    /// <summary>A party or alliance member's entry on a pool item: a lot (its value) or a pass.</summary>
+    public readonly record struct TreasureMemberEntry(bool Passed, ushort Lot);
+
     /// <summary>
     /// The treasure pool: 10 slots filled by S2C 0x0D2 and updated by 0x0D3 (a lot or pass) until a judgement
     /// (win, loss) empties the slot. Read by the render thread while the network thread writes, so every access takes
@@ -47,6 +51,23 @@ namespace Gordian.Core.World
 
         private readonly object _sync = new();
         private readonly TreasureSlot?[] _slots = new TreasureSlot?[SlotCount];
+
+        // Every member's lot or pass per slot, from the 0x0D3 progress packets (and the leader a 0x0D2 names), for the
+        // party window's lot column (#143): character id -> entry.
+        private readonly Dictionary<uint, TreasureMemberEntry>?[] _entries = new Dictionary<uint, TreasureMemberEntry>?[SlotCount];
+
+        /// <summary>
+        /// How long an item stays in the pool before it goes to the highest lot (or is lost): five minutes. LandSandBoat
+        /// <c>treasure_pool.cpp</c> (<c>treasure_livetime = 5min</c>, the slot's time stamp set 3 s early).
+        /// </summary>
+        public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+
+        /// <summary>The local clock, in milliseconds (tests replace it).</summary>
+        internal Func<long> LocalMilliseconds { get; set; } = () => Environment.TickCount64;
+
+        // The server clock's lead over the local clock (ms), estimated as the largest StartTime - local time seen: a newly
+        // found item's StartTime is the server's "now" (minus LandSandBoat's 3 s), an older one's is behind it.
+        private long? _serverLeadMs;
 
         /// <summary>Raised after an item or gil was found, on the network thread.</summary>
         public event Action<TreasureFound>? Found;
@@ -91,6 +112,46 @@ namespace Gordian.Core.World
             }
         }
 
+        /// <summary>
+        /// Time left before a slot's item is given out (the five-minute countdown, #143), from its
+        /// <see cref="TreasureSlot.StartTime"/> on the server clock as estimated from the items found so far; never
+        /// negative. The server's own clock is not sent (LandSandBoat's StartTime is milliseconds since its process
+        /// started), so after a zone change, when only older items are re-sent, the estimate runs long until a new item
+        /// is found.
+        /// </summary>
+        public TimeSpan GetRemaining(TreasureSlot slot)
+        {
+            ArgumentNullException.ThrowIfNull(slot);
+            long lead;
+            lock (_sync) lead = _serverLeadMs ?? (long)slot.StartTime - LocalMilliseconds();
+            long elapsed = LocalMilliseconds() + lead - slot.StartTime;
+            long left = (long)Lifetime.TotalMilliseconds - Math.Max(0, elapsed);
+            return TimeSpan.FromMilliseconds(Math.Max(0, left));
+        }
+
+        /// <summary>
+        /// A member's lot or pass on a slot's item, or null while the member has done neither. The local player's own
+        /// entry also comes from the slot (0x0D2 carries it when the pool is re-sent, e.g. after a zone change).
+        /// </summary>
+        public TreasureMemberEntry? GetMemberEntry(int slot, uint memberId, uint localId)
+        {
+            if ((uint)slot >= SlotCount) return null;
+            lock (_sync)
+            {
+                if (_entries[slot] is { } entries && entries.TryGetValue(memberId, out var entry)) return entry;
+                if (memberId == localId && _slots[slot] is { } own)
+                {
+                    return own.Entry switch
+                    {
+                        TreasureEntryKind.Lot => new TreasureMemberEntry(false, own.LocalLot),
+                        TreasureEntryKind.Pass => new TreasureMemberEntry(true, 0),
+                        _ => null,
+                    };
+                }
+                return null;
+            }
+        }
+
         /// <summary>Empties the pool (a zone change: the server sends the pool again for a party that is still in it).</summary>
         public void Clear()
         {
@@ -98,10 +159,12 @@ namespace Gordian.Core.World
             lock (_sync)
             {
                 had = false;
+                _serverLeadMs = null; // another zone may be another map server, with its own clock
                 for (int i = 0; i < SlotCount; i++)
                 {
                     if (_slots[i] != null) had = true;
                     _slots[i] = null;
+                    _entries[i] = null;
                 }
             }
             if (had) Changed?.Invoke();
@@ -111,22 +174,49 @@ namespace Gordian.Core.World
         /// Applies an S2C 0x0D2. An item with an id fills its slot (replacing what was there); a packet with gil
         /// only has no slot. An out of range slot is ignored.
         /// </summary>
-        internal void ApplyFound(in S2C_0x0D2_TrophyList packet)
+        internal void ApplyFound(in S2C_0x0D2_TrophyList packet, uint localId = 0)
         {
             bool hasItem = packet.ItemId != 0;
             if (hasItem && packet.Slot >= SlotCount) return;
 
             if (hasItem)
             {
-                var slot = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
-                    packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, packet.Entry,
-                    packet.IsLocallyLotted ? packet.LocalLot : (ushort)0,
-                    packet.LeaderId, packet.LeaderIndex, packet.LeaderName, packet.LeaderLot);
-                lock (_sync) _slots[packet.Slot] = slot;
+                long lead = (long)packet.StartTime - LocalMilliseconds();
+                lock (_sync)
+                {
+                    if (_serverLeadMs == null || lead > _serverLeadMs) _serverLeadMs = lead;
+                    var known = _slots[packet.Slot];
+                    if (known != null && known.ItemId == packet.ItemId && known.StartTime == packet.StartTime)
+                    {
+                        // The same item sent again (LandSandBoat's updatePool on a zone change or a party leave / rejoin):
+                        // your own lot or pass is gone, as retail lets you lot again then (the maintainer's retail check,
+                        // 2026-10-10) and LandSandBoat's CTreasurePool::delMember erases the leaver's lotters; the other
+                        // members' lots stay on the server and are kept here.
+                        _slots[packet.Slot] = known with { Count = Math.Max(1u, packet.ItemCount), Entry = TreasureEntryKind.None, LocalLot = 0 };
+                        if (localId != 0) _entries[packet.Slot]?.Remove(localId);
+                    }
+                    else
+                    {
+                        var entries = new Dictionary<uint, TreasureMemberEntry>();
+                        if (packet.LeaderId != 0 && packet.LeaderLot > 0) entries[packet.LeaderId] = new TreasureMemberEntry(false, packet.LeaderLot);
+                        _entries[packet.Slot] = entries;
+                        // Only a lot (2) is taken from Entry: LandSandBoat writes 1 there for every re-sent item
+                        // ("isOldItem", updatePool), which XiPackets reads as a pass (#143: Cast Lot was greyed).
+                        var entry = packet.Entry == TreasureEntryKind.Lot && packet.IsLocallyLotted ? TreasureEntryKind.Lot : TreasureEntryKind.None;
+                        _slots[packet.Slot] = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
+                            packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, entry,
+                            entry == TreasureEntryKind.Lot ? packet.LocalLot : (ushort)0,
+                            packet.LeaderId, packet.LeaderIndex, packet.LeaderName, packet.LeaderLot);
+                    }
+                }
             }
 
-            Found?.Invoke(new TreasureFound(packet.Gold, packet.ItemId, packet.ItemCount, packet.DropperId,
-                packet.DropperIndex, packet.IsContainer, packet.Named));
+            // A re-sent pool (LandSandBoat sends no dropper and no gil then) is not a find: nothing for the log.
+            if (packet.Gold > 0 || packet.DropperId != 0)
+            {
+                Found?.Invoke(new TreasureFound(packet.Gold, packet.ItemId, packet.ItemCount, packet.DropperId,
+                    packet.DropperIndex, packet.IsContainer, packet.Named));
+            }
             if (hasItem) Changed?.Invoke();
         }
 
@@ -148,9 +238,17 @@ namespace Gordian.Core.World
                     if (packet.Judge != TreasureJudge.Progress)
                     {
                         _slots[packet.Slot] = null;
+                        _entries[packet.Slot] = null;
                     }
                     else
                     {
+                        var entries = _entries[packet.Slot] ??= new Dictionary<uint, TreasureMemberEntry>();
+                        if (packet.EntryId != 0)
+                        {
+                            entries[packet.EntryId] = packet.EntryIsLot
+                                ? new TreasureMemberEntry(false, (ushort)Math.Max((short)0, packet.EntryLot))
+                                : new TreasureMemberEntry(true, 0);
+                        }
                         bool mine = packet.EntryId == localId;
                         _slots[packet.Slot] = slot with
                         {

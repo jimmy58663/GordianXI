@@ -8,6 +8,9 @@ namespace Gordian.Core.Network.Packets
     /// <summary>
     /// A player's entry on a treasure pool item (the <c>Entry</c> byte of S2C 0x0D2).
     /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x00D2</c>.
+    /// <b>Differs from XiPackets on LandSandBoat:</b> LSB writes 1 (XiPackets' "passed") on every re-sent pool item
+    /// (<c>isOldItem</c> in <c>0x0d2_trophy_list.cpp</c>, sent by <c>CTreasurePool::updatePool</c>) and never 2, so
+    /// <see cref="World.TreasurePoolState"/> only trusts a lot (2 with <c>IsLocallyLotted</c>).
     /// </summary>
     public enum TreasureEntryKind : byte
     {
@@ -93,6 +96,13 @@ namespace Gordian.Core.Network.Packets
     /// overrun into the next field); the names are 16 bytes and NUL terminated, so 16 are read here.
     /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x00D3</c>;
     /// server side referenced from LandSandBoat (https://github.com/LandSandBoat/server), <c>s2c/0x0d3_trophy_solution.cpp</c>.
+    /// <para>
+    /// Lot or pass: XiPackets reads the entry kind from <c>EntryFlg</c> (bit 15 of the entry index word: 1 = lot, 0 =
+    /// pass), but LandSandBoat never sets that bit: a lot sends the roll in <c>EntryPoint</c> (1-999) and a pass sends
+    /// <c>EntryPoint</c> 0xFFFF ("passed mask is FF FF", <c>treasure_pool.cpp</c>). So the entry is a pass when
+    /// <c>EntryPoint</c> is negative (0xFFFF), or when neither the flag nor a roll is there, and a lot otherwise
+    /// (#143: reading the flag alone turned every lot on LandSandBoat into a pass). **Differs from XiPackets.**
+    /// </para>
     /// </summary>
     public readonly ref struct S2C_0x0D3_TrophySolution
     {
@@ -107,7 +117,7 @@ namespace Gordian.Core.Network.Packets
         public ushort LeaderIndex { get; }
         public short LeaderLot { get; }
         public ushort EntryIndex { get; }
-        /// <summary>True when the entry is a lot, false when it is a pass.</summary>
+        /// <summary>True when the entry is a lot, false when it is a pass (see the remarks on how LandSandBoat marks a pass).</summary>
         public bool EntryIsLot { get; }
         public short EntryLot { get; }
         public byte Slot { get; }
@@ -128,8 +138,9 @@ namespace Gordian.Core.Network.Packets
             LeaderLot = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(10, 2));
             ushort entryWord = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2));
             EntryIndex = (ushort)(entryWord & 0x7FFF);
-            EntryIsLot = (entryWord & 0x8000) != 0;
             EntryLot = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(14, 2));
+            bool flag = (entryWord & 0x8000) != 0;
+            EntryIsLot = EntryLot >= 0 && (flag || EntryLot > 0);
             Slot = payload[16];
             Judge = (TreasureJudge)payload[17];
             LeaderName = TreasurePacketText.ReadName(payload.Slice(18, 16));

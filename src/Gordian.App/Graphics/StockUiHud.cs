@@ -345,14 +345,20 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // The shop's list and quantity prompt keep their authored places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null;
+                    // The shop's list and quantity prompt and the Treasure Pool windows keep their own places; the other windows follow the root.
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
                     screen: new StockUiScreen(width, height, _window1Top));
+                if (menu.IsTreasureList && !open.Any(m => m.IsTreasureDone) && library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var spoils))
+                {
+                    // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.
+                    var f = spoils.Frame;
+                    renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }
             menus.SetScreenPlacements(_menuPlacements);
@@ -672,6 +678,10 @@ namespace Gordian.App.Graphics
             if (font == null) return result;
             var rows = GetPartyRows(session, groups, count, _resources);
             StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
+            if (RollTexts(session, groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId) : new[] { session.LocalPlayer.ServerId }) is { } rolls)
+            {
+                StockUiTreasureWindow.DrawRollColumn(renderer, font, menu, placement, rolls, label: true);
+            }
             if (Layout.ShowPartyStatusIcons && _statusIcons is { } icons)
             {
                 StockUiPartyWindow.DrawStatusIcons(renderer, icons, menu, placement, rows, Layout.PartyStatusIconSide);
@@ -705,7 +715,29 @@ namespace Gordian.App.Graphics
                 var rows = new List<PartyRowVitals>(6);
                 foreach (var m in groups.Others[i].Take(6)) rows.Add(ToRow(m, session.World.CurrentZoneId, _resources));
                 StockUiPartyWindow.DrawAllianceRows(renderer, font, menu, placement, rows);
+                if (RollTexts(session, groups.Others[i].Take(6).Select(m => m.ServerId)) is { } rolls)
+                {
+                    StockUiTreasureWindow.DrawRollColumn(renderer, font, menu, placement, rolls, label: false);
+                }
             }
+        }
+
+        /// <summary>
+        /// The "roll" column's texts for some members while the Treasure Pool list is open: each one's lot or pass on the
+        /// selected item (#143); null when the list is not open.
+        /// </summary>
+        private static List<string>? RollTexts(CharacterSession session, IEnumerable<uint> memberIds)
+        {
+            StockUiOpenMenu? list = null;
+            foreach (var menu in session.ActionService.Menus.OpenMenus)
+            {
+                if (menu.IsTreasureList) list = menu;
+            }
+            if (list?.SelectedTreasureRow is not { } row) return null;
+            uint localId = session.LocalPlayer.ServerId;
+            var texts = new List<string>(6);
+            foreach (uint id in memberIds) texts.Add(StockUiTreasurePool.RollText(session.Treasure.GetMemberEntry(row.Slot, id, localId)));
+            return texts;
         }
 
         private static List<PartyRowVitals> GetPartyRows(CharacterSession session, PartyGroups groups, int count, ResourceManager? resources)

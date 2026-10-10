@@ -1114,6 +1114,12 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && ToggleTreasureDone())
+            {
+                // The Treasure Pool's + / Y: the cursor to Done and back.
+                SoundCue?.Invoke(StockUiSoundCue.CursorMove);
+                return true;
+            }
             if (input.WasActionTriggered(InputAction.Cancel))
             {
                 if (Top is { Pinned: true }) return true;
@@ -1286,6 +1292,7 @@ namespace Gordian.Core.Ui
         /// <summary>On a list page, only rows showing an entry take the cursor (the rows past the end do not).</summary>
         private static bool IsPopulated(StockUiOpenMenu menu, int buttonId)
         {
+            if (menu.IsTreasureList) return buttonId >= 1 && buttonId <= menu.TreasureRows.Count;
             if (menu.VisibleRows == 0) return true;
             int index = menu.EntryIndex(buttonId);
             return index >= 0 && index < menu.Rows.Count;
@@ -1438,6 +1445,24 @@ namespace Gordian.Core.Ui
             if (top.IsShopList)
             {
                 ActivateShopRow(top);
+                return;
+            }
+
+            if (top.IsTreasureList)
+            {
+                ActivateTreasureRow(top);
+                return;
+            }
+
+            if (top.TreasureActionSlot != null)
+            {
+                ActivateTreasureAction(top, button);
+                return;
+            }
+
+            if (top.IsTreasureDone)
+            {
+                ActivateTreasureDone(top);
                 return;
             }
 
@@ -1729,6 +1754,10 @@ namespace Gordian.Core.Ui
                     bool opened;
                     lock (_sync) opened = OpenShopList(entry.Command == StockUiMenuCommand.ShopBuy ? StockUiShopSide.Buy : StockUiShopSide.Sell, from) != null;
                     if (opened) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.TreasurePool:
+                    OpenTreasurePool(from);
                     break;
 
                 case StockUiMenuCommand.HomePoint:

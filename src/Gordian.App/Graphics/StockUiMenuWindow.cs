@@ -112,6 +112,10 @@ namespace Gordian.App.Graphics
             {
                 DrawQuantity(renderer, library, font, menu, placement);
             }
+            else if (font != null && menu.IsTreasureList)
+            {
+                StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default);
+            }
             else if (font != null && menu.Check is { } check)
             {
                 StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement, screen ?? default, timestamp);
@@ -475,7 +479,7 @@ namespace Gordian.App.Graphics
         /// Half-scale tint of the selected entry's glyphs: a retail capture's highlighted label peaks at FFC05C, a
         /// white glyph at about (1.0, 0.75, 0.36).
         /// </summary>
-        private static readonly UiColor SelectedGlyphTint = new(0x80, 0x60, 0x2E, 0x80);
+        internal static readonly UiColor SelectedGlyphTint = new(0x80, 0x60, 0x2E, 0x80);
 
         /// <summary>
         /// Half-scale tint of the selected entry's capsule and any other alpha-blended part: the same capture's capsule
