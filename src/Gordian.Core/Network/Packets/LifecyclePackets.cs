@@ -937,7 +937,8 @@ namespace Gordian.Core.Network.Packets
 
     /// <summary>
     /// Encapsulates handling of handshake, connection lifecycle, and zone transition packets
-    /// (0x00A, 0x008, 0x00B, 0x015, 0x0EE).
+    /// (0x00A, 0x008, 0x00B, 0x015, 0x0EE), the sub-map packets (S2C 0x10E; C2S 0x0EB, 0x0F2) and the session control
+    /// packets (S2C 0x005, 0x006, 0x10F).
     /// </summary>
     public sealed class LifecyclePacketModule
     {
@@ -983,6 +984,18 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public event Action<ZoneInEvent>? ZoneInEventReceived;
 
+        /// <summary>C2S 0x0EB was sent (<see cref="RequestSubMapNumberAsync"/>): an S2C 0x10E answer is pending.</summary>
+        public event Action? SubMapNumberRequested;
+
+        /// <summary>S2C 0x10E: the sub-map number the server answered C2S 0x0EB with.</summary>
+        public event Action<uint>? SubMapNumberReceived;
+
+        /// <summary>C2S 0x0F2 was sent (<see cref="SendSubMapChangeAsync"/>) with this sub-map number.</summary>
+        public event Action<ushort>? SubMapChangeSent;
+
+        /// <summary>S2C 0x005: the server's new packet send rate value (<c>PacketCnt</c>).</summary>
+        public event Action<uint>? PacketControlReceived;
+
         /// <summary>
         /// Optional delegate to retrieve the player's current position, heading, and locomotion state when answering server 0x015 PosPing.
         /// Returns (X, Y [Elevation], Z [North/South], Dir, TargetIndex, MoveFrame, IsWalking).
@@ -1013,6 +1026,71 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x05B_WPos.PacketId, HandleWPos);
             dispatcher.Register(S2C_0x065_WPos2.PacketId, HandleWPos2);
             dispatcher.Register(S2C_0x0EE_FeatureRestrictions.PacketId, HandleFeatureRestrictions);
+            dispatcher.Register(S2C_0x10E_ReqSubMapNum.PacketId, HandleReqSubMapNum);
+            dispatcher.Register(S2C_0x10F_ReqLogoutInfo.PacketId, HandleReqLogoutInfo);
+            dispatcher.Register(S2C_0x005_PacketControl.PacketId, HandlePacketControl);
+            dispatcher.Register(S2C_0x006_Naraku.PacketId, HandleNaraku);
+        }
+
+        private void HandleReqSubMapNum(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var p = new S2C_0x10E_ReqSubMapNum(payload);
+            if (!p.IsValid) return;
+            GordianLog.Info("LIFECYCLE", $"S2C 0x10E sub-map number: {p.MapNum}.");
+            SubMapNumberReceived?.Invoke(p.MapNum);
+        }
+
+        private void HandleReqLogoutInfo(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var p = new S2C_0x10F_ReqLogoutInfo(payload);
+            if (!p.IsValid) return;
+            // Deprecated in retail (XiPackets) and never sent by LandSandBoat: noted, nothing reads it.
+            GordianLog.Info("LIFECYCLE", $"S2C 0x10F logout info: Mode={p.Mode} (no client action).");
+        }
+
+        private void HandlePacketControl(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var p = new S2C_0x005_PacketControl(payload);
+            if (!p.IsValid) return;
+            GordianLog.Info("LIFECYCLE", $"S2C 0x005 packet control: PacketCnt={p.PacketCount}.");
+            PacketControlReceived?.Invoke(p.PacketCount);
+        }
+
+        private void HandleNaraku(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            // A GM collision report request: the retail client answers with C2S 0x01F GM commands; GordianXI does not.
+            GordianLog.Warning("LIFECYCLE", $"S2C 0x006 (NARAKU) collision report request received ({payload.Length} payload bytes); not answered.");
+        }
+
+        /// <summary>
+        /// Sends C2S 0x0EB (event opcode 0xA6 sub 0): asks the server for the event's sub-map number, answered with S2C 0x10E.
+        /// </summary>
+        public async Task RequestSubMapNumberAsync()
+        {
+            byte[] packet = SubMapOutboundPackets.BuildReqSubMapNum();
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x0EB, 0, packet);
+            }
+            SubMapNumberRequested?.Invoke();
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends C2S 0x0F2: tells the server the player is now in sub-map <paramref name="subMapNumber"/>. LandSandBoat stores
+        /// it as the character's boundary (saved with the position, sent back in S2C 0x00A) and drops
+        /// <see cref="SubMapChangeState.Event"/> outside an event.
+        /// </summary>
+        public async Task SendSubMapChangeAsync(SubMapChangeState state, ushort subMapNumber)
+        {
+            byte[] packet = SubMapOutboundPackets.BuildSubMapChange(state, subMapNumber);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x0F2, 0, packet);
+            }
+            GordianLog.Info("LIFECYCLE", $"C2S 0x0F2 sub-map change: State={state}, SubMap={subMapNumber}.");
+            SubMapChangeSent?.Invoke(subMapNumber);
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
 
         private void HandleLoginAck(PacketHeader header, ReadOnlySpan<byte> payload)

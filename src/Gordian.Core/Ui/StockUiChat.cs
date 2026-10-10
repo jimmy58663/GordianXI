@@ -243,6 +243,11 @@ namespace Gordian.Core.Ui
                 Log.Add(msg.Slot == LinkshellSlot.LS1 ? ChatLogChannel.Linkshell : ChatLogChannel.Linkshell2,
                     $"[{msg.LinkshellName}] {msg.Message}");
             };
+            // The server message (S2C 0x04D fragments, asked for at login and by /servmes), one log line per text line.
+            chat.ServerMessageReceived += message =>
+            {
+                foreach (string line in SplitServerMessage(message)) Log.Add(ChatLogChannel.ServerMessage, line);
+            };
             party.InviteReceived += invite =>
                 Log.Add(ChatLogChannel.System, $"{invite.InviterName} invites you to join a party. Type /join to accept or /decline to decline.");
             combat.ActionExecuted += record =>
@@ -264,6 +269,23 @@ namespace Gordian.Core.Ui
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
+        }
+
+        /// <summary>
+        /// The log lines of a server message: split at line breaks (LandSandBoat's setting may hold <c>\n</c>, <c>\r\n</c>
+        /// or the FFXI line break 0x07), trailing blank lines dropped. PROVISIONAL: retail's exact presentation (banner,
+        /// colour row) is not checked; the lines use the server message colour (<see cref="ChatLogChannel.ServerMessage"/>).
+        /// </summary>
+        public static IReadOnlyList<string> SplitServerMessage(string message)
+        {
+            var lines = new List<string>();
+            if (string.IsNullOrEmpty(message)) return lines;
+            foreach (string raw in message.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\a', '\n').Split('\n'))
+            {
+                lines.Add(raw.TrimEnd());
+            }
+            while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+            return lines;
         }
 
         /// <summary>

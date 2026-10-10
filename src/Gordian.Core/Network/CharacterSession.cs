@@ -168,6 +168,8 @@ namespace Gordian.Core.Network
         /// </summary>
         public Input.PlayerLocomotionController Locomotion { get; }
 
+        private int _serverMessageRequested;
+
         private void ApplyCameraSettings()
         {
             var settings = ActionService.UiSettings;
@@ -227,6 +229,12 @@ namespace Gordian.Core.Network
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
+            // The server message (S2C 0x04D, #117): asked for once, when the first zone-in after login completes; /servmes
+            // asks again.
+            NetworkManager.Parser.HandshakeCompleted += () =>
+            {
+                if (System.Threading.Interlocked.Exchange(ref _serverMessageRequested, 1) == 0) _ = ChatModule.RequestServerMessageAsync();
+            };
             // The command menu's chat-mode list (Tier 2 chunk 6b): picks the default chat mode, shows the last tell
             // partner, and greys the linkshell modes until the server has shown a linkshell in that slot.
             ActionService.Menus.ChatModeSelected = mode => Chat.OpenInputInMode(mode);
@@ -245,6 +253,8 @@ namespace Gordian.Core.Network
             };
             ActionService.Menus.TellTargetSelected = name => Chat.Input.TellTarget = name;
             ActionService.Menus.HasLinkshell = slot => Party.HasLinkshell(slot);
+            // Unity membership (#65): the Unity leader (1-11) in S2C 0x061's unity_info; 0 = not in a Unity.
+            ActionService.Menus.HasUnity = () => LocalPlayer.UnityFaction != 0;
             ChatModule.LinkshellMessageReceived += msg =>
             {
                 if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == Packets.LinkshellSlot.LS1 ? 1 : 2, true);
@@ -253,6 +263,8 @@ namespace Gordian.Core.Network
             Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName,
                 Party, index => _ = EntityModule.RequestEntityInfoAsync(index));
             Locomotion.Events = Events;
+            // Event opcodes 0xA6 / 0x75 send the sub-map packets (C2S 0x0EB / 0x0F2) through the zone module.
+            Events.Lifecycle = NetworkManager.Parser.LifecycleModule;
             // System messages (S2C 0x053) and everyone's emotes (S2C 0x05A, ours included): text from the client's own
             // message tables, the emote motion on the caster.
             Messages.Attach(Commands, World, LocalPlayer, Chat, () => CharacterName);
@@ -274,6 +286,11 @@ namespace Gordian.Core.Network
                 }
             };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            // A style lock that could not use some items (S2C 0x11C) prints one error line per item.
+            InventoryModule.LockstyleFailed += items =>
+            {
+                foreach (string line in Ui.LockstyleLog.FormatErrors(items, id => ActionService.Menus.ItemLookup?.Invoke(id))) Chat.Log.Add(Ui.ChatLogChannel.Error, line);
+            };
             // A player check (#64): S2C 0x0C9's general block, sent last, opens the check window.
             Commands.Equipment.Completed += info =>
             {

@@ -230,6 +230,18 @@ namespace Gordian.Core.World
             return double.IsNaN(locked) ? Clock.GetTimeOfDayHours(utcNow) : (float)locked;
         }
 
+        /// <summary>
+        /// The player's sub-map (sub-region) and the indoor room an event opened (S2C 0x00A / 0x10E, C2S 0x0EB / 0x0F2,
+        /// event opcodes 0x75 / 0xA6), for a renderer of building interiors (#68).
+        /// </summary>
+        public SubMapState SubMap { get; } = new SubMapState();
+
+        /// <summary>
+        /// The packet send rate value the server last set with S2C 0x005 (the retail client resets it to 400 at every
+        /// zone-in). GordianXI's send queue does not use it yet.
+        /// </summary>
+        public uint PacketControlCount { get; set; } = S2C_0x005_PacketControl.DefaultPacketCount;
+
         private WeatherTiming _weatherTiming;
         private ZoneLoginInfo _zoneLoginInfo;
         private bool _hasZoneLoginInfo;

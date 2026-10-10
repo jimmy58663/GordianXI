@@ -1432,6 +1432,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
+            sb.AppendLine("  /servmes                  - Show the server message");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
             sb.AppendLine("  /synth <crystal slot> <slot> [slot ...] - Synthesize with inventory slots (repeat a slot to use several of a stack)");
             sb.AppendLine("  /guild buylist | selllist | buy <item id> [n] | sell <slot> [n] - Guild shop requests (while a guild shop is open)");
@@ -2522,6 +2523,11 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ServerMessage:
+                    // The answer (S2C 0x04D) prints the message; nothing to say here.
+                    await _chatModule.RequestServerMessageAsync().ConfigureAwait(false);
+                    return PlayerActionResult.Ok(string.Empty, cmd.Kind);
 
                 case ChatCommandResultKind.DebugPlayRoutine:
                     return PlayRoutineCommand(cmd.Message ?? string.Empty);

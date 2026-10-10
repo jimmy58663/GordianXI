@@ -1130,6 +1130,12 @@ namespace Gordian.Core.Events
                     _host.UnlockEnvironment();
                     _pc++;
                     return;
+                case 0x75:
+                    ExecLoadRoom();
+                    return;
+                case 0xA6:
+                    ExecSubMapNumber();
+                    return;
                 case 0x5C:
                 case 0x5D:
                 case 0x69:
@@ -1549,6 +1555,74 @@ namespace Gordian.Core.Events
         /// zone with 0x35 after it. Here the host draws the zone in place of the session's own and the opcode waits while
         /// it loads, at most <see cref="ZoneOpenTimeoutFrames"/>.
         /// </summary>
+        /// <summary>
+        /// 0x75 (XiEvents OpCodes/0x0075, <c>CodeLOADROOM</c>). Every sub yields while the zone still reads room data
+        /// (<see cref="IEventVmHost.IsReadingRoomData"/>). Sub 0 (<c>75 00 room:work</c>) opens the indoor room without
+        /// telling the server and goes on by 4; sub 1 (<c>75 01</c>) goes on by 2; sub 2 (<c>75 02</c>) sends the room as
+        /// the player's sub-map (C2S 0x0F2, state 2) and goes on by 2 once it is queued, else yields and tries again.
+        /// <b>Beyond XiEvents:</b> sub 2 reads the room operand of the <c>75 00</c> six bytes before it (XiEvents moves the
+        /// program position back 6 and forward 8); all 33 retail <c>75 02</c> sites follow <c>75 00 room 75 01</c>.
+        /// </summary>
+        private void ExecLoadRoom()
+        {
+            if (_host.IsReadingRoomData)
+            {
+                _retFlag = true;
+                return;
+            }
+            switch (Code8(1))
+            {
+                case 0:
+                    _host.OpenIndoorRoom(GetWork(2));
+                    _pc += 4;
+                    return;
+                case 1:
+                    _pc += 2;
+                    return;
+                case 2:
+                {
+                    // The operand of the 75 00 six bytes back: work offset 2 from pc - 6, i.e. pc - 4.
+                    int room = _pc >= 6 ? GetWork(-4) : 0;
+                    if (_host.SendSubMapChange(room)) _pc += 2;
+                    else _retFlag = true;
+                    return;
+                }
+                default:
+                    // Retail does nothing and does not move on for another sub; step over it instead of hanging.
+                    _host.OnSkippedOpcode(0x75, _pc);
+                    _pc += 2;
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// 0xA6 (XiEvents OpCodes/0x00A6), the event sub-map number. Sub 0 (<c>A6 00</c>) sends C2S 0x0EB, marks the answer
+        /// pending and goes on by 2 (retrying next frame when it cannot be queued); sub 1 (<c>A6 01</c>) yields until S2C
+        /// 0x10E has answered, then goes on by 2; sub 2 (<c>A6 02 dest:work</c>) stores the player's sub-map number and goes
+        /// on by 4. Every sub yields a frame (RetFlag). Retail stalls on any other sub; it is stepped over here.
+        /// </summary>
+        private void ExecSubMapNumber()
+        {
+            _retFlag = true;
+            switch (Code8(1))
+            {
+                case 0:
+                    if (_host.RequestSubMapNumber()) _pc += 2;
+                    return;
+                case 1:
+                    if (!_host.SubMapNumberPending) _pc += 2;
+                    return;
+                case 2:
+                    SetWork(2, _host.SubMapNumber);
+                    _pc += 4;
+                    return;
+                default:
+                    _host.OnSkippedOpcode(0xA6, _pc);
+                    _pc += 2;
+                    return;
+            }
+        }
+
         private void ExecOpenZone()
         {
             if (_zoneOpenFrames < 0f)
