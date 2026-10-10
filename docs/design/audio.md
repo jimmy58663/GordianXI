@@ -32,7 +32,7 @@ Layout (layer rules from AGENTS.md):
   - `IAudioOutput`: the device seam: open stereo S16 near 48 kHz (the device may pick its own rate; the mixer follows it), report queued frames, accept PCM. `OpenAlAudioOutput` is the device; `NullAudioOutput` is the silent fallback.
   - `AudioEngine`: the output plus the mixing thread, which keeps 2048 frames (about 43 ms) queued and mixes 512 frames at a time.
 
-Buses (`AudioCategory`) follow the retail categories that the event VM's volume opcodes address by mask (XiEvents `OpCodes/0x0069`: 0x01 effects, 0x02 system, 0x04 zone, 0x08 master): **Music**, **Effects**, **System**, **Zone**, plus the master gain.
+Buses (`AudioCategory`) follow the retail categories that the event VM's volume opcodes address by mask (XiEvents `OpCodes/0x0069`: 0x01 effects, 0x02 system, 0x04 zone, 0x08 master): **Music**, **Effects**, **System**, **Zone**, plus the master gain. A fifth bus, **Notification** (the incoming tell cue), follows System exactly (effects slider, event system volume); it exists only so the sound controls (#265, below) can let tells through on their own.
 Provisional: the distance curve (full volume inside `near`, linear to silence at `far`) and the 0.8 pan width of positional voices are not yet compared with retail.
 
 ## Sound files (#38)
@@ -91,11 +91,27 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 **Ambient loops** (`GameAudioService`): on each zone change the zone model DAT's sound pointers are read on a worker (`ZoneSoundTable`). The loop for the current weather (`WorldState.WeatherId`, falling back to its sky category, then `fine`, then any authored weather) and Vana'diel minute plays on the Zone bus, looped, crossfading over 2 s (provisional) when weather or time selects another. The indoor (`indo`) sets are not used.
 
-**Who is heard:** one device for the app. The viewport whose window was last activated owns the sound (multi-boxing plays only that character); its render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
+**Who is heard:** one device for the app. By default the viewport whose window was last activated owns the sound (multi-boxing plays only that character); the opt-in multi-box policy (#265, below) can prefer another character. The owner's render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
 
 ## Volume (#44)
 
-The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x master. No GordianXI-only master or per-bus sliders exist yet; they would be an opt-in enhancement.
+The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `ui_settings/<name>.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x control gain (#265) x master. The control gain is 1 unless a GordianXI sound control is switched on.
+
+## Sound controls (#265)
+
+GordianXI-only switches that retail does not have, on the desktop shell's **Sound** tab (`SoundSettingsViewModel`, `MainWindow.axaml`), saved for the whole app in `%LocalAppData%/GordianXI/sound_settings.json` (`SoundControlSettings`). **Every default keeps the retail mix**: sound on, playing with or without focus, the focused window's character heard. They act through a third per-bus gain in the mixer (`AudioMixer.FadeControl`), separate from the retail sliders and the event fades, eased over `FadeSeconds` (0.5 s). The decisions are pure functions in `SoundControls` (tests: `SoundControlsTests`).
+
+| Control | Default | Effect |
+|---|---|---|
+| Sound on | on | Off sets every bus' control gain to 0, exceptions included; the volume sliders are not moved. |
+| Play only while active | off | When GordianXI loses focus, buses fade to 0, except those marked "also while inactive". "Active" is any GordianXI window (default) or only a viewport window (`SoundActiveScope`). Focus comes from Avalonia window activation (`SoundFocusTracker`), recomputed after activation events settle so moving between two GordianXI windows never counts as inactive. |
+| Multi-box policy | FocusedWindow | `FocusedWindow`: the last activated viewport window (as before). `PrimaryViewport`: the main viewport's character (`SessionRegistry.PrimaryRenderingSession`), even while a pop-out has focus. The main viewport takes the sound, and activating a pop-out does not take it away; while it shows no character, the focused window is heard. A named-character policy was tried and removed after in-game round 1 (did not work, not wanted); a saved `NamedCharacter` reads as `FocusedWindow`. |
+| Tell sound from every character | off | The tell cue is raised for every session (`SessionRegistry`), but plays for a character other than the heard one only when this is on. |
+| Per category: on / also while inactive | on / off | Music, Effects, System, Zone, Notification. E.g. music off with tells still on, or every bus muted while inactive except Notification. |
+
+The settings persist across runs, so a bus switched off while testing stays off: each change of the muted buses is logged (`AUDIO Sound controls: muted buses: Music`). #309 (no music in Yahse Hunting Grounds, 2026-10-07) was most likely that: `sound_settings.json` had Music off, while tracks 60 and 57 (in `sound9`, ATRAC3, 48 kHz) resolve, decode and mix audibly offline.
+
+Not done: hearing a character that no viewport shows (a background tab has no camera for a listener), and mixing several characters' sound at once ("all of them" in the issue): one device plays one listener's mix, so only the tell cue crosses characters.
 
 ## UI sound cues (#43)
 
@@ -110,7 +126,7 @@ System sounds live in `se000` (ids and names from the Windower pol-utils list bu
 | Close Menu | 15 | Cancel in a menu |
 | Target Selection | 9 | `PlayerActionService.TargetChanged` from no target |
 | Target Switch | 10 | `TargetChanged` from one target to another |
-| Message Arrival | 39 | an incoming tell (`ChatMessageType.Tell` not from the player) |
+| Tell (`TellArrival`) | 40 | an incoming tell (`ChatMessageType.Tell` not from the player), on the Notification bus. Confirmed as the retail tell sound by the maintainer's retail check, 2026-10-08 (via `/playsound 40`); it is entry `0040` of the client's system sound table (`ROM/0/0` `/syst/soun`). Until round 2 this played 39, "Message Arrival", which the maintainer identified in game (2026-10-07) as PlayOnline's message sound (a friend's message through POL), not the tell sound; nothing plays 39 now |
 
 Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), level-up (7) and quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
 
@@ -123,7 +139,7 @@ Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target me
 3. **Footwear:** `FootwearInfo` reads the first Info section (0x45) of the feet item's DAT (a character: race from the face word, `CharacterEquipmentResolver` feet file) or of the creature's own model DAT: byte 1 is the move digit (base 36, 0xFF = `0`), byte 2 the shake. Read on a worker and cached per file; the default `1`, 0 until then. Checked: all 360 feet DATs of Hume male, Taru female and Galka 0-119 read, digits `11` x99, `12` x97, `10` x94, `21`, `20`, `22`, and every one names a pointer Southern San d'Oria has (`FootwearInfoTests`).
 4. **Sound:** the zone's pointer `0<terrain hex><move><shake + 1>` from `fser` while running, else `fses` (`ZoneSoundTable.FootstepSound`), played positionally on the Effects bus (full volume within 4 yalms, silent at 30; provisional).
 
-Not done: sand / snow footprints (the global `fmrk` decal from `ROM/0/0.DAT` and the zone's `fses/fefs` foot effects are rendering work), and what the config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) controls in retail (sound, footprints or both); it is not applied yet.
+Not done: sand / snow footprints (the global `fmrk` decal from `ROM/0/0.DAT` and the zone's `fses/fefs` foot effects are rendering work). The config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) gates the footprint rendering only, not the step sounds (the maintainer's retail answer on #40, 2026-10-07: turning it off draws less, for low-end graphics); it applies once footprints are drawn.
 
 ## Zone effect audio (#39)
 
@@ -178,15 +194,25 @@ Temporary, client-only commands for listening to files directly; never sent to t
 
 - `/playsound <id>` plays `seNNNNNN.spw` centred on the Effects bus and replies with its format and whether it loops. A looped file loops until `/playsound stop`, so its seam can be checked (the 13 looped ATRAC3 effects: 36108 36124 36125 36128 36138 41017 41031 41035 41044 41045 41046 41052 41057).
 - `/playmusic <n>` plays `musicNNN.bgw` in place of the zone's music (the director's override, as an event's would); `/playmusic stop` returns to the zone music. Unlike LandSandBoat's `!setmusic` it involves no server.
-## Combat and action sounds (#41): findings, deferred
+## Combat and action sounds (#41)
 
-Not implemented. What the retail data shows (probed in `ROM/0/0.DAT` and the Hume battle pack `ROM/32/13`):
+Retail keeps an action's sounds in the actor's own motion routines (Section 0x07), so they play with the motion that the action playback (Phase 5D.1, S2C 0x028) starts. Sound commands are ops 0x0A (at the source), 0x0B (at the target) and the 0x4A / 0x53 / 0x60 variants, naming a 0x3D pointer at +0x08 (xi-tools `docs/fx/effect_system.md`); links are 0x03 / 0x3B / 0x57 / 0x3C on the actor and 0x09 on the other actor; 0x3D ... 0x3E is a random choice of one child. What the retail data holds (read 2026-10-07 from monster model 10, the Hume male base motion `ROM/27/82`, battle pack `ROM/32/13` and main weapon DATs 8393-8404; a scan of monster models 1-1499 finds sound commands in 900 of 1,493, mostly `vdam`, `vatk`, `vded`, `vswy`, `sdam`, `chit`, `ati0`-`ati2`, `atf0`):
 
-- Sound commands in effect routines are ops 0x0A (at the source) and 0x0B (at the target), 32 bytes: +0x08 the 0x3D section name (`5045`, `7129`...), +0x14 f32 60 in most (a range). xi-tools `docs/fx/effect_system.md` also lists 0x4A / 0x53 / 0x60 variants.
-- The battle pack carries no sound pointers; the hit sounds live in `ROM/0/0.DAT` (98 pointers, `se005xxx` combat sounds), in the hit routines `hit1/hi10`-`hi19`, which spawn generators (`g10s`...) whose linked data is a sound.
-- The motions link `dada` at the hit moment; `dada` runs `atpr`, `crtl` and `dam0`, which pick the hit routine (`hit3`, `hit5`, `hi14`...) and the damage reaction (`sb00`-`sb05`) through the conditional ops 0x64 / 0x67 / 0x69 / 0x6A / 0x6B on registers the action result sets.
+| Routine | Sounds | Example |
+|---|---|---|
+| swing `ati0`-`ati2`, `atf0`... | the whoosh `skaz`: a monster's own pointer, a character's battle pack links its weapon DAT's routine `skaz` (0x57 at tick 34) | model 10 `skaz` 6062; Hume male + main weapon 1: 6030 |
+| `atk0` (every melee attack) | links the cry `vatk`: a random choice of cries and silent 0x50 entries | model 10: four cries, six silent (40 %); Pinetorum Mandragora (model 301): four cries, three silent (57 %, retail cries on about 60-70 % of its rounds, maintainer 2026-10-07) |
+| hit reaction `damg` (on the target) | 0x09 `chit` on the attacker, its own `sdam` and cry `vdam` (random, with silent entries) | a monster's `chit` plays its `shit` (model 10: 6063); a character's `chit` (`ROM/27/82`) links its weapon's `se h`, which plays the weapon's `shit` (main weapon 1: 6031) |
+| draw `out0` / sheathe `in 0` | the weapon's `sotr` / `sinr` (0x57 at tick 36) | main weapon 1: 6072 / 6071 |
+| `dead` | the death cry `vded` | |
 
-So combat sounds need the effect-routine conditional interpreter and the action-result registers (and the same routine player would draw the hit sparks), plus spell / ability effect DATs played from S2C 0x028, which nothing plays yet. That is effect-routine work rather than audio work; the audio side (`GameAudioService.PlayEffect` with a positional emitter) is ready for it.
+**Beyond xi-tools:** 0x50 is the silent member of a random choice (our reading of `vatk` / `vdam`), and a routine's sound pointer resolves by name within its own DAT. **Dual wield:** a weapon DAT for the sub slot names its routines for the left hand, `skal` (swing), `sehl` (hit, sound pointer `shil`), `efhl`, `sotl` / `sinl` (Hume male sub weapons 64-79; shields carry none), so the main weapon's `skaz` / `se h` are never replaced. No battle pack routine links the left-hand names, so an off-hand action (0x028 `sub_kind` 1) collects its sounds with `skaz` / `se h` / `ef h` read as `skal` / `sehl` / `efhl` (`RoutineSoundCollector.OffHandRoutine`): main-hand hits sound like the main weapon, off-hand hits like the sub (the maintainer's retail answer: a hit from each weapon). Round 1 claimed the sub replaced the main; that was wrong. **Beyond xi-tools.**
+
+Implementation: `MotionRoutineDecoder` also records these commands in `RawMotionRoutine.SoundCommands` (the playback `Commands` are unchanged); `EntityModelLoader.ParseDatContainer` resolves their names against the DAT's 0x3D pointers; `RoutineSoundCollector.Collect` flattens a routine's sounds through the actor's links (blocking links shift the rest, as for the clips), cached per model (`EntityModel.GetRoutineSounds`). `ActionSoundTracker` (App) follows each drawn actor within 30 yalms each frame on its routine clock (`EntityAnimationState.ActiveRoutine` / `ActionTicks` / `ActionSerial`): it plays a routine's cues as the clock passes them, and when a melee swing or counter starts (`ActionRequest.Motion`) also the actor's `atk0` sounds: retail runs `atk0` for each melee attack (it links `vatk` and picks the swing with op 0x24), while our playback starts the swing directly, so in round 1 no attack cry was ever heard; a new hit reaction (`ReactionSerial`) plays `damg` (hit), `gurd` (guard), `pary` (parry) or `gur1` (block) and the attacker's `chit`; the switch to the death animation plays `dead`. Sounds play at the actor on the Effects bus, full volume within 5 yalms (provisional), fading linearly to silence at 30: the maintainer's retail check (2026-10-07) is that combat sounds fade with distance and are silent by 25-30 yalms, and 30 was chosen (round 1 used 15 / 60). The commands' range fields read 0. Tests: `RoutineSoundCollectorTests` (synthetic and retail), `ActionSoundTrackerTests`.
+
+Provisional: a random choice is uniform; reactions play their routine from its start when applied; the 0x0B "at the target" sounds play at the actor. Not done:
+- The shared `ROM/0/0` routines the swing reaches through `dada` (`atpr`, `crtl`, `dam0`): they pick hit sparks and their sound generators (`g03s`...: `hit3` 5033 / 7129, `sb00` 5045...) by conditional ops 0x64 / 0x67 / 0x69 / 0x6A / 0x6B on action-result registers (`atpr` compares register 0x2F with 0-23, picking `wapr`, `hit3`, `hit5`, `hit9`...; `crtl` register 0x2B and 0x38 for the critical `hi14` / `hi29`; `dam0` register 0x33 with 1-10 for `sb00`-`sb09`). Which packet field feeds which register is unknown; that is effect-routine work, shared with the hit sparks.
+- Spell, ability and weapon skill sounds (their effect DATs, which nothing plays yet), and ranged attacks.
 
 ## Phase 5H plan
 
@@ -194,8 +220,9 @@ So combat sounds need the effect-routine conditional interpreter and the action-
 - [x] Cross-platform audio backend: OpenAL Soft as the output device (#37, above).
 - [x] Clean-room decode of the retail sound files (#38, above, ATRAC3 included).
 - [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
-- [ ] Combat and action sounds (#41: deferred, findings above).
+- [x] Combat and action sounds from the actors' motion routines (#41, above; the `ROM/0/0` conditional hit routines and spell / ability effects open).
 - [x] Event music and volume opcodes (#167, above).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).
 - [x] UI/menu sound cues (#43, above).
 - [x] Master/category volume mixing from the config sliders (#44, above).
+- [x] GordianXI sound controls: master off, mute while inactive, multi-box policy, per-category exceptions (#265, above).
