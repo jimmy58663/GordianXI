@@ -186,6 +186,7 @@ namespace Gordian.Core.Actions
         /// <summary>The progression packet module (events, key items, Mog House, Unity); null in sessions without one.</summary>
         public ProgressionPacketModule? ProgressionModule { get; set; }
         public TreasurePacketModule? TreasureModule { get; set; }
+        public CraftingPacketModule? CraftingModule { get; set; }
 
         /// <summary>The social packet module (<c>/itemsearch</c>, <c>/blacklist</c>, delivery box, linkshell items); null in sessions without one.</summary>
         public SocialPacketModule? SocialModule { get; set; }
@@ -1431,6 +1432,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
+            sb.AppendLine("  /synth <crystal slot> <slot> [slot ...] - Synthesize with inventory slots (repeat a slot to use several of a stack)");
+            sb.AppendLine("  /guild buylist | selllist | buy <item id> [n] | sell <slot> [n] - Guild shop requests (while a guild shop is open)");
             sb.AppendLine("[Debug: audio, client only]");
             sb.AppendLine("  /playsound <id> | stop    - Play sound effect <id> (seNNNNNN.spw) centred; looped files loop until stop");
             sb.AppendLine("  /playmusic <n> | stop     - Play musicNNN.bgw instead of the zone music; stop returns to it");
@@ -1886,6 +1889,158 @@ namespace Gordian.Core.Actions
 
         #endregion
 
+        #region Crafting and guild shops
+
+        /// <summary>
+        /// Debug: <c>/playroutine &lt;name&gt;</c> plays a motion routine of the character's own model (a four-character
+        /// name such as <c>sit0</c> or <c>cabk</c>), on the client only. Used to look for routines, such as the synthesis
+        /// motion (#112), that have not been identified.
+        /// </summary>
+        public PlayerActionResult PlayRoutineCommand(string args)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.DebugPlayRoutine;
+            string name = args.Trim();
+            if (name.Length is < 1 or > 4) return PlayerActionResult.Warn("Usage: /playroutine <routine name, e.g. sit0>", kind);
+            if (!_world.TryGetByServerId(_localPlayer.ServerId, out var self) || self == null) return PlayerActionResult.Warn("There is no character to animate.", kind);
+            self.Animation.EnqueueAction(new Gordian.Core.Animation.ActionRequest
+            {
+                ActorId = self.ServerId,
+                Motion = Gordian.Core.Animation.ActionMotion.EventMotion,
+                Routine = name,
+                ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            });
+            return PlayerActionResult.Info($"Routine {name} queued.", kind);
+        }
+
+        private const string SynthUsage = "Usage: /synth <crystal slot> <ingredient slot> [ingredient slot ...] (inventory slots; repeat a slot to use several of a stack, 8 at most)";
+        private const string GuildUsage = "Usage: /guild buylist | selllist | buy <item id> [count] | sell <inventory slot> [count]";
+
+        /// <summary>
+        /// <c>/synth</c>: reads the crystal and ingredient items from the inventory slots and sends C2S 0x096. The server
+        /// answers with the animation (S2C 0x030) and the result (0x06F, 0x070). A slot repeated takes one more item of its
+        /// stack, as retail's synthesis window spreads a stack over the eight entries.
+        /// </summary>
+        public async Task<PlayerActionResult> SynthesizeCommandAsync(string args)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.Synthesize;
+            // Retail refuses commands while the character synthesizes, in its own words, and sends nothing.
+            if (CraftingModule?.State.IsSynthesizing == true) return PlayerActionResult.Warn("You cannot use that command during synthesis.", kind);
+
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 2 || parts.Length > 1 + CraftingPacketBuilders.MaxIngredients) return PlayerActionResult.Warn(SynthUsage, kind);
+
+            var slots = new byte[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!byte.TryParse(parts[i], out slots[i]) || slots[i] == 0) return PlayerActionResult.Warn(SynthUsage, kind);
+            }
+
+            var module = CraftingModule;
+            var inventory = InventoryModule?.State;
+            if (module == null || inventory == null) return PlayerActionResult.Fail("Synthesis is unavailable.", kind);
+
+            var bag = inventory.GetContainer(ContainerId.Inventory);
+            if (!bag.TryGetItem(slots[0], out var crystal) || crystal.ItemId == 0) return PlayerActionResult.Warn($"Inventory slot {slots[0]} is empty.", kind);
+
+            var used = new Dictionary<byte, int>();
+            var ingredients = new (ushort ItemId, byte Slot)[slots.Length - 1];
+            for (int i = 1; i < slots.Length; i++)
+            {
+                if (!bag.TryGetItem(slots[i], out var item) || item.ItemId == 0) return PlayerActionResult.Warn($"Inventory slot {slots[i]} is empty.", kind);
+                used[slots[i]] = used.GetValueOrDefault(slots[i]) + 1;
+                if (used[slots[i]] > item.Count) return PlayerActionResult.Warn($"Inventory slot {slots[i]} does not hold {used[slots[i]]} items.", kind);
+                ingredients[i - 1] = (item.ItemId, slots[i]);
+            }
+
+            try
+            {
+                await module.SynthesizeAsync(crystal.ItemId, slots[0], ingredients).ConfigureAwait(false);
+                // Retail prints nothing for the request; the animation and the result lines follow.
+                return PlayerActionResult.Ok(string.Empty, kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Synthesis failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Synthesis failed: {ex.Message}", kind);
+            }
+        }
+
+        /// <summary>
+        /// Asks a crafting guild NPC for recipes (C2S 0x058); the answer arrives in <see cref="CraftingState"/>.
+        /// </summary>
+        public async Task<PlayerActionResult> RequestRecipeAsync(ushort skill, ushort level, RecipeRequestMode mode,
+            ushort param0 = 0, ushort param1 = 0, ushort param2 = 0, ushort param3 = 0, ushort param4 = 0)
+        {
+            var module = CraftingModule;
+            if (module == null) return PlayerActionResult.Fail("Recipes are unavailable.", ChatCommandResultKind.Synthesize);
+            await module.RequestRecipeAsync(skill, level, mode, param0, param1, param2, param3, param4).ConfigureAwait(false);
+            return PlayerActionResult.Info("Recipe requested.", ChatCommandResultKind.Synthesize);
+        }
+
+        /// <summary>
+        /// <c>/guild</c>: the guild shop requests, for use while a guild shop is open (S2C 0x086). The answers fill
+        /// <see cref="InventoryState"/> (the guild buy and sell lists and the last transaction).
+        /// </summary>
+        public async Task<PlayerActionResult> GuildShopCommandAsync(string args)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.GuildShop;
+            var module = InventoryModule;
+            if (module == null) return PlayerActionResult.Fail("The guild shop is unavailable.", kind);
+
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 0) return PlayerActionResult.Warn(GuildUsage, kind);
+
+            try
+            {
+                switch (parts[0].ToLowerInvariant())
+                {
+                    case "buylist" when parts.Length == 1:
+                        await module.RequestGuildBuyListAsync().ConfigureAwait(false);
+                        return PlayerActionResult.Info("Guild buy list requested.", kind);
+
+                    case "selllist" when parts.Length == 1:
+                        await module.RequestGuildSellListAsync().ConfigureAwait(false);
+                        return PlayerActionResult.Info("Guild sell list requested.", kind);
+
+                    case "buy" when parts.Length is 2 or 3:
+                    {
+                        byte count = 1;
+                        if (!ushort.TryParse(parts[1], out ushort itemId) || (parts.Length == 3 && !byte.TryParse(parts[2], out count)) || count is < 1 or > 99)
+                        {
+                            return PlayerActionResult.Warn(GuildUsage, kind);
+                        }
+                        await module.BuyGuildItemAsync(itemId, count).ConfigureAwait(false);
+                        return PlayerActionResult.Info($"Guild purchase of item {itemId} x{count} requested.", kind);
+                    }
+
+                    case "sell" when parts.Length is 2 or 3:
+                    {
+                        byte count = 1;
+                        if (!byte.TryParse(parts[1], out byte slot) || slot == 0 || (parts.Length == 3 && !byte.TryParse(parts[2], out count)) || count is < 1 or > 99)
+                        {
+                            return PlayerActionResult.Warn(GuildUsage, kind);
+                        }
+                        if (!module.State.GetContainer(ContainerId.Inventory).TryGetItem(slot, out var item) || item.ItemId == 0)
+                        {
+                            return PlayerActionResult.Warn($"Inventory slot {slot} is empty.", kind);
+                        }
+                        await module.SellGuildItemAsync(item.ItemId, slot, count).ConfigureAwait(false);
+                        return PlayerActionResult.Info($"Guild sale of slot {slot} x{count} requested.", kind);
+                    }
+
+                    default:
+                        return PlayerActionResult.Warn(GuildUsage, kind);
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Guild shop request failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Guild shop request failed: {ex.Message}", kind);
+            }
+        }
+
+        #endregion
+
         #region Treasure pool
 
         /// <summary>
@@ -2299,6 +2454,12 @@ namespace Gordian.Core.Actions
                 case ChatCommandResultKind.TreasurePass:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: false).ConfigureAwait(false);
 
+                case ChatCommandResultKind.Synthesize:
+                    return await SynthesizeCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.GuildShop:
+                    return await GuildShopCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
                 case ChatCommandResultKind.Heal:
                     return await HealAsync(cmd.Rest).ConfigureAwait(false);
 
@@ -2360,6 +2521,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.DebugPlayRoutine:
+                    return PlayRoutineCommand(cmd.Message ?? string.Empty);
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

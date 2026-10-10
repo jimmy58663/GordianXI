@@ -40,6 +40,9 @@ namespace Gordian.Core.Network
         private readonly InventoryPacketModule _inventoryModule;
         private readonly TreasurePoolState _treasure = new();
         private readonly TreasurePacketModule _treasureModule;
+        private readonly CraftingState _crafting = new();
+        private readonly CraftingPacketModule _craftingModule;
+
         private readonly SchedulerState _scheduler = new();
         private readonly SchedulerPacketModule _schedulerModule;
         private readonly DeliveryBoxState _delivery = new();
@@ -134,6 +137,9 @@ namespace Gordian.Core.Network
             _treasureModule = new TreasurePacketModule(_treasure, _localPlayer, _inventory, _sendChunkCallback, LogPacket);
             _treasureModule.Register(_dispatcher);
 
+            _craftingModule = new CraftingPacketModule(_crafting, _sendChunkCallback, LogPacket);
+            _craftingModule.Register(_dispatcher);
+
             _schedulerModule = new SchedulerPacketModule(_scheduler, _world);
             _schedulerModule.Register(_dispatcher);
             _world.ZoneChanged += _ => _scheduler.Clear();
@@ -169,6 +175,7 @@ namespace Gordian.Core.Network
             _actionService.InventoryModule = _inventoryModule;
             _actionService.ProgressionModule = _progressionModule;
             _actionService.TreasureModule = _treasureModule;
+            _actionService.CraftingModule = _craftingModule;
             _actionService.SocialModule = _socialModule;
             _actionService.SearchService = _search;
             _actionService.CommandModule = _commandModule;
@@ -257,6 +264,12 @@ namespace Gordian.Core.Network
         /// Gets the treasure pool packet handling module (lot and pass).
         /// </summary>
         public TreasurePacketModule TreasureModule => _treasureModule;
+
+        /// <summary>Gets the crafting state: the last synthesis results and recipes (S2C 0x06F, 0x070, 0x031).</summary>
+        public CraftingState Crafting => _crafting;
+
+        /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
+        public CraftingPacketModule CraftingModule => _craftingModule;
 
         /// <summary>Gets the actor and magic schedulers the server asked to play (S2C 0x038, 0x03A); decode only.</summary>
         public SchedulerState Scheduler => _scheduler;

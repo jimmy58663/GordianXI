@@ -824,11 +824,51 @@ namespace Gordian.Core.World
         public GuildTransaction? LastGuildTransaction { get; private set; }
 
         private readonly List<GuildItemEntry> _guildSellList = new List<GuildItemEntry>();
+        private readonly List<GuildItemEntry> _guildBuyList = new List<GuildItemEntry>();
+
+        /// <summary>Raised when a guild shop purchase or sale answer arrives (S2C 0x082 / 0x084).</summary>
+        public event Action<GuildTransaction>? GuildTransactionReceived;
+
+        /// <summary>Raised when a guild stock list is complete: <c>true</c> for what the guild sells (S2C 0x083), <c>false</c> for what it buys (0x085).</summary>
+        public event Action<bool, GuildItemEntry[]>? GuildListCompleted;
+
+        /// <summary>Raised when the guild's open, closed or holiday status arrives (S2C 0x086).</summary>
+        public event Action<ShopOpenStatus, GuildHoursInfo?>? GuildStatusReceived;
 
         public void SetGuildTransaction(GuildTransaction transaction)
         {
             lock (_lock) LastGuildTransaction = transaction;
             ShopChanged?.Invoke();
+            GuildTransactionReceived?.Invoke(transaction);
+        }
+
+        /// <summary>Raises <see cref="GuildStatusReceived"/> for a status the module has just recorded.</summary>
+        internal void NotifyGuildStatus(ShopOpenStatus status, GuildHoursInfo? hours) => GuildStatusReceived?.Invoke(status, hours);
+
+        /// <summary>
+        /// Adds one S2C 0x083 packet of the items the guild sells. <paramref name="packetIndex"/> is the packet's place in
+        /// the list (the low six bits of Stat); packet 0 starts a new list.
+        /// </summary>
+        public void AddGuildBuyItems(int packetIndex, ReadOnlySpan<GuildItemEntry> items)
+        {
+            lock (_lock)
+            {
+                if (packetIndex == 0) _guildBuyList.Clear();
+                for (int i = 0; i < items.Length; i++) _guildBuyList.Add(items[i]);
+            }
+        }
+
+        /// <summary>The items the open guild shop sells to the player, copied under the state lock.</summary>
+        public GuildItemEntry[] SnapshotGuildBuyList()
+        {
+            lock (_lock) return _guildBuyList.ToArray();
+        }
+
+        /// <summary>Marks the guild list the last packet completed and raises <see cref="GuildListCompleted"/>.</summary>
+        public void CompleteGuildList(bool sells)
+        {
+            var items = sells ? SnapshotGuildBuyList() : SnapshotGuildSellList();
+            GuildListCompleted?.Invoke(sells, items);
         }
 
         /// <summary>

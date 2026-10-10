@@ -285,7 +285,24 @@ namespace Gordian.Core.Network.Packets
                 items[i] = new ShopItemEntry((uint)Math.Max(0, item.Price), item.ItemId, (byte)i, 0, 0);
             }
             _inventoryState.AddShopItems(items);
+
+            // The guild's own list, with stock and maximum, for the guild shop log and window (Stat as in S2C 0x085).
+            int count = Math.Min((int)p.Count, 30);
+            var guildItems = new GuildItemEntry[count];
+            for (int i = 0; i < count; i++)
+            {
+                var item = p.GetItem(i);
+                guildItems[i] = new GuildItemEntry(item.ItemId, item.Stock, item.Max, item.Price);
+            }
+            _inventoryState.AddGuildBuyItems(p.Stat & 0x3F, guildItems);
+            if (IsLastGuildPacket(p.Stat)) _inventoryState.CompleteGuildList(sells: true);
         }
+
+        /// <summary>
+        /// Whether a guild list packet ends its list: Stat's 0x80 bit marks the last of several, and a list that fits in one
+        /// packet carries neither 0x40 (first of several) nor 0x80.
+        /// </summary>
+        private static bool IsLastGuildPacket(byte stat) => (stat & 0x80) != 0 || (stat & 0x40) == 0;
 
         private void HandleGuildSell(PacketHeader header, ReadOnlySpan<byte> payload)
         {
@@ -311,6 +328,7 @@ namespace Gordian.Core.Network.Packets
             }
             // Stat: the packet's place in the list in the low six bits (0x40 marks the first of several, 0x80 the last).
             _inventoryState.AddGuildSellItems(p.Stat & 0x3F, items);
+            if (IsLastGuildPacket(p.Stat)) _inventoryState.CompleteGuildList(sells: false);
         }
 
         private void HandleGuildOpen(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -318,7 +336,9 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x086_GuildOpen(payload);
             if (!p.IsValid) return;
 
-            _inventoryState.SetGuildOpenStatus(p.Status, new GuildHoursInfo(p.OpenHour, p.CloseHour, p.HolidayDay));
+            var hours = new GuildHoursInfo(p.OpenHour, p.CloseHour, p.HolidayDay);
+            _inventoryState.SetGuildOpenStatus(p.Status, hours);
+            _inventoryState.NotifyGuildStatus(p.Status, p.Status == ShopOpenStatus.Open ? null : hours);
         }
 
         private void HandleBazaarList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -731,6 +751,37 @@ namespace Gordian.Core.Network.Packets
                 ArrayPool<byte>.Shared.Return(buf);
             }
         }
+
+        private async Task SendGuildAsync(ushort packetId, int capacity, Func<byte[], ushort, int> build)
+        {
+            byte[] buf = ArrayPool<byte>.Shared.Rent(capacity);
+            try
+            {
+                int len = build(buf, ++_sequenceNumber);
+                if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, packetId, _sequenceNumber, buf.AsSpan(0, len));
+                await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+
+        /// <summary>Sends C2S 0x0AA: buys <paramref name="count"/> of <paramref name="itemId"/> from the open guild shop. The answer is S2C 0x082.</summary>
+        public Task BuyGuildItemAsync(ushort itemId, byte count) =>
+            SendGuildAsync(0x0AA, 8, (b, seq) => GuildShopPacketBuilders.BuildGuildBuy(b, seq, itemId, count));
+
+        /// <summary>Sends C2S 0x0AB: asks for the guild shop's stock (the Buy window). The answer is S2C 0x083.</summary>
+        public Task RequestGuildBuyListAsync() =>
+            SendGuildAsync(0x0AB, 4, (b, seq) => GuildShopPacketBuilders.BuildGuildBuyList(b, seq));
+
+        /// <summary>Sends C2S 0x0AC: sells <paramref name="count"/> of the item in inventory slot <paramref name="slot"/> to the guild shop. The answer is S2C 0x084.</summary>
+        public Task SellGuildItemAsync(ushort itemId, byte slot, byte count) =>
+            SendGuildAsync(0x0AC, 8, (b, seq) => GuildShopPacketBuilders.BuildGuildSell(b, seq, itemId, slot, count));
+
+        /// <summary>Sends C2S 0x0AD: asks for the items the guild shop accepts (the Sell window). The answer is S2C 0x085.</summary>
+        public Task RequestGuildSellListAsync() =>
+            SendGuildAsync(0x0AD, 4, (b, seq) => GuildShopPacketBuilders.BuildGuildSellList(b, seq));
 
         public async Task BrowseBazaarAsync(uint targetServerId, ushort targetIndex)
         {
