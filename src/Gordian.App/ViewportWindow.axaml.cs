@@ -3,6 +3,7 @@ using System;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -29,6 +30,25 @@ namespace Gordian.App
         private DispatcherTimer? _telemetryTimer;
         private Point? _lastPointerPosition;
         private bool _isRightDragging;
+        private readonly Popup? _pillPopup;
+        private readonly Popup? _pipPopup;
+        private readonly Popup? _freeCamPopup;
+        private readonly Popup? _ribbonPopup;
+        private readonly Popup? _railPopup;
+        private readonly ComboBox? _displayModeCombo;
+        private readonly DispatcherTimer _repositionTimer;
+        private bool _isShown;
+        private bool _ribbonRevealed;
+        private bool _railRevealed;
+        private readonly Border? _ribbonBorder;
+        private readonly Border? _railBorder;
+        private readonly DispatcherTimer? _autoHideTimer;
+
+        /// <summary>How long a revealed ribbon or rail stays after the pointer leaves it.</summary>
+        private const int AutoHideDelayMs = 300;
+
+        /// <summary>How close to the top / left edge of the view (in device-independent pixels) reveals the ribbon / rail.</summary>
+        private const double EdgeRevealDip = 6.0;
 
         // The last pointer position over the rendering surface (framebuffer pixels), from the raw Win32 mouse
         // messages; a raw button event carries no position of its own, but a move always precedes it.
@@ -76,7 +96,79 @@ namespace Gordian.App
             }
 
             DataContextChanged += OnDataContextChanged;
-            KeyDown += OnKeyDown;
+
+            // Overlays over the native 3D surface are popups (it cannot be drawn over in this window; see the .axaml).
+            _pillPopup = this.FindControl<Popup>("FloatingPillPopup");
+            _pipPopup = this.FindControl<Popup>("PipDeckPopup");
+            _freeCamPopup = this.FindControl<Popup>("FreeCamPopup");
+            _ribbonPopup = this.FindControl<Popup>("TopRibbonPopup");
+            _railPopup = this.FindControl<Popup>("SideRailPopup");
+            _displayModeCombo = this.FindControl<ComboBox>("DisplayModeCombo");
+            Opened += (_, _) =>
+            {
+                _isShown = true;
+                UpdateOverlayPopups();
+            };
+            PropertyChanged += (_, e) =>
+            {
+                if (e.Property == WindowStateProperty || e.Property == IsVisibleProperty) UpdateOverlayPopups();
+            };
+
+            // The floating pill is minimal until the pointer is over it, then lists every character.
+            if (this.FindControl<Panel>("PillRoot") is { } pillRoot)
+            {
+                var collapsed = this.FindControl<Border>("PillCollapsed");
+                var expanded = this.FindControl<Border>("PillExpanded");
+                pillRoot.PointerEntered += (_, _) => SetPillExpanded(collapsed, expanded, true);
+                pillRoot.PointerExited += (_, _) => SetPillExpanded(collapsed, expanded, false);
+            }
+
+            // The auto-hiding ribbon and rail stay while the pointer is over them (or a drop-down of theirs is open) and
+            // hide a moment after it leaves them.
+            _ribbonBorder = this.FindControl<Border>("TopRibbonBorder");
+            _railBorder = this.FindControl<Border>("SideRailBorder");
+            foreach (var bar in new[] { _ribbonBorder, _railBorder })
+            {
+                if (bar == null) continue;
+                bar.PointerEntered += (_, _) => _autoHideTimer?.Stop();
+                bar.PointerExited += (_, _) => ScheduleAutoHide();
+            }
+            _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AutoHideDelayMs) };
+            if (_displayModeCombo != null) _displayModeCombo.DropDownClosed += (_, _) => ScheduleAutoHide();
+            _autoHideTimer.Tick += (_, _) =>
+            {
+                _autoHideTimer.Stop();
+                HideBarsThePointerLeft();
+            };
+
+            // Popups follow the window when it moves; the PiP deck was left behind on the old monitor in game, so once a
+            // move settles every open popup is placed again from scratch.
+            _repositionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _repositionTimer.Tick += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                ReopenOverlayPopups();
+            };
+            // The PiP deck and free camera banner anchor at a point inside the 3D view (see PlaceBottomPopups).
+            if (this.FindControl<Border>("ViewportHost") is { } host)
+            {
+                host.SizeChanged += (_, e) =>
+                {
+                    PlaceBottomPopups(e.NewSize);
+                    _repositionTimer.Stop();
+                    _repositionTimer.Start();
+                };
+            }
+            PositionChanged += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                _repositionTimer.Start();
+            };
+            ScalingChanged += (_, _) =>
+            {
+                _repositionTimer.Stop();
+                _repositionTimer.Start();
+            };
 
             // Gameplay keyboard/mouse-button input is captured here (the window that actually
             // renders and receives focus during play), not on MainWindow, which never has focus
@@ -114,6 +206,7 @@ namespace Gordian.App
             {
                 _viewModel.DisplayModeChanged -= OnDisplayModeChanged;
                 _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+                _viewModel.WindowActivationRequested -= OnWindowActivationRequested;
             }
 
             _viewModel = DataContext as ViewportViewModel;
@@ -122,9 +215,11 @@ namespace Gordian.App
             {
                 _viewModel.DisplayModeChanged += OnDisplayModeChanged;
                 _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+                _viewModel.WindowActivationRequested += OnWindowActivationRequested;
                 ApplyDisplayMode(_viewModel.SelectedDisplayMode);
                 SyncActiveSessionToViewport();
             }
+            UpdateOverlayPopups();
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -132,6 +227,147 @@ namespace Gordian.App
             if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
             {
                 SyncActiveSessionToViewport();
+            }
+            if (e.PropertyName is nameof(ViewportViewModel.ShowFloatingPill) or nameof(ViewportViewModel.ShowPipDeck)
+                or nameof(ViewportViewModel.ShowTopRibbon) or nameof(ViewportViewModel.ShowSideRail)
+                or nameof(ViewportViewModel.IsFreeCamActive) or nameof(ViewportViewModel.Lobby) or nameof(ViewportViewModel.IsReturningToLobby))
+            {
+                UpdateOverlayPopups();
+            }
+        }
+
+        /// <summary>
+        /// A switcher chose this window's character (a click, or Ctrl+Tab from another window): take the focus, so the
+        /// gamepad and keyboard follow at once. The switchers are popups that never activate the window themselves.
+        /// </summary>
+        private void OnWindowActivationRequested(object? sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        /// <summary>
+        /// Opens or closes the popups drawn over the native 3D surface: the floating pill, PiP deck and free camera banner
+        /// while their view model flag is set, the ribbon and rail while also revealed by the pointer; all closed while the
+        /// window is hidden or minimised (a popup is its own window and would otherwise be left floating).
+        /// </summary>
+        private void UpdateOverlayPopups()
+        {
+            bool onScreen = _isShown && IsVisible && WindowState != WindowState.Minimized;
+            bool showsWorld = _viewModel is { IsLobbyOpen: false, IsReturningToLobby: false } && _viewModel.ActiveTab != null;
+            SetPopupOpen(_pillPopup, onScreen && _viewModel?.ShowFloatingPill == true);
+            SetPopupOpen(_pipPopup, onScreen && _viewModel?.ShowPipDeck == true);
+            SetPopupOpen(_freeCamPopup, onScreen && showsWorld && _viewModel?.IsFreeCamActive == true);
+            SetPopupOpen(_ribbonPopup, onScreen && _ribbonRevealed && _viewModel?.ShowTopRibbon == true);
+            SetPopupOpen(_railPopup, onScreen && _railRevealed && _viewModel?.ShowSideRail == true);
+        }
+
+        /// <summary>Closes and reopens every open popup so it is placed again against the window where it now is.</summary>
+        private void ReopenOverlayPopups()
+        {
+            foreach (var popup in new[] { _pillPopup, _pipPopup, _freeCamPopup, _ribbonPopup, _railPopup })
+            {
+                if (popup is not { IsOpen: true }) continue;
+                SetPopupOpen(popup, false);
+                SetPopupOpen(popup, true);
+            }
+        }
+
+        /// <summary>
+        /// The pointer over the 3D surface itself (surface pixels): at the top edge it reveals the ribbon, at the left
+        /// edge the rail; elsewhere on the surface a revealed bar is hidden after <see cref="AutoHideDelayMs"/> unless the
+        /// pointer is back over it by then.
+        /// </summary>
+        private void UpdateEdgeReveal(Point surfacePoint)
+        {
+            if (_viewModel == null || _isRightDragging) return;
+            double edge = EdgeRevealDip * RenderScaling;
+            bool revealRibbon = _viewModel.ShowTopRibbon && surfacePoint.Y <= edge;
+            bool revealRail = _viewModel.ShowSideRail && surfacePoint.X <= edge;
+            if (revealRibbon || revealRail)
+            {
+                _autoHideTimer?.Stop();
+                if ((revealRibbon && !_ribbonRevealed) || (revealRail && !_railRevealed))
+                {
+                    _ribbonRevealed |= revealRibbon;
+                    _railRevealed |= revealRail;
+                    UpdateOverlayPopups();
+                }
+                return;
+            }
+            if (_ribbonRevealed || _railRevealed) ScheduleAutoHide();
+        }
+
+        /// <summary>Margin (device-independent pixels) between the PiP deck and the bottom-right corner of the view.</summary>
+        private const double PipMargin = 12.0;
+
+        /// <summary>Gap (device-independent pixels) between the free camera banner and the bottom of the view.</summary>
+        private const double FreeCamBannerMargin = 24.0;
+
+        /// <summary>
+        /// Anchors the PiP deck and the free camera banner at points inside the view (<see cref="Popup.PlacementRect"/>),
+        /// not on its bottom / right edge. The positioner keeps a popup on the screen that holds its anchor point, and the
+        /// view's bottom-right corner of a window filling its monitor (borderless) is the first pixel of the monitor to
+        /// its right or below: the PiP deck was slid onto that monitor, whatever the window did after (round 3).
+        /// </summary>
+        private void PlaceBottomPopups(Size viewSize)
+        {
+            double width = Math.Max(1.0, viewSize.Width);
+            double height = Math.Max(1.0, viewSize.Height);
+            if (_pipPopup != null)
+            {
+                _pipPopup.PlacementRect = new Rect(0, 0, Math.Max(1.0, width - PipMargin), Math.Max(1.0, height - PipMargin));
+            }
+            if (_freeCamPopup != null)
+            {
+                _freeCamPopup.PlacementRect = new Rect(0, 0, width, Math.Max(1.0, height - FreeCamBannerMargin));
+            }
+        }
+
+        /// <summary>Starts (or restarts) the delay after which a revealed bar the pointer has left is hidden.</summary>
+        private void ScheduleAutoHide()
+        {
+            if (_autoHideTimer == null) return;
+            _autoHideTimer.Stop();
+            _autoHideTimer.Start();
+        }
+
+        /// <summary>Hides the ribbon and rail unless the pointer is over them or one of their drop-downs is open.</summary>
+        private void HideBarsThePointerLeft()
+        {
+            bool keepRibbon = _ribbonBorder?.IsPointerOver == true || _displayModeCombo?.IsDropDownOpen == true;
+            bool keepRail = _railBorder?.IsPointerOver == true;
+            bool changed = false;
+            if (_ribbonRevealed && !keepRibbon) { _ribbonRevealed = false; changed = true; }
+            if (_railRevealed && !keepRail) { _railRevealed = false; changed = true; }
+            if (changed) UpdateOverlayPopups();
+        }
+
+        /// <summary>
+        /// True when a routed pointer event came from one of this window's popups (pill, ribbon, rail, PiP deck,
+        /// banner). Popup content routes its events up through the Popup into this window, so without this check a
+        /// move over the ribbon read as a move over the 3D surface (hiding the ribbon at once) and a switcher click
+        /// reached the character as a game mouse press.
+        /// </summary>
+        private bool IsFromOverlay(RoutedEventArgs e) =>
+            e.Source is Visual source && TopLevel.GetTopLevel(source) is { } root && !ReferenceEquals(root, this);
+
+        private static void SetPillExpanded(Border? collapsed, Border? expanded, bool expand)
+        {
+            if (collapsed != null) collapsed.IsVisible = !expand;
+            if (expanded != null) expanded.IsVisible = expand;
+        }
+
+        private static void SetPopupOpen(Popup? popup, bool open)
+        {
+            if (popup == null || popup.IsOpen == open) return;
+            try
+            {
+                popup.IsOpen = open;
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("Viewport", $"Could not {(open ? "open" : "close")} the {popup.Name} overlay: {ex.Message}");
             }
         }
 
@@ -239,82 +475,45 @@ namespace Gordian.App
             }
         }
 
-        private void OnKeyDown(object? sender, KeyEventArgs e)
+        /// <summary>
+        /// The window's own shortcuts (see <see cref="ViewportShortcuts"/>): character switching, display mode, and the
+        /// fog / post-process / ocean / weather / time-of-day debug toggles. They never reach the character's input.
+        /// </summary>
+        private void ApplyShortcut(ViewportShortcut shortcut)
         {
-            // Ctrl+Tab / Ctrl+Shift+Tab to cycle character viewports
-            if (e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0)
+            switch (shortcut)
             {
-                if ((e.KeyModifiers & KeyModifiers.Shift) != 0)
-                {
-                    _viewModel?.CyclePreviousCharacter();
-                }
-                else
-                {
-                    _viewModel?.CycleNextCharacter();
-                }
-                e.Handled = true;
-                return;
-            }
-
-            // F11 toggles Fullscreen / Borderless
-            if (e.Key == Key.F11 && _viewModel != null)
-            {
-                _viewModel.SelectedDisplayMode = _viewModel.SelectedDisplayMode == ViewportDisplayMode.Fullscreen
-                    ? ViewportDisplayMode.BorderlessWindow
-                    : ViewportDisplayMode.Fullscreen;
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F10 toggles distance fog on/off
-            if (e.Key == Key.F10 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.ToggleFog();
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F8 toggles the cutscene post-process (blur, cross-dissolve) on/off
-            if (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.TogglePostProcess();
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+F9 toggles base sea-level ocean water plane on/off
-            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) != 0)
-            {
-                _viewportControl?.ToggleOceanWater();
-                e.Handled = true;
-                return;
-            }
-
-            // F9 cycles active Weather presets (Clear "fine" -> Sunshine "suny" -> Clouds "clod" -> Fog "mist")
-            if (e.Key == Key.F9 && (e.KeyModifiers & KeyModifiers.Control) == 0)
-            {
-                _viewportControl?.CycleWeather();
-                e.Handled = true;
-                return;
-            }
-
-            // F10 cycles Time of Day presets (Day -> Dusk -> Night -> Overcast)
-            if (e.Key == Key.F10)
-            {
-                _viewportControl?.CycleTimeOfDay();
-                e.Handled = true;
-                return;
+                case ViewportShortcut.NextCharacter:
+                case ViewportShortcut.PreviousCharacter:
+                    if (_viewModel == null) return;
+                    var before = _viewModel.ActiveTab;
+                    var chosen = shortcut == ViewportShortcut.NextCharacter ? _viewModel.CycleNextCharacter() : _viewModel.CyclePreviousCharacter();
+                    GordianLog.Info("Viewport", $"{(shortcut == ViewportShortcut.NextCharacter ? "Ctrl+Tab" : "Ctrl+Shift+Tab")}: " +
+                        $"{before?.CharacterName ?? "none"} -> {chosen?.CharacterName ?? "none"}{(chosen?.IsPoppedOut == true ? " (its own window)" : string.Empty)}");
+                    break;
+                case ViewportShortcut.ToggleFullscreen:
+                    if (_viewModel == null) return;
+                    _viewModel.SelectedDisplayMode = _viewModel.SelectedDisplayMode == ViewportDisplayMode.Fullscreen
+                        ? ViewportDisplayMode.BorderlessWindow
+                        : ViewportDisplayMode.Fullscreen;
+                    break;
+                case ViewportShortcut.ToggleFog: _viewportControl?.ToggleFog(); break;
+                case ViewportShortcut.TogglePostProcess: _viewportControl?.TogglePostProcess(); break;
+                case ViewportShortcut.ToggleOceanWater: _viewportControl?.ToggleOceanWater(); break;
+                case ViewportShortcut.CycleWeather: _viewportControl?.CycleWeather(); break;
+                case ViewportShortcut.CycleTimeOfDay: _viewportControl?.CycleTimeOfDay(); break;
             }
         }
 
         private void OnGameKeyDown(object? sender, KeyEventArgs e)
         {
-            // Reserved for window-level shortcuts (character/viewport cycling, fullscreen toggle, TOD cycle);
-            // don't also feed these into the character's InputState.
-            if ((e.Key == Key.Tab && (e.KeyModifiers & KeyModifiers.Control) != 0) ||
-                e.Key == Key.F11 || e.Key == Key.F10 || e.Key == Key.F9 ||
-                (e.Key == Key.F8 && (e.KeyModifiers & KeyModifiers.Control) != 0))
+            // Window-level shortcuts are taken here, on the tunnelling pass, before a focused control (or Avalonia's
+            // Tab navigation) can take the key, and are not fed into the character's InputState.
+            var shortcut = ViewportShortcuts.Classify(e.Key, e.KeyModifiers);
+            if (shortcut != ViewportShortcut.None)
             {
+                ApplyShortcut(shortcut);
+                e.Handled = true;
                 return;
             }
 
@@ -430,6 +629,7 @@ namespace Gordian.App
 
         private void OnGamePointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint))
@@ -463,6 +663,7 @@ namespace Gordian.App
 
         private void OnGamePointerReleased(object? sender, PointerReleasedEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -485,6 +686,8 @@ namespace Gordian.App
 
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
+            if (TryGetViewportPoint(e, out var edgePoint)) UpdateEdgeReveal(edgePoint);
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint)) LobbyPointer(lobby, lobbyPoint, null);
@@ -506,6 +709,7 @@ namespace Gordian.App
 
         private void OnGamePointerWheelChanged(object? sender, PointerWheelEventArgs e)
         {
+            if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -632,6 +836,7 @@ namespace Gordian.App
         private void OnRawMouseMoved(double x, double y)
         {
             _lastRawMouse = new Point(x, y);
+            UpdateEdgeReveal(new Point(x, y));
             if (ActiveLobby is { } lobby)
             {
                 LobbyPointer(lobby, new Point(x, y), null);
@@ -672,6 +877,7 @@ namespace Gordian.App
                 _viewModel.FrameTimeMs = viewportControl.FrameTimeMs;
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
                 _viewModel.GpuName = viewportControl.GpuDeviceName;
+                _viewModel.SyncFromActiveSession();
 
                 UpdateViewportCursor();
             }
@@ -709,6 +915,10 @@ namespace Gordian.App
         {
             _telemetryTimer?.Stop();
             _telemetryTimer = null;
+            _repositionTimer.Stop();
+            _isShown = false;
+            UpdateOverlayPopups();
+            if (_viewModel != null) _viewModel.WindowActivationRequested -= OnWindowActivationRequested;
 
             if (_viewModel != null)
             {

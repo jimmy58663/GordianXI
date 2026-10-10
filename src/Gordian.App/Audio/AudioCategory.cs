@@ -19,5 +19,12 @@ namespace Gordian.App.Audio
 
         /// <summary>Zone sounds: ambient loops and the zone's effect generators (wind, water, fires).</summary>
         Zone = 3,
+
+        /// <summary>
+        /// Notification cues (the incoming tell's "Message Arrival"). Retail plays them as system sounds, and by default
+        /// this bus follows the System bus exactly (effects slider, event system volume); it is a bus of its own only so
+        /// the GordianXI sound controls (#265) can let it through when other sounds are muted.
+        /// </summary>
+        Notification = 4,
     }
 }

@@ -33,7 +33,7 @@ Four-tier monorepo, clean-room rules, Avalonia MVVM shell, encrypted account pro
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 86 S2C decoders / 77 C2S opcodes, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
 - Packet audit gaps closed (#1-#5); the UI that reads the new caches is tracked in #90-#95.
-- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #112, #117 (scheduler playback: #311).
+- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #117 (scheduler playback: #311).
 
 ### ✅ Phase 4: World State, DAT Resource Pipeline & Modular VFS
 Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compatible VFS with hot reload. → [docs/world/world-state-and-resources.md](docs/world/world-state-and-resources.md)
@@ -52,7 +52,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |
-| 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; open: combat sounds #41, footprints #40, sound controls #265 | [design/audio.md](docs/design/audio.md) |
+| 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; sound controls and combat / action sounds done; open: footprints #40, more combat sounds #328, dual-wield sounds #308 | [design/audio.md](docs/design/audio.md) |
 
 ### 🚀 Post-MVP (Phases 6-10)
 Design intent for each is in [docs/design/post-mvp.md](docs/design/post-mvp.md); issues are opened when a phase starts.

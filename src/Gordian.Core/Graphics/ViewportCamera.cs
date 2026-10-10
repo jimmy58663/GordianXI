@@ -244,8 +244,9 @@ namespace Gordian.Core.Graphics
                     break;
 
                 case CameraMode.FreeCam:
-                    // In FreeCam, position is maintained independently; target is derived from forwardDir
-                    _target = _position + forwardDir;
+                    // In FreeCam, position is maintained independently; the view looks along the free camera's
+                    // direction (pitch tilts it the way the orbit camera's does, see FreeCamForward)
+                    _target = _position + FreeCamForward(_pitch, _yaw);
                     break;
             }
 
@@ -293,21 +294,41 @@ namespace Gordian.Core.Graphics
             _pitch = Math.Clamp(_pitch + pitchDelta, -80.0f, 80.0f);
             _yaw = NormalizeDegrees(_yaw + yawDelta);
 
-            float pitchRad = _pitch * (MathF.PI / 180.0f);
-            float yawRad = _yaw * (MathF.PI / 180.0f);
-
-            float cosP = MathF.Cos(pitchRad);
-            float sinP = MathF.Sin(pitchRad);
-            float cosY = MathF.Cos(yawRad);
-            float sinY = MathF.Sin(yawRad);
-
-            var forward = new Vector3(-cosY * cosP, sinP, -sinY * cosP);
+            var forward = FreeCamForward(_pitch, _yaw);
             var right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
             var up = Vector3.Normalize(Vector3.Cross(right, forward));
 
             _position += (right * translationDelta.X) + (up * translationDelta.Y) + (forward * translationDelta.Z);
             _target = _position + forward;
 
+            UpdateMatrices();
+        }
+
+        /// <summary>
+        /// The free camera's view direction (display space) for a pitch and yaw in degrees. A positive pitch looks down,
+        /// as the orbit camera does from above its target, so switching to the free camera keeps the view where it was
+        /// and the pitch controls tilt it the same way. (It had looked up, the mirror of the orbit view.)
+        /// </summary>
+        public static Vector3 FreeCamForward(float pitch, float yaw)
+        {
+            float pitchRad = pitch * (MathF.PI / 180.0f);
+            float yawRad = yaw * (MathF.PI / 180.0f);
+            float cosP = MathF.Cos(pitchRad);
+            return new Vector3(-MathF.Cos(yawRad) * cosP, -MathF.Sin(pitchRad), -MathF.Sin(yawRad) * cosP);
+        }
+
+        /// <summary>
+        /// Places the free camera (display space) at <paramref name="position"/>, looking along
+        /// <see cref="FreeCamForward"/> of <paramref name="pitch"/> and <paramref name="yaw"/>. The viewport draws the
+        /// free camera with this, moving its own camera by the locomotion controller's free camera movement.
+        /// </summary>
+        public void SetFreeCamPose(Vector3 position, float pitch, float yaw, float aspectRatio)
+        {
+            _position = position;
+            _pitch = Math.Clamp(pitch, -80.0f, 80.0f);
+            _yaw = NormalizeDegrees(yaw);
+            _aspectRatio = Math.Max(0.1f, aspectRatio);
+            _target = _position + FreeCamForward(_pitch, _yaw);
             UpdateMatrices();
         }
 

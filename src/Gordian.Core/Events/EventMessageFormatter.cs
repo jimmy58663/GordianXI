@@ -54,6 +54,13 @@ namespace Gordian.Core.Events
 
         /// <summary>The compass direction the 0x1D code prints ("north"...), or null when not known.</summary>
         string? Heading => null;
+
+        /// <summary>
+        /// Whether a 0x04 number code that prints 1 prints the article "a" / "an" instead, as the retail client does in its
+        /// system messages about items ("You synthesized a ponze of shell powder", checked against a retail capture,
+        /// 2026-10-07). Off for the dialog tables, where a 0x04 is a plain number.
+        /// </summary>
+        bool CountOneIsArticle => false;
     }
 
     /// <summary>
@@ -157,6 +164,7 @@ namespace Gordian.Core.Events
                         break;
                     case EventMessageSegmentKind.Name:
                         Substitute(segment.Code == ArticleKind && segment.Values is not { Count: > 0 }
+                            || (segment.Code == 0x04 && context.CountOneIsArticle && segment.Values is { Count: > 0 } countValues && context.GetNumber(countValues[0]) == 1)
                             ? Article(segments, s, context)
                             : FormatName(segment, context));
                         break;
@@ -359,6 +367,9 @@ namespace Gordian.Core.Events
         public MessageEntity? GetMessageEntity(int slot) => Entities != null && slot >= 0 && slot < Entities.Count ? Entities[slot] : null;
 
         public string? Heading => HeadingText;
+
+        /// <summary>A 0x04 number code that prints 1 prints "a" / "an" (<see cref="IEventMessageContext.CountOneIsArticle"/>).</summary>
+        public bool CountOneIsArticle { get; init; }
 
         private readonly IReadOnlyList<int> _numbers;
         private readonly Func<int, string?>? _partyMemberName;

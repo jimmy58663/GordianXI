@@ -109,6 +109,39 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void ViewportCamera_FreeCam_KeepsTheOrbitViewWhenEntered()
+        {
+            // Orbiting at pitch 20 the camera sits above the player looking down; the free camera taking over at the same
+            // eye, pitch and yaw must look the same way (it used to look up, the mirror image).
+            var camera = new ViewportCamera();
+            camera.Update(Vector3.Zero, pitch: 20.0f, yaw: 30.0f, distance: 6.0f, aspectRatio: 1.5f);
+            var orbitForward = Vector3.Normalize(camera.Target - camera.Position);
+            var eye = camera.Position;
+
+            camera.Mode = CameraMode.FreeCam;
+            camera.SetFreeCamPose(eye, 20.0f, 30.0f, 1.5f);
+            var freeForward = Vector3.Normalize(camera.Target - camera.Position);
+
+            Assert.Equal(eye, camera.Position);
+            Assert.True(Vector3.Dot(orbitForward, freeForward) > 0.999f, $"orbit {orbitForward} vs free {freeForward}");
+            Assert.True(freeForward.Y < 0.0f); // looking down
+        }
+
+        [Fact]
+        public void ViewportCamera_FreeCam_FliesWhereItLooks()
+        {
+            var camera = new ViewportCamera { Mode = CameraMode.FreeCam };
+            camera.SetFreeCamPose(new Vector3(0, 10, 0), pitch: 30.0f, yaw: 0.0f, aspectRatio: 1.5f);
+            var before = camera.Position;
+
+            camera.MoveFreeCam(new Vector3(0, 0, 1.0f), pitchDelta: 0.0f, yawDelta: 0.0f);
+
+            var moved = Vector3.Normalize(camera.Position - before);
+            Assert.True(Vector3.Dot(moved, ViewportCamera.FreeCamForward(30.0f, 0.0f)) > 0.999f);
+            Assert.True(camera.Position.Y < before.Y); // forward while looking down descends
+        }
+
+        [Fact]
         public void BoundingFrustum_IntersectsBox_CorrectlyIdentifiesVisibility()
         {
             var camera = new ViewportCamera();

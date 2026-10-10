@@ -104,6 +104,12 @@ namespace Gordian.Core.Network
         /// </summary>
         public TreasurePacketModule TreasureModule => NetworkManager.TreasureModule;
 
+        /// <summary>Gets the crafting state (S2C 0x06F, 0x070, 0x031).</summary>
+        public CraftingState Crafting => NetworkManager.Crafting;
+
+        /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
+        public CraftingPacketModule CraftingModule => NetworkManager.CraftingModule;
+
         /// <summary>Gets the actor and magic schedulers the server asked to play (S2C 0x038, 0x03A); decode only.</summary>
         public SchedulerState Scheduler => NetworkManager.Scheduler;
 
@@ -287,6 +293,27 @@ namespace Gordian.Core.Network
             {
                 foreach (string line in treasureLog.FormatSolution(solution)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
             };
+            // Synthesis results print to the message log as the retail client does.
+            Crafting.SynthesisCompleted += outcome =>
+            {
+                foreach (string line in Ui.CraftingLog.FormatOwn(outcome, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Crafting.OtherSynthesisCompleted += outcome =>
+            {
+                foreach (string line in Ui.CraftingLog.FormatOther(outcome, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            // The synthesis animation (S2C 0x030) plays on the crafters, and the guild shop answers print to the log
+            // until a guild shop window exists.
+            SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
+            Inventory.GuildTransactionReceived += t =>
+            {
+                foreach (string line in Ui.GuildShopLog.FormatTransaction(t, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Inventory.GuildListCompleted += (sells, items) =>
+            {
+                foreach (string line in Ui.GuildShopLog.FormatList(sells, items, id => ActionService.Menus.ItemLookup?.Invoke(id))) Chat.Log.Add(Ui.ChatLogChannel.System, line);
+            };
+            Inventory.GuildStatusReceived += (status, hours) => Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
@@ -327,6 +354,9 @@ namespace Gordian.Core.Network
 
         /// <summary>System messages and emotes from the client's own message tables (S2C 0x053, 0x05A).</summary>
         public Events.ClientMessageController Messages { get; } = new();
+
+        /// <summary>Plays the synthesis animation on the crafters (S2C 0x030).</summary>
+        public Animation.SynthesisAnimationController SynthesisAnimation { get; } = new();
 
         private string? ResolveEntityName(uint id)
         {

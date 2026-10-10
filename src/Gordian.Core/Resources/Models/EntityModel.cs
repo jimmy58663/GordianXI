@@ -47,7 +47,22 @@ namespace Gordian.Core.Resources.Models
         internal void RebuildMotionRoutines()
         {
             MotionRoutines = MotionRoutineDecoder.BuildAll(RawMotionRoutines, clip => Animations.ContainsKey(clip), RangedType);
+            _routineSounds.Clear();
+            _offHandSounds.Clear();
         }
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _routineSounds = new(StringComparer.Ordinal);
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _offHandSounds = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The sounds routine <paramref name="name"/> plays, through the actor's own links (#41,
+        /// <see cref="RoutineSoundCollector"/>); empty when it has none. Cached per name. With <paramref name="offHand"/>
+        /// (an off-hand swing or hit) links to the main weapon's sound routines go to the sub weapon's left-hand ones
+        /// (<see cref="RoutineSoundCollector.OffHandRoutine"/>).
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GetRoutineSounds(string name, bool offHand = false) => offHand
+            ? _offHandSounds.GetOrAdd(name, n => RoutineSoundCollector.Collect(RawMotionRoutines, n, offHand: true))
+            : _routineSounds.GetOrAdd(name, n => RoutineSoundCollector.Collect(RawMotionRoutines, n));
 
         public Vector3 MinBounds { get; private set; } = new(float.MaxValue);
         public Vector3 MaxBounds { get; private set; } = new(float.MinValue);

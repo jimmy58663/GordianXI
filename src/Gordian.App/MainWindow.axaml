@@ -1814,7 +1814,7 @@
                                     <ComboBox ItemsSource="{Binding Viewport.AvailableTabStyles}"
                                               SelectedItem="{Binding Viewport.SelectedTabStyle, Mode=TwoWay}"
                                               HorizontalAlignment="Stretch"/>
-                                    <TextBlock Text="FloatingPill (Default), TopRibbon, SideRail (Party Deck), or HotkeysOnly."
+                                    <TextBlock Text="FloatingPill (default: a pill over the top of the view), TopRibbon (a tab strip above the view), SideRail (a party deck left of the view, with HP), or HotkeysOnly (no switcher; Ctrl+Tab / Ctrl+Shift+Tab)."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
@@ -1824,9 +1824,14 @@
                                     <CheckBox IsChecked="{Binding Viewport.IsPipEnabled, Mode=TwoWay}"
                                               Content="Enable Picture-in-Picture (up to 5 alts in corner)"
                                               FontSize="12" Foreground="#DCDCDC"/>
-                                    <TextBlock Text="Renders real-time thumbnails for up to 5 background characters with 1-click ⇄ viewport swapping."
+                                    <TextBlock Text="Cards for up to 5 background characters (job and HP) with 1-click ⇄ swapping into the main view. Live scene thumbnails are not rendered yet."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
+
+                                <Button Content="Open Viewport Window"
+                                        Command="{Binding Viewport.LaunchViewportCommand}"
+                                        ToolTip.Tip="Opens (or brings to the front) the main 3D viewport window, e.g. after closing it while characters are still logged in."
+                                        HorizontalAlignment="Left" FontSize="12" Padding="10,4"/>
 
                                 <Separator Background="#3E3E42" Margin="0,4"/>
 
@@ -1834,7 +1839,7 @@
                                 <Border Background="#1C1E24" CornerRadius="4" Padding="12" BorderBrush="#2C313C" BorderThickness="1">
                                     <StackPanel Spacing="6">
                                         <TextBlock Text="💡 Multi-Monitor Multi-Boxing" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
-                                        <TextBlock Text="When multiple characters connect, you can switch between them using Ctrl+Tab or by clicking the auto-hiding top ribbon in the Viewport window. To move a character to another monitor, click the ⧉ (Tear Off) icon on their tab."
+                                        <TextBlock Text="When multiple characters connect, switch between them with Ctrl+Tab / Ctrl+Shift+Tab or the tab switcher in the Viewport window. To move a character to another monitor, click the ⧉ (Tear Off) icon on their tab. The gamepad drives the character in the focused window."
                                                    Foreground="#9DA3B4" FontSize="11" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
@@ -1892,6 +1897,62 @@
                     </Border>
                 </Grid>
             </Grid>
+        </TabItem>
+
+        <!-- TAB 9: Sound controls (#265): GordianXI-only, opt-in; the retail volume sliders stay on the in-game config page -->
+        <TabItem Header="Sound" FontSize="14" FontWeight="SemiBold">
+            <Border Background="#252526" CornerRadius="6" Padding="16" Margin="0,10,0,0" BorderBrush="#333337" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14" MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="Sound Controls" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                        <TextBlock Text="GordianXI-only controls on top of the retail mix. The defaults play everything exactly as retail; music and sound effect volumes stay on the in-game config page."
+                                   Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+
+                        <CheckBox IsChecked="{Binding Sound.SoundEnabled, Mode=TwoWay}"
+                                  Content="Sound on (off silences everything without moving the volume sliders)"
+                                  FontSize="12" Foreground="#DCDCDC"/>
+
+                        <StackPanel Spacing="6">
+                            <CheckBox IsChecked="{Binding Sound.MuteWhenInactive, Mode=TwoWay}"
+                                      Content="Play only while GordianXI is active (fade out when it loses focus)"
+                                      FontSize="12" Foreground="#DCDCDC"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="24,0,0,0">
+                                <TextBlock Text="Counts as active:" Foreground="#A0A0A0" FontSize="12" VerticalAlignment="Center"/>
+                                <ComboBox ItemsSource="{Binding Sound.AvailableScopes}"
+                                          SelectedItem="{Binding Sound.ActiveScope, Mode=TwoWay}" MinWidth="200"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Separator Background="#3E3E42" Margin="0,4"/>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Multi-box: whose sound plays" Foreground="#A0A0A0" FontSize="12"/>
+                            <ComboBox ItemsSource="{Binding Sound.AvailablePolicies}"
+                                      SelectedItem="{Binding Sound.MultiBoxPolicy, Mode=TwoWay}" MinWidth="240" HorizontalAlignment="Left"/>
+                            <TextBlock Text="FocusedWindow: the character in the viewport window you used last (default). PrimaryViewport: the main viewport's character, even while a pop-out has focus."
+                                       Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                            <CheckBox IsChecked="{Binding Sound.NotificationsFromAllCharacters, Mode=TwoWay}"
+                                      Content="Play the tell sound for every logged-in character, not only the one heard"
+                                      FontSize="12" Foreground="#DCDCDC"/>
+                        </StackPanel>
+
+                        <Separator Background="#3E3E42" Margin="0,4"/>
+
+                        <TextBlock Text="Per category" Foreground="#A0A0A0" FontSize="12"/>
+                        <ItemsControl ItemsSource="{Binding Sound.Categories}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SoundCategoryRowViewModel">
+                                    <Grid ColumnDefinitions="300, 90, *" Margin="0,3">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="#DCDCDC" FontSize="12" VerticalAlignment="Center"/>
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}" Content="On" FontSize="12" Foreground="#DCDCDC"/>
+                                        <CheckBox Grid.Column="2" IsChecked="{Binding PlayWhenInactive, Mode=TwoWay}" Content="Also while inactive" FontSize="12" Foreground="#DCDCDC"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
         </TabItem>
     </TabControl>
 

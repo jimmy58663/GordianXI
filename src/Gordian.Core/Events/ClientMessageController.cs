@@ -45,6 +45,9 @@ namespace Gordian.Core.Events
             _pathLoader = pathLoader;
         }
 
+        /// <summary>Resolves the names of the items a message names, instead of <see cref="EventDialogController.NameResolver"/> (tests).</summary>
+        public Func<byte, int, string?>? NameResolver { get; set; }
+
         /// <summary>Subscribes to a session's system messages and emotes.</summary>
         public void Attach(PlayerCommandState commands, WorldState world, LocalPlayerState player, StockUiChat chat, Func<string> playerName)
         {
@@ -70,6 +73,24 @@ namespace Gordian.Core.Events
             }
             var context = new SimpleMessageContext(new[] { unchecked((int)message.Para), unchecked((int)message.Para2) }, _playerName(), string.Empty,
                 EventDialogController.NameResolver);
+            return EventMessageFormatter.FormatLines(decoded, context);
+        }
+
+        /// <summary>
+        /// The lines of system message <paramref name="messageId"/> of the client's own table (ROM/27/76, file id 7031) with
+        /// the given number parameters (and string parameters, e.g. a crafter's name as string 2), as the message
+        /// codes ask for them: items by id, a count of 1 as "a" / "an". Null when the table or the message is not
+        /// available, so the caller can fall back to its own text.
+        /// </summary>
+        public IReadOnlyList<string>? FormatTableMessage(int messageId, IReadOnlyList<int> numbers, IReadOnlyList<string>? strings = null)
+        {
+            var decoded = _tables.SystemMessages?.GetMessage(messageId);
+            if (decoded == null) return null;
+            var context = new SimpleMessageContext(numbers, _playerName(), string.Empty, NameResolver ?? EventDialogController.NameResolver)
+            {
+                Strings = strings,
+                CountOneIsArticle = true,
+            };
             return EventMessageFormatter.FormatLines(decoded, context);
         }
 

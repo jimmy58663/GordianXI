@@ -191,9 +191,11 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// True when the session goes back to the character select screen: a Log Out (state 1) that was not a shutdown
-        /// request. A logout the server forced without a request also returns there.
+        /// request (a logout the server forced without a request also returns there), and a client-side
+        /// <see cref="LogoutState.Timeout"/> (the map server stopped answering, #235): retail then tries to reconnect to
+        /// the lobby, and shuts the game down when that fails (maintainer, 2026-10-07).
         /// </summary>
-        public bool ReturnsToLobby => State == LogoutState.Logout && !IsShutdown;
+        public bool ReturnsToLobby => (State == LogoutState.Logout && !IsShutdown) || State == LogoutState.Timeout;
     }
 
     /// <summary>

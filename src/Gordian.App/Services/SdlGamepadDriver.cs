@@ -73,6 +73,18 @@ namespace Gordian.App.Services
                 // Allow background joystick events so controller inputs work when window is unfocused
                 SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
+                if (OperatingSystem.IsWindows())
+                {
+                    // Several GordianXI processes (multi-box) must all be able to read the pad, each acting on it only
+                    // while one of its own windows has the focus (#150). Raw Input can hand a device's background input
+                    // to a single registered process, and GameInput / Windows.Gaming.Input tie input to the foreground
+                    // process; either fits "only the last launched window gets the pad". Without them SDL reads XInput
+                    // pads through XInput and other pads through DirectInput or HIDAPI, which any process can poll.
+                    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+                    SDL_SetHint(SDL_HINT_JOYSTICK_GAMEINPUT, "0");
+                    SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "0");
+                }
+
                 // Initialize Joystick, Gamepad, and Haptic subsystems (SDL3 returns true on success)
                 if (SDL_Init(SubSystems))
                 {

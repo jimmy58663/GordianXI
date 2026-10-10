@@ -55,7 +55,8 @@ namespace Gordian.App.Services
             _sessionRegistry.SessionUnregistered += OnSessionUnregistered;
 
             _primaryViewModel.TabPoppedOut += OnTabPoppedOut;
-            _primaryViewModel.ViewportWindowRequested += (_, _) => ShowPrimaryWindow();
+            _primaryViewModel.ViewportWindowRequested += OnViewportWindowRequested;
+            _primaryViewModel.PropertyChanged += OnPrimaryViewModelPropertyChanged;
         }
 
         public ViewportViewModel PrimaryViewModel => _primaryViewModel;
@@ -63,17 +64,15 @@ namespace Gordian.App.Services
         public ViewportWindow? PrimaryWindow => _primaryWindow;
 
         /// <summary>
+        /// Which viewport window (primary or popped out) has the focus and which character it shows (#150): the gamepad
+        /// follows it.
+        /// </summary>
+        public InputFocusTracker InputFocus { get; } = new();
+
+        /// <summary>
         /// Checks whether the primary or any secondary popped-out 3D viewport window currently has keyboard/window focus.
         /// </summary>
-        public bool IsAnyViewportActive()
-        {
-            if (_primaryWindow?.IsActive == true) return true;
-            foreach (var window in _secondaryWindows.Values)
-            {
-                if (window.IsActive) return true;
-            }
-            return false;
-        }
+        public bool IsAnyViewportActive() => InputFocus.IsViewportFocused;
 
         public void SetPrimaryViewModel(ViewportViewModel viewModel)
         {
@@ -82,11 +81,51 @@ namespace Gordian.App.Services
             if (_primaryViewModel != null)
             {
                 _primaryViewModel.TabPoppedOut -= OnTabPoppedOut;
+                _primaryViewModel.ViewportWindowRequested -= OnViewportWindowRequested;
+                _primaryViewModel.PropertyChanged -= OnPrimaryViewModelPropertyChanged;
             }
 
             _primaryViewModel = viewModel;
             _primaryViewModel.TabPoppedOut += OnTabPoppedOut;
-            _primaryViewModel.ViewportWindowRequested += (_, _) => ShowPrimaryWindow();
+            _primaryViewModel.ViewportWindowRequested += OnViewportWindowRequested;
+            _primaryViewModel.PropertyChanged += OnPrimaryViewModelPropertyChanged;
+        }
+
+        private void OnViewportWindowRequested(object? sender, EventArgs e) => ShowPrimaryWindow();
+
+        /// <summary>Pop-out windows follow the switcher style chosen in the settings (they show their one character).</summary>
+        private void OnPrimaryViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ViewportViewModel.SelectedTabStyle)) return;
+            foreach (var window in _secondaryWindows.Values)
+            {
+                if (window.DataContext is ViewportViewModel secondary) secondary.SelectedTabStyle = _primaryViewModel.SelectedTabStyle;
+            }
+        }
+
+        /// <summary>Reports a viewport window's focus and the character it shows to <see cref="InputFocus"/> until it closes.</summary>
+        private void TrackFocus(ViewportWindow window, ViewportViewModel viewModel)
+        {
+            void Sync() => InputFocus.SetWindowSession(window, viewModel.Lobby == null ? viewModel.ActiveTab?.Session : null);
+            void OnChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby)) Sync();
+            }
+
+            viewModel.PropertyChanged += OnChanged;
+            window.Activated += (_, _) => InputFocus.Activated(window);
+            window.Deactivated += (_, _) =>
+            {
+                InputFocus.Deactivated(window);
+                // Keys and buttons released while another window has the focus never reach this one: let them go now.
+                viewModel.ReleaseHeldInput();
+            };
+            window.Closed += (_, _) =>
+            {
+                viewModel.PropertyChanged -= OnChanged;
+                InputFocus.Remove(window);
+            };
+            Sync();
         }
 
         /// <summary>
@@ -101,12 +140,14 @@ namespace Gordian.App.Services
                     DataContext = _primaryViewModel
                 };
 
-                _primaryWindow.Closed += (_, _) =>
+                var window = _primaryWindow;
+                window.Closed += (_, _) =>
                 {
-                    _primaryWindow = null;
+                    if (ReferenceEquals(_primaryWindow, window)) _primaryWindow = null;
                 };
+                TrackFocus(window, _primaryViewModel);
 
-                _primaryWindow.Show();
+                window.Show();
             }
             else
             {
@@ -239,8 +280,11 @@ namespace Gordian.App.Services
 
                 var secondaryVm = new ViewportViewModel(enableAutoSave: false)
                 {
+                    IsPrimary = false,
+                    SwitchTarget = _primaryViewModel,
                     SelectedBackend = _primaryViewModel.SelectedBackend,
-                    SelectedDisplayMode = ViewportDisplayMode.Windowed
+                    SelectedDisplayMode = ViewportDisplayMode.Windowed,
+                    SelectedTabStyle = _primaryViewModel.SelectedTabStyle
                 };
 
                 var secondaryTab = secondaryVm.AddSession(tab.Session);
@@ -256,10 +300,15 @@ namespace Gordian.App.Services
                 {
                     _secondaryWindows.TryRemove(tab.SessionId, out _);
                     tab.IsPoppedOut = false;
+                    _primaryViewModel.RefreshPipThumbnails();
                 };
 
                 tab.IsPoppedOut = true;
                 _secondaryWindows[tab.SessionId] = secondaryWindow;
+                TrackFocus(secondaryWindow, secondaryVm);
+                // The primary window moves on to a character that is not popped out, so one character is not drawn
+                // and driven from two windows at once.
+                _primaryViewModel.MoveOffPoppedOutTab();
                 secondaryWindow.Show();
             });
         }
@@ -275,6 +324,8 @@ namespace Gordian.App.Services
             if (_primaryViewModel != null)
             {
                 _primaryViewModel.TabPoppedOut -= OnTabPoppedOut;
+                _primaryViewModel.ViewportWindowRequested -= OnViewportWindowRequested;
+                _primaryViewModel.PropertyChanged -= OnPrimaryViewModelPropertyChanged;
             }
 
             foreach (var kvp in _secondaryWindows)
