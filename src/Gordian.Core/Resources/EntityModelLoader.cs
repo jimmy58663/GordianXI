@@ -54,67 +54,75 @@ namespace Gordian.Core.Resources
 
                 var payload = datBytes.Slice(h.DataOffset, h.DataSizeBytes);
 
-                switch (h.TypeCode)
+                // One malformed section must not drop the whole model (#310): skip it and keep the rest.
+                try
                 {
-                    case DatSectionType.Skeleton:
-                        if (skeleton == null)
-                        {
-                            skeleton = SkeletonDecoder.DecodeSkeleton(payload);
-                        }
-                        break;
-
-                    case DatSectionType.SkeletonMesh:
-                        var mesh = SkeletonMeshDecoder.DecodeMesh(payload, sourceName);
-                        if (mesh != null)
-                        {
-                            mesh.SectionName = h.DatId;
-                            meshes.Add(mesh);
-                        }
-                        break;
-
-                    case DatSectionType.SkeletonAnimation:
-                        var clip = SkeletonAnimationDecoder.DecodeClip(payload, h.DatId);
-                        if (clip != null)
-                        {
-                            animations.Add(clip);
-                        }
-                        break;
-
-                    case DatSectionType.EffectRoutine:
-                        if (MotionRoutineDecoder.Decode(payload, h.DatId) is { } routine)
-                        {
-                            routines.Add(routine);
-                        }
-                        break;
-
-                    case DatSectionType.Texture:
-                        var tex = TextureDecoder.DecodeTexture(payload);
-                        if (tex != null)
-                        {
-                            tex.Source = DecodedTexture.SourceOf(datSource, h.Offset);
-                            if (!textures.ContainsKey(tex.Name))
+                    switch (h.TypeCode)
+                    {
+                        case DatSectionType.Skeleton:
+                            if (skeleton == null)
                             {
-                                textures[tex.Name] = tex;
+                                skeleton = SkeletonDecoder.DecodeSkeleton(payload);
                             }
-                            if (tex.Name.Length > 8)
+                            break;
+
+                        case DatSectionType.SkeletonMesh:
+                            var mesh = SkeletonMeshDecoder.DecodeMesh(payload, sourceName);
+                            if (mesh != null)
                             {
-                                string shortName = tex.Name.Substring(8).Trim();
-                                if (!string.IsNullOrEmpty(shortName) && !textures.ContainsKey(shortName))
+                                mesh.SectionName = h.DatId;
+                                meshes.Add(mesh);
+                            }
+                            break;
+
+                        case DatSectionType.SkeletonAnimation:
+                            var clip = SkeletonAnimationDecoder.DecodeClip(payload, h.DatId);
+                            if (clip != null)
+                            {
+                                animations.Add(clip);
+                            }
+                            break;
+
+                        case DatSectionType.EffectRoutine:
+                            if (MotionRoutineDecoder.Decode(payload, h.DatId) is { } routine)
+                            {
+                                routines.Add(routine);
+                            }
+                            break;
+
+                        case DatSectionType.Texture:
+                            var tex = TextureDecoder.DecodeTexture(payload);
+                            if (tex != null)
+                            {
+                                tex.Source = DecodedTexture.SourceOf(datSource, h.Offset);
+                                if (!textures.ContainsKey(tex.Name))
                                 {
-                                    textures[shortName] = tex;
+                                    textures[tex.Name] = tex;
+                                }
+                                if (tex.Name.Length > 8)
+                                {
+                                    string shortName = tex.Name.Substring(8).Trim();
+                                    if (!string.IsNullOrEmpty(shortName) && !textures.ContainsKey(shortName))
+                                    {
+                                        textures[shortName] = tex;
+                                    }
                                 }
                             }
-                        }
-                        break;
+                            break;
 
-                    case DatSectionType.SoundEffectPointer:
-                        // The routines' sound commands name these (#41); the first of a name wins.
-                        if (Gordian.Core.Audio.SoundEffectPointer.TryDecode(payload, out int soundId) && h.DatId.Length > 0)
-                        {
-                            soundPointers ??= new Dictionary<string, int>(StringComparer.Ordinal);
-                            soundPointers.TryAdd(h.DatId, soundId);
-                        }
-                        break;
+                        case DatSectionType.SoundEffectPointer:
+                            // The routines' sound commands name these (#41); the first of a name wins.
+                            if (Gordian.Core.Audio.SoundEffectPointer.TryDecode(payload, out int soundId) && h.DatId.Length > 0)
+                            {
+                                soundPointers ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                                soundPointers.TryAdd(h.DatId, soundId);
+                            }
+                            break;
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or InvalidOperationException or OverflowException)
+                {
+                    GordianLog.Warning("RES", $"{sourceName}: skipped malformed section '{h.DatId}' (type 0x{(int)h.TypeCode:X2}) at 0x{h.Offset:X}: {ex.GetType().Name}");
                 }
             }
 
