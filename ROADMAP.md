@@ -52,7 +52,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |
-| 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; open: footprints #40; sound controls #265 and combat / action sounds #41 on `audio/265-41-sound-controls-combat-sounds`, awaiting in-game test | [design/audio.md](docs/design/audio.md) |
+| 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; sound controls and combat / action sounds done; open: footprints #40, more combat sounds #328, dual-wield sounds #308 | [design/audio.md](docs/design/audio.md) |
 
 ### 🚀 Post-MVP (Phases 6-10)
 Design intent for each is in [docs/design/post-mvp.md](docs/design/post-mvp.md); issues are opened when a phase starts.
