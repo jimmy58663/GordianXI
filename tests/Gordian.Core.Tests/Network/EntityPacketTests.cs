@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -650,6 +651,32 @@ namespace Gordian.Core.Tests.Network
             var player = Assert.IsType<PlayerEntity>(ent);
             Assert.Equal(NamePlateFlags.Linkshell, player.NamePlate);
             Assert.Equal((0x8F, 0xDF, 0xCF), (player.LsColorR, player.LsColorG, player.LsColorB));
+        }
+
+        [Fact]
+        public void EntityPacketModule_OtherPlayersLinkDeadFlag_ShowsTheRedCircleUntilCleared()
+        {
+            // LandSandBoat sets isLinkDead and resends the player with UPDATE_HP (= the General bit) when the player goes
+            // link dead, and again when traffic resumes (map_session_container.cpp; #235).
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (chunk, enc) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] p = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0, 4), 0x01020304);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4, 2), 0x0123);
+            p[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(28, 4), (1u << 17) | (1u << 18)); // LinkShellFlag | LinkDeadFlag
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p.Length + 4), 1), p);
+
+            Assert.True(world.TryGetByServerId(0x01020304, out var ent));
+            var player = Assert.IsType<PlayerEntity>(ent);
+            Assert.Equal(NamePlateIcon.LinkDead, NamePlateStyle.Icon(player.NamePlate, player.GmLevel));
+
+            p[6] = (byte)EntityUpdateFlags.General;
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(28, 4), 1u << 17); // back: LinkShellFlag only
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p.Length + 4), 2), p);
+            Assert.Equal(NamePlateIcon.Linkshell, NamePlateStyle.Icon(player.NamePlate, player.GmLevel));
         }
 
         [Fact]

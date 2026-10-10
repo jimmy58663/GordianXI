@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Gordian.Core.Resources.Models;
 
@@ -19,9 +20,13 @@ namespace Gordian.Core.Resources.Graphics
     /// loop count (0 = loop until replaced: xi-tools docs/anim/schedule.md <c>maxLoops</c>; seen on the event gestures' last
     /// clips and the PC <c>corp</c>, #193); the reference ends in <c>?</c> where the body-region digit goes.</item>
     /// <item>0x03 / 0x3B (this DAT or the shared <c>ROM/0/0</c>), 0x57 / 0x3C (the actor's own routines) link another
-    /// routine; 0x3B and 0x3C wait for it to end. A link to <c>dada</c> or <c>mdam</c> is the moment the result shows.</item>
+    /// routine; 0x3B and 0x3C wait for it to end. A link to <c>dada</c>, <c>mdam</c> or <c>ldad</c> is the moment the result shows.</item>
     /// <item>0x21 / 0x25 procedural flinch: +0x18 f32 duration in ticks.</item>
     /// <item>0x5A procedural pose flash: +0x0E u16 pose index, +0x14 f32 duration in ticks.</item>
+    /// <item>0x75 show / hide a weapon slot: +0x08 u32 hide, +0x0C u16 slot (0 main, 1 sub, 2 ranged).</item>
+    /// <item>0x76 / 0x77 ranged start / finish (no parameters): the PC <c>calg</c> and <c>shlg</c> run the actor's
+    /// <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c>, NN the ranged weapon's RangeType (xi-tools docs/fx/effect_system.md op list,
+    /// docs/ability/mixer.md "lc&lt;NN&gt; (RangedStart) then ls&lt;NN&gt; (RangedFinish)").</item>
     /// </list>
     /// Format referenced from xi-tools (docs/fx/effect_system.md op table, docs/ability/mixer.md link and lock rules) and
     /// xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/dat.js parseRoutine); the op 0x05 blend and loop
@@ -45,6 +50,14 @@ namespace Gordian.Core.Resources.Graphics
         private const byte OpFlinchTarget = 0x25;
         private const byte OpPoseFlash = 0x5A;
         private const byte OpShowHideWeapon = 0x75;
+        private const byte OpRangedStart = 0x76;
+        private const byte OpRangedFinish = 0x77;
+
+        /// <summary>
+        /// The shared hit routines a link to which marks the moment the result shows: <c>dada</c> (melee), <c>mdam</c>
+        /// (magic) and <c>ldad</c> (ranged: the <c>ls??</c> finishes link it, e.g. <c>ls06</c> at tick 30).
+        /// </summary>
+        private static bool IsHitLink(string reference) => reference is "dada" or "mdam" or "ldad";
 
         /// <summary>
         /// Reads a routine's commands. Returns null when the payload is too short or its command offset is out of range.
@@ -58,6 +71,8 @@ namespace Gordian.Core.Resources.Graphics
             if (commandsOffset < 0 || commandsOffset >= payload.Length) return null;
 
             var commands = new List<MotionRoutineCommand>();
+            var sounds = new List<RoutineSoundCommand>();
+            int choiceGroup = -1, choiceGroups = 0;
             int clock = 0;
             int p = commandsOffset;
             while (p + 8 <= payload.Length)
@@ -70,6 +85,7 @@ namespace Gordian.Core.Resources.Graphics
                 clock += BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 4));
                 int duration = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 6));
                 var command = payload.Slice(p, Math.Min(sizeBytes, payload.Length - p));
+                RoutineSoundCollector.ReadCommand(op, command, start, sounds, ref choiceGroup, ref choiceGroups);
 
                 switch (op)
                 {
@@ -102,6 +118,10 @@ namespace Gordian.Core.Resources.Graphics
                             HideWeapon: BinaryPrimitives.ReadUInt32LittleEndian(command.Slice(0x08)) != 0));
                         break;
 
+                    case OpRangedStart or OpRangedFinish:
+                        commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f, -1, 0));
+                        break;
+
                     case OpPoseFlash when command.Length >= 0x18:
                         commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f,
                             PoseIndex: BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x0E)),
@@ -116,16 +136,20 @@ namespace Gordian.Core.Resources.Graphics
             {
                 Name = name ?? string.Empty,
                 TotalTicks = totalTicks > 0 ? totalTicks : clock,
-                Commands = commands
+                Commands = commands,
+                SoundCommands = sounds
             };
         }
 
         /// <summary>
         /// Flattens every routine in <paramref name="routines"/> that plays a clip, shows a hit or carries a reaction, following
         /// links into the same set (links to routines outside it, such as the shared <c>ROM/0/0</c> ones, are skipped). Clip
-        /// references are kept only when <paramref name="clipExists"/> knows them.
+        /// references are kept only when <paramref name="clipExists"/> knows them. The weapon show / hide routines of
+        /// <c>ROM/0/0</c> (<see cref="SharedWeaponRoutines"/>) are the exception: their changes are taken in. The ranged
+        /// start / finish ops run <c>lc</c> / <c>ls</c> + <paramref name="rangeType"/> (two digits), or nothing when it is negative.
         /// </summary>
-        public static Dictionary<string, MotionRoutine> BuildAll(IReadOnlyDictionary<string, RawMotionRoutine> routines, Func<string, bool> clipExists)
+        public static Dictionary<string, MotionRoutine> BuildAll(IReadOnlyDictionary<string, RawMotionRoutine> routines, Func<string, bool> clipExists,
+            int rangeType = -1)
         {
             ArgumentNullException.ThrowIfNull(routines);
             ArgumentNullException.ThrowIfNull(clipExists);
@@ -133,21 +157,27 @@ namespace Gordian.Core.Resources.Graphics
             var result = new Dictionary<string, MotionRoutine>(StringComparer.Ordinal);
             foreach (var (name, _) in routines)
             {
-                var built = Build(routines, name, clipExists);
+                var built = Build(routines, name, clipExists, rangeType);
                 if (built != null) result[name] = built;
             }
             return result;
         }
 
+        /// <summary>The routine a ranged start (0x76) or finish (0x77) runs for a RangeType: <c>lc06</c> / <c>ls06</c> for a bow.</summary>
+        public static string RangedRoutineName(bool finish, int rangeType) =>
+            rangeType is >= 0 and < 100 ? (finish ? "ls" : "lc") + rangeType.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+
         /// <summary>
         /// Flattens one routine (see <see cref="BuildAll"/>); null when it has no clip, hit or reaction.
         /// </summary>
-        public static MotionRoutine? Build(IReadOnlyDictionary<string, RawMotionRoutine> routines, string name, Func<string, bool> clipExists)
+        public static MotionRoutine? Build(IReadOnlyDictionary<string, RawMotionRoutine> routines, string name, Func<string, bool> clipExists,
+            int rangeType = -1)
         {
             if (!routines.TryGetValue(name, out var root)) return null;
 
             var segments = new List<MotionSegment>();
             var hits = new List<int>();
+            var weaponChanges = new List<WeaponVisibilityChange>();
             int flinchTicks = 0, poseIndex = -1, poseTicks = 0;
             int end = Flatten(root, 0, 0);
 
@@ -177,8 +207,20 @@ namespace Gordian.Core.Resources.Graphics
                             poseTicks = command.ReactionTicks;
                             break;
 
+                        case OpShowHideWeapon:
+                            if (command.WeaponSlot >= 0) weaponChanges.Add(new WeaponVisibilityChange(at, command.WeaponSlot, command.HideWeapon));
+                            break;
+
+                        case OpRangedStart or OpRangedFinish:
+                            string ranged = RangedRoutineName(command.Op == OpRangedFinish, rangeType);
+                            if (ranged.Length > 0 && depth < MaxLinkDepth && routines.TryGetValue(ranged, out var rangedChild))
+                            {
+                                routineEnd = Math.Max(routineEnd, Flatten(rangedChild, at, depth + 1));
+                            }
+                            break;
+
                         default:
-                            if (command.Reference is "dada" or "mdam")
+                            if (IsHitLink(command.Reference))
                             {
                                 hits.Add(at);
                             }
@@ -188,6 +230,10 @@ namespace Gordian.Core.Resources.Graphics
                                 int childEnd = Flatten(child, at, depth + 1);
                                 routineEnd = Math.Max(routineEnd, childEnd);
                                 if (command.Op is OpLinkWait or OpLinkActorWait) shift += child.TotalTicks;
+                            }
+                            else if (SharedWeaponRoutines.ByName.TryGetValue(command.Reference, out var shared))
+                            {
+                                foreach (var (slot, hide) in shared) weaponChanges.Add(new WeaponVisibilityChange(at, slot, hide));
                             }
                             break;
                     }
@@ -207,7 +253,9 @@ namespace Gordian.Core.Resources.Graphics
                 HitTicks = hits,
                 FlinchTicks = flinchTicks,
                 PoseFlashIndex = poseIndex,
-                PoseFlashTicks = poseTicks
+                PoseFlashTicks = poseTicks,
+                // Stable by tick: changes at one tick apply in file order.
+                WeaponChanges = weaponChanges.Count == 0 ? Array.Empty<WeaponVisibilityChange>() : weaponChanges.OrderBy(c => c.Tick).ToArray()
             };
         }
 

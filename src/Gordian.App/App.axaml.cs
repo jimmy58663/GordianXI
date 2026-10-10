@@ -43,6 +43,8 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();
+            // Window focus for the opt-in "play only while active" sound control (#265).
+            Gordian.App.Audio.SoundFocusTracker.Install(desktop);
             desktop.Exit += (_, _) =>
             {
                 _zoneCollision?.Dispose();

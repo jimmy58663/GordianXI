@@ -42,6 +42,9 @@ namespace Gordian.Core.Network
         private readonly TreasurePacketModule _treasureModule;
         private readonly CraftingState _crafting = new();
         private readonly CraftingPacketModule _craftingModule;
+
+        private readonly SchedulerState _scheduler = new();
+        private readonly SchedulerPacketModule _schedulerModule;
         private readonly DeliveryBoxState _delivery = new();
         private readonly BlacklistState _blacklist = new();
         private readonly SocialState _social = new();
@@ -136,6 +139,10 @@ namespace Gordian.Core.Network
 
             _craftingModule = new CraftingPacketModule(_crafting, _sendChunkCallback, LogPacket);
             _craftingModule.Register(_dispatcher);
+
+            _schedulerModule = new SchedulerPacketModule(_scheduler, _world);
+            _schedulerModule.Register(_dispatcher);
+            _world.ZoneChanged += _ => _scheduler.Clear();
 
             _socialModule = new SocialPacketModule(_delivery, _blacklist, _social, _inventory, _sendChunkCallback, LogPacket);
             _socialModule.Register(_dispatcher);
@@ -263,6 +270,9 @@ namespace Gordian.Core.Network
 
         /// <summary>Gets the crafting packet handling module (synthesis and recipe requests).</summary>
         public CraftingPacketModule CraftingModule => _craftingModule;
+
+        /// <summary>Gets the actor and magic schedulers the server asked to play (S2C 0x038, 0x03A); decode only.</summary>
+        public SchedulerState Scheduler => _scheduler;
 
         /// <summary>Gets the delivery box: the incoming and outgoing slots as the server described them (S2C 0x04B).</summary>
         public DeliveryBoxState Delivery => _delivery;

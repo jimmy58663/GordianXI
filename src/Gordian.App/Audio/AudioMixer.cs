@@ -26,17 +26,20 @@ namespace Gordian.App.Audio
     public sealed class AudioMixer
     {
         /// <summary>Number of <see cref="AudioCategory"/> buses.</summary>
-        public const int CategoryCount = 4;
+        public const int CategoryCount = 5;
 
         private const int MaxVoices = 96;
         private const int ScratchFrames = 1024;
 
         private readonly ConcurrentQueue<Action> _commands = new();
         private readonly List<Voice> _voices = new();
-        private readonly float[] _categoryGain = { 1f, 1f, 1f, 1f };
-        private readonly float[] _categoryFade = { 1f, 1f, 1f, 1f };
-        private readonly float[] _categoryFadeTarget = { 1f, 1f, 1f, 1f };
+        private readonly float[] _categoryGain = { 1f, 1f, 1f, 1f, 1f };
+        private readonly float[] _categoryFade = { 1f, 1f, 1f, 1f, 1f };
+        private readonly float[] _categoryFadeTarget = { 1f, 1f, 1f, 1f, 1f };
         private readonly float[] _categoryFadeStep = new float[CategoryCount];
+        private readonly float[] _controlGain = { 1f, 1f, 1f, 1f, 1f };
+        private readonly float[] _controlTarget = { 1f, 1f, 1f, 1f, 1f };
+        private readonly float[] _controlStep = new float[CategoryCount];
         private readonly short[] _scratch = new short[ScratchFrames * 2 + 4];
         private float[] _accumulator = Array.Empty<float>();
         private float _masterGain = 1f;
@@ -205,21 +208,47 @@ namespace Gordian.App.Audio
         /// VM and the server's music volume packet use this, on top of the user's slider.
         /// </summary>
         public void FadeCategory(AudioCategory category, float target, float seconds) =>
-            _commands.Enqueue(() =>
-            {
-                int c = (int)category;
-                target = Math.Clamp(target, 0f, 1f);
-                if (seconds <= 0)
-                {
-                    _categoryFade[c] = target;
-                    _categoryFadeTarget[c] = target;
-                    _categoryFadeStep[c] = 0;
-                    return;
-                }
+            _commands.Enqueue(() => StartFade(_categoryFade, _categoryFadeTarget, _categoryFadeStep, (int)category, target, seconds));
 
-                _categoryFadeTarget[c] = target;
-                _categoryFadeStep[c] = Math.Abs(target - _categoryFade[c]) / (seconds * OutputRate);
-            });
+        /// <summary>
+        /// Eases a category's control gain (0-1) to <paramref name="target"/> over <paramref name="seconds"/>: the GordianXI
+        /// sound controls (#265: master sound off, mute while inactive, per-category switches). It is a third gain of its
+        /// own, so it never disturbs the retail sliders or an event's script fade; it stays 1 unless the user opts in.
+        /// </summary>
+        public void FadeControl(AudioCategory category, float target, float seconds) =>
+            _commands.Enqueue(() => StartFade(_controlGain, _controlTarget, _controlStep, (int)category, target, seconds));
+
+        private void StartFade(float[] value, float[] targets, float[] steps, int c, float target, float seconds)
+        {
+            target = Math.Clamp(target, 0f, 1f);
+            targets[c] = target;
+            if (seconds <= 0)
+            {
+                value[c] = target;
+                steps[c] = 0;
+                return;
+            }
+
+            steps[c] = Math.Abs(target - value[c]) / (seconds * OutputRate);
+        }
+
+        private static void AdvanceFade(float[] value, float[] targets, float[] steps, int c, int frames)
+        {
+            if (steps[c] <= 0)
+            {
+                return;
+            }
+
+            float step = steps[c] * frames;
+            float cur = value[c];
+            float tgt = targets[c];
+            cur = cur < tgt ? Math.Min(tgt, cur + step) : Math.Max(tgt, cur - step);
+            value[c] = cur;
+            if (cur == tgt)
+            {
+                steps[c] = 0;
+            }
+        }
 
         /// <summary>Whether a voice is still playing (as of the last mix).</summary>
         public bool IsPlaying(int handle)
@@ -270,24 +299,13 @@ namespace Gordian.App.Audio
             Span<float> acc = _accumulator.AsSpan(0, frames * 2);
             acc.Clear();
 
-            // Category script fades advance per frame block (fine-grained enough for second-long fades).
+            // Category script and control fades advance per frame block (fine-grained enough for second-long fades).
             Span<float> busGain = stackalloc float[CategoryCount];
             for (int c = 0; c < CategoryCount; c++)
             {
-                if (_categoryFadeStep[c] > 0)
-                {
-                    float step = _categoryFadeStep[c] * frames;
-                    float cur = _categoryFade[c];
-                    float tgt = _categoryFadeTarget[c];
-                    cur = cur < tgt ? Math.Min(tgt, cur + step) : Math.Max(tgt, cur - step);
-                    _categoryFade[c] = cur;
-                    if (cur == tgt)
-                    {
-                        _categoryFadeStep[c] = 0;
-                    }
-                }
-
-                busGain[c] = _categoryGain[c] * _categoryFade[c] * _masterGain;
+                AdvanceFade(_categoryFade, _categoryFadeTarget, _categoryFadeStep, c, frames);
+                AdvanceFade(_controlGain, _controlTarget, _controlStep, c, frames);
+                busGain[c] = _categoryGain[c] * _categoryFade[c] * _controlGain[c] * _masterGain;
             }
 
             for (int i = _voices.Count - 1; i >= 0; i--)

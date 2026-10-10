@@ -48,7 +48,17 @@ namespace Gordian.Core.Ui
         /// <summary>A menu closed ("Close Menu").</summary>
         Close = 15,
 
-        /// <summary>A tell arrived ("Message Arrival").</summary>
+        /// <summary>
+        /// "Message Arrival": PlayOnline's message sound (a friend's message through POL), not the tell sound (the
+        /// maintainer's in-game check, 2026-10-07). Nothing raises it yet.
+        /// </summary>
         MessageArrival = 39,
+
+        /// <summary>
+        /// An incoming tell: <c>se000040</c>, the entry of the client's system sound table (<c>ROM/0/0.DAT</c>
+        /// <c>/syst/soun/0040</c>, after Message Arrival's <c>0039</c>). Confirmed as the retail tell sound by the
+        /// maintainer's retail check, 2026-10-08, comparing it with <c>/playsound 40</c>.
+        /// </summary>
+        TellArrival = 40,
     }
 }

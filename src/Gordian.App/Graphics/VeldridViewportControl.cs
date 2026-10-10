@@ -126,6 +126,11 @@ namespace Gordian.App.Graphics
         public ZoneEnvironmentSettings Environment { get; set; } = ZoneEnvironmentSettings.CreateDay();
         public ZoneTerrainRenderer? TerrainRenderer => _renderer;
 
+        // The free camera's start (display space) and the controller's free camera position at that moment.
+        private bool _freeCamActive;
+        private Vector3 _freeCamStart;
+        private Vector3 _freeCamControllerStart;
+
         private CharacterSession? _activeSession;
         public CharacterSession? ActiveSession
         {
@@ -144,6 +149,7 @@ namespace Gordian.App.Graphics
                     }
 
                     _activeSession = value;
+                    _freeCamActive = false;
                     WorldState = value?.World;
                     // A session still connecting starts black (#36); one already in the world shows at once.
                     _loadingScreen.Reset(black: value != null && value.State != SessionState.ActiveInWorld);
@@ -671,8 +677,24 @@ namespace Gordian.App.Graphics
                     Camera.SetEventView(new Vector3(-shot.Eye.X, -shot.Eye.Y, shot.Eye.Z), new Vector3(-shot.LookAt.X, -shot.LookAt.Y, shot.LookAt.Z),
                         shot.FieldOfView, shot.Roll, aspect);
                 }
+                else if (Camera.Mode == CameraMode.FreeCam && _activeSession?.Locomotion is { } freeLocomotion)
+                {
+                    // The free camera starts where the view was and moves by what the controller's free camera has moved
+                    // since (WASD / left stick, display space); it looks along the controller's yaw and pitch. Before,
+                    // this branch only kept the aspect ratio, so the view froze in free camera mode.
+                    var controllerEye = freeLocomotion.Camera.Position;
+                    if (!_freeCamActive)
+                    {
+                        _freeCamActive = true;
+                        _freeCamStart = Camera.Position;
+                        _freeCamControllerStart = controllerEye;
+                    }
+                    Camera.SetFreeCamPose(_freeCamStart + (controllerEye - _freeCamControllerStart), freeLocomotion.CameraPitch,
+                        freeLocomotion.CameraYaw, aspect);
+                }
                 else if (Camera.Mode != CameraMode.FreeCam)
                 {
+                    _freeCamActive = false;
                     if (displayPlayerPos.HasValue)
                     {
                         Camera.Update(displayPlayerPos.Value, Camera.Pitch, Camera.Yaw, Camera.Distance, aspect, deltaSeconds);
