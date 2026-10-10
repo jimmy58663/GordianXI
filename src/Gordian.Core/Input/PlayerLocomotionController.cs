@@ -821,6 +821,36 @@ namespace Gordian.Core.Input
                 return;
             }
 
+            // Auto-run (retail, the maintainer's check 2026-10-10): the character keeps running the way it faces; left and
+            // right (keys or stick) steer it round in an arc and it carries on the new way; running backwards (the back
+            // key, which InputState handles, or the stick pulled back) ends it.
+            if (_inputState.AutorunActive && leftStick != Vector2.Zero && leftStick.Y < -AutorunCancelStickY && MathF.Abs(leftStick.Y) >= MathF.Abs(leftStick.X))
+            {
+                _inputState.AutorunActive = false;
+            }
+            if (_inputState.AutorunActive)
+            {
+                float steer = 0f;
+                if (_inputState.IsActionHeld(InputAction.TurnRight)) steer += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.TurnLeft)) steer -= 1.0f;
+                steer = Math.Clamp(steer + leftStick.X, -1.0f, 1.0f);
+                if (steer != 0f)
+                {
+                    float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg + steer * _profile.TurnSpeedDegreesPerSec * dt));
+                }
+                localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                FollowHeadingWithCamera(localEnt, dt);
+
+                byte autoSpeed = _inputState.IsWalking ? GetEffectiveWalkSpeed(localEnt) : GetEffectiveRunSpeed(localEnt);
+                localEnt.Speed = autoSpeed;
+                float autoDistance = autoSpeed * 0.1f * dt;
+                var autoFwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                MoveHorizontally(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
+
             // Camera-Relative 3D Locomotion (Standard FFXI Type A)
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CameraRelative)
             {
@@ -1206,6 +1236,9 @@ namespace Gordian.Core.Input
 
         private bool _lockKeyLogged;
 
+        /// <summary>How far back the left stick must be pulled (past the deadzone, mostly backwards) to end auto-run.</summary>
+        public const float AutorunCancelStickY = 0.5f;
+
         private void UpdateLockOnToggle()
         {
             if (_actionService == null) return;
@@ -1225,6 +1258,17 @@ namespace Gordian.Core.Input
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
+
+            // Start (retail): /logout, a toggle (again cancels the 30 s countdown).
+            if (_inputState.WasActionTriggered(InputAction.Logout))
+            {
+                var service = _actionService;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await service.RequestLogoutAsync(shutdown: false).ConfigureAwait(false);
+                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Log Out button: {result.Message}");
+                });
+            }
 
             UpdateTargetCycling();
 

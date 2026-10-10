@@ -766,6 +766,9 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.OpenChat, "Interface", "Focus Chat Prompt");
             AddBindingRow(InputAction.CycleLogWindow, "Interface", "Select Log Window");
             AddBindingRow(InputAction.CycleCharacter, "Interface", "Next Character (multi-box, like Ctrl+Tab)");
+            AddBindingRow(InputAction.Logout, "Interface", "Log Out (/logout)");
+            AddBindingRow(InputAction.MacroPaletteCtrl, "Hotbar", "Macro Palette Ctrl (hold)");
+            AddBindingRow(InputAction.MacroPaletteAlt, "Hotbar", "Macro Palette Alt (hold)");
 
             // Macros
             AddBindingRow(InputAction.MacroCtrl1, "Hotbar", "Palette 1: Slot 1 (Ctrl+1)");

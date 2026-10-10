@@ -36,7 +36,7 @@ namespace Gordian.Core.Input
     /// Retail's PC client has no in-game gamepad editor: the config list's Gamepad entry boots the separate FINAL FANTASY
     /// XI Gamepad Config program (help text 1092 in ROM/165/75), which assigns buttons to functions. The wording of the
     /// retail functions here is the config row table's (ROM/165/74 rows 89-142, the keyboard and gamepad assignment
-    /// names); Lock On, Cycle Target, Reset Camera, Open Chat and Next Character are GordianXI's own.
+    /// names); Lock On, Cycle Target, Reset Camera, Open Chat, the macro palettes, Log Out and Next Character use GordianXI's wording.
     /// </para>
     /// </summary>
     public static class GamepadAssignments
@@ -62,6 +62,9 @@ namespace Gordian.Core.Input
             new GamepadFunction("Reset Camera", -1, InputAction.ResetCamera),
             new GamepadFunction("Zoom In", 137, InputAction.CameraZoomIn),
             new GamepadFunction("Zoom Out", 136, InputAction.CameraZoomOut),
+            new GamepadFunction("Macro Palette (Ctrl)", -1, InputAction.MacroPaletteCtrl),
+            new GamepadFunction("Macro Palette (Alt)", -1, InputAction.MacroPaletteAlt),
+            new GamepadFunction("Log Out", -1, InputAction.Logout),
             new GamepadFunction("Next Character", -1, InputAction.CycleCharacter),
         };
 

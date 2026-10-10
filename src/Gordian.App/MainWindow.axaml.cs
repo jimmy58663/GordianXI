@@ -165,6 +165,8 @@ namespace Gordian.App
             }
         }
 
+        private Gordian.Core.Network.CharacterSession? _lastGamepadTarget;
+
         private void OnInputLoopTick(object? sender, EventArgs e)
         {
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -196,6 +198,14 @@ namespace Gordian.App
             // Polling only occurs if enabled AND (a GordianXI window is active OR AlwaysEnableGamepad is set)
             bool shouldPoll = isGamepadEnabled && (windowFocused || alwaysEnable);
             var padState = shouldPoll ? _gamepadDriver.Poll(0) : GamepadState.Disconnected;
+
+            // A character that takes the pad from another ignores the buttons still held from it until they are let go:
+            // otherwise LB (Next Character) fired again on every character it landed on (round 1, B7).
+            if (!ReferenceEquals(gamepadTarget, _lastGamepadTarget))
+            {
+                gamepadTarget?.InputState.IgnoreHeldGamepadButtons();
+                _lastGamepadTarget = gamepadTarget;
+            }
 
             var activeSessions = SessionRegistry.Default.ActiveSessions;
             foreach (var session in activeSessions)

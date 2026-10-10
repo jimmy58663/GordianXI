@@ -268,6 +268,32 @@ namespace Gordian.Core.Input
             if (!Bindings.ContainsKey(InputAction.CycleCharacter)) Bindings[InputAction.CycleCharacter] = new List<InputChord>();
         }
 
+        /// <summary>
+        /// Gives a profile saved before the round-2 retail layout the retail buttons: LT (was Cycle Target Left) holds the
+        /// Ctrl macro palette, RT (was Cycle Target Right) the Alt palette, and Start (was Open Main Menu) logs out. Only
+        /// buttons still on their old default move; an empty <see cref="InputAction.MacroPaletteCtrl"/> entry marks the
+        /// profile as migrated, so a later choice is kept.
+        /// </summary>
+        public void EnsureGamepadRetailBindings()
+        {
+            if (Bindings.ContainsKey(InputAction.MacroPaletteCtrl)) return;
+            foreach (var (old, button, action) in new[]
+            {
+                (InputAction.TargetPrevious, GamepadButton.LeftTrigger, InputAction.MacroPaletteCtrl),
+                (InputAction.TargetNearest, GamepadButton.RightTrigger, InputAction.MacroPaletteAlt),
+                (InputAction.OpenMenu, GamepadButton.Start, InputAction.Logout),
+            })
+            {
+                var chord = new InputChord(button);
+                if (Bindings.TryGetValue(old, out var chords) && chords.Remove(chord)) Bind(action, chord);
+            }
+            if (!Bindings.ContainsKey(InputAction.MacroPaletteCtrl)) Bindings[InputAction.MacroPaletteCtrl] = new List<InputChord>();
+        }
+
+        /// <summary>Whether an action is a macro palette held with the gamepad's other buttons.</summary>
+        public static bool IsMacroPaletteAction(InputAction action) =>
+            action is InputAction.MacroPaletteCtrl or InputAction.MacroPaletteAlt;
+
         private static void BindMenuNavigationDefaults(InputProfile p)
         {
             p.Bind(InputAction.MenuUp, new InputChord(GordianKey.Up));
@@ -519,10 +545,13 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.LeftThumb));
             p.Bind(InputAction.ResetCamera, new InputChord(GamepadButton.RightThumb));
 
-            p.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.LeftTrigger));
-            p.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.RightTrigger));
+            // Retail (the maintainer's check, 2026-10-10): hold LT / RT for the Ctrl / Alt macro palettes, Start logs out,
+            // the d-pad's left / right cycle targets (TargetCursorLeft/Right below). Before round 2: LT / RT cycled
+            // targets and Start opened the main menu (EnsureGamepadRetailBindings moves saved profiles).
+            p.Bind(InputAction.MacroPaletteCtrl, new InputChord(GamepadButton.LeftTrigger));
+            p.Bind(InputAction.MacroPaletteAlt, new InputChord(GamepadButton.RightTrigger));
 
-            p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.Start));
+            p.Bind(InputAction.Logout, new InputChord(GamepadButton.Start));
             p.Bind(InputAction.OpenChat, new InputChord(GamepadButton.Back));
 
             p.Bind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
@@ -554,6 +583,7 @@ namespace Gordian.Core.Input
             profile.EnsureTargetCursorBindings();
             profile.EnsureLockOnBindings();
             profile.EnsureGamepadShortcutBindings();
+            profile.EnsureGamepadRetailBindings();
             return profile;
         }
 

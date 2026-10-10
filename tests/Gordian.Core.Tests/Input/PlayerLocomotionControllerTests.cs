@@ -155,6 +155,51 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Autorun_RunsTheWayTheCharacterFaces_SteersInArcs_AndKeepsTheNewWay()
+        {
+            // Retail (round 1, B7): left/right during auto-run steer it round, then it carries on the new way.
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+            localEnt.Direction = 0;           // East
+            controller.CameraYaw = 90.0f;     // the camera looking elsewhere does not pull the run round
+            input.AutorunActive = true;
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(0, localEnt.Direction);
+            Assert.InRange(localEnt.Position.X, 2.4f, 2.6f);
+
+            input.SetKeyDown(GordianKey.D);   // steer right for a quarter second: 45 degrees at 180 degrees/s
+            controller.Update(TimeSpan.FromSeconds(0.25));
+            input.SetKeyUp(GordianKey.D);
+            Assert.InRange(localEnt.Direction, (byte)31, (byte)33);
+            Assert.True(input.AutorunActive);
+
+            byte heading = localEnt.Direction;
+            controller.Update(TimeSpan.FromSeconds(0.5)); // released: still running, the new way
+            Assert.Equal(heading, localEnt.Direction);
+            Assert.Equal(50, localEnt.Speed);
+        }
+
+        [Fact]
+        public void Autorun_EndsWhenRunningBackwards_KeyOrStick()
+        {
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+            input.AutorunActive = true;
+            input.SetKeyDown(GordianKey.S);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(input.AutorunActive);
+            input.SetKeyUp(GordianKey.S);
+
+            input.AutorunActive = true;
+            input.SetGamepadState(new GamepadState(true, GamepadButton.None, new Vector2(0.1f, -0.9f), Vector2.Zero, 0f, 0f, 1));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(input.AutorunActive);
+
+            input.AutorunActive = true;       // the stick sideways steers instead
+            input.SetGamepadState(new GamepadState(true, GamepadButton.None, new Vector2(0.9f, 0.1f), Vector2.Zero, 0f, 0f, 2));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(input.AutorunActive);
+        }
+
+        [Fact]
         public void Update_FirstPersonUsesItsOwnMouseInversion_WhenSeparate()
         {
             // #306: the first-person view can have its own camera settings; by default it shares the third-person ones.

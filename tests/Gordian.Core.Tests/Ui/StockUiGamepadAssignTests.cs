@@ -27,7 +27,7 @@ namespace Gordian.Core.Tests.Ui
             Buttons = buttons.ToList(),
         };
 
-        /// <summary>The config list's Gamepad entry (button 13), the list frame (conf11s: fourteen rows, scrolling at the ends) and yes/no.</summary>
+        /// <summary>The config list's Gamepad entry (button 13), the list frame (conf11s: fourteen rows) and yes/no.</summary>
         private static (StockUiMenuController Menus, InputProfileHub Hub) Controller()
         {
             var hub = new InputProfileHub(InputProfile.CreateCompact());
@@ -37,7 +37,8 @@ namespace Gordian.Core.Tests.Ui
                 {
                     Menu(StockUiMenuEntries.ConfigMenu, 384, 48, 112, 218, new[] { Button(13, 16, 198, 88, 13, 13) }),
                     Menu(StockUiConfigPages.GamepadAssignMenu, 16, 48, 366, 248,
-                        Enumerable.Range(1, 14).Select(i => Button(i, 34, (short)(21 + 16 * (i - 1)), 256, i == 1 ? 16 : i - 1, i == 14 ? 26 : i + 1))),
+                        // As the retail DAT authors them: the rows wrap 14 -> 1 (no scroll links).
+                        Enumerable.Range(1, 14).Select(i => Button(i, 34, (short)(21 + 16 * (i - 1)), 256, i == 1 ? 14 : i - 1, i == 14 ? 1 : i + 1))),
                     Menu(StockUiMenuEntries.MessageYesNoMenu, 130, 208, 112, 42, new[] { Button(1, 16, 6, 88, 2, 2), Button(2, 16, 22, 88, 1, 1) }),
                 }),
                 GamepadProfile = () => hub.Profile,
@@ -152,6 +153,19 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("A", list.Rows[0].Value);
             Assert.True(hub.Profile.TryGetAction(new InputChord(GamepadButton.A), out var a));
             Assert.Equal(InputAction.Confirm, a);
+        }
+
+        [Fact]
+        public void ScrollingDown_ReachesTheResetRow()
+        {
+            var (menus, _) = Controller();
+            var list = OpenList(menus);
+            for (int i = 0; i < list.Rows.Count - 1; i++) menus.Move(InputAction.MenuDown);
+            Assert.Equal(list.Rows.Count - 1, list.EntryIndex(list.SelectedButtonId));
+            Assert.Equal(StockUiMenuController.GamepadResetLabel, list.Rows[list.EntryIndex(list.SelectedButtonId)].Text);
+            Assert.Equal(list.Rows.Count - list.VisibleRows, list.FirstRow);
+            menus.Move(InputAction.MenuDown);                    // past the end: back to the top
+            Assert.Equal(0, list.EntryIndex(list.SelectedButtonId));
         }
     }
 }

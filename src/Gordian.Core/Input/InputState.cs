@@ -69,6 +69,18 @@ namespace Gordian.Core.Input
         /// </summary>
         public bool SuppressGamepadActions { get; set; }
 
+        private GamepadButton _padIgnored;
+
+        /// <summary>
+        /// Treats the gamepad buttons held now as already handled until they are let go: called when this character takes
+        /// the pad from another (Next Character, a focus change), so a button still down from the other character, LB
+        /// included, does not act again here (round 1: holding LB cycled through every character).
+        /// </summary>
+        public void IgnoreHeldGamepadButtons()
+        {
+            lock (_lock) _padIgnored = (GamepadButton)uint.MaxValue;
+        }
+
         public GamepadState CurrentGamepad
         {
             get { lock (_lock) return _gamepadState; }
@@ -305,33 +317,40 @@ namespace Gordian.Core.Input
                     }
 
                     padButtons = effectiveButtons;
-                    if (effectiveButtons != GamepadButton.None && !SuppressGamepadActions)
+                    // Buttons held when this character took the pad stay quiet until let go (IgnoreHeldGamepadButtons).
+                    _padIgnored &= effectiveButtons;
+                    GamepadButton acting = effectiveButtons & ~_padIgnored;
+                    if (acting != GamepadButton.None && !SuppressGamepadActions)
                     {
-                        uint btnBits = (uint)effectiveButtons;
+                        Span<InputAction> padActs = stackalloc InputAction[32];
+                        int count = 0;
+                        bool palette = false;
+                        uint btnBits = (uint)acting;
                         for (int i = 0; i < 32; i++)
                         {
                             uint mask = 1u << i;
-                            if ((btnBits & mask) != 0)
+                            if ((btnBits & mask) == 0) continue;
+                            var padBtn = (GamepadButton)mask;
+                            if (profile.TryGetAction(new InputChord(padBtn, _modifiers), menuContext, out var act)
+                                || (_modifiers != InputModifiers.None && profile.TryGetAction(new InputChord(padBtn, InputModifiers.None), menuContext, out act)))
                             {
-                                var padBtn = (GamepadButton)mask;
-                                var chord = new InputChord(padBtn, _modifiers);
-                                if (profile.TryGetAction(chord, menuContext, out var act))
-                                {
-                                    _heldActions.Add(act);
-                                    _gamepadActions.Add(act);
-                                }
-                                else if (_modifiers != InputModifiers.None)
-                                {
-                                    var plainChord = new InputChord(padBtn, InputModifiers.None);
-                                    if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
-                                    {
-                                        _heldActions.Add(plainAct);
-                                        _gamepadActions.Add(plainAct);
-                                    }
-                                }
+                                padActs[count++] = act;
+                                palette |= InputProfile.IsMacroPaletteAction(act);
                             }
                         }
+                        // A held macro palette (retail: hold LT / RT, then a button) takes the pad's other buttons, so
+                        // LT + A does not also confirm. Picking a macro with them is not built yet.
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (palette && !InputProfile.IsMacroPaletteAction(padActs[i])) continue;
+                            _heldActions.Add(padActs[i]);
+                            _gamepadActions.Add(padActs[i]);
+                        }
                     }
+                }
+                else
+                {
+                    _padIgnored = GamepadButton.None;
                 }
 
                 _padButtonsPressed = padButtons & ~_padButtons;

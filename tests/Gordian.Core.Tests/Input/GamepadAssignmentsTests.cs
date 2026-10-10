@@ -16,7 +16,11 @@ namespace Gordian.Core.Tests.Input
         {
             var profile = InputProfile.CreateCompact();
             Assert.Equal("A", GamepadAssignments.Describe(profile, Function(InputAction.Confirm)));
-            Assert.Equal("Start, X", GamepadAssignments.Describe(profile, Function(InputAction.OpenMenu)));
+            Assert.Equal("X", GamepadAssignments.Describe(profile, Function(InputAction.OpenMenu)));
+            Assert.Equal("Start", GamepadAssignments.Describe(profile, Function(InputAction.Logout)));
+            Assert.Equal("LT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteCtrl)));
+            Assert.Equal("RT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteAlt)));
+            Assert.Equal("-", GamepadAssignments.Describe(profile, Function(InputAction.TargetNearest)));
             Assert.Equal("L3", GamepadAssignments.Describe(profile, Function(InputAction.ToggleLockOn)));
             Assert.Equal("RB", GamepadAssignments.Describe(profile, Function(InputAction.ToggleAutorun)));
             Assert.Equal("LB", GamepadAssignments.Describe(profile, Function(InputAction.CycleCharacter)));
@@ -62,9 +66,8 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(InputAction.MenuLeft, inMenu);
             Assert.True(profile.TryGetAction(x, menuContext: false, out var outside));
             Assert.Equal(InputAction.TargetCursorLeft, outside);
-            // Open Main Menu had X (a game function): it gets D-Pad Left; Start stays.
+            // Open Main Menu had X (a game function): it gets D-Pad Left.
             Assert.Contains(new InputChord(GamepadButton.DPadLeft), profile.GetChords(InputAction.OpenMenu));
-            Assert.Contains(new InputChord(GamepadButton.Start), profile.GetChords(InputAction.OpenMenu));
             Assert.DoesNotContain(x, profile.GetChords(InputAction.OpenMenu));
         }
 
@@ -72,11 +75,12 @@ namespace Gordian.Core.Tests.Input
         public void Assign_ReplacesEveryButtonOfTheFunction()
         {
             var profile = InputProfile.CreateCompact();
+            profile.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.Guide)); // two buttons
             GamepadAssignments.Assign(profile, Function(InputAction.OpenMenu), GamepadButton.Back);
 
             Assert.Equal(new[] { GamepadButton.Back }, GamepadAssignments.ButtonsOf(profile, Function(InputAction.OpenMenu)));
-            // Open Chat had Back: it gets Open Main Menu's first button (Start, the lower bit).
-            Assert.Equal(new[] { GamepadButton.Start }, GamepadAssignments.ButtonsOf(profile, Function(InputAction.OpenChat)));
+            // Open Chat had Back: it gets Open Main Menu's first button (Guide, the lower bit).
+            Assert.Equal(new[] { GamepadButton.Guide }, GamepadAssignments.ButtonsOf(profile, Function(InputAction.OpenChat)));
             Assert.Throws<ArgumentException>(() => GamepadAssignments.Assign(profile, Function(InputAction.Confirm), GamepadButton.A | GamepadButton.B));
         }
 
@@ -128,6 +132,26 @@ namespace Gordian.Core.Tests.Input
             var again = InputProfile.FromJson(loaded.SaveToJson());
             Assert.True(again.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var stays));
             Assert.Equal(InputAction.ToggleWalkRun, stays);
+        }
+
+        [Fact]
+        public void SavedProfileFromRound1_GetsTheRetailTriggersAndStart_OnlyWhereTheOldDefaultsStand()
+        {
+            var old = InputProfile.CreateCompact();
+            foreach (var a in new[] { InputAction.MacroPaletteCtrl, InputAction.MacroPaletteAlt, InputAction.Logout }) old.Bindings.Remove(a);
+            old.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.LeftTrigger));
+            old.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.Start));
+            old.Bind(InputAction.Confirm, new InputChord(GamepadButton.RightTrigger)); // the user moved RT
+
+            var loaded = InputProfile.FromJson(old.SaveToJson());
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.LeftTrigger), out var lt));
+            Assert.Equal(InputAction.MacroPaletteCtrl, lt);
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.Start), out var start));
+            Assert.Equal(InputAction.Logout, start);
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.RightTrigger), out var rt));
+            Assert.Equal(InputAction.Confirm, rt);                // left alone
+            Assert.Empty(loaded.GetChords(InputAction.MacroPaletteAlt));
+            Assert.Contains(new InputChord(GordianKey.Tab), loaded.GetChords(InputAction.TargetNearest));
         }
     }
 }

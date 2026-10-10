@@ -1217,11 +1217,13 @@ namespace Gordian.Core.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind == StockUiListKind.FontColors && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
-                        // The Font Colors list's DAT rows wrap (11 down to 1); with more rows than fit (the chat list's
-                        // thirteen) the edge rows scroll it instead, as the other lists do.
+                        // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
+                        // gamepad key-assignment list uses; with more rows than fit (the chat list's thirteen, the
+                        // gamepad list's twenty) the edge rows scroll it instead, as the other lists do. Without this the
+                        // gamepad list's last rows (Reset to Default) could never be reached (round 1, B5).
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
                     else if (link >= 0 && link != button.ButtonId && top.Menu.FindButton(link) != null && IsPopulated(top, link))
