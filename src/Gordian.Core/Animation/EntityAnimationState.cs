@@ -110,18 +110,12 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>
-        /// Weapon placement the current action asks for: true in the hands, false at rest (hip / back), null to follow the
-        /// engaged state. The draw holds the weapon at rest until halfway, the sheathe holds it in the hands until halfway.
+        /// Weapon placement the current action asks for: true in the hands, false where the clip puts it, null to follow
+        /// the engaged state. The draw and sheathe clips carry the weapons themselves (every battle pack's <c>in 0</c> /
+        /// <c>out0</c> keys the weapon joints, moving the grip between its rest mount and the hand), so no grip is
+        /// re-parented while they play (#136).
         /// </summary>
-        public bool? WeaponGripOverride
-        {
-            get
-            {
-                if (ActiveRoutine == null || _weaponMotion == WeaponMotion.None) return null;
-                bool firstHalf = _actionTicks < ActiveRoutine.TotalTicks * 0.5f;
-                return _weaponMotion == WeaponMotion.Draw ? !firstHalf : firstHalf;
-            }
-        }
+        public bool? WeaponGripOverride => ActiveRoutine == null || _weaponMotion == WeaponMotion.None ? null : false;
 
         /// <summary>
         /// Bit mask of the weapon slots not drawn this frame (bit n = the <c>wepN</c> meshes, <see cref="AnimatedMeshGroup.WeaponSlot"/>):
@@ -532,7 +526,9 @@ namespace Gordian.Core.Animation
         private bool TryStartWeaponMotion(EntityModel model, bool drawing, long now)
         {
             if (_queuedActions.Count > 0) return false; // a queued swing takes the weapon out itself
-            string name = drawing ? "out0" : "in 0";
+            // "in" goes into battle, "out" out of it: every pack's in 0 starts at the idle stance and ends at the battle stance
+            // (the weapon from its mount to the hand), out0 the reverse (checked on the retail packs of every race, #136).
+            string name = drawing ? "in 0" : "out0";
             if (!model.MotionRoutines.TryGetValue(name, out var routine) || routine.Segments.Count == 0) return false;
             StartAction(model, null, routine, allowsLocomotion: false, drawing ? WeaponMotion.Draw : WeaponMotion.Sheathe, now);
             return true;
@@ -679,7 +675,7 @@ namespace Gordian.Core.Animation
             switch (request.Motion)
             {
                 case ActionMotion.Swing:
-                    return ResolveSwing(model, "ati", "atf0", "atb0", "atl0", "atr0", isMoving);
+                    return ResolveSwing(model, SwingPrefix(model, request.SubKind), "atf0", "atb0", "atl0", "atr0", isMoving);
 
                 case ActionMotion.Counter:
                     var counter = ResolveSwing(model, "cni", "cnf0", "cnb0", "cnl0", "cnr0", isMoving);
@@ -719,6 +715,24 @@ namespace Gordian.Core.Animation
             }
             bank = null;
             return model.MotionRoutines.TryGetValue(name, out var own) ? own : null;
+        }
+
+        /// <summary>
+        /// The standing swing routines a basic attack result picks from, by its <c>sub_kind</c> (XiPackets world/server/0x0028:
+        /// 0 main hand, 1 off hand, 2 right foot, 3 left foot, 4 throw): <c>ati*</c>, <c>bti*</c>, <c>cti*</c>, <c>dti*</c>,
+        /// the letter counting up from <c>a</c>. Only the hand-to-hand packs carry the others (Hume male <c>ROM/32/15</c>:
+        /// <c>bti0</c> / <c>bti1</c> play <c>at2?</c> / <c>at4?</c>, led by the left hand; <c>cti0</c> plays <c>wa4?</c>, a right
+        /// kick; <c>dti0</c> <c>wa5?</c>, a left kick; measured 2026-10-07, #138); every other pack and sub_kind falls back to
+        /// <c>ati*</c>, so a dual-wield off-hand hit swings like a main-hand one.
+        /// </summary>
+        internal static string SwingPrefix(EntityModel model, ushort subKind)
+        {
+            if (subKind is >= 1 and <= 3)
+            {
+                string prefix = (char)('a' + subKind) + "ti";
+                if (model.MotionRoutines.TryGetValue(prefix + "0", out var routine) && routine.Segments.Count > 0) return prefix;
+            }
+            return "ati";
         }
 
         private (MotionRoutine? Routine, bool AllowsLocomotion) ResolveSwing(EntityModel model, string standingPrefix,

@@ -77,6 +77,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The dead character's home point window ("dead", top-left); its prompts follow it.</summary>
         public const string Death = "dead";
+
+        /// <summary>The player check window ("inspect", top-left); its item and comment windows follow it.</summary>
+        public const string Check = "check";
     }
 
     /// <summary>

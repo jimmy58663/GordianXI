@@ -87,7 +87,9 @@ namespace Gordian.Core.Tests.Network
         [InlineData(LogoutState.Logout, ReqLogoutKind.Shutdown, false)]
         [InlineData(LogoutState.PolExit, null, false)]
         [InlineData(LogoutState.End, ReqLogoutKind.Logout, false)]
-        public void SessionLogout_ReturnsToLobbyOnlyForALogOut(LogoutState state, ReqLogoutKind? requested, bool lobby)
+        [InlineData(LogoutState.Timeout, null, true)]
+        [InlineData(LogoutState.Timeout, ReqLogoutKind.Shutdown, true)]
+        public void SessionLogout_ReturnsToLobbyForALogOutOrATimeout(LogoutState state, ReqLogoutKind? requested, bool lobby)
         {
             var logout = new SessionLogout(state, requested);
             Assert.Equal(lobby, logout.ReturnsToLobby);

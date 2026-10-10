@@ -405,19 +405,21 @@ namespace Gordian.Core.Tests.Animation
         [Fact]
         public void Engaging_DrawsTheWeapon_AndDisengaging_SheathesIt()
         {
-            var model = Model([("otd", 1.2f), ("ind", 1.2f)],
-                ("out0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("otd?", 36, 72, 8, 8, 1))),
-                ("in 0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("ind?", 36, 72, 8, 8, 1))));
+            // "in" goes into battle (idle stance to battle stance), "out" out of it (#136).
+            var model = Model([("ind", 1.2f), ("otd", 1.2f)],
+                ("in 0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("ind?", 36, 72, 8, 8, 1))),
+                ("out0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("otd?", 36, 72, 8, 8, 1))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Idle, 0, model);
             Assert.Null(state.WeaponGripOverride);
 
             state.Advance(Tick, AnimationCategory.Combat, 0, model);
-            Assert.Equal("out0", state.ActiveRoutine!.Name);
-            Assert.False(state.WeaponGripOverride); // still at rest
+            Assert.Equal("in 0", state.ActiveRoutine!.Name);
+            Assert.Equal("ind", state.CurrentClip!.Name);
+            Assert.False(state.WeaponGripOverride); // the clip carries the weapon from its mount to the hand
 
             Run(state, model, AnimationCategory.Combat, 40);
-            Assert.True(state.WeaponGripOverride); // in hand from halfway
+            Assert.False(state.WeaponGripOverride);
 
             Run(state, model, AnimationCategory.Combat, 40);
             Assert.False(state.IsPlayingAction);
@@ -425,10 +427,47 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal("btl", state.CurrentClip!.Name);
 
             state.Advance(Tick, AnimationCategory.Idle, 0, model);
-            Assert.Equal("in 0", state.ActiveRoutine!.Name);
-            Assert.True(state.WeaponGripOverride); // still in hand
+            Assert.Equal("out0", state.ActiveRoutine!.Name);
+            Assert.False(state.WeaponGripOverride);
             Run(state, model, AnimationCategory.Idle, 80);
             Assert.Equal("idl", state.CurrentClip!.Name);
+        }
+
+        /// <summary>
+        /// A basic attack's sub_kind picks the swing family where the pack has one (#138): off hand <c>bti*</c>, right kick
+        /// <c>cti*</c>, left kick <c>dti*</c>; without one, and for the main hand, <c>ati*</c>.
+        /// </summary>
+        [Theory]
+        [InlineData(0, "ati0")]
+        [InlineData(1, "bti0")]
+        [InlineData(2, "cti0")]
+        [InlineData(3, "dti0")]
+        [InlineData(4, "ati0")]
+        public void HandToHandSwing_FollowsSubKind(ushort subKind, string expected)
+        {
+            var model = Model([("at0", 1.6f), ("at2", 0.8f), ("wa4", 1.5f), ("wa5", 1.3f)],
+                Swing("ati0", "at0", 98, 36), Swing("bti0", "at2", 60, 26), Swing("cti0", "wa4", 98, 42), Swing("dti0", "wa5", 80, 24));
+            var state = new EntityAnimationState { RandomIndex = _ => 0 };
+            state.Advance(0f, AnimationCategory.Combat, 0, model);
+
+            state.EnqueueAction(new ActionRequest
+            {
+                Motion = ActionMotion.Swing,
+                SubKind = subKind,
+                Hits = [],
+                ReceivedTimestamp = Stopwatch.GetTimestamp()
+            });
+            state.Advance(Tick, AnimationCategory.Combat, 0, model);
+
+            Assert.Equal(expected, state.ActiveRoutine!.Name);
+        }
+
+        [Fact]
+        public void OffHandSwing_WithoutAnOffHandRoutine_UsesTheMainHandSwings()
+        {
+            var model = Model([("at0", 1.6f)], Swing("ati0", "at0", 98, 36));
+            Assert.Equal("ati", EntityAnimationState.SwingPrefix(model, 1));
+            Assert.Equal("ati", EntityAnimationState.SwingPrefix(model, 2));
         }
 
         [Fact]

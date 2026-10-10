@@ -101,8 +101,24 @@ namespace Gordian.App.ViewModels
                     ? CameraMode.ThirdPersonOrbital
                     : CameraMode.FreeCam;
             });
+
+            CharacterTabs.CollectionChanged += (_, _) =>
+            {
+                RaiseSwitcherVisibility();
+                OnPropertyChanged(nameof(CharacterCountText));
+            };
         }
 
+        /// <summary>
+        /// True for the main viewport window's view model, which decides the registry's primary rendering session; false
+        /// for a popped-out window's, which shows one character and must not take that role from the main window.
+        /// </summary>
+        public bool IsPrimary { get; init; } = true;
+
+        /// <summary>
+        /// The active character's camera mode. Setting it switches that character's camera (the switcher's camera
+        /// button and the free camera banner); <see cref="SyncFromActiveSession"/> follows changes made by key.
+        /// </summary>
         public CameraMode ActiveCameraMode
         {
             get => _activeCameraMode;
@@ -111,9 +127,34 @@ namespace Gordian.App.ViewModels
                 if (SetProperty(ref _activeCameraMode, value))
                 {
                     OnPropertyChanged(nameof(IsFreeCamActive));
+                    if (_activeTab?.Session.Locomotion is { } locomotion && locomotion.CameraMode != value)
+                    {
+                        locomotion.CameraMode = value;
+                    }
                 }
             }
         }
+
+        /// <summary>
+        /// Refreshes what the switchers show from the sessions (names, jobs, vitals, the camera mode); the viewport
+        /// window calls it on its telemetry tick.
+        /// </summary>
+        public void SyncFromActiveSession()
+        {
+            foreach (var tab in CharacterTabs) tab.RefreshDisplay();
+            if (_activeTab?.Session.Locomotion is { } locomotion && locomotion.CameraMode != _activeCameraMode)
+            {
+                _activeCameraMode = locomotion.CameraMode;
+                OnPropertyChanged(nameof(ActiveCameraMode));
+                OnPropertyChanged(nameof(IsFreeCamActive));
+            }
+        }
+
+        /// <summary>
+        /// Lets go of every key and mouse button the active character holds (the window lost the focus, so their
+        /// releases will not arrive).
+        /// </summary>
+        public void ReleaseHeldInput() => _activeTab?.Session.InputState.Reset();
 
         public bool IsFreeCamActive => ActiveCameraMode == CameraMode.FreeCam;
 
@@ -171,6 +212,7 @@ namespace Gordian.App.ViewModels
                     OnPropertyChanged(nameof(IsTopRibbon));
                     OnPropertyChanged(nameof(IsSideRail));
                     OnPropertyChanged(nameof(IsHotkeysOnly));
+                    RaiseSwitcherVisibility();
                     AutoSaveSettings();
                 }
             }
@@ -181,6 +223,32 @@ namespace Gordian.App.ViewModels
         public bool IsSideRail => SelectedTabStyle == ViewportTabStyle.SideRail;
         public bool IsHotkeysOnly => SelectedTabStyle == ViewportTabStyle.HotkeysOnly;
 
+        /// <summary>True while the window shows characters (not a lobby, not black on the way back to one).</summary>
+        private bool ShowsCharacters => CharacterTabs.Count > 0 && _lobby == null && !_isReturningToLobby;
+
+        /// <summary>Whether the floating pill is on screen: the style is chosen and a character is shown.</summary>
+        public bool ShowFloatingPill => IsFloatingPill && ShowsCharacters;
+
+        /// <summary>Whether the side rail is on screen: the style is chosen and a character is shown.</summary>
+        public bool ShowSideRail => IsSideRail && ShowsCharacters;
+
+        /// <summary>
+        /// Whether the top ribbon is on screen: whenever the style is chosen, also over a lobby, since it carries the
+        /// window's display mode, minimise and close buttons.
+        /// </summary>
+        public bool ShowTopRibbon => IsTopRibbon;
+
+        /// <summary>Whether the PiP deck is on screen: enabled and at least one background character to show.</summary>
+        public bool ShowPipDeck => IsPipEnabled && ShowsCharacters && PipThumbnails.Count > 0;
+
+        private void RaiseSwitcherVisibility()
+        {
+            OnPropertyChanged(nameof(ShowFloatingPill));
+            OnPropertyChanged(nameof(ShowSideRail));
+            OnPropertyChanged(nameof(ShowTopRibbon));
+            OnPropertyChanged(nameof(ShowPipDeck));
+        }
+
         public bool IsPipEnabled
         {
             get => _isPipEnabled;
@@ -188,6 +256,7 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _isPipEnabled, value))
                 {
+                    RaiseSwitcherVisibility();
                     AutoSaveSettings();
                 }
             }
@@ -200,6 +269,7 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _maxPipStreams, value))
                 {
+                    RefreshPipThumbnails();
                     AutoSaveSettings();
                 }
             }
@@ -295,7 +365,11 @@ namespace Gordian.App.ViewModels
             get => _lobby;
             set
             {
-                if (SetProperty(ref _lobby, value)) OnPropertyChanged(nameof(IsLobbyOpen));
+                if (SetProperty(ref _lobby, value))
+                {
+                    OnPropertyChanged(nameof(IsLobbyOpen));
+                    RaiseSwitcherVisibility();
+                }
             }
         }
 
@@ -310,7 +384,10 @@ namespace Gordian.App.ViewModels
         public bool IsReturningToLobby
         {
             get => _isReturningToLobby;
-            set => SetProperty(ref _isReturningToLobby, value);
+            set
+            {
+                if (SetProperty(ref _isReturningToLobby, value)) RaiseSwitcherVisibility();
+            }
         }
 
         public ObservableCollection<ViewportCharacterTabViewModel> PipThumbnails { get; } = new();
@@ -320,6 +397,7 @@ namespace Gordian.App.ViewModels
             get => _activeTab;
             set
             {
+                var previous = _activeTab;
                 if (SetProperty(ref _activeTab, value))
                 {
                     foreach (var tab in CharacterTabs)
@@ -327,9 +405,23 @@ namespace Gordian.App.ViewModels
                         tab.IsActive = (tab == value);
                     }
 
-                    if (value != null)
+                    // Keys held for the character switched away from (Ctrl of Ctrl+Tab, a movement key) would be
+                    // released into the new one; let them go so the old character does not keep running.
+                    if (previous != null && (value == null || previous.Session != value.Session))
+                    {
+                        previous.Session.InputState.Reset();
+                    }
+
+                    if (value != null && IsPrimary)
                     {
                         SessionRegistry.Default.SetPrimaryRenderingSession(value.Session);
+                    }
+
+                    if (value?.Session.Locomotion is { } locomotion && locomotion.CameraMode != _activeCameraMode)
+                    {
+                        _activeCameraMode = locomotion.CameraMode;
+                        OnPropertyChanged(nameof(ActiveCameraMode));
+                        OnPropertyChanged(nameof(IsFreeCamActive));
                     }
 
                     RefreshPipThumbnails();
@@ -337,13 +429,18 @@ namespace Gordian.App.ViewModels
             }
         }
 
-        private void RefreshPipThumbnails()
+        /// <summary>
+        /// The background characters shown as PiP thumbnails: every tab but the active one and those popped out into
+        /// their own window, up to <see cref="MaxPipStreams"/>.
+        /// </summary>
+        public void RefreshPipThumbnails()
         {
             PipThumbnails.Clear();
-            foreach (var tab in CharacterTabs.Where(t => t != ActiveTab).Take(MaxPipStreams))
+            foreach (var tab in CharacterTabs.Where(t => t != ActiveTab && !t.IsPoppedOut).Take(MaxPipStreams))
             {
                 PipThumbnails.Add(tab);
             }
+            OnPropertyChanged(nameof(ShowPipDeck));
         }
 
         public ViewportCharacterTabViewModel AddSession(CharacterSession session)
@@ -359,7 +456,7 @@ namespace Gordian.App.ViewModels
 
             var newTab = new ViewportCharacterTabViewModel(
                 session,
-                onSelect: tab => ActiveTab = tab,
+                onSelect: SelectTab,
                 onPopOut: tab => TabPoppedOut?.Invoke(this, tab)
             );
 
@@ -389,7 +486,7 @@ namespace Gordian.App.ViewModels
 
                 if (wasActive)
                 {
-                    ActiveTab = CharacterTabs.FirstOrDefault();
+                    ActiveTab = CharacterTabs.FirstOrDefault(t => !t.IsPoppedOut) ?? CharacterTabs.FirstOrDefault();
                 }
                 else
                 {
@@ -398,22 +495,86 @@ namespace Gordian.App.ViewModels
             }
         }
 
-        public void CycleNextCharacter()
-        {
-            if (CharacterTabs.Count <= 1 || ActiveTab == null) return;
+        /// <summary>
+        /// For a pop-out window's view model: the main window's view model, whose tab order Ctrl+Tab follows from the
+        /// pop-out (so it can move on to the main window or another pop-out). Null for the main window.
+        /// </summary>
+        public ViewportViewModel? SwitchTarget { get; set; }
 
-            int idx = CharacterTabs.IndexOf(ActiveTab);
-            int nextIdx = (idx + 1) % CharacterTabs.Count;
-            ActiveTab = CharacterTabs[nextIdx];
+        /// <summary>
+        /// Raised when a switcher click or Ctrl+Tab chose this window's character, so the window takes the focus (the
+        /// switchers are popups that never activate it, and the gamepad follows the focused window).
+        /// </summary>
+        public event EventHandler? WindowActivationRequested;
+
+        /// <summary>
+        /// Chooses a character from a switcher or Ctrl+Tab: one popped out into its own window brings that window to the
+        /// front (<see cref="TabPoppedOut"/>, which the window manager answers by activating it); any other becomes the
+        /// active character here and this window takes the focus.
+        /// </summary>
+        public void SelectTab(ViewportCharacterTabViewModel tab)
+        {
+            ArgumentNullException.ThrowIfNull(tab);
+            if (tab.IsPoppedOut)
+            {
+                TabPoppedOut?.Invoke(this, tab);
+                return;
+            }
+            ActiveTab = tab;
+            WindowActivationRequested?.Invoke(this, EventArgs.Empty);
+            ViewportWindowRequested?.Invoke(this, EventArgs.Empty);
         }
 
-        public void CyclePreviousCharacter()
-        {
-            if (CharacterTabs.Count <= 1 || ActiveTab == null) return;
+        /// <summary>Ctrl+Tab: the next character in tab order, popped-out ones included (their window is focused).</summary>
+        public ViewportCharacterTabViewModel? CycleNextCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, +1);
 
-            int idx = CharacterTabs.IndexOf(ActiveTab);
-            int prevIdx = (idx - 1 + CharacterTabs.Count) % CharacterTabs.Count;
-            ActiveTab = CharacterTabs[prevIdx];
+        /// <summary>Ctrl+Shift+Tab: the previous character in tab order, popped-out ones included.</summary>
+        public ViewportCharacterTabViewModel? CyclePreviousCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, -1);
+
+        /// <summary>
+        /// Chooses the character <paramref name="step"/> tabs on from <paramref name="from"/> (the active tab when it is
+        /// not one of ours), wrapping, with <see cref="SelectTab"/>.
+        /// </summary>
+        public ViewportCharacterTabViewModel? CycleFrom(CharacterSession? from, int step)
+        {
+            int count = CharacterTabs.Count;
+            if (count == 0) return null;
+            int start = -1;
+            for (int i = 0; i < count && from != null; i++)
+            {
+                if (ReferenceEquals(CharacterTabs[i].Session, from)) start = i;
+            }
+            if (start < 0) start = ActiveTab != null ? CharacterTabs.IndexOf(ActiveTab) : 0;
+            if (count == 1 && ReferenceEquals(CharacterTabs[0].Session, from)) return null;
+
+            var next = CharacterTabs[((start + step) % count + count) % count];
+            SelectTab(next);
+            return next;
         }
+
+        /// <summary>
+        /// After the active tab was popped out into its own window, shows the next character that is not popped out
+        /// (the popped-out one stays when every character is popped out).
+        /// </summary>
+        public void MoveOffPoppedOutTab()
+        {
+            if (ActiveTab is { IsPoppedOut: true })
+            {
+                int at = CharacterTabs.IndexOf(ActiveTab);
+                for (int i = 1; i < CharacterTabs.Count; i++)
+                {
+                    var candidate = CharacterTabs[(at + i) % CharacterTabs.Count];
+                    if (!candidate.IsPoppedOut)
+                    {
+                        ActiveTab = candidate;
+                        break;
+                    }
+                }
+            }
+            RefreshPipThumbnails();
+        }
+
+        /// <summary>The collapsed floating pill's hint: how many characters the switcher holds.</summary>
+        public string CharacterCountText => CharacterTabs.Count == 1 ? "1 char" : $"{CharacterTabs.Count} chars";
     }
 }

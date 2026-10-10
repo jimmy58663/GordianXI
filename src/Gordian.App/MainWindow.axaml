@@ -1814,7 +1814,7 @@
                                     <ComboBox ItemsSource="{Binding Viewport.AvailableTabStyles}"
                                               SelectedItem="{Binding Viewport.SelectedTabStyle, Mode=TwoWay}"
                                               HorizontalAlignment="Stretch"/>
-                                    <TextBlock Text="FloatingPill (Default), TopRibbon, SideRail (Party Deck), or HotkeysOnly."
+                                    <TextBlock Text="FloatingPill (default: a pill over the top of the view), TopRibbon (a tab strip above the view), SideRail (a party deck left of the view, with HP), or HotkeysOnly (no switcher; Ctrl+Tab / Ctrl+Shift+Tab)."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
@@ -1824,9 +1824,14 @@
                                     <CheckBox IsChecked="{Binding Viewport.IsPipEnabled, Mode=TwoWay}"
                                               Content="Enable Picture-in-Picture (up to 5 alts in corner)"
                                               FontSize="12" Foreground="#DCDCDC"/>
-                                    <TextBlock Text="Renders real-time thumbnails for up to 5 background characters with 1-click ⇄ viewport swapping."
+                                    <TextBlock Text="Cards for up to 5 background characters (job and HP) with 1-click ⇄ swapping into the main view. Live scene thumbnails are not rendered yet."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
+
+                                <Button Content="Open Viewport Window"
+                                        Command="{Binding Viewport.LaunchViewportCommand}"
+                                        ToolTip.Tip="Opens (or brings to the front) the main 3D viewport window, e.g. after closing it while characters are still logged in."
+                                        HorizontalAlignment="Left" FontSize="12" Padding="10,4"/>
 
                                 <Separator Background="#3E3E42" Margin="0,4"/>
 
@@ -1834,7 +1839,7 @@
                                 <Border Background="#1C1E24" CornerRadius="4" Padding="12" BorderBrush="#2C313C" BorderThickness="1">
                                     <StackPanel Spacing="6">
                                         <TextBlock Text="💡 Multi-Monitor Multi-Boxing" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
-                                        <TextBlock Text="When multiple characters connect, you can switch between them using Ctrl+Tab or by clicking the auto-hiding top ribbon in the Viewport window. To move a character to another monitor, click the ⧉ (Tear Off) icon on their tab."
+                                        <TextBlock Text="When multiple characters connect, switch between them with Ctrl+Tab / Ctrl+Shift+Tab or the tab switcher in the Viewport window. To move a character to another monitor, click the ⧉ (Tear Off) icon on their tab. The gamepad drives the character in the focused window."
                                                    Foreground="#9DA3B4" FontSize="11" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
