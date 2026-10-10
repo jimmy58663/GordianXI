@@ -141,8 +141,11 @@ namespace Gordian.Core.World
         public ushort[] StatusIconIds { get; } = CreateEmptyIconSlots();
 
         /// <summary>
-        /// End timestamps of <see cref="StatusIconIds"/> (S2C 0x063 type 0x09): the server's Vana'diel time in 1/60 s
-        /// ticks, overflowing a u32 on purpose; 0x7FFFFFFF means no timer.
+        /// End timestamps of <see cref="StatusIconIds"/> (S2C 0x063 type 0x09): Earth seconds since the Vana'diel epoch
+        /// on the server's clock, times 60, overflowing a u32 on purpose; 0x7FFFFFFF means no timer. LandSandBoat writes
+        /// (seconds left + <c>earth_time::vanadiel_timestamp()</c>) * 60 (<c>0x063_miscdata_status_icons.cpp</c>), and its
+        /// <c>vanadiel_timestamp</c> counts Earth seconds since the epoch (<c>common/earth_time.h</c>), the same timebase as
+        /// <see cref="VanaClock.GetEarthSecondsSinceEpoch"/>.
         /// </summary>
         public uint[] StatusIconTimestamps { get; } = CreateNoTimerSlots();
 
@@ -176,22 +179,47 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
-        /// Seconds of Vana'diel time left on a status icon slot, or null when the slot is empty or has no timer.
-        /// Handles the timestamp overflowing a u32 (the difference is taken modulo 2^32).
+        /// Earth seconds left on a status icon slot, or null when the slot is empty or has no timer. Handles the
+        /// timestamp overflowing a u32 (the difference is taken modulo 2^32); an expired timer reads negative.
         /// </summary>
         /// <param name="slot">Slot 0-31.</param>
-        /// <param name="nowVanadielSeconds">Current Vana'diel time in seconds, see <see cref="VanaTime.GetVanadielSeconds"/>.</param>
-        public double? GetStatusIconRemainingSeconds(int slot, long nowVanadielSeconds)
+        /// <param name="nowEarthSecondsSinceEpoch">Now as Earth seconds since the Vana'diel epoch on the server's clock,
+        /// see <see cref="VanaClock.GetEarthSecondsSinceEpoch"/>.</param>
+        public double? GetStatusIconRemainingSeconds(int slot, double nowEarthSecondsSinceEpoch)
         {
             if ((uint)slot >= S2C_0x063_MiscData.StatusIconCount) return null;
             lock (_lock)
             {
                 if (StatusIconIds[slot] == S2C_0x063_MiscData.EmptyIcon) return null;
-                uint end = StatusIconTimestamps[slot];
-                if (end == S2C_0x063_MiscData.NoTimer) return null;
-                uint remainingTicks = unchecked(end - (uint)(nowVanadielSeconds * 60));
-                return (int)remainingTicks / 60.0;
+                return RemainingSeconds(StatusIconTimestamps[slot], nowEarthSecondsSinceEpoch);
             }
+        }
+
+        /// <summary>
+        /// The status icons of S2C 0x063 type 0x09 in slot order with the Earth seconds each has left (null: no timer), as
+        /// of <paramref name="nowEarthSecondsSinceEpoch"/>. Empty slots are left out.
+        /// </summary>
+        public List<(ushort Id, double? RemainingSeconds)> GetStatusIconTimers(double nowEarthSecondsSinceEpoch)
+        {
+            var timers = new List<(ushort, double?)>(8);
+            lock (_lock)
+            {
+                for (int i = 0; i < StatusIconIds.Length; i++)
+                {
+                    if (StatusIconIds[i] == S2C_0x063_MiscData.EmptyIcon) continue;
+                    timers.Add((StatusIconIds[i], RemainingSeconds(StatusIconTimestamps[i], nowEarthSecondsSinceEpoch)));
+                }
+            }
+            return timers;
+        }
+
+        private static double? RemainingSeconds(uint end, double nowEarthSecondsSinceEpoch)
+        {
+            if (end == S2C_0x063_MiscData.NoTimer) return null;
+            double nowTicks = nowEarthSecondsSinceEpoch * 60;
+            uint whole = unchecked((uint)(long)Math.Floor(nowTicks));
+            int remainingTicks = unchecked((int)(end - whole));
+            return (remainingTicks - (nowTicks - Math.Floor(nowTicks))) / 60.0;
         }
 
         private static byte[] CreateEmptyBuffSlots()
