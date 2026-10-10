@@ -16,7 +16,8 @@ namespace Gordian.Core.Ui
     /// One client-drawn row of a list page (the Chat Filters list): its hit button, text and whether it is marked
     /// (a filter that is ON, drawn with the "ON" ball instead of "OFF").
     /// </summary>
-    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null);
+    /// <param name="Value">Client text drawn at the row's right (the gamepad key-assignment list's buttons); null for none.</param>
+    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null);
 
     /// <summary>
     /// The client-drawn list pages: rows over the DAT's invisible row buttons. The Chat Filters, Log and Effects lists draw
@@ -31,6 +32,11 @@ namespace Gordian.Core.Ui
         LogRouting,
         /// <summary>The Effects page (<c>fxfilter</c>): ON = the effect is filtered out.</summary>
         Effects,
+        /// <summary>
+        /// The gamepad key-assignment list (#21, GordianXI's stand-in for retail's external Gamepad Config program): each
+        /// row a function and its buttons; Confirm waits for the button to assign.
+        /// </summary>
+        GamepadAssign,
     }
 
     /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
@@ -59,7 +65,7 @@ namespace Gordian.Core.Ui
         private HashSet<int>? _greyed;
 
         internal StockUiOpenMenu(UiMenuDefinition menu, StockUiOpenMenu? parent, IReadOnlyList<string> pageRing, string? message,
-            int visibleRows = 0)
+            int visibleRows = 0, StockUiListKind? listKind = null)
         {
             Menu = menu;
             Parent = parent;
@@ -67,7 +73,7 @@ namespace Gordian.Core.Ui
             Message = message;
             StockUiConfigPages.TryGet(menu.Name, out var page);
             ConfigPage = page;
-            ListKind = StockUiConfigPages.ListKindOf(menu.Name);
+            ListKind = listKind ?? StockUiConfigPages.ListKindOf(menu.Name);
             VisibleRows = ListKind != StockUiListKind.None ? StockUiConfigPages.VisibleRowsOf(ListKind) : visibleRows;
         }
 
@@ -986,6 +992,10 @@ namespace Gordian.Core.Ui
                 menu.LogRows = entries;
                 menu.Rows = rows;
             }
+            else if (menu.ListKind == StockUiListKind.GamepadAssign)
+            {
+                RefreshGamepadAssign(menu);
+            }
             else if (menu.ListKind == StockUiListKind.Effects)
             {
                 uint filtered = (uint)_settings.GetValue(StockUiSettingKey.EffectFilters);
@@ -1085,6 +1095,7 @@ namespace Gordian.Core.Ui
         /// </summary>
         public bool ProcessInput(InputState input, TimeSpan elapsed)
         {
+            if (ProcessGamepadCapture(input, elapsed)) return true;
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1515,6 +1526,12 @@ namespace Gordian.Core.Ui
                 return;
             }
 
+            if (top.ListKind == StockUiListKind.GamepadAssign)
+            {
+                ActivateGamepadAssign(top, button.ButtonId);
+                return;
+            }
+
             if (top.ListKind == StockUiListKind.Effects)
             {
                 int index = top.EntryIndex(button.ButtonId);
@@ -1754,6 +1771,12 @@ namespace Gordian.Core.Ui
                     bool opened;
                     lock (_sync) opened = OpenShopList(entry.Command == StockUiMenuCommand.ShopBuy ? StockUiShopSide.Buy : StockUiShopSide.Sell, from) != null;
                     if (opened) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.GamepadAssign:
+                    bool assignOpened;
+                    lock (_sync) assignOpened = OpenGamepadAssignList(from) != null;
+                    if (assignOpened) Changed?.Invoke();
                     break;
 
                 case StockUiMenuCommand.TreasurePool:

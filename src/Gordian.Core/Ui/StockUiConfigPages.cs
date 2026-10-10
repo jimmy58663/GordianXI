@@ -201,6 +201,16 @@ namespace Gordian.Core.Ui
         public const string EffectsPage = "fxfilter";
         public const int EffectRows = 14;
 
+        /// <summary>
+        /// The gamepad key-assignment list (#21) uses the Log list's frame (<c>conf11s</c>: 16,48, 366 x 248, fourteen
+        /// invisible 256 x 16 rows, no title baked into the art). Retail has no in-game window for it: its Gamepad entry
+        /// boots the external Gamepad Config program (help 1092). The keyboard's own assignment windows, <c>k1assign</c>
+        /// ("Key Assignment (Movement/Camera/Cursor, etc.)", help 277) and <c>k2assign</c> ("Key Assignment (Shortcut
+        /// Commands)", help 278), belong to Misc. 2's Key Assignment row and bake their titles in.
+        /// </summary>
+        public const string GamepadAssignMenu = LogListMenu;
+        public const int GamepadAssignRows = 14;
+
         /// <summary>Which client-drawn list a DAT menu is.</summary>
         public static StockUiListKind ListKindOf(string menuName)
         {
@@ -218,6 +228,7 @@ namespace Gordian.Core.Ui
             StockUiListKind.FontColors => FontColorListRows,
             StockUiListKind.LogRouting => LogListRows,
             StockUiListKind.Effects => EffectRows,
+            StockUiListKind.GamepadAssign => GamepadAssignRows,
             _ => 0,
         };
 

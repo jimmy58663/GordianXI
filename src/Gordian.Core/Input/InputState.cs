@@ -43,6 +43,32 @@ namespace Gordian.Core.Input
         /// </summary>
         public bool MenuContext { get; set; }
 
+        private GamepadButton _padButtons;
+        private GamepadButton _padButtonsPressed;
+
+        /// <summary>
+        /// The gamepad buttons (the triggers past their threshold included) that went down on the last
+        /// <see cref="Update"/>, whatever they are bound to: the gamepad key-assignment list reads the button to assign
+        /// from this (#21).
+        /// </summary>
+        public GamepadButton GamepadButtonsPressed
+        {
+            get { lock (_lock) return _padButtonsPressed; }
+        }
+
+        /// <summary>The gamepad buttons (triggers past their threshold included) held on the last <see cref="Update"/>.</summary>
+        public GamepadButton GamepadButtonsHeld
+        {
+            get { lock (_lock) return _padButtons; }
+        }
+
+        /// <summary>
+        /// True while the gamepad key-assignment list waits for a button (and until the pressed button is let go): the
+        /// gamepad's buttons then drive no action, so the button being assigned does not also act (#21). Set by the
+        /// locomotion controller before each <see cref="Update"/>.
+        /// </summary>
+        public bool SuppressGamepadActions { get; set; }
+
         public GamepadState CurrentGamepad
         {
             get { lock (_lock) return _gamepadState; }
@@ -264,6 +290,7 @@ namespace Gordian.Core.Input
                 }
 
                 // 3. Evaluate Gamepad buttons & triggers
+                GamepadButton padButtons = GamepadButton.None;
                 if (_gamepadState.IsConnected)
                 {
                     GamepadButton effectiveButtons = _gamepadState.Buttons;
@@ -277,7 +304,8 @@ namespace Gordian.Core.Input
                         effectiveButtons |= GamepadButton.RightTrigger;
                     }
 
-                    if (effectiveButtons != GamepadButton.None)
+                    padButtons = effectiveButtons;
+                    if (effectiveButtons != GamepadButton.None && !SuppressGamepadActions)
                     {
                         uint btnBits = (uint)effectiveButtons;
                         for (int i = 0; i < 32; i++)
@@ -305,6 +333,9 @@ namespace Gordian.Core.Input
                         }
                     }
                 }
+
+                _padButtonsPressed = padButtons & ~_padButtons;
+                _padButtons = padButtons;
 
                 // 4. Compute Triggered (just pressed this frame) and Released
                 foreach (var a in _heldActions)

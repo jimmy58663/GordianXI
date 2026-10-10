@@ -155,6 +155,32 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
+        public void Update_FirstPersonUsesItsOwnMouseInversion_WhenSeparate()
+        {
+            // #306: the first-person view can have its own camera settings; by default it shares the third-person ones.
+            var (controller, input, world, player, localEnt) = CreateTestHarness();
+            controller.Profile.InvertMouseY = true;
+            controller.CameraMode = CameraMode.FirstPerson;
+
+            controller.CameraPitch = 15.0f;
+            input.AddMouseDelta(0f, -50.0f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(controller.CameraPitch > 15.0f); // shared: inverted in first person too
+
+            controller.Profile.SeparateFirstPersonMouse = true; // first person: not inverted
+            controller.CameraPitch = 15.0f;
+            input.AddMouseDelta(0f, -50.0f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(controller.CameraPitch < 15.0f);
+
+            controller.CameraMode = CameraMode.ThirdPersonOrbital; // third person keeps its inversion
+            controller.CameraPitch = 15.0f;
+            input.AddMouseDelta(0f, -50.0f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(controller.CameraPitch > 15.0f);
+        }
+
+        [Fact]
         public void Update_MouseWheel_ZoomsCameraDistance()
         {
             // Regression guard: the rendering viewport's own OnPointerWheelChanged override never

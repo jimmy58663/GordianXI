@@ -53,6 +53,31 @@ namespace Gordian.Core.Input
         [JsonPropertyName("mouseWheelZoomStep")]
         public float MouseWheelZoomStep { get; set; } = 1.0f;
 
+        /// <summary>
+        /// When on, the first-person view uses its own mouse sensitivity and inversion below (#306); off (the default),
+        /// first person uses the same values as third person, as before. Retail's Mouse/Cam. config page has separate
+        /// first- and third-person axis rows; choosing a first-person row there turns this on for the session.
+        /// </summary>
+        [JsonPropertyName("separateFirstPersonMouse")]
+        public bool SeparateFirstPersonMouse { get; set; } = false;
+
+        [JsonPropertyName("firstPersonMouseSensitivityX")]
+        public float FirstPersonMouseSensitivityX { get; set; } = 1.0f;
+
+        [JsonPropertyName("firstPersonMouseSensitivityY")]
+        public float FirstPersonMouseSensitivityY { get; set; } = 1.0f;
+
+        [JsonPropertyName("firstPersonInvertMouseX")]
+        public bool FirstPersonInvertMouseX { get; set; } = false;
+
+        [JsonPropertyName("firstPersonInvertMouseY")]
+        public bool FirstPersonInvertMouseY { get; set; } = false;
+
+        /// <summary>The mouse camera settings for the view: the first-person set when it is separate, else the shared one.</summary>
+        public CameraAxisSettings MouseCamera(bool firstPerson) => firstPerson && SeparateFirstPersonMouse
+            ? new CameraAxisSettings(FirstPersonMouseSensitivityX, FirstPersonMouseSensitivityY, FirstPersonInvertMouseX, FirstPersonInvertMouseY)
+            : new CameraAxisSettings(MouseSensitivityX, MouseSensitivityY, InvertMouseX, InvertMouseY);
+
         // Locomotion Settings
         [JsonPropertyName("walkSpeed")]
         public byte WalkSpeed { get; set; } = 25; // 2.5 yalms/sec
@@ -221,6 +246,28 @@ namespace Gordian.Core.Input
             }
         }
 
+        /// <summary>
+        /// Gives a profile saved before #326 the new gamepad shortcuts: L3 (was Toggle Walk/Run) toggles lock-on, R1 (was
+        /// macro Alt+1) toggles auto-run and L1 (was macro Ctrl+1) cycles the character in the primary view. Only buttons
+        /// still on their old default move; a profile that already has a <see cref="InputAction.CycleCharacter"/>
+        /// binding (or chose to have none, which saves an empty list) is left alone.
+        /// </summary>
+        public void EnsureGamepadShortcutBindings()
+        {
+            if (Bindings.ContainsKey(InputAction.CycleCharacter)) return;
+            foreach (var (old, button, action) in new[]
+            {
+                (InputAction.ToggleWalkRun, GamepadButton.LeftThumb, InputAction.ToggleLockOn),
+                (InputAction.MacroAlt1, GamepadButton.RightShoulder, InputAction.ToggleAutorun),
+                (InputAction.MacroCtrl1, GamepadButton.LeftShoulder, InputAction.CycleCharacter),
+            })
+            {
+                var chord = new InputChord(button);
+                if (Bindings.TryGetValue(old, out var chords) && chords.Remove(chord)) Bind(action, chord);
+            }
+            if (!Bindings.ContainsKey(InputAction.CycleCharacter)) Bindings[InputAction.CycleCharacter] = new List<InputChord>();
+        }
+
         private static void BindMenuNavigationDefaults(InputProfile p)
         {
             p.Bind(InputAction.MenuUp, new InputChord(GordianKey.Up));
@@ -290,28 +337,14 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
-        /// Deep clones this input profile.
+        /// Deep clones this input profile: every binding and setting, the gamepad settings included (a JSON round trip, so
+        /// settings added later are never left out). Each multi-boxed character runs on its own copy of the user's
+        /// profile (#314): the session applies its server-stored config choices to its copy only.
         /// </summary>
         public InputProfile Clone()
         {
-            var clone = new InputProfile(Name, Description)
-            {
-                Version = Version,
-                MouseSensitivityX = MouseSensitivityX,
-                MouseSensitivityY = MouseSensitivityY,
-                InvertMouseY = InvertMouseY,
-                MouseWheelZoomStep = MouseWheelZoomStep,
-                WalkSpeed = WalkSpeed,
-                RunSpeed = RunSpeed,
-                TurnSpeedDegreesPerSec = TurnSpeedDegreesPerSec
-            };
-
-            foreach (var kvp in Bindings)
-            {
-                clone.Bindings[kvp.Key] = new List<InputChord>(kvp.Value);
-            }
-
-            return clone;
+            return JsonSerializer.Deserialize<InputProfile>(SaveToJson(indented: false), JsonOptions)
+                   ?? throw new InvalidOperationException("Failed to clone InputProfile.");
         }
 
         #region Standard FFXI Factory Presets
@@ -481,7 +514,9 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.X));
             p.Bind(InputAction.CycleLogWindow, new InputChord(GamepadButton.Y));
 
-            p.Bind(InputAction.ToggleWalkRun, new InputChord(GamepadButton.LeftThumb));
+            // L3 toggles lock-on and R1 auto-run (the maintainer's request, #326); L1 shows the next character in the
+            // primary view (GordianXI multi-box, like Ctrl+Tab). See EnsureGamepadShortcutBindings for saved profiles.
+            p.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.LeftThumb));
             p.Bind(InputAction.ResetCamera, new InputChord(GamepadButton.RightThumb));
 
             p.Bind(InputAction.TargetPrevious, new InputChord(GamepadButton.LeftTrigger));
@@ -495,8 +530,8 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.TargetCursorLeft, new InputChord(GamepadButton.DPadLeft));
             p.Bind(InputAction.TargetCursorRight, new InputChord(GamepadButton.DPadRight));
 
-            p.Bind(InputAction.MacroCtrl1, new InputChord(GamepadButton.LeftShoulder));
-            p.Bind(InputAction.MacroAlt1, new InputChord(GamepadButton.RightShoulder));
+            p.Bind(InputAction.CycleCharacter, new InputChord(GamepadButton.LeftShoulder));
+            p.Bind(InputAction.ToggleAutorun, new InputChord(GamepadButton.RightShoulder));
         }
 
         #endregion
@@ -518,6 +553,7 @@ namespace Gordian.Core.Input
             profile.EnsureLogWindowBindings();
             profile.EnsureTargetCursorBindings();
             profile.EnsureLockOnBindings();
+            profile.EnsureGamepadShortcutBindings();
             return profile;
         }
 

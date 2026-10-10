@@ -12,7 +12,7 @@ namespace Gordian.App.Tests.ViewModels
         private static (ControlsInputViewModel vm, string tempFile) CreateIsolatedViewModel()
         {
             string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
-            var vm = new ControlsInputViewModel(tempFile);
+            var vm = new ControlsInputViewModel(tempFile, new InputProfileHub());
             return (vm, tempFile);
         }
 
@@ -247,6 +247,86 @@ namespace Gordian.App.Tests.ViewModels
                 Assert.Equal("Connected [Silk.NET.SDL: DualSense Wireless Controller]", vm.GamepadStatusText);
                 Assert.Contains("A", vm.GamepadButtonsText);
                 Assert.Equal("LT: 25% | RT: 75%", vm.GamepadTriggersText);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void EveryCharacter_GetsTheProfile_AndItsChanges_NotOnlyTheSelectedOne()
+        {
+            string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
+            var hub = new InputProfileHub();
+            try
+            {
+                var vm = new ControlsInputViewModel(tempFile, hub);
+                Assert.Equal(hub.Profile.Name, vm.ActivePresetName);
+                using var selected = new Gordian.Core.Network.CharacterSession("VmTestA", 1, "user1", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+                using var other = new Gordian.Core.Network.CharacterSession("VmTestB", 2, "user2", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+                vm.SetSession(selected);
+
+                vm.RightStickDeadzone = 0.3f;
+                vm.InvertGamepadCameraY = true;
+                vm.LoadFullNumpadPresetCommand.Execute(null);
+
+                foreach (var session in new[] { selected, other })
+                {
+                    var profile = session.Locomotion.Profile;
+                    Assert.NotSame(hub.Profile, profile);
+                    Assert.Equal(0.3f, profile.GamepadSettings.RightStickDeadzone);
+                    Assert.True(profile.GamepadSettings.InvertCameraY);
+                    Assert.True(profile.TryGetAction(new InputChord(GordianKey.NumPad8), out var forward));
+                    Assert.Equal(InputAction.MoveForward, forward);
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void ProfileEditedInGame_IsShownAndSaved()
+        {
+            string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
+            var hub = new InputProfileHub();
+            try
+            {
+                var vm = new ControlsInputViewModel(tempFile, hub);
+                hub.Edit(p => GamepadAssignments.Assign(p, GamepadAssignments.Functions[0], GamepadButton.Y), source: "menus");
+
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:Y"));
+                var saved = InputProfile.LoadOrCreate(tempFile);
+                Assert.True(saved.TryGetAction(new InputChord(GamepadButton.Y), out var action));
+                Assert.Equal(InputAction.Confirm, action);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void SeparateFirstPersonSettings_StartFromTheSharedOnes()
+        {
+            var (vm, tempFile) = CreateIsolatedViewModel();
+            try
+            {
+                vm.InvertMouseY = true;
+                vm.MouseSensitivityX = 2f;
+                vm.SeparateFirstPersonMouse = true;
+                Assert.True(vm.FirstPersonInvertMouseY);
+                Assert.Equal(2f, vm.FirstPersonMouseSensitivityX);
+                vm.FirstPersonInvertMouseY = false;
+                Assert.True(vm.InvertMouseY);
+
+                vm.InvertGamepadCameraX = true;
+                vm.SeparateFirstPersonGamepadCamera = true;
+                Assert.True(vm.FirstPersonInvertGamepadCameraX);
+                vm.FirstPersonGamepadCameraSensitivity = 2.5f;
+                Assert.Equal(1f, vm.GamepadCameraSensitivity);
             }
             finally
             {

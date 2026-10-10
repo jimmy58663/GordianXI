@@ -41,6 +41,7 @@ namespace Gordian.App.ViewModels
     public sealed class ControlsInputViewModel : ViewModelBase
     {
         private readonly string _profilePath;
+        private readonly InputProfileHub _hub;
         private CharacterSession? _currentSession;
         private InputProfile _activeProfile;
 
@@ -55,6 +56,26 @@ namespace Gordian.App.ViewModels
                 return Path.Combine(localAppData, "GordianXI", "input_profile.json");
             }
             return Path.Combine(GordianStorage.RootDataDirectory, "input_profile.json");
+        }
+
+        /// <summary>
+        /// An edit made here: saved, and published to every character's session (each takes a fresh copy of the
+        /// profile, #314).
+        /// </summary>
+        private void Commit()
+        {
+            AutoSave();
+            _hub.NotifyChanged(this);
+        }
+
+        /// <summary>The profile was edited elsewhere (the in-game gamepad key-assignment list): show and save it.</summary>
+        private void OnHubChanged(object? source)
+        {
+            if (ReferenceEquals(source, this)) return;
+            if (!ReferenceEquals(_hub.Profile, _activeProfile)) return;
+            NotifyProfilePropertiesChanged();
+            PopulateBindingsTable();
+            AutoSave();
         }
 
         private void AutoSave()
@@ -101,7 +122,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.MouseSensitivityX = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -115,7 +136,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.MouseSensitivityY = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -129,7 +150,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.InvertMouseX = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -143,7 +164,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.InvertMouseY = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -157,7 +178,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.TurnSpeedDegreesPerSec = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -243,7 +264,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.GamepadEnabled = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -257,7 +278,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.AlwaysEnableGamepad = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -271,7 +292,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.LeftStickDeadzone = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -285,7 +306,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.RightStickDeadzone = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -300,7 +321,7 @@ namespace Gordian.App.ViewModels
                     _activeProfile.GamepadSettings.CameraSensitivityX = value;
                     _activeProfile.GamepadSettings.CameraSensitivityY = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -314,7 +335,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.InvertCameraX = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -328,7 +349,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.InvertCameraY = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -342,7 +363,7 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.RumbleEnabled = value;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
             }
         }
@@ -357,8 +378,136 @@ namespace Gordian.App.ViewModels
                 {
                     _activeProfile.GamepadSettings.LocomotionMode = target;
                     OnPropertyChanged();
-                    AutoSave();
+                    Commit();
                 }
+            }
+        }
+
+        // First-person camera settings (#306): off by default, first person then uses the settings above.
+
+        public bool SeparateFirstPersonMouse
+        {
+            get => _activeProfile.SeparateFirstPersonMouse;
+            set
+            {
+                if (_activeProfile.SeparateFirstPersonMouse == value) return;
+                if (value && !_activeProfile.SeparateFirstPersonMouse)
+                {
+                    // Start the first-person set from the shared one, so turning it on changes nothing by itself.
+                    _activeProfile.FirstPersonMouseSensitivityX = _activeProfile.MouseSensitivityX;
+                    _activeProfile.FirstPersonMouseSensitivityY = _activeProfile.MouseSensitivityY;
+                    _activeProfile.FirstPersonInvertMouseX = _activeProfile.InvertMouseX;
+                    _activeProfile.FirstPersonInvertMouseY = _activeProfile.InvertMouseY;
+                }
+                _activeProfile.SeparateFirstPersonMouse = value;
+                NotifyProfilePropertiesChanged();
+                Commit();
+            }
+        }
+
+        public float FirstPersonMouseSensitivityX
+        {
+            get => _activeProfile.FirstPersonMouseSensitivityX;
+            set
+            {
+                if (Math.Abs(_activeProfile.FirstPersonMouseSensitivityX - value) <= 0.01f) return;
+                _activeProfile.FirstPersonMouseSensitivityX = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public float FirstPersonMouseSensitivityY
+        {
+            get => _activeProfile.FirstPersonMouseSensitivityY;
+            set
+            {
+                if (Math.Abs(_activeProfile.FirstPersonMouseSensitivityY - value) <= 0.01f) return;
+                _activeProfile.FirstPersonMouseSensitivityY = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public bool FirstPersonInvertMouseX
+        {
+            get => _activeProfile.FirstPersonInvertMouseX;
+            set
+            {
+                if (_activeProfile.FirstPersonInvertMouseX == value) return;
+                _activeProfile.FirstPersonInvertMouseX = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public bool FirstPersonInvertMouseY
+        {
+            get => _activeProfile.FirstPersonInvertMouseY;
+            set
+            {
+                if (_activeProfile.FirstPersonInvertMouseY == value) return;
+                _activeProfile.FirstPersonInvertMouseY = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public bool SeparateFirstPersonGamepadCamera
+        {
+            get => _activeProfile.GamepadSettings.SeparateFirstPersonCamera;
+            set
+            {
+                var pad = _activeProfile.GamepadSettings;
+                if (pad.SeparateFirstPersonCamera == value) return;
+                if (value)
+                {
+                    pad.FirstPersonCameraSensitivityX = pad.CameraSensitivityX;
+                    pad.FirstPersonCameraSensitivityY = pad.CameraSensitivityY;
+                    pad.FirstPersonInvertCameraX = pad.InvertCameraX;
+                    pad.FirstPersonInvertCameraY = pad.InvertCameraY;
+                }
+                pad.SeparateFirstPersonCamera = value;
+                NotifyProfilePropertiesChanged();
+                Commit();
+            }
+        }
+
+        public float FirstPersonGamepadCameraSensitivity
+        {
+            get => _activeProfile.GamepadSettings.FirstPersonCameraSensitivityX;
+            set
+            {
+                var pad = _activeProfile.GamepadSettings;
+                if (Math.Abs(pad.FirstPersonCameraSensitivityX - value) <= 0.01f) return;
+                pad.FirstPersonCameraSensitivityX = value;
+                pad.FirstPersonCameraSensitivityY = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public bool FirstPersonInvertGamepadCameraX
+        {
+            get => _activeProfile.GamepadSettings.FirstPersonInvertCameraX;
+            set
+            {
+                if (_activeProfile.GamepadSettings.FirstPersonInvertCameraX == value) return;
+                _activeProfile.GamepadSettings.FirstPersonInvertCameraX = value;
+                OnPropertyChanged();
+                Commit();
+            }
+        }
+
+        public bool FirstPersonInvertGamepadCameraY
+        {
+            get => _activeProfile.GamepadSettings.FirstPersonInvertCameraY;
+            set
+            {
+                if (_activeProfile.GamepadSettings.FirstPersonInvertCameraY == value) return;
+                _activeProfile.GamepadSettings.FirstPersonInvertCameraY = value;
+                OnPropertyChanged();
+                Commit();
             }
         }
 
@@ -368,9 +517,10 @@ namespace Gordian.App.ViewModels
         public ICommand ResetDefaultsCommand { get; }
         public ICommand SaveProfileCommand { get; }
 
-        public ControlsInputViewModel(string? customProfilePath = null)
+        public ControlsInputViewModel(string? customProfilePath = null, InputProfileHub? hub = null)
         {
             _profilePath = customProfilePath ?? GetDefaultProfilePath();
+            _hub = hub ?? InputProfileHub.Default;
 
             if (File.Exists(_profilePath))
             {
@@ -397,15 +547,19 @@ namespace Gordian.App.ViewModels
             SaveProfileCommand = new RelayCommand(SaveProfile);
 
             PopulateBindingsTable();
+
+            // Every character uses this profile (#314): the sessions copy it from the hub and follow its changes.
+            _hub.SetProfile(_activeProfile, this);
+            _hub.Changed += OnHubChanged;
         }
 
+        /// <summary>
+        /// The character whose telemetry the page shows (the console's selected one). The profile is not given to it:
+        /// every session already runs on a copy of the shared profile (#314).
+        /// </summary>
         public void SetSession(CharacterSession? session)
         {
             _currentSession = session;
-            if (_currentSession != null)
-            {
-                _currentSession.Locomotion.Profile = _activeProfile;
-            }
         }
 
         public void LoadCompactPreset()
@@ -416,11 +570,7 @@ namespace Gordian.App.ViewModels
             ActivePresetName = _activeProfile.Name;
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
-            if (_currentSession != null)
-            {
-                _currentSession.Locomotion.Profile = _activeProfile;
-            }
-            AutoSave();
+            Commit();
             StatusMessage = "Loaded standard FFXI Compact (WASD) keyboard preset.";
         }
 
@@ -432,11 +582,7 @@ namespace Gordian.App.ViewModels
             ActivePresetName = _activeProfile.Name;
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
-            if (_currentSession != null)
-            {
-                _currentSession.Locomotion.Profile = _activeProfile;
-            }
-            AutoSave();
+            Commit();
             StatusMessage = "Loaded standard FFXI Full (Numpad) keyboard preset.";
         }
 
@@ -447,11 +593,7 @@ namespace Gordian.App.ViewModels
             _activeProfile.ApplyGamepadDefaults();
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
-            if (_currentSession != null)
-            {
-                _currentSession.Locomotion.Profile = _activeProfile;
-            }
-            AutoSave();
+            Commit();
             StatusMessage = "Reset gamepad button mappings to defaults. Keyboard bindings were not changed.";
         }
 
@@ -571,6 +713,15 @@ namespace Gordian.App.ViewModels
             OnPropertyChanged(nameof(InvertGamepadCameraY));
             OnPropertyChanged(nameof(GamepadRumbleEnabled));
             OnPropertyChanged(nameof(IsCameraRelativeLocomotion));
+            OnPropertyChanged(nameof(SeparateFirstPersonMouse));
+            OnPropertyChanged(nameof(FirstPersonMouseSensitivityX));
+            OnPropertyChanged(nameof(FirstPersonMouseSensitivityY));
+            OnPropertyChanged(nameof(FirstPersonInvertMouseX));
+            OnPropertyChanged(nameof(FirstPersonInvertMouseY));
+            OnPropertyChanged(nameof(SeparateFirstPersonGamepadCamera));
+            OnPropertyChanged(nameof(FirstPersonGamepadCameraSensitivity));
+            OnPropertyChanged(nameof(FirstPersonInvertGamepadCameraX));
+            OnPropertyChanged(nameof(FirstPersonInvertGamepadCameraY));
         }
 
         private void PopulateBindingsTable()
@@ -595,6 +746,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.CameraZoomIn, "Camera", "Zoom In (Closer)");
             AddBindingRow(InputAction.CameraZoomOut, "Camera", "Zoom Out (Farther)");
             AddBindingRow(InputAction.ResetCamera, "Camera", "Reset / Center Camera");
+            AddBindingRow(InputAction.ToggleCameraMode, "Camera", "Change View (First / Third Person)");
 
             // Targeting & Menus
             AddBindingRow(InputAction.Confirm, "Interaction", "Confirm / Action");
@@ -603,6 +755,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.TargetPrevious, "Targeting", "Cycle Target Left (skips yourself)");
             AddBindingRow(InputAction.TargetCursorRight, "Targeting", "Target Cursor Right (via yourself)");
             AddBindingRow(InputAction.TargetCursorLeft, "Targeting", "Target Cursor Left (via yourself)");
+            AddBindingRow(InputAction.ToggleLockOn, "Targeting", "Toggle Lock-On");
             AddBindingRow(InputAction.TargetSelf, "Targeting", "Target Self");
             AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 2");
             AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 3");
@@ -612,6 +765,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.OpenMenu, "Interface", "Open Main Menu");
             AddBindingRow(InputAction.OpenChat, "Interface", "Focus Chat Prompt");
             AddBindingRow(InputAction.CycleLogWindow, "Interface", "Select Log Window");
+            AddBindingRow(InputAction.CycleCharacter, "Interface", "Next Character (multi-box, like Ctrl+Tab)");
 
             // Macros
             AddBindingRow(InputAction.MacroCtrl1, "Hotbar", "Palette 1: Slot 1 (Ctrl+1)");

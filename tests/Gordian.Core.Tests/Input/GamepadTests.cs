@@ -91,11 +91,15 @@ namespace Gordian.Core.Tests.Input
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.Y), out var actY));
             Assert.Equal(InputAction.CycleLogWindow, actY);
 
+            // #326: L1 cycles the character in the primary view, R1 toggles auto-run, L3 toggles lock-on.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftShoulder), out var actLB));
-            Assert.Equal(InputAction.MacroCtrl1, actLB);
+            Assert.Equal(InputAction.CycleCharacter, actLB);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.RightShoulder), out var actRB));
-            Assert.Equal(InputAction.MacroAlt1, actRB);
+            Assert.Equal(InputAction.ToggleAutorun, actRB);
+
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var actL3));
+            Assert.Equal(InputAction.ToggleLockOn, actL3);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftTrigger), out var actLT));
             Assert.Equal(InputAction.TargetPrevious, actLT);

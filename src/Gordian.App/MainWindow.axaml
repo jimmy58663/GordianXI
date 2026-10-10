@@ -1550,6 +1550,22 @@
                                 </Grid>
                                 <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.GamepadCameraSensitivity, Mode=TwoWay}"/>
 
+                                <CheckBox IsChecked="{Binding Controls.SeparateFirstPersonGamepadCamera, Mode=TwoWay}"
+                                          Content="Separate First-Person Camera Settings"
+                                          ToolTip.Tip="Off: first person uses the camera settings above. On: first person has its own inversion and sensitivity."
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,2,0,0"/>
+                                <StackPanel Spacing="6" Margin="18,0,0,0" IsVisible="{Binding Controls.SeparateFirstPersonGamepadCamera}">
+                                    <CheckBox IsChecked="{Binding Controls.FirstPersonInvertGamepadCameraX, Mode=TwoWay}"
+                                              Content="First Person: Invert Yaw (X-Axis)" Foreground="#CCCCCC" FontSize="12"/>
+                                    <CheckBox IsChecked="{Binding Controls.FirstPersonInvertGamepadCameraY, Mode=TwoWay}"
+                                              Content="First Person: Invert Pitch (Y-Axis)" Foreground="#CCCCCC" FontSize="12"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Grid.Column="0" Text="First Person Sensitivity:" Foreground="#A0A0A0" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Controls.FirstPersonGamepadCameraSensitivity, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
+                                    </Grid>
+                                    <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.FirstPersonGamepadCameraSensitivity, Mode=TwoWay}"/>
+                                </StackPanel>
+
                                 <Button Content="Reset Gamepad Bindings to Defaults"
                                         Command="{Binding Controls.LoadGamepadPresetCommand}"
                                         ToolTip.Tip="Resets gamepad button mappings and settings only. Your keyboard layout is never affected."
@@ -1601,6 +1617,27 @@
                                     <TextBlock Grid.Column="1" Text="{Binding Controls.MouseSensitivityY, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
                                 </Grid>
                                 <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.MouseSensitivityY, Mode=TwoWay}"/>
+
+                                <CheckBox IsChecked="{Binding Controls.SeparateFirstPersonMouse, Mode=TwoWay}"
+                                          Content="Separate First-Person Mouse Settings"
+                                          ToolTip.Tip="Off: first person uses the mouse settings above. On: first person has its own inversion and sensitivity (the in-game Mouse/Cam. page's first-person rows turn this on)."
+                                          Foreground="#CCCCCC" FontSize="12" Margin="0,2,0,0"/>
+                                <StackPanel Spacing="6" Margin="18,0,0,0" IsVisible="{Binding Controls.SeparateFirstPersonMouse}">
+                                    <CheckBox IsChecked="{Binding Controls.FirstPersonInvertMouseX, Mode=TwoWay}"
+                                              Content="First Person: Invert Mouse Look (X-Axis)" Foreground="#CCCCCC" FontSize="12"/>
+                                    <CheckBox IsChecked="{Binding Controls.FirstPersonInvertMouseY, Mode=TwoWay}"
+                                              Content="First Person: Invert Mouse Look (Y-Axis)" Foreground="#CCCCCC" FontSize="12"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Grid.Column="0" Text="First Person Sensitivity X:" Foreground="#A0A0A0" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Controls.FirstPersonMouseSensitivityX, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
+                                    </Grid>
+                                    <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.FirstPersonMouseSensitivityX, Mode=TwoWay}"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Grid.Column="0" Text="First Person Sensitivity Y:" Foreground="#A0A0A0" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Controls.FirstPersonMouseSensitivityY, StringFormat='{}{0:F1}x'}" Foreground="#9CDCFE" FontSize="12" FontFamily="Consolas, monospace"/>
+                                    </Grid>
+                                    <Slider Minimum="0.2" Maximum="3.0" Value="{Binding Controls.FirstPersonMouseSensitivityY, Mode=TwoWay}"/>
+                                </StackPanel>
 
                                 <Grid ColumnDefinitions="*, Auto" Margin="0,2,0,0">
                                     <TextBlock Grid.Column="0" Text="Keyboard Turn Speed:" Foreground="#A0A0A0" FontSize="12"/>

@@ -1,4 +1,4 @@
-// src/Gordian.App/Services/InputFocusTracker.cs
+// src/Gordian.App/Services/WindowFocusTracker.cs
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Network;
@@ -6,22 +6,34 @@ using Gordian.Core.Network;
 namespace Gordian.App.Services
 {
     /// <summary>
-    /// Which GordianXI viewport window has the operating system's focus, and which character it shows (#150). The gamepad
-    /// drives that character; with no viewport focused it keeps driving the character of the viewport focused last. Any
-    /// feature that should follow window focus (sound, overlays) can read <see cref="FocusedSession"/> and listen to
-    /// <see cref="Changed"/>. Windows are opaque keys, so this holds no Avalonia types and is used from the UI thread only.
+    /// The one window-focus tracker of the app (#304; it merged the gamepad's InputFocusTracker of #150 and the sound
+    /// controls' SoundFocusTracker of #265). It knows which GordianXI viewport window (main or popped out) has the
+    /// operating system's focus and which character it shows, and whether any GordianXI window is active. The gamepad
+    /// drives the focused viewport's character (with no viewport focused, the one focused last) and the sound controls
+    /// read the same flags (<see cref="WindowFocusHook"/> publishes them), so the pad and the sound always agree on the
+    /// focused character. Windows are opaque keys, so this holds no Avalonia types and is used from the UI thread only.
     /// </summary>
-    public sealed class InputFocusTracker
+    public sealed class WindowFocusTracker
     {
         private readonly Dictionary<object, CharacterSession?> _windows = new(ReferenceEqualityComparer.Instance);
         private object? _focusedWindow;
         private object? _lastFocusedWindow;
+        private bool _anyWindowActive = true;
 
-        /// <summary>Raised when the focused window, the last focused window or the character either shows changes.</summary>
+        /// <summary>Raised when the focused window, the last focused window, the character either shows, or the app's activity changes.</summary>
         public event EventHandler? Changed;
 
         /// <summary>True while one of the tracked viewport windows has the focus.</summary>
         public bool IsViewportFocused => _focusedWindow != null;
+
+        /// <summary>
+        /// True while any GordianXI window (the main window, a viewport, a dialog) is active. Starts true; the app's
+        /// activation hook (<see cref="WindowFocusHook"/>) keeps it current once the windows exist.
+        /// </summary>
+        public bool IsAnyWindowActive => _anyWindowActive;
+
+        /// <summary>Whether a GordianXI window has the focus at all: any window, or a tracked viewport.</summary>
+        public bool IsAppFocused => _anyWindowActive || IsViewportFocused;
 
         /// <summary>
         /// The character shown in the focused viewport window; null when no viewport is focused or the focused one shows
@@ -31,6 +43,14 @@ namespace Gordian.App.Services
 
         /// <summary>The character shown in the viewport window focused last (the focused one while one is).</summary>
         public CharacterSession? LastFocusedSession => _lastFocusedWindow != null ? _windows.GetValueOrDefault(_lastFocusedWindow) : null;
+
+        /// <summary>Records whether any GordianXI window is active.</summary>
+        public void SetAnyWindowActive(bool active)
+        {
+            if (_anyWindowActive == active) return;
+            _anyWindowActive = active;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
 
         /// <summary>Starts tracking a window, or records that it now shows another character (null: none).</summary>
         public void SetWindowSession(object window, CharacterSession? session)

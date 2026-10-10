@@ -180,7 +180,7 @@ namespace Gordian.App
             // The gamepad drives one character: the one in the focused viewport window (main or popped out), else the
             // one in the viewport focused last (#150). Every other character gets a disconnected pad.
             var viewports = ViewportWindowManager.Default;
-            var gamepadTarget = viewports.InputFocus.ResolveGamepadTarget(
+            var gamepadTarget = viewports.WindowFocus.ResolveGamepadTarget(
                 viewports.PrimaryViewModel.ActiveTab?.Session ?? _viewModel.Console.SelectedSession);
 
             // Enable, Always Enable and Rumble are the pad's own settings (Controls & Input), the same whichever character
@@ -189,7 +189,7 @@ namespace Gordian.App
             bool isGamepadEnabled = _viewModel.Controls.GamepadEnabled;
             bool alwaysEnable = _viewModel.Controls.AlwaysEnableGamepad;
             bool rumbleEnabled = _viewModel.Controls.GamepadRumbleEnabled;
-            bool windowFocused = this.IsActive || viewports.InputFocus.IsViewportFocused;
+            bool windowFocused = this.IsActive || viewports.WindowFocus.IsAppFocused;
 
             _gamepadDriver.RumbleEnabled = rumbleEnabled;
 
@@ -216,6 +216,14 @@ namespace Gordian.App
             {
                 gamepadTarget.InputState.SetGamepadState(padState);
                 gamepadTarget.Locomotion.Update(elapsed);
+            }
+
+            // Next Character (the gamepad's L1 by default, #326): the next character in tab order, as Ctrl+Tab does (#151);
+            // a popped-out one has its window brought forward, and the pad follows the focus there.
+            if (gamepadTarget != null && gamepadTarget.InputState.WasActionTriggered(Gordian.Core.Input.InputAction.CycleCharacter))
+            {
+                var chosen = viewports.PrimaryViewModel.CycleFrom(gamepadTarget, +1);
+                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");
             }
 
             _viewModel.Controls.UpdateTelemetry();

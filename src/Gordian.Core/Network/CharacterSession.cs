@@ -168,29 +168,64 @@ namespace Gordian.Core.Network
         /// </summary>
         public Input.PlayerLocomotionController Locomotion { get; }
 
-        private void ApplyCameraSettings()
+        /// <summary>
+        /// Applies the server-stored config menu's Mouse/Cam. axis rows (only the choices the player has made) to this
+        /// session's own copy of the input profile: the third-person rows set the mouse inversion, the first-person rows
+        /// the separate first-person inversion (#306). Choosing a first-person row turns the separate first-person set
+        /// on; its other values start from the third-person ones, so nothing else changes.
+        /// </summary>
+        private void ApplyCameraSettings() => ApplyCameraSettings(Locomotion.Profile, ActionService.UiSettings);
+
+        /// <summary>Applies the Mouse/Cam. axis rows the player has chosen in <paramref name="settings"/> to <paramref name="profile"/>.</summary>
+        public static void ApplyCameraSettings(Input.InputProfile profile, Ui.StockUiSettings settings)
         {
-            var settings = ActionService.UiSettings;
-            var profile = Locomotion.Profile;
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(settings);
             if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX)) profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
             if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY)) profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
+
+            bool firstX = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertX), firstY = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertY);
+            if (!firstX && !firstY) return;
+            if (!profile.SeparateFirstPersonMouse)
+            {
+                profile.SeparateFirstPersonMouse = true;
+                profile.FirstPersonMouseSensitivityX = profile.MouseSensitivityX;
+                profile.FirstPersonMouseSensitivityY = profile.MouseSensitivityY;
+                profile.FirstPersonInvertMouseX = profile.InvertMouseX;
+                profile.FirstPersonInvertMouseY = profile.InvertMouseY;
+            }
+            if (firstX) profile.FirstPersonInvertMouseX = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertX);
+            if (firstY) profile.FirstPersonInvertMouseY = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertY);
+        }
+
+        /// <summary>The shared input profile this session copies (#314).</summary>
+        private readonly Input.InputProfileHub _inputProfiles;
+
+        /// <summary>The user's input profile changed: take a fresh copy and apply this character's config choices again.</summary>
+        private void OnSharedInputProfileChanged(object? source)
+        {
+            Locomotion.Profile = _inputProfiles.CreateSessionCopy();
+            ApplyCameraSettings();
         }
 
         public CharacterSession(
             string characterName,
             uint characterId,
             string accountUsername,
-            SessionNetworkManager networkManager)
+            SessionNetworkManager networkManager,
+            Input.InputProfileHub? inputProfiles = null)
         {
+            _inputProfiles = inputProfiles ?? Input.InputProfileHub.Default;
             CharacterName = characterName ?? throw new ArgumentNullException(nameof(characterName));
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
             ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
+            // Every character runs on its own copy of the user's input profile (#314); see InputProfileHub.
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,
-                Input.InputProfile.CreateCompact(),
+                _inputProfiles.CreateSessionCopy(),
                 World,
                 LocalPlayer,
                 ActionService
@@ -200,8 +235,10 @@ namespace Gordian.Core.Network
             ApplyCameraSettings();
             ActionService.UiSettings.Changed += (key, _) =>
             {
-                if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY) ApplyCameraSettings();
+                if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY
+                    or Ui.StockUiSettingKey.FirstPersonInvertX or Ui.StockUiSettingKey.FirstPersonInvertY) ApplyCameraSettings();
             };
+            _inputProfiles.Changed += OnSharedInputProfileChanged;
             // A knockback in an action result slides the player (the server trusts the position it then reports), unless
             // Anchor is on and the server allows it.
             ActionPlayback.HitLanded += (target, reaction) =>
@@ -258,6 +295,9 @@ namespace Gordian.Core.Network
             Messages.Attach(Commands, World, LocalPlayer, Chat, () => CharacterName);
             // The NPC shop (Tier 2 chunk 6c): S2C 0x03E / 0x03C / 0x03D drive the shop windows through the inventory
             // state; the windows send 0x083 (buy) and 0x084 + 0x085 (appraise, sell). A zone change ends the shop.
+            // The gamepad key-assignment list edits the user's shared profile, so every character gets the change (#21, #314).
+            ActionService.Menus.GamepadProfile = () => _inputProfiles.Profile;
+            ActionService.Menus.GamepadProfileEdited = edit => _inputProfiles.Edit(edit, ActionService.Menus);
             ActionService.Menus.Inventory = Inventory;
             ActionService.Menus.ShopBuy = (count, shopNo, index) => InventoryModule.BuyShopItemAsync(count, shopNo, index, 0);
             ActionService.Menus.ShopAppraise = (count, itemId, slot) => InventoryModule.AppraiseShopItemAsync(count, itemId, slot);
@@ -379,6 +419,7 @@ namespace Gordian.Core.Network
 
         public void Dispose()
         {
+            _inputProfiles.Changed -= OnSharedInputProfileChanged;
             NetworkManager.Dispose();
         }
 

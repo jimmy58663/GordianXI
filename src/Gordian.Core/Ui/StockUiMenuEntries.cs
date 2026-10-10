@@ -88,6 +88,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>The command menu's Treasure: opens the Treasure Pool window (<see cref="StockUiTreasurePool"/>).</summary>
         TreasurePool,
+
+        /// <summary>The config list's Gamepad: opens the gamepad key-assignment list (#21).</summary>
+        GamepadAssign,
     }
 
     /// <summary>
@@ -166,8 +169,7 @@ namespace Gordian.Core.Ui
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).
             // Font Colors ("conftxtc" -> "textcol1"/"textcol3"), Log ("conf11l" -> "conf11s"/"conf11m") and Effects
-            // ("fxfilter") are list pages whose row text comes from the menu string table, still unresearched;
-            // Gamepad is the key-assignment editor ("keypad"/"k1assign").
+            // ("fxfilter") are list pages whose row text comes from the menu string table.
             [(ConfigMenu, 1)] = new("Gameplay", Opens: StockUiConfigPages.GameplayPage),
             [(ConfigMenu, 2)] = new("Chat Filters", Opens: StockUiConfigPages.ChatFiltersPage),
             [(ConfigMenu, 3)] = new("Font Colors", Opens: StockUiConfigPages.FontColorCategoryMenu),
@@ -180,7 +182,9 @@ namespace Gordian.Core.Ui
             [(ConfigMenu, 7)] = new("Effects", Opens: StockUiConfigPages.EffectsPage),
             [(ConfigMenu, 8)] = new("Mouse/Cam.", Opens: StockUiConfigPages.MouseCameraPage),
             [(ConfigMenu, 9)] = new("Global", Opens: StockUiConfigPages.GlobalPage),
-            [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.NotAvailable),
+            // Retail's Gamepad boots the external Gamepad Config program (help 1092); GordianXI opens its own
+            // key-assignment list in its place (#21).
+            [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.GamepadAssign),
 
             // Font Colors: the category lists (label sprites keytops3 #272 Chat, #273 For Self, windowps #432 For
             // Others, keytops3 #277 System, #278 Default), then the colour editor's OK and Cancel.

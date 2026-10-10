@@ -91,6 +91,12 @@ namespace Gordian.Core.Input
         MacroAlt7,
         MacroAlt8,
         MacroAlt9,
-        MacroAlt10
+        MacroAlt10,
+
+        /// <summary>
+        /// GordianXI multi-box (not retail): shows the next character in the primary view, as Ctrl+Tab does (#151, #326).
+        /// Default: the gamepad's left bumper (L1 / LB).
+        /// </summary>
+        CycleCharacter = 110
     }
 }

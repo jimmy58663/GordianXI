@@ -64,15 +64,15 @@ namespace Gordian.App.Services
         public ViewportWindow? PrimaryWindow => _primaryWindow;
 
         /// <summary>
-        /// Which viewport window (primary or popped out) has the focus and which character it shows (#150): the gamepad
-        /// follows it.
+        /// Which viewport window (primary or popped out) has the focus and which character it shows (#150), and whether
+        /// any GordianXI window is active: the gamepad and the sound controls both follow it (#304).
         /// </summary>
-        public InputFocusTracker InputFocus { get; } = new();
+        public WindowFocusTracker WindowFocus { get; } = new();
 
         /// <summary>
         /// Checks whether the primary or any secondary popped-out 3D viewport window currently has keyboard/window focus.
         /// </summary>
-        public bool IsAnyViewportActive() => InputFocus.IsViewportFocused;
+        public bool IsAnyViewportActive() => WindowFocus.IsViewportFocused;
 
         public void SetPrimaryViewModel(ViewportViewModel viewModel)
         {
@@ -103,27 +103,27 @@ namespace Gordian.App.Services
             }
         }
 
-        /// <summary>Reports a viewport window's focus and the character it shows to <see cref="InputFocus"/> until it closes.</summary>
+        /// <summary>Reports a viewport window's focus and the character it shows to <see cref="WindowFocus"/> until it closes.</summary>
         private void TrackFocus(ViewportWindow window, ViewportViewModel viewModel)
         {
-            void Sync() => InputFocus.SetWindowSession(window, viewModel.Lobby == null ? viewModel.ActiveTab?.Session : null);
+            void Sync() => WindowFocus.SetWindowSession(window, viewModel.Lobby == null ? viewModel.ActiveTab?.Session : null);
             void OnChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby)) Sync();
             }
 
             viewModel.PropertyChanged += OnChanged;
-            window.Activated += (_, _) => InputFocus.Activated(window);
+            window.Activated += (_, _) => WindowFocus.Activated(window);
             window.Deactivated += (_, _) =>
             {
-                InputFocus.Deactivated(window);
+                WindowFocus.Deactivated(window);
                 // Keys and buttons released while another window has the focus never reach this one: let them go now.
                 viewModel.ReleaseHeldInput();
             };
             window.Closed += (_, _) =>
             {
                 viewModel.PropertyChanged -= OnChanged;
-                InputFocus.Remove(window);
+                WindowFocus.Remove(window);
             };
             Sync();
         }

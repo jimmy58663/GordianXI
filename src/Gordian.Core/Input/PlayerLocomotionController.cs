@@ -320,6 +320,8 @@ namespace Gordian.Core.Input
             bool menuOpen = menus?.IsOpen ?? false;
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
+            // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
+            _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
             _inputState.Update(_profile, elapsed);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
@@ -516,12 +518,15 @@ namespace Gordian.Core.Input
             {
                 zoomDelta -= mouseWheel * _profile.MouseWheelZoomStep;
             }
+            // First and third person can have their own camera settings (#306); by default they share one set.
+            bool firstPerson = _camera.Mode == CameraMode.FirstPerson;
             if (mouseDx != 0 || mouseDy != 0)
             {
-                float mx = mouseDx * _profile.MouseSensitivityX * 0.15f;
-                yawDelta += _profile.InvertMouseX ? -mx : mx;
-                float my = mouseDy * _profile.MouseSensitivityY * 0.15f;
-                pitchDelta += _profile.InvertMouseY ? -my : my;
+                var mouse = _profile.MouseCamera(firstPerson);
+                float mx = mouseDx * mouse.SensitivityX * 0.15f;
+                yawDelta += mouse.InvertX ? -mx : mx;
+                float my = mouseDy * mouse.SensitivityY * 0.15f;
+                pitchDelta += mouse.InvertY ? -my : my;
             }
 
             // Gamepad Analog Camera Look (Right Thumbstick)
@@ -532,12 +537,13 @@ namespace Gordian.Core.Input
                 var filteredRightStick = GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone);
                 if (filteredRightStick != Vector2.Zero)
                 {
-                    float padYaw = filteredRightStick.X * 180.0f * padSettings.CameraSensitivityX * dt;
-                    if (padSettings.InvertCameraX) padYaw = -padYaw;
+                    var stick = padSettings.Camera(firstPerson);
+                    float padYaw = filteredRightStick.X * 180.0f * stick.SensitivityX * dt;
+                    if (stick.InvertX) padYaw = -padYaw;
                     yawDelta += padYaw;
 
-                    float padPitch = -filteredRightStick.Y * 120.0f * padSettings.CameraSensitivityY * dt;
-                    if (padSettings.InvertCameraY) padPitch = -padPitch;
+                    float padPitch = -filteredRightStick.Y * 120.0f * stick.SensitivityY * dt;
+                    if (stick.InvertY) padPitch = -padPitch;
                     pitchDelta += padPitch;
                 }
             }
