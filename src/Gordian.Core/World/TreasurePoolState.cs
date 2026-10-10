@@ -185,19 +185,35 @@ namespace Gordian.Core.World
                 lock (_sync)
                 {
                     if (_serverLeadMs == null || lead > _serverLeadMs) _serverLeadMs = lead;
+                    var known = _slots[packet.Slot];
+                    if (known != null && known.ItemId == packet.ItemId && known.StartTime == packet.StartTime)
+                    {
+                        // The same item sent again (LandSandBoat's updatePool on a party change): what we know of the lots
+                        // stays; LSB's re-sent packet says nothing about them.
+                        _slots[packet.Slot] = known with { Count = Math.Max(1u, packet.ItemCount) };
+                    }
+                    else
+                    {
+                        var entries = new Dictionary<uint, TreasureMemberEntry>();
+                        if (packet.LeaderId != 0 && packet.LeaderLot > 0) entries[packet.LeaderId] = new TreasureMemberEntry(false, packet.LeaderLot);
+                        _entries[packet.Slot] = entries;
+                        // Only a lot (2) is taken from Entry: LandSandBoat writes 1 there for every re-sent item
+                        // ("isOldItem", updatePool), which XiPackets reads as a pass (#143: Cast Lot was greyed).
+                        var entry = packet.Entry == TreasureEntryKind.Lot && packet.IsLocallyLotted ? TreasureEntryKind.Lot : TreasureEntryKind.None;
+                        _slots[packet.Slot] = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
+                            packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, entry,
+                            entry == TreasureEntryKind.Lot ? packet.LocalLot : (ushort)0,
+                            packet.LeaderId, packet.LeaderIndex, packet.LeaderName, packet.LeaderLot);
+                    }
                 }
-                var entries = new Dictionary<uint, TreasureMemberEntry>();
-                if (packet.LeaderId != 0 && packet.LeaderLot > 0) entries[packet.LeaderId] = new TreasureMemberEntry(false, packet.LeaderLot);
-                lock (_sync) _entries[packet.Slot] = entries;
-                var slot = new TreasureSlot(packet.Slot, packet.ItemId, Math.Max(1u, packet.ItemCount), packet.DropperId,
-                    packet.DropperIndex, packet.IsContainer, packet.Named, packet.StartTime, packet.Entry,
-                    packet.IsLocallyLotted ? packet.LocalLot : (ushort)0,
-                    packet.LeaderId, packet.LeaderIndex, packet.LeaderName, packet.LeaderLot);
-                lock (_sync) _slots[packet.Slot] = slot;
             }
 
-            Found?.Invoke(new TreasureFound(packet.Gold, packet.ItemId, packet.ItemCount, packet.DropperId,
-                packet.DropperIndex, packet.IsContainer, packet.Named));
+            // A re-sent pool (LandSandBoat sends no dropper and no gil then) is not a find: nothing for the log.
+            if (packet.Gold > 0 || packet.DropperId != 0)
+            {
+                Found?.Invoke(new TreasureFound(packet.Gold, packet.ItemId, packet.ItemCount, packet.DropperId,
+                    packet.DropperIndex, packet.IsContainer, packet.Named));
+            }
             if (hasItem) Changed?.Invoke();
         }
 

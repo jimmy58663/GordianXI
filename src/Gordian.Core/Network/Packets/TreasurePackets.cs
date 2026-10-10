@@ -8,6 +8,9 @@ namespace Gordian.Core.Network.Packets
     /// <summary>
     /// A player's entry on a treasure pool item (the <c>Entry</c> byte of S2C 0x0D2).
     /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x00D2</c>.
+    /// <b>Differs from XiPackets on LandSandBoat:</b> LSB writes 1 (XiPackets' "passed") on every re-sent pool item
+    /// (<c>isOldItem</c> in <c>0x0d2_trophy_list.cpp</c>, sent by <c>CTreasurePool::updatePool</c>) and never 2, so
+    /// <see cref="World.TreasurePoolState"/> only trusts a lot (2 with <c>IsLocallyLotted</c>).
     /// </summary>
     public enum TreasureEntryKind : byte
     {

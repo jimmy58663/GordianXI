@@ -186,13 +186,74 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void CastLot_FromTheWindow_SendsTheLotAndShowsItAfterLsbsReply_EvenOnAResentPool()
+        {
+            // The real module: Cast Lot goes out as C2S 0x041 through it.
+            var pool = new TreasurePoolState();
+            var sentPackets = new List<byte[]>();
+            var module = new TreasurePacketModule(pool, new LocalPlayerState { ServerId = LocalId }, null, (data, _) =>
+            {
+                sentPackets.Add(data.ToArray());
+                return Task.CompletedTask;
+            });
+            var dispatcher = new PacketDispatcher();
+            module.Register(dispatcher);
+            var menus = new StockUiMenuController
+            {
+                Library = UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu(), DoneMenu() }),
+                TreasurePool = pool,
+                ItemLookup = id => new ItemRecord { ItemId = id, Name = $"Item {id}", LogName = $"item {id}" },
+                TreasureLot = slot => module.SendLotAsync(slot),
+                TreasurePass = slot => module.SendPassAsync(slot),
+            };
+            var notices = new List<string>();
+            menus.NoticePosted += notices.Add;
+            pool.Changed += menus.OnTreasureChanged;
+
+            // A party change makes LandSandBoat re-send the pool (updatePool): Entry 1 ("old item"), no dropper.
+            var resent = TrophyList(4, 4096, 497_000, entry: 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(resent.AsSpan(4, 4), 0);
+            int found = 0;
+            pool.Found += _ => found++;
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), resent));
+            Assert.Equal(0, found); // a re-sent item is not a find
+            Assert.Equal(TreasureEntryKind.None, pool.GetSlot(4)!.Entry); // not a pass
+
+            var list = menus.OpenTreasurePool(null)!;
+            Assert.Equal(TreasureEntryKind.None, list.TreasureRows[0].Entry); // white, not the pass grey
+            menus.Activate(); // the row: Cast Lot / Pass
+            var action = menus.Top!;
+            Assert.Equal((byte)4, action.TreasureActionSlot);
+            Assert.False(action.IsGreyed(StockUiTreasurePool.LotButton));
+            Assert.Equal(StockUiTreasurePool.LotButton, action.SelectedButtonId);
+            menus.Activate(); // Cast Lot
+            Assert.Empty(notices);
+            var packet = Assert.Single(sentPackets);
+            Assert.Equal(0x041, BinaryPrimitives.ReadUInt16LittleEndian(packet) & 0x1FF);
+            Assert.Equal(4, packet[4]);
+            Assert.Same(list, menus.Top);
+
+            // LandSandBoat's answer: EntryFlg clear, the roll in EntryPoint.
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(4, LocalId, 0x0400, 512, LocalId, 512)));
+            Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[0].Entry); // orange-red
+            Assert.Equal("512", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
+
+            // The pool re-sent again keeps what we know: still our lot, Cast Lot greyed.
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), resent));
+            Assert.Equal(TreasureEntryKind.Lot, pool.GetSlot(4)!.Entry);
+            Assert.Equal("512", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
+        }
+
+        [Fact]
         public void Done_PassesEveryItemNotLottedAndTogglesWithPlus()
         {
             var (f, menus, sent, _) = Setup();
             f.Found(0, 4096, 497_000);
             f.Found(1, 4097, 497_000, entry: (byte)TreasureEntryKind.Lot, localLot: 300);
-            f.Found(2, 4098, 497_000, entry: (byte)TreasureEntryKind.Pass);
+            f.Found(2, 4098, 497_000);
             f.Found(3, 4099, 497_000);
+            // Slot 2 already passed (LandSandBoat's 0x0D3: EntryPoint 0xFFFF).
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(2, LocalId, 0x0400, -1, 0, 0)));
             var list = menus.OpenTreasurePool(null)!;
 
             // + / Y: the cursor to Done and back.
