@@ -562,17 +562,9 @@ namespace Gordian.Core.World
                 }
             }
 
-            // Without the server's TurnFlag the client turns a standing entity to its new heading at once; the flag asks for
-            // the turn to be eased (XiPackets 0x000D / 0x000E flags1_t TurnFlag). While it travels, the facing keeps easing
-            // along the played-back path.
+            // Smoothly rotate visual heading towards target heading. The server's TurnFlag (EasesHeading) is not consulted:
+            // snapping standing turns when it is clear was tried and rejected in the in-game test (2026-10-10, #334).
             float targetHeadingRad = HeadingRadians;
-            if (!EasesHeading && distToTarget <= 0f)
-            {
-                RenderHeadingRadians = targetHeadingRad;
-                return;
-            }
-
-            // Smoothly rotate visual heading towards target heading
             float diff = targetHeadingRad - RenderHeadingRadians;
             while (diff > MathF.PI) diff -= MathF.PI * 2.0f;
             while (diff < -MathF.PI) diff += 2.0f * MathF.PI;
@@ -684,8 +676,9 @@ namespace Gordian.Core.World
         public bool IsAutoTargetOnly { get; set; }
 
         /// <summary>
-        /// The server's TurnFlag (Flags1 bit 30): a new heading is eased over time. Clear (LandSandBoat never sets it), a
-        /// standing entity turns to a new heading at once (<see cref="UpdateHeading"/>).
+        /// The server's TurnFlag (Flags1 bit 30): a new heading is eased over time (XiPackets). Decoded, not used: GordianXI
+        /// always eases (<see cref="UpdateHeading"/>); snapping standing turns while it is clear (LandSandBoat never sets it)
+        /// looked wrong in the in-game test (2026-10-10).
         /// </summary>
         public bool EasesHeading { get; set; }
 

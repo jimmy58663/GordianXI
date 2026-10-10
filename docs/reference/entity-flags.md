@@ -56,7 +56,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 27 | HackMove | unused | |
 | 28 | (PS2 GMInvisFlag) | unknown | |
 | 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible`: still drawn, but no name plate and skipped by targeting and entity bump |
-| 30 | TurnFlag | ease the heading over time instead of snapping | `EasesHeading` (both packets, General updates; not for the local player, whose heading is the controller's). Clear, a standing entity turns to its new heading at once; set, it eases as before (15 per second). While it travels the facing keeps easing along the played-back path either way (`WorldEntity.UpdateHeading`, #334). LandSandBoat never sets it ("get the lerp values from retail", `char_update.cpp`), so on LandSandBoat every standing turn snaps. Retail's eased rate is not measured |
+| 30 | TurnFlag | ease the heading over time instead of snapping | `EasesHeading` (both packets, General updates), not used: GordianXI always eases the heading (15 per second, `WorldEntity.UpdateHeading`). LandSandBoat never sets it ("get the lerp values from retail", `char_update.cpp`). Snapping a standing entity's turn while the flag is clear, as XiPackets reads, was tried for #334 and rejected in the maintainer's in-game test (2026-10-10): the snap did not look right and the eased turns looked better. Retail's turn behaviour and rate are not measured |
 | 31 | BazaarFlag | bazaar icon | 0x00D `NamePlateFlags.Bazaar` |
 
 ## Flags2 (0x00D / 0x00E payload 32, packet 0x24)

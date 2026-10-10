@@ -234,19 +234,18 @@ namespace Gordian.Core.Tests.Network
         }
 
         /// <summary>
-        /// Without TurnFlag a standing entity turns to its new heading at once; with it the turn is eased (XiPackets TurnFlag).
+        /// TurnFlag is decoded but not used: a standing entity eases to its new heading whether or not it is set (snapping
+        /// without it was rejected in the in-game test, 2026-10-10).
         /// </summary>
         [Fact]
-        public void TurnFlag_EasesTheTurn_OtherwiseAStandingEntitySnaps()
+        public void TurnFlag_IsIgnored_StandingTurnsAlwaysEase()
         {
-            var snapper = new WorldEntity(1, 1, EntityType.Npc) { Direction = 0 };
-            snapper.Direction = 64;
-            snapper.InterpolatePosition(1f / 60f);
-            Assert.Equal(snapper.HeadingRadians, snapper.RenderHeadingRadians, 4);
-
-            var easer = new WorldEntity(2, 2, EntityType.Npc) { EasesHeading = true, Direction = 64 };
-            easer.InterpolatePosition(1f / 60f);
-            Assert.True(easer.RenderHeadingRadians > 0f && easer.RenderHeadingRadians < easer.HeadingRadians);
+            foreach (bool eases in new[] { false, true })
+            {
+                var entity = new WorldEntity(1, 1, EntityType.Npc) { EasesHeading = eases, Direction = 64 };
+                entity.InterpolatePosition(1f / 60f);
+                Assert.True(entity.RenderHeadingRadians > 0f && entity.RenderHeadingRadians < entity.HeadingRadians);
+            }
         }
     }
 }
