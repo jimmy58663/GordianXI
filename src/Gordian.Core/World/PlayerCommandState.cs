@@ -269,7 +269,7 @@ namespace Gordian.Core.World
 
     /// <summary>
     /// The bazaar messages the server sent (S2C 0x0CA): the last checked character's, and our own (LandSandBoat sends ours
-    /// on zone-in). The check window that shows them is #64; nothing draws them yet.
+    /// on zone-in). The check window (#64) shows the one that came with a check.
     /// </summary>
     public sealed class InspectMessageState
     {
@@ -299,7 +299,7 @@ namespace Gordian.Core.World
 
     /// <summary>
     /// The state behind the everyday command packets: the emote list (S2C 0x11A), emotes made in range (0x05A), wide scan
-    /// (0x0F4-0x0F6), proposals (0x078 / 0x079), system messages (0x053) and bazaar messages (0x0CA). One per session.
+    /// (0x0F4-0x0F6), proposals (0x078 / 0x079), system messages (0x053), bazaar messages (0x0CA) and player checks (0x0C9). One per session.
     /// </summary>
     public sealed class PlayerCommandState
     {
@@ -307,6 +307,9 @@ namespace Gordian.Core.World
         public WideScanState WideScan { get; } = new();
         public VoteState Votes { get; } = new();
         public InspectMessageState Inspect { get; } = new();
+
+        /// <summary>Player checks (S2C 0x0C9): the checked character's equipment, jobs and linkshell.</summary>
+        public EquipInspectState Equipment { get; } = new();
 
         /// <summary>The last emote made in range (S2C 0x05A), or null.</summary>
         public EmoteEcho? LastEmote { get; private set; }
@@ -333,6 +336,10 @@ namespace Gordian.Core.World
         }
 
         /// <summary>Forgets what does not survive a zone change: the wide scan list and the tracked entity.</summary>
-        public void OnZoneChanged() => WideScan.Clear();
+        public void OnZoneChanged()
+        {
+            WideScan.Clear();
+            Equipment.Clear();
+        }
     }
 }

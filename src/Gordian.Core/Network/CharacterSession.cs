@@ -268,6 +268,14 @@ namespace Gordian.Core.Network
                 }
             };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            // A player check (#64): S2C 0x0C9's general block, sent last, opens the check window.
+            Commands.Equipment.Completed += info =>
+            {
+                string name = ResolveEntityName(info.ServerId) is { Length: > 0 } known ? known : info.Message?.Name ?? string.Empty;
+                // Items for sale: the entity update's BazaarFlag (0x00D), not 0x0CA's, which LandSandBoat always sets.
+                bool bazaar = World.TryGetByServerId(info.ServerId, out var entity) && entity is PlayerEntity { HasBazaar: true };
+                ActionService.Menus.OpenCheck(new Ui.StockUiCheckData(name, info, bazaar));
+            };
             // Treasure pool events print to the message log as the retail client does; a zone change empties the pool
             // (the server sends it again for a party that is still in it).
             var treasureLog = new Ui.StockUiTreasure(id => ActionService.Menus.ItemLookup?.Invoke(id), ResolveEntityName, () => LocalPlayer.ServerId);
