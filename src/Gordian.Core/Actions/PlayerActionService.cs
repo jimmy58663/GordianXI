@@ -420,6 +420,9 @@ namespace Gordian.Core.Actions
         {
             if (CurrentTarget != target)
             {
+                // Retail cannot target anything else while a check window is open (in-game check 2026-10-07); clearing
+                // the target (it went away) still goes through.
+                if (target != null && Menus.IsCheckOpen) return;
                 // The command menu is about the target it was opened on; it closes with it.
                 if (Menus.CommandMenuTarget is { } open && open.TargetServerId != target?.ServerId) Menus.CloseCommandMenu();
                 CurrentTarget = target;
@@ -2063,14 +2066,14 @@ namespace Gordian.Core.Actions
 
         private const string UiLayoutUsage =
             "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
-            "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop, dead. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
+            "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop, dead, check. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
         private static readonly string[] UiWindowIds =
         {
             StockUiWindowIds.Log, StockUiWindowIds.ChatInput, StockUiWindowIds.Party, StockUiWindowIds.Alliance1, StockUiWindowIds.Alliance2,
             StockUiWindowIds.Target, StockUiWindowIds.StatusIcons, StockUiWindowIds.MainMenu, StockUiWindowIds.Query, StockUiWindowIds.CommandMenu,
-            StockUiWindowIds.Shop, StockUiWindowIds.Death,
+            StockUiWindowIds.Shop, StockUiWindowIds.Death, StockUiWindowIds.Check,
         };
 
         /// <summary>

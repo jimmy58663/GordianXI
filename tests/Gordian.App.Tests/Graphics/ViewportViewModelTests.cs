@@ -227,6 +227,199 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        private static Gordian.Core.Network.CharacterSession NewSession(string name, uint id) =>
+            new(name, id, $"user_{name}", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230));
+
+        [Fact]
+        public void CycleCharacter_WrapsBothWays()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            var c = vm.AddSession(NewSession("Claude", 4));
+
+            vm.CycleNextCharacter();
+            Assert.Same(b, vm.ActiveTab);
+            vm.CycleNextCharacter();
+            Assert.Same(c, vm.ActiveTab);
+            vm.CycleNextCharacter();
+            Assert.Same(a, vm.ActiveTab); // wraps
+            vm.CyclePreviousCharacter();
+            Assert.Same(c, vm.ActiveTab); // wraps back
+        }
+
+        [Fact]
+        public void CycleCharacter_IntoAPoppedOutCharacter_FocusesItsWindow()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            vm.AddSession(NewSession("Claude", 4));
+            b.IsPoppedOut = true; // Knot has its own window
+            ViewportCharacterTabViewModel? focused = null;
+            vm.TabPoppedOut += (_, t) => focused = t; // the window manager activates the pop-out on this
+
+            vm.CycleNextCharacter();
+
+            Assert.Same(b, focused);
+            Assert.Same(a, vm.ActiveTab); // the main window keeps its character
+        }
+
+        [Fact]
+        public void CycleCharacter_FromAPopOut_FollowsTheMainWindowsTabOrder()
+        {
+            var main = new ViewportViewModel(enableAutoSave: false);
+            var a = main.AddSession(NewSession("Gordian", 3));
+            var b = main.AddSession(NewSession("Knot", 1));
+            var c = main.AddSession(NewSession("Claude", 4));
+            b.IsPoppedOut = true;
+            Assert.Same(a, main.ActiveTab);
+
+            var popOut = new ViewportViewModel(enableAutoSave: false) { IsPrimary = false, SwitchTarget = main };
+            popOut.AddSession(b.Session);
+            int mainActivations = 0;
+            main.WindowActivationRequested += (_, _) => mainActivations++;
+
+            popOut.CycleNextCharacter(); // Knot -> Claude, shown in the main window
+
+            Assert.Same(c, main.ActiveTab);
+            Assert.Equal(1, mainActivations);
+        }
+
+        [Fact]
+        public void SwitcherClick_RequestsTheWindowFocus()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            int activations = 0;
+            vm.WindowActivationRequested += (_, _) => activations++;
+
+            b.SelectTabCommand.Execute(null);
+
+            Assert.Same(b, vm.ActiveTab);
+            Assert.Equal(1, activations);
+        }
+
+        [Fact]
+        public void CycleCharacter_WithOneTab_StaysPut()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            vm.CycleNextCharacter();
+            vm.CyclePreviousCharacter();
+            Assert.Same(a, vm.ActiveTab);
+        }
+
+        [Fact]
+        public void SwitchingCharacter_ReleasesTheKeysHeldForThePreviousOne()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            vm.AddSession(NewSession("Knot", 1));
+
+            // Ctrl is down for Ctrl+Tab and W keeps the character running; their key-ups go to the new character.
+            a.Session.InputState.SetKeyDown(Gordian.Core.Input.GordianKey.LeftCtrl);
+            a.Session.InputState.SetKeyDown(Gordian.Core.Input.GordianKey.W);
+            vm.CycleNextCharacter();
+
+            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Core.Input.GordianKey.W));
+            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Core.Input.GordianKey.LeftCtrl));
+        }
+
+        [Fact]
+        public void PopOutWindowViewModel_DoesNotTakeThePrimaryRenderingSession()
+        {
+            var primary = new ViewportViewModel(enableAutoSave: false);
+            var main = primary.AddSession(NewSession("Gordian", 3));
+            Assert.Same(main.Session, Gordian.Core.Network.SessionRegistry.Default.PrimaryRenderingSession);
+
+            var popOut = new ViewportViewModel(enableAutoSave: false) { IsPrimary = false };
+            var knot = popOut.AddSession(NewSession("Knot", 1));
+
+            Assert.Same(knot, popOut.ActiveTab);
+            Assert.NotSame(knot.Session, Gordian.Core.Network.SessionRegistry.Default.PrimaryRenderingSession);
+        }
+
+        [Fact]
+        public void MoveOffPoppedOutTab_ShowsTheNextCharacterLeftInTheWindow()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false) { IsPipEnabled = true };
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+
+            a.IsPoppedOut = true;
+            vm.MoveOffPoppedOutTab();
+
+            Assert.Same(b, vm.ActiveTab);
+            Assert.Empty(vm.PipThumbnails); // the popped-out character has its own window, not a thumbnail
+            Assert.False(vm.ShowPipDeck);
+
+            b.IsPoppedOut = true; // every character popped out: the window keeps the one it shows
+            vm.MoveOffPoppedOutTab();
+            Assert.Same(b, vm.ActiveTab);
+            Assert.Equal("2 chars", vm.CharacterCountText);
+        }
+
+        [Fact]
+        public void SwitcherVisibility_FollowsStyleTabsAndLobby()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false) { SelectedTabStyle = ViewportTabStyle.FloatingPill };
+            Assert.False(vm.ShowFloatingPill); // no character yet
+
+            vm.AddSession(NewSession("Gordian", 3));
+            Assert.True(vm.ShowFloatingPill);
+            Assert.False(vm.ShowSideRail);
+            Assert.False(vm.ShowTopRibbon);
+
+            vm.SelectedTabStyle = ViewportTabStyle.SideRail;
+            Assert.False(vm.ShowFloatingPill);
+            Assert.True(vm.ShowSideRail);
+
+            vm.SelectedTabStyle = ViewportTabStyle.TopRibbon;
+            Assert.True(vm.ShowTopRibbon);
+            Assert.False(vm.ShowSideRail);
+
+            vm.SelectedTabStyle = ViewportTabStyle.HotkeysOnly;
+            Assert.False(vm.ShowFloatingPill || vm.ShowSideRail || vm.ShowTopRibbon);
+
+            vm.SelectedTabStyle = ViewportTabStyle.FloatingPill;
+            vm.IsReturningToLobby = true; // black on the way back to character select
+            Assert.False(vm.ShowFloatingPill);
+            vm.IsReturningToLobby = false;
+            Assert.True(vm.ShowFloatingPill);
+        }
+
+        [Fact]
+        public void SwitcherVisibility_RaisesPropertyChangedWhenTabsArrive()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var raised = new System.Collections.Generic.List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            vm.AddSession(NewSession("Gordian", 3));
+
+            Assert.Contains(nameof(ViewportViewModel.ShowFloatingPill), raised);
+        }
+
+        [Fact]
+        public void CameraModeButton_SwitchesTheActiveCharactersCamera()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            Assert.Equal(Gordian.Core.Graphics.CameraMode.ThirdPersonOrbital, a.Session.Locomotion.CameraMode);
+
+            vm.ToggleFreeCamCommand.Execute(null);
+            Assert.Equal(Gordian.Core.Graphics.CameraMode.FreeCam, a.Session.Locomotion.CameraMode);
+            Assert.True(vm.IsFreeCamActive);
+
+            // A key press changed it in game: the switcher follows on the next sync.
+            a.Session.Locomotion.CameraMode = Gordian.Core.Graphics.CameraMode.FirstPerson;
+            vm.SyncFromActiveSession();
+            Assert.Equal(Gordian.Core.Graphics.CameraMode.FirstPerson, vm.ActiveCameraMode);
+            Assert.False(vm.IsFreeCamActive);
+        }
+
         [Fact]
         public void PipStreaming_PopulatesUpToFiveBackgroundCharacters()
         {

@@ -122,7 +122,8 @@ namespace Gordian.Core.Resources
             IReadOnlyDictionary<int, int>? parentOverrides = null,
             GearOcclusion? gearOcclusion = null,
             string? primarySource = null,
-            IReadOnlyList<string?>? extraSources = null)
+            IReadOnlyList<string?>? extraSources = null,
+            IReadOnlyList<int>? extraWeaponSlots = null)
         {
             var model = new EntityModel { Name = name };
 
@@ -147,6 +148,9 @@ namespace Gordian.Core.Resources
                 int removed = allMeshes.RemoveAll(m => WeaponSlotOf(m.SectionName) is int slot && hiddenSlots.Contains(slot));
                 if (removed > 0) GordianLog.Debug("RES", $"{name}: init hides weapon slot(s) {string.Join(",", hiddenSlots)} ({removed} mesh(es)).");
             }
+            // The weapon slot of each mesh: its wepN section, or the slot the caller gives its whole DAT.
+            var meshSlots = new List<int>(allMeshes.Count);
+            foreach (var mesh in allMeshes) meshSlots.Add(WeaponSlotOf(mesh.SectionName) ?? -1);
 
             if (extraDats != null)
             {
@@ -170,12 +174,21 @@ namespace Gordian.Core.Resources
 
                     AddRoutines(model, extra.Routines);
                     allMeshes.AddRange(extra.Meshes);
+                    int datSlot = extraWeaponSlots != null && i < extraWeaponSlots.Count ? extraWeaponSlots[i] : -1;
+                    foreach (var mesh in extra.Meshes) meshSlots.Add(datSlot >= 0 ? datSlot : WeaponSlotOf(mesh.SectionName) ?? -1);
                 }
+            }
+
+            // Weapons the model's init hides (a PC's init links hwpc: the ranged weapon) stay out of sight until a routine
+            // shows them; unlike the fixed models' init-hidden weapons above, they are kept, since an action shows them.
+            foreach (int slot in InitialHiddenWeaponSlots(model.RawMotionRoutines))
+            {
+                if (slot is >= 0 and < 32) model.DefaultHiddenWeaponSlots |= 1 << slot;
             }
 
             if (gearOcclusion != null)
             {
-                // The union spans every worn mesh (and whatever the caller seeded, such as a stowed ranged weapon),
+                // The union spans every worn mesh (the hidden ranged weapon included) and whatever the caller seeded,
                 // then each piece is kept or dropped against it.
                 foreach (var mesh in allMeshes) gearOcclusion.Add(mesh.OccludeType);
                 int hidden = 0;
@@ -191,6 +204,7 @@ namespace Gordian.Core.Resources
                 for (int m = 0; m < allMeshes.Count; m++)
                 {
                     var evaluated = SkeletonPoseEvaluator.BuildAnimatedMeshGroups(allMeshes[m], bindPose);
+                    foreach (var group in evaluated) group.WeaponSlot = meshSlots[m];
                     model.AnimatedMeshGroups.AddRange(evaluated);
                 }
             }
@@ -243,6 +257,8 @@ namespace Gordian.Core.Resources
             var extraDats = new List<ReadOnlyMemory<byte>>();
             var extraSources = new List<string?>();
             var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
+            var extraWeaponSlots = new List<int>();
+            int rangedType = -1;
             var occlusion = new GearOcclusion();
 
             // 1. Face slot (from GrapIdTable[0] & 0xFF)
@@ -254,6 +270,7 @@ namespace Gordian.Core.Resources
                 {
                     extraDats.Add(faceDat);
                     extraSources.Add(DecodedTexture.FileLabel(faceFid));
+                    extraWeaponSlots.Add(-1);
                 }
             }
 
@@ -280,15 +297,16 @@ namespace Gordian.Core.Resources
                     {
                         if (slot == CharacterSlot.Ranged)
                         {
-                            // A stowed ranged weapon is equipped but not drawn: nothing animates its back-mount bone and
-                            // the client scales it to zero until the weapon is drawn. It still counts toward occlusion.
-                            // Referenced from xi-tools (docs/gear/pose.md, "The weapon on the floor").
-                            foreach (var mesh in ParseDatContainer(gearDat, "Ranged").Meshes) occlusion.Add(mesh.OccludeType);
-                            continue;
+                            // The ranged weapon is part of the model as weapon slot 2, hidden until a ranged attack shows it
+                            // (the race base's init hides it, its calg / shlg show it, #158). Its mesh binds to a mount bone
+                            // that the ranged clips (yu?, gu?, na?...) carry into the bow or gun hand at scale 1 and the
+                            // stances hold at scale 0 or at the feet. Its RangeType picks those clips' routines.
+                            rangedType = ReadRangedType(gearDat);
                         }
 
                         extraDats.Add(gearDat);
                         extraSources.Add(DecodedTexture.FileLabel(gearFid));
+                        extraWeaponSlots.Add(slot switch { CharacterSlot.Main => 0, CharacterSlot.Sub => 1, CharacterSlot.Ranged => 2, _ => -1 });
                         if (slot is CharacterSlot.Main or CharacterSlot.Sub)
                         {
                             weaponDats.Add((slot, gearDat));
@@ -307,7 +325,9 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources);
+            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources, extraWeaponSlots);
+            model.RangedType = rangedType;
+            if (rangedType >= 0 && !EnableSpeculativeMotionPacks) model.RebuildMotionRoutines(); // calg / shlg now reach lc / ls<NN>
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
@@ -331,7 +351,8 @@ namespace Gordian.Core.Resources
                 }
 
                 // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
-                int weaponAnimType = 0; // 0 = H2H / Unarmed default
+                // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138).
+                int weaponAnimType = CharacterEquipmentResolver.GetUnarmedWeaponType(race);
                 for (int w = 0; w < weaponDats.Count; w++)
                 {
                     var (slot, dat) = weaponDats[w];
@@ -356,7 +377,7 @@ namespace Gordian.Core.Resources
                 }
 
                 // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
-                // number (folder * 1000 + file, 32013 for Hume male hand-to-hand) as a file id, which names no file or an
+                // number (folder * 1000 + file, 32013 for Hume male club and staff) as a file id, which names no file or an
                 // unrelated one (#203); the path already goes through the VFS and the game directory.
                 string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
                 byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
@@ -528,6 +549,31 @@ namespace Gordian.Core.Resources
             }
         }
 
+        /// <summary>
+        /// A ranged weapon DAT's RangeType: Info section (0x45) byte 14, or -1. Field from xi-model-viewer
+        /// (https://github.com/vekien/xi-model-viewer, ui/js/dat/inspect.js RANGE_TYPE: 1 wind, 2 string, 3 marksmanship,
+        /// 4 throwing weapon, 5 throwing ammo, 6 archery, 10 / 11 handbell); on the retail Hume male ranged DATs
+        /// (2026-10-07) the flutes (model ids 64-71) carry 1, the harps (72-81) 2, the guns and crossbows 3, the bows (their
+        /// meshes also bind to the bowstring joints) 6, the handbells (113, 121) 11, and the 3-vertex stubs (1-21, 159-255) 0. The values match the race base's ranged routines <c>lc01</c>-<c>lc11</c> /
+        /// <c>ls01</c>-<c>ls11</c> (wind <c>sf?</c>, string <c>sh?</c>, gun <c>gu?</c>, throw <c>na?</c>, bow <c>yu?</c>,
+        /// geomancy <c>gc?</c>), which xi-tools docs/ability/mixer.md numbers by the weapon's RangeType. A stub's 0 reads as
+        /// none: <c>lc00</c> / <c>ls00</c> are the singing routines (played by songs, not by a ranged attack).
+        /// </summary>
+        internal static int ReadRangedType(ReadOnlySpan<byte> dat)
+        {
+            var headers = DatSectionWalker.ReadHeaders(dat);
+            for (int h = 0; h < headers.Count; h++)
+            {
+                var head = headers[h];
+                if (head.TypeCode == DatSectionType.Info && head.DataOffset + 15 <= dat.Length)
+                {
+                    byte value = dat[head.DataOffset + 14];
+                    return value is 0 or 0xFF ? -1 : value;
+                }
+            }
+            return -1;
+        }
+
         /// <summary>The weapon slot of a <c>wepN</c> mesh section, or null.</summary>
         internal static int? WeaponSlotOf(string sectionName) =>
             sectionName.Length == 4 && sectionName.StartsWith("wep", StringComparison.Ordinal) && char.IsDigit(sectionName[3])
@@ -538,6 +584,8 @@ namespace Gordian.Core.Resources
         /// The weapon slots a model's <c>init</c> routine leaves hidden (op 0x75, following its links within the model):
         /// Prince Trion's model 64 runs <c>wof4</c> ("weapon off") from <c>init</c>, hiding the sword and scabbard of its
         /// <c>wep4</c> folder, which <c>won4</c> would show again; drawn anyway they hung at his hips pointing outward (#163).
+        /// Links to the shared <c>ROM/0/0</c> weapon routines count too: a PC race base's <c>init</c> links <c>hwpc</c>, which
+        /// hides the ranged weapon (slot 2, #158).
         /// </summary>
         internal static HashSet<int> InitialHiddenWeaponSlots(IReadOnlyDictionary<string, RawMotionRoutine> routines)
         {
@@ -549,6 +597,10 @@ namespace Gordian.Core.Resources
                 {
                     if (command.Op == 0x75 && command.WeaponSlot >= 0) state[command.WeaponSlot] = command.HideWeapon;
                     else if (command.Op is 0x03 or 0x3B && routines.TryGetValue(command.Reference, out var child)) Walk(child, depth + 1);
+                    else if (command.Op is 0x03 or 0x3B && SharedWeaponRoutines.ByName.TryGetValue(command.Reference, out var shared))
+                    {
+                        foreach (var (slot, hide) in shared) state[slot] = hide;
+                    }
                 }
             }
             if (routines.TryGetValue("init", out var init)) Walk(init, 0);

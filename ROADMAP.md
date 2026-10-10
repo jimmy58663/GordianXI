@@ -33,7 +33,7 @@ Four-tier monorepo, clean-room rules, Avalonia MVVM shell, encrypted account pro
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 86 S2C decoders / 77 C2S opcodes, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
 - Packet audit gaps closed (#1-#5); the UI that reads the new caches is tracked in #90-#95.
-- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #109, #112, #117.
+- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #112, #117 (scheduler playback: #311).
 
 ### ✅ Phase 4: World State, DAT Resource Pipeline & Modular VFS
 Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compatible VFS with hot reload. → [docs/world/world-state-and-resources.md](docs/world/world-state-and-resources.md)
@@ -46,9 +46,9 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5B Camera & zone terrain | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; open: routine playback from the network, actor status visuals, actor-attached weather #121) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
-| 5D.1 Transient combat & action animation | ✅ (follow-ups #132, #136, #138) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
+| 5D.1 Transient combat & action animation | ✅ (follow-ups #132, #307, #308) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
-| 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates and event dialog done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
+| 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates, event dialog and check window done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |

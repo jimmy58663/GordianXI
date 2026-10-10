@@ -307,6 +307,7 @@ namespace Gordian.App.Graphics
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
                 : open[0].IsShopMenu ? StockUiWindowIds.Shop
+                : open[0].IsCheck ? StockUiWindowIds.Check
                 : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
