@@ -74,7 +74,9 @@ namespace Gordian.Core.Network.Packets
         /// <summary>Sends C2S 0x041: lots on a pool slot. The server answers with S2C 0x0D3.</summary>
         public Task SendLotAsync(byte slot)
         {
-            byte[] packet = TreasurePacketBuilder.BuildLot(slot, FirstEmptyInventoryIndex(), NextSequence());
+            byte index = FirstEmptyInventoryIndex();
+            byte[] packet = TreasurePacketBuilder.BuildLot(slot, index, NextSequence());
+            GordianLog.Info("TREASURE", $"Sent C2S 0x041 lot: slot={slot} inventoryIndex={index}{(index == 0 ? " (bag full or unknown)" : string.Empty)}");
             LogOutbound(0x041, packet);
             return _sendChunkCallback(packet, true);
         }
@@ -83,6 +85,7 @@ namespace Gordian.Core.Network.Packets
         public Task SendPassAsync(byte slot)
         {
             byte[] packet = TreasurePacketBuilder.BuildPass(slot, NextSequence());
+            GordianLog.Info("TREASURE", $"Sent C2S 0x042 pass: slot={slot}");
             LogOutbound(0x042, packet);
             return _sendChunkCallback(packet, true);
         }

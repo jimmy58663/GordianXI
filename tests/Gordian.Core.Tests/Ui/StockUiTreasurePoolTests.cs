@@ -244,6 +244,150 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("512", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
         }
 
+        private static (StockUiMenuController Menus, TreasurePoolState Pool, PacketDispatcher Dispatcher, List<byte[]> Sent, List<string> Notices, InventoryState Inventory)
+            RealPath(UiResourceLibrary library)
+        {
+            var pool = new TreasurePoolState();
+            var inventory = new InventoryState();
+            var sent = new List<byte[]>();
+            var module = new TreasurePacketModule(pool, new LocalPlayerState { ServerId = LocalId }, inventory, (data, _) =>
+            {
+                sent.Add(data.ToArray());
+                return Task.CompletedTask;
+            });
+            var dispatcher = new PacketDispatcher();
+            module.Register(dispatcher);
+            var menus = new StockUiMenuController
+            {
+                Library = library,
+                TreasurePool = pool,
+                Inventory = inventory,
+                ItemLookup = id => new ItemRecord { ItemId = id, Name = $"Item {id}", LogName = $"item {id}", Flags = id == 1234 ? StockUiTreasurePool.RareFlag : 0 },
+                TreasureLot = slot => module.SendLotAsync(slot),
+                TreasurePass = slot => module.SendPassAsync(slot),
+            };
+            var notices = new List<string>();
+            menus.NoticePosted += notices.Add;
+            pool.Changed += menus.OnTreasureChanged;
+            // An 80-slot bag with a few things in it.
+            inventory.SetContainerSizes(ContainerId.Inventory, 80, 80);
+            inventory.SetItem(ContainerId.Inventory, 1, 4096, 12, ItemLockFlag.Normal);
+            return (menus, pool, dispatcher, sent, notices, inventory);
+        }
+
+        private static StockUiOpenMenu OpenActionWindow(StockUiMenuController menus)
+        {
+            menus.OpenTreasurePool(null);
+            menus.Activate();
+            return menus.Top!;
+        }
+
+        [Fact]
+        public void CastLot_WithAFullBag_ShowsRetailsMessageAndSendsNothing()
+        {
+            var (menus, pool, dispatcher, sent, notices, inventory) = RealPath(UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu(), DoneMenu() }));
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), TrophyList(0, 4096, 497_000)));
+            for (byte i = 2; i <= 80; i++) inventory.SetItem(ContainerId.Inventory, i, 4097, 1, ItemLockFlag.Normal);
+
+            var action = OpenActionWindow(menus);
+            menus.Activate(); // Cast Lot
+            Assert.Empty(sent);
+            Assert.Equal(StockUiTreasurePool.InventoryFullMessage, Assert.Single(notices));
+            Assert.Same(action, menus.Top); // the window stays for Pass
+
+            // Pass still goes out with a full bag.
+            action.SelectedButtonId = StockUiTreasurePool.PassButton;
+            menus.Activate();
+            Assert.Equal(0x042, BinaryPrimitives.ReadUInt16LittleEndian(Assert.Single(sent)) & 0x1FF);
+        }
+
+        [Fact]
+        public void CastLot_OnARareItemAlreadyHeld_ShowsRetailsMessageAndSendsNothing()
+        {
+            var (menus, pool, dispatcher, sent, notices, inventory) = RealPath(UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu(), DoneMenu() }));
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), TrophyList(0, 1234, 497_000)));
+            inventory.SetItem(ContainerId.MogSafe, 3, 1234, 1, ItemLockFlag.Normal); // held anywhere but the recycle bin
+
+            OpenActionWindow(menus);
+            menus.Activate();
+            Assert.Empty(sent);
+            Assert.Equal(StockUiTreasurePool.RareHeldMessage, Assert.Single(notices));
+        }
+
+        [Fact]
+        public void CastLot_AfterAPass_IsGreyed_AsLandSandBoatRefusesIt()
+        {
+            // LSB's passItem adds the passer to the lotters, and lotItem is skipped once hasLottedItem is true.
+            var (menus, pool, dispatcher, sent, notices, _) = RealPath(UiResourceLibrary.FromDefinitions(new[] { LootMenu(), LotMenu(), DoneMenu() }));
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), TrophyList(0, 4096, 497_000)));
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(0, LocalId, 0x0400, -1, 0, 0)));
+            var action = OpenActionWindow(menus);
+            Assert.True(action.IsGreyed(StockUiTreasurePool.LotButton));
+            Assert.True(action.IsGreyed(StockUiTreasurePool.PassButton));
+        }
+
+        /// <summary>
+        /// The maintainer's path through the real input: the target command menu on yourself, Treasure, a row, Cast Lot,
+        /// by keyboard (Enter / Down) and by gamepad (A / d-pad), on the retail menu DAT; then LandSandBoat's lot reply.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void CastLot_ThroughTheRealInputPath_SendsTheLotAndShowsIt(bool gamepad)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            if (library == null) return;
+            var (menus, pool, dispatcher, sent, notices, _) = RealPath(library);
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), TrophyList(0, 4096, 497_000)));
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), TrophyList(1, 4097, 497_000)));
+
+            var profile = gamepad ? InputProfile.CreateGamepadDefault() : InputProfile.CreateCompact();
+            var input = new InputState();
+            var dt = TimeSpan.FromMilliseconds(16);
+            void Press(GordianKey key, GamepadButton button)
+            {
+                if (gamepad) input.SetGamepadState(new GamepadState(true, button, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0f, 0f, 1));
+                else input.SetKeyDown(key);
+                input.MenuContext = menus.IsOpen;
+                input.Update(profile, dt);
+                menus.ProcessInput(input, dt);
+                if (gamepad) input.SetGamepadState(new GamepadState(true, GamepadButton.None, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0f, 0f, 2));
+                else input.SetKeyUp(key);
+                input.MenuContext = menus.IsOpen;
+                input.Update(profile, dt);
+                menus.ProcessInput(input, dt);
+            }
+
+            Assert.True(menus.OpenCommandMenu(new StockUiTargetContext(StockUiTargetKind.Self, LocalId, "Gordian", HasTreasure: true)));
+            var command = menus.Top!;
+            int treasure = command.CommandRows.ToList().FindIndex(r => r.Entry.Command == StockUiMenuCommand.TreasurePool);
+            Assert.True(treasure >= 0);
+            while (command.SelectedButtonId != treasure + 1) Press(GordianKey.Down, GamepadButton.DPadDown);
+            Press(GordianKey.Enter, GamepadButton.A); // Treasure
+            var list = menus.Top!;
+            Assert.True(list.IsTreasureList);
+            Press(GordianKey.Down, GamepadButton.DPadDown); // the second item, slot 1
+            Assert.Equal(2, list.SelectedButtonId);
+            Press(GordianKey.Enter, GamepadButton.A); // the row
+            var action = menus.Top!;
+            Assert.Equal((byte)1, action.TreasureActionSlot);
+            Assert.Equal(StockUiTreasurePool.LotButton, action.SelectedButtonId);
+            Press(GordianKey.Enter, GamepadButton.A); // Cast Lot
+            Assert.Empty(notices);
+            var packet = Assert.Single(sent);
+            Assert.Equal(0x041, BinaryPrimitives.ReadUInt16LittleEndian(packet) & 0x1FF);
+            Assert.Equal(1, packet[4]); // TrophyItemIndex
+            Assert.Equal(2, packet[5]); // PropertyItemIndex: the first empty bag slot
+            Assert.Same(list, menus.Top);
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(1, LocalId, 0x0400, 408, LocalId, 408)));
+            Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[1].Entry);
+            Assert.Equal("408", StockUiTreasurePool.RollText(pool.GetMemberEntry(1, LocalId, LocalId)));
+        }
+
         [Fact]
         public void Done_PassesEveryItemNotLottedAndTogglesWithPlus()
         {

@@ -46,6 +46,16 @@ namespace Gordian.Core.Ui
 
         public const int LotButton = 1, PassButton = 2;
 
+        /// <summary>
+        /// Retail's client messages when a lot cannot be cast (ROM/165/70, the client message table: #125, #126), shown
+        /// instead of sending a lot that LandSandBoat would ignore.
+        /// </summary>
+        public const string InventoryFullMessage = "You cannot cast lots. Your inventory is full.";
+        public const string RareHeldMessage = "You can only hold one item of this type.";
+
+        /// <summary>The item flag of a Rare item (LandSandBoat <c>ItemFlag::Rare</c>).</summary>
+        public const uint RareFlag = 0x8000;
+
         /// <summary>The "Spoils Options" window with its Done button (PC: "+" on the keyboard).</summary>
         public const string DoneMenu = "lnowin";
         public const int DoneButton = 1;

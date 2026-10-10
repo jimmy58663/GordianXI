@@ -232,19 +232,75 @@ namespace Gordian.Core.Ui
         {
             byte slot = menu.TreasureActionSlot!.Value;
             bool lot = button.ButtonId == StockUiTreasurePool.LotButton;
+            var poolSlot = TreasurePool?.GetSlot(slot);
+            string what = lot ? "Cast Lot" : "Pass";
+            ushort itemId = poolSlot?.ItemId ?? 0;
             if (menu.IsGreyed(button.ButtonId))
             {
+                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} item={itemId} reason=already {(poolSlot?.Entry == Network.Packets.TreasureEntryKind.Pass ? "passed" : "lotted")}");
                 NoticePosted?.Invoke(lot ? "You have already cast lots on or passed this item." : "You have already passed on this item.");
+                return;
+            }
+            if (poolSlot == null)
+            {
+                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} reason=not in the pool");
+                CloseMenu(menu);
+                return;
+            }
+            if (lot && TreasureLotRefusal(poolSlot) is { } refusal)
+            {
+                // Retail checks before sending, and LandSandBoat would ignore the lot without a word (treasure_pool.cpp).
+                GordianLog.Info("TREASURE", $"Cast Lot refused in the window: slot={slot} item={itemId} reason={refusal.Reason}");
+                NoticePosted?.Invoke(refusal.Message);
                 return;
             }
             CloseMenu(menu);
             var send = lot ? TreasureLot : TreasurePass;
             if (send == null)
             {
+                GordianLog.Info("TREASURE", $"{what} not sent: slot={slot} item={itemId} reason=no session");
                 NoticePosted?.Invoke("The treasure pool is not available in this session.");
                 return;
             }
+            GordianLog.Info("TREASURE", $"{what} confirmed in the window: slot={slot} item={itemId}, sending");
             _ = SendTreasureAsync(send, slot, lot);
+        }
+
+        /// <summary>
+        /// Why a lot on a pool item would be refused, as retail checks it before sending (null when it may go): a full
+        /// inventory ("You cannot cast lots. Your inventory is full.", ROM/165/70 #125) or a Rare item the character already
+        /// holds in any container but the recycle bin ("You can only hold one item of this type.", ROM/165/70 #126).
+        /// LandSandBoat refuses both silently (<c>CTreasurePool::lotItem</c>, <c>charutils::HasItem</c>). The inventory
+        /// counts as full only once its size is known (S2C 0x01C).
+        /// </summary>
+        public (string Reason, string Message)? TreasureLotRefusal(TreasureSlot slot)
+        {
+            ArgumentNullException.ThrowIfNull(slot);
+            var inventory = Inventory;
+            if (inventory == null) return null;
+            var bag = inventory.GetContainer(Network.Packets.ContainerId.Inventory);
+            if (bag.MaxSize > 0)
+            {
+                int used = 0;
+                foreach (var item in inventory.SnapshotItems(Network.Packets.ContainerId.Inventory))
+                {
+                    if (item.Slot >= 1 && item.ItemId != 0) used++;
+                }
+                if (used >= bag.MaxSize) return ("inventory full", StockUiTreasurePool.InventoryFullMessage);
+            }
+            var record = ItemLookup?.Invoke(slot.ItemId);
+            if (record != null && (record.Flags & StockUiTreasurePool.RareFlag) != 0)
+            {
+                for (var container = Network.Packets.ContainerId.Inventory; container < Network.Packets.ContainerId.Count; container++)
+                {
+                    if (container == Network.Packets.ContainerId.RecycleBin) continue;
+                    foreach (var item in inventory.SnapshotItems(container))
+                    {
+                        if (item.ItemId == slot.ItemId) return ("rare item already held", StockUiTreasurePool.RareHeldMessage);
+                    }
+                }
+            }
+            return null;
         }
 
         private async Task SendTreasureAsync(Func<byte, Task> send, byte slot, bool lot)
