@@ -562,8 +562,17 @@ namespace Gordian.Core.World
                 }
             }
 
-            // Smoothly rotate visual heading towards target heading
+            // Without the server's TurnFlag the client turns a standing entity to its new heading at once; the flag asks for
+            // the turn to be eased (XiPackets 0x000D / 0x000E flags1_t TurnFlag). While it travels, the facing keeps easing
+            // along the played-back path.
             float targetHeadingRad = HeadingRadians;
+            if (!EasesHeading && distToTarget <= 0f)
+            {
+                RenderHeadingRadians = targetHeadingRad;
+                return;
+            }
+
+            // Smoothly rotate visual heading towards target heading
             float diff = targetHeadingRad - RenderHeadingRadians;
             while (diff > MathF.PI) diff -= MathF.PI * 2.0f;
             while (diff < -MathF.PI) diff += 2.0f * MathF.PI;
@@ -659,6 +668,93 @@ namespace Gordian.Core.World
         /// </summary>
         public bool IsHidden { get; set; }
 
+        /// <summary>
+        /// The server's SleepFlag (0x00D / 0x00E Flags1 bit 2): the entity's scheduler is suspended, so the client neither draws
+        /// nor targets it (XiPackets). An event still draws its own participants, as for <see cref="IsHidden"/>.
+        /// </summary>
+        public bool IsSleeping { get; set; }
+
+        /// <summary>The server's TargetOffFlag (Flags1 bit 19): drawn, but not targetable by normal means (XiPackets).</summary>
+        public bool IsTargetOff { get; set; }
+
+        /// <summary>
+        /// 0x00E AutoPartyFlag (Flags2 bit 31): invisible and not targetable by normal means; only auto-targeting picks it once
+        /// it attacks the player (XiPackets). GordianXI has no auto-target, so it is simply not drawn or targeted.
+        /// </summary>
+        public bool IsAutoTargetOnly { get; set; }
+
+        /// <summary>
+        /// The server's TurnFlag (Flags1 bit 30): a new heading is eased over time. Clear (LandSandBoat never sets it), a
+        /// standing entity turns to a new heading at once (<see cref="UpdateHeading"/>).
+        /// </summary>
+        public bool EasesHeading { get; set; }
+
+        /// <summary>
+        /// The server's <c>facetarget</c> (Flags0 bits 17-31): the target index of the entity whose way this entity's head turns,
+        /// or 0 for none. The renderer turns the head as for an event look while no event look is set.
+        /// </summary>
+        public ushort FaceTargetIndex { get; set; }
+
+        /// <summary>The 0x00E model hitbox size (Flags2.g x 0.1 yalms); 0 when not sent. Nothing reads it yet.</summary>
+        public float ModelHitboxRadius { get; set; }
+
+        /// <summary>The server's ShadowFlag (Flags2 bit 25): the shadow is hidden. GordianXI draws no entity shadows yet.</summary>
+        public bool HidesShadow { get; set; }
+
+        /// <summary>The server's NamedFlag (0x00E Flags2 bit 29): a proper name, which takes no "The" (XiPackets).</summary>
+        public bool HasProperName { get; set; }
+
+        /// <summary>The server's SingleFlag (0x00E Flags2 bit 30): referred to in the plural (XiPackets). Nothing reads it yet.</summary>
+        public bool IsPlural { get; set; }
+
+        /// <summary>The server's PetNewFlag (0x00E Flags3 bit 2): a pet being spawned (another spawn animation). Nothing reads it yet.</summary>
+        public bool IsPetSpawning { get; set; }
+
+        /// <summary>
+        /// The server's MotStopFlag (Flags3 bit 4): the motion is paused, so the entity freezes in its current pose (petrify,
+        /// terror; XiPackets). The renderer stops advancing its animation and its head look.
+        /// </summary>
+        public bool IsMotionStopped { get; set; }
+
+        /// <summary>
+        /// The server's CliPriorityFlag (Flags3 bit 5): drawn past the client's entity limit. GordianXI has no entity limit, so
+        /// every entity is drawn already.
+        /// </summary>
+        public bool IsPriorityDrawn { get; set; }
+
+        /// <summary>The server's OcclusionoffFlag (0x00E Flags3 bit 7). GordianXI runs no entity occlusion tests.</summary>
+        public bool IsOcclusionExempt { get; set; }
+
+        /// <summary>
+        /// 0x00E Flags3 bit 31: drawn half-transparent (retail overrides the distance alpha to 0.5; LandSandBoat's name
+        /// visibility <c>ghost_phase</c>).
+        /// </summary>
+        public bool IsHalfTransparent { get; set; }
+
+        /// <summary>The server animation status of a dead entity (LandSandBoat <c>xi.animation.DEATH</c>).</summary>
+        public const byte StatusDead = 3;
+
+        /// <summary>
+        /// A monster, pet or Trust in its death status (<see cref="AnimationState"/> 3). LandSandBoat sends nothing else at
+        /// death that the client could read (no flag; HP 0 and the hitbox byte 0, the status byte keeps MonsterFlag until the
+        /// fade), so the death status is what greys the name and makes it untargetable (#327). Players are left out: a dead
+        /// player stays targetable (Raise).
+        /// </summary>
+        public bool IsDeadBattleEntity => AnimationState == StatusDead && Type is EntityType.Monster or EntityType.Pet or EntityType.Trust;
+
+        /// <summary>
+        /// Whether the server's state lets the entity be targeted: not hidden, invisible, asleep (SleepFlag), TargetOff,
+        /// auto-target only, or a dead monster. Targeting also needs a name and a spawned entity (<see cref="Input.TargetCycling"/>).
+        /// </summary>
+        public bool IsServerTargetable =>
+            !IsHidden && !IsInvisible && !IsSleeping && !IsTargetOff && !IsAutoTargetOnly && !IsDeadBattleEntity;
+
+        /// <summary>
+        /// Whether a message names the entity with "the": a monster without NamedFlag (<see cref="HasProperName"/>).
+        /// PROVISIONAL: retail's rule for NPCs is not checked, so NPCs take none.
+        /// </summary>
+        public bool TakesArticle => Type == EntityType.Monster && !HasProperName;
+
         private volatile bool _isInEvent;
 
         /// <summary>
@@ -674,11 +770,11 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
-        /// Whether the renderer draws the entity: not while the server hides it (HideFlag), unless it takes part in the
-        /// running event (retail draws event entities by their event state, then restores the entity's own state when
-        /// the event object is destroyed).
+        /// Whether the renderer draws the entity: not while the server hides it (HideFlag), suspends it (SleepFlag) or makes
+        /// it auto-target only (0x00E AutoPartyFlag), unless it takes part in the running event (retail draws event entities
+        /// by their event state, then restores the entity's own state when the event object is destroyed).
         /// </summary>
-        public bool IsDrawn => !IsEventHidden && (!IsHidden || IsInEvent);
+        public bool IsDrawn => !IsEventHidden && ((!IsHidden && !IsSleeping && !IsAutoTargetOnly) || IsInEvent);
 
         private volatile EventPose? _eventPose;
         private volatile EventLook? _eventLook;

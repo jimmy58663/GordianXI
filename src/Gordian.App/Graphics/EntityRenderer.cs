@@ -137,8 +137,14 @@ namespace Gordian.App.Graphics
         /// <summary>Each humanoid entity's talking mouth and blink (<see cref="FaceMotion"/>).</summary>
         private readonly Dictionary<uint, FaceMotion> _faces = new();
 
-        /// <summary>The entities of this frame by server id, filled only while some entity has an event look.</summary>
+        /// <summary>The entities of this frame by server id, filled only while some entity has an event look or a face target.</summary>
         private readonly Dictionary<uint, WorldEntity> _lookTargets = new();
+
+        /// <summary>
+        /// The entities of this frame by target index, for the server's face target (0x00D / 0x00E <c>facetarget</c>), filled
+        /// with <see cref="_lookTargets"/>.
+        /// </summary>
+        private readonly Dictionary<ushort, WorldEntity> _lookTargetsByIndex = new();
 
         /// <summary>
         /// The skeleton reference that marks the overhead point: a straight offset up from the root joint, authored per
@@ -318,7 +324,7 @@ namespace Gordian.App.Graphics
         /// drawn after the others, first into depth only and then blended over what is behind it, so it shows as one see-through
         /// body rather than its inner layers.
         /// </summary>
-        private static bool IsFaded(WorldEntity entity) => entity.EventAlpha < WorldEntity.OpaqueEventAlpha;
+        private static bool IsFaded(WorldEntity entity) => entity.EventAlpha < WorldEntity.OpaqueEventAlpha || entity.IsHalfTransparent;
 
         /// <summary>
         /// Renders all active, spawned entities in the world into the active command list.
@@ -384,10 +390,15 @@ namespace Gordian.App.Graphics
             var outdoorLights = ActorLighting.From(environment);
 
             _lookTargets.Clear();
+            _lookTargetsByIndex.Clear();
             foreach (var entity in entities)
             {
-                if (entity.EventLook == null) continue;
-                foreach (var other in entities) _lookTargets[other.ServerId] = other;
+                if (entity.EventLook == null && entity.FaceTargetIndex == 0) continue;
+                foreach (var other in entities)
+                {
+                    _lookTargets[other.ServerId] = other;
+                    if (other.IsSpawned && other.TargetIndex != 0) _lookTargetsByIndex[other.TargetIndex] = other;
+                }
                 break;
             }
 
@@ -491,6 +502,8 @@ namespace Gordian.App.Graphics
                 // An event faded it out completely (0x6C to alpha 0): nothing to draw.
                 int eventAlpha = entity.EventAlpha;
                 if (eventAlpha <= 0) continue;
+                // 0x00E Flags3 bit 31 (LandSandBoat ghost_phase): retail draws the entity at alpha 0.5 (XiPackets 0x000E).
+                if (entity.IsHalfTransparent) eventAlpha = Math.Min(eventAlpha, WorldEntity.OpaqueEventAlpha / 2);
                 bool faded = eventAlpha < WorldEntity.OpaqueEventAlpha;
 
                 // Resolve or build GPU model
@@ -590,7 +603,12 @@ namespace Gordian.App.Graphics
                             $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, MovTime={entity.LastMovTime})");
                     }
 
-                    entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
+                    // MotStopFlag (petrify, terror): the motion scheduler is paused, so the pose freezes where it is (XiPackets
+                    // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion.
+                    if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
+                    {
+                        entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
+                    }
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
                     bool weaponsInHands = entity.Animation.WeaponGripOverride ?? engaged;
@@ -708,6 +726,8 @@ namespace Gordian.App.Graphics
         {
             var target = Vector2.Zero;
             _headTurn.TryGetValue(entity.ServerId, out var current);
+            // MotStopFlag (petrify, terror): the whole motion is frozen, the head with it.
+            if (entity.IsMotionStopped && entity.EventLook == null) return current;
             if (entity.EventLook is { Axis: { } axis })
             {
                 // A fixed look axis (0x79 sub 2): the head moves toward it at the event's head turn speed.
@@ -715,7 +735,10 @@ namespace Gordian.App.Graphics
                 _headTurn[entity.ServerId] = held;
                 return held;
             }
-            if (entity.EventLook is { } look && _lookTargets.TryGetValue(look.TargetServerId, out var other))
+            WorldEntity? other = null;
+            if (entity.EventLook is { } look) _lookTargets.TryGetValue(look.TargetServerId, out other);
+            else if (FaceTargetOf(entity) is { } faced) other = faced;
+            if (other != null)
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
                 target.X = HeadLook.TargetYaw(heading, position, otherPosition);
@@ -729,6 +752,20 @@ namespace Gordian.App.Graphics
             if (target == Vector2.Zero && MathF.Abs(next.X) < 1e-3f && MathF.Abs(next.Y) < 1e-3f) _headTurn.Remove(entity.ServerId);
             else _headTurn[entity.ServerId] = next;
             return next;
+        }
+
+        /// <summary>
+        /// The entity the server has this one's head turn toward (0x00D / 0x00E <c>facetarget</c>, XiPackets: "the client uses
+        /// this value to turn the entity's head towards the target"), or null: none, itself, not in the zone, or not while the
+        /// entity takes part in a running event (the event's own look rules then) or is dead. The turn and tilt use the event
+        /// look's limits and ease (<see cref="HeadLook"/>; retail's are not measured).
+        /// </summary>
+        private WorldEntity? FaceTargetOf(WorldEntity entity)
+        {
+            ushort index = entity.FaceTargetIndex;
+            if (index == 0 || index == entity.TargetIndex || entity.IsInEvent || entity.IsDeadBattleEntity) return null;
+            if (!_lookTargetsByIndex.TryGetValue(index, out var faced) || !faced.IsSpawned || !faced.IsDrawn) return null;
+            return faced;
         }
 
         /// <summary>
