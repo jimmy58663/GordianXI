@@ -174,7 +174,7 @@ namespace Gordian.Core.World
         /// Applies an S2C 0x0D2. An item with an id fills its slot (replacing what was there); a packet with gil
         /// only has no slot. An out of range slot is ignored.
         /// </summary>
-        internal void ApplyFound(in S2C_0x0D2_TrophyList packet)
+        internal void ApplyFound(in S2C_0x0D2_TrophyList packet, uint localId = 0)
         {
             bool hasItem = packet.ItemId != 0;
             if (hasItem && packet.Slot >= SlotCount) return;
@@ -188,9 +188,12 @@ namespace Gordian.Core.World
                     var known = _slots[packet.Slot];
                     if (known != null && known.ItemId == packet.ItemId && known.StartTime == packet.StartTime)
                     {
-                        // The same item sent again (LandSandBoat's updatePool on a party change): what we know of the lots
-                        // stays; LSB's re-sent packet says nothing about them.
-                        _slots[packet.Slot] = known with { Count = Math.Max(1u, packet.ItemCount) };
+                        // The same item sent again (LandSandBoat's updatePool on a zone change or a party leave / rejoin):
+                        // your own lot or pass is gone, as retail lets you lot again then (the maintainer's retail check,
+                        // 2026-10-10) and LandSandBoat's CTreasurePool::delMember erases the leaver's lotters; the other
+                        // members' lots stay on the server and are kept here.
+                        _slots[packet.Slot] = known with { Count = Math.Max(1u, packet.ItemCount), Entry = TreasureEntryKind.None, LocalLot = 0 };
+                        if (localId != 0) _entries[packet.Slot]?.Remove(localId);
                     }
                     else
                     {

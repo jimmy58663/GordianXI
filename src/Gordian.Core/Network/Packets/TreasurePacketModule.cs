@@ -57,7 +57,7 @@ namespace Gordian.Core.Network.Packets
             if (!list.IsValid) return;
 
             GordianLog.Debug("TREASURE", $"Pool item: slot={list.Slot}, item={list.ItemId}, gil={list.Gold}, dropper=0x{list.DropperId:X8}, entry={list.Entry}");
-            _pool.ApplyFound(in list);
+            _pool.ApplyFound(in list, _localPlayerState.ServerId);
         }
 
         private void HandleTrophySolution(PacketHeader header, ReadOnlySpan<byte> payload)

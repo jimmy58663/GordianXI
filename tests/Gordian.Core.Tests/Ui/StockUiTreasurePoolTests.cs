@@ -186,7 +186,7 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void CastLot_FromTheWindow_SendsTheLotAndShowsItAfterLsbsReply_EvenOnAResentPool()
+        public void CastLot_FromTheWindow_SendsTheLot_AndAResentPoolLetsYouLotAgain()
         {
             // The real module: Cast Lot goes out as C2S 0x041 through it.
             var pool = new TreasurePoolState();
@@ -238,10 +238,43 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[0].Entry); // orange-red
             Assert.Equal("512", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
 
-            // The pool re-sent again keeps what we know: still our lot, Cast Lot greyed.
+            // Another member lots 300, then a zone change or party leave / rejoin re-sends the pool: retail lets you lot
+            // again (the maintainer's retail check, 2026-10-10) and LandSandBoat's delMember erased your lot, so your own
+            // entry resets; the other member's lot stays.
+            const uint Knot = 0x01000002;
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(4, Knot, 0x0401, 300, LocalId, 512)));
             Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), resent));
-            Assert.Equal(TreasureEntryKind.Lot, pool.GetSlot(4)!.Entry);
-            Assert.Equal("512", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
+            Assert.Equal(TreasureEntryKind.None, pool.GetSlot(4)!.Entry); // white again
+            Assert.Equal(TreasureEntryKind.None, list.TreasureRows[0].Entry);
+            Assert.Equal("?", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
+            Assert.Equal("300", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, Knot, LocalId)));
+
+            // Lot again: Cast Lot is enabled, a second 0x041 goes out, and LSB's reply gives the new number.
+            menus.Activate(); // the row
+            action = menus.Top!;
+            Assert.False(action.IsGreyed(StockUiTreasurePool.LotButton));
+            Assert.False(action.IsGreyed(StockUiTreasurePool.PassButton));
+            menus.Activate(); // Cast Lot
+            Assert.Equal(2, sentPackets.Count);
+            Assert.Equal(0x041, BinaryPrimitives.ReadUInt16LittleEndian(sentPackets[1]) & 0x1FF);
+            Assert.Equal(4, sentPackets[1][4]);
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(4, LocalId, 0x0400, 77, Knot, 300)));
+            Assert.Equal(TreasureEntryKind.Lot, list.TreasureRows[0].Entry);
+            Assert.Equal("77", StockUiTreasurePool.RollText(pool.GetMemberEntry(4, LocalId, LocalId)));
+        }
+
+        [Fact]
+        public void ResentPool_ResetsYourOwnPassToo()
+        {
+            var f = new Fixture();
+            f.Found(0, 4096, 497_000);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D3, 60, 1), LsbEntry(0, LocalId, 0x0400, -1, 0, 0)));
+            Assert.Equal(TreasureEntryKind.Pass, f.Pool.GetSlot(0)!.Entry);
+            var resent = TrophyList(0, 4096, 497_000, entry: 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(resent.AsSpan(4, 4), 0);
+            Assert.True(f.Dispatcher.Dispatch(new PacketHeader(0x0D2, 60, 1), resent));
+            Assert.Equal(TreasureEntryKind.None, f.Pool.GetSlot(0)!.Entry);
+            Assert.Equal("?", StockUiTreasurePool.RollText(f.Pool.GetMemberEntry(0, LocalId, LocalId)));
         }
 
         private static (StockUiMenuController Menus, TreasurePoolState Pool, PacketDispatcher Dispatcher, List<byte[]> Sent, List<string> Notices, InventoryState Inventory)
