@@ -591,6 +591,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `75 00 room:work` (4), `75 01` (2), `75 02` (2). Every sub yields while the zone is still reading room data. Sub 0 opens the indoor room without telling the server, sub 1 passes, sub 2 sends the player's sub-region (C2S 0x0F2) and retries until it is queued (XiEvents OpCodes/0x0075).
 - GordianXI (#117): sub 0 records the room as `WorldState.SubMap.IndoorRoom` (`IEventVmHost.OpenIndoorRoom`) for the renderer of building interiors ([#68](https://github.com/jimmy58663/GordianXI/issues/68)), which does not draw it yet; sub 2 sends C2S 0x0F2 state 2 through `LifecyclePacketModule.SendSubMapChangeAsync` and stores the number as the sub-map. Nothing reads room data yet, so `IsReadingRoomData` never makes a sub wait. A sub other than 0-2, where retail stalls, is stepped over with a diagnostic.
+- Where `75 02` runs (2026-10-10 scan, every zone): Port Bastok (236) event 322, Norg (252) events 209 / 210, Lower Jeuno (245) events 99 / 100 and 10057-10070, the room a block constant (operand `0x80nn`), and 17 events in Heavens Tower (242). Port Jeuno (246) has none: its airship doors (event 54 of the Arrivals Entrance, 0x010F6053) walk the player with 0x1F in the player's block instead.
 - **Beyond XiEvents:** XiEvents' sub 2 moves the program position back 6 bytes before it reads its operand, and moves forward 8 once the packet is queued. Every one of the 33 retail `75 02` sites (2026-10-01, all zones) follows `75 00 room 75 01`, so sub 2 reuses the room operand of the `75 00` six bytes earlier and is 2 bytes long.
 
 ### 0x77, 0x78, 0xC9
@@ -735,7 +736,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0xA6
 
 - Layout: `A6 00` (2) queues C2S 0x0EB and yields; `A6 01` (2) yields until the S2C 0x10E answer clears the flag; `A6 02 dest:work` (4) stores the sub-map number (XiEvents OpCodes/0x00A6; the packet pairing is also in xi-tools `docs/reference/ps2_decomp_crosscheck.md`).
-- Real use: subs 0, 1 and 2 once each, in one event (2026-10-01 scan; XiPackets 0x010E names it: Windurst mission 9-2's last cutscene, Heavens Tower to Windurst Walls, answered with 0). The other 202 census events are table data (see 0x9D).
+- Real use: subs 0, 1 and 2 once each, in one event (2026-10-01 scan; XiPackets 0x010E names it: Windurst mission 9-2's last cutscene, Heavens Tower to Windurst Walls, answered with 0). The other 202 census events are table data (see 0x9D). The event is Windurst Walls (zone 239) event 443, in NPC block 0x010EF064 (and 60 other blocks; LSB's Kalupa-Tawalupa.lua notes it as "CS 443, Long Star Sybil CS"); `A6 00 A6 01 A6 02 dest` sits at offset 1708, followed by `75 00 dest 75 01`, which opens the indoor room the server's number names (2026-10-10 scan, every zone). `!cs 443` in Windurst Walls plays it on LSB.
 - GordianXI (#117): runs. Sub 0 sends C2S 0x0EB (`LifecyclePacketModule.RequestSubMapNumberAsync`) and marks `WorldState.SubMap.RequestPending`; sub 1 waits until S2C 0x10E clears it; sub 2 stores `WorldState.SubMap.SubMapNumber`. Every sub yields a frame, as retail's set RetFlag. LSB answers C2S 0x0EB only while an event holds the character, which is the case here.
 
 ### 0xAB
