@@ -118,6 +118,8 @@ namespace Gordian.Core.Network
             {
                 if (_currentState != value)
                 {
+                    // A session coming up starts its server-silence clock now (TimeSinceLastServerPacket).
+                    if (_currentState == SessionState.Disconnected) Volatile.Write(ref _lastServerTrafficTimestamp, _time.GetTimestamp());
                     _currentState = value;
                     GordianLog.Debug("NET", $"Session state changed to: {_currentState}");
                     StateChanged?.Invoke(this, _currentState);
@@ -321,7 +323,7 @@ namespace Gordian.Core.Network
         public event Action<SessionLogout>? LoggedOut;
 
         private volatile bool _positionUpdatesSuspended;
-        private volatile bool _sessionEnding;
+        private int _sessionEndingFlag;
 
         /// <summary>
         /// True from an S2C 0x00B that takes the character off this map server (logout, zone change, Mog House) until the
@@ -336,10 +338,100 @@ namespace Gordian.Core.Network
         /// True once the server has logged the character out (S2C 0x00B state 1, 5 or 10): nothing more is sent for it,
         /// until a new <see cref="ConnectAsync"/>.
         /// </summary>
-        public bool SessionEnding => _sessionEnding;
+        public bool SessionEnding => Volatile.Read(ref _sessionEndingFlag) != 0;
 
         /// <summary>The kind of logout the client has asked for with C2S 0x0E7 and not cancelled (null when none).</summary>
         public ReqLogoutKind? PendingLogoutKind => _parser.LifecycleModule.PendingLogoutKind;
+
+        /// <summary>
+        /// Default for <see cref="ConnectionLostAfter"/>: 10 seconds without a server datagram, the maintainer's call from
+        /// retail play (2026-10-07, #235): retail's Send/Receive tracker reads R0 and the red circle shows a couple of
+        /// seconds later. (LandSandBoat, https://github.com/LandSandBoat/server <c>map_session_container.cpp</c>
+        /// <c>cleanupSessions</c>, marks a character link dead for others after 5 seconds without a client packet.)
+        /// </summary>
+        public static readonly TimeSpan DefaultConnectionLostAfter = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// Default for <see cref="ServerSilenceTimeout"/>: 60 seconds without a server datagram. LandSandBoat clears a map
+        /// session after <c>map.MAX_TIME_LASTUPDATE</c> (60 s by default) without a client packet, and the maintainer's
+        /// 2026-10-03 test saw the server drop the session about a minute after it stopped answering (#235). The retail
+        /// client's own timeout is not measured yet.
+        /// </summary>
+        public static readonly TimeSpan DefaultServerSilenceTimeout = TimeSpan.FromSeconds(60);
+
+        private readonly TimeProvider _time;
+        private long _lastServerTrafficTimestamp;
+        private volatile bool _connectionLost;
+
+        /// <summary>How long without a server datagram before <see cref="IsConnectionLost"/> turns on.</summary>
+        public TimeSpan ConnectionLostAfter { get; set; } = DefaultConnectionLostAfter;
+
+        /// <summary>How long without a server datagram before the client ends the session itself (LogoutState Timeout).</summary>
+        public TimeSpan ServerSilenceTimeout { get; set; } = DefaultServerSilenceTimeout;
+
+        /// <summary>
+        /// Time since the last datagram from the map server that verified and parsed (or since the session connected),
+        /// zero while disconnected. The LandSandBoat map server sends only in reply to a client datagram
+        /// (<c>MapNetworking::parse</c> then <c>send_parse</c>), and the client sends at least the 4 Hz C2S 0x015, so a
+        /// healthy session hears from it several times a second. A server that has dropped the session's key (a second
+        /// login on the account, #235) cannot decrypt the client's datagrams and answers none.
+        /// </summary>
+        public TimeSpan TimeSinceLastServerPacket => CurrentState == SessionState.Disconnected
+            ? TimeSpan.Zero
+            : _time.GetElapsedTime(Volatile.Read(ref _lastServerTrafficTimestamp));
+
+        /// <summary>
+        /// True while the server has not answered for <see cref="ConnectionLostAfter"/> or longer (outside a zone
+        /// transition): the UI draws the connection-lost indicator, the link-dead red circle by the player's own name.
+        /// Updated by <see cref="CheckServerSilence"/> and cleared as soon as a server datagram arrives.
+        /// </summary>
+        public bool IsConnectionLost => _connectionLost;
+
+        /// <summary>Raised when <see cref="IsConnectionLost"/> changes (from a network thread).</summary>
+        public event Action<bool>? ConnectionLostChanged;
+
+        private void SetConnectionLost(bool lost)
+        {
+            if (_connectionLost == lost) return;
+            _connectionLost = lost;
+            if (lost) GordianLog.Warning("NET", $"No datagram from the map server for {TimeSinceLastServerPacket.TotalSeconds:F1} s: connection lost.");
+            else GordianLog.Info("NET", "Map server traffic resumed: connection restored.");
+            try { ConnectionLostChanged?.Invoke(lost); }
+            catch (Exception ex) { GordianLog.Error("NET", "ConnectionLostChanged handler failed", ex); }
+        }
+
+        /// <summary>Notes a datagram from the server that verified and parsed.</summary>
+        private void RecordServerTraffic()
+        {
+            Volatile.Write(ref _lastServerTrafficTimestamp, _time.GetTimestamp());
+            if (_connectionLost) SetConnectionLost(false);
+        }
+
+        /// <summary>
+        /// The session's server-silence watchdog, run on every outbound network tick (4 Hz): turns
+        /// <see cref="IsConnectionLost"/> on after <see cref="ConnectionLostAfter"/> without a server datagram, and after
+        /// <see cref="ServerSilenceTimeout"/> ends the session as a logout with state Timeout (8,
+        /// <c>GP_GAME_LOGOUT_STATE_TIMEOUT</c>, "the client has timed out", XiPackets https://github.com/atom0s/XiPackets
+        /// <c>world/server/0x000B</c>), through the same path as a logout S2C 0x00B; like a Log Out it goes back to the character select screen (<see cref="SessionLogout.ReturnsToLobby"/>). Each session runs its own.
+        /// </summary>
+        internal void CheckServerSilence()
+        {
+            var state = CurrentState;
+            if (state is SessionState.Disconnected or SessionState.Disconnecting || SessionEnding)
+            {
+                SetConnectionLost(false);
+                return;
+            }
+
+            TimeSpan silence = TimeSinceLastServerPacket;
+            // Not during a zone change (its own loading screen). Harmless: retail cannot zone while disconnecting (maintainer, 2026-10-07).
+            SetConnectionLost(silence >= ConnectionLostAfter && !ZoneTransitionPending);
+            if (silence >= ServerSilenceTimeout)
+            {
+                EndSession(new SessionLogout(LogoutState.Timeout, PendingLogoutKind),
+                    $"No datagram from the map server for {silence.TotalSeconds:F0} s (timeout {ServerSilenceTimeout.TotalSeconds:F0} s): ending the session.");
+            }
+        }
 
         /// <summary>
         /// Whether an S2C 0x00B state takes the character off this map server. Cancel (4) keeps it in the zone, as
@@ -363,9 +455,12 @@ namespace Gordian.Core.Network
             string serverAddress,
             int serverPort,
             IPacketCryptoSuite? cryptoSuite = null,
-            FfxiCodec? codec = null)
+            FfxiCodec? codec = null,
+            TimeProvider? timeProvider = null)
         {
             _serverAddress = serverAddress ?? throw new ArgumentNullException(nameof(serverAddress));
+            _time = timeProvider ?? TimeProvider.System;
+            _lastServerTrafficTimestamp = _time.GetTimestamp();
             _serverPort = serverPort;
             _codec = codec ?? FfxiCodec.Default;
             _parser = new PacketParser(this.Profile, this.QueueChunkAsync, cryptoSuite, _codec)
@@ -458,16 +553,27 @@ namespace Gordian.Core.Network
                 }
                 else if (EndsSession(state))
                 {
-                    _sessionEnding = true;
                     var logout = new SessionLogout(state, PendingLogoutKind);
-                    GordianLog.Info("NET", $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
-                                           $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.");
-                    World.Clear();
-                    try { LoggedOut?.Invoke(logout); }
-                    catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
-                    Disconnect();
+                    EndSession(logout, $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
+                                       $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.");
                 }
             };
+        }
+
+        /// <summary>
+        /// Ends the session client-side, once: nothing more is sent, the world is cleared, <see cref="LoggedOut"/> is raised
+        /// (before the Disconnected state, so a handler can act first) and the session disconnects. Used for a logout
+        /// S2C 0x00B and for a server that has stopped answering (<see cref="CheckServerSilence"/>).
+        /// </summary>
+        private void EndSession(SessionLogout logout, string reason)
+        {
+            if (Interlocked.Exchange(ref _sessionEndingFlag, 1) != 0) return;
+            GordianLog.Info("NET", reason);
+            SetConnectionLost(false);
+            World.Clear();
+            try { LoggedOut?.Invoke(logout); }
+            catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
+            Disconnect();
         }
 
         private void SuspendPositionUpdates(LogoutState state)
@@ -481,7 +587,7 @@ namespace Gordian.Core.Network
         /// Whether an outbound sub-packet may still be sent: nothing once the session is ending, and no C2S 0x015 while
         /// position updates are suspended (see <see cref="PositionUpdatesSuspended"/>).
         /// </summary>
-        private bool MaySend(ushort packetId) => !_sessionEnding && !(packetId == 0x015 && _positionUpdatesSuspended);
+        private bool MaySend(ushort packetId) => !SessionEnding && !(packetId == 0x015 && _positionUpdatesSuspended);
 
         /// <summary>
         /// Drops the queued sub-packets <see cref="MaySend"/> refuses from the outbound staging buffer (they may have been
@@ -489,8 +595,8 @@ namespace Gordian.Core.Network
         /// </summary>
         private void DropRefusedQueuedSubPackets()
         {
-            if (_currentBufferLength == 0 || (!_sessionEnding && !_positionUpdatesSuspended)) return;
-            if (_sessionEnding)
+            if (_currentBufferLength == 0 || (!SessionEnding && !_positionUpdatesSuspended)) return;
+            if (SessionEnding)
             {
                 _currentBufferLength = 0;
                 return;
@@ -689,8 +795,10 @@ namespace Gordian.Core.Network
             }
 
             _cts = new CancellationTokenSource();
-            _sessionEnding = false;
+            Volatile.Write(ref _sessionEndingFlag, 0);
             _positionUpdatesSuspended = false;
+            Volatile.Write(ref _lastServerTrafficTimestamp, _time.GetTimestamp());
+            SetConnectionLost(false);
             _parser.LifecycleModule.ClearPendingLogout();
 
             try
@@ -807,7 +915,7 @@ namespace Gordian.Core.Network
                 ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(chunkData.Span) & 0x1FF);
                 if (!MaySend(packetId))
                 {
-                    GordianLog.Debug("NET", $"Dropped outbound 0x{packetId:X3}: {(_sessionEnding ? "the session is logging out" : "position updates are suspended")}.");
+                    GordianLog.Debug("NET", $"Dropped outbound 0x{packetId:X3}: {(SessionEnding ? "the session is logging out" : "position updates are suspended")}.");
                     return;
                 }
             }
@@ -929,6 +1037,10 @@ namespace Gordian.Core.Network
                     try
                     {
                         await Task.Delay(NetworkTickIntervalMs, token).ConfigureAwait(false);
+
+                        // May end the session (server silent past the timeout); the loop then stops on the cancelled token.
+                        CheckServerSilence();
+                        if (SessionEnding || token.IsCancellationRequested) continue;
 
                         if (_serverEndpoint == null) continue;
 
@@ -1144,6 +1256,7 @@ namespace Gordian.Core.Network
                 bool accepted = _parser.ProcessIncomingChunk(activeChunk);
                 if (accepted)
                 {
+                    RecordServerTraffic();
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
                     Volatile.Write(ref _serverPacketIdSequence, newSeq);
@@ -1163,6 +1276,7 @@ namespace Gordian.Core.Network
             }
 
             bool parsed = _parser.ProcessIncomingChunk(activeChunk);
+            if (parsed) RecordServerTraffic();
 
             if (parsed && CurrentState == SessionState.ExchangingCryptoKeys)
             {
