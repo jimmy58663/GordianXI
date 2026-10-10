@@ -74,6 +74,24 @@ namespace Gordian.Core.Animation
         /// <summary>Whether a one-shot action (swing, chant, release, draw) owns the body.</summary>
         public bool IsPlayingAction => ActiveRoutine != null;
 
+        /// <summary>Routine ticks (60 Hz) since <see cref="ActiveRoutine"/> started (the sounds follow this clock, #41).</summary>
+        public float ActionTicks => _actionTicks;
+
+        /// <summary>Counts every new <see cref="ActiveRoutine"/> start, so a routine restarted by name can be told apart (#41).</summary>
+        public int ActionSerial { get; private set; }
+
+        /// <summary>The request of the action playing now (its motion and hand, #41), or null.</summary>
+        public ActionRequest? ActiveRequest => _actionRequest;
+
+        /// <summary>The model the state last advanced with, or null.</summary>
+        public EntityModel? Model => _lastModel;
+
+        /// <summary>Counts the hit reactions applied (#41: the reaction's sounds play when it changes).</summary>
+        public int ReactionSerial { get; private set; }
+
+        /// <summary>The last hit reaction applied.</summary>
+        public HitReaction LastReaction { get; private set; }
+
         /// <summary>Actions waiting behind the playing one.</summary>
         public int QueuedActionCount => _queuedActions.Count;
 
@@ -524,6 +542,7 @@ namespace Gordian.Core.Animation
             IsPlayingTransition = false;
             TransitionClip = null;
             ActiveRoutine = routine;
+            ActionSerial++;
             _actionRequest = request;
             _actionTicks = 0f;
             _segmentIndex = -1;
@@ -787,6 +806,9 @@ namespace Gordian.Core.Animation
 
         private void ApplyReaction(EntityModel model, HitReaction reaction, long now)
         {
+            LastReaction = reaction;
+            ReactionSerial++;
+
             if (reaction.ReactKind == ActionReactKind.Counter)
             {
                 // The target strikes back.

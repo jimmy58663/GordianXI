@@ -1898,6 +1898,62 @@
                 </Grid>
             </Grid>
         </TabItem>
+
+        <!-- TAB 9: Sound controls (#265): GordianXI-only, opt-in; the retail volume sliders stay on the in-game config page -->
+        <TabItem Header="Sound" FontSize="14" FontWeight="SemiBold">
+            <Border Background="#252526" CornerRadius="6" Padding="16" Margin="0,10,0,0" BorderBrush="#333337" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14" MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="Sound Controls" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                        <TextBlock Text="GordianXI-only controls on top of the retail mix. The defaults play everything exactly as retail; music and sound effect volumes stay on the in-game config page."
+                                   Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+
+                        <CheckBox IsChecked="{Binding Sound.SoundEnabled, Mode=TwoWay}"
+                                  Content="Sound on (off silences everything without moving the volume sliders)"
+                                  FontSize="12" Foreground="#DCDCDC"/>
+
+                        <StackPanel Spacing="6">
+                            <CheckBox IsChecked="{Binding Sound.MuteWhenInactive, Mode=TwoWay}"
+                                      Content="Play only while GordianXI is active (fade out when it loses focus)"
+                                      FontSize="12" Foreground="#DCDCDC"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="24,0,0,0">
+                                <TextBlock Text="Counts as active:" Foreground="#A0A0A0" FontSize="12" VerticalAlignment="Center"/>
+                                <ComboBox ItemsSource="{Binding Sound.AvailableScopes}"
+                                          SelectedItem="{Binding Sound.ActiveScope, Mode=TwoWay}" MinWidth="200"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Separator Background="#3E3E42" Margin="0,4"/>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Multi-box: whose sound plays" Foreground="#A0A0A0" FontSize="12"/>
+                            <ComboBox ItemsSource="{Binding Sound.AvailablePolicies}"
+                                      SelectedItem="{Binding Sound.MultiBoxPolicy, Mode=TwoWay}" MinWidth="240" HorizontalAlignment="Left"/>
+                            <TextBlock Text="FocusedWindow: the character in the viewport window you used last (default). PrimaryViewport: the main viewport's character, even while a pop-out has focus."
+                                       Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                            <CheckBox IsChecked="{Binding Sound.NotificationsFromAllCharacters, Mode=TwoWay}"
+                                      Content="Play the tell sound for every logged-in character, not only the one heard"
+                                      FontSize="12" Foreground="#DCDCDC"/>
+                        </StackPanel>
+
+                        <Separator Background="#3E3E42" Margin="0,4"/>
+
+                        <TextBlock Text="Per category" Foreground="#A0A0A0" FontSize="12"/>
+                        <ItemsControl ItemsSource="{Binding Sound.Categories}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SoundCategoryRowViewModel">
+                                    <Grid ColumnDefinitions="300, 90, *" Margin="0,3">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="#DCDCDC" FontSize="12" VerticalAlignment="Center"/>
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}" Content="On" FontSize="12" Foreground="#DCDCDC"/>
+                                        <CheckBox Grid.Column="2" IsChecked="{Binding PlayWhenInactive, Mode=TwoWay}" Content="Also while inactive" FontSize="12" Foreground="#DCDCDC"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </TabItem>
     </TabControl>
 
     <!-- MODAL OVERLAY: Confirmation Dialog for Protected Folder Deletion -->

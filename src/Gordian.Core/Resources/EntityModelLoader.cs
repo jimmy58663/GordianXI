@@ -43,6 +43,7 @@ namespace Gordian.Core.Resources
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
             var animations = new List<AnimationClip>();
             var routines = new List<RawMotionRoutine>();
+            Dictionary<string, int>? soundPointers = null;
             Skeleton? skeleton = null;
 
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -105,6 +106,23 @@ namespace Gordian.Core.Resources
                             }
                         }
                         break;
+
+                    case DatSectionType.SoundEffectPointer:
+                        // The routines' sound commands name these (#41); the first of a name wins.
+                        if (Gordian.Core.Audio.SoundEffectPointer.TryDecode(payload, out int soundId) && h.DatId.Length > 0)
+                        {
+                            soundPointers ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                            soundPointers.TryAdd(h.DatId, soundId);
+                        }
+                        break;
+                }
+            }
+
+            if (soundPointers != null)
+            {
+                for (int i = 0; i < routines.Count; i++)
+                {
+                    routines[i] = RoutineSoundCollector.ResolveSoundIds(routines[i], soundPointers);
                 }
             }
 
