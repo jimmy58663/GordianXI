@@ -28,6 +28,8 @@ namespace Gordian.App.ViewModels
         private double _frameTimeMs = 0.0;
         private string _resolution = "1920 x 1080";
         private bool _isVsyncEnabled = true;
+        private int _backgroundFrameRate = ViewportRenderSettings.DefaultBackgroundFrameRate;
+        private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
         private CameraMode _activeCameraMode = CameraMode.ThirdPersonOrbital;
         private int _drawCalls;
         private int _visibleMeshes;
@@ -56,6 +58,8 @@ namespace Gordian.App.ViewModels
                 _settings.IsPipEnabled = _isPipEnabled;
                 _settings.MaxPipStreams = _maxPipStreams;
                 _settings.IsVsyncEnabled = _isVsyncEnabled;
+                _settings.BackgroundFrameRate = _backgroundFrameRate;
+                _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
                 _settings.SaveToFile(_settingsPath);
             }
             catch (Exception ex)
@@ -83,6 +87,10 @@ namespace Gordian.App.ViewModels
             _isPipEnabled = _settings.IsPipEnabled;
             _maxPipStreams = _settings.MaxPipStreams;
             _isVsyncEnabled = _settings.IsVsyncEnabled;
+            _backgroundFrameRate = ViewportRenderSettings.ClampFrameRate(_settings.BackgroundFrameRate);
+            _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
+            // Every viewport window reads these each frame (#301, #322).
+            ViewportRenderSettings.Apply(_settings);
 
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
             ToggleCameraModeCommand = new RelayCommand(() =>
@@ -324,10 +332,45 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _isVsyncEnabled, value))
                 {
+                    ViewportRenderSettings.VsyncEnabled = value;
                     AutoSaveSettings();
                 }
             }
         }
+
+        /// <summary>Frames per second of viewport windows other than the focused one (#301); applies at once to every window.</summary>
+        public int BackgroundFrameRate
+        {
+            get => _backgroundFrameRate;
+            set
+            {
+                if (SetProperty(ref _backgroundFrameRate, ViewportRenderSettings.ClampFrameRate(value)))
+                {
+                    ViewportRenderSettings.BackgroundFrameRate = _backgroundFrameRate;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The background frame rates offered in Settings.</summary>
+        public ObservableCollection<int> AvailableBackgroundFrameRates { get; } = new() { 10, 15, 20, 30, 60 };
+
+        /// <summary>GPU memory (MB) for zones kept loaded for characters in other zones (#322); 0 keeps only zones on screen.</summary>
+        public int ZoneCacheBudgetMb
+        {
+            get => _zoneCacheBudgetMb;
+            set
+            {
+                if (SetProperty(ref _zoneCacheBudgetMb, Math.Max(0, value)))
+                {
+                    ViewportRenderSettings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The zone cache budgets offered in Settings (MB).</summary>
+        public ObservableCollection<int> AvailableZoneCacheBudgets { get; } = new() { 0, 512, 1024, 1536, 2048, 4096 };
 
         public ObservableCollection<GraphicsBackendPreference> AvailableBackends { get; } = new()
         {
