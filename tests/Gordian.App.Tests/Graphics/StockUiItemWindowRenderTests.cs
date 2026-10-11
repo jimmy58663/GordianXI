@@ -31,7 +31,7 @@ namespace Gordian.App.Tests.Graphics
                 Inventory = inventory,
                 ItemLookup = id => screen.Resources.TryGetItem(id, out var record) ? record : null,
                 EquipCharacter = () => new StockUiEquipCharacter(1, 30),
-                CharacterStats = () => new StockUiCharacterStats("Gordian", "WAR30/NIN15", 600, 0, 1000,
+                CharacterStats = () => new StockUiCharacterStats("Gordian", "Lv30 Warrior", "Lv15 Ninja", "ILv 0/Su 0", 580, 600, 0, 0, 1000,
                     new[] { 30, 28, 29, 27, 20, 22, 21 }, new[] { 5, 0, 2, 0, 0, -1, 0 }, 123, 145, new[] { 10, 11, 12, 13, 14, 15, 16, 17 }),
             };
             var list = menus.OpenItems(null);
@@ -39,14 +39,16 @@ namespace Gordian.App.Tests.Graphics
             var frame = list!.Menu.Frame;
             var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
             int px = (int)placement.X, py = (int)placement.Y;
-            byte[] items = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, placement, 0, logFont: screen.LogFont), "gpu_items_list.png");
+            var layout = new StockUiScreen(screen.Width, screen.Height, null);
+            byte[] items = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, placement, 0, logFont: screen.LogFont, screen: layout), "gpu_items_list.png");
 
-            // Row 2 (y 24): the name after the icon and the count at the right; the description under the list at y 240.
+            // Row 2 (y 24): the count over the icon (retail capture 2026-10-11), the name after it; the description at the
+            // screen's bottom left (the log hidden), 16 px up.
             Assert.False(list.ItemRows[3].Equipped);
             Assert.True(list.ItemRows[2].Equipped);
             Assert.True(screen.HasLightPixel(items, px + 24, px + 100, py + 24 + 8), "no name on the second row");
-            Assert.True(screen.HasLightPixel(items, px + 150, px + 175, py + 24 + 8), "no count on the second row");
-            Assert.True(screen.HasLightPixel(items, px + 48, px + 300, py + 192 + 4 + 8), "no description name");
+            Assert.True(screen.HasLightPixel(items, px + 8, px + 20, py + 24 + 9), "no count on the second row's icon");
+            Assert.True(screen.HasLightPixel(items, px + 48, px + 300, (int)screen.Height - 16 - 56 + 4 + 8), "no description name at the bottom");
             // The fifth row has no item.
             Assert.False(screen.HasLightPixel(items, px + 24, px + 130, py + 6 + 18 * 4 + 8), "an item on an empty row");
 
@@ -56,7 +58,7 @@ namespace Gordian.App.Tests.Graphics
             var gridFrame = grid.Menu.Frame;
             var at = StockUiLayout.Place(gridFrame.Anchor, gridFrame.X, gridFrame.Y, gridFrame.Width, gridFrame.Height, 1, screen.Width, screen.Height);
             int gx = (int)at.X, gy = (int)at.Y;
-            byte[] equipment = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, grid, at, 0, logFont: screen.LogFont), "gpu_equipment.png");
+            byte[] equipment = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, grid, at, 0, logFont: screen.LogFont, screen: layout), "gpu_equipment.png");
             // Head (button 2 at 24,45) holds the cap's icon; Body (button 3 at 24,79) is the empty slot art.
             var icon = screen.Pixel(equipment, gx + 24 + 16, gy + 45 + 16);
             var empty = screen.Pixel(equipment, gx + 24 + 16, gy + 79 + 16);

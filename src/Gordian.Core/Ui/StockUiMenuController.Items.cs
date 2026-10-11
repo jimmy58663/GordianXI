@@ -19,10 +19,10 @@ namespace Gordian.Core.Ui
 
         public bool IsItemList => ItemListKind != null;
 
-        /// <summary>The container the Items window lists (the Switch storage list changes it).</summary>
+        /// <summary>The container an item list shows (the Equipment list's storage changes with Storage Options).</summary>
         public ContainerId ItemContainer { get; internal set; }
 
-        /// <summary>The equipment slot the Equipment window's list is for.</summary>
+        /// <summary>The equipment slot the Equipment list is for.</summary>
         public EquipSlotId ItemEquipSlot { get; init; }
 
         /// <summary>An item list's rows, parallel to <see cref="Rows"/>.</summary>
@@ -39,8 +39,11 @@ namespace Gordian.Core.Ui
             }
         }
 
-        /// <summary>The used and total slots of the listed container (the list's header).</summary>
-        public (int Used, int Total) ItemFill { get; internal set; }
+        /// <summary>
+        /// Rows drawn beside a window without taking the cursor: the inventory right of the Recycling Bin, the storage's
+        /// equipment right of the Equipment grid (retail captures, 2026-10-11).
+        /// </summary>
+        public IReadOnlyList<StockUiItemRow> CompanionRows { get; internal set; } = Array.Empty<StockUiItemRow>();
 
         /// <summary>The target an Items window opened from the target command menu uses its items on; null from the main menu.</summary>
         public StockUiTargetContext? ItemTarget { get; init; }
@@ -48,17 +51,26 @@ namespace Gordian.Core.Ui
         /// <summary>The row the Use / Drop window (<see cref="StockUiItems.ActionMenu"/>) acts on; null for other menus.</summary>
         public StockUiItemRow? ItemAction { get; init; }
 
-        /// <summary>The row a Drop quantity prompt is for; null for other menus.</summary>
+        /// <summary>The row a Drop (or, with <see cref="ItemRestore"/>, a Recycling Bin restore) quantity prompt is for.</summary>
         public StockUiItemRow? ItemDropRow { get; init; }
 
-        /// <summary>The Items window's options (<see cref="StockUiItems.OptionsMenu"/>: Auto / Manual / Switch).</summary>
+        /// <summary>Whether the quantity prompt restores a Recycling Bin item rather than dropping one.</summary>
+        public bool ItemRestore { get; init; }
+
+        /// <summary>The main menu Items window's options (<see cref="StockUiItems.OptionsMenu"/>: Auto / Manual / Recycle Bin).</summary>
         public bool IsItemOptions { get; init; }
 
-        /// <summary>The storage list the options' Switch opens (<see cref="StockUiItems.StorageMenu"/>).</summary>
-        public bool IsItemStorageMenu { get; init; }
+        /// <summary>Auto-sort's Yes / No (<see cref="StockUiItems.SortConfirmMenu"/>).</summary>
+        public bool IsSortConfirm { get; init; }
+
+        /// <summary>The Equipment list's storage choice (<see cref="StockUiItems.EquipStorageMenu"/>).</summary>
+        public bool IsEquipStorageMenu { get; init; }
 
         /// <summary>The Equipment window's slot grid (<see cref="StockUiItems.EquipmentMenu"/>).</summary>
         public bool IsEquipment { get; init; }
+
+        /// <summary>The storage the Equipment grid's companion list shows.</summary>
+        public ContainerId EquipContainer { get; internal set; }
 
         /// <summary>The inventory the Equipment grid shows the worn items of.</summary>
         public InventoryState? Inventory { get; init; }
@@ -66,13 +78,28 @@ namespace Gordian.Core.Ui
         /// <summary>The stats side the Equipment window draws (<see cref="StockUiItems.StatsMenu"/>).</summary>
         public Func<StockUiCharacterStats?>? CharacterStats { get; init; }
 
-        internal Func<bool>? ListOpenCheck { get; init; }
+        /// <summary>The Items list is in Manual sort: the first Confirm picks the item to move, the second its place.</summary>
+        public bool IsManualSort { get; internal set; }
 
-        /// <summary>Whether the Equipment grid has its item list open over it (the list then shows the description).</summary>
-        public bool IsListOpen => ListOpenCheck?.Invoke() == true;
+        /// <summary>The entry index of the item picked to move in Manual sort; null before the first pick.</summary>
+        public int? ManualSortFrom { get; internal set; }
+
+        internal StockUiMenuController? ItemOwner { get; init; }
+
+        /// <summary>Whether the Equipment grid has its item list open over it (the list then takes the cursor and the description).</summary>
+        public bool IsListOpen => ItemOwner?.HasChild(this, m => m.IsItemList) == true;
+
+        /// <summary>Whether a Use / Drop window is open over this item list (retail then shows the description right under the list).</summary>
+        public bool HasItemActionOver => ItemOwner?.HasChild(this, m => m.ItemAction != null) == true;
+
+        /// <summary>The help bar this window draws: only the item list or grid nearest the top of the stack draws one.</summary>
+        public StockUiItemHelpBar? ItemHelpBar => ItemOwner?.ItemHelpBarFor(this);
+
+        /// <summary>A menu help text (ROM/165/75) by id, null when the table is not loaded.</summary>
+        public string? ItemHelpText(int id) => ItemOwner?.MenuHelpText?.Invoke(id);
 
         /// <summary>An Items or Equipment window: drawn at its own place rather than following the root.</summary>
-        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsItemStorageMenu || IsEquipment;
+        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment;
 
         /// <summary>The item worn in the slot a grid button shows (0 when empty or not the Equipment grid).</summary>
         public ushort EquippedItemIn(int buttonId) =>
@@ -80,7 +107,7 @@ namespace Gordian.Core.Ui
 
         /// <summary>The item whose description the window shows: the list's row under the cursor, or the grid's worn item.</summary>
         public ushort DescribedItem => IsItemList
-            ? SelectedItemRow is { IsRemove: false } row ? row.ItemId : (ushort)0
+            ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
             : EquippedItemIn(SelectedButtonId);
 
         /// <summary>The description pages of <see cref="DescribedItem"/> (empty without an item or its record).</summary>
@@ -114,6 +141,9 @@ namespace Gordian.Core.Ui
         /// <summary>Sends C2S 0x028 (drop: container, slot, count).</summary>
         public Func<ContainerId, byte, uint, Task>? ItemDrop { get; set; }
 
+        /// <summary>Sends C2S 0x029 (move: count, from container and slot, to container and slot).</summary>
+        public Func<uint, ContainerId, byte, ContainerId, byte, Task>? ItemMove { get; set; }
+
         /// <summary>Sends C2S 0x050 (equip: item index, 0 to unequip; slot; container).</summary>
         public Func<byte, EquipSlotId, ContainerId, Task>? ItemEquip { get; set; }
 
@@ -121,10 +151,19 @@ namespace Gordian.Core.Ui
         public Func<ContainerId, Task>? ItemSort { get; set; }
 
         /// <summary>
-        /// Whom an item with these valid targets (<see cref="StockUiItems.TargetSelf"/> ...) is used on: the command menu's
-        /// target when the Items window was opened from it, else the session's choice; an error message when none fits.
+        /// Whom an item with these valid targets (<see cref="StockUiItems.TargetSelf"/> ...) is used on without the sub-target
+        /// cursor: the command menu's target when the Items window was opened from it, else the session's choice; an error
+        /// message when none fits.
         /// </summary>
         public Func<ushort, StockUiTargetContext?, (StockUiItemTarget? Target, string? Error)>? ItemUseTarget { get; set; }
+
+        /// <summary>
+        /// Starts the sub-target cursor (retail's &lt;st&gt;) for an item that can be used on others (the maintainer's retail
+        /// check, 2026-10-11: a Potion goes to the sub-target cursor). Arguments: the row (container, slot) and the item's
+        /// valid targets; true when the cursor started (the menus then close). Without it, <see cref="ItemUseTarget"/> picks
+        /// the target.
+        /// </summary>
+        public Func<StockUiItemRow, ushort, bool>? ItemSubTarget { get; set; }
 
         /// <summary>The main job and level the Equipment list checks items against.</summary>
         public Func<StockUiEquipCharacter>? EquipCharacter { get; set; }
@@ -132,40 +171,61 @@ namespace Gordian.Core.Ui
         /// <summary>The Equipment window's stats side.</summary>
         public Func<StockUiCharacterStats?>? CharacterStats { get; set; }
 
-        /// <summary>The container the Items window last showed (it opens on it again, as retail keeps it).</summary>
-        private ContainerId _itemsContainer = ContainerId.Inventory;
+        /// <summary>The menu help text table (ROM/165/75) by id, for the item windows' help bar; set by the HUD.</summary>
+        public Func<int, string?>? MenuHelpText { get; set; }
 
-        /// <summary>Containers auto-sorted this session: their lists are ordered by item id.</summary>
-        private readonly HashSet<ContainerId> _sortedContainers = new();
+        /// <summary>A client message for the log in the error colour (a crystal used with a full inventory).</summary>
+        public event Action<string>? ErrorPosted;
+
+        /// <summary>The client's own order of a container's items (auto / manual sort), as slots; kept for the session.</summary>
+        private readonly Dictionary<ContainerId, List<byte>> _itemOrder = new();
 
         /// <summary>The Equipment grid's last slot and the Items list's last place, remembered as retail keeps the cursor.</summary>
         private int _lastEquipButton = 1;
         private (int First, int Selected) _lastItemsPlace = (0, 1);
 
+        /// <summary>Whether a menu opened over <paramref name="parent"/> (directly) matches.</summary>
+        internal bool HasChild(StockUiOpenMenu parent, Func<StockUiOpenMenu, bool> match)
+        {
+            foreach (var menu in _open)
+            {
+                if (ReferenceEquals(menu.Parent, parent) && match(menu)) return true;
+            }
+            return false;
+        }
+
         /// <summary>
-        /// Opens the Items window (#351) over <paramref name="parent"/> (the main menu, or the target command menu, whose
-        /// target the window's items are then used on), on the container last shown. Returns the list, or null when the UI is
-        /// not loaded.
+        /// Opens the Items window (#351) over <paramref name="parent"/>. From the main menu it lists the inventory; from the
+        /// target command menu (<paramref name="target"/> set) only the usable items, which Confirm uses at once (the
+        /// maintainer's retail captures, 2026-10-11). Returns the list, or null when the UI is not loaded.
         /// </summary>
         public StockUiOpenMenu? OpenItems(StockUiOpenMenu? parent, StockUiTargetContext? target = null)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiItems.ListMenu, out var definition)) return null;
-            if (!StockUiItems.IsAvailable(Inventory, _itemsContainer)) _itemsContainer = ContainerId.Inventory;
+            bool usable = target != null;
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, VisibleRowsOf(definition))
             {
-                ItemListKind = StockUiItemListKind.Items,
-                ItemContainer = _itemsContainer,
+                ItemListKind = usable ? StockUiItemListKind.Usable : StockUiItemListKind.Items,
+                ItemContainer = ContainerId.Inventory,
                 ItemTarget = target,
                 ItemLookup = ItemLookup,
+                ItemOwner = this,
             };
             lock (_sync)
             {
                 FillItemRows(menu);
-                int maxFirst = Math.Max(0, menu.Rows.Count - menu.VisibleRows);
-                menu.FirstRow = Math.Clamp(_lastItemsPlace.First, 0, maxFirst);
-                menu.ScrollFrom = menu.FirstRow;
-                menu.SelectedButtonId = Math.Clamp(_lastItemsPlace.Selected, 1, Math.Max(1, Math.Min(menu.VisibleRows, menu.Rows.Count - menu.FirstRow)));
+                if (!usable)
+                {
+                    int maxFirst = Math.Max(0, menu.Rows.Count - menu.VisibleRows);
+                    menu.FirstRow = Math.Clamp(_lastItemsPlace.First, 0, maxFirst);
+                    menu.ScrollFrom = menu.FirstRow;
+                    menu.SelectedButtonId = Math.Clamp(_lastItemsPlace.Selected, 1, Math.Max(1, Math.Min(menu.VisibleRows, menu.Rows.Count - menu.FirstRow)));
+                }
+                else
+                {
+                    menu.SelectedButtonId = 1;
+                }
                 PushOpen(menu);
             }
             Changed?.Invoke();
@@ -173,24 +233,29 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// Opens the Equipment window (#352) over <paramref name="parent"/>: the slot grid with the worn items' icons and the
-        /// stats side, the cursor on the slot last chosen. Returns it, or null when the UI is not loaded.
+        /// Opens the Equipment window (#352) over <paramref name="parent"/>: the slot grid with the worn items' icons, the stats
+        /// side and the storage's equipment beside it, the cursor on the slot last chosen. Returns it, or null when the UI is
+        /// not loaded.
         /// </summary>
         public StockUiOpenMenu? OpenEquipment(StockUiOpenMenu? parent)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiItems.EquipmentMenu, out var definition)) return null;
-            StockUiOpenMenu? grid = null;
-            grid = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null)
+            var grid = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null)
             {
                 IsEquipment = true,
                 Inventory = Inventory,
                 ItemLookup = ItemLookup,
                 CharacterStats = CharacterStats,
-                ListOpenCheck = () => Array.Exists(_open, m => m.IsItemList && ReferenceEquals(m.Parent, grid)),
+                EquipContainer = ContainerId.Inventory,
+                ItemOwner = this,
             };
             grid.SelectedButtonId = definition.FindButton(_lastEquipButton) != null ? _lastEquipButton : FirstSelectable(definition);
-            lock (_sync) PushOpen(grid);
+            lock (_sync)
+            {
+                grid.CompanionRows = StockUiItems.EquipRows(Inventory, grid.EquipContainer, null, ItemLookup, Character());
+                PushOpen(grid);
+            }
             Changed?.Invoke();
             return grid;
         }
@@ -215,23 +280,34 @@ namespace Gordian.Core.Ui
 
         private StockUiEquipCharacter Character() => EquipCharacter?.Invoke() ?? default;
 
+        /// <summary>A container's rows in the client's order (auto / manual sort).</summary>
+        private List<StockUiItemRow> OrderedRows(ContainerId container, bool usableOnly = false)
+        {
+            var rows = StockUiItems.Rows(Inventory, container, ItemLookup, usableOnly);
+            StockUiItems.ApplyOrder(rows, _itemOrder.TryGetValue(container, out var order) ? order : null);
+            return rows;
+        }
+
         /// <summary>Rebuilds an item list's rows (under the lock), keeping the cursor on the same item when it is still listed.</summary>
         private void FillItemRows(StockUiOpenMenu menu)
         {
             var before = menu.SelectedItemRow;
-            var rows = menu.ItemListKind == StockUiItemListKind.Equipment
-                ? StockUiItems.EquipRows(Inventory, menu.ItemEquipSlot, ItemLookup, Character())
-                : StockUiItems.Rows(Inventory, menu.ItemContainer, ItemLookup, _sortedContainers.Contains(menu.ItemContainer));
+            var rows = menu.ItemListKind switch
+            {
+                StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
+                StockUiItemListKind.Usable => OrderedRows(ContainerId.Inventory, usableOnly: true),
+                _ => OrderedRows(menu.ItemContainer),
+            };
+            if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
             var listRows = new List<StockUiListRow>(rows.Count);
             foreach (var row in rows) listRows.Add(new StockUiListRow(listRows.Count + 1, row.Name, false));
             menu.ItemRows = rows;
             menu.Rows = listRows;
-            menu.ItemFill = StockUiItems.Fill(Inventory, menu.ItemContainer);
 
             int maxFirst = Math.Max(0, rows.Count - menu.VisibleRows);
             if (before is { } previous)
             {
-                int index = rows.FindIndex(r => r.IsRemove == previous.IsRemove && r.Container == previous.Container && r.Slot == previous.Slot);
+                int index = rows.FindIndex(r => r.IsStorageOptions == previous.IsStorageOptions && r.Container == previous.Container && r.Slot == previous.Slot);
                 if (index >= 0 && (index < menu.FirstRow || index >= menu.FirstRow + menu.VisibleRows))
                 {
                     menu.FirstRow = Math.Clamp(index - menu.SelectedButtonId + 1, 0, maxFirst);
@@ -267,6 +343,7 @@ namespace Gordian.Core.Ui
                     }
                     else if (menu.IsEquipment)
                     {
+                        menu.CompanionRows = StockUiItems.EquipRows(Inventory, menu.EquipContainer, null, ItemLookup, Character());
                         changed = true;
                     }
                     else if (menu.ItemAction is { } action && closeFrom == null)
@@ -289,7 +366,16 @@ namespace Gordian.Core.Ui
             else if (menu.ItemListKind == StockUiItemListKind.Items) _lastItemsPlace = (menu.FirstRow, menu.SelectedButtonId);
         }
 
-        /// <summary>The Items list nearest the top of the stack.</summary>
+        /// <summary>Cancel in Manual sort leaves the mode (the list stays open); true when it did.</summary>
+        private bool CancelItemMode(StockUiOpenMenu top)
+        {
+            if (!top.IsManualSort) return false;
+            top.IsManualSort = false;
+            top.ManualSortFrom = null;
+            return true;
+        }
+
+        /// <summary>The main menu's Items list nearest the top of the stack.</summary>
         private StockUiOpenMenu? ItemsList()
         {
             var open = _open;
@@ -301,8 +387,61 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// + on the keyboard or Y on the gamepad in the Items window: from the list the cursor goes to the options window
-        /// beside it ("+ : Sort": Auto, Manual, Switch); pressed again it goes back to the list. Returns whether it applied.
+        /// The help bar of the item windows (the maintainer's retail captures, 2026-10-11): the title ("Items", "Equipment",
+        /// "Recycling Bin", "No. of Items" while a count is chosen), the fraction after it ("29/30" used / total for the
+        /// inventory, "2/29" listed / held for the command menu's usable items, the bin's "0/10"; none for Equipment), and the
+        /// help of the window taking input (its selected button's, else its own; the list's "Select an item.", Manual sort's
+        /// "Select item to move.", Auto's "Sort list?"). Only the item list or grid nearest the top draws it.
+        /// </summary>
+        internal StockUiItemHelpBar? ItemHelpBarFor(StockUiOpenMenu window)
+        {
+            var open = _open;
+            StockUiOpenMenu? baseWindow = null;
+            for (int i = open.Length - 1; i >= 0 && baseWindow == null; i--)
+            {
+                if (open[i].IsItemList || open[i].IsEquipment) baseWindow = open[i];
+            }
+            if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
+            var top = open[^1];
+            string title = top.IsQuantity ? StockUiItems.TitleQuantity
+                : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
+                : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
+                : StockUiItems.TitleItems;
+            int? numerator = null, denominator = null;
+            if (!top.IsQuantity)
+            {
+                switch (window.ItemListKind)
+                {
+                    case StockUiItemListKind.Items:
+                    case StockUiItemListKind.RecycleBin:
+                        (int used, int total) = StockUiItems.Fill(Inventory, window.ItemContainer);
+                        numerator = used;
+                        denominator = total;
+                        break;
+                    case StockUiItemListKind.Usable:
+                        numerator = window.ItemRows.Count;
+                        denominator = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;
+                        break;
+                }
+            }
+            int help = -1;
+            for (int i = open.Length - 1; i >= 0 && help < 0; i--)
+            {
+                var menu = open[i];
+                if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
+                else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
+                else if (menu.SelectedButton is { HelpTextId: >= 0 } button) help = button.HelpTextId;
+                else if (menu.Menu.Frame.HelpTextId >= 0) help = menu.Menu.Frame.HelpTextId;
+                else if (menu.IsItemList) help = StockUiItems.HelpSelectItem;
+                if (ReferenceEquals(menu, window)) break;
+            }
+            return new StockUiItemHelpBar(title, numerator, denominator, help);
+        }
+
+        /// <summary>
+        /// + on the keyboard or Y on the gamepad in the main menu's Items window: from the list the cursor goes to the options
+        /// at the top right ("+ : Sort": Auto, Manual, Recycle Bin; the maintainer's capture 2026-10-11); pressed again it goes
+        /// back to the list. Returns whether it applied.
         /// </summary>
         public bool ToggleItemOptions()
         {
@@ -313,9 +452,9 @@ namespace Gordian.Core.Ui
                 return true;
             }
             var library = _library;
-            if (top is not { ItemListKind: StockUiItemListKind.Items } || library == null || !library.TryGetMenu(StockUiItems.OptionsMenu, out var definition)) return false;
+            if (top is not { ItemListKind: StockUiItemListKind.Items, IsManualSort: false } || library == null
+                || !library.TryGetMenu(StockUiItems.OptionsMenu, out var definition)) return false;
             var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = true };
-            options.SetGreyed(new HashSet<int> { StockUiItems.ManualSortButton });
             options.SelectedButtonId = StockUiItems.AutoSortButton;
             lock (_sync) PushOpen(options);
             Changed?.Invoke();
@@ -328,19 +467,33 @@ namespace Gordian.Core.Ui
             if (top.IsItemList) ActivateItemRow(top);
             else if (top.ItemAction is { } action) ActivateItemAction(top, button, action);
             else if (top.IsItemOptions) ActivateItemOptions(top, button);
-            else if (top.IsItemStorageMenu) ActivateItemStorage(top, button);
+            else if (top.IsSortConfirm) ActivateSortConfirm(top, button);
+            else if (top.IsEquipStorageMenu) ActivateEquipStorage(top, button);
             else if (top.IsEquipment) ActivateEquipmentSlot(top, button);
             else return false;
             return true;
         }
 
-        /// <summary>Confirm on a list row: the Items window opens Use / Drop; the Equipment list equips the row or removes the slot's item.</summary>
+        /// <summary>Confirm on a list row, by list: Use / Drop, Manual sort, use at once, restore, equip.</summary>
         private void ActivateItemRow(StockUiOpenMenu list)
         {
             if (list.SelectedItemRow is not { } row) return;
-            if (list.ItemListKind == StockUiItemListKind.Equipment)
+            switch (list.ItemListKind)
             {
-                ActivateEquipRow(list, row);
+                case StockUiItemListKind.Equipment:
+                    ActivateEquipRow(list, row);
+                    return;
+                case StockUiItemListKind.Usable:
+                    UseItem(row, list.ItemTarget);
+                    return;
+                case StockUiItemListKind.RecycleBin:
+                    if (row.Count > 1) OpenItemQuantity(list, list, row, restore: true);
+                    else RestoreItem(row, 1);
+                    return;
+            }
+            if (list.IsManualSort)
+            {
+                ManualSortStep(list);
                 return;
             }
             var library = _library;
@@ -366,7 +519,7 @@ namespace Gordian.Core.Ui
             return false;
         }
 
-        /// <summary>Use: sends 0x037 on the resolved target and closes the menus. Drop: the count (for a stack), then the yes/no prompt.</summary>
+        /// <summary>Use: as <see cref="UseItem"/>. Drop: the count (for a stack), then the yes/no prompt.</summary>
         private void ActivateItemAction(StockUiOpenMenu menu, UiMenuButton button, StockUiItemRow row)
         {
             var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
@@ -379,37 +532,69 @@ namespace Gordian.Core.Ui
             }
             if (button.ButtonId == StockUiItems.UseButton)
             {
-                var (target, error) = ItemUseTarget?.Invoke(record.ValidTargets, (menu.Parent ?? menu).ItemTarget) ?? (null, "Items cannot be used in this session.");
-                var use = ItemUse;
-                if (target is not { } t || use == null)
-                {
-                    NoticePosted?.Invoke(error ?? "Items cannot be used in this session.");
-                    return;
-                }
-                CloseAll();
-                GordianLog.Info("ITEM", $"Using {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) on {t.Name} ({t.ServerId}, index {t.TargetIndex}).");
-                _ = SendItemAsync(() => use(t.ServerId, t.TargetIndex, row.Container, row.Slot), "Use");
+                UseItem(row, (menu.Parent ?? menu).ItemTarget);
                 return;
             }
             if (button.ButtonId != StockUiItems.DropButton) return;
             if (row.Count > 1)
             {
-                OpenDropQuantity(menu, row);
+                OpenItemQuantity(menu, menu.Parent ?? menu, row, restore: false);
                 return;
             }
             ConfirmDrop(menu, row, 1);
         }
 
-        /// <summary>The quantity prompt (<c>itemctrl</c>) for dropping part of a stack, starting at 1 (as the shop's).</summary>
-        private void OpenDropQuantity(StockUiOpenMenu action, StockUiItemRow row)
+        /// <summary>
+        /// Uses an item (the maintainer's retail check, 2026-10-11): a crystal opens the synthesis window, or with a full
+        /// inventory prints "Unable to execute that command. Your inventory is full." in red (ROM/165/70 #140); an item that
+        /// can be used on others goes to the sub-target cursor (<see cref="ItemSubTarget"/>); otherwise C2S 0x037 goes out
+        /// on the resolved target (count 0, as LandSandBoat requires) and the menus close.
+        /// </summary>
+        private void UseItem(StockUiItemRow row, StockUiTargetContext? context)
+        {
+            var known = ItemLookup?.Invoke(row.ItemId);
+            var record = known ?? StockUiShop.Lookup(ItemLookup, row.ItemId);
+            if (StockUiItems.IsCrystal(row.ItemId))
+            {
+                if (StockUiItems.IsInventoryFull(Inventory)) ErrorPosted?.Invoke(StockUiItems.InventoryFullMessage);
+                else NoticePosted?.Invoke("Synthesis: the synthesis window is not available yet.");
+                return;
+            }
+            if (!StockUiItems.IsUsable(known))
+            {
+                NoticePosted?.Invoke($"{record.Name} cannot be used.");
+                return;
+            }
+            if (!StockUiItems.IsSelfOnly(known) && ItemSubTarget is { } subTarget && subTarget(row, record.ValidTargets))
+            {
+                CloseAll();
+                return;
+            }
+            var (target, error) = ItemUseTarget?.Invoke(record.ValidTargets, context) ?? (null, "Items cannot be used in this session.");
+            var use = ItemUse;
+            if (target is not { } t || use == null)
+            {
+                NoticePosted?.Invoke(error ?? "Items cannot be used in this session.");
+                return;
+            }
+            CloseAll();
+            GordianLog.Info("ITEM", $"Using {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) on {t.Name} ({t.ServerId}, index {t.TargetIndex}).");
+            _ = SendItemAsync(() => use(t.ServerId, t.TargetIndex, row.Container, row.Slot), "Use");
+        }
+
+        /// <summary>
+        /// The quantity prompt (<c>itemctrl</c>) for dropping part of a stack or restoring part of a bin stack, starting at 1;
+        /// the HUD draws it at the bottom left with the description beside it (retail capture 2026-10-11, the bin's restore).
+        /// </summary>
+        private void OpenItemQuantity(StockUiOpenMenu over, StockUiOpenMenu list, StockUiItemRow row, bool restore)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition)) return;
-            var list = action.Parent ?? action;
             var prompt = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null)
             {
                 IsQuantity = true,
                 ItemDropRow = row,
+                ItemRestore = restore,
                 QuantityMax = Math.Max(1, row.Count),
                 QuantityTotal = Math.Max(1, row.Count),
                 ItemLookup = ItemLookup,
@@ -424,7 +609,7 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Confirm on a Drop quantity prompt: closes it and asks to confirm the drop.</summary>
+        /// <summary>Confirm on a Drop / restore quantity prompt: closes it, then asks to confirm the drop or restores at once.</summary>
         private void RunDropQuantity(StockUiOpenMenu prompt, StockUiItemRow row)
         {
             uint count = prompt.Quantity;
@@ -434,6 +619,11 @@ namespace Gordian.Core.Ui
                 if (prompt.Parent is { } list) list.ShowsQuantity = false;
             }
             Changed?.Invoke();
+            if (prompt.ItemRestore)
+            {
+                RestoreItem(row, count);
+                return;
+            }
             StockUiOpenMenu? action = null;
             foreach (var m in _open)
             {
@@ -462,16 +652,34 @@ namespace Gordian.Core.Ui
             if (prompt == null) NoticePosted?.Invoke("Drop: the prompt is not available.");
         }
 
-        /// <summary>Auto sends 0x03A and orders the list by item; Manual is not built yet; Switch opens the storage list.</summary>
+        /// <summary>
+        /// Restores a Recycling Bin item to the inventory: C2S 0x029 from container 17 to the inventory's first free slot
+        /// (<see cref="StockUiItems.AnyFreeSlot"/>); LandSandBoat allows the bin's items to go back to the inventory or the
+        /// Mog Locker only. A full inventory prints the error message instead.
+        /// </summary>
+        private void RestoreItem(StockUiItemRow row, uint count)
+        {
+            if (StockUiItems.IsInventoryFull(Inventory))
+            {
+                ErrorPosted?.Invoke(StockUiItems.InventoryFullMessage);
+                return;
+            }
+            var move = ItemMove;
+            if (move == null)
+            {
+                NoticePosted?.Invoke("Items cannot be restored in this session.");
+                return;
+            }
+            GordianLog.Info("ITEM", $"Restoring {count} x item {row.ItemId} from the recycle bin slot {row.Slot}.");
+            _ = SendItemAsync(() => move(count, ContainerId.RecycleBin, row.Slot, ContainerId.Inventory, StockUiItems.AnyFreeSlot), "Restore");
+        }
+
+        /// <summary>Auto asks to sort (Yes / No under the options); Manual returns to the list to move an item; Recycle Bin opens the bin.</summary>
         private void ActivateItemOptions(StockUiOpenMenu options, UiMenuButton button)
         {
             var list = ItemsList();
-            if (options.IsGreyed(button.ButtonId))
-            {
-                NoticePosted?.Invoke("Manual Sort is not available yet.");
-                return;
-            }
-            if (list == null)
+            var library = _library;
+            if (list == null || library == null)
             {
                 CloseMenu(options);
                 return;
@@ -480,57 +688,115 @@ namespace Gordian.Core.Ui
             {
                 case StockUiItems.AutoSortButton:
                 {
-                    var container = list.ItemContainer;
+                    if (!library.TryGetMenu(StockUiItems.SortConfirmMenu, out var definition)) return;
+                    var confirm = new StockUiOpenMenu(definition, options, Array.Empty<string>(), null) { IsSortConfirm = true };
+                    confirm.SelectedButtonId = StockUiItems.SortNoButton; // No under the cursor (retail capture 2026-10-11)
+                    lock (_sync) PushOpen(confirm);
+                    Changed?.Invoke();
+                    break;
+                }
+                case StockUiItems.ManualSortButton:
                     CloseMenu(options);
                     lock (_sync)
                     {
-                        _sortedContainers.Add(container);
-                        FillItemRows(list);
+                        list.IsManualSort = true;
+                        list.ManualSortFrom = null;
                     }
                     Changed?.Invoke();
-                    if (ItemSort is { } sort)
-                    {
-                        GordianLog.Info("ITEM", $"Auto-sort of {container}.");
-                        _ = SendItemAsync(() => sort(container), "Sort");
-                    }
                     break;
-                }
-                case StockUiItems.SwitchButton:
+                case StockUiItems.RecycleBinButton:
                 {
-                    var library = _library;
-                    if (library == null || !library.TryGetMenu(StockUiItems.StorageMenu, out var definition)) return;
-                    var storage = new StockUiOpenMenu(definition, options, Array.Empty<string>(), null) { IsItemStorageMenu = true };
-                    var greyed = new HashSet<int>();
-                    foreach (var b in definition.Buttons)
+                    if (!library.TryGetMenu(StockUiItems.ListMenu, out var definition)) return;
+                    var bin = new StockUiOpenMenu(definition, options, Array.Empty<string>(), null, VisibleRowsOf(definition))
                     {
-                        if (StockUiItems.TryGetStorage(b.ButtonId, out var c) && !StockUiItems.IsAvailable(Inventory, c)) greyed.Add(b.ButtonId);
+                        ItemListKind = StockUiItemListKind.RecycleBin,
+                        ItemContainer = ContainerId.RecycleBin,
+                        ItemLookup = ItemLookup,
+                        ItemOwner = this,
+                    };
+                    lock (_sync)
+                    {
+                        FillItemRows(bin);
+                        bin.SelectedButtonId = 1;
+                        PushOpen(bin);
                     }
-                    storage.SetGreyed(greyed.Count > 0 ? greyed : null);
-                    int current = StockUiItems.StorageButtonOf(list.ItemContainer);
-                    storage.SelectedButtonId = current > 0 ? current : FirstSelectable(definition);
-                    lock (_sync) PushOpen(storage);
                     Changed?.Invoke();
                     break;
                 }
             }
         }
 
-        /// <summary>A storage of the Switch list: the Items list shows it from its first row, and the cursor returns to the list.</summary>
-        private void ActivateItemStorage(StockUiOpenMenu storage, UiMenuButton button)
+        /// <summary>Auto-sort's Yes: sends 0x03A and orders the list by item; No returns to the options.</summary>
+        private void ActivateSortConfirm(StockUiOpenMenu confirm, UiMenuButton button)
         {
-            if (!StockUiItems.TryGetStorage(button.ButtonId, out var container)) return;
+            if (button.ButtonId != StockUiItems.SortYesButton)
+            {
+                CloseMenu(confirm);
+                return;
+            }
+            var list = ItemsList();
+            CloseMenu(confirm.Parent ?? confirm);
+            if (list == null) return;
+            var container = list.ItemContainer;
+            lock (_sync)
+            {
+                _itemOrder[container] = StockUiItems.AutoOrder(StockUiItems.Rows(Inventory, container, ItemLookup));
+                FillItemRows(list);
+            }
+            Changed?.Invoke();
+            if (ItemSort is { } sort)
+            {
+                GordianLog.Info("ITEM", $"Auto-sort of {container}.");
+                _ = SendItemAsync(() => sort(container), "Sort");
+            }
+        }
+
+        /// <summary>
+        /// Manual sort: the first Confirm picks the item, the second the place; the first item takes the second's place (below
+        /// it when it was above, above it when it was below; the maintainer's retail check, 2026-10-11). The order is the
+        /// client's (LandSandBoat has no packet to reorder a container); the mode ends after the move.
+        /// </summary>
+        private void ManualSortStep(StockUiOpenMenu list)
+        {
+            int index = list.EntryIndex(list.SelectedButtonId);
+            if (index < 0 || index >= list.ItemRows.Count) return;
+            lock (_sync)
+            {
+                if (list.ManualSortFrom is not { } from)
+                {
+                    list.ManualSortFrom = index;
+                }
+                else
+                {
+                    _itemOrder[list.ItemContainer] = StockUiItems.MoveInOrder(list.ItemRows, from, index);
+                    list.ManualSortFrom = null;
+                    list.IsManualSort = false;
+                    FillItemRows(list);
+                }
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>A storage of the Equipment list's choice: the list shows its items for the slot, and the cursor returns to the list.</summary>
+        private void ActivateEquipStorage(StockUiOpenMenu storage, UiMenuButton button)
+        {
+            if (!StockUiItems.TryGetEquipStorage(button.ButtonId, out var container)) return;
             if (storage.IsGreyed(button.ButtonId))
             {
                 NoticePosted?.Invoke($"{StockUiItems.ContainerName(container)} is not available.");
                 return;
             }
-            var list = ItemsList();
-            CloseMenu(storage.Parent ?? storage);
-            if (list == null) return;
+            var list = storage.Parent;
+            CloseMenu(storage);
+            if (list is not { ItemListKind: StockUiItemListKind.Equipment }) return;
             lock (_sync)
             {
                 list.ItemContainer = container;
-                _itemsContainer = container;
+                if (list.Parent is { IsEquipment: true } grid)
+                {
+                    grid.EquipContainer = container;
+                    grid.CompanionRows = StockUiItems.EquipRows(Inventory, container, null, ItemLookup, Character());
+                }
                 list.FirstRow = 0;
                 list.ScrollFrom = 0;
                 list.SelectedButtonId = 1;
@@ -539,7 +805,10 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Confirm on a grid slot: opens the list of the items that fit it, beside the grid.</summary>
+        /// <summary>
+        /// Confirm on a grid slot: the list beside the grid shows that slot's items, from the storage the worn item is in (else
+        /// the storage shown), the cursor on the first item (the maintainer's retail captures, 2026-10-11).
+        /// </summary>
         private void ActivateEquipmentSlot(StockUiOpenMenu grid, UiMenuButton button)
         {
             var library = _library;
@@ -566,55 +835,75 @@ namespace Gordian.Core.Ui
                 Frame = frame,
                 Buttons = template.Buttons,
             };
+            var worn = StockUiItems.EquippedItem(Inventory, slot);
             var list = new StockUiOpenMenu(definition, grid, Array.Empty<string>(), null, VisibleRowsOf(definition))
             {
                 ItemListKind = StockUiItemListKind.Equipment,
                 ItemEquipSlot = slot,
-                ItemContainer = ContainerId.Inventory,
+                ItemContainer = worn?.Container ?? grid.EquipContainer,
                 ItemLookup = ItemLookup,
+                ItemOwner = this,
             };
             lock (_sync)
             {
                 FillItemRows(list);
-                if (list.ItemRows.Count == 0)
+                list.SelectedButtonId = list.ItemRows.Count > 1 ? 2 : 1;
+                if (worn != null)
                 {
-                    list = null;
+                    var rows = list.ItemRows;
+                    for (int i = 1; i < rows.Count && i < list.VisibleRows; i++)
+                    {
+                        if (rows[i].Container == worn.Container && rows[i].Slot == worn.Slot) list.SelectedButtonId = i + 1;
+                    }
                 }
-                else
-                {
-                    list.SelectedButtonId = 1;
-                    PushOpen(list);
-                }
-            }
-            if (list == null)
-            {
-                NoticePosted?.Invoke("You have nothing to equip there.");
-                return;
+                PushOpen(list);
             }
             Changed?.Invoke();
         }
 
-        /// <summary>Equips the row's item in the list's slot (0x050), or with Remove unequips it (item index 0); the list closes.</summary>
+        /// <summary>
+        /// Confirm on an Equipment list row: "Storage Options" opens the storage choice to the right; the worn item is removed
+        /// (C2S 0x050 index 0; PROVISIONAL: how retail removes is not captured); another item is equipped (0x050). The list
+        /// closes after a change.
+        /// </summary>
         private void ActivateEquipRow(StockUiOpenMenu list, StockUiItemRow row)
         {
+            var library = _library;
+            if (row.IsStorageOptions)
+            {
+                if (library == null || !library.TryGetMenu(StockUiItems.EquipStorageMenu, out var definition)) return;
+                var storage = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null) { IsEquipStorageMenu = true };
+                var greyed = new HashSet<int>();
+                foreach (var b in definition.Buttons)
+                {
+                    if (StockUiItems.TryGetEquipStorage(b.ButtonId, out var c) && !StockUiItems.IsAvailable(Inventory, c)) greyed.Add(b.ButtonId);
+                }
+                storage.SetGreyed(greyed.Count > 0 ? greyed : null);
+                int current = StockUiItems.EquipStorageButtonOf(list.ItemContainer);
+                storage.SelectedButtonId = current > 0 ? current : FirstSelectable(definition);
+                lock (_sync) PushOpen(storage);
+                Changed?.Invoke();
+                return;
+            }
             if (row.Greyed)
             {
                 NoticePosted?.Invoke(row.GreyedReason ?? $"{row.Name} cannot be equipped.");
                 return;
             }
             var slot = list.ItemEquipSlot;
+            var worn = StockUiItems.EquippedItem(Inventory, slot);
+            bool remove = worn != null && worn.Container == row.Container && worn.Slot == row.Slot;
             CloseMenu(list);
-            if (!row.IsRemove && row.Equipped) return; // already worn in this slot
             var equip = ItemEquip;
             if (equip == null)
             {
                 NoticePosted?.Invoke("Equipment cannot be changed in this session.");
                 return;
             }
-            byte index = row.IsRemove ? (byte)0 : row.Slot;
-            var container = row.IsRemove ? ContainerId.Inventory : row.Container;
-            GordianLog.Info("ITEM", row.IsRemove ? $"Removing the {slot} slot's item." : $"Equipping {row.Name} (item {row.ItemId}, {container} slot {row.Slot}) in {slot}.");
-            _ = SendItemAsync(() => equip(index, slot, container), row.IsRemove ? "Remove" : "Equip");
+            byte index = remove ? (byte)0 : row.Slot;
+            var container = remove ? ContainerId.Inventory : row.Container;
+            GordianLog.Info("ITEM", remove ? $"Removing {row.Name} from {slot}." : $"Equipping {row.Name} (item {row.ItemId}, {container} slot {row.Slot}) in {slot}.");
+            _ = SendItemAsync(() => equip(index, slot, container), remove ? "Remove" : "Equip");
         }
 
         /// <summary>

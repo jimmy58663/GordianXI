@@ -149,6 +149,7 @@ namespace Gordian.App.Graphics
             {
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
+                menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
             }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
@@ -350,6 +351,11 @@ namespace Gordian.App.Graphics
                     bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    if (menu.ItemDropRow != null)
+                    {
+                        // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).
+                        y = Math.Max(0, StockUiItemWindow.BottomOf(new StockUiScreen(width, height, _window1Top), root.Scale) - frame.Height * root.Scale);
+                    }
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,

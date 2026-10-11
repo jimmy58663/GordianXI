@@ -317,9 +317,12 @@ namespace Gordian.Core.Ui
                     right = Math.Max(right, StockUiShop.CompanionRight);
                     bottom = Math.Max(bottom, StockUiShop.CompanionBottom);
                 }
-                // The Items list's options window stands at the top right beside it; the Equipment grid's stats side at its left.
+                // The Items list's options stand at the top right beside it, the Recycling Bin's inventory list right of the
+                // bin, and the Equipment grid's stats side at its left and the storage's list at its right (retail captures
+                // 2026-10-11).
                 if (ItemListKind == StockUiItemListKind.Items) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
-                if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, right, bottom);
+                if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
+                if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 return (f.X, f.Y, right, bottom);
             }
         }
@@ -614,8 +617,21 @@ namespace Gordian.Core.Ui
                 if (_open.Length == 0) return;
                 closed = _open[^1];
                 if (closed.Pinned) return;
-                Remember(closed);
-                _open = _open[..^1];
+                if (CancelItemMode(closed))
+                {
+                    closed = null;
+                }
+                else
+                {
+                    Remember(closed);
+                    _open = _open[..^1];
+                }
+            }
+            if (closed == null)
+            {
+                // Cancel in the Items list's Manual sort leaves the mode; the list stays.
+                Changed?.Invoke();
+                return;
             }
             closed.Cancelled = true;
             closed.Prompt?.TrySetResult(false);

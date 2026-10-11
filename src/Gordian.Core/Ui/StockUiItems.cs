@@ -11,73 +11,83 @@ namespace Gordian.Core.Ui
     /// <summary>Which window an item list (<see cref="StockUiItems.ListMenu"/>) belongs to.</summary>
     public enum StockUiItemListKind
     {
-        /// <summary>The Items window: one container's items, Use / Drop on Confirm.</summary>
+        /// <summary>The main menu's Items window: the inventory, Use / Drop on Confirm, the sort options beside it.</summary>
         Items,
 
-        /// <summary>The Equipment window's list for one slot: the items that fit it, Confirm equips.</summary>
+        /// <summary>The command menu's Items window: the usable items only; Confirm uses the item at once.</summary>
+        Usable,
+
+        /// <summary>The Recycling Bin (the options' Recycle Bin): thrown-away items; Confirm restores one to the inventory.</summary>
+        RecycleBin,
+
+        /// <summary>The Equipment window's list for one slot: the items of one storage that fit it; Confirm equips.</summary>
         Equipment,
     }
 
     /// <summary>
-    /// One row of an item list (the Items window and the Equipment window share the list, #351 / #352): the item, its
-    /// count and where it lives (sent in C2S 0x037 / 0x028 / 0x050). <see cref="Greyed"/> rows show why on Confirm
-    /// (<see cref="GreyedReason"/>); <see cref="Equipped"/> marks an item worn in some slot; <see cref="IsRemove"/> is the
-    /// Equipment list's "Remove" row (unequip the slot).
+    /// One row of an item list (the Items and Equipment windows share the list, #351 / #352): the item, its count and where
+    /// it lives (sent in C2S 0x037 / 0x028 / 0x029 / 0x050). <see cref="Greyed"/> rows show why on Confirm
+    /// (<see cref="GreyedReason"/>); <see cref="Equipped"/> marks an item worn in some slot; <see cref="IsStorageOptions"/> is
+    /// the Equipment list's first row, "Storage Options ▶", which opens the storage choice.
     /// </summary>
     public readonly record struct StockUiItemRow(ushort ItemId, string Name, uint Count, ContainerId Container, byte Slot,
-        int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsRemove = false)
+        int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsStorageOptions = false)
     {
-        /// <summary>Whether the count is drawn: stackable items and stacks of more than one.</summary>
-        public bool ShowsCount => !IsRemove && (StackSize > 1 || Count > 1);
+        /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
+        public bool ShowsCount => !IsStorageOptions && (StackSize > 1 || Count > 1);
     }
 
     /// <summary>What the Equipment list checks an item against: the main job and its level (race is not known to the client state yet).</summary>
     public readonly record struct StockUiEquipCharacter(byte MainJob, byte MainJobLevel);
 
     /// <summary>
-    /// The Equipment window's stats side (the English menu DAT's <c>persona</c> panel: HP, MP, TP, then STR ... CHR): the
-    /// character's name, jobs line and the values. Base and bonus are S2C 0x061's (or 0x01B's) base stats and modifiers;
-    /// Attack, Defense and the eight elemental resistances (Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark, as
+    /// The Equipment window's stats side (the English menu DAT's <c>persona</c> panel, laid out as the maintainer's retail
+    /// capture 2026-10-11 shows it: the name, "Lv99 Bard" (the main job, blue), "Lv49 White Mage", "ILv 119/Su 0", then
+    /// HP and MP as current / max, TP, and STR ... CHR as the base with the bonus in green after it). Attack, Defense and the
+    /// eight elemental resistances (Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark, as
     /// <see cref="LocalPlayerState.ElementalResistances"/>) fill the labels and element marks baked under the grid.
     /// </summary>
-    public sealed record StockUiCharacterStats(string Name, string Jobs, int MaxHp, int MaxMp, int Tp,
-        IReadOnlyList<int> BaseStats, IReadOnlyList<int> StatBonuses, int Attack = 0, int Defense = 0, IReadOnlyList<int>? Resistances = null);
+    public sealed record StockUiCharacterStats(string Name, string MainJob, string SubJob, string ItemLevelLine,
+        int Hp, int MaxHp, int Mp, int MaxMp, int Tp, IReadOnlyList<int> BaseStats, IReadOnlyList<int> StatBonuses,
+        int Attack = 0, int Defense = 0, IReadOnlyList<int>? Resistances = null);
+
+    /// <summary>
+    /// The help bar an item window shows at the top of the screen (<c>titlewin</c> + <c>helpwind</c>): the title, the count
+    /// fraction drawn after it ("29/30", null for none) and the help text id (ROM/165/75; -1 for none).
+    /// </summary>
+    public readonly record struct StockUiItemHelpBar(string Title, int? Numerator, int? Denominator, int HelpTextId);
 
     /// <summary>
     /// The stock Items window (#351) and Equipment window (#352) from the English menu DAT (39542, ROM/119/51; read
-    /// 2026-10-11 with the menu dump, help and title text from ROM/165/75 and /76):
+    /// 2026-10-11 with the menu dump, help and title text from ROM/165/75 and /76), laid out after the maintainer's retail
+    /// captures (2026-10-11, 2560 x 1440, the UI drawn 1:1):
     /// <list type="bullet">
     /// <item><c>inventor</c> (16,48 top-left, 182 x 190, title 2 "Items", help 3 "Select an item."): ten 132 x 16 rows at an
-    /// 18 px pitch from (3,6), each with a 16 x 16 slot box (keytops3 #50) as its label, cursor group <c>anc_item</c>, the end
-    /// rows linked to themselves (the list scrolls, as the shop list does). Both windows' lists use it; the Equipment
-    /// window's is drawn beside the grid at x <see cref="EquipListX"/> (PROVISIONAL: retail's place not captured).</item>
+    /// 18 px pitch from (3,6), each with a 16 x 16 slot box (keytops3 #50) as its label, cursor group <c>anc_item</c> (the
+    /// orange box over the icon and a highlight bar), the end rows linked to themselves (the list scrolls). Every list
+    /// (main menu Items, command menu Items, the Recycling Bin, the Equipment list at x <see cref="EquipListX"/>) uses it.</item>
     /// <item><c>iuse</c> (top right 384,48, 112 x 42, title "Items"): Use (windowps #129, greyed #413, help 26 "Use an
-    /// item.") and Drop (#123 / #414, help 272 "Dispose of item. Most items will be placed in the recycle bin...").</item>
-    /// <item><c>itmsortw</c> (top right 384,48, 112 x 77, "Options" / "+ : Sort"): Auto (help 269 "Automatically rearrange
-    /// items."), Manual (help 270, greyed #561) and Switch (help 1067 "Display a different storage system.", greyed #826).
-    /// It stands beside the list while the list is open; + (keyboard) / Y (gamepad) puts the cursor on it, as the Treasure
-    /// Pool's "+ : Spoils Options" does.</item>
-    /// <item><c>itmstora</c> (top right, 112 x 266): the sixteen storages, Inventory, Mog Safe, Mog Safe 2, Storage, Mog
-    /// Locker, Mog Satchel, Mog Sack, Mog Case, Mog Wardrobe 1-8, each with a greyed alternate.</item>
-    /// <item><c>equip</c> (130,48 top-left, 182 x 190, title 20 "Equipment"): the same 4 x 4 grid of slots as the check
-    /// window (<see cref="StockUiCheck"/>: buttons 1-16 by their labels), cursor <c>anc_equi</c>; <c>persona</c> (16,48,
-    /// 112 x 190, "Status": HP, MP, TP, STR ... CHR baked in) is the stats side; <c>mnstorag</c> (top right, "Storage
-    /// Options": Inventory, Mog Wardrobe 1-8, help 803 "Display equipment in your inventory.") picks which storage's
-    /// equipment the list shows.</item>
+    /// item.") and Drop (#123 / #414, help 272).</item>
+    /// <item><c>itmsort2</c> (top right 384,48, 112 x 77, "Options" / "+ : Sort"): Auto (help 269), Manual (help 270) and
+    /// Recycle Bin (help 1068 "Display thrown-away items. They will disappear for good when you change areas, log out, or
+    /// disconnect."). It stands at the top right while the main menu's Items list is open; + (keyboard) / Y (gamepad)
+    /// puts the cursor on it. Auto asks <c>sortyn</c> (384,124 under it: "Commands", Yes / No, help 80 "Sort list?", No
+    /// under the cursor); Manual returns to the list (help 5 "Select item to move.").</item>
+    /// <item><c>equip</c> (130,48 top-left, 182 x 190, title 20 "Equipment"): the 4 x 4 grid of the check window
+    /// (<see cref="StockUiCheck"/>), cursor <c>anc_equi</c>; <c>persona</c> (16,48, 112 x 190, "Status") is the stats side
+    /// and <c>money</c> ("Current Gil") under it; the item list beside the grid shows the storage's equipment and, after
+    /// Confirm on a slot, the items of that slot; its first row, "Storage Options ▶", opens <c>mnstorag</c> (top right:
+    /// Inventory, Mog Wardrobe 1-8, help 803 "Display equipment in your inventory.").</item>
     /// </list>
     /// Packets (LandSandBoat, https://github.com/LandSandBoat/server, <c>src/map/packets/c2s/</c>): C2S 0x037 ITEM_USE
     /// (LandSandBoat rejects a non-zero ItemNum, so the count is sent as 0; containers Inventory, Temporary Items and the
     /// eight wardrobes; not in a Mog House; the target within 12 yalms), 0x028 ITEM_DUMP (any container but the recycle
-    /// bin, 0-99 items, never gil), 0x03A ITEM_STACK (merges the container's partial stacks; the order of the list is the
-    /// client's), 0x050 EQUIP_SET (item index 0 unequips; Inventory and Mog Wardrobe 1-8; the Satchel, Sack and Case only
-    /// with a server setting).
-    /// <para>
-    /// PROVISIONAL (not checked against retail captures): the row layout (name 22 px in, count right-aligned), the header
-    /// (storage name and used / total on the top border), greyed rows (equipped items cannot be dropped; equipment the job
-    /// or level cannot wear), the auto-sort order (by item id), the Drop prompt's wording, the "Remove" row at the top of
-    /// the Equipment list, where the description window sits (under the list, as the check window's) and the stats side's
-    /// content.
-    /// </para>
+    /// bin, 0-99 items, never gil; an inventory item goes to the recycle bin unless it is NoRecycle), 0x029 ITEM_MOVE (the
+    /// bin's items go back to the inventory or the Mog Locker; <c>ItemIndex2</c> 82 = "any free slot", XiPackets), 0x03A
+    /// ITEM_STACK (merges the container's partial stacks; the order of the list is the client's), 0x050 EQUIP_SET (item
+    /// index 0 unequips; Inventory and Mog Wardrobe 1-8; the Satchel, Sack and Case only with a server setting).
+    /// LandSandBoat empties the recycle bin when the character is loaded, i.e. at every zone-in (<c>charutils::LoadChar</c>
+    /// -> <c>EmptyRecycleBin</c>), and tells the client its contents with S2C 0x020 (<c>ITEM_ATTR</c>, container 17).
     /// </summary>
     public static class StockUiItems
     {
@@ -87,26 +97,38 @@ namespace Gordian.Core.Ui
         public const string ActionMenu = "iuse";
         public const int UseButton = 1, DropButton = 2;
 
-        public const string OptionsMenu = "itmsortw";
-        public const int AutoSortButton = 1, ManualSortButton = 2, SwitchButton = 3;
+        public const string OptionsMenu = "itmsort2";
+        public const int AutoSortButton = 1, ManualSortButton = 2, RecycleBinButton = 3;
 
-        public const string StorageMenu = "itmstora";
+        /// <summary>Auto-sort's confirmation ("Commands": Yes / No) under the options.</summary>
+        public const string SortConfirmMenu = "sortyn";
+        public const int SortYesButton = 1, SortNoButton = 2;
 
         public const string EquipmentMenu = "equip";
         public const string StatsMenu = "persona";
+        public const string GilMenu = "money";
         public const string EquipStorageMenu = "mnstorag";
 
-        /// <summary>Layout x of the Equipment window's list: right of the grid (130 + 182 + 2), in the top-right corner.</summary>
+        /// <summary>Layout x of the Equipment window's list: right of the grid (130 + 182 + 2; retail capture 2026-10-11).</summary>
         public const int EquipListX = 314;
 
-        /// <summary>The containers <c>itmstora</c>'s buttons 1-16 show, in their authored order (labels read from windowps).</summary>
-        private static readonly ContainerId[] StorageButtons =
-        {
-            ContainerId.Inventory, ContainerId.MogSafe, ContainerId.MogSafe2, ContainerId.Storage, ContainerId.MogLocker,
-            ContainerId.MogSatchel, ContainerId.MogSack, ContainerId.MogCase, ContainerId.Wardrobe, ContainerId.Wardrobe2,
-            ContainerId.Wardrobe3, ContainerId.Wardrobe4, ContainerId.Wardrobe5, ContainerId.Wardrobe6, ContainerId.Wardrobe7,
-            ContainerId.Wardrobe8,
-        };
+        /// <summary>Layout x of the Recycling Bin's companion inventory list, drawn right beside the bin (16 + 182; retail capture 2026-10-11).</summary>
+        public const int RecycleInventoryX = 198;
+
+        /// <summary>The Equipment window's description and the Drop / restore description beside the count box (layout x 130).</summary>
+        public const int EquipDescriptionX = 130;
+
+        /// <summary>Help text ids (ROM/165/75): "Select an item.", "Select item to move.", "Sort list?".</summary>
+        public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80;
+
+        /// <summary>Title text ids (ROM/165/76): "Items", "Equipment", "No. of Items", "Recycling Bin".</summary>
+        public const string TitleItems = "Items", TitleEquipment = "Equipment", TitleQuantity = "No. of Items", TitleRecycleBin = "Recycling Bin";
+
+        /// <summary>
+        /// The client message (ROM/165/70 #140) shown in the error colour when a crystal is used with a full inventory
+        /// (the maintainer's retail check, 2026-10-11).
+        /// </summary>
+        public const string InventoryFullMessage = "Unable to execute that command. Your inventory is full.";
 
         /// <summary>The containers <c>mnstorag</c>'s buttons 1-9 show: Inventory, Mog Wardrobe 1-8.</summary>
         private static readonly ContainerId[] EquipStorageButtons =
@@ -132,26 +154,27 @@ namespace Gordian.Core.Ui
         public const ushort TargetSelf = 0x0001, TargetParty = 0x0002, TargetEnemy = 0x0004, TargetAlliance = 0x0008,
             TargetPlayer = 0x0010, TargetPlayerDead = 0x0020, TargetNpc = 0x0040, TargetPet = 0x0100;
 
-        public static bool TryGetStorage(int buttonId, out ContainerId container) => TryGet(StorageButtons, buttonId, out container);
+        /// <summary>
+        /// ItemIndex2 of a C2S 0x029 that moves an item into another container's first free slot (XiPackets
+        /// <c>world/client/0x0029</c>: "set to 82 when the client is moving items to another container"; LandSandBoat unites
+        /// stacks below 82).
+        /// </summary>
+        public const byte AnyFreeSlot = 82;
 
-        public static bool TryGetEquipStorage(int buttonId, out ContainerId container) => TryGet(EquipStorageButtons, buttonId, out container);
-
-        public static int StorageButtonOf(ContainerId container) => Array.IndexOf(StorageButtons, container) + 1;
-
-        public static int EquipStorageButtonOf(ContainerId container) => Array.IndexOf(EquipStorageButtons, container) + 1;
-
-        private static bool TryGet(ContainerId[] buttons, int buttonId, out ContainerId container)
+        public static bool TryGetEquipStorage(int buttonId, out ContainerId container)
         {
-            if (buttonId >= 1 && buttonId <= buttons.Length)
+            if (buttonId >= 1 && buttonId <= EquipStorageButtons.Length)
             {
-                container = buttons[buttonId - 1];
+                container = EquipStorageButtons[buttonId - 1];
                 return true;
             }
             container = default;
             return false;
         }
 
-        /// <summary>A storage's name as the <c>itmstora</c> labels and the title table write it.</summary>
+        public static int EquipStorageButtonOf(ContainerId container) => Array.IndexOf(EquipStorageButtons, container) + 1;
+
+        /// <summary>A storage's name as the storage labels and the title table write it.</summary>
         public static string ContainerName(ContainerId container) => container switch
         {
             ContainerId.Inventory => "Inventory",
@@ -165,7 +188,7 @@ namespace Gordian.Core.Ui
             ContainerId.MogCase => "Mog Case",
             ContainerId.Wardrobe => "Mog Wardrobe",
             >= ContainerId.Wardrobe2 and <= ContainerId.Wardrobe8 => $"Mog Wardrobe {(int)container - (int)ContainerId.Wardrobe2 + 2}",
-            ContainerId.RecycleBin => "Recycle Bin",
+            ContainerId.RecycleBin => "Recycling Bin",
             _ => container.ToString(),
         };
 
@@ -180,7 +203,7 @@ namespace Gordian.Core.Ui
             return state.MaxSize > 1 && state.UsableSize > 1;
         }
 
-        /// <summary>The used and total slots the list's header shows ("45/80"): occupied slots (gil left out) over the usable size.</summary>
+        /// <summary>The used and total slots the help bar shows ("29/30"): occupied slots (gil left out) over the usable size.</summary>
         public static (int Used, int Total) Fill(InventoryState? inventory, ContainerId container)
         {
             if (inventory == null) return (0, 0);
@@ -193,6 +216,13 @@ namespace Gordian.Core.Ui
             // S2C 0x01C counts slot 0 in every size: 81 means 80 item slots.
             int total = (state.UsableSize > 0 ? state.UsableSize : state.MaxSize) - 1;
             return (used, Math.Max(0, total));
+        }
+
+        /// <summary>Whether the inventory is full (its size known from S2C 0x01C).</summary>
+        public static bool IsInventoryFull(InventoryState? inventory)
+        {
+            var (used, total) = Fill(inventory, ContainerId.Inventory);
+            return total > 0 && used >= total;
         }
 
         /// <summary>The (container, slot) pairs worn in any equipment slot (S2C 0x050; index 0 or 0xFF is empty).</summary>
@@ -217,14 +247,25 @@ namespace Gordian.Core.Ui
             return inventory.GetContainer(container).TryGetItem(index, out var item) && item.ItemId != 0 ? item : null;
         }
 
-        /// <summary>Whether an item can be used at all (its DAT valid targets name someone).</summary>
-        public static bool IsUsable(ItemRecord? record) => record != null && record.ValidTargets != 0;
+        /// <summary>
+        /// Whether an item is a crystal (fire ... dark, 4096-4103, and the HQ crystals, 4238-4245): using one opens the
+        /// synthesis window rather than sending C2S 0x037 (the maintainer's retail check, 2026-10-11). Item ids from
+        /// LandSandBoat's item tables.
+        /// </summary>
+        public static bool IsCrystal(ushort itemId) => itemId is >= 4096 and <= 4103 or >= 4238 and <= 4245;
+
+        /// <summary>Whether an item can be used at all: a crystal (synthesis), or its DAT valid targets name someone.</summary>
+        public static bool IsUsable(ItemRecord? record) => record != null && (record.ValidTargets != 0 || IsCrystal((ushort)record.ItemId));
+
+        /// <summary>Whether an item can only be used on yourself (no sub-target cursor needed).</summary>
+        public static bool IsSelfOnly(ItemRecord? record) => record != null && (record.ValidTargets == TargetSelf || IsCrystal((ushort)record.ItemId));
 
         /// <summary>
-        /// The Items window's rows for a container: its items in slot order (gil left out), or by item id when the
-        /// container has been auto-sorted (<paramref name="sorted"/>); worn items are marked.
+        /// A container's rows in slot order (gil left out), worn items marked; with <paramref name="usableOnly"/> only the
+        /// items that can be used (the command menu's list, the maintainer's capture 2026-10-11). The client's own order
+        /// (auto / manual sort) is applied by the caller.
         /// </summary>
-        public static List<StockUiItemRow> Rows(InventoryState? inventory, ContainerId container, Func<ushort, ItemRecord?>? lookup, bool sorted = false)
+        public static List<StockUiItemRow> Rows(InventoryState? inventory, ContainerId container, Func<ushort, ItemRecord?>? lookup, bool usableOnly = false)
         {
             var rows = new List<StockUiItemRow>();
             if (inventory == null) return rows;
@@ -235,18 +276,54 @@ namespace Gordian.Core.Ui
             {
                 if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId || item.Count == 0) continue;
                 var record = StockUiShop.Lookup(lookup, item.ItemId);
+                if (usableOnly && !IsUsable(lookup?.Invoke(item.ItemId))) continue;
                 rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
                     Equipped: equipped.Contains((container, item.Slot))));
             }
-            if (sorted) rows.Sort(CompareSorted);
             return rows;
         }
 
-        /// <summary>Auto-sort's order: by item id, then slot (PROVISIONAL: retail's category order is not captured).</summary>
-        private static int CompareSorted(StockUiItemRow a, StockUiItemRow b)
+        /// <summary>
+        /// Orders rows by a client order of slots (auto / manual sort); slots not in the order keep their place after the
+        /// ordered ones, in slot order.
+        /// </summary>
+        public static void ApplyOrder(List<StockUiItemRow> rows, IReadOnlyList<byte>? order)
         {
-            int byId = a.ItemId.CompareTo(b.ItemId);
-            return byId != 0 ? byId : a.Slot.CompareTo(b.Slot);
+            if (order == null || order.Count == 0) return;
+            var rank = new Dictionary<byte, int>(order.Count);
+            for (int i = 0; i < order.Count; i++) rank.TryAdd(order[i], i);
+            rows.Sort((a, b) =>
+            {
+                int ra = rank.TryGetValue(a.Slot, out int x) ? x : int.MaxValue, rb = rank.TryGetValue(b.Slot, out int y) ? y : int.MaxValue;
+                return ra != rb ? ra.CompareTo(rb) : a.Slot.CompareTo(b.Slot);
+            });
+        }
+
+        /// <summary>Auto-sort's order: by item id, then slot (PROVISIONAL: retail's order, probably by item category, is not captured).</summary>
+        public static List<byte> AutoOrder(IEnumerable<StockUiItemRow> rows)
+        {
+            var sorted = new List<StockUiItemRow>(rows);
+            sorted.Sort((a, b) =>
+            {
+                int byId = a.ItemId.CompareTo(b.ItemId);
+                return byId != 0 ? byId : a.Slot.CompareTo(b.Slot);
+            });
+            return sorted.ConvertAll(r => r.Slot);
+        }
+
+        /// <summary>
+        /// Manual sort (the maintainer's retail check, 2026-10-11): the first item chosen is put below the second when it was
+        /// above it, above it when it was below; i.e. it takes the second's place. Returns the new order of slots.
+        /// </summary>
+        public static List<byte> MoveInOrder(IReadOnlyList<StockUiItemRow> rows, int from, int to)
+        {
+            var slots = new List<byte>(rows.Count);
+            foreach (var row in rows) slots.Add(row.Slot);
+            if (from < 0 || from >= slots.Count || to < 0 || to >= slots.Count || from == to) return slots;
+            byte moved = slots[from];
+            slots.RemoveAt(from);
+            slots.Insert(to, moved);
+            return slots;
         }
 
         /// <summary>The DAT equip-slot mask bit of a slot (<c>EquipSlotsMask</c> bit n = slot n; the ears and rings share a type).</summary>
@@ -264,40 +341,40 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// The Equipment list for a slot: "Remove" first when the slot holds an item, then every item in the equippable
-        /// containers (or <paramref name="only"/>) whose equip mask fits the slot, in container then slot order. Items the
-        /// job or level cannot wear, and items worn in another slot, are greyed; the item in the slot itself is marked.
+        /// The Equipment list: "Storage Options ▶" first, then the equipment in <paramref name="container"/> in slot order,
+        /// only the items that fit <paramref name="slot"/> when one is given (after Confirm on a grid slot), every piece of
+        /// equipment otherwise (the list beside the grid while the cursor is on it; the maintainer's captures, 2026-10-11).
+        /// Items the job or level cannot wear, and items worn in another slot, are greyed (PROVISIONAL); the item in the slot
+        /// itself is marked worn, and Confirm on it removes it.
         /// </summary>
-        public static List<StockUiItemRow> EquipRows(InventoryState? inventory, EquipSlotId slot, Func<ushort, ItemRecord?>? lookup,
-            StockUiEquipCharacter character, ContainerId? only = null)
+        public static List<StockUiItemRow> EquipRows(InventoryState? inventory, ContainerId container, EquipSlotId? slot, Func<ushort, ItemRecord?>? lookup,
+            StockUiEquipCharacter character)
         {
-            var rows = new List<StockUiItemRow>();
+            var rows = new List<StockUiItemRow> { new(0, StorageOptionsText, 0, container, 0, IsStorageOptions: true) };
             if (inventory == null) return rows;
-            var worn = EquippedItem(inventory, slot);
-            if (worn != null) rows.Add(new StockUiItemRow(0, RemoveText, 0, worn.Container, 0, IsRemove: true));
+            var worn = slot is { } s ? EquippedItem(inventory, s) : null;
             var equipped = EquippedSlots(inventory);
-            foreach (var container in EquippableContainers)
+            var items = inventory.SnapshotItems(container);
+            Array.Sort(items, (a, b) => a.Slot.CompareTo(b.Slot));
+            foreach (var item in items)
             {
-                if (only is { } filter && filter != container) continue;
-                var items = inventory.SnapshotItems(container);
-                Array.Sort(items, (a, b) => a.Slot.CompareTo(b.Slot));
-                foreach (var item in items)
-                {
-                    if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId) continue;
-                    var record = lookup?.Invoke(item.ItemId);
-                    if (record == null || !FitsSlot(record, slot)) continue;
-                    bool wornHere = worn != null && worn.Container == container && worn.Slot == item.Slot;
-                    bool wornElsewhere = !wornHere && equipped.Contains((container, item.Slot));
-                    string? reason = wornElsewhere ? "That item is equipped in another slot." : CannotEquipReason(record, character);
-                    rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
-                        Equipped: wornHere || wornElsewhere, Greyed: reason != null, GreyedReason: reason));
-                }
+                if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId) continue;
+                var record = lookup?.Invoke(item.ItemId);
+                if (record == null || record.EquipSlotsMask == 0) continue;
+                if (slot is { } fit && !FitsSlot(record, fit)) continue;
+                bool isEquipped = equipped.Contains((container, item.Slot));
+                bool wornHere = worn != null && worn.Container == container && worn.Slot == item.Slot;
+                string? reason = slot == null ? null
+                    : isEquipped && !wornHere ? "That item is equipped in another slot."
+                    : wornHere ? null : CannotEquipReason(record, character);
+                rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
+                    Equipped: isEquipped, Greyed: reason != null, GreyedReason: reason));
             }
             return rows;
         }
 
-        /// <summary>The Equipment list's first row while the slot holds an item (PROVISIONAL wording).</summary>
-        public const string RemoveText = "Remove";
+        /// <summary>The Equipment list's first row (retail capture 2026-10-11).</summary>
+        public const string StorageOptionsText = "Storage Options";
 
         /// <summary>
         /// The Drop prompt (PROVISIONAL wording: retail's is not captured): "Drop a Ronfaure chestnut?", "Drop 12 Ronfaure chestnuts?".

@@ -425,6 +425,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.WeatherNames => Path.Combine("ROM", "165", "79.DAT"),
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
+            DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),

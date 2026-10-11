@@ -91,12 +91,13 @@ namespace Gordian.Core.Tests.Ui
         private static UiMenuDefinition QuantityFrame() => new()
         {
             Name = StockUiShop.QuantityMenu,
-            Frame = new UiMenuFrame { X = 16, Y = 240, Width = 112, Height = 56, Anchor = UiAnchor.TopLeft },
+            Frame = new UiMenuFrame { X = 16, Y = 240, Width = 112, Height = 56, Anchor = UiAnchor.TopLeft, HelpTextId = 268 },
             Buttons = new List<UiMenuButton>
             {
                 new() { ButtonId = StockUiShop.QuantityField, X = 34, Y = 22, Width = 24, Height = 16, NavUp = 1, NavDown = 1, NavLeft = 1, NavRight = 1 },
             },
         };
+
 
         private static UiResourceLibrary Library() => UiResourceLibrary.FromDefinitions(new[]
         {
@@ -104,7 +105,8 @@ namespace Gordian.Core.Tests.Ui
             ItemList(),
             List(StockUiItems.ActionMenu, 384, 48, UiAnchor.TopRight, 2),
             List(StockUiItems.OptionsMenu, 384, 48, UiAnchor.TopRight, 3),
-            List(StockUiItems.StorageMenu, 384, 48, UiAnchor.TopRight, 16),
+            List(StockUiItems.SortConfirmMenu, 384, 124, UiAnchor.TopRight, 2),
+            List(StockUiItems.EquipStorageMenu, 384, 48, UiAnchor.TopRight, 9),
             EquipGrid(),
             QuantityFrame(),
             List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 2),
@@ -115,8 +117,10 @@ namespace Gordian.Core.Tests.Ui
             public readonly InventoryState Inventory = new();
             public readonly StockUiMenuController Menus = new() { Library = Library() };
             public readonly List<string> Notices = new();
+            public readonly List<string> Errors = new();
             public readonly List<(uint Id, ushort Index, ContainerId Container, byte Slot)> Uses = new();
             public readonly List<(byte Slot, EquipSlotId EquipSlot, ContainerId Container)> Equips = new();
+            public readonly List<(uint Count, ContainerId From, byte FromSlot, ContainerId To, byte ToSlot)> Moves = new();
             public readonly List<ContainerId> Sorts = new();
             public readonly TaskCompletionSource<(ContainerId, byte, uint)> Dropped = new(TaskCreationOptions.RunContinuationsAsynchronously);
             public ushort LastValidTargets;
@@ -128,9 +132,11 @@ namespace Gordian.Core.Tests.Ui
                 Menus.Inventory = Inventory;
                 Menus.ItemLookup = id => Records.TryGetValue(id, out var r) ? r : null;
                 Menus.NoticePosted += Notices.Add;
+                Menus.ErrorPosted += Errors.Add;
                 Menus.ItemUse = (id, index, container, slot) => { Uses.Add((id, index, container, slot)); return Task.CompletedTask; };
                 Menus.ItemDrop = (container, slot, count) => { Dropped.TrySetResult((container, slot, count)); return Task.CompletedTask; };
                 Menus.ItemEquip = (slot, equipSlot, container) => { Equips.Add((slot, equipSlot, container)); return Task.CompletedTask; };
+                Menus.ItemMove = (count, from, fromSlot, to, toSlot) => { Moves.Add((count, from, fromSlot, to, toSlot)); return Task.CompletedTask; };
                 Menus.ItemSort = container => { Sorts.Add(container); return Task.CompletedTask; };
                 Menus.ItemUseTarget = (targets, context) =>
                 {
@@ -143,6 +149,7 @@ namespace Gordian.Core.Tests.Ui
                 Inventory.EquipChanged += (_, _, _) => Menus.OnItemsChanged();
                 Inventory.SetContainerSizes(ContainerId.Inventory, 81, 81);
                 Inventory.SetContainerSizes(ContainerId.Wardrobe, 81, 81);
+                Inventory.SetContainerSizes(ContainerId.RecycleBin, 11, 11);
                 Inventory.SetItem(ContainerId.Inventory, 0, InventoryState.GilItemId, 5000, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 1, Chestnut, 12, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 2, Potion, 3, ItemLockFlag.Normal);
@@ -150,8 +157,8 @@ namespace Gordian.Core.Tests.Ui
                 Inventory.SetItem(ContainerId.Inventory, 5, EchoDrops, 1, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 6, LeatherBandana, 1, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 7, Brass, 1, ItemLockFlag.Normal);
+                Inventory.SetItem(ContainerId.Inventory, 8, FireCrystal, 5, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Wardrobe, 1, BronzeSword, 1, ItemLockFlag.Normal);
-                Inventory.SetItem(ContainerId.Wardrobe, 2, FireCrystal, 5, ItemLockFlag.Normal);
             }
 
             /// <summary>Opens the main menu and confirms one of its entries (2 Equipment, 4 Items).</summary>
@@ -173,19 +180,17 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void MainMenuItems_ListsTheInventoryInSlotOrderWithoutGil()
+        public void MainMenuItems_ListsTheInventoryInSlotOrder_WithTheHelpBar()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
             Assert.Equal(StockUiItemListKind.Items, list.ItemListKind);
-            Assert.Equal(ContainerId.Inventory, list.ItemContainer);
-            Assert.Equal(new ushort[] { Chestnut, Potion, BronzeCap, EchoDrops, LeatherBandana, Brass }, list.ItemRows.Select(r => r.ItemId));
-            Assert.Equal(12u, list.ItemRows[0].Count);
+            Assert.Equal(new ushort[] { Chestnut, Potion, BronzeCap, EchoDrops, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
             Assert.True(list.ItemRows[0].ShowsCount);
             Assert.False(list.ItemRows[2].ShowsCount); // a single, unstackable cap
-            Assert.Equal((6, 80), list.ItemFill);
             Assert.Equal(StockUiItems.ListRows, list.VisibleRows);
-            Assert.True(list.IsItemWindow);
+            // "Items 7/80 Select an item." (retail capture: "Items 29/30 Select an item.").
+            Assert.Equal(new StockUiItemHelpBar("Items", 7, 80, StockUiItems.HelpSelectItem), list.ItemHelpBar);
             // The list's bounds reach the options window at the top right, so the main menu there is hidden.
             Assert.True(list.OverlapsAuthored(h.Menus.OpenMenus[0]));
         }
@@ -194,31 +199,42 @@ namespace Gordian.Core.Tests.Ui
         public void ItemsList_ScrollsPastItsTenRows()
         {
             var h = new Harness();
-            for (byte slot = 10; slot < 20; slot++) h.Inventory.SetItem(ContainerId.Inventory, slot, FireCrystal, 1, ItemLockFlag.Normal);
+            for (byte slot = 10; slot < 20; slot++) h.Inventory.SetItem(ContainerId.Inventory, slot, Chestnut, 1, ItemLockFlag.Normal);
             var list = h.OpenFromMainMenu(4);
-            Assert.Equal(16, list.ItemRows.Count);
+            Assert.Equal(17, list.ItemRows.Count);
             for (int i = 0; i < 10; i++) h.Menus.Move(InputAction.MenuDown);
             Assert.Equal(1, list.FirstRow);
             Assert.Equal(10, list.SelectedButtonId);
             h.Menus.Move(InputAction.MenuRight); // pages forward
-            Assert.Equal(6, list.FirstRow);
+            Assert.Equal(7, list.FirstRow);
         }
 
         [Fact]
-        public void Use_SendsItemUseOnTheResolvedTarget_AndClosesTheMenus()
+        public void Use_SelfOnlyItemGoesOnTheResolvedTarget_AndClosesTheMenus()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
-            h.SelectItem(list, Potion);
+            h.SelectItem(list, EchoDrops);
             h.Menus.Activate();
             var action = h.Menus.Top!;
-            Assert.Equal(Potion, action.ItemAction!.Value.ItemId);
-            Assert.Equal(StockUiItems.UseButton, action.SelectedButtonId);
-            Assert.False(action.IsGreyed(StockUiItems.UseButton));
+            Assert.Equal(EchoDrops, action.ItemAction!.Value.ItemId);
             h.Menus.Activate();
-            Assert.Equal((0x01020304u, (ushort)10, ContainerId.Inventory, (byte)2), Assert.Single(h.Uses));
-            Assert.Equal(StockUiItems.TargetSelf | StockUiItems.TargetParty, h.LastValidTargets);
-            Assert.Null(h.LastContext);
+            Assert.Equal((0x01020304u, (ushort)10, ContainerId.Inventory, (byte)5), Assert.Single(h.Uses));
+            Assert.False(h.Menus.IsOpen);
+        }
+
+        [Fact]
+        public void Use_AnItemForOthersStartsTheSubTargetCursorWhenWired()
+        {
+            var h = new Harness();
+            StockUiItemRow? started = null;
+            h.Menus.ItemSubTarget = (row, targets) => { started = row; return true; };
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, Potion);
+            h.Menus.Activate();
+            h.Menus.Activate();
+            Assert.Equal(Potion, started!.Value.ItemId);
+            Assert.Empty(h.Uses);
             Assert.False(h.Menus.IsOpen);
         }
 
@@ -227,7 +243,7 @@ namespace Gordian.Core.Tests.Ui
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
-            h.SelectItem(list, Chestnut);
+            h.SelectItem(list, BronzeCap);
             h.Menus.Activate();
             var action = h.Menus.Top!;
             Assert.True(action.IsGreyed(StockUiItems.UseButton));
@@ -235,7 +251,20 @@ namespace Gordian.Core.Tests.Ui
             action.SelectedButtonId = StockUiItems.UseButton;
             h.Menus.Activate();
             Assert.Empty(h.Uses);
-            Assert.Contains("Ronfaure Chestnut cannot be used.", h.Notices);
+            Assert.Contains("Bronze Cap cannot be used.", h.Notices);
+        }
+
+        [Fact]
+        public void Use_ACrystalWithAFullInventoryPrintsRetailsError()
+        {
+            var h = new Harness();
+            h.Inventory.SetContainerSizes(ContainerId.Inventory, 8, 8); // 7 slots, 7 used
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, FireCrystal);
+            h.Menus.Activate();
+            h.Menus.Activate();
+            Assert.Equal(StockUiItems.InventoryFullMessage, Assert.Single(h.Errors));
+            Assert.Empty(h.Uses);
         }
 
         [Fact]
@@ -250,6 +279,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(quantity.IsQuantity);
             Assert.Equal(12u, quantity.QuantityMax);
             Assert.True(list.ShowsQuantity);
+            Assert.Equal(new StockUiItemHelpBar("No. of Items", null, null, 268), list.ItemHelpBar); // "Set the number of items."
             h.Menus.Move(InputAction.MenuUp);
             h.Menus.Move(InputAction.MenuUp);
             Assert.Equal(3u, quantity.Quantity);
@@ -275,22 +305,31 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.Activate();
             var action = h.Menus.Top!;
             Assert.True(action.IsGreyed(StockUiItems.DropButton));
-            Assert.True(action.IsGreyed(StockUiItems.UseButton));
+            Assert.True(list.HasItemActionOver);
             action.SelectedButtonId = StockUiItems.DropButton;
             h.Menus.Activate();
             Assert.Contains("Bronze Cap is equipped and cannot be dropped.", h.Notices);
         }
 
         [Fact]
-        public void Options_AutoSortSendsItemStackAndOrdersTheListByItem()
+        public void Options_AutoAsksThenSendsItemStackAndOrdersTheListByItem()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
             Assert.True(h.Menus.ToggleItemOptions());
             var options = h.Menus.Top!;
             Assert.True(options.IsItemOptions);
-            Assert.True(options.IsGreyed(StockUiItems.ManualSortButton));
             Assert.Equal(StockUiItems.AutoSortButton, options.SelectedButtonId);
+            h.Menus.Activate();
+            var confirm = h.Menus.Top!;
+            Assert.True(confirm.IsSortConfirm);
+            Assert.Equal(StockUiItems.SortNoButton, confirm.SelectedButtonId); // No under the cursor (retail capture)
+            Assert.Equal(StockUiItems.HelpSortList, list.ItemHelpBar!.Value.HelpTextId);
+            h.Menus.Activate(); // No: back to the options
+            Assert.Same(options, h.Menus.Top);
+            Assert.Empty(h.Sorts);
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
             h.Menus.Activate();
             Assert.Equal(ContainerId.Inventory, Assert.Single(h.Sorts));
             Assert.Same(list, h.Menus.Top);
@@ -302,29 +341,73 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Options_SwitchShowsAnotherStorage_UnavailableOnesGreyed()
+        public void Options_ManualMovesTheFirstPickToTheSecondsPlace()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
             h.Menus.ToggleItemOptions();
-            h.Menus.Top!.SelectedButtonId = StockUiItems.SwitchButton;
-            h.Menus.Activate();
-            var storage = h.Menus.Top!;
-            Assert.True(storage.IsItemStorageMenu);
-            Assert.Equal(1, storage.SelectedButtonId); // Inventory, the one shown
-            Assert.True(storage.IsGreyed(StockUiItems.StorageButtonOf(ContainerId.MogSafe)));
-            Assert.False(storage.IsGreyed(StockUiItems.StorageButtonOf(ContainerId.Wardrobe)));
-            storage.SelectedButtonId = StockUiItems.StorageButtonOf(ContainerId.MogSafe);
-            h.Menus.Activate();
-            Assert.Contains("Mog Safe is not available.", h.Notices);
-            storage.SelectedButtonId = StockUiItems.StorageButtonOf(ContainerId.Wardrobe);
+            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
             h.Menus.Activate();
             Assert.Same(list, h.Menus.Top);
-            Assert.Equal(ContainerId.Wardrobe, list.ItemContainer);
-            Assert.Equal(new ushort[] { BronzeSword, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
-            // The window opens on the storage last shown.
-            h.Menus.CloseAll();
-            Assert.Equal(ContainerId.Wardrobe, h.OpenFromMainMenu(4).ItemContainer);
+            Assert.True(list.IsManualSort);
+            Assert.Equal(StockUiItems.HelpSelectItemToMove, list.ItemHelpBar!.Value.HelpTextId);
+            // Chestnut (first) onto Bronze Cap (third): it goes below it.
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal(0, list.ManualSortFrom);
+            list.SelectedButtonId = 3;
+            h.Menus.Activate();
+            Assert.False(list.IsManualSort);
+            Assert.Equal(new ushort[] { Potion, BronzeCap, Chestnut, EchoDrops, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
+            // Echo Drops (fourth) onto Potion (first): it goes above it.
+            h.Menus.ToggleItemOptions();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
+            h.Menus.Activate();
+            list.SelectedButtonId = 4;
+            h.Menus.Activate();
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal(new ushort[] { EchoDrops, Potion, BronzeCap, Chestnut, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
+            // Cancel in Manual sort leaves the mode, not the list.
+            h.Menus.ToggleItemOptions();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
+            h.Menus.Activate();
+            h.Menus.CloseTop();
+            Assert.Same(list, h.Menus.Top);
+            Assert.False(list.IsManualSort);
+        }
+
+        [Fact]
+        public void Options_RecycleBinListsThrownAwayItems_AndRestoresWithTheCount()
+        {
+            var h = new Harness();
+            h.Inventory.SetItem(ContainerId.RecycleBin, 1, Chestnut, 4, ItemLockFlag.Normal);
+            h.Inventory.SetItem(ContainerId.RecycleBin, 2, EchoDrops, 1, ItemLockFlag.Normal);
+            var list = h.OpenFromMainMenu(4);
+            h.Menus.ToggleItemOptions();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.RecycleBinButton;
+            h.Menus.Activate();
+            var bin = h.Menus.Top!;
+            Assert.Equal(StockUiItemListKind.RecycleBin, bin.ItemListKind);
+            Assert.Equal(new ushort[] { Chestnut, EchoDrops }, bin.ItemRows.Select(r => r.ItemId));
+            Assert.Equal(list.ItemRows.Select(r => r.ItemId), bin.CompanionRows.Select(r => r.ItemId));
+            Assert.Equal(new StockUiItemHelpBar("Recycling Bin", 2, 10, StockUiItems.HelpSelectItem), bin.ItemHelpBar);
+            Assert.True(bin.OverlapsAuthored(list)); // the bin replaces the inventory list in its corner
+            Assert.Null(list.ItemHelpBar);
+
+            // One item: restored at once (0x029 to the inventory's first free slot).
+            bin.SelectedButtonId = 2;
+            h.Menus.Activate();
+            Assert.Equal((1u, ContainerId.RecycleBin, (byte)2, ContainerId.Inventory, StockUiItems.AnyFreeSlot), Assert.Single(h.Moves));
+            // A stack: the count first.
+            bin.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var quantity = h.Menus.Top!;
+            Assert.True(quantity.IsQuantity && quantity.ItemRestore);
+            h.Menus.Move(InputAction.MenuLeft); // All
+            h.Menus.Activate();
+            Assert.Equal((4u, ContainerId.RecycleBin, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot), h.Moves[1]);
+            Assert.Same(bin, h.Menus.Top);
         }
 
         [Fact]
@@ -341,35 +424,56 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Equipment_ListsTheItemsThatFitTheSlot_GreyedByJobAndLevel()
+        public void CommandMenuItems_ListOnlyUsableItems_AndUseThemAtOnce()
+        {
+            var rows = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"));
+            Assert.Contains(rows, r => r.Label == StockUiCommandMenu.Items && r.Entry.Command == StockUiMenuCommand.Items && !r.Greyed);
+
+            var h = new Harness();
+            var target = new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend");
+            var list = h.Menus.OpenItems(null, target)!;
+            Assert.Equal(StockUiItemListKind.Usable, list.ItemListKind);
+            Assert.Equal(new ushort[] { Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
+            // "Items 3/7" (retail capture: "Items 2/29"): the usable items listed over the items held.
+            Assert.Equal(new StockUiItemHelpBar("Items", 3, 7, StockUiItems.HelpSelectItem), list.ItemHelpBar);
+            Assert.False(h.Menus.ToggleItemOptions()); // no options from the command menu
+            h.SelectItem(list, Potion);
+            h.Menus.Activate(); // no Use / Drop: used at once
+            Assert.Equal(target, h.LastContext);
+            Assert.Single(h.Uses);
+        }
+
+        [Fact]
+        public void Equipment_ShowsTheStoragesEquipmentBesideTheGrid_ThenTheSlotsItems()
         {
             var h = new Harness();
             h.Inventory.SetEquip(EquipSlotId.Head, ContainerId.Inventory, 4);
             var grid = h.OpenFromMainMenu(2);
             Assert.True(grid.IsEquipment);
             Assert.Equal(BronzeCap, grid.EquippedItemIn(StockUiCheck.ButtonOf(EquipSlotId.Head)));
-            Assert.Equal(0, grid.EquippedItemIn(StockUiCheck.ButtonOf(EquipSlotId.Body)));
+            // Beside the grid: "Storage Options", then the inventory's equipment (not the potions or crystals).
+            Assert.True(grid.CompanionRows[0].IsStorageOptions);
+            Assert.Equal(new ushort[] { BronzeCap, LeatherBandana, Brass }, grid.CompanionRows.Skip(1).Select(r => r.ItemId));
+            Assert.True(grid.OverlapsAuthored(h.Menus.OpenMenus[0])); // the list covers the main menu's corner
             grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Head);
-            Assert.Equal(BronzeCap, grid.DescribedItem);
+            Assert.Equal(new StockUiItemHelpBar("Equipment", null, null, -1), grid.ItemHelpBar); // the synthetic grid has no help ids
             h.Menus.Activate();
             var list = h.Menus.Top!;
             Assert.Equal(StockUiItemListKind.Equipment, list.ItemListKind);
-            Assert.Equal(EquipSlotId.Head, list.ItemEquipSlot);
             Assert.Equal(StockUiItems.EquipListX, list.Menu.Frame.X);
             Assert.True(grid.IsListOpen);
+            Assert.Equal("Equipment", list.ItemHelpBar!.Value.Title);
             var rows = list.ItemRows;
-            Assert.True(rows[0].IsRemove);
+            Assert.True(rows[0].IsStorageOptions);
             Assert.Equal(new ushort[] { BronzeCap, LeatherBandana, Brass }, rows.Skip(1).Select(r => r.ItemId));
+            Assert.Equal(2, list.SelectedButtonId); // the cursor on the worn cap
             Assert.True(rows[1].Equipped);
             Assert.False(rows[2].Greyed); // WAR 30 wears the Leather Bandana (Lv.30 WAR)
             Assert.True(rows[3].Greyed);  // Brass Cap: WHM only
-            Assert.Equal("Your current job cannot equip that item.", rows[3].GreyedReason);
-
             list.SelectedButtonId = 4;
             h.Menus.Activate();
             Assert.Contains("Your current job cannot equip that item.", h.Notices);
             Assert.Empty(h.Equips);
-
             list.SelectedButtonId = 3;
             h.Menus.Activate();
             Assert.Equal(((byte)6, EquipSlotId.Head, ContainerId.Inventory), Assert.Single(h.Equips));
@@ -378,20 +482,19 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Equipment_RemoveUnequipsWithItemIndexZero()
+        public void Equipment_ConfirmOnTheWornItemRemovesIt()
         {
             var h = new Harness();
             h.Inventory.SetEquip(EquipSlotId.Head, ContainerId.Inventory, 4);
             var grid = h.OpenFromMainMenu(2);
             grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Head);
             h.Menus.Activate();
-            h.Menus.Top!.SelectedButtonId = 1;
-            h.Menus.Activate();
+            h.Menus.Activate(); // the cursor starts on the worn cap
             Assert.Equal(((byte)0, EquipSlotId.Head, ContainerId.Inventory), Assert.Single(h.Equips));
         }
 
         [Fact]
-        public void Equipment_ListsWardrobeItems_AndAnEmptySlotWithNothingToWearPostsANotice()
+        public void Equipment_StorageOptionsSwitchesTheListToAWardrobe()
         {
             var h = new Harness();
             h.Character = new StockUiEquipCharacter(1, 1);
@@ -399,13 +502,24 @@ namespace Gordian.Core.Tests.Ui
             grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Main);
             h.Menus.Activate();
             var list = h.Menus.Top!;
-            var row = Assert.Single(list.ItemRows);
-            Assert.Equal((BronzeSword, ContainerId.Wardrobe), (row.ItemId, row.Container));
-            h.Menus.CloseTop();
-            grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Feet);
+            Assert.Equal(ContainerId.Inventory, list.ItemContainer);
+            Assert.Single(list.ItemRows); // Storage Options only: no main weapon in the inventory
+            list.SelectedButtonId = 1;
             h.Menus.Activate();
-            Assert.Same(grid, h.Menus.Top);
-            Assert.Contains("You have nothing to equip there.", h.Notices);
+            var storage = h.Menus.Top!;
+            Assert.True(storage.IsEquipStorageMenu);
+            Assert.Equal(1, storage.SelectedButtonId);
+            Assert.True(storage.IsGreyed(StockUiItems.EquipStorageButtonOf(ContainerId.Wardrobe2)));
+            storage.SelectedButtonId = StockUiItems.EquipStorageButtonOf(ContainerId.Wardrobe2);
+            h.Menus.Activate();
+            Assert.Contains("Mog Wardrobe 2 is not available.", h.Notices);
+            storage.SelectedButtonId = StockUiItems.EquipStorageButtonOf(ContainerId.Wardrobe);
+            h.Menus.Activate();
+            Assert.Same(list, h.Menus.Top);
+            Assert.Equal(ContainerId.Wardrobe, list.ItemContainer);
+            Assert.Equal(ContainerId.Wardrobe, grid.EquipContainer);
+            var sword = list.ItemRows[1];
+            Assert.Equal((BronzeSword, ContainerId.Wardrobe), (sword.ItemId, sword.Container));
         }
 
         [Fact]
@@ -414,26 +528,10 @@ namespace Gordian.Core.Tests.Ui
             var h = new Harness();
             h.Inventory.SetItem(ContainerId.Inventory, 9, HomeRing, 1, ItemLockFlag.Normal);
             h.Inventory.SetEquip(EquipSlotId.Ring1, ContainerId.Inventory, 9);
-            var rows = StockUiItems.EquipRows(h.Inventory, EquipSlotId.Ring2, h.Menus.ItemLookup, h.Character);
-            var ring = Assert.Single(rows);
+            var rows = StockUiItems.EquipRows(h.Inventory, ContainerId.Inventory, EquipSlotId.Ring2, h.Menus.ItemLookup, h.Character);
+            var ring = rows[1];
             Assert.True(ring.Greyed);
             Assert.Equal("That item is equipped in another slot.", ring.GreyedReason);
-        }
-
-        [Fact]
-        public void CommandMenuItems_UseTheItemsOnTheMenusTarget()
-        {
-            var rows = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"));
-            Assert.Contains(rows, r => r.Label == StockUiCommandMenu.Items && r.Entry.Command == StockUiMenuCommand.Items && !r.Greyed);
-
-            var h = new Harness();
-            var target = new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend");
-            var list = h.Menus.OpenItems(null, target)!;
-            h.SelectItem(list, Potion);
-            h.Menus.Activate();
-            h.Menus.Activate();
-            Assert.Equal(target, h.LastContext);
-            Assert.Single(h.Uses);
         }
 
         [Fact]
@@ -525,28 +623,32 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal((16, 48, 182, 190), (list.Frame.X, list.Frame.Y, list.Frame.Width, list.Frame.Height));
             Assert.Equal(StockUiItems.ListRows, list.Buttons.Count(StockUiMenuController.IsSelectable));
             Assert.Equal(18, list.FindButton(2)!.Y - list.FindButton(1)!.Y);
-            Assert.Equal(1, list.FindButton(1)!.NavUp);
-            Assert.Equal(StockUiItems.ListRows, list.FindButton(StockUiItems.ListRows)!.NavDown);
+            Assert.Equal(StockUiItems.HelpSelectItem, list.Frame.HelpTextId);
             Assert.Contains(list.Frame.Shapes, s => s.Kind == 6 && s.GroupName.Equals("anc_item", StringComparison.OrdinalIgnoreCase));
 
             Assert.True(library.TryGetMenu(StockUiItems.ActionMenu, out var action));
             foreach (int id in new[] { StockUiItems.UseButton, StockUiItems.DropButton })
             {
-                Assert.Contains(action.FindButton(id)!.Shapes, s => s.Kind == 0 && library.TryGetImage(s, out _));
                 Assert.Contains(action.FindButton(id)!.Shapes, s => s.Kind == 4 && library.TryGetImage(s, out _));
             }
             Assert.True(library.TryGetMenu(StockUiItems.OptionsMenu, out var options));
-            Assert.Equal(3, options.Buttons.Count(StockUiMenuController.IsSelectable));
-            Assert.Contains(options.FindButton(StockUiItems.ManualSortButton)!.Shapes, s => s.Kind == 4);
-            Assert.True(library.TryGetMenu(StockUiItems.StorageMenu, out var storage));
-            Assert.Equal(16, storage.Buttons.Count(StockUiMenuController.IsSelectable));
-            Assert.Equal(StockUiItems.ListRows, list.Buttons.Count);
+            Assert.Equal(new[] { 269, 270, 1068 }, new[] { 1, 2, 3 }.Select(id => options.FindButton(id)!.HelpTextId));
+            Assert.True(library.TryGetMenu(StockUiItems.SortConfirmMenu, out var confirm));
+            Assert.Equal((384, 124), (confirm.Frame.X, confirm.Frame.Y));
+            Assert.True(library.TryGetMenu(StockUiItems.EquipStorageMenu, out var storage));
+            Assert.Equal(9, storage.Buttons.Count(StockUiMenuController.IsSelectable));
 
             Assert.True(library.TryGetMenu(StockUiItems.EquipmentMenu, out var equip));
             Assert.Equal((130, 48), (equip.Frame.X, equip.Frame.Y));
             Assert.Equal(16, equip.Buttons.Count(StockUiMenuController.IsSelectable));
             Assert.True(library.TryGetMenu(StockUiItems.StatsMenu, out var persona));
             Assert.Equal((16, 48, 112, 190), (persona.Frame.X, persona.Frame.Y, persona.Frame.Width, persona.Frame.Height));
+
+            // The help texts the bar shows (ROM/165/75).
+            var help = Gordian.Core.Resources.Tables.DMsgStringTable.Parse(File.ReadAllBytes(Path.Combine(GameDirectory, "ROM", "165", "75.DAT")))!;
+            Assert.Equal("Select an item.", help.Records[StockUiItems.HelpSelectItem].PrimaryText);
+            Assert.Equal("Select item to move.", help.Records[StockUiItems.HelpSelectItemToMove].PrimaryText);
+            Assert.Equal("Sort list?", help.Records[StockUiItems.HelpSortList].PrimaryText);
 
             // The flows run on the retail frames.
             var h = new Harness();
@@ -560,6 +662,7 @@ namespace Gordian.Core.Tests.Ui
             var grid = h.OpenFromMainMenu(2);
             Assert.True(grid.IsEquipment);
             grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Head);
+            Assert.Equal(244, grid.ItemHelpBar!.Value.HelpTextId); // "Head (Helms, hats, etc.)"
             h.Menus.Activate();
             Assert.True(h.Menus.Top!.IsItemList);
         }
