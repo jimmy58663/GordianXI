@@ -434,7 +434,9 @@ namespace Gordian.App.Graphics
                     // The script moves the pose on the game tick; the drawing follows it smoothly (walks, turns).
                     if (!_eventPoses.TryGetValue(entity.ServerId, out var smoother))
                     {
-                        smoother = new EventPoseSmoother(eventPose.Position, eventPose.Heading);
+                        // From the heading it is drawn with: an NPC turning to face the player as a talk starts eases round.
+                        float drawnHeading = (entity.RenderHeadingRadians != 0f || entity.Direction != 0) ? entity.RenderHeadingRadians : entity.HeadingRadians;
+                        smoother = EventPoseSmoother.Start(entity.Position, drawnHeading, eventPose);
                         _eventPoses[entity.ServerId] = smoother;
                     }
                     smoother.Advance(eventPose, deltaSeconds, entity.EventTurnSpeed);
