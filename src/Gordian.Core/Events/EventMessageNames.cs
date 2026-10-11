@@ -8,7 +8,8 @@ namespace Gordian.Core.Events
     /// <summary>
     /// Resolves the names a dialog line's 0x01 tags ask for (<see cref="IEventMessageContext.ResolveName"/>) from the
     /// game's own tables: items (the item DATs' name, log name and plural log name), key items (name and plural), zone
-    /// names (d_msg ROM/165/84), weather nouns and adjectives (d_msg ROM/165/79) and Unity leader names (d_msg ROM/165/61 rows 419-429). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
+    /// names (d_msg ROM/165/84), weather nouns and adjectives (d_msg ROM/165/79), status names and adjectives (d_msg
+    /// ROM/180/102, the basic-message table's 0x01 kinds 0x13 / 0x14) and Unity leader names (d_msg ROM/165/61 rows 419-429). The kinds come from <see cref="EventMessageFormatter"/>, which maps the other tag kinds
     /// onto these.
     /// </summary>
     public static class EventMessageNames
@@ -40,6 +41,16 @@ namespace Gordian.Core.Events
                     return resources.TryGetWeatherName(id, adjective: false, out var weather) ? weather : null;
                 case EventMessageFormatter.WeatherAdjectiveKind:
                     return resources.TryGetWeatherName(id, adjective: true, out var weatherAdjective) ? weatherAdjective : null;
+                case EventMessageFormatter.StatusKind:
+                case EventMessageFormatter.StatusAdjectiveKind:
+                {
+                    // d_msg ROM/180/102: name, then adjective (falls back to the name when empty).
+                    var table = resources.GetDMsgTable(DMsgCategory.StatusNames);
+                    if (table == null || id >= table.Count) return null;
+                    var subs = table.Records[id].SubStrings;
+                    int sub = kind == EventMessageFormatter.StatusAdjectiveKind && subs.Count > 1 && !string.IsNullOrEmpty(subs[1]) ? 1 : 0;
+                    return subs.Count > sub && !string.IsNullOrEmpty(subs[sub]) ? subs[sub] : null;
+                }
                 case EventMessageFormatter.UnityLeaderKind:
                     return id is > 0 and <= UnityLeaderCount
                         && resources.TryGetString(DMsgCategory.MiscStrings, UnityLeaderRow + id, out var leader) ? leader : null;

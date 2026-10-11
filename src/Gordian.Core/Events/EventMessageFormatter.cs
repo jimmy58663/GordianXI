@@ -61,6 +61,19 @@ namespace Gordian.Core.Events
         /// 2026-10-07). Off for the dialog tables, where a 0x04 is a plain number.
         /// </summary>
         bool CountOneIsArticle => false;
+
+        /// <summary>
+        /// The name of the skill, spell or ability with id <paramref name="id"/> an action-name code asks for
+        /// (<see cref="EventMessageSegmentKind.ActionName"/>: 0x05 skill, 0x10 spell, 0x16 weapon skill / monster ability,
+        /// 0x8F job ability), or null when not known (the code then prints nothing).
+        /// </summary>
+        string? ResolveActionName(byte code, int id) => null;
+
+        /// <summary>
+        /// The text of the 0x7F 0x84 code (xi-tools ABILITY_MODIFIERS): an action result's "Resist! ", "Magic Burst! "...
+        /// before the second line of a battle message, or empty.
+        /// </summary>
+        string ModifierText => string.Empty;
     }
 
     /// <summary>
@@ -91,6 +104,10 @@ namespace Gordian.Core.Events
         public const byte WeatherKind = 0x18;
         /// <summary>A weather's adjective by weather id ("rainy", "windy": 0x01 kind 0x17, the forecast lines' "will be ...").</summary>
         public const byte WeatherAdjectiveKind = 0x17;
+        /// <summary>A status effect's name by status id (0x01 kind 0x13 of the basic-message table: "gains the effect of ...").</summary>
+        public const byte StatusKind = 0x13;
+        /// <summary>A status effect's adjective by status id (0x01 kind 0x14: "is no longer ...").</summary>
+        public const byte StatusAdjectiveKind = 0x14;
 
         /// <summary>
         /// A Unity leader's name (0x01 kind 0x89; value 1-11 = Pieuje ... Sylvie, d_msg ROM/165/61 rows 419-429). Unity
@@ -175,7 +192,8 @@ namespace Gordian.Core.Events
                         {
                             int number = context.GetNumber(segment.Argument);
                             // 0x7F 0x92 / 0x86 "[singular/plural]": the first when the number is 1 (xi-tools docs/events/authoring.md).
-                            int pick = segment.Code is 0x92 or 0x86 ? (number == 1 ? 0 : 1) : number;
+                            // 0x7F 0x87 n "[hits/hit]": the form for one entity, the only kind a message entity is here.
+                            int pick = segment.Code is 0x92 or 0x86 ? (number == 1 ? 0 : 1) : segment.Code == 0x87 ? 0 : number;
                             Substitute(alternatives[Math.Clamp(pick, 0, alternatives.Count - 1)]);
                         }
                         break;
@@ -194,6 +212,12 @@ namespace Gordian.Core.Events
                         break;
                     case EventMessageSegmentKind.Heading:
                         Substitute(context.Heading ?? string.Empty);
+                        break;
+                    case EventMessageSegmentKind.Unknown when segment.Code == 0x84:
+                        line.Append(context.ModifierText);
+                        break;
+                    case EventMessageSegmentKind.ActionName:
+                        Substitute(context.ResolveActionName(segment.Code, context.GetNumber(segment.Argument)) ?? string.Empty);
                         break;
                     case EventMessageSegmentKind.PlayerName:
                         Substitute(context.PlayerName);
@@ -230,7 +254,9 @@ namespace Gordian.Core.Events
         /// <summary>
         /// A number as its code writes it: 0x0A plain, 0x94 two digits ("{0A 00}:{7F 94 01}" is a clock time), 0x99 four
         /// digits, 0x95 hexadecimal (upper case), 0x96 binary. The forms follow xi-tools' names for the codes
-        /// (TWO_DIGIT_VALUE, FOUR_DIGIT_VALUE, HEX_VALUE, BINARY_VALUE) and the corpus lines that use them.
+        /// (TWO_DIGIT_VALUE, FOUR_DIGIT_VALUE, HEX_VALUE, BINARY_VALUE) and the corpus lines that use them. The
+        /// basic-message table (file 7027) adds 0x9B, the number in tenths ("skill rises {7F 9B 01} points", retail
+        /// "rises 0.1 points"), and 0xB4, an amount of gil ("obtains {7F B4 00}.", retail "obtains 300 gil.").
         /// </summary>
         public static string FormatNumber(byte code, int value) => code switch
         {
@@ -238,6 +264,9 @@ namespace Gordian.Core.Events
             0x99 => value.ToString("D4", CultureInfo.InvariantCulture),
             0x95 => value.ToString("X", CultureInfo.InvariantCulture),
             0x96 => Convert.ToString(value, 2),
+            0x9B => (value < 0 ? "-" : string.Empty) + (Math.Abs((long)value) / 10).ToString(CultureInfo.InvariantCulture) + "."
+                    + (Math.Abs((long)value) % 10).ToString(CultureInfo.InvariantCulture),
+            0xB4 => value.ToString(CultureInfo.InvariantCulture) + " gil",
             _ => value.ToString(CultureInfo.InvariantCulture),
         };
 
@@ -370,6 +399,14 @@ namespace Gordian.Core.Events
 
         /// <summary>A 0x04 number code that prints 1 prints "a" / "an" (<see cref="IEventMessageContext.CountOneIsArticle"/>).</summary>
         public bool CountOneIsArticle { get; init; }
+
+        /// <summary>Names the action-name codes (code, id), or null (<see cref="IEventMessageContext.ResolveActionName"/>).</summary>
+        public Func<byte, int, string?>? ActionNames { get; init; }
+
+        public string? ResolveActionName(byte code, int id) => ActionNames?.Invoke(code, id);
+
+        /// <summary>The 0x7F 0x84 modifier text (<see cref="IEventMessageContext.ModifierText"/>).</summary>
+        public string ModifierText { get; init; } = string.Empty;
 
         private readonly IReadOnlyList<int> _numbers;
         private readonly Func<int, string?>? _partyMemberName;

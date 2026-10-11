@@ -83,7 +83,8 @@ namespace Gordian.Core.Resources.Graphics
 
         private static DecodedTexture? DecodePalettedTexture(ReadOnlySpan<byte> data, string name, byte texType)
         {
-            if (data.Length < 0x30) return null;
+            // The header runs to 0x39 (the palette-bits word ends there): a shorter payload would read past its end.
+            if (data.Length < 0x39) return null;
 
             int p = 1 + 16 + 4; // skip type, name, 0x28
             int width = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(p, 4)); p += 4;
@@ -160,6 +161,33 @@ namespace Gordian.Core.Resources.Graphics
             return new DecodedTexture(name, width, height, rgba);
         }
 
+        /// <summary>Offset of a DXT texture's FourCC ("1TXD"/"3TXD"/"5TXD", reversed "DXTn").</summary>
+        private const int DxtFourCcOffset = 0x39;
+
+        /// <summary>Offset of the FourCC in the variant with one extra header word before it.</summary>
+        private const int DxtFourCcFallbackOffset = 0x3D;
+
+        /// <summary>
+        /// Texture names already reported as skipped by <see cref="ReportSkipped"/>, so a stub that repeats on every
+        /// character load is logged once per process (#310).
+        /// </summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> ReportedSkips = new(StringComparer.Ordinal);
+
+        private static void ReportSkipped(string name, string reason)
+        {
+            if (ReportedSkips.TryAdd(name, 0))
+                Gordian.Core.Diagnostics.GordianLog.Debug("RES", $"Texture '{name}' skipped: {reason}.");
+        }
+
+        /// <summary>
+        /// Decodes a type 0xA1 (DXT) texture. Every read is bounded by the payload length: the FourCC is looked up at
+        /// 0x39, then at 0x3D, only where the payload holds it, and a texture whose payload ends before its first DXT
+        /// block is skipped (null) instead of throwing. Retail ships such a header-only stub: ROM/30/66 (Hume male main
+        /// weapon model 221, file 8613) has a 64-byte <c>hf_sti1_</c> tim0 with a 64x64 8 bpp header, no FourCC and no
+        /// pixels; the full <c>hf_sti1_</c> texture is in its neighbours ROM/30/63-69 (#310).
+        /// <para>Layout referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) and xi-tools.
+        /// <b>Beyond xi-tools / xi-model-viewer:</b> the header-only stub and its handling.</para>
+        /// </summary>
         private static DecodedTexture? DecodeDxtTexture(ReadOnlySpan<byte> data, string name)
         {
             if (data.Length < 0x40) return null;
@@ -169,22 +197,26 @@ namespace Gordian.Core.Resources.Graphics
 
             if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return null;
 
-            string fourCc = ReadCString(data.Slice(0x39, 4));
-            int dxtStart = 0x45;
-            if (fourCc != "1TXD" && fourCc != "3TXD" && fourCc != "5TXD")
+            string fourCc = ReadFourCc(data, DxtFourCcOffset);
+            int dxtStart = DxtFourCcOffset + 12;
+            if (!IsDxtFourCc(fourCc))
             {
-                fourCc = ReadCString(data.Slice(0x3D, 4));
-                if (fourCc == "1TXD" || fourCc == "3TXD" || fourCc == "5TXD")
+                fourCc = ReadFourCc(data, DxtFourCcFallbackOffset);
+                if (!IsDxtFourCc(fourCc))
                 {
-                    dxtStart = 0x49;
-                }
-                else
-                {
+                    if (data.Length < DxtFourCcFallbackOffset + 4)
+                        ReportSkipped(name, $"header-only DXT payload ({data.Length} bytes, no FourCC or pixel data)");
                     return null;
                 }
+                dxtStart = DxtFourCcFallbackOffset + 12;
             }
 
-            if (dxtStart >= data.Length) return null;
+            int blockSize = fourCc == "1TXD" ? 8 : 16;
+            if (dxtStart + blockSize > data.Length)
+            {
+                ReportSkipped(name, $"{fourCc} payload of {data.Length} bytes ends before its first block at 0x{dxtStart:X}");
+                return null;
+            }
 
             var dxtPayload = data.Slice(dxtStart);
             byte[] rgba = new byte[width * height * 4];
@@ -429,6 +461,12 @@ namespace Gordian.Core.Resources.Graphics
         private readonly record struct RgbaColor(byte R, byte G, byte B, byte A);
 
         #endregion
+
+        private static bool IsDxtFourCc(string fourCc) => fourCc is "1TXD" or "3TXD" or "5TXD";
+
+        /// <summary>The 4-byte FourCC at <paramref name="offset"/>, or empty when the payload ends before it.</summary>
+        private static string ReadFourCc(ReadOnlySpan<byte> data, int offset) =>
+            offset + 4 <= data.Length ? ReadCString(data.Slice(offset, 4)) : string.Empty;
 
         private static string ReadCString(ReadOnlySpan<byte> span)
         {

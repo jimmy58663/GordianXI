@@ -232,8 +232,9 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>Subscribes the log to a session's message sources.</summary>
+        /// <param name="entityTakesArticle">Whether an entity's name takes "the" in battle messages (a monster's), or null.</param>
         public void Attach(ChatPacketModule chat, PartyState party, CombatState combat, StockUiMenuController menus,
-            Func<uint, string?> resolveEntityName)
+            Func<uint, string?> resolveEntityName, Func<uint, bool>? entityTakesArticle = null)
         {
             chat.ChatMessageReceived += OnChatMessage;
             chat.SystemMessageReceived += msg => Log.Add(ChatLogChannel.System, StandardMessages.FormatMessage(msg));
@@ -249,7 +250,7 @@ namespace Gordian.Core.Ui
             {
                 // Each line takes its Font Colors row and Log page type from what it reports and whom (StockUiCombatLog).
                 uint me = LocalPlayerId();
-                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName))
+                foreach (var line in CombatLogFormatter.FormatActionLines(record, resolveEntityName, entityTakesArticle: entityTakesArticle))
                 {
                     Log.Add(StockUiCombatLog.LineFor(line, me, DateTime.Now));
                 }
@@ -258,7 +259,7 @@ namespace Gordian.Core.Ui
             {
                 // A message may span lines (a monster check prints its level, then its defense and evasion).
                 uint me = LocalPlayerId();
-                foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName).Split('\n'))
+                foreach (string line in CombatLogFormatter.FormatBattleMessage(record, resolveEntityName, entityTakesArticle: entityTakesArticle).Split('\n'))
                 {
                     if (line.Length > 0) Log.Add(StockUiCombatLog.LineFor(line, record.MessageId, record.TargetId, me, DateTime.Now));
                 }

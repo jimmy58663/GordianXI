@@ -16,6 +16,12 @@ namespace Gordian.Core.Resources.Tables
     /// without ("{caster} waves."). <b>Beyond XiPackets:</b> it does not name the file; found by searching the retail
     /// DATs for the emote text and checked against LandSandBoat's emote ids (<c>enums/emote.h</c>: 43 Hurray is message
     /// 86 / 87 "gives a triumphant cry", 65 Dance1 is 130 / 131 "samba", 73 Bell 146 / 147) on 2026-10-03.</item>
+    /// <item>Basic (battle) messages, English file id 7027 (<c>ROM/27/72</c>), Japanese 7026 (<c>ROM/27/71</c>): the
+    /// <c>MessageNum</c> of S2C 0x029 (XiPackets <c>world/server/0x0029</c> calls the table <c>BtlMess</c>; LandSandBoat
+    /// <c>MsgBasic</c>). 1024 messages; 38 "{target}'s {skill} skill rises {0.1} points.", 53 "... skill reaches level
+    /// ...". The packet's Data / Data2 are number parameters 0 / 1, its caster / target message entities 0 / 1.
+    /// <b>Beyond XiPackets:</b> it does not name the file; found by searching file ids 6000-8000 for "skill rises"
+    /// (2026-10-07), path resolved 2026-10-10.</item>
     /// </list>
     /// The file ids resolve through the retail file table to those paths (checked 2026-10-03).
     /// </summary>
@@ -25,13 +31,17 @@ namespace Gordian.Core.Resources.Tables
         public const int SystemMessagesJapaneseFileId = 7030;
         public const int EmoteMessagesFileId = 7025;
         public const int EmoteMessagesJapaneseFileId = 7024;
+        public const int BattleMessagesFileId = 7027;
+        public const int BattleMessagesJapaneseFileId = 7026;
 
         private readonly Func<int, byte[]?>? _loader;
         private readonly object _sync = new();
         private ZoneDialogTable? _system;
         private ZoneDialogTable? _emotes;
+        private ZoneDialogTable? _battle;
         private bool _systemTried;
         private bool _emotesTried;
+        private bool _battleTried;
 
         /// <summary>Tables read through <paramref name="loader"/>, or through <see cref="ZoneDatLoader.Load"/> when null.</summary>
         public ClientMessageTables(Func<int, byte[]?>? loader = null)
@@ -45,6 +55,9 @@ namespace Gordian.Core.Resources.Tables
         /// <summary>The emote message table (S2C 0x05A), or null when the DAT is not available.</summary>
         public ZoneDialogTable? EmoteMessages => Get(EmoteMessagesFileId, ref _emotes, ref _emotesTried);
 
+        /// <summary>The basic (battle) message table (S2C 0x029), or null when the DAT is not available.</summary>
+        public ZoneDialogTable? BattleMessages => Get(BattleMessagesFileId, ref _battle, ref _battleTried);
+
         /// <summary>The emote table message of an emote id: <c>2 * id</c> with a target, <c>2 * id + 1</c> without.</summary>
         public static int EmoteMessageId(int emoteId, bool targeted) => (emoteId * 2) + (targeted ? 0 : 1);
 
@@ -55,8 +68,10 @@ namespace Gordian.Core.Resources.Tables
             {
                 _system = null;
                 _emotes = null;
+                _battle = null;
                 _systemTried = false;
                 _emotesTried = false;
+                _battleTried = false;
             }
         }
 

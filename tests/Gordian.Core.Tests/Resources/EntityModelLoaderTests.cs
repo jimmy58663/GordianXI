@@ -862,5 +862,48 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(hiddenVertices > 20, $"model {modelId}: {hiddenVertices} hidden vertices");
             Assert.True((max - min).Length() > 0.2f, $"at scale 1 the hidden part spans {(max - min).Length()}");
         }
+
+        /// <summary>
+        /// A header-only texture section (the ROM/30/66 stub, #310) is skipped and the DAT's other sections still load.
+        /// </summary>
+        [Fact]
+        public void ParseDatContainer_HeaderOnlyTexture_KeepsTheOtherSections()
+        {
+            byte[] good = new byte[0x45 + 8];
+            good[0] = 0xA1;
+            Encoding.ASCII.GetBytes("tim     goodtex_").CopyTo(good.AsSpan(1, 16));
+            BinaryPrimitives.WriteInt32LittleEndian(good.AsSpan(0x15, 4), 4);
+            BinaryPrimitives.WriteInt32LittleEndian(good.AsSpan(0x19, 4), 4);
+            Encoding.ASCII.GetBytes("1TXD").CopyTo(good.AsSpan(0x39, 4));
+
+            byte[] dat = CreateChunk(DatSectionType.Texture, TextureDecoderTests.HeaderOnlyDxtStub())
+                .Concat(CreateChunk(DatSectionType.Texture, good)).ToArray();
+
+            var container = EntityModelLoader.ParseDatContainer(dat, "stub");
+
+            Assert.True(container.Textures.ContainsKey("goodtex_"));
+            Assert.False(container.Textures.ContainsKey("hf_sti1_"));
+        }
+
+        /// <summary>
+        /// Hume male main weapon model 221 (file 8613, ROM/30/66) carries the header-only tim0 that used to throw and
+        /// drop the whole character (#310); the character now assembles with the weapon mesh. Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void HumeMaleMainWeapon221_Assembles()
+        {
+            const string dir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(dir)) return;
+            var rm = new ResourceManager(dir);
+            rm.InitializeFileTable();
+            var weapon = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(8613)!, "wep221");
+            Assert.NotEmpty(weapon.Meshes);
+            Assert.Empty(weapon.Textures);
+
+            ushort[] grap = { 0, 0x1001, 0x2001, 0x3001, 0x4001, 0x5001, (ushort)(0x6000 | 221), 0, 0 };
+            var model = EntityModelLoader.AssembleCharacter(CharacterRace.HumeMale, 1, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId);
+            Assert.NotNull(model);
+            Assert.Contains(model!.AnimatedMeshGroups, g => g.WeaponSlot == 0 && g.TextureName.Contains("hf_sti1_"));
+        }
     }
 }

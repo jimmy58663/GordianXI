@@ -17,7 +17,8 @@ namespace Gordian.Core.Resources.Tables
         /// <summary>
         /// A numeric message parameter: the packet's or event's number <see cref="EventMessageSegment.Argument"/>.
         /// <see cref="EventMessageSegment.Code"/> says how it is written: 0x0A (0x0A n) plain, and the 0x7F n codes 0x94
-        /// two digits, 0x95 hexadecimal, 0x96 binary, 0x99 four digits.
+        /// two digits, 0x95 hexadecimal, 0x96 binary, 0x99 four digits, 0x9B tenths ("skill rises {7F 9B 01} points" =
+        /// "0.1"), 0xB4 an amount of gil ("obtains {7F B4 00}." = "300 gil").
         /// </summary>
         Number,
         /// <summary>A named thing (0x01 block): <see cref="EventMessageSegment.Code"/> says what kind, <see cref="EventMessageSegment.Values"/> which one.</summary>
@@ -25,7 +26,8 @@ namespace Gordian.Core.Resources.Tables
         /// <summary>
         /// One of several alternatives picked by number parameter <see cref="EventMessageSegment.Argument"/>:
         /// <see cref="EventMessageSegment.Code"/> 0x0C (0x0C n "[a/b/c]") picks alternative n, 0x92 and 0x86 (0x7F 0x92 n
-        /// "[a/b]") the first when the number is 1, else the second.
+        /// "[a/b]") the first when the number is 1, else the second; 0x87 (0x7F 0x87 n "[hits/hit]") picks by whether
+        /// message entity n is one or many, so always the first here.
         /// </summary>
         Selector,
         /// <summary>The message waits for the player to confirm before the event continues (0x7F 0x31, 0x32, 0x33, 0x37).</summary>
@@ -91,6 +93,14 @@ namespace Gordian.Core.Resources.Tables
         ArticleSelector,
         /// <summary>The compass direction the first message entity faces (0x1D: the untargeted <c>/point</c> line).</summary>
         Heading,
+        /// <summary>
+        /// The name of an action or skill whose id is number parameter <see cref="EventMessageSegment.Argument"/>, from
+        /// the basic-message table (file 7027): <see cref="EventMessageSegment.Code"/> 0x05 a skill ("{05 00} skill rises"),
+        /// 0x10 a spell ("casts {10 00}."), 0x16 a weapon skill or monster ability ("readies {16 01}."), 0x8F (0x7F 0x8F n)
+        /// a job ability ("uses {7F 8F 00}."). Names after xi-tools' code table (SKILL_TEXT, SPELL_NAME, ABILITY_NAME,
+        /// ABILITY_NAME2).
+        /// </summary>
+        ActionName,
         /// <summary>A code this decoder knows the length of but not the meaning.</summary>
         Unknown,
     }
@@ -309,6 +319,15 @@ namespace Gordian.Core.Resources.Tables
                         segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: ArgumentAt(raw, i + 1), Code: 0x12));
                         i += 2;
                         break;
+                    case 0x05:
+                    case 0x10:
+                    case 0x16:
+                        // A skill, spell or ability name from number parameter n: the basic-message table (file 7027)
+                        // writes "{05 00} skill rises", "casts {10 00}.", "readies {16 01}." (xi-tools SKILL_TEXT,
+                        // SPELL_NAME, ABILITY_NAME).
+                        segments.Add(new EventMessageSegment(EventMessageSegmentKind.ActionName, Argument: ArgumentAt(raw, i + 1), Code: b));
+                        i += 2;
+                        break;
                     case 0x1D:
                         // The heading (xi-tools HEADING, which gives it one argument byte). Its one use in the English
                         // tables is the untargeted /point line of the emote table (ROM/27/70 message 1: "{caster} points
@@ -443,10 +462,23 @@ namespace Gordian.Core.Resources.Tables
                     pending = new PendingSelector(EventMessageSegmentKind.GenderSelector, code, 0);
                     return i + 2;
                 case 0x86:
+                case 0x87:
                 case 0x92:
                     // 0x92 and 0x86 (xi-tools ABILITY_PLURAL_SELECT; the system table's "{12 00} {7F 86 00}[second/seconds]
-                    // until position reset.") both pick the singular when number n is 1.
+                    // until position reset.") both pick the singular when number n is 1. 0x87 (xi-tools NPC_PLURAL_SELECT)
+                    // picks the verb form by message entity n: "{7F 88 00}[The /]{01 01 10} {7F 87 00}[hits/hit]" (file 7027).
                     pending = new PendingSelector(EventMessageSegmentKind.Selector, code, argument);
+                    return i + 3;
+                case 0x8F:
+                    // A job ability name from number n (xi-tools ABILITY_NAME2): "uses {7F 8F 00}." (file 7027).
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.ActionName, Argument: argument, Code: code));
+                    return i + 3;
+                case 0x9B:
+                case 0xB4:
+                    // 0x9B: number n in tenths, "skill rises {7F 9B 01} points." = "0.1" (message 38 of file 7027);
+                    // 0xB4: an amount of gil, "obtains {7F B4 00}." (565), "mugs {7F B4 01} from" (129). Both take an
+                    // argument byte. **Differs from xi-tools:** its code table gives 0x9B none.
+                    segments.Add(new EventMessageSegment(EventMessageSegmentKind.Number, Argument: argument, Code: code));
                     return i + 3;
                 case 0x88:
                     // "[the /]" before an entity's name (xi-tools NPC_PROPER_SELECT): the emote lines' "waves to
@@ -472,16 +504,16 @@ namespace Gordian.Core.Resources.Tables
                     return i + 3;
                 case 0x81:
                 case 0x84:
-                case 0x87:
                 case 0x8C:
-                case 0x8F:
                 case 0x97:
                 case 0xAB:
                 case 0xAC:
                 case 0xB0:
                 case 0xB1:
-                case 0xB4:
                 case 0xB5:
+                case 0xB7:
+                    // 0xB7: "{7F B7 00} attribute increased to {12 01}." (file 7027 message 828): one argument byte.
+                    // **Differs from xi-tools:** its code table gives 0xB7 none.
                     segments.Add(new EventMessageSegment(EventMessageSegmentKind.Unknown, Argument: argument, Code: code));
                     return i + 3;
                 case 0xFB:
