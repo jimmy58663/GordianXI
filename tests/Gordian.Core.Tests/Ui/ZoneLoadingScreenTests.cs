@@ -7,6 +7,53 @@ namespace Gordian.Core.Tests.Ui
 {
     public class ZoneLoadingScreenTests
     {
+        [Fact]
+        public void ZoneLinePending_GoesBlackWithoutTheIndicator()
+        {
+            var screen = new ZoneLoadingScreen();
+            // Settled in zone 230, then the zone-line request goes out: black, but no "Downloading data ..." yet.
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 0, 230, 0));
+            for (double t = 1; t <= 1.05 + ZoneLoadingScreen.FadeOutSeconds; t += 0.1)
+            {
+                screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t, zoneLinePending: true);
+            }
+            Assert.True(screen.IsLoading);
+            Assert.Equal(1f, screen.Opacity);
+            Assert.False(screen.IndicatorVisible);
+            // The zone change arrives: the session connects to the next map server and the sprite shows.
+            screen.Update(SessionState.ConnectingToGameServer, 230, 0, 230, 3);
+            Assert.True(screen.IndicatorVisible);
+            // In the new zone, loaded: the sprite goes at once and the scene fades in.
+            screen.Update(SessionState.ActiveInWorld, 101, 0, 101, 4);
+            Assert.False(screen.IndicatorVisible);
+            Assert.False(screen.IsLoading);
+        }
+
+        [Fact]
+        public void ZoneLineRefused_FadesBackIn()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0);
+            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0.5, zoneLinePending: true);
+            Assert.True(screen.Opacity > 0f);
+            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0.6, zoneLinePending: false);
+            Assert.False(screen.IsLoading);
+            Assert.False(screen.IndicatorVisible);
+        }
+
+        [Fact]
+        public void IndicatorWaitsForFullBlack()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Reset(black: false);
+            screen.Update(SessionState.ConnectingToGameServer, 0, 0, 0, 0);
+            screen.Update(SessionState.ConnectingToGameServer, 0, 0, 0, 0.1);
+            Assert.False(screen.IndicatorVisible);
+            screen.Reset(black: true);
+            screen.Update(SessionState.ConnectingToGameServer, 0, 0, 0, 1);
+            Assert.True(screen.IndicatorVisible);
+        }
+
         [Theory]
         [InlineData(SessionState.ConnectingToGameServer)]
         [InlineData(SessionState.ExchangingCryptoKeys)]

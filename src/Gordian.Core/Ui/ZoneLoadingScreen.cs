@@ -12,15 +12,18 @@ namespace Gordian.Core.Ui
     /// (<see cref="ZoneLoadingIndicator"/>, #350).
     /// <para>
     /// <see cref="Update"/> returns the black overlay's opacity (0 = clear, 1 = black), easing toward it over
-    /// <see cref="FadeOutSeconds"/> / <see cref="FadeInSeconds"/> (tuned values, not measured against retail).
+    /// <see cref="FadeOutSeconds"/> / <see cref="FadeInSeconds"/> (measured on a retail recording).
     /// </para>
     /// </summary>
     public sealed class ZoneLoadingScreen
     {
-        /// <summary>Seconds to fade to black when loading starts, and back when it ends (not measured against retail). The one place these timings live: the lobby's fade after a
-        /// character is chosen uses <see cref="FadeOutSeconds"/> too. Lengthened from 0.35 / 0.6 s after the first in-game test
-        /// (the transition felt too quick).</summary>
-        public const double FadeOutSeconds = 0.6, FadeInSeconds = 1.0;
+        /// <summary>
+        /// Seconds to fade to black when loading starts, and back when it ends: both linear and about one second on the
+        /// maintainer's retail recording of two zone lines (2026-10-11, 30 fps, Southern San d'Oria to East Ronfaure and
+        /// back: the scene darkened over 28 and 30 frames and came back over 29). The one place these timings live: the
+        /// lobby's fade after a character is chosen uses <see cref="FadeOutSeconds"/> too (not measured there).
+        /// </summary>
+        public const double FadeOutSeconds = 1.0, FadeInSeconds = 1.0;
 
         /// <summary>
         /// How long the screen stays black waiting for a zone's geometry once the session is in the world; after that the
@@ -43,6 +46,17 @@ namespace Gordian.Core.Ui
         /// <summary>Whether the last update counted the view as loading.</summary>
         public bool IsLoading { get; private set; }
 
+        private bool _downloading;
+
+        /// <summary>
+        /// Whether retail's "Downloading data ..." sprite shows (<see cref="ZoneLoadingIndicator"/>): only once the screen
+        /// is fully black and the client has left the zone (the server's zone change has arrived and the session is
+        /// connecting to or waiting for the next zone), not while the zone-line request alone holds the black. On the
+        /// retail recording the screen stayed black without it for 2.2 s and 5.3 s (until the old zone was torn down),
+        /// and it went away 4 frames before the scene began to fade in.
+        /// </summary>
+        public bool IndicatorVisible => IsLoading && _downloading && _opacity >= 1f;
+
         /// <summary>Restarts the fade: black at once (a session that is still connecting) or clear.</summary>
         public void Reset(bool black)
         {
@@ -59,11 +73,13 @@ namespace Gordian.Core.Ui
         /// (<paramref name="playerReady"/>) is not on screen yet (for at most <see cref="GeometryWaitSeconds"/>), so the
         /// player never appears as the placeholder model while the look is still on its way (round-2 in-game test). Once
         /// a zone has finished loading it stays loaded until the zone changes. An event's scene zone
-        /// (<paramref name="eventZone"/>) is the event's own business and does not count.
+        /// (<paramref name="eventZone"/>) is the event's own business and does not count. A zone-line request waiting for
+        /// the server's answer (<paramref name="zoneLinePending"/>) counts too: retail goes black as the player crosses.
         /// </summary>
         public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true)
+            bool playerReady = true, bool zoneLinePending = false)
         {
+            _downloading = true;
             if (state is SessionState.ConnectingToGameServer or SessionState.ExchangingCryptoKeys or SessionState.LoadingWorldData)
             {
                 _waitingZone = 0;
@@ -73,7 +89,10 @@ namespace Gordian.Core.Ui
             if (state != SessionState.ActiveInWorld || eventZone != 0 || currentZone == 0 || currentZone == _settledZone)
             {
                 _waitingZone = 0;
-                return false;
+                // The zone-line request (#350): retail fades to black as soon as the player crosses, before the server
+                // answers, and shows nothing over the black until the zone change arrives.
+                _downloading = false;
+                return state == SessionState.ActiveInWorld && eventZone == 0 && zoneLinePending;
             }
             if (loadedZone == currentZone && playerReady)
             {
@@ -104,7 +123,7 @@ namespace Gordian.Core.Ui
 
         /// <summary><see cref="ComputeLoading"/> and <see cref="Update"/> in one call.</summary>
         public float Update(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true) =>
-            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady), nowSeconds);
+            bool playerReady = true, bool zoneLinePending = false) =>
+            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady, zoneLinePending), nowSeconds);
     }
 }

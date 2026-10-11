@@ -12,9 +12,13 @@ namespace Gordian.Core.Ui
     /// images, so the client places and cycles them itself. The Japanese client's version is a single sprite of the
     /// <c>menufont</c> texture (the "データダウンロード中..." row).
     /// <para>
-    /// Placement and size are measured on the maintainer's retail screenshot (2026-10-11, 2560 x 1440, UI scale 1): the
-    /// sprite is drawn at one screen pixel per layout pixel, its lit pixels ending 25 px from the right edge and 32 px from
-    /// the bottom, and that frame is image 168. The frame order and rate are guessed (one still frame only).
+    /// Measured on the maintainer's retail recording (2026-10-11, 2558 x 1440 at 30 fps, UI scale 1, Southern San d'Oria to East
+    /// Ronfaure and back): the sprite is drawn at one screen pixel per layout pixel with its top-left 232 x 48 px from the
+    /// bottom-right corner (lit pixels x 2327-2530, y 1393-1406; the big dots centred at x 2358 / 2499, y 1399.5), and it
+    /// cycles 165, 166, 167, 168, 169, 165, ... starting at 165: all lit, then the dimmed pair walking inward. One image
+    /// lasted 2.1 video frames on average in the second zoning (a 0.34 s cycle) and 4.1 in the first (0.68 s), so the
+    /// client steps it per rendered frame and was running at half speed while it loaded the first zone; GordianXI uses the
+    /// faster, steady rate.
     /// </para>
     /// </summary>
     public static class ZoneLoadingIndicator
@@ -36,22 +40,25 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// The sprite's top-left corner relative to the screen's bottom-right corner, in layout pixels (times the UI
-        /// scale): measured from the retail screenshot, where the sprite's box spans x 2329-2535 and y 1394-1410 of 2560 x 1440.
+        /// scale): measured on the retail recording, where the sprite's box spans x 2326-2532 and y 1392-1408 of 2558 x 1440.
         /// </summary>
-        public const float RightOffset = 231f, BottomOffset = 46f;
+        public const float RightOffset = 232f, BottomOffset = 48f;
 
         /// <summary>
-        /// Seconds each frame shows (guessed). The dimmed dot pair walks from the outside in toward the text, one pair per
-        /// frame, and starts over.
+        /// Seconds each image shows: two frames at 30 fps (the retail recording's second zoning, 2.06 video frames per image
+        /// over ten cycles). The cycle is 165 (all lit), then 166-169 (the dimmed pair walking inward toward the text).
         /// </summary>
-        public const double FrameSeconds = 0.2;
+        public const double FrameSeconds = 2.0 / 30.0;
+
+        /// <summary>The number of images in the cycle (165-169).</summary>
+        public const int CycleLength = DimmedImageCount + 1;
 
         /// <summary>The <see cref="GroupName"/> image to draw <paramref name="secondsShown"/> after the indicator appeared.</summary>
         public static int ImageAt(double secondsShown)
         {
-            if (!(secondsShown > 0) || double.IsInfinity(secondsShown)) return FirstDimmedImage;
+            if (!(secondsShown > 0) || double.IsInfinity(secondsShown)) return AllLitImage;
             long frame = (long)Math.Floor(secondsShown / FrameSeconds);
-            return FirstDimmedImage + (int)(frame % DimmedImageCount);
+            return AllLitImage + (int)(frame % CycleLength);
         }
 
         /// <summary>The sprite's top-left screen position on a <paramref name="width"/> x <paramref name="height"/> screen at UI scale <paramref name="scale"/>.</summary>

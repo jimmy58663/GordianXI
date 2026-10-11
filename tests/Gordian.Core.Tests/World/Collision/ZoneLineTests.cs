@@ -137,6 +137,19 @@ namespace Gordian.Core.Tests.World.Collision
         }
 
         [Fact]
+        public void Monitor_CancelPendingNeedsTheLineLeftBeforeResending()
+        {
+            var monitor = new ZoneLineMonitor();
+            monitor.Update(230, TwoLines, new Vector3(10, 0, 0), true, 0);
+            Assert.NotNull(monitor.Update(230, TwoLines, new Vector3(0, 0, 0), true, 0.1));
+            monitor.CancelPending(); // the server turned the player round in the line
+            Assert.Null(monitor.PendingId);
+            Assert.Null(monitor.Update(230, TwoLines, new Vector3(0, 0, 0), true, 0.2));
+            Assert.Null(monitor.Update(230, TwoLines, new Vector3(10, 0, 0), true, 0.3));
+            Assert.Equal("z6e0", monitor.Update(230, TwoLines, new Vector3(0, 0, 0), true, 0.4)?.Id);
+        }
+
+        [Fact]
         public void Monitor_PendingBlocksOtherLines()
         {
             var monitor = new ZoneLineMonitor();

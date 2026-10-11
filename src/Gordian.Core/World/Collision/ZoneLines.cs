@@ -95,10 +95,17 @@ namespace Gordian.Core.World.Collision
     public sealed class ZoneLineMonitor
     {
         /// <summary>
-        /// How long a request stays pending without an answer (guessed: LandSandBoat answers within a server tick, with
-        /// S2C 0x00B or the refusal).
+        /// How long a request stays pending without an answer (a safety limit: the screen is black while it is pending,
+        /// and the retail recording waited 2.2 s and 5.3 s in the black for the zone change).
         /// </summary>
-        public const double PendingTimeoutSeconds = 5.0;
+        public const double PendingTimeoutSeconds = 15.0;
+
+        /// <summary>The server refused the request (it placed the player instead): stop waiting. The player must still leave the line.</summary>
+        public void CancelPending()
+        {
+            PendingId = null;
+            _pendingSince = double.NaN;
+        }
 
         private ushort _zoneId;
         private bool _armed;

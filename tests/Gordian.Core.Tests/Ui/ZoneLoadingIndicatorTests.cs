@@ -12,25 +12,26 @@ namespace Gordian.Core.Tests.Ui
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
 
         [Fact]
-        public void ImageAt_WalksTheDimmedPairInward()
+        public void ImageAt_CyclesFromAllLitThroughTheDimmedPairs()
         {
-            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(0));
-            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(ZoneLoadingIndicator.FrameSeconds * 0.5));
-            Assert.Equal(167, ZoneLoadingIndicator.ImageAt(ZoneLoadingIndicator.FrameSeconds * 1.5));
-            Assert.Equal(169, ZoneLoadingIndicator.ImageAt(ZoneLoadingIndicator.FrameSeconds * 3.5));
-            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(ZoneLoadingIndicator.FrameSeconds * 4.5));
-            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(double.NaN));
-            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(-1));
+            double f = ZoneLoadingIndicator.FrameSeconds;
+            Assert.Equal(165, ZoneLoadingIndicator.ImageAt(0));
+            Assert.Equal(165, ZoneLoadingIndicator.ImageAt(f * 0.5));
+            Assert.Equal(166, ZoneLoadingIndicator.ImageAt(f * 1.5));
+            Assert.Equal(169, ZoneLoadingIndicator.ImageAt(f * 4.5));
+            Assert.Equal(165, ZoneLoadingIndicator.ImageAt(f * 5.5));
+            Assert.Equal(165, ZoneLoadingIndicator.ImageAt(double.NaN));
+            Assert.Equal(165, ZoneLoadingIndicator.ImageAt(-1));
         }
 
         [Fact]
-        public void Position_MatchesTheRetailScreenshot()
+        public void Position_MatchesTheRetailRecording()
         {
-            // 2560 x 1440 at UI scale 1: the sprite's box spans x 2329-2535, y 1394-1410.
-            var (x, y) = ZoneLoadingIndicator.Position(2560, 1440, 1f);
-            Assert.Equal(2329f, x);
-            Assert.Equal(1394f, y);
-            Assert.Equal(2535f, x + ZoneLoadingIndicator.Width);
+            // 2558 x 1440 at UI scale 1: the sprite's box spans x 2326-2532, y 1392-1408.
+            var (x, y) = ZoneLoadingIndicator.Position(2558, 1440, 1f);
+            Assert.Equal(2326f, x);
+            Assert.Equal(1392f, y);
+            Assert.Equal(2532f, x + ZoneLoadingIndicator.Width);
         }
 
         /// <summary>

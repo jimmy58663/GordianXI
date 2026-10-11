@@ -31,8 +31,15 @@ namespace Gordian.Core.World
                 else if (!_hasPendingCorrection) _pendingPosition = null;
                 _pendingDirection = direction;
                 _hasPendingCorrection = true;
+                PositionCorrectionCount++;
             }
         }
+
+        /// <summary>
+        /// How many server placements have been queued; a change tells a waiting zone-line request that the server
+        /// answered it with a placement (LandSandBoat's refusal turns the player round with S2C 0x065) instead of a zone change.
+        /// </summary>
+        public int PositionCorrectionCount { get; private set; }
 
         /// <summary>
         /// Takes the pending server correction, if any; <paramref name="position"/> is null for a facing-only change.

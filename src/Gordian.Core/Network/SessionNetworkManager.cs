@@ -767,6 +767,7 @@ namespace Gordian.Core.Network
         }
 
         private readonly World.Collision.ZoneLineMonitor _zoneLines = new();
+        private int _zoneLineCorrectionMark;
 
         /// <summary>The zone-line request state of this session (#350).</summary>
         public World.Collision.ZoneLineMonitor ZoneLines => _zoneLines;
@@ -780,11 +781,19 @@ namespace Gordian.Core.Network
         private void CheckZoneLines(Vector3 position)
         {
             var world = _parser.World;
+            // A placement while the request waits is LandSandBoat's refusal (S2C 0x065 turning the player round): the
+            // screen comes back and the player must walk out and back in.
+            if (_zoneLines.PendingId != null && !ZoneTransitionPending && _parser.LocalPlayer.PositionCorrectionCount != _zoneLineCorrectionMark)
+            {
+                GordianLog.Info("ZONE", $"Zone line '{_zoneLines.PendingId}' refused by the server.");
+                _zoneLines.CancelPending();
+            }
             bool canSend = CurrentState == SessionState.ActiveInWorld && !ZoneTransitionPending
                 && !_parser.LocalPlayer.IsMovementLocked && world.EventZoneId == 0;
             var line = _zoneLines.Update(world.CurrentZoneId, world.Collision?.ZoneLineVolumes, position, canSend,
                 System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
             if (line is not { } crossing) return;
+            _zoneLineCorrectionMark = _parser.LocalPlayer.PositionCorrectionCount;
 
             GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
             Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
