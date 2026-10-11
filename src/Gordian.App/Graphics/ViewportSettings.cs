@@ -30,6 +30,12 @@ namespace Gordian.App.Graphics
         public bool IsVsyncEnabled { get; set; } = true;
         public bool EnableOceanWaterPlane { get; set; }
 
+        /// <summary>Frames per second of viewport windows other than the focused (or last focused) one (#301).</summary>
+        public int BackgroundFrameRate { get; set; } = ViewportRenderSettings.DefaultBackgroundFrameRate;
+
+        /// <summary>GPU memory (MB) for zones kept loaded for characters in other zones (#322); 0 keeps only zones on screen.</summary>
+        public int ZoneCacheBudgetMb { get; set; } = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
+
         public static string GetDefaultSettingsPath()
         {
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

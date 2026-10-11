@@ -105,7 +105,7 @@ namespace Gordian.Core.World.Collision
         private static bool Blocks(WorldEntity other, WorldEntity self)
         {
             if (ReferenceEquals(other, self) || other.ServerId == self.ServerId) return false;
-            if (!other.IsSpawned || other.IsHidden || other.IsInvisible || other.IsNonBlocking) return false;
+            if (!other.IsSpawned || other.IsHidden || other.IsInvisible || other.IsSleeping || other.IsAutoTargetOnly || other.IsNonBlocking) return false;
             if (other.Type is not (EntityType.Player or EntityType.Npc or EntityType.Monster or EntityType.Pet or EntityType.Trust)) return false;
             return !(other.Type == EntityType.Monster && other.Hpp == 0); // defeated monsters
         }

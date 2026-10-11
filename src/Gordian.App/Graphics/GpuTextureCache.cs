@@ -22,8 +22,8 @@ namespace Gordian.App.Graphics
         /// <summary>Uploads by texture source (DAT and section), shared by every texture decoded from it.</summary>
         private readonly ConcurrentDictionary<string, (Texture Tex, TextureView View, ResourceSet Set)> _bySource = new(StringComparer.Ordinal);
 
-        /// <summary>Every upload, for disposal.</summary>
-        private readonly ConcurrentBag<(Texture Tex, TextureView View, ResourceSet Set)> _uploads = new();
+        /// <summary>Every upload by its resource set, for eviction and disposal.</summary>
+        private readonly ConcurrentDictionary<ResourceSet, (Texture Tex, TextureView View, ResourceSet Set)> _uploads = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>Texture names already reported missing (logged once each).</summary>
         private readonly ConcurrentDictionary<string, byte> _missing = new(StringComparer.OrdinalIgnoreCase);
@@ -217,7 +217,7 @@ namespace Gordian.App.Graphics
                 var view = factory.CreateTextureView(tex);
                 var set = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, view, _sampler));
                 var entry = (tex, view, set);
-                _uploads.Add(entry);
+                _uploads[set] = entry;
                 return entry;
             }
             catch (Exception ex)
@@ -281,14 +281,55 @@ namespace Gordian.App.Graphics
             return _defaultWaterResourceSet;
         }
 
+        /// <summary>The number of textures uploaded and not evicted.</summary>
+        public int UploadCount => _uploads.Count;
+
+        /// <summary>
+        /// Frees the uploads of these textures (a zone leaving the GPU, #322), except sources in
+        /// <paramref name="keepSources"/> (still used by another resident zone). Returns how many uploads were freed.
+        /// Call under the device lock: no frame may be recording with them.
+        /// </summary>
+        public int Evict(IEnumerable<DecodedTexture> textures, ISet<string>? keepSources = null)
+        {
+            ArgumentNullException.ThrowIfNull(textures);
+            var victims = new HashSet<ResourceSet>(ReferenceEqualityComparer.Instance);
+            foreach (var texture in textures)
+            {
+                if (texture == null) continue;
+                if (texture.Source.Length > 0)
+                {
+                    if (keepSources != null && keepSources.Contains(texture.Source)) continue;
+                    if (_bySource.TryRemove(texture.Source, out var shared)) victims.Add(shared.Set);
+                }
+                if (_byTexture.TryRemove(texture, out var set) && set != _defaultResourceSet) victims.Add(set);
+            }
+            if (victims.Count == 0) return 0;
+            // Other decoded instances of an evicted source (a reread DAT) point at the same set.
+            foreach (var (texture, set) in _byTexture)
+            {
+                if (victims.Contains(set)) _byTexture.TryRemove(texture, out _);
+            }
+            int freed = 0;
+            foreach (var set in victims)
+            {
+                if (!_uploads.TryRemove(set, out var entry)) continue;
+                entry.Set.Dispose();
+                entry.View.Dispose();
+                entry.Tex.Dispose();
+                freed++;
+            }
+            return freed;
+        }
+
         public void Clear()
         {
-            while (_uploads.TryTake(out var entry))
+            foreach (var entry in _uploads.Values)
             {
                 entry.Set.Dispose();
                 entry.View.Dispose();
                 entry.Tex.Dispose();
             }
+            _uploads.Clear();
             _bySource.Clear();
             _byTexture.Clear();
         }

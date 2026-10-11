@@ -199,7 +199,8 @@ namespace Gordian.Core.Events
 
         /// <summary>
         /// A message entity: the name (ours for our own id), the sex from a race look (null for fixed models), and the
-        /// article. PROVISIONAL: "the" is given to monsters only (retail's rule for NPCs is not checked).
+        /// article (<see cref="WorldEntity.TakesArticle"/>: monsters without the NamedFlag). PROVISIONAL: "the" is given to
+        /// monsters only (retail's rule for NPCs is not checked).
         /// </summary>
         private MessageEntity Describe(uint serverId, WorldEntity? entity)
         {
@@ -215,7 +216,7 @@ namespace Gordian.Core.Events
                     _ => null,
                 };
             }
-            return new MessageEntity(name, female, entity?.Type == EntityType.Monster);
+            return new MessageEntity(name, female, entity?.TakesArticle ?? false);
         }
 
         /// <summary>

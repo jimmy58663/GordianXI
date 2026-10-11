@@ -120,5 +120,75 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(255, texture.RgbaPixels[3]); // A
             Assert.False(texture.AlphaDoubled); // DXT alpha is kept as stored
         }
+
+        /// <summary>
+        /// The header-only stub of ROM/30/66 (#310): type 0xA1, 64x64, 8 bpp, image size 0x2000, a 64-byte payload with
+        /// no FourCC and no pixels. It used to read the fallback FourCC one byte past the end and throw.
+        /// </summary>
+        internal static byte[] HeaderOnlyDxtStub()
+        {
+            byte[] data = new byte[0x40];
+            data[0] = 0xA1;
+            "tim     hf_sti1_"u8.CopyTo(data.AsSpan(1, 16));
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x11, 4), 0x28);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x15, 4), 64);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x19, 4), 64);
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x1D, 2), 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x1F, 2), 8);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x25, 4), 0x2000);
+            return data;
+        }
+
+        [Fact]
+        public void DecodeTexture_HeaderOnlyDxtStub_IsSkippedWithoutThrowing()
+        {
+            Assert.Null(TextureDecoder.DecodeTexture(HeaderOnlyDxtStub()));
+        }
+
+        [Theory]
+        [InlineData(0x39, "1TXD", 0x45 + 7)]  // FourCC at 0x39, one byte short of the first DXT1 block
+        [InlineData(0x39, "3TXD", 0x45 + 15)] // one byte short of the first DXT3 block
+        [InlineData(0x3D, "5TXD", 0x49 + 15)] // fallback FourCC, one byte short of the first DXT5 block
+        [InlineData(0x3D, "1TXD", 0x40)]      // fallback FourCC itself runs past the payload
+        public void DecodeTexture_DxtPayloadEndingBeforeItsFirstBlock_IsSkipped(int fourCcOffset, string fourCc, int length)
+        {
+            byte[] data = new byte[length];
+            data[0] = 0xA1;
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x15, 4), 4);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x19, 4), 4);
+            int copy = Math.Min(4, length - fourCcOffset);
+            System.Text.Encoding.ASCII.GetBytes(fourCc).AsSpan(0, copy).CopyTo(data.AsSpan(fourCcOffset, copy));
+
+            Assert.Null(TextureDecoder.DecodeTexture(data));
+        }
+
+        [Fact]
+        public void DecodeTexture_Dxt1AtFallbackOffset_DecodesItsFirstBlock()
+        {
+            byte[] data = new byte[0x49 + 8];
+            data[0] = 0xA1;
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x15, 4), 4);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x19, 4), 4);
+            "1TXD"u8.CopyTo(data.AsSpan(0x3D, 4));
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x49, 2), 0x001F); // blue
+
+            var texture = TextureDecoder.DecodeTexture(data);
+
+            Assert.NotNull(texture);
+            Assert.Equal(255, texture!.RgbaPixels[2]);
+        }
+
+        [Theory]
+        [InlineData(0x30)]
+        [InlineData(0x38)]
+        public void DecodeTexture_PalettedPayloadShorterThanItsHeader_IsSkipped(int length)
+        {
+            byte[] data = new byte[length];
+            data[0] = 0x91;
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x15, 4), 2);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0x19, 4), 2);
+
+            Assert.Null(TextureDecoder.DecodeTexture(data));
+        }
     }
 }

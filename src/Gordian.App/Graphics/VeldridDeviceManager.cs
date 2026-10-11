@@ -7,13 +7,41 @@ namespace Gordian.App.Graphics
 {
     /// <summary>
     /// Manages the lifecycle, backend auto-detection, swapchain resizing, and resource factory for Veldrid graphics devices.
+    /// A viewport window uses <see cref="InitializeShared"/>: its own swapchain on the process's
+    /// <see cref="SharedGraphicsDevice"/> (#300). <see cref="Initialize"/> creates a device of its own with a main swapchain
+    /// (offscreen tests).
     /// </summary>
     public sealed class VeldridDeviceManager : IDisposable
     {
         private bool _disposed;
+        private SharedGraphicsDevice? _shared;
+        private Swapchain? _ownSwapchain;
+        private readonly object _privateLock = new();
 
         public GraphicsDevice? Device { get; private set; }
-        public Swapchain? MainSwapchain => Device?.MainSwapchain;
+
+        /// <summary>This window's swapchain: its own on the shared device, or the owned device's main swapchain.</summary>
+        public Swapchain? Swapchain => _ownSwapchain ?? Device?.MainSwapchain;
+
+        /// <summary>The framebuffer of <see cref="Swapchain"/>, drawn into each frame.</summary>
+        public Framebuffer? Framebuffer => Swapchain?.Framebuffer;
+
+        /// <summary>The shared device this window draws on, or null for an owned device.</summary>
+        public SharedGraphicsDevice? SharedDevice => _shared;
+
+        /// <summary>The lock frames and immediate-context uses are made under: the shared device's, else a private one.</summary>
+        public object GpuLock => _shared?.Lock ?? _privateLock;
+
+        /// <summary>Whether <see cref="Swapchain"/> waits for the vertical blank when presenting.</summary>
+        public bool SyncToVerticalBlank
+        {
+            get => Swapchain?.SyncToVerticalBlank ?? false;
+            set
+            {
+                if (Swapchain is { } swapchain && swapchain.SyncToVerticalBlank != value) swapchain.SyncToVerticalBlank = value;
+            }
+        }
+
         public ResourceFactory? Factory => Device?.ResourceFactory;
         public GraphicsBackend ActiveBackend => Device?.BackendType ?? GraphicsBackend.Direct3D11;
         public string DeviceName => Device?.DeviceName ?? "None";
@@ -23,7 +51,7 @@ namespace Gordian.App.Graphics
         public uint CurrentHeight { get; private set; }
 
         /// <summary>
-        /// Creates a GraphicsDevice and attached main Swapchain targeting the provided surface source.
+        /// Creates a GraphicsDevice of its own and attached main Swapchain targeting the provided surface source.
         /// </summary>
         public void Initialize(
             SwapchainSource swapchainSource,
@@ -44,14 +72,7 @@ namespace Gordian.App.Graphics
             CurrentWidth = Math.Max(1, width);
             CurrentHeight = Math.Max(1, height);
 
-            var options = new GraphicsDeviceOptions(
-                debug: debug,
-                swapchainDepthFormat: PixelFormat.R32_Float,
-                syncToVerticalBlank: vsync,
-                resourceBindingModel: ResourceBindingModel.Improved,
-                preferDepthRangeZeroToOne: true,
-                preferStandardClipSpaceYDirection: true
-            );
+            var options = SharedGraphicsDevice.CreateOptions(debug, vsync);
 
             var scDesc = new SwapchainDescription(
                 swapchainSource,
@@ -64,6 +85,46 @@ namespace Gordian.App.Graphics
 
             Device = CreateDeviceWithFallback(scDesc, options, preference);
             GordianLog.Info("Graphics", $"Initialized Veldrid {Device.BackendType} device: '{Device.DeviceName}' ({CurrentWidth}x{CurrentHeight}, VSync={vsync})");
+        }
+
+        /// <summary>
+        /// Creates this window's swapchain on the process's shared device, acquiring the device (the first window creates
+        /// it). Call under no lock; it takes the device's.
+        /// </summary>
+        public void InitializeShared(
+            SwapchainSource swapchainSource,
+            uint width,
+            uint height,
+            GraphicsBackendPreference preference = GraphicsBackendPreference.Auto,
+            bool vsync = true)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (Device != null) throw new InvalidOperationException("The device manager is already initialized.");
+
+            CurrentWidth = Math.Max(1, width);
+            CurrentHeight = Math.Max(1, height);
+            var shared = SharedGraphicsDevice.Acquire(preference);
+            try
+            {
+                lock (shared.Lock)
+                {
+                    _ownSwapchain = shared.CreateSwapchain(swapchainSource, CurrentWidth, CurrentHeight, vsync);
+                }
+            }
+            catch
+            {
+                shared.Release();
+                throw;
+            }
+            _shared = shared;
+            Device = shared.Device;
+            GordianLog.Info("Graphics", $"Created a viewport swapchain on the shared {Device.BackendType} device ({CurrentWidth}x{CurrentHeight}, VSync={vsync}).");
+        }
+
+        /// <summary>Presents this window's swapchain (call under <see cref="GpuLock"/>).</summary>
+        public void Present()
+        {
+            if (Device != null && Swapchain is { } swapchain) Device.SwapBuffers(swapchain);
         }
 
         private static GraphicsDevice CreateDeviceWithFallback(
@@ -141,11 +202,12 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Resizes the main swapchain when the hosting window or viewport container changes size.
+        /// Resizes this window's swapchain when the hosting window or viewport container changes size (call under
+        /// <see cref="GpuLock"/>). Other windows' swapchains are not touched.
         /// </summary>
         public void Resize(uint width, uint height)
         {
-            if (Device == null || MainSwapchain == null || _disposed)
+            if (Device == null || Swapchain == null || _disposed)
             {
                 return;
             }
@@ -163,7 +225,7 @@ namespace Gordian.App.Graphics
 
             try
             {
-                MainSwapchain.Resize(CurrentWidth, CurrentHeight);
+                Swapchain.Resize(CurrentWidth, CurrentHeight);
             }
             catch (Exception ex)
             {
@@ -175,6 +237,21 @@ namespace Gordian.App.Graphics
         {
             if (_disposed) return;
             _disposed = true;
+
+            if (_shared is { } shared)
+            {
+                // Only this window's swapchain: the device and its caches belong to every window.
+                lock (shared.Lock)
+                {
+                    try { Device?.WaitForIdle(); } catch { /* shutting down */ }
+                    _ownSwapchain?.Dispose();
+                    _ownSwapchain = null;
+                }
+                _shared = null;
+                Device = null;
+                shared.Release();
+                return;
+            }
 
             try
             {

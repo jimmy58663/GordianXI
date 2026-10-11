@@ -50,9 +50,13 @@ namespace Gordian.Core.Input
         /// </summary>
         public readonly record struct Candidate(uint ServerId, float ScreenX, float DistanceSquared, bool IsSelf);
 
-        /// <summary>Whether an entity can be picked by cycling at all (spawned, visible, named, not a transport).</summary>
+        /// <summary>
+        /// Whether an entity can be picked by cycling at all: spawned, named, not a transport, and targetable by the server's
+        /// state (<see cref="WorldEntity.IsServerTargetable"/>: not hidden, invisible, asleep, TargetOff, auto-target only or
+        /// a dead monster).
+        /// </summary>
         public static bool IsTargetable(WorldEntity entity) =>
-            entity.IsSpawned && !entity.IsHidden && !entity.IsInvisible && !string.IsNullOrWhiteSpace(entity.Name)
+            entity.IsSpawned && entity.IsServerTargetable && !string.IsNullOrWhiteSpace(entity.Name)
             && entity.Type is not (EntityType.Elevator or EntityType.Ship);
 
         /// <summary>

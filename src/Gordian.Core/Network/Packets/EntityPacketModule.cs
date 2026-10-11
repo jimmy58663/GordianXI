@@ -251,7 +251,15 @@ namespace Gordian.Core.Network.Packets
                 player.LsColorR = pc.LsColorR;
                 player.LsColorG = pc.LsColorG;
                 player.LsColorB = pc.LsColorB;
+                player.IsTargetOff = pc.IsTargetOff;
+                player.EasesHeading = pc.EasesHeading;
+                player.HidesShadow = pc.HidesShadow;
+                player.IsMotionStopped = pc.IsMotionStopped;
+                player.IsPriorityDrawn = pc.IsPriorityDrawn;
             }
+            player.IsSleeping = pc.IsSleeping;
+            // facetarget is written with the position (LandSandBoat char_update.cpp); the local player's own head is left alone.
+            if (pc.HasPosition) player.FaceTargetIndex = pc.UniqueNo == _localPlayer.ServerId ? (ushort)0 : pc.FaceTargetIndex;
             player.IsInvisible = pc.IsInvisible;
             player.GraphSize = pc.GraphSize;
             player.IsHidden = pc.IsHidden;
@@ -406,10 +414,30 @@ namespace Gordian.Core.Network.Packets
                 entity.GraphSize = npcPacket.GraphSize;
                 entity.IsHidden = npcPacket.IsHidden;
                 entity.IsInvisible = npcPacket.IsInvisible;
-                if (npcPacket.HasPosition) entity.IgnoresWorldCollision = npcPacket.IgnoresWorldCollision;
+                // SleepFlag sits in the status byte LandSandBoat writes in every update, with HideFlag.
+                entity.IsSleeping = npcPacket.IsSleeping;
+                if (npcPacket.HasPosition)
+                {
+                    entity.IgnoresWorldCollision = npcPacket.IgnoresWorldCollision;
+                    // facetarget is written with the position (LandSandBoat entity_update.cpp packet 0x1A).
+                    entity.FaceTargetIndex = npcPacket.FaceTargetIndex;
+                }
             }
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
+                // The rest of the flag words are valid with the General send flag (XiPackets 0x000E SendFlg).
+                entity.IsTargetOff = npcPacket.IsTargetOff;
+                entity.EasesHeading = npcPacket.EasesHeading;
+                entity.ModelHitboxRadius = npcPacket.ModelHitboxRadius;
+                entity.HidesShadow = npcPacket.HidesShadow;
+                entity.HasProperName = npcPacket.HasProperName;
+                entity.IsPlural = npcPacket.IsPlural;
+                entity.IsAutoTargetOnly = npcPacket.IsAutoTargetOnly;
+                entity.IsPetSpawning = npcPacket.IsPetSpawning;
+                entity.IsMotionStopped = npcPacket.IsMotionStopped;
+                entity.IsPriorityDrawn = npcPacket.IsPriorityDrawn;
+                entity.IsOcclusionExempt = npcPacket.IsOcclusionExempt;
+                entity.IsHalfTransparent = npcPacket.IsHalfTransparent;
                 entity.IsNonBlocking = npcPacket.IsNonBlocking;
                 entity.NamePlate = npcPacket.NamePlate;
                 entity.Hpp = npcPacket.Hpp;

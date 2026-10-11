@@ -195,6 +195,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.ChatModule.SystemMessageReceived -= OnSystemMessageReceived;
                 _hookedSession.ChatModule.TranslateReceived -= OnTranslateReceived;
                 _hookedSession.ChatModule.LinkshellMessageReceived -= OnLinkshellMessageReceived;
+                _hookedSession.ChatModule.ServerMessageReceived -= OnServerMessageReceived;
                 _hookedSession.Party.InviteReceived -= OnPartyInviteReceived;
                 _hookedSession.Party.InviteCleared -= OnPartyInviteCleared;
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;
@@ -212,6 +213,7 @@ namespace Gordian.App.ViewModels
                 session.ChatModule.SystemMessageReceived += OnSystemMessageReceived;
                 session.ChatModule.TranslateReceived += OnTranslateReceived;
                 session.ChatModule.LinkshellMessageReceived += OnLinkshellMessageReceived;
+                session.ChatModule.ServerMessageReceived += OnServerMessageReceived;
                 session.Party.InviteReceived += OnPartyInviteReceived;
                 session.Party.InviteCleared += OnPartyInviteCleared;
                 session.Party.MemberJoined += OnPartyMemberJoined;
@@ -318,6 +320,18 @@ namespace Gordian.App.ViewModels
             });
         }
 
+        /// <summary>The server message (S2C 0x04D, at login and for /servmes), one entry per line.</summary>
+        private void OnServerMessageReceived(string message)
+        {
+            DispatchToUi(() =>
+            {
+                foreach (string line in Gordian.Core.Ui.StockUiChat.SplitServerMessage(message))
+                {
+                    AddMessageItem(ChatItemViewModel.CreateLocalNotice(line, "[Server]", "#C678DD"));
+                }
+            });
+        }
+
         private void OnCombatActionExecuted(CombatActionRecord record)
         {
             var session = _hookedSession;
@@ -336,7 +350,8 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName);
+            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (lines.Count > 0)
             {
                 DispatchToUi(() =>
@@ -367,12 +382,17 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName);
+            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (!string.IsNullOrEmpty(line))
             {
                 DispatchToUi(() =>
                 {
-                    AddMessageItem(ChatItemViewModel.CreateCombat(line));
+                    // A battle message may span lines (a critical hit, a spell and its effect): one item each.
+                    foreach (string part in line.Split('\n'))
+                    {
+                        if (part.Length > 0) AddMessageItem(ChatItemViewModel.CreateCombat(part));
+                    }
                 });
             }
         }
@@ -751,6 +771,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.ChatModule.SystemMessageReceived -= OnSystemMessageReceived;
                 _hookedSession.ChatModule.TranslateReceived -= OnTranslateReceived;
                 _hookedSession.ChatModule.LinkshellMessageReceived -= OnLinkshellMessageReceived;
+                _hookedSession.ChatModule.ServerMessageReceived -= OnServerMessageReceived;
                 _hookedSession.Party.InviteReceived -= OnPartyInviteReceived;
                 _hookedSession.Party.InviteCleared -= OnPartyInviteCleared;
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;

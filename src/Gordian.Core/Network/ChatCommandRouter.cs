@@ -64,6 +64,8 @@ namespace Gordian.Core.Network
         Lockstyle,
         /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
         LockstyleSet,
+        /// <summary><c>/servmes</c>: shows the server message again (C2S 0x04B, answered with S2C 0x04D).</summary>
+        ServerMessage,
 
         /// <summary>Debug: <c>/playsound &lt;id&gt; | stop</c> plays a sound effect by id on the client (not sent to the server).</summary>
         DebugPlaySound,
@@ -274,6 +276,9 @@ namespace Gordian.Core.Network
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
                     "lockstyleset" => new ChatCommandResult { Kind = ChatCommandResultKind.LockstyleSet, Message = args },
+
+                    // Server message
+                    "servmes" => new ChatCommandResult { Kind = ChatCommandResultKind.ServerMessage, Message = args },
 
                     // Debug audio (client only)
                     "playsound" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlaySound, Message = args },

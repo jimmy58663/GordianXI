@@ -99,7 +99,7 @@ namespace Gordian.Core.Tests.Network
             };
 
             string text = CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver);
-            Assert.Equal("Cybin scores a critical hit! Wild Rabbit takes 89 points of damage.", text);
+            Assert.Equal("Cybin scores a critical hit!\nWild Rabbit takes 89 points of damage.", text);
         }
 
         [Fact]
@@ -115,7 +115,7 @@ namespace Gordian.Core.Tests.Network
             };
 
             string text = CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver);
-            Assert.Equal("Cybin casts Fire. Goblin Fisher takes 65 points of damage.", text);
+            Assert.Equal("Cybin casts Fire.\nGoblin Fisher takes 65 points of damage.", text);
         }
 
         [Fact]
@@ -215,8 +215,7 @@ namespace Gordian.Core.Tests.Network
             };
 
             var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver);
-            Assert.Single(lines);
-            Assert.Equal("Cybin casts Cure. Cybin recovers 30 HP.", lines[0]);
+            Assert.Equal(new[] { "Cybin casts Cure.", "Cybin recovers 30 HP." }, lines);
         }
 
         [Fact]
@@ -246,8 +245,7 @@ namespace Gordian.Core.Tests.Network
             };
 
             var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver);
-            Assert.Single(lines);
-            Assert.Equal("Cybin uses Fast Blade. Wild Rabbit takes 78 points of damage.", lines[0]);
+            Assert.Equal(new[] { "Cybin uses Fast Blade.", "Wild Rabbit takes 78 points of damage." }, lines);
         }
 
         [Fact]

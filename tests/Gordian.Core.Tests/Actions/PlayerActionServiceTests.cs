@@ -589,6 +589,30 @@ namespace Gordian.Core.Tests.Actions
             Assert.Null(_actionService.CurrentTarget);
         }
 
+        /// <summary>
+        /// #327: a selected monster entering the death status (server status 3, as LandSandBoat's CDeathState sends it) is
+        /// dropped as the target, as retail does; so is one the server turns TargetOff (#334).
+        /// </summary>
+        [Fact]
+        public void SelectedMonsterDiesOrTurnsTargetOff_DropsTarget()
+        {
+            _actionService.SetTargetByServerId(0x02020202);
+            Assert.True(_world.TryGetByServerId(0x02020202, out var hare));
+
+            hare!.Hpp = 0;
+            hare.AnimationState = WorldEntity.StatusDead;
+            _world.UpsertEntity(hare);
+            Assert.Null(_actionService.CurrentTarget);
+
+            hare.Hpp = 100;
+            hare.AnimationState = 0;
+            _actionService.SetTargetByServerId(0x02020202);
+            Assert.NotNull(_actionService.CurrentTarget);
+            hare.IsTargetOff = true;
+            _world.UpsertEntity(hare);
+            Assert.Null(_actionService.CurrentTarget);
+        }
+
         [Fact]
         public void AnchorCommand_TogglesAndReportsServerLock()
         {

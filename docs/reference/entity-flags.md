@@ -1,6 +1,6 @@
 # Entity Flags and Bit Fields
 
-> Scope: every entity flag word GordianXI knows. The first half is the wire: the send flags and the four flag words of the entity updates S2C 0x00D (players) and 0x00E (NPCs, monsters, pets, trusts), the local player's S2C 0x037, and the values LandSandBoat writes into them. The second half is the retail client's in-memory `Render.Flags0`-`Flags7` words, which the event VM sets and tests (named by XiEvents), with the event opcodes that touch each bit. Many event opcodes GordianXI does not run yet only change one of these bits, so this is also the map of what such an opcode would need. Bit numbering and offsets follow [conventions.md](conventions.md#byte-and-bit-order): bit n of a word is `(W >> n) & 1` of the u32 read little-endian; "payload" offsets are packet offsets minus 4. Every "GordianXI use" entry was checked in `src/`. Date of this pass: 2026-10-01.
+> Scope: every entity flag word GordianXI knows. The first half is the wire: the send flags and the four flag words of the entity updates S2C 0x00D (players) and 0x00E (NPCs, monsters, pets, trusts), the local player's S2C 0x037, and the values LandSandBoat writes into them. The second half is the retail client's in-memory `Render.Flags0`-`Flags7` words, which the event VM sets and tests (named by XiEvents), with the event opcodes that touch each bit. Many event opcodes GordianXI does not run yet only change one of these bits, so this is also the map of what such an opcode would need. Bit numbering and offsets follow [conventions.md](conventions.md#byte-and-bit-order): bit n of a word is `(W >> n) & 1` of the u32 read little-endian; "payload" offsets are packet offsets minus 4. Every "GordianXI use" entry was checked in `src/`. Date of this pass: 2026-10-01; the 0x00D / 0x00E rows were updated for #334 / #327 on 2026-10-10 (tests: `EntityFlagBitsTests`).
 
 Sources: XiPackets `world/server/0x000D`, `0x000E`, `0x0037` (bit names and documented effects), LandSandBoat `src/map/packets/entity_update.cpp` (what the server writes) and `data/enums/{status,entity_flags,name_vis}.yaml`, XiEvents `OpCodes/*.md`, "Event VM Functions.md" and "Event VM Structures.md" (render flags). Readings marked *inference* are ours, from the pattern of uses; the sources do not name them.
 
@@ -24,8 +24,8 @@ Sources: XiPackets `world/server/0x000D`, `0x000E`, `0x0037` (bit names and docu
 | 13 | RunMode | used by events | not decoded |
 | 14 | (PS2 TargetMode) | unknown | not decoded |
 | 15 | GroundFlag | the entity ignores world collision | `IgnoresWorldCollision`: `EntityGrounding` keeps the reported height instead of the floor |
-| 16 | KingFlag | the client waits at zone-in until the 0x00A `SendCount` number of "king" entities have arrived | not decoded |
-| 17-31 | facetarget | target index the entity's head turns toward | not decoded. **Gap:** a server-driven head turn exists; `HeadLook` only turns heads for events |
+| 16 | KingFlag | the client waits at zone-in until the 0x00A `SendCount` number of "king" entities have arrived | 0x00E decoded (`IsKing`), not used (no zone-in wait) |
+| 17-31 | facetarget | target index the entity's head turns toward | `FaceTargetIndex` (both packets, taken only with the Position send flag, which is when LandSandBoat writes it: the u16 at packet 0x1A holding `m_TargID << 1`; an NPC's database `LookAt`, or whom a script has it look at; a player's current target). `EntityRenderer.HeadTurn` turns the head toward that entity with the event look's limits and ease (`HeadLook`: 60 degrees, tilt 45, 8 per second, not measured) whenever no event look is set, the entity is not in the running event and is not dead (#334). The local player's own is ignored. Frozen by MotStopFlag |
 
 ## Flags1 (0x00D / 0x00E payload 28, packet 0x20)
 
@@ -35,7 +35,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 |---|---|---|---|
 | 0 | MonsterFlag | monster: yellow name, attackable (else NPC, green) | 0x00E `IsMonster` makes a 0-1023 index a monster, kept once seen (`EntityPacketModule`) |
 | 1 | HideFlag | fully hidden and untargetable | `IsHidden`: not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), skipped by targeting (`TargetCycling`) and entity bump (`EntityBumpCollision`), no name plate |
-| 2 | SleepFlag | the entity's scheduler is suspended; not rendered, not targetable | not decoded |
+| 2 | SleepFlag | the entity's scheduler is suspended; not rendered, not targetable | `IsSleeping` (both packets; read with HideFlag, from every 0x00E update, since it sits in LandSandBoat's status byte): not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), no name plate, skipped by targeting (`WorldEntity.IsServerTargetable`) and entity bump; a selected target that turns it on is dropped (#334) |
 | 3 | (PS2 MonStat) | unused | |
 | 4 | | unknown | |
 | 5-7 | ChocoboIndex | special chocobo type | 0x00D decoded (`ChocoboIndex`), not used |
@@ -49,14 +49,14 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 16 | PlayOnelineFlag | 0x00D: PlayOnline icon. 0x00E: the HP bar is hidden when targeted | 0x00D `NamePlateFlags.PlayOnline`; 0x00E `NamePlateFlags.HealthBarHidden` → `NamePlateStyle.ShowsTargetHealthBar` (no HP gauge in the target window, #259) |
 | 17 | LinkShellFlag | 0x00D: wears a linkshell (pearl icon) | 0x00D `NamePlateFlags.Linkshell` |
 | 18 | LinkDeadFlag | 0x00D: disconnecting | 0x00D `NamePlateFlags.LinkDead` |
-| 19 | TargetOffFlag | cannot be targeted by normal means | not decoded |
+| 19 | TargetOffFlag | cannot be targeted by normal means | `IsTargetOff` (both packets, General updates): still drawn with its name, skipped by targeting (`IsServerTargetable`), and a selected target that turns it on is dropped (`PlayerActionService.OnEntityUpdated`, #334). LandSandBoat's `entity_flags.untargetable` (mob `SetUntargetable`) lands here |
 | 20 | TalkUcoffFlag | used by events | not decoded |
 | 21-23 | (PS2 party leader, alliance leader, debug client) | unused | |
 | 24-26 | GmLevel | 1-2 trial arrow, 3 PlayOnline icon, 4-7 GM icons | 0x00D `GmLevel` → `NamePlateStyle.Icon` |
 | 27 | HackMove | unused | |
 | 28 | (PS2 GMInvisFlag) | unknown | |
 | 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible`: still drawn, but no name plate and skipped by targeting and entity bump |
-| 30 | TurnFlag | ease the heading over time instead of snapping | not decoded (GordianXI always eases: `WorldEntity.UpdateHeading`) |
+| 30 | TurnFlag | ease the heading over time instead of snapping | `EasesHeading` (both packets, General updates), not used: GordianXI always eases the heading (15 per second, `WorldEntity.UpdateHeading`). LandSandBoat never sets it ("get the lerp values from retail", `char_update.cpp`). Snapping a standing entity's turn while the flag is clear, as XiPackets reads, was tried for #334 and rejected in the maintainer's in-game test (2026-10-10): the snap did not look right and the eased turns looked better. Retail's turn behaviour and rate are not measured |
 | 31 | BazaarFlag | bazaar icon | 0x00D `NamePlateFlags.Bazaar` |
 
 ## Flags2 (0x00D / 0x00E payload 32, packet 0x24)
@@ -64,18 +64,18 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | Bits | XiPackets name | Meaning | GordianXI use |
 |---|---|---|---|
 | 0-7 | r | 0x00D: linkshell colour red. 0x00E: Ballista name flags in PvP, else the mount id | 0x00D `LsColorR` (name plate pearl tint) |
-| 8-15 | g | 0x00D: linkshell green. 0x00E: hitbox size x 10 | 0x00D `LsColorG`; the 0x00E hitbox is not decoded (#133 found it is not a living-mob flag) |
+| 8-15 | g | 0x00D: linkshell green. 0x00E: hitbox size x 10 | 0x00D `LsColorG`; 0x00E `ModelHitboxSize` / `ModelHitboxRadius` (x 0.1) → `WorldEntity.ModelHitboxRadius`, not used yet (#334). **Beyond XiPackets:** LandSandBoat writes 8 (0.8 yalms) for every mob with HP and 0 once it has none, whatever its database `modelHitboxSize`, so on LandSandBoat it is not a real size (#133 first read it as a living-mob flag) |
 | 16-23 | b | 0x00D: linkshell blue. 0x00E: low 4 bits GEO Indi element, rest unknown | 0x00D `LsColorB` |
 | 24 | PvPFlag | Gate Breach in PvP | not decoded |
-| 25 | ShadowFlag | the shadow is hidden | not decoded |
+| 25 | ShadowFlag | the shadow is hidden | `HidesShadow` (both packets), not used: GordianXI draws no entity shadows yet |
 | 26 | ShipStartMode | unused | |
 | 27 | CharmFlag | charmed | 0x00D `IsCharmed`: for the local player, input is ignored and the server's positions are taken (`EntityPacketModule`, `PlayerLocomotionController`) |
 | 28 | GmIconFlag | a GM hiding the GM icon | 0x00D `NamePlateFlags.GmIconHidden` |
-| 29 | NamedFlag | the name takes no "The" | not decoded |
-| 30 | SingleFlag | referred to in the plural | not decoded |
-| 31 | AutoPartyFlag | 0x00D: auto-party icon. 0x00E: invisible and untargetable, auto-target still works | 0x00D `NamePlateFlags.AutoParty`; the 0x00E meaning is not applied |
+| 29 | NamedFlag | the name takes no "The" | 0x00E `HasProperName` → `WorldEntity.TakesArticle` (a monster without it takes "the"): the article of client message tables' entity tags (`ClientMessageController`, #334). The combat log's own lines do not use it yet |
+| 30 | SingleFlag | referred to in the plural | 0x00E `IsPlural`, not used (no message picks a plural form by entity yet) |
+| 31 | AutoPartyFlag | 0x00D: auto-party icon. 0x00E: invisible and untargetable, auto-target still works | 0x00D `NamePlateFlags.AutoParty`; 0x00E `IsAutoTargetOnly`: not drawn, no name plate, skipped by targeting and entity bump (#334). GordianXI has no auto-target, so the "once it attacks you" case is not applied |
 
-LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix and ORs in 0x08 (bit 27, CharmFlag) for a mob whose master is a player (`entity_update.cpp`).
+LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix and ORs in 0x08 (bit 27, CharmFlag) for a mob whose master is a player (`entity_update.cpp`). In its `mob_pools.sql` (2026-10-10) the prefixes are 0 (942 pools), 0x20 NamedFlag (338: notorious monsters with proper names, Adelheid, Amikiri...), 0x28 (4, named and charm-flagged: Prishe, Ajido-Marujido...), 0x08 (3: Luopan, Garrison), 0x02 (2), 0x40 SingleFlag (1: Archaic Gears) and 0x10 (1); no pool sets 0x80. Every dynamic NPC gets 0x20 (`luautils.cpp`). This matches XiPackets' names.
 
 ## Flags3 (0x00D / 0x00E payload 36, packet 0x28)
 
@@ -83,12 +83,12 @@ LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix
 |---|---|---|---|---|
 | 0 | TrustFlag | a Trust: clicking opens the target menu | 0x45 (bits 0, 2, 6) for every Trust | 0x00E `IsTrust` → `EntityType.Trust`; 0x00D decoded, not used |
 | 1 | LfgMasterFlag | 0x00D: seeking a master party; 0x00E unused | | 0x00D `NamePlateFlags.SeekingMasterParty` |
-| 2 | PetNewFlag | a pet being spawned (spawn animation) | part of the Trust 0x45 | not decoded |
-| 3 | (PS2 PetKillFlag) | unknown | 0x08 for a mob at death animation with HP left | not decoded |
-| 4 | MotStopFlag | freeze the motion (petrify, terror) | 0x10 under Terror | not decoded |
-| 5 | CliPriorityFlag | always draw, past the client's entity limit | 0x20 for Pso'Xja mobs and `priorityRender` | not decoded |
+| 2 | PetNewFlag | a pet being spawned (spawn animation) | part of the Trust 0x45; also a mob's `SpawnAnimation::Special` | 0x00E `IsPetSpawning`, not used (GordianXI plays no spawn animation yet) |
+| 3 | (PS2 PetKillFlag) | unknown | 0x08 for a mob at death animation with HP left | 0x00E `IsPetKill`, not used (purpose unknown) |
+| 4 | MotStopFlag | freeze the motion (petrify, terror) | 0x10 under Terror (both packets) | `IsMotionStopped` (both packets, General updates): `EntityRenderer` stops advancing the entity's animation (the pose freezes where it is) and holds its head look, unless an event look is set (#334) |
+| 5 | CliPriorityFlag | always draw, past the client's entity limit | 0x20 for Pso'Xja mobs and `priorityRender` | `IsPriorityDrawn` (both packets), not used: GordianXI has no per-frame entity limit, so every entity in range is drawn already |
 | 6 | PetFlag | a pet | 0x40 for a triggerable NPC and for a mob at status Normal; part of the Trust 0x45 | 0x00D `IsPet` decoded, not used |
-| 7 | OcclusionoffFlag | skip entity occlusion tests | | not decoded |
+| 7 | OcclusionoffFlag | skip entity occlusion tests | | 0x00E `IsOcclusionExempt`, not used: GordianXI runs no entity occlusion tests (frustum culling only) |
 | 8-15 | BallistaTeam | Ballista team (nation flags, Wyverns, Griffons) | the entity's allegiance (packet 0x29) | not decoded |
 | 16-18 | MonStat | sub-animation (2 or 3 bits depending on the entity) | `animationsub` (packet 0x2A) | 0x00E `AnimationSub` (payload 0x26 low 3 bits) → `NpcStanceResolver` |
 | 19 | | language-specific | | |
@@ -103,7 +103,7 @@ LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix
 | 28 | | non-blocking: skipped by the client's actor contact check | | `IsNonBlocking`: skipped by `EntityBumpCollision` |
 | 29 | | the HP bar and the overhead name are not drawn | name visibility 0x20 lands here (Port Jeuno's Synthesis Focuser II has name_vis 0x60, bits 29 and 30) | 0x00E `NamePlateFlags.NameHidden` → `NamePlateStyle.ShowsName` and `ShowsTargetHealthBar` (no name plate, no target HP gauge; retail check 2026-10-04, #259) |
 | 30 | | off the compass | | |
-| 31 | | half-transparent (alpha 0.5 by distance) | name visibility 0x80 (`ghost_phase`) lands here | not decoded |
+| 31 | | half-transparent (alpha 0.5 by distance) | name visibility 0x80 (`ghost_phase`) lands here | 0x00E `IsHalfTransparent`: `EntityRenderer` draws the entity through the event fade path at alpha 0.5 (at most; an event fade lower still wins), after the opaque entities (#334). 0x00D: unused for players (XiPackets) |
 
 **Differs from LandSandBoat:** LandSandBoat's `hide_name` name visibility bit reaches the client as Flags3 bit 27, while GordianXI hides names on bit 29 (the XiPackets "no HP bar, no name" bit). An NPC that LandSandBoat marks `hide_name` still shows its name in GordianXI. Whether retail hides the name for bit 27 on every entity type is open (XiPackets says it depends on the entity).
 
@@ -147,14 +147,18 @@ LandSandBoat writes its entity status as packet byte 0x20, the low byte of Flags
 | 1 | update | 0 MonsterFlag | monster (mob allegiance entities spawn so) |
 | 2 | disappear | 1 HideFlag | hidden (a dying mob fades to it, which also clears MonsterFlag; `EntityPacketModule` keeps a known monster a monster) |
 | 3 | invisible | 0, 1 | hidden monster |
-| 4 | status_4 | 2 SleepFlag | drawn (SleepFlag is not decoded) |
-| 5 | status_5 | 0, 2 | drawn monster |
+| 4 | status_4 | 2 SleepFlag | not drawn, not targetable (SleepFlag) unless in the running event |
+| 5 | status_5 | 0, 2 | monster, not drawn, not targetable (SleepFlag) |
 | 6 | cutscene_only | 1 HideFlag, 2 SleepFlag | hidden unless it takes part in the running event ([ui/stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6), cutscene-only NPCs) |
 | 7 | status_7 | 0, 1, 2 | hidden monster |
 | 18 | status_18 | 1, 4 | hidden |
-| 20 | shutdown | 2, 4 | drawn |
+| 20 | shutdown | 2, 4 | not drawn (SleepFlag); LandSandBoat sets it only on players, whose 0x00D carries real flags instead |
 
 The server status byte at payload 27 (packet 0x1F) is a different enumeration, LandSandBoat's `animation` (engaged, dead, elevator up / down...): see [enums.md](enums.md#server-animation-status).
+
+## Dead monsters (#327)
+
+LandSandBoat sends no flag at a mob's death. `CDeathState::init` sets the animation status to death (3) with an HP update, so the client gets server status 3, HP 0, the hitbox byte (Flags2.g) 0 and PetKillFlag clear; the status byte in Flags1 keeps MonsterFlag (Update) until the mob fades to Disappear (HideFlag) and despawns. The retail client therefore has only the death status to go on. GordianXI takes a monster, pet or Trust at server status 3 as dead (`WorldEntity.IsDeadBattleEntity`): its name plate turns grey (`NamePlateColor.Dead`, ncol #9, the group's only grey, half-scale (64, 64, 64); that retail uses #9 is probable, not captured), targeting skips it (`IsServerTargetable`), and a selected target that dies is dropped (`PlayerActionService.OnEntityUpdated`). Players are left out: a dead player stays targetable for Raise. **Beyond XiPackets / LandSandBoat:** neither says how the client marks the dead; this is read from what LandSandBoat sends and the retail behaviour in #327.
 
 ## LandSandBoat database flags and name visibility
 

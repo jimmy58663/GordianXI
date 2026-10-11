@@ -39,6 +39,10 @@ public partial class App : Application
             var rm = AppResourceManager.Instance;
             return rm == null ? null : Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, id);
         };
+        // S2C 0x029 battle messages worded from the client's basic-message table (file 7027, #335), read through the
+        // file-id loader above on first use.
+        var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
+        Gordian.Core.Network.Packets.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

@@ -102,10 +102,16 @@ namespace Gordian.Core.Network
             _lifecycleModule.ZoneLoginInfoReceived += info =>
             {
                 _world.UpdateZoneLoginInfo(info);
+                _world.SubMap.OnZoneLogin(info.SubMapNumber);
+                _world.PacketControlCount = S2C_0x005_PacketControl.DefaultPacketCount;
                 // MusicNum[5] (day, night, solo battle, party battle, mount) feeds the zone music slots 0-4.
                 Span<ushort> musicTable = stackalloc ushort[] { info.MusicDay, info.MusicNight, info.MusicBattleSolo, info.MusicBattleParty, info.MusicMount };
                 _world.Music.SetZoneTable(musicTable);
             };
+            _lifecycleModule.SubMapNumberRequested += () => _world.SubMap.MarkRequested();
+            _lifecycleModule.SubMapNumberReceived += mapNum => _world.SubMap.ReceiveSubMapNumber(mapNum);
+            _lifecycleModule.SubMapChangeSent += subMap => _world.SubMap.SetSubMapNumber(subMap);
+            _lifecycleModule.PacketControlReceived += count => _world.PacketControlCount = count;
             _lifecycleModule.WeatherReceived += weatherNumber =>
             {
                 _world.UpdateWeather(weatherNumber);
@@ -537,6 +543,16 @@ namespace Gordian.Core.Network
             {
                 GordianLog.Warning("PARSER", $"Payload decompression error: {ex.Message}");
                 return false;
+            }
+
+            if (decompressedBytes == 0)
+            {
+                // A verified datagram with no sub-packets: LandSandBoat (https://github.com/LandSandBoat/server,
+                // MapNetworking::handle_incoming_packet / send_parse) answers every client datagram, and when nothing is
+                // queued for the character the answer holds no packets. During an event that is most answers (the
+                // 2026-10-10 Bastok Mines intro: the server's sequence kept advancing for two minutes while no datagram
+                // carried a packet). It is still the server answering, so it counts as traffic (#340).
+                return true;
             }
 
             if (decompressedBytes < 4)

@@ -374,13 +374,22 @@ namespace Gordian.Core.Actions
             if (previous == StatusEngaged && current != StatusEngaged) EndEngagement();
         }
 
-        /// <summary>The engaged target died: end the engagement and drop it as the target.</summary>
+        /// <summary>
+        /// The engaged target died: end the engagement and drop it as the target. A selected target the server's state no
+        /// longer lets be targeted (a dead monster, TargetOff, SleepFlag, auto-target only; #327, #334) is dropped too, as
+        /// retail does; one taking part in the running event is kept.
+        /// </summary>
         private void OnEntityUpdated(WorldEntity entity)
         {
             if (entity.Type == EntityType.Player && entity.ServerId == _localPlayer.ServerId) return;
             if (entity.Hpp == 0 || entity.AnimationState is StatusDead or StatusDespawning)
             {
                 if (Combat is { IsEngaged: true } combat && combat.TargetServerId == entity.ServerId) EndEngagement();
+            }
+            if (CurrentTarget != null && CurrentTarget.ServerId == entity.ServerId && !entity.IsInEvent
+                && (entity.IsDeadBattleEntity || entity.IsTargetOff || entity.IsSleeping || entity.IsAutoTargetOnly))
+            {
+                ClearTarget();
             }
         }
 
@@ -1432,6 +1441,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
+            sb.AppendLine("  /servmes                  - Show the server message");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
             sb.AppendLine("  /synth <crystal slot> <slot> [slot ...] - Synthesize with inventory slots (repeat a slot to use several of a stack)");
             sb.AppendLine("  /guild buylist | selllist | buy <item id> [n] | sell <slot> [n] - Guild shop requests (while a guild shop is open)");
@@ -2522,6 +2532,11 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ServerMessage:
+                    // The answer (S2C 0x04D) prints the message; nothing to say here.
+                    await _chatModule.RequestServerMessageAsync().ConfigureAwait(false);
+                    return PlayerActionResult.Ok(string.Empty, cmd.Kind);
 
                 case ChatCommandResultKind.DebugPlayRoutine:
                     return PlayRoutineCommand(cmd.Message ?? string.Empty);

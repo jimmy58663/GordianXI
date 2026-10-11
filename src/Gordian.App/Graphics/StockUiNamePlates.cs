@@ -79,7 +79,7 @@ namespace Gordian.App.Graphics
         {
             new(127, 127, 127, 127), new(96, 127, 127, 127), new(96, 96, 127, 127), new(64, 96, 127, 127),
             new(96, 127, 96, 127), new(127, 127, 96, 127), new(127, 64, 64, 127), new(127, 64, 127, 127),
-            new(127, 96, 64, 127),
+            new(127, 96, 64, 127), new(64, 64, 64, 127),
         };
 
         /// <summary>Glyph scale of a plate: world sized, clamped, times the player's size setting.</summary>
