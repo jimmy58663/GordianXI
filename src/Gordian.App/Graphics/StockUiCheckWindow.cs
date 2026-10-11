@@ -1,6 +1,5 @@
 // src/Gordian.App/Graphics/StockUiCheckWindow.cs
 using System;
-using System.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
@@ -36,7 +35,7 @@ namespace Gordian.App.Graphics
         private const float LinkshellIconX = 16, LinkshellIconY = 163, LinkshellIconSize = 16, LinkshellTextX = 34, LinkshellTextY = 165;
 
         /// <summary>Text inside the help bar's boxes and the description: log font lines 16 px apart.</summary>
-        private const float BarTextX = 8, InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 4, InfoRightInset = 8;
+        private const float BarTextX = 8;
 
         /// <summary>The help line stops this far (layout px) short of the screen's right edge.</summary>
         private const float HelpRightMargin = 16;
@@ -94,29 +93,7 @@ namespace Gordian.App.Graphics
             var pages = menu.SelectedCheckPages;
             if (pages.Count == 0) return;
             var page = pages[Math.Clamp(menu.CheckPage, 0, pages.Count - 1)];
-            if (!library.TryGetMenu(StockUiItemDescription.FrameFor(page.LineCount), out var info)) return;
-            var at = new StockUiPlacement(placement.X + (info.Frame.X - frame.X) * s, placement.Y + (240 - frame.Y) * s, s, false);
-            renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            StockUiMenuWindow.DrawItemIcon(renderer, menu, menu.SelectedCheckItem, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            for (int i = 0; i < page.Lines.Count; i++)
-            {
-                DrawLine(renderer, font, logFont, page.Lines[i], at.X + InfoTextX * s, at.Y + (InfoTextY + i * StockUiLogFont.CellHeight) * s, s);
-            }
-            if (page.Footer.Length == 0 && !page.HasMore) return;
-            float footerY = at.Y + (InfoTextY + page.Lines.Count * StockUiLogFont.CellHeight) * s;
-            float right = at.X + (info.Frame.Width - InfoRightInset) * s;
-            if (page.HasMore && library.TryGetGroup("kaipage", out var arrow) && arrow.Images.Count > 0)
-            {
-                // The page arrow after the footer: the log's page-wait arrow, stepped like the target cursor.
-                int step = (int)(timestamp / (Stopwatch.Frequency * StockUiTargetWindow.CursorStepSeconds));
-                int cycle = Math.Max(1, 2 * arrow.Images.Count - 2);
-                int index = step % cycle;
-                if (index >= arrow.Images.Count) index = cycle - index;
-                right -= 12 * s;
-                renderer.DrawImage(arrow.Images[index], right + 2 * s, footerY + 3 * s, s);
-            }
-            float width = logFont != null ? logFont.MeasureWidth(page.Footer) : font.MeasureWidth(page.Footer);
-            DrawLine(renderer, font, logFont, page.Footer, right - width * s, footerY, s);
+            StockUiItemWindow.DrawDescriptionPage(renderer, library, font, logFont, menu, menu.SelectedCheckItem, page, placement, frame, timestamp);
         }
 
         /// <summary>The help bar: the name in the title box, the jobs in the help line stretched toward the screen's right edge.</summary>

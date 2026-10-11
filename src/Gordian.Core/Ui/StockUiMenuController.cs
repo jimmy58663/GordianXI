@@ -317,6 +317,9 @@ namespace Gordian.Core.Ui
                     right = Math.Max(right, StockUiShop.CompanionRight);
                     bottom = Math.Max(bottom, StockUiShop.CompanionBottom);
                 }
+                // The Items list's options window stands at the top right beside it; the Equipment grid's stats side at its left.
+                if (ItemListKind == StockUiItemListKind.Items) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
+                if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, right, bottom);
                 return (f.X, f.Y, right, bottom);
             }
         }
@@ -889,6 +892,11 @@ namespace Gordian.Core.Ui
         private void Remember(StockUiOpenMenu menu)
         {
             if (menu.IsPrompt || menu.IsQuery || menu.ShopSide != null) return;
+            if (menu.IsItemWindow)
+            {
+                RememberItemWindow(menu);
+                return;
+            }
             if (menu.IsCommandMenu)
             {
                 int index = menu.SelectedButtonId - 1;
@@ -1116,6 +1124,11 @@ namespace Gordian.Core.Ui
                     // The check window: the gamepad's X pages the item description (retail screenshot, 2026-10-07).
                     if (NextCheckPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
                 }
+                else if (Top is { IsItemList: true } or { IsEquipment: true })
+                {
+                    // The Items and Equipment windows page the description the same way (PROVISIONAL: as the check window).
+                    if (NextItemPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
+                }
                 Array.Clear(_repeat);
                 return wasOpen;
             }
@@ -1125,9 +1138,9 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
-            if (input.WasActionTriggered(InputAction.CycleLogWindow) && ToggleTreasureDone())
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions()))
             {
-                // The Treasure Pool's + / Y: the cursor to Done and back.
+                // The Treasure Pool's + / Y: the cursor to Done and back; the Items window's: to its options and back.
                 SoundCue?.Invoke(StockUiSoundCue.CursorMove);
                 return true;
             }
@@ -1249,13 +1262,14 @@ namespace Gordian.Core.Ui
                     {
                         changed = FlipPage(top, direction == InputAction.MenuRight ? 1 : -1);
                     }
-                    else if (!horizontal && top.IsShopList)
+                    else if (!horizontal && (top.IsShopList || top.IsItemList))
                     {
                         // The shop list's end rows link to themselves: up from the first row and down from the last
-                        // (or from the last row with an item) scroll the list, wrapping at the ends.
+                        // (or from the last row with an item) scroll the list, wrapping at the ends. The item list
+                        // (inventor) is authored the same way.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
-                    else if (horizontal && top.IsShopList)
+                    else if (horizontal && (top.IsShopList || top.IsItemList))
                     {
                         // Right (d-pad right) turns a page or, on the last page, goes to the bottom; left the reverse.
                         changed = PageList(top, direction == InputAction.MenuRight);
@@ -1451,7 +1465,8 @@ namespace Gordian.Core.Ui
 
             if (top.IsQuantity)
             {
-                RunQuantity(top);
+                if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
+                else RunQuantity(top);
                 return;
             }
 
@@ -1484,6 +1499,8 @@ namespace Gordian.Core.Ui
                 ActivateCheck(top, button);
                 return;
             }
+
+            if (TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -1785,6 +1802,14 @@ namespace Gordian.Core.Ui
                     OpenTreasurePool(from);
                     break;
 
+                case StockUiMenuCommand.Items:
+                    OpenItems(from, from.Target);
+                    break;
+
+                case StockUiMenuCommand.Equipment:
+                    OpenEquipment(from);
+                    break;
+
                 case StockUiMenuCommand.HomePoint:
                     if (HomePointSelected != null) HomePointSelected();
                     else NoticePosted?.Invoke("Back to Home Point is not available in this session.");
@@ -1941,9 +1966,10 @@ namespace Gordian.Core.Ui
             _confirmPending = null;
         }
 
-        /// <summary>The character's items or gil changed: refreshes an open Sell list and the gil shown.</summary>
+        /// <summary>The character's items or gil changed: refreshes open item lists (<see cref="OnItemsChanged"/>), an open Sell list and the gil shown.</summary>
         public void OnInventoryChanged()
         {
+            OnItemsChanged();
             if (!_shopOpen) return;
             lock (_sync)
             {

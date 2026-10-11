@@ -322,6 +322,9 @@ namespace Gordian.Core.Actions
                 TargetCommand = RunMenuTargetCommandAsync,
                 Clock = _world.Clock,
             };
+            // The Items and Equipment windows (#351, #352): whom an item is used on, and the job and level gear is checked against.
+            Menus.ItemUseTarget = ResolveItemUseTarget;
+            Menus.EquipCharacter = () => new StockUiEquipCharacter((byte)_localPlayer.MainJob, _localPlayer.MainJobLevel);
             Menus.Settings = _uiSettings;
             DeathMenu = new StockUiDeathMenu(Menus, _localPlayer, HomePointAsync, AnswerDeathOfferAsync);
             _uiSettings.Changed += OnUiSettingChanged;
@@ -1417,6 +1420,10 @@ namespace Gordian.Core.Actions
                         return LockstyleUsage;
                     case "lockstyleset":
                         return "Usage: /lockstyleset - Lock your equipment's appearance (equipment set numbers are not supported yet).";
+                    case "item":
+                        return ItemUsage;
+                    case "equip" or "eq":
+                        return EquipUsage;
                     case "help" or "commands":
                         return "Usage: /help [command] - Show available client commands or detailed help.";
                     case "gmhelp" or "gmcommands":
@@ -1441,6 +1448,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
+            sb.AppendLine("  /item \"<name>\" [target]   - Use an item (<me>, <t> or a name; yourself or your target without one)");
+            sb.AppendLine("  /equip <slot> [\"<name>\"]  - Equip an item in a slot, or without a name remove the slot's item (/eq)");
             sb.AppendLine("  /servmes                  - Show the server message");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
             sb.AppendLine("  /synth <crystal slot> <slot> [slot ...] - Synthesize with inventory slots (repeat a slot to use several of a stack)");
@@ -1545,6 +1554,161 @@ namespace Gordian.Core.Actions
             }
             return await LockstyleAsync("on").ConfigureAwait(false);
         }
+
+        #region Items and equipment (/item, /equip, the Items window's targets; #351, #352)
+
+        private const string ItemUsage = "Usage: /item \"<item name>\" [<me>|<t>|name] - Use an item from your inventory, temporary items or wardrobes (yourself or your target without a target).";
+        private const string EquipUsage = "Usage: /equip <main|sub|range|ammo|head|neck|ear1|ear2|body|hands|ring1|ring2|back|waist|legs|feet> [\"<item name>\"] - Equip an item, or without a name remove the slot's item.";
+
+        /// <summary>
+        /// <c>/item "&lt;name&gt;" [target]</c>: uses the first item of that name in the containers items are used from
+        /// (inventory, temporary items, wardrobes) on the target (C2S 0x037, the count sent as 0 as LandSandBoat requires).
+        /// </summary>
+        public async Task<PlayerActionResult> UseItemCommandAsync(string args)
+        {
+            var (name, targetText) = StockUiItems.SplitName(args);
+            if (name.Length == 0) return PlayerActionResult.Warn(ItemUsage, ChatCommandResultKind.ItemUse);
+            var inventory = Menus.Inventory;
+            var module = InventoryModule;
+            if (inventory == null || module == null) return PlayerActionResult.Fail("/item is unavailable: no inventory.", ChatCommandResultKind.ItemUse);
+            var item = StockUiItems.FindItem(inventory, Menus.ItemLookup, name, StockUiItems.UsableContainers);
+            if (item == null) return PlayerActionResult.Warn($"You do not have any {name}.", ChatCommandResultKind.ItemUse);
+            var record = StockUiShop.Lookup(Menus.ItemLookup, item.ItemId);
+            if (!StockUiItems.IsUsable(record)) return PlayerActionResult.Warn($"{record.Name} cannot be used.", ChatCommandResultKind.ItemUse);
+            var (target, error) = ResolveItemTarget(record.ValidTargets, targetText);
+            if (target is not { } t) return PlayerActionResult.Warn(error ?? "No valid target.", ChatCommandResultKind.ItemUse);
+            try
+            {
+                await module.UseItemAsync(t.ServerId, t.TargetIndex, 0, item.Slot, item.Container).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Using {record.Name} on {t.Name}.", ChatCommandResultKind.ItemUse);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/item failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/item failed: {ex.Message}", ChatCommandResultKind.ItemUse);
+            }
+        }
+
+        /// <summary>
+        /// <c>/equip &lt;slot&gt; ["&lt;name&gt;"]</c>: equips the first item of that name that fits the slot and is not worn in
+        /// another slot (inventory, then the wardrobes), or without a name removes the slot's item (C2S 0x050, index 0).
+        /// </summary>
+        public async Task<PlayerActionResult> EquipCommandAsync(string args)
+        {
+            string trimmed = args.Trim();
+            int space = trimmed.IndexOf(' ');
+            string slotWord = space < 0 ? trimmed : trimmed[..space];
+            string name = space < 0 ? string.Empty : StockUiItems.SplitName(trimmed[(space + 1)..], nameIsRest: true).Name;
+            if (!StockUiItems.TryParseSlot(slotWord, out var slot)) return PlayerActionResult.Warn(EquipUsage, ChatCommandResultKind.Equip);
+            var inventory = Menus.Inventory;
+            var module = InventoryModule;
+            if (inventory == null || module == null) return PlayerActionResult.Fail("/equip is unavailable: no inventory.", ChatCommandResultKind.Equip);
+            try
+            {
+                if (name.Length == 0)
+                {
+                    if (StockUiItems.EquippedItem(inventory, slot) == null) return PlayerActionResult.Info("Nothing is equipped there.", ChatCommandResultKind.Equip);
+                    await module.EquipItemAsync(0, slot, ContainerId.Inventory).ConfigureAwait(false);
+                    return PlayerActionResult.Ok($"Removing the {slot} slot's item.", ChatCommandResultKind.Equip);
+                }
+                var worn = StockUiItems.EquippedSlots(inventory);
+                var wornHere = StockUiItems.EquippedItem(inventory, slot);
+                var item = StockUiItems.FindItem(inventory, Menus.ItemLookup, name, StockUiItems.EquippableContainers, (it, record) =>
+                    StockUiItems.FitsSlot(record, slot)
+                    && (!worn.Contains((it.Container, it.Slot)) || (wornHere != null && wornHere.Container == it.Container && wornHere.Slot == it.Slot)));
+                if (item == null)
+                {
+                    bool held = StockUiItems.FindItem(inventory, Menus.ItemLookup, name, StockUiItems.EquippableContainers) != null;
+                    return PlayerActionResult.Warn(held ? $"{name} cannot be equipped there." : $"You do not have any {name}.", ChatCommandResultKind.Equip);
+                }
+                var found = StockUiShop.Lookup(Menus.ItemLookup, item.ItemId);
+                if (StockUiItems.CannotEquipReason(found, new StockUiEquipCharacter((byte)_localPlayer.MainJob, _localPlayer.MainJobLevel)) is { } reason)
+                {
+                    return PlayerActionResult.Warn(reason, ChatCommandResultKind.Equip);
+                }
+                await module.EquipItemAsync(item.Slot, slot, item.Container).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Equipping {found.Name}.", ChatCommandResultKind.Equip);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"/equip failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/equip failed: {ex.Message}", ChatCommandResultKind.Equip);
+            }
+        }
+
+        /// <summary>
+        /// Whom <c>/item</c> uses an item on: <c>&lt;me&gt;</c>, <c>&lt;t&gt;</c> (other <c>&lt;...&gt;</c> tokens take the current
+        /// target too, until the sub-target cursor exists), a name, or with nothing given the Items window's default.
+        /// </summary>
+        private (StockUiItemTarget? Target, string? Error) ResolveItemTarget(ushort validTargets, string targetText)
+        {
+            string text = targetText.Trim();
+            if (text.Length == 0) return ResolveItemUseTarget(validTargets, null);
+            string token = text.Trim('<', '>').Trim();
+            WorldEntity? entity;
+            if (token.Equals("me", StringComparison.OrdinalIgnoreCase) || token.Equals("self", StringComparison.OrdinalIgnoreCase))
+            {
+                return (validTargets & StockUiItems.TargetSelf) != 0 ? (SelfItemTarget(), null) : (null, "You cannot use that item on yourself.");
+            }
+            if (text.StartsWith('<'))
+            {
+                entity = CurrentTarget;
+                if (entity == null) return (null, "Nothing is targeted.");
+            }
+            else if (!_world.TryGetByName(token, out entity) || entity == null)
+            {
+                return (null, $"{token} is not here.");
+            }
+            return ItemTargetAllowed(validTargets, entity)
+                ? (new StockUiItemTarget(entity.ServerId, entity.TargetIndex, entity.Name), null)
+                : (null, $"You cannot use that item on {entity.Name}.");
+        }
+
+        /// <summary>
+        /// The Items window's target for an item (the controller's <see cref="StockUiMenuController.ItemUseTarget"/>): the
+        /// command menu's target when the window came from it; else yourself for a self-only item, your target when the item
+        /// can be used on it, or yourself when it can. PROVISIONAL: retail opens the sub-target cursor for items used on
+        /// others; that cursor is not built yet (#353), so the current target stands in.
+        /// </summary>
+        private (StockUiItemTarget? Target, string? Error) ResolveItemUseTarget(ushort validTargets, StockUiTargetContext? context)
+        {
+            if (validTargets == 0) return (null, "That item cannot be used.");
+            if (context is { } c)
+            {
+                if (c.TargetServerId == _localPlayer.ServerId)
+                {
+                    return (validTargets & StockUiItems.TargetSelf) != 0 ? (SelfItemTarget(), null) : (null, "You cannot use that item on yourself.");
+                }
+                if (!_world.TryGetByServerId(c.TargetServerId, out var chosen) || chosen == null) return (null, $"{c.TargetName} is no longer here.");
+                return ItemTargetAllowed(validTargets, chosen)
+                    ? (new StockUiItemTarget(chosen.ServerId, chosen.TargetIndex, chosen.Name), null)
+                    : (null, $"You cannot use that item on {chosen.Name}.");
+            }
+            bool self = (validTargets & StockUiItems.TargetSelf) != 0;
+            if (validTargets != StockUiItems.TargetSelf && CurrentTarget is { } target && ItemTargetAllowed(validTargets, target))
+            {
+                return (new StockUiItemTarget(target.ServerId, target.TargetIndex, target.Name), null);
+            }
+            return self ? (SelfItemTarget(), null) : (null, "Target someone to use that item on first.");
+        }
+
+        private StockUiItemTarget SelfItemTarget() =>
+            _world.TryGetByServerId(_localPlayer.ServerId, out var self) && self != null
+                ? new StockUiItemTarget(self.ServerId, self.TargetIndex, self.Name)
+                : new StockUiItemTarget(_localPlayer.ServerId, SelfIndex, "yourself");
+
+        /// <summary>Whether an item's valid targets (LandSandBoat <c>TARGETTYPE</c>) include an entity of this kind.</summary>
+        private bool ItemTargetAllowed(ushort validTargets, WorldEntity entity) => entity.Type switch
+        {
+            EntityType.Player when entity.ServerId == _localPlayer.ServerId => (validTargets & StockUiItems.TargetSelf) != 0,
+            EntityType.Player or EntityType.Trust => (validTargets & (StockUiItems.TargetParty | StockUiItems.TargetAlliance | StockUiItems.TargetPlayer | StockUiItems.TargetPlayerDead)) != 0,
+            EntityType.Monster => (validTargets & StockUiItems.TargetEnemy) != 0,
+            EntityType.Pet => (validTargets & (StockUiItems.TargetPet | StockUiItems.TargetParty | StockUiItems.TargetPlayer)) != 0,
+            EntityType.Npc => (validTargets & StockUiItems.TargetNpc) != 0,
+            _ => false,
+        };
+
+        #endregion
 
         #region Everyday commands (/heal, /sit, /random, votes, wide scan)
 
@@ -2532,6 +2696,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.ItemUse:
+                    return await UseItemCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Equip:
+                    return await EquipCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.ServerMessage:
                     // The answer (S2C 0x04D) prints the message; nothing to say here.

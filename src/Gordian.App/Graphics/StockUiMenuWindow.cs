@@ -57,9 +57,10 @@ namespace Gordian.App.Graphics
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
                 if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
                 {
-                    if (menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
+                    if ((menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
+                        || (menu.IsEquipment && StockUiItemWindow.HoldsItem(menu, button.ButtonId)))
                     {
-                        // A check window slot with an item: the slot box without its label; the icon covers it.
+                        // A check or Equipment window slot with an item: the slot box without its label; the icon covers it.
                         foreach (var part in label.Parts)
                         {
                             if (!IsGlyph(part)) renderer.DrawPart(part, bx, by, s);
@@ -119,6 +120,14 @@ namespace Gordian.App.Graphics
             else if (font != null && menu.Check is { } check)
             {
                 StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement, screen ?? default, timestamp);
+            }
+            else if (font != null && menu.IsItemList)
+            {
+                StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp);
+            }
+            else if (font != null && menu.IsEquipment)
+            {
+                StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp);
             }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {
@@ -550,7 +559,7 @@ namespace Gordian.App.Graphics
         private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
         private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
-        private static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
+        internal static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
         {
             float s = placement.Scale;
             float x = placement.X + (frame.Width - ScrollbarInset) * s;

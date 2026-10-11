@@ -91,6 +91,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>The config list's Gamepad: opens the gamepad key-assignment list (#21).</summary>
         GamepadAssign,
+
+        /// <summary>Main menu or command menu Items: opens the Items window (<see cref="StockUiItems"/>, #351).</summary>
+        Items,
+
+        /// <summary>Main menu Equipment: opens the Equipment window (<see cref="StockUiItems"/>, #352).</summary>
+        Equipment,
     }
 
     /// <summary>
@@ -140,9 +146,9 @@ namespace Gordian.Core.Ui
         {
             // Commands, page 1 (buttons in their authored top-to-bottom order).
             [(MainMenu, 1)] = new("Status", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.Equipment),
             [(MainMenu, 3)] = new("Magic", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.Items),
             [(MainMenu, 10)] = new("Synthesis", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 5)] = new("Abilities", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.NotAvailable),

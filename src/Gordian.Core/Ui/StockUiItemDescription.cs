@@ -152,12 +152,17 @@ namespace Gordian.Core.Ui
         public static List<StockUiItemDescriptionPage> Pages(ItemRecord record)
         {
             string name = DisplayName(record);
-            string slotLine = SlotLine(record);
+            // Items that are not equipment (the Items window, #351) have no slot and races line, and their description
+            // lines are wrapped at the window's width (PROVISIONAL: retail's wrapping of long item text is not captured).
+            bool equipment = record.EquipSlotsMask != 0 || record.Skill != 0;
+            string slotLine = equipment ? SlotLine(record) : string.Empty;
             var body = new List<string>();
             foreach (string line in (record.Description ?? string.Empty).Replace("\r", string.Empty).Split('\n'))
             {
                 string trimmed = line.Trim();
-                if (trimmed.Length > 0) body.Add(trimmed);
+                if (trimmed.Length == 0) continue;
+                if (equipment) body.Add(trimmed);
+                else body.AddRange(WrapWords(trimmed, WrapColumns));
             }
             var level = LevelLines(record);
             string footer = Footer(record);
@@ -168,7 +173,8 @@ namespace Gordian.Core.Ui
             do
             {
                 int take = Math.Min(body.Count - at, first ? FirstPageBodyLines : NextPageBodyLines);
-                var lines = new List<string>(MaxLines) { name, slotLine };
+                var lines = new List<string>(MaxLines) { name };
+                if (slotLine.Length > 0) lines.Add(slotLine);
                 lines.AddRange(body.GetRange(at, take));
                 at += take;
                 if (first) lines.AddRange(level);
@@ -177,6 +183,23 @@ namespace Gordian.Core.Ui
             }
             while (at < body.Count);
             return pages;
+        }
+
+        /// <summary>Word-wraps a line to at most <paramref name="columns"/> characters (a longer word stays whole).</summary>
+        internal static IEnumerable<string> WrapWords(string text, int columns)
+        {
+            var line = new StringBuilder();
+            foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (line.Length > 0 && line.Length + 1 + word.Length > columns)
+                {
+                    yield return line.ToString();
+                    line.Clear();
+                }
+                if (line.Length > 0) line.Append(' ');
+                line.Append(word);
+            }
+            if (line.Length > 0) yield return line.ToString();
         }
     }
 }

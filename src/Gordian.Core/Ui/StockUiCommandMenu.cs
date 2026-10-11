@@ -86,6 +86,9 @@ namespace Gordian.Core.Ui
         /// </summary>
         private static readonly StockUiCommandRow TreasureRow = Row(Treasure, StockUiMenuCommand.TreasurePool);
 
+        /// <summary>Items: the Items window (#351), its items used on the menu's target.</summary>
+        private static readonly StockUiCommandRow ItemsRow = Row(Items, StockUiMenuCommand.Items);
+
         /// <summary>The rows the menu shows for a target; empty when that kind of target has no command menu.</summary>
         public static IReadOnlyList<StockUiCommandRow> Compose(in StockUiTargetContext context)
         {
@@ -101,7 +104,7 @@ namespace Gordian.Core.Ui
                     rows.Add(Unavailable(Abilities));
                     if (context.Engaged) rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                     rows.Add(Unavailable(Trust));
-                    rows.Add(Unavailable(Items));
+                    rows.Add(ItemsRow);
                     rows.Add(Unavailable(Trade));
                     if (context.HasTreasure) rows.Add(TreasureRow);
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
@@ -116,7 +119,7 @@ namespace Gordian.Core.Ui
                         rows.Add(Unavailable(Magic));
                         rows.Add(Unavailable(Abilities));
                         rows.Add(Unavailable(Trust));
-                        rows.Add(Unavailable(Items));
+                        rows.Add(ItemsRow);
                         rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                         if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
@@ -128,7 +131,7 @@ namespace Gordian.Core.Ui
                         rows.Add(Unavailable(Magic));
                         rows.Add(Unavailable(Abilities));
                         rows.Add(Unavailable(Trust));
-                        rows.Add(Unavailable(Items));
+                        rows.Add(ItemsRow);
                         if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
                     }
@@ -138,7 +141,7 @@ namespace Gordian.Core.Ui
                 case StockUiTargetKind.Trust:
                     rows.Add(Unavailable(Magic));
                     rows.Add(Unavailable(Abilities));
-                    rows.Add(Unavailable(Items));
+                    rows.Add(ItemsRow);
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
                     break;
             }
