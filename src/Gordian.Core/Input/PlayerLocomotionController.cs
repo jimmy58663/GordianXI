@@ -1257,7 +1257,7 @@ namespace Gordian.Core.Input
         /// <see cref="TargetRepeatInterval"/> (the maintainer's values, in-game rounds 2-3), so a single press never races
         /// through targets.
         /// </summary>
-        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.15;
+        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.10;
 
         private double _updateSeconds;
         private InputAction _cycleHeld;
