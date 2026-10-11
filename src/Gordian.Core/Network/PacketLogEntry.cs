@@ -184,6 +184,7 @@ namespace Gordian.Core.Network
                     0x109 => "GP_SERV_BAZAAR_SELL",
                     0x10A => "GP_SERV_BAZAAR_SALE",
                     0x10E => "GP_SERV_REQSUBMAPNUM",
+                    0x10F => "GP_SERV_REQLOGOUTINFO",
                     0x110 => "GP_SERV_UNITY",
                     0x111 => "GP_SERV_ROE_ACTIVELOG",
                     0x112 => "GP_SERV_ROE_LOG",

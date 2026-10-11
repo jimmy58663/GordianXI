@@ -165,6 +165,32 @@ namespace Gordian.Core.Events
         {
         }
 
+        /// <summary>Opcode 0x75: whether the zone is still reading room data (every sub then waits). Default: never.</summary>
+        bool IsReadingRoomData => false;
+
+        /// <summary>Opcode 0x75 sub 0: opens an indoor room of the zone without telling the server (<see cref="World.SubMapState.IndoorRoom"/>).</summary>
+        void OpenIndoorRoom(int room)
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0x75 sub 2: tells the server the player is in sub-map <paramref name="subMapNumber"/> (C2S 0x0F2, state 2).
+        /// False when it could not be queued, and the opcode tries again next frame. Default: done.
+        /// </summary>
+        bool SendSubMapChange(int subMapNumber) => true;
+
+        /// <summary>
+        /// Opcode 0xA6 sub 0: asks the server for the event's sub-map number (C2S 0x0EB) and marks the S2C 0x10E answer
+        /// pending. False when it could not be queued, and the opcode tries again next frame. Default: done.
+        /// </summary>
+        bool RequestSubMapNumber() => true;
+
+        /// <summary>Opcode 0xA6 sub 1: whether the S2C 0x10E answer is still pending. Default: no.</summary>
+        bool SubMapNumberPending => false;
+
+        /// <summary>Opcode 0xA6 sub 2: the player's sub-map number (S2C 0x10E, else S2C 0x00A's).</summary>
+        int SubMapNumber => 0;
+
         /// <summary>Opcode 0x5C subs 0-7 / 0x80-0x87: sets music slot <paramref name="slot"/> (0-7) to a track (#167).</summary>
         void SetMusicSlot(int slot, int musicNum)
         {

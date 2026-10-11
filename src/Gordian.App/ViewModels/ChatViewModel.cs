@@ -195,6 +195,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.ChatModule.SystemMessageReceived -= OnSystemMessageReceived;
                 _hookedSession.ChatModule.TranslateReceived -= OnTranslateReceived;
                 _hookedSession.ChatModule.LinkshellMessageReceived -= OnLinkshellMessageReceived;
+                _hookedSession.ChatModule.ServerMessageReceived -= OnServerMessageReceived;
                 _hookedSession.Party.InviteReceived -= OnPartyInviteReceived;
                 _hookedSession.Party.InviteCleared -= OnPartyInviteCleared;
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;
@@ -212,6 +213,7 @@ namespace Gordian.App.ViewModels
                 session.ChatModule.SystemMessageReceived += OnSystemMessageReceived;
                 session.ChatModule.TranslateReceived += OnTranslateReceived;
                 session.ChatModule.LinkshellMessageReceived += OnLinkshellMessageReceived;
+                session.ChatModule.ServerMessageReceived += OnServerMessageReceived;
                 session.Party.InviteReceived += OnPartyInviteReceived;
                 session.Party.InviteCleared += OnPartyInviteCleared;
                 session.Party.MemberJoined += OnPartyMemberJoined;
@@ -315,6 +317,18 @@ namespace Gordian.App.ViewModels
             {
                 var item = ChatItemViewModel.FromLinkshellMessage(msg);
                 AddMessageItem(item);
+            });
+        }
+
+        /// <summary>The server message (S2C 0x04D, at login and for /servmes), one entry per line.</summary>
+        private void OnServerMessageReceived(string message)
+        {
+            DispatchToUi(() =>
+            {
+                foreach (string line in Gordian.Core.Ui.StockUiChat.SplitServerMessage(message))
+                {
+                    AddMessageItem(ChatItemViewModel.CreateLocalNotice(line, "[Server]", "#C678DD"));
+                }
             });
         }
 
@@ -757,6 +771,7 @@ namespace Gordian.App.ViewModels
                 _hookedSession.ChatModule.SystemMessageReceived -= OnSystemMessageReceived;
                 _hookedSession.ChatModule.TranslateReceived -= OnTranslateReceived;
                 _hookedSession.ChatModule.LinkshellMessageReceived -= OnLinkshellMessageReceived;
+                _hookedSession.ChatModule.ServerMessageReceived -= OnServerMessageReceived;
                 _hookedSession.Party.InviteReceived -= OnPartyInviteReceived;
                 _hookedSession.Party.InviteCleared -= OnPartyInviteCleared;
                 _hookedSession.Party.MemberJoined -= OnPartyMemberJoined;

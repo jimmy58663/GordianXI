@@ -24,6 +24,9 @@ namespace Gordian.Core.Network.Packets
         public InventoryState State => _inventoryState;
         public bool LogOutboundOnRoute { get; set; } = true;
 
+        /// <summary>S2C 0x11C: the item ids a style lock (C2S 0x053 Set) could not use, one error line each.</summary>
+        public event Action<ushort[]>? LockstyleFailed;
+
         public InventoryPacketModule(
             InventoryState inventoryState,
             LocalPlayerState localPlayerState,
@@ -72,6 +75,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x116_EquipsetValid.PacketId, HandleEquipsetValid);
             dispatcher.Register(S2C_0x117_EquipsetRes.PacketId, HandleEquipsetRes);
             dispatcher.Register(S2C_0x118_Currencies2.PacketId, HandleCurrencies2);
+            dispatcher.Register(S2C_0x11C_LockstyleError.PacketId, HandleLockstyleError);
         }
 
         public void Unregister(IPacketDispatcher dispatcher)
@@ -110,6 +114,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x116_EquipsetValid.PacketId);
             dispatcher.Unregister(S2C_0x117_EquipsetRes.PacketId);
             dispatcher.Unregister(S2C_0x118_Currencies2.PacketId);
+            dispatcher.Unregister(S2C_0x11C_LockstyleError.PacketId);
         }
 
         #region Inbound Handlers
@@ -448,6 +453,17 @@ namespace Gordian.Core.Network.Packets
             var result = new EquipsetResult(changed, equipped);
             GordianLog.Info("EQUIPSET", $"Equipset applied with {p.Count} items, {result.FailedItems.Count()} failed.");
             _inventoryState.SetEquipsetResult(result);
+        }
+
+        private void HandleLockstyleError(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var p = new S2C_0x11C_LockstyleError(payload);
+            if (!p.IsValid) return;
+
+            var items = new ushort[p.ItemCount];
+            for (int i = 0; i < items.Length; i++) items[i] = p.GetItemId(i);
+            GordianLog.Info("LOCKSTYLE", $"Style lock could not use {items.Length} item(s): {string.Join(", ", items)}.");
+            LockstyleFailed?.Invoke(items);
         }
 
         private void HandleCurrencies2(PacketHeader header, ReadOnlySpan<byte> payload)
