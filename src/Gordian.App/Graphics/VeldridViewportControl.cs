@@ -881,6 +881,7 @@ namespace Gordian.App.Graphics
                                 ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId))
                                 : 0f;
+                            StockUi.LoadingIndicatorVisible = _activeSession != null && _loadingScreen.IsLoading;
                             // Never the placeholder model while the screen is not fully clear (it showed during the fade).
                             if (_renderer.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
 

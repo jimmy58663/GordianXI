@@ -7,9 +7,9 @@ namespace Gordian.Core.Ui
     /// <summary>
     /// The loading state of a session's view (#36): the screen goes black while the character is zoning in (after
     /// character select) or crossing to another zone, and comes back once the map server has the character in the world
-    /// and the zone's geometry is on screen. Retail shows no loading art: no menu, texture or string in the client DATs is
-    /// a zone-loading screen (searched 2026-10-04: the in-game and lobby menu DATs, the ROM/165, ROM/97, ROM/176 and
-    /// ROM/27 string tables), and the legacy client fades the scene to black while it zones.
+    /// and the zone's geometry is on screen. Retail has no loading screen art: the legacy client fades the scene to black
+    /// while it zones and shows only a small "Downloading data ..." sprite in the bottom-right corner
+    /// (<see cref="ZoneLoadingIndicator"/>, #350).
     /// <para>
     /// <see cref="Update"/> returns the black overlay's opacity (0 = clear, 1 = black), easing toward it over
     /// <see cref="FadeOutSeconds"/> / <see cref="FadeInSeconds"/> (tuned values, not measured against retail).

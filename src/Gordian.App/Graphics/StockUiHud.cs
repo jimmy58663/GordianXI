@@ -58,6 +58,11 @@ namespace Gordian.App.Graphics
         /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Core.Ui.ZoneLoadingScreen"/>).</summary>
         public float LoadingOpacity { get; set; }
 
+        /// <summary>Whether the view counts as loading this frame, which shows retail's "Downloading data ..." over the black (<see cref="ZoneLoadingIndicator"/>).</summary>
+        public bool LoadingIndicatorVisible { get; set; }
+
+        private long _loadingIndicatorSince;
+
         /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
@@ -220,7 +225,31 @@ namespace Gordian.App.Graphics
                 renderer.Opacity = 1f;
                 renderer.DrawScreenTint(width, height, new Vector3(1f - Math.Clamp(LoadingOpacity, 0f, 1f)));
             }
+            DrawLoadingIndicator(renderer, library, width, height);
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// Retail's loading indicator (#350) in the bottom-right corner while the view is loading: the menu DAT's own
+        /// "Downloading data ..." sprite (<see cref="ZoneLoadingIndicator"/>), its dimmed dot pair cycling, appearing with
+        /// the black and gone as soon as loading ends (the scene then fades in without it).
+        /// </summary>
+        private void DrawLoadingIndicator(StockUiRenderer renderer, UiResourceLibrary library, uint width, uint height)
+        {
+            if (!LoadingIndicatorVisible || LoadingOpacity <= 0f)
+            {
+                _loadingIndicatorSince = 0;
+                return;
+            }
+            long now = Stopwatch.GetTimestamp();
+            if (_loadingIndicatorSince == 0) _loadingIndicatorSince = now;
+            int index = ZoneLoadingIndicator.ImageAt(Stopwatch.GetElapsedTime(_loadingIndicatorSince, now).TotalSeconds);
+            if (!library.TryGetGroup(ZoneLoadingIndicator.GroupName, out var group) || index >= group.Images.Count) return;
+            float s = Layout.Scale;
+            var (x, y) = ZoneLoadingIndicator.Position(width, height, s);
+            renderer.Opacity = Math.Clamp(LoadingOpacity, 0f, 1f);
+            renderer.DrawImage(group.Images[index], x, y, s);
+            renderer.Opacity = 1f;
         }
 
         /// <summary>The screen height the event text positions were measured at (the maintainer's 1440p retail client area).</summary>
