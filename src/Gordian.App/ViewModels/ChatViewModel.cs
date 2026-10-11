@@ -337,7 +337,7 @@ namespace Gordian.App.ViewModels
             }
 
             var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName,
-                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e?.Type == Gordian.Core.World.EntityType.Monster);
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (lines.Count > 0)
             {
                 DispatchToUi(() =>
@@ -369,7 +369,7 @@ namespace Gordian.App.ViewModels
             }
 
             string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName,
-                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e?.Type == Gordian.Core.World.EntityType.Monster);
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (!string.IsNullOrEmpty(line))
             {
                 DispatchToUi(() =>
