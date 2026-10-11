@@ -762,6 +762,36 @@ namespace Gordian.Core.Network
             {
                 _ = TriggerImmediatePosUpdateAsync();
             }
+
+            CheckZoneLines(position);
+        }
+
+        private readonly World.Collision.ZoneLineMonitor _zoneLines = new();
+
+        /// <summary>The zone-line request state of this session (#350).</summary>
+        public World.Collision.ZoneLineMonitor ZoneLines => _zoneLines;
+
+        /// <summary>
+        /// Sends the zone-line request (C2S 0x05E) once when the player walks into a zone line of the current zone
+        /// (see <see cref="World.Collision.ZoneLineMonitor"/>): the line's id and the player's position, or for the Mog House
+        /// exit (<c>zmrq</c>) the exit to the area the player entered from. Not while the session is out of the world,
+        /// already changing zones, or held by an event (LandSandBoat ignores the request in an event).
+        /// </summary>
+        private void CheckZoneLines(Vector3 position)
+        {
+            var world = _parser.World;
+            bool canSend = CurrentState == SessionState.ActiveInWorld && !ZoneTransitionPending
+                && !_parser.LocalPlayer.IsMovementLocked && world.EventZoneId == 0;
+            var line = _zoneLines.Update(world.CurrentZoneId, world.Collision?.ZoneLineVolumes, position, canSend,
+                System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
+            if (line is not { } crossing) return;
+
+            GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
+            Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
+                ? RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom)
+                : RequestZoneTransitionByZonelineAsync(crossing.Id);
+            _ = request.ContinueWith(t => GordianLog.Warning("ZONE", $"Zone line request failed: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         private async Task TriggerImmediatePosUpdateAsync()

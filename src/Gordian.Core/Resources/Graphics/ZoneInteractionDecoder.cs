@@ -26,6 +26,31 @@ namespace Gordian.Core.Resources.Graphics
         public bool IsLift => Id.Length > 0 && Id[0] == '@';
 
         /// <summary>
+        /// A zone line's volume (<c>z</c>): walking into it asks the server for the zone change (C2S 0x05E with this id).
+        /// LandSandBoat keys its zone lines by the same four characters (data/zones/*/zone.yaml <c>zonelines</c>, the id's
+        /// little-endian bytes), including the Mog House entrances (<c>zmr?</c> / <c>zms?</c>) and exit (<c>zmrq</c>).
+        /// </summary>
+        public bool IsZoneLine => Id.Length == 4 && Id[0] == 'z';
+
+        /// <summary>The box's width axis (its local X) in the XZ plane, the convention of the door volumes.</summary>
+        public Vector2 WidthAxis => new(MathF.Cos(RotationY), -MathF.Sin(RotationY));
+
+        /// <summary>The box's depth axis (its local Z) in the XZ plane.</summary>
+        public Vector2 DepthAxis => new(MathF.Sin(RotationY), MathF.Cos(RotationY));
+
+        /// <summary>
+        /// Whether <paramref name="point"/> (zone coordinates, internal space) lies inside the turned box, grown by
+        /// <paramref name="margin"/> yalms on every side.
+        /// </summary>
+        public bool Contains(Vector3 point, float margin = 0.0f)
+        {
+            if (MathF.Abs(point.Y - Center.Y) > (Size.Y * 0.5f) + margin) return false;
+            var offset = new Vector2(point.X - Center.X, point.Z - Center.Z);
+            return MathF.Abs(Vector2.Dot(offset, WidthAxis)) <= (Size.X * 0.5f) + margin
+                && MathF.Abs(Vector2.Dot(offset, DepthAxis)) <= (Size.Z * 0.5f) + margin;
+        }
+
+        /// <summary>
         /// A lift's two stops in zone coordinates (internal space, +Y down): each s16 / 256 plus the record's Y, as the
         /// PS2 client's <c>XiLiftActor::SetLift</c> computes them (referenced from xi-tools, docs/zone/elevators.md,
         /// https://github.com/vekien/xi-tools). Metalworks' <c>@6l0</c>: 3856 / 798 on Y -13.1 gives +1.9625 / -9.983,

@@ -290,7 +290,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x05B` | `EVENTEND` | 20 | `built` | `ProgressionPacketBuilder.BuildEventEnd` | Event end and update (`EventDialogController`). |
 | `0x05C` | `EVENTENDXZY` | 32 | `built` | `ProgressionPacketBuilder.BuildEventEndXzy` | Event update with a position; `SendEventEndXzyAsync` has no caller. |
 | `0x05D` | `MOTION` | 16 | `built` | `CombatPacketBuilder.BuildEmoteRequest` | Emotes; protocol ids from LSB `enums/emote.h` [#178](https://github.com/jimmy58663/GordianXI/issues/178). |
-| `0x05E` | `MAPRECT` | 24 | `built` | `LifecycleOutboundPackets.BuildMapRect` | Zone lines and Mog House exit. |
+| `0x05E` | `MAPRECT` | 24 | `built` | `LifecycleOutboundPackets.BuildMapRect` | Sent once when the player walks into a zone line (`ZoneLineMonitor`, [#350](https://github.com/jimmy58663/GordianXI/issues/350)): the Section 0x36 `z` box's id (four characters, little-endian, as LSB keys its `zonelines`) and the position; LSB refuses with S2C 0x053 + 0x065 reset. Mog House exit (`zmrq` + exit bit/mode) built, entrances not sent yet. |
 | `0x060` | `PASSWARDS` | 28 | `not built` |  | [#117](https://github.com/jimmy58663/GordianXI/issues/117) |
 | `0x061` | `CLISTATUS` | 6 | `built` | `EntityOutboundPackets.BuildCliStatus` | Sent on S2C 0x008, padded to 8. |
 | `0x063` | `DIG` | 16 | `built` | `CombatPacketBuilder.BuildDigFinishedRequest` | Sent at once after S2C 0x02F for the local player; LSB ignores it. |
