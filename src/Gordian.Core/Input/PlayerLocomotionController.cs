@@ -312,6 +312,7 @@ namespace Gordian.Core.Input
         {
             if (elapsed <= TimeSpan.Zero) return;
             LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            _updateSeconds = elapsed.TotalSeconds;
 
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
             //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
@@ -320,6 +321,8 @@ namespace Gordian.Core.Input
             bool menuOpen = menus?.IsOpen ?? false;
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
+            // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
+            _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
             _inputState.Update(_profile, elapsed);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
@@ -516,12 +519,15 @@ namespace Gordian.Core.Input
             {
                 zoomDelta -= mouseWheel * _profile.MouseWheelZoomStep;
             }
+            // First and third person can have their own camera settings (#306); by default they share one set.
+            bool firstPerson = _camera.Mode == CameraMode.FirstPerson;
             if (mouseDx != 0 || mouseDy != 0)
             {
-                float mx = mouseDx * _profile.MouseSensitivityX * 0.15f;
-                yawDelta += _profile.InvertMouseX ? -mx : mx;
-                float my = mouseDy * _profile.MouseSensitivityY * 0.15f;
-                pitchDelta += _profile.InvertMouseY ? -my : my;
+                var mouse = _profile.MouseCamera(firstPerson);
+                float mx = mouseDx * mouse.SensitivityX * 0.15f;
+                yawDelta += mouse.InvertX ? -mx : mx;
+                float my = mouseDy * mouse.SensitivityY * 0.15f;
+                pitchDelta += mouse.InvertY ? -my : my;
             }
 
             // Gamepad Analog Camera Look (Right Thumbstick)
@@ -532,12 +538,13 @@ namespace Gordian.Core.Input
                 var filteredRightStick = GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone);
                 if (filteredRightStick != Vector2.Zero)
                 {
-                    float padYaw = filteredRightStick.X * 180.0f * padSettings.CameraSensitivityX * dt;
-                    if (padSettings.InvertCameraX) padYaw = -padYaw;
+                    var stick = padSettings.Camera(firstPerson);
+                    float padYaw = filteredRightStick.X * 180.0f * stick.SensitivityX * dt;
+                    if (stick.InvertX) padYaw = -padYaw;
                     yawDelta += padYaw;
 
-                    float padPitch = -filteredRightStick.Y * 120.0f * padSettings.CameraSensitivityY * dt;
-                    if (padSettings.InvertCameraY) padPitch = -padPitch;
+                    float padPitch = -filteredRightStick.Y * 120.0f * stick.SensitivityY * dt;
+                    if (stick.InvertY) padPitch = -padPitch;
                     pitchDelta += padPitch;
                 }
             }
@@ -661,8 +668,47 @@ namespace Gordian.Core.Input
             return 0;
         }
 
+        /// <summary>LandSandBoat's Healing animation status (<c>xi.animation.HEALING</c>), sent in S2C 0x037.</summary>
+        public const byte StatusHealing = 33;
+
+        private bool _healCancelSent;
+
+        /// <summary>
+        /// Moving while resting stands the character up (the maintainer's request, round 3): any movement input (keys,
+        /// stick, auto-run) while the server reports the Healing status sends /heal off (C2S 0x0E8) once; it is sent again
+        /// only after the status has left Healing.
+        /// </summary>
+        private void UpdateHealCancel()
+        {
+            if (_actionService == null || _localPlayer.ServerStatus != StatusHealing)
+            {
+                _healCancelSent = false;
+                return;
+            }
+            if (_healCancelSent || !HasMovementInput()) return;
+            _healCancelSent = true;
+            var service = _actionService;
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                var result = await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
+                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while healing: {result.Message}");
+            });
+        }
+
+        private bool HasMovementInput()
+        {
+            if (_inputState.AutorunActive) return true;
+            foreach (var action in new[] { InputAction.MoveForward, InputAction.MoveBackward, InputAction.TurnLeft, InputAction.TurnRight, InputAction.StrafeLeft, InputAction.StrafeRight })
+            {
+                if (_inputState.IsActionHeld(action)) return true;
+            }
+            var pad = _inputState.CurrentGamepad;
+            return pad.IsConnected && GamepadState.ApplyRadialDeadzone(pad.LeftThumb, (_profile.GamepadSettings ?? new GamepadSettings()).LeftStickDeadzone) != Vector2.Zero;
+        }
+
         private void UpdateLocomotion(TimeSpan elapsed)
         {
+            UpdateHealCancel();
             if (_camera.Mode == CameraMode.FreeCam)
             {
                 // In FreeCam, player entity remains stationary while camera flies
@@ -811,6 +857,36 @@ namespace Gordian.Core.Input
                     localEnt.LocomotionDirection = LocomotionDirection.Forward;
                 }
 
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
+
+            // Auto-run (retail, the maintainer's check 2026-10-10): the character keeps running the way it faces; left and
+            // right (keys or stick) steer it round in an arc and it carries on the new way; running backwards (the back
+            // key, which InputState handles, or the stick pulled back) ends it.
+            if (_inputState.AutorunActive && leftStick != Vector2.Zero && leftStick.Y < -AutorunCancelStickY && MathF.Abs(leftStick.Y) >= MathF.Abs(leftStick.X))
+            {
+                _inputState.AutorunActive = false;
+            }
+            if (_inputState.AutorunActive)
+            {
+                float steer = 0f;
+                if (_inputState.IsActionHeld(InputAction.TurnRight)) steer += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.TurnLeft)) steer -= 1.0f;
+                steer = Math.Clamp(steer + leftStick.X, -1.0f, 1.0f);
+                if (steer != 0f)
+                {
+                    float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg + steer * _profile.TurnSpeedDegreesPerSec * dt));
+                }
+                localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                FollowHeadingWithCamera(localEnt, dt);
+
+                byte autoSpeed = _inputState.IsWalking ? GetEffectiveWalkSpeed(localEnt) : GetEffectiveRunSpeed(localEnt);
+                localEnt.Speed = autoSpeed;
+                float autoDistance = autoSpeed * 0.1f * dt;
+                var autoFwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                MoveHorizontally(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -1176,12 +1252,49 @@ namespace Gordian.Core.Input
         /// <summary>
         /// Tab / Shift+Tab (and the triggers) and the d-pad's left / right target cursor (see <see cref="TargetCycling"/>).
         /// </summary>
+        /// <summary>
+        /// Holding a target-cycling key or button keeps cycling that way: after <see cref="TargetRepeatDelay"/>, then every
+        /// <see cref="TargetRepeatInterval"/> (the maintainer's values, in-game rounds 2-3), so a single press never races
+        /// through targets.
+        /// </summary>
+        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.10;
+
+        private double _updateSeconds;
+        private InputAction _cycleHeld;
+        private double _cycleHeldFor, _cycleNextRepeat;
+
+        private static readonly (InputAction Action, TargetCycleMode Mode)[] CycleActions =
+        {
+            (InputAction.TargetNearest, TargetCycleMode.TabRight),
+            (InputAction.TargetPrevious, TargetCycleMode.TabLeft),
+            (InputAction.TargetCursorRight, TargetCycleMode.CursorRight),
+            (InputAction.TargetCursorLeft, TargetCycleMode.CursorLeft),
+        };
+
         private void UpdateTargetCycling()
         {
-            if (_inputState.WasActionTriggered(InputAction.TargetNearest)) CycleTarget(TargetCycleMode.TabRight);
-            else if (_inputState.WasActionTriggered(InputAction.TargetPrevious)) CycleTarget(TargetCycleMode.TabLeft);
-            else if (_inputState.WasActionTriggered(InputAction.TargetCursorRight)) CycleTarget(TargetCycleMode.CursorRight);
-            else if (_inputState.WasActionTriggered(InputAction.TargetCursorLeft)) CycleTarget(TargetCycleMode.CursorLeft);
+            foreach (var (action, mode) in CycleActions)
+            {
+                if (!_inputState.WasActionTriggered(action)) continue;
+                CycleTarget(mode);
+                _cycleHeld = action;
+                _cycleHeldFor = 0;
+                _cycleNextRepeat = TargetRepeatDelay;
+                return;
+            }
+            if (_cycleHeld == InputAction.None) return;
+            if (!_inputState.IsActionHeld(_cycleHeld))
+            {
+                _cycleHeld = InputAction.None;
+                return;
+            }
+            _cycleHeldFor += _updateSeconds;
+            if (_cycleHeldFor < _cycleNextRepeat) return;
+            _cycleNextRepeat += TargetRepeatInterval;
+            foreach (var (action, mode) in CycleActions)
+            {
+                if (action == _cycleHeld) CycleTarget(mode);
+            }
         }
 
         /// <summary>Targets what <see cref="TargetCycling.Pick"/> chooses for <paramref name="mode"/>.</summary>
@@ -1200,6 +1313,9 @@ namespace Gordian.Core.Input
 
         private bool _lockKeyLogged;
 
+        /// <summary>How far back the left stick must be pulled (past the deadzone, mostly backwards) to end auto-run.</summary>
+        public const float AutorunCancelStickY = 0.5f;
+
         private void UpdateLockOnToggle()
         {
             if (_actionService == null) return;
@@ -1211,6 +1327,26 @@ namespace Gordian.Core.Input
                 Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
             }
             else if (!keyHeld) _lockKeyLogged = false;
+            if (_inputState.WasActionTriggered(InputAction.LockOnOrHeal))
+            {
+                // Retail's L3: lock-on with a target (or a fight to lock on to), /heal without one.
+                bool hasTarget = _actionService.CurrentTarget != null || _actionService.IsLockedOn
+                    || _actionService.Combat is { IsEngaged: true, TargetServerId: not 0 };
+                if (hasTarget)
+                {
+                    _actionService.ToggleLockOn();
+                    Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by L3: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+                }
+                else
+                {
+                    var service = _actionService;
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var result = await service.HealAsync().ConfigureAwait(false);
+                        Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"L3 with no target: {result.Message}");
+                    });
+                }
+            }
             if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
             _actionService.ToggleLockOn();
             Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
@@ -1219,6 +1355,17 @@ namespace Gordian.Core.Input
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
+
+            // Start (retail): /logout, a toggle (again cancels the 30 s countdown).
+            if (_inputState.WasActionTriggered(InputAction.Logout))
+            {
+                var service = _actionService;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await service.RequestLogoutAsync(shutdown: false).ConfigureAwait(false);
+                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Log Out button: {result.Message}");
+                });
+            }
 
             UpdateTargetCycling();
 

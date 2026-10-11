@@ -43,6 +43,44 @@ namespace Gordian.Core.Input
         /// </summary>
         public bool MenuContext { get; set; }
 
+        private GamepadButton _padButtons;
+        private GamepadButton _padButtonsPressed;
+
+        /// <summary>
+        /// The gamepad buttons (the triggers past their threshold included) that went down on the last
+        /// <see cref="Update"/>, whatever they are bound to: the gamepad key-assignment list reads the button to assign
+        /// from this (#21).
+        /// </summary>
+        public GamepadButton GamepadButtonsPressed
+        {
+            get { lock (_lock) return _padButtonsPressed; }
+        }
+
+        /// <summary>The gamepad buttons (triggers past their threshold included) held on the last <see cref="Update"/>.</summary>
+        public GamepadButton GamepadButtonsHeld
+        {
+            get { lock (_lock) return _padButtons; }
+        }
+
+        /// <summary>
+        /// True while the gamepad key-assignment list waits for a button (and until the pressed button is let go): the
+        /// gamepad's buttons then drive no action, so the button being assigned does not also act (#21). Set by the
+        /// locomotion controller before each <see cref="Update"/>.
+        /// </summary>
+        public bool SuppressGamepadActions { get; set; }
+
+        private GamepadButton _padIgnored;
+
+        /// <summary>
+        /// Treats the gamepad buttons held now as already handled until they are let go: called when this character takes
+        /// the pad from another (Next Character, a focus change), so a button still down from the other character, LB
+        /// included, does not act again here (round 1: holding LB cycled through every character).
+        /// </summary>
+        public void IgnoreHeldGamepadButtons()
+        {
+            lock (_lock) _padIgnored = (GamepadButton)uint.MaxValue;
+        }
+
         public GamepadState CurrentGamepad
         {
             get { lock (_lock) return _gamepadState; }
@@ -264,6 +302,7 @@ namespace Gordian.Core.Input
                 }
 
                 // 3. Evaluate Gamepad buttons & triggers
+                GamepadButton padButtons = GamepadButton.None;
                 if (_gamepadState.IsConnected)
                 {
                     GamepadButton effectiveButtons = _gamepadState.Buttons;
@@ -277,34 +316,45 @@ namespace Gordian.Core.Input
                         effectiveButtons |= GamepadButton.RightTrigger;
                     }
 
-                    if (effectiveButtons != GamepadButton.None)
+                    padButtons = effectiveButtons;
+                    // Buttons held when this character took the pad stay quiet until let go (IgnoreHeldGamepadButtons).
+                    _padIgnored &= effectiveButtons;
+                    GamepadButton acting = effectiveButtons & ~_padIgnored;
+                    if (acting != GamepadButton.None && !SuppressGamepadActions)
                     {
-                        uint btnBits = (uint)effectiveButtons;
+                        Span<InputAction> padActs = stackalloc InputAction[32];
+                        int count = 0;
+                        bool palette = false;
+                        uint btnBits = (uint)acting;
                         for (int i = 0; i < 32; i++)
                         {
                             uint mask = 1u << i;
-                            if ((btnBits & mask) != 0)
+                            if ((btnBits & mask) == 0) continue;
+                            var padBtn = (GamepadButton)mask;
+                            if (profile.TryGetAction(new InputChord(padBtn, _modifiers), menuContext, out var act)
+                                || (_modifiers != InputModifiers.None && profile.TryGetAction(new InputChord(padBtn, InputModifiers.None), menuContext, out act)))
                             {
-                                var padBtn = (GamepadButton)mask;
-                                var chord = new InputChord(padBtn, _modifiers);
-                                if (profile.TryGetAction(chord, menuContext, out var act))
-                                {
-                                    _heldActions.Add(act);
-                                    _gamepadActions.Add(act);
-                                }
-                                else if (_modifiers != InputModifiers.None)
-                                {
-                                    var plainChord = new InputChord(padBtn, InputModifiers.None);
-                                    if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
-                                    {
-                                        _heldActions.Add(plainAct);
-                                        _gamepadActions.Add(plainAct);
-                                    }
-                                }
+                                padActs[count++] = act;
+                                palette |= InputProfile.IsMacroPaletteAction(act);
                             }
+                        }
+                        // A held macro palette (retail: hold LT / RT, then a button) takes the pad's other buttons, so
+                        // LT + A does not also confirm. Picking a macro with them is not built yet.
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (palette && !InputProfile.IsMacroPaletteAction(padActs[i])) continue;
+                            _heldActions.Add(padActs[i]);
+                            _gamepadActions.Add(padActs[i]);
                         }
                     }
                 }
+                else
+                {
+                    _padIgnored = GamepadButton.None;
+                }
+
+                _padButtonsPressed = padButtons & ~_padButtons;
+                _padButtons = padButtons;
 
                 // 4. Compute Triggered (just pressed this frame) and Released
                 foreach (var a in _heldActions)

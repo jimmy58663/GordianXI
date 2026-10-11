@@ -246,7 +246,7 @@ namespace Gordian.App
         /// <summary>
         /// Whether this window is the viewport focus target (#301): the focused viewport window, or the one focused last
         /// while no viewport window has the focus. Set by <see cref="Services.ViewportWindowManager"/> from its
-        /// <see cref="Services.InputFocusTracker"/>; the target draws every frame, the other windows at the background rate.
+        /// <see cref="Services.WindowFocusTracker"/>; the target draws every frame, the other windows at the background rate.
         /// </summary>
         public void SetFocusTarget(bool isFocusTarget)
         {

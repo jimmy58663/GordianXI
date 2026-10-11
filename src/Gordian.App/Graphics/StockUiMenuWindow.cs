@@ -160,6 +160,19 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
+                    if (menu.ListKind == StockUiListKind.GamepadAssign)
+                    {
+                        // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
+                        // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one).
+                        UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
+                        renderer.DrawText(font, row.Text, areaX + AssignRowTextInset * s, textY, s, tint);
+                        if (row.Value is { Length: > 0 } value)
+                        {
+                            float valueRight = placement.X + (frame.Width - AssignValueRightPad) * s;
+                            renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, tint);
+                        }
+                        continue;
+                    }
                     int stateImage = row.Marked ? StateOnImage : StateOffImage;
                     if (states != null && stateImage < states.Images.Count) renderer.DrawImage(states.Images[stateImage], areaX, ry, s);
                     renderer.DrawText(font, row.Text, areaX + ListRowTextInset * s, textY, s,
@@ -554,6 +567,9 @@ namespace Gordian.App.Graphics
         private const string StateGroup = "frames";
         private const int StateOnImage = 88, StateOffImage = 89;
         private const float ListRowTextInset = 34;
+
+        /// <summary>The gamepad key-assignment list: the function's text from the row's origin, its buttons ending this far from the window's right edge.</summary>
+        private const float AssignRowTextInset = 4, AssignValueRightPad = 18;
 
         /// <summary>The Font Colors list's text inset (its rows start at the frame's edge; retail screenshot, 2026-10-04: about 30 px).</summary>
         private const float FontColorRowTextInset = 30;

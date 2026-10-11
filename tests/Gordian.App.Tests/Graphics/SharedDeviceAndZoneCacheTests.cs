@@ -84,7 +84,7 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void FocusTarget_IsTheFocusedViewport_OrTheLastFocusedWhileNoneIs()
         {
-            var tracker = new InputFocusTracker();
+            var tracker = new WindowFocusTracker();
             object main = new(), popOut = new();
             tracker.SetWindowSession(main, null);
             tracker.SetWindowSession(popOut, null);

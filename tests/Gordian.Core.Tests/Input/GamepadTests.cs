@@ -91,17 +91,32 @@ namespace Gordian.Core.Tests.Input
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.Y), out var actY));
             Assert.Equal(InputAction.CycleLogWindow, actY);
 
+            // #326: L1 cycles the character in the primary view, R1 toggles auto-run, L3 toggles lock-on.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftShoulder), out var actLB));
-            Assert.Equal(InputAction.MacroCtrl1, actLB);
+            Assert.Equal(InputAction.CycleCharacter, actLB);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.RightShoulder), out var actRB));
-            Assert.Equal(InputAction.MacroAlt1, actRB);
+            Assert.Equal(InputAction.ToggleAutorun, actRB);
 
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var actL3));
+            Assert.Equal(InputAction.LockOnOrHeal, actL3);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.RightThumb), out var actR3));
+            Assert.Equal(InputAction.ToggleCameraMode, actR3);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.DPadLeft), menuContext: true, out var menuLeft));
+            Assert.Equal(InputAction.MenuLeft, menuLeft);
+
+            // Retail (round 2): LT / RT hold the macro palettes, Start logs out, the d-pad cycles targets.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftTrigger), out var actLT));
-            Assert.Equal(InputAction.TargetPrevious, actLT);
+            Assert.Equal(InputAction.MacroPaletteCtrl, actLT);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.RightTrigger), out var actRT));
-            Assert.Equal(InputAction.TargetNearest, actRT);
+            Assert.Equal(InputAction.MacroPaletteAlt, actRT);
+
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.Start), out var actStart));
+            Assert.Equal(InputAction.Logout, actStart);
+
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.DPadLeft), out var actLeft));
+            Assert.Equal(InputAction.TargetCursorLeft, actLeft);
         }
 
         [Fact]
@@ -110,36 +125,46 @@ namespace Gordian.Core.Tests.Input
             var state = new InputState();
             var profile = InputProfile.CreateGamepadDefault();
 
-            // Set gamepad with A button pressed and RightTrigger at 80% (exceeding 15% threshold)
-            var padState = new GamepadState(
-                isConnected: true,
-                buttons: GamepadButton.A,
-                leftThumb: Vector2.Zero,
-                rightThumb: Vector2.Zero,
-                leftTrigger: 0.0f,
-                rightTrigger: 0.80f,
-                packetNumber: 1);
-
-            state.SetGamepadState(padState);
+            state.SetGamepadState(new GamepadState(true, GamepadButton.A, Vector2.Zero, Vector2.Zero, 0f, 0.10f, 1));
             state.Update(profile, TimeSpan.FromMilliseconds(16));
-
-            // Confirm (A) and TargetNearest (RightTrigger threshold) should be held and triggered
             Assert.True(state.IsActionHeld(InputAction.Confirm));
             Assert.True(state.WasActionTriggered(InputAction.Confirm));
-
-            Assert.True(state.IsActionHeld(InputAction.TargetNearest));
-            Assert.True(state.WasActionTriggered(InputAction.TargetNearest));
+            Assert.False(state.IsActionHeld(InputAction.MacroPaletteAlt)); // RT under the 15% threshold
 
             // Next frame: keep holding
             state.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.True(state.IsActionHeld(InputAction.Confirm));
             Assert.False(state.WasActionTriggered(InputAction.Confirm));
 
+            // RT past the threshold holds the Alt macro palette, which takes the pad's other buttons (retail: RT + button).
+            state.SetGamepadState(new GamepadState(true, GamepadButton.A, Vector2.Zero, Vector2.Zero, 0f, 0.80f, 2));
+            state.Update(profile, TimeSpan.FromMilliseconds(16));
+            Assert.True(state.WasActionTriggered(InputAction.MacroPaletteAlt));
+            Assert.False(state.IsActionHeld(InputAction.Confirm));
+
             // Release
+            state.SetGamepadState(new GamepadState(true, GamepadButton.None, Vector2.Zero, Vector2.Zero, 0f, 0f, 3));
+            state.Update(profile, TimeSpan.FromMilliseconds(16));
+            Assert.False(state.IsActionHeld(InputAction.MacroPaletteAlt));
+            Assert.True(state.WasActionReleased(InputAction.MacroPaletteAlt));
+        }
+
+        [Fact]
+        public void InputState_ButtonsHeldWhenThePadArrives_StayQuietUntilLetGo()
+        {
+            // Next Character (LB) landing on another character must not fire again there (round 1, B7).
+            var state = new InputState();
+            var profile = InputProfile.CreateGamepadDefault();
+            state.IgnoreHeldGamepadButtons();
+            state.SetGamepadState(new GamepadState(true, GamepadButton.LeftShoulder, Vector2.Zero, Vector2.Zero, 0f, 0f, 1));
+            state.Update(profile, TimeSpan.FromMilliseconds(16));
+            Assert.False(state.IsActionHeld(InputAction.CycleCharacter));
+
             state.SetGamepadState(new GamepadState(true, GamepadButton.None, Vector2.Zero, Vector2.Zero, 0f, 0f, 2));
             state.Update(profile, TimeSpan.FromMilliseconds(16));
-            Assert.False(state.IsActionHeld(InputAction.Confirm));
-            Assert.True(state.WasActionReleased(InputAction.Confirm));
+            state.SetGamepadState(new GamepadState(true, GamepadButton.LeftShoulder, Vector2.Zero, Vector2.Zero, 0f, 0f, 3));
+            state.Update(profile, TimeSpan.FromMilliseconds(16));
+            Assert.True(state.WasActionTriggered(InputAction.CycleCharacter)); // a new press acts
         }
 
         [Fact]

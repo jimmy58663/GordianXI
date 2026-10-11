@@ -101,7 +101,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Missions WotG / Adoulin / RoV | `ROM/196/7` / `ROM/293/69` / `ROM/333/4` | 55723 / 55738 / 56281 |
 | Menu config rows / help / window titles (EN; JP is 120 ids lower) | `ROM/165/74` / `75` / `76` | 55650 / 55651 / 55652 |
 
-The three menu tables are research only: nothing reads them at run time yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)); the Font Colors rows (config rows 63-88, 197, 204-205; `StockUiFontColors`), the Log page rows (36-62, 196) and the Effects rows (153-170; both `StockUiConfigPages`) are typed in code word for word from ROM/165/74. **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
+The three menu tables are research only: nothing reads them at run time yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)); the Font Colors rows (config rows 63-88, 197, 204-205; `StockUiFontColors`), the Log page rows (36-62, 196) the Effects rows (153-170; both `StockUiConfigPages`) and the gamepad key-assignment functions (rows 99-100, 108, 134-140; `GamepadAssignments`, #21) are typed in code word for word from ROM/165/74, rows 89-142 being retail's key and gamepad assignment names. Help 1092 (ROM/165/75) is the config list's Gamepad entry: "Boots up the FINAL FANTASY XI GAMEPAD Config program." **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
 
 ### Client message tables
 

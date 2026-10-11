@@ -24,6 +24,11 @@ namespace Gordian.Core.Input
     }
 
     /// <summary>
+    /// The camera axis settings in effect for one view (first or third person): sensitivity and inversion per axis.
+    /// </summary>
+    public readonly record struct CameraAxisSettings(float SensitivityX, float SensitivityY, bool InvertX, bool InvertY);
+
+    /// <summary>
     /// Configuration options for gamepad analog thumbsticks, triggers, camera responsiveness, and vibration.
     /// </summary>
     public sealed class GamepadSettings
@@ -64,6 +69,30 @@ namespace Gordian.Core.Input
         [JsonPropertyName("alwaysEnableGamepad")]
         public bool AlwaysEnableGamepad { get; set; } = false;
 
+        /// <summary>
+        /// When on, the first-person view uses its own camera sensitivity and inversion below (#306); off (the default),
+        /// first person uses the same values as third person, as before.
+        /// </summary>
+        [JsonPropertyName("separateFirstPersonCamera")]
+        public bool SeparateFirstPersonCamera { get; set; } = false;
+
+        [JsonPropertyName("firstPersonInvertCameraY")]
+        public bool FirstPersonInvertCameraY { get; set; } = false;
+
+        [JsonPropertyName("firstPersonInvertCameraX")]
+        public bool FirstPersonInvertCameraX { get; set; } = false;
+
+        [JsonPropertyName("firstPersonCameraSensitivityX")]
+        public float FirstPersonCameraSensitivityX { get; set; } = 1.0f;
+
+        [JsonPropertyName("firstPersonCameraSensitivityY")]
+        public float FirstPersonCameraSensitivityY { get; set; } = 1.0f;
+
+        /// <summary>The right stick's camera settings for the view: the first-person set when it is separate, else the shared one.</summary>
+        public CameraAxisSettings Camera(bool firstPerson) => firstPerson && SeparateFirstPersonCamera
+            ? new CameraAxisSettings(FirstPersonCameraSensitivityX, FirstPersonCameraSensitivityY, FirstPersonInvertCameraX, FirstPersonInvertCameraY)
+            : new CameraAxisSettings(CameraSensitivityX, CameraSensitivityY, InvertCameraX, InvertCameraY);
+
         public GamepadSettings Clone()
         {
             return new GamepadSettings
@@ -79,7 +108,12 @@ namespace Gordian.Core.Input
                 RumbleEnabled = RumbleEnabled,
                 WalkTiltThreshold = WalkTiltThreshold,
                 GamepadEnabled = GamepadEnabled,
-                AlwaysEnableGamepad = AlwaysEnableGamepad
+                AlwaysEnableGamepad = AlwaysEnableGamepad,
+                SeparateFirstPersonCamera = SeparateFirstPersonCamera,
+                FirstPersonInvertCameraY = FirstPersonInvertCameraY,
+                FirstPersonInvertCameraX = FirstPersonInvertCameraX,
+                FirstPersonCameraSensitivityX = FirstPersonCameraSensitivityX,
+                FirstPersonCameraSensitivityY = FirstPersonCameraSensitivityY
             };
         }
     }

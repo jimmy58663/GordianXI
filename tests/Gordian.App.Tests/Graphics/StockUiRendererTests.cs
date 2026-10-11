@@ -769,6 +769,36 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.True(bright, "row text");
 
+                // Gamepad key assignment (#21): Config -> Gamepad lists the functions from the row origin and each one's
+                // buttons right-aligned before the window's right edge ("B" on the Cancel row; Confirm's is tinted, selected).
+                menus.CloseAll();
+                var profiles = new Gordian.Core.Input.InputProfileHub();
+                menus.GamepadProfile = () => profiles.Profile;
+                menus.GamepadProfileEdited = edit => profiles.Edit(edit);
+                Assert.True(menus.Open(StockUiMenuEntries.ConfigMenu));
+                menus.Move(Gordian.Core.Input.InputAction.MenuUp);             // Gameplay -> Gamepad (the list wraps)
+                Assert.Equal(13, menus.Top!.SelectedButtonId);
+                menus.Activate();
+                Assert.Equal(StockUiListKind.GamepadAssign, menus.Top!.ListKind);
+                pixels = Render(menus, "config_gamepad");
+                var assignFrame = menus.Top.Menu.Frame;
+                var assignRow = menus.Top.Menu.FindButton(2)!;
+                bool valueDrawn = false;
+                for (int x = assignFrame.Width - 40; x < assignFrame.Width - 16 && !valueDrawn; x++)
+                {
+                    for (int y = 0; y < assignRow.Height && !valueDrawn; y++)
+                    {
+                        var p = Pixel(pixels, width, 16 + x, 48 + assignRow.Y + y);
+                        valueDrawn = p.R > 180 && p.G > 180 && p.B > 180;
+                    }
+                }
+                Assert.True(valueDrawn, "button name at the row's right");
+                // The reset question fits the comyn prompt (round 2: the longer wording ran past its right edge).
+                Assert.True(library.TryGetMenu(StockUiMenuEntries.MessageYesNoMenu, out var comyn));
+                Assert.True(font.MeasureWidth(StockUiMenuController.GamepadResetPrompt) <= comyn.Frame.Width - 16,
+                    $"prompt {font.MeasureWidth(StockUiMenuController.GamepadResetPrompt)} px in a {comyn.Frame.Width} px window");
+                Assert.False(font.MeasureWidth("Reset gamepad assignment to default?") <= comyn.Frame.Width - 16, "the round-2 wording overflowed");
+
                 // Font Colors: the Chat list draws the message types in white and the box above it the selected row's
                 // sample in its colour (the tell row pink: red and blue over green); the R/G/B editor fills its bars
                 // to the colour's channels.

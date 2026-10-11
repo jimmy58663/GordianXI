@@ -91,6 +91,31 @@ namespace Gordian.Core.Input
         MacroAlt7,
         MacroAlt8,
         MacroAlt9,
-        MacroAlt10
+        MacroAlt10,
+
+        /// <summary>
+        /// GordianXI multi-box (not retail): shows the next character in the primary view, as Ctrl+Tab does (#151, #326).
+        /// Default: the gamepad's left bumper (L1 / LB).
+        /// </summary>
+        CycleCharacter = 110,
+
+        /// <summary>/logout (a toggle: again cancels). Default: the gamepad's Start (retail, the maintainer's check, 2026-10-10).</summary>
+        Logout = 111,
+
+        /// <summary>
+        /// Held, the gamepad's other buttons pick from the Ctrl macro palette instead of their own functions (retail: hold
+        /// the left trigger, then a button). Default: LT. The palette window and running the macros are not built yet
+        /// (#339); while it is held the pad's other buttons drive nothing.
+        /// </summary>
+        MacroPaletteCtrl = 112,
+
+        /// <summary>The Alt macro palette counterpart of <see cref="MacroPaletteCtrl"/>. Default: RT.</summary>
+        MacroPaletteAlt = 113,
+
+        /// <summary>
+        /// Retail's L3 (the maintainer's check, 2026-10-10): toggles lock-on when there is a target (or a fight to lock
+        /// on to), otherwise /heal. The keyboard's lock-on keys stay <see cref="ToggleLockOn"/>.
+        /// </summary>
+        LockOnOrHeal = 114
     }
 }
