@@ -187,7 +187,7 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 0 | none | |
 | 1 | attack (engaged) | `PlayerActionService.StatusEngaged`: leaving it ends the local engagement (#67); `EntityRenderer` / `WorldEntity` treat 1 as engaged for the battle stance |
 | 2 | despawn | `PlayerActionService.StatusDespawning`: the engaged target is dropped |
-| 3 | death | `PlayerActionService.StatusDead`; `AnimationStateClassifier` plays death |
+| 3 | death | `PlayerActionService.StatusDead`; `AnimationStateClassifier` plays death; a monster, pet or Trust at 3 is dead (`WorldEntity.IsDeadBattleEntity`): grey name, untargetable, dropped as the target ([entity-flags.md](entity-flags.md#dead-monsters-327), #327) |
 | 4 | event | |
 | 5 | chocobo | |
 | 6 | fishing | |

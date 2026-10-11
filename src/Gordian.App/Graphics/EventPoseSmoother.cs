@@ -27,6 +27,26 @@ namespace Gordian.App.Graphics
             Heading = heading;
         }
 
+        /// <summary>
+        /// How far (yalms, on the ground plane) an event's first pose may lie from where the entity is drawn and still count
+        /// as the entity staying put: nearer, the first pose's heading is eased into from the drawn heading; farther, it is a
+        /// placement and taken at once. Matches <c>EventDialogController.EventReturnSnapDistance</c>.
+        /// </summary>
+        public const float PlacementDistance = 1.5f;
+
+        /// <summary>
+        /// The smoother for an entity's first event pose. The position is taken at once. The heading starts from the one the
+        /// entity is drawn with when the pose leaves it in place, so an NPC turning to face the player at the start of a talk
+        /// (0x1E / 0x4A in the event's first tick) eases round at <see cref="TurnRate"/> like any other event turn instead of
+        /// snapping; a pose that places the entity elsewhere takes its heading at once too.
+        /// </summary>
+        public static EventPoseSmoother Start(Vector3 drawnPosition, float drawnHeading, EventPose pose)
+        {
+            float dx = pose.Position.X - drawnPosition.X, dz = pose.Position.Z - drawnPosition.Z;
+            bool placed = dx * dx + dz * dz > PlacementDistance * PlacementDistance;
+            return new EventPoseSmoother(pose.Position, placed ? pose.Heading : drawnHeading);
+        }
+
         public Vector3 Position { get; private set; }
 
         public float Heading { get; private set; }
