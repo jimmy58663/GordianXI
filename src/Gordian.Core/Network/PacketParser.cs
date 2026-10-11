@@ -539,6 +539,16 @@ namespace Gordian.Core.Network
                 return false;
             }
 
+            if (decompressedBytes == 0)
+            {
+                // A verified datagram with no sub-packets: LandSandBoat (https://github.com/LandSandBoat/server,
+                // MapNetworking::handle_incoming_packet / send_parse) answers every client datagram, and when nothing is
+                // queued for the character the answer holds no packets. During an event that is most answers (the
+                // 2026-10-10 Bastok Mines intro: the server's sequence kept advancing for two minutes while no datagram
+                // carried a packet). It is still the server answering, so it counts as traffic (#340).
+                return true;
+            }
+
             if (decompressedBytes < 4)
             {
                 GordianLog.Debug("PARSER", $"Decompressed length ({decompressedBytes}) < 4.");

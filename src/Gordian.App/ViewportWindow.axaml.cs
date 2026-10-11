@@ -108,10 +108,15 @@ namespace Gordian.App
             {
                 _isShown = true;
                 UpdateOverlayPopups();
+                ApplyRenderMode();
             };
             PropertyChanged += (_, e) =>
             {
-                if (e.Property == WindowStateProperty || e.Property == IsVisibleProperty) UpdateOverlayPopups();
+                if (e.Property == WindowStateProperty || e.Property == IsVisibleProperty)
+                {
+                    UpdateOverlayPopups();
+                    ApplyRenderMode();
+                }
             };
 
             // The floating pill is minimal until the pointer is over it, then lists every character.
@@ -234,6 +239,30 @@ namespace Gordian.App
             {
                 UpdateOverlayPopups();
             }
+        }
+
+        private bool _isFocusTarget = true;
+
+        /// <summary>
+        /// Whether this window is the viewport focus target (#301): the focused viewport window, or the one focused last
+        /// while no viewport window has the focus. Set by <see cref="Services.ViewportWindowManager"/> from its
+        /// <see cref="Services.InputFocusTracker"/>; the target draws every frame, the other windows at the background rate.
+        /// </summary>
+        public void SetFocusTarget(bool isFocusTarget)
+        {
+            if (_isFocusTarget == isFocusTarget) return;
+            _isFocusTarget = isFocusTarget;
+            ApplyRenderMode();
+        }
+
+        /// <summary>The viewport draws every frame, at the background rate, or not at all (minimised or hidden), #301.</summary>
+        private void ApplyRenderMode()
+        {
+            if (_viewportControl == null) return;
+            _viewportControl.RenderMode = ViewportRenderPolicy.Resolve(
+                minimized: WindowState == WindowState.Minimized,
+                shown: _isShown && IsVisible,
+                isFocusTarget: _isFocusTarget);
         }
 
         /// <summary>

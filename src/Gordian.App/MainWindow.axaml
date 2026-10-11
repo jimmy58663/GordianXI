@@ -1806,6 +1806,22 @@
                                     <CheckBox IsChecked="{Binding Viewport.IsVsyncEnabled, Mode=TwoWay}"
                                               Content="Enable Vertical Sync (VSync)"
                                               FontSize="12" Foreground="#DCDCDC"/>
+                                    <TextBlock Text="Background window frame rate (FPS):" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableBackgroundFrameRates}"
+                                              SelectedItem="{Binding Viewport.BackgroundFrameRate, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="The focused viewport window draws every frame; other viewport windows draw at this rate, and minimised or fully covered ones not at all."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <!-- Zone cache (multi-box) -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Zone cache for other characters' zones (MB of GPU memory):" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableZoneCacheBudgets}"
+                                              SelectedItem="{Binding Viewport.ZoneCacheBudgetMb, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="Keeps the zones your logged-in characters are in loaded on the GPU, so Ctrl+Tab between characters in different zones is instant. 0 keeps only the zones on screen."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
                                 <!-- Character Tab Style -->
