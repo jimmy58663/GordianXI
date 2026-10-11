@@ -19,7 +19,7 @@ namespace Gordian.Core.Resources.Tables
     /// <param name="JobLevels">Level per job in job order (0 none, 1 WAR ... 22 RUN, 23 MON); <see cref="SpellRecord.CannotLearn"/> when the job cannot learn it.</param>
     /// <param name="MenuIndex">The slot the known-spell list sorts the spell into.</param>
     public sealed record SpellRecord(int Id, int Kind, int Element, int TargetFlags, int Skill, int MpCost, int CastQuarters,
-        int RecastQuarters, IReadOnlyList<int> JobLevels, int MenuIndex, int Icon)
+        int RecastQuarters, IReadOnlyList<int> JobLevels, int MenuIndex, int Icon, int Icon2 = 0xFFFF)
     {
         /// <summary>The <see cref="JobLevels"/> value of a job that cannot learn the spell.</summary>
         public const int CannotLearn = 0xFFFF;
@@ -40,7 +40,7 @@ namespace Gordian.Core.Resources.Tables
     /// Chakra 15, Boost 16, Steal 60, Flee 62, Hide 63; the waltzes 217). Weapon skills carry an unrelated value there.
     /// </param>
     /// <param name="TpCost">TP the command costs (+0x0C, i16; -1 for none: weapon skills read -1 and take 1000 TP by rule).</param>
-    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1)
+    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1, int Icon2 = -1)
     {
         /// <summary>The <see cref="Type"/> of a weapon skill.</summary>
         public const int WeaponSkillType = 3;
@@ -178,7 +178,8 @@ namespace Gordian.Core.Resources.Tables
                 RecastQuarters: r[0x0D],
                 JobLevels: levels,
                 MenuIndex: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x3E)),
-                Icon: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x40)));
+                Icon: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x40)),
+                Icon2: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x42)));
         }
 
         private static CommandRecord ReadCommand(ReadOnlySpan<byte> r) => new(
@@ -188,6 +189,7 @@ namespace Gordian.Core.Resources.Tables
             TargetFlags: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x0A)),
             Range: r[0x10],
             RecastId: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x08)),
-            TpCost: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x0C)));
+            TpCost: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x0C)),
+            Icon2: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x04)));
     }
 }

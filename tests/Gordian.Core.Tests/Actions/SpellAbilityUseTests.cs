@@ -190,7 +190,7 @@ namespace Gordian.Core.Tests.Actions
         }
 
         [Fact]
-        public void SpellRows_ListLearnedSpellsOfTheCategoryForTheJobs_GreyedByLevelMpAndRecast()
+        public void SpellRows_MainMenuListsEveryLearnedSpellGreyedByJobLevelAndMp_CommandMenuOnlyCastable()
         {
             var catalog = TestCatalog.Build();
             long now = 1_000_000;
@@ -206,54 +206,64 @@ namespace Gordian.Core.Tests.Actions
                 Now = now,
             };
 
-            // A White Mage 1 sees Cure (8 MP) under White Magic, not Fire; a Warrior sees neither.
+            // A White Mage 1 sees Cure (8 MP, its note-style small icon) under White Magic.
             var white = StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 20), 1, null);
-            Assert.Equal(new[] { "Cure" }, white.Select(r => r.Name));
-            Assert.Equal("8", white[0].Value);
-            Assert.False(white[0].IsGreyed(now));
-            Assert.Empty(StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 20), 2, null));
-            Assert.Empty(StockUiActionMenu.SpellRows(catalog, State(JobId.Warrior, 75, 0), 1, null));
+            var cure = Assert.Single(white);
+            Assert.Equal(("Cure", 8, 6), (cure.Name, cure.MpCost, cure.Icon));
+            Assert.False(cure.IsGreyed);
+            // Main menu: Fire is listed for the White Mage too, greyed (retail image-16: unusable spells greyed); command menu: not listed.
+            Assert.Contains("current job and level", Assert.Single(StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 20), 2, null)).GreyedReason);
+            Assert.Empty(StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 20), 2, null, usableOnly: true));
+            // The command menu's Confirm: every castable spell but Trust.
+            Assert.Equal(new[] { "Cure" }, StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 20), 0, null, usableOnly: true).Select(r => r.Name));
 
-            // Too little MP, too low a level, a running recast: greyed.
+            // Too little MP, too low a level: greyed. A running recast is shown under "Next", not greyed.
             Assert.Contains("MP", StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 7), 1, null)[0].GreyedReason);
-            var redMage = StockUiActionMenu.SpellRows(catalog, State(JobId.RedMage, 2, 50), 1, null);
-            Assert.Contains("level", redMage[0].GreyedReason);
+            Assert.Contains("level", StockUiActionMenu.SpellRows(catalog, State(JobId.RedMage, 2, 50), 1, null)[0].GreyedReason);
             var recast = StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 50, TimeSpan.FromSeconds(4.2)), 1, null)[0];
-            Assert.Null(recast.GreyedReason);
-            Assert.True(recast.IsGreyed(now));
+            Assert.False(recast.IsGreyed);
             Assert.Equal("0:05", StockUiActionMenu.FormatRecast(recast.RecastLeft(now)));
+            Assert.Equal("0:00", StockUiActionMenu.FormatRecast(TimeSpan.Zero));
 
-            // Trust lists every learned trust whatever the job; from the command menu on a monster Cure stays usable, Fire on yourself not.
+            // Trust lists every learned trust whatever the job; from the command menu on yourself Fire is greyed.
             Assert.Equal(new[] { "Shantotto" }, StockUiActionMenu.SpellRows(catalog, State(JobId.Warrior, 1, 0), 8, null).Select(r => r.Name));
             var self = new StockUiTargetContext(StockUiTargetKind.Self, SelfId, "Gemini");
-            var blackOnSelf = StockUiActionMenu.SpellRows(catalog, State(JobId.BlackMage, 20, 50), 2, self);
+            var blackOnSelf = StockUiActionMenu.SpellRows(catalog, State(JobId.BlackMage, 20, 50), 2, self, usableOnly: true);
             Assert.Contains("cannot use Fire on Gemini", blackOnSelf[0].GreyedReason);
         }
 
         [Fact]
-        public void AbilityRows_ListKnownAbilitiesAndWeaponSkills_WithRecastsAndTp()
+        public void AbilityRows_JobAbilitiesWeaponSkillsTraitsAndPetCommands()
         {
             var catalog = TestCatalog.Build();
             long now = 5_000_000;
             var state = new StockUiActionState
             {
-                HasJobAbility = id => id is TestCatalog.Berserk or TestCatalog.Provoke or TestCatalog.CuringWaltz or 1,
+                HasJobAbility = id => id is TestCatalog.Berserk or TestCatalog.Provoke or TestCatalog.CuringWaltz or 1 or TestCatalog.Fight,
                 HasWeaponSkill = id => id == TestCatalog.FastBlade,
-                CurrentTp = 150,
+                HasTrait = id => id == TestCatalog.MagicDefBonus,
+                HasPetAbility = id => id == 0, // Healing Ruby (command 1024)
+                CurrentTp = 1500,
                 AbilityRecast = recastId => recastId == 1 ? TimeSpan.FromSeconds(90) : TimeSpan.Zero,
                 Now = now,
             };
             var abilities = StockUiActionMenu.JobAbilityRows(catalog, state, null);
-            Assert.Equal(new[] { "Berserk", "Provoke", "Curing Waltz" }, abilities.Select(r => r.Name)); // the trait is left out
+            Assert.Equal(new[] { "Berserk", "Provoke", "Curing Waltz" }, abilities.Select(r => r.Name)); // the trait and Fight are elsewhere
             Assert.Equal("1:30", StockUiActionMenu.FormatRecast(abilities[0].RecastLeft(now)));
-            Assert.True(abilities[0].IsGreyed(now));
-            Assert.False(abilities[1].IsGreyed(now));
-            Assert.Contains("TP", abilities[2].GreyedReason); // 200 TP
+            Assert.Equal(361, abilities[0].Icon); // the command's picture (+0x04)
+            Assert.Null(abilities[2].GreyedReason); // 200 TP, 1500 held
 
+            // Weapon skills are greyed out of combat even with TP (retail image-21), and under 1000 TP.
             var ws = StockUiActionMenu.WeaponSkillRows(catalog, state, null);
-            Assert.Equal("Fast Blade", Assert.Single(ws).Name);
-            Assert.Contains("TP", ws[0].GreyedReason);
-            Assert.Null(StockUiActionMenu.WeaponSkillRows(catalog, new StockUiActionState { HasWeaponSkill = _ => true, CurrentTp = 1000 }, null)[0].GreyedReason);
+            Assert.Contains("engaged", Assert.Single(ws).GreyedReason);
+            Assert.Null(StockUiActionMenu.WeaponSkillRows(catalog, new StockUiActionState { HasWeaponSkill = _ => true, CurrentTp = 1000, Engaged = true }, null)[0].GreyedReason);
+            Assert.Contains("TP", StockUiActionMenu.WeaponSkillRows(catalog, new StockUiActionState { HasWeaponSkill = _ => true, CurrentTp = 999, Engaged = true }, null)[0].GreyedReason);
+
+            var traits = StockUiActionMenu.TraitRows(catalog, state);
+            Assert.Equal((StockUiActionType.Trait, "Magic Def. Bonus", 46), (traits[0].Type, Assert.Single(traits).Name, traits[0].Icon));
+            var pets = StockUiActionMenu.PetCommandRows(catalog, state, null);
+            Assert.Equal(new[] { "Fight", "Healing Ruby" }, pets.Select(r => r.Name));
+            Assert.Equal((ushort)512, pets[1].Id); // used as job ability 512 + bit
         }
 
         [Fact]
@@ -300,14 +310,17 @@ namespace Gordian.Core.Tests.Actions
             {
                 ListMenu(StockUiMenuEntries.MainMenu, 12, 384, 48, 112, 202, UiAnchor.TopRight),
                 ListMenu(StockUiActionMenu.MagicCategoryMenu, 8, 384, 48, 112, 138, UiAnchor.TopRight),
+                ListMenu(StockUiActionMenu.CommandMagicCategoryMenu, 7, 128, 176, 112, 120, UiAnchor.BottomLeft),
                 ListMenu(StockUiActionMenu.AbilityMenu, 6, 384, 48, 112, 106, UiAnchor.TopRight),
                 ListMenu(StockUiActionMenu.SpellListMenu, 12, 16, 96, 182, 200, UiAnchor.BottomLeft, 132, 4),
                 ListMenu(StockUiActionMenu.AbilityListMenu, 12, 16, 96, 182, 200, UiAnchor.BottomLeft, 132, 4),
+                ListMenu(StockUiActionMenu.OptionsMenu, 2, 384, 48, 112, 58, UiAnchor.TopRight, 88, 22),
+                ListMenu(StockUiCommandMenu.Template, 10, 16, 136, 112, 160, UiAnchor.BottomLeft),
             });
         }
 
         [Fact]
-        public async Task MagicWindow_TrustCategoryListsTrustsAndConfirmCastsOnYourself()
+        public async Task MagicWindow_TrustOpensTheSubTargetCursorAndTheListComesBackAfterTheCast()
         {
             LoadMenus();
             Learn(TestCatalog.Cure, TestCatalog.Shantotto);
@@ -320,17 +333,35 @@ namespace Gordian.Core.Tests.Actions
             menus.Activate();
             var list = menus.Top!;
             Assert.True(list.IsActionList);
+            Assert.True(list.ShowsActionOptions);
             Assert.Equal("Shantotto", Assert.Single(list.ActionRows).Name);
 
+            // Confirm: the sub-target cursor on yourself (a self-only spell still asks, retail video), the menus set aside.
             int before = SentCount;
             menus.Activate();
-            for (int i = 0; i < 100 && SentCount == before; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
-            Assert.False(menus.IsOpen);
+            for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            Assert.True(menus.Suspended);
+            Assert.Equal(before, SentCount);
+            Assert.True((await _service.ConfirmSubTargetAsync()).Success);
             Assert.Equal((SelfId, SelfIndex, CliActionId.CastMagic, (uint)TestCatalog.Shantotto), LastAction());
+            Assert.False(menus.Suspended);
+            Assert.Same(list, menus.Top); // the list is back where it was
+
+            // + / Y: the Options window and back; Cancel on the cursor also brings the list back.
+            Assert.True(menus.ToggleActionOptions());
+            Assert.True(menus.Top!.IsActionOptions);
+            Assert.True(menus.ToggleActionOptions());
+            Assert.Same(list, menus.Top);
+            menus.Activate();
+            for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            _service.CancelSubTarget();
+            Assert.False(menus.Suspended);
+            Assert.Same(list, menus.Top);
         }
 
         [Fact]
-        public async Task AbilitiesWindow_GreyedRowsPostWhyAndWeaponSkillOpensTheCursor()
+        public async Task AbilitiesWindow_GreyedRowsPostWhyEmptyListsShowTheirTextAndAbilitiesAskForTheTarget()
         {
             LoadMenus();
             LearnCommands(new[] { TestCatalog.FastBlade }, new[] { TestCatalog.Berserk });
@@ -343,31 +374,122 @@ namespace Gordian.Core.Tests.Actions
             menus.Activate();
             var list = menus.Top!;
             Assert.Equal(StockUiActionList.WeaponSkills, list.ActionList);
-            menus.Activate(); // 0 TP: greyed
-            Assert.Contains(_notices, n => n.Contains("enough TP"));
+            menus.Activate(); // not engaged: greyed
+            Assert.Contains(_notices, n => n.Contains("engaged"));
             Assert.True(menus.IsOpen);
 
             menus.CloseTop();
-            menus.Move(InputAction.MenuUp); // Job Abil.
+            for (int i = 0; i < 3; i++) menus.Move(InputAction.MenuDown); // Mount (button 6 in these test windows)
+            menus.Activate();
+            Assert.Equal((StockUiActionList.Mounts, "No mounts available."), (menus.Top!.ActionList, menus.Top.EmptyText));
+            menus.CloseTop();
+
+            for (int i = 0; i < 4; i++) menus.Move(InputAction.MenuUp); // Job Abil.
             menus.Activate();
             Assert.Equal("Berserk", Assert.Single(menus.Top!.ActionRows).Name);
-            int before = SentCount;
             menus.Activate();
-            for (int i = 0; i < 100 && SentCount == before; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            await _service.ConfirmSubTargetAsync();
             Assert.Equal((SelfId, SelfIndex, CliActionId.JobAbility, (uint)TestCatalog.Berserk), LastAction());
         }
 
         [Fact]
-        public void CommandMenu_MagicAbilitiesAndTrustOpenTheirWindows()
+        public async Task CommandMenu_MagicConfirmListsCastableMagic_RightOpensTheCategories_CursorStartsOnTheTarget()
         {
+            LoadMenus();
+            Learn(TestCatalog.Cure, TestCatalog.Fire, TestCatalog.Shantotto);
             var rows = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Monster, HareId, "Forest_Hare"));
-            Assert.Equal(StockUiActionMenu.CommandMagicCategoryMenu, rows.Single(r => r.Label.Text == "Magic").Entry.Opens);
+            var magic = rows.Single(r => r.Label.Text == "Magic").Entry;
+            Assert.Equal((StockUiActionMenu.CommandMagicCategoryMenu, StockUiMenuCommand.SpellList, 0), (magic.Opens, magic.Command, magic.Argument));
             Assert.Equal(StockUiActionMenu.CommandAbilityMenu, rows.Single(r => r.Label.Text == "Abilities").Entry.Opens);
             var trust = rows.Single(r => r.Label.Text == "Trust").Entry;
             Assert.Equal((StockUiMenuCommand.SpellList, StockUiActionMenu.TrustKind), (trust.Command, trust.Argument));
             Assert.True(StockUiMenuEntries.TryGet(StockUiActionMenu.CommandMagicCategoryMenu, 3, out var songs));
             Assert.Equal(5, songs.Argument); // Songs are spell kind 5
             Assert.False(StockUiMenuEntries.TryGet(StockUiActionMenu.CommandMagicCategoryMenu, 8, out _)); // no Trust there
+
+            // A White Mage 1 with MP (S2C 0x01B job info, vitals). The command menu on the hare: Magic (row 2 after
+            // Attack) lists what can be cast: Cure, not Fire (Black Magic) nor Shantotto (Trust).
+            var job = new byte[92];
+            job[4] = (byte)JobId.WhiteMage;
+            job[68 + (int)JobId.WhiteMage] = 1;
+            _localPlayer.UpdateFromJobInfo(new S2C_0x01B_JobInfo(job));
+            _localPlayer.UpdateVitals(100, 50, 0);
+            var menus = _service.Menus;
+            _service.SetTargetByName("Forest_Hare");
+            Assert.True(_service.OpenTargetCommandMenu());
+            menus.Move(InputAction.MenuDown);
+            menus.Activate();
+            var list = menus.Top!;
+            Assert.Equal((StockUiActionList.Spells, 0, false), (list.ActionList, list.ActionCategory, list.ShowsActionOptions));
+            Assert.Equal(new[] { "Cure" }, list.ActionRows.Select(r => r.Name)); // no Fire (BLM), no Shantotto (Trust)
+            menus.CloseTop();
+            menus.Move(InputAction.MenuRight); // the categories
+            Assert.Equal(StockUiActionMenu.CommandMagicCategoryMenu, menus.Top!.Name);
+            menus.CloseTop();
+
+            // A spell from the list: the cursor starts on the menu's target.
+            menus.Activate();
+            menus.Activate();
+            for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+        }
+
+        [Fact]
+        public void ItemTargets_MapTheItemDatBitsToTheCursorFilter()
+        {
+            Assert.Equal(ActionTargetFlags.Self, ItemTargetFlags.ToActionTargets(0x01));
+            Assert.Equal(ActionTargetFlags.Self | ActionTargetFlags.Party, ItemTargetFlags.ToActionTargets(0x03));
+            Assert.Equal(ActionTargetFlags.Enemy, ItemTargetFlags.ToActionTargets(0x04));
+            Assert.Equal(ActionTargetFlags.Alliance | ActionTargetFlags.Player | ActionTargetFlags.Npc, ItemTargetFlags.ToActionTargets(0x08 | 0x10 | 0x40));
+            Assert.Equal(ActionTargetFlags.None, ItemTargetFlags.ToActionTargets(0x20)); // dead players: no cursor bit
+        }
+
+        [Fact]
+        public async Task ItemUse_ThroughTheSubTargetCursor_SendsCountZeroWithContainerAndSlot()
+        {
+            _service.InventoryModule = new InventoryPacketModule(new InventoryState(), _localPlayer, (mem, _) =>
+            {
+                lock (_sent) _sent.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+            // An Echo Drops-like item (self or party) in inventory slot 7: the cursor starts on yourself; the hare is refused.
+            Assert.True(_service.BeginItemSubTarget(ContainerId.Inventory, 7, 4151, 0x03));
+            var picking = _service.SubTargeting!;
+            Assert.Equal((ActionKind.Item, (ushort)4151, ContainerId.Inventory, (byte)7), (picking.Kind, picking.Id, picking.ItemContainer, picking.ItemSlot));
+            Assert.Equal(SelfId, picking.Current.ServerId);
+            Assert.False(_service.MoveSubTarget(HareId));
+            Assert.True((await _service.ConfirmSubTargetAsync()).Success);
+
+            byte[] packet;
+            lock (_sent) packet = _sent.Last(p => (BinaryPrimitives.ReadUInt16LittleEndian(p) & 0x1FF) == 0x037);
+            Assert.Equal(SelfId, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(4)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(8))); // count 0
+            Assert.Equal(SelfIndex, BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(12)));
+            Assert.Equal(7, packet[14]);
+            Assert.Equal((uint)ContainerId.Inventory, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(16)));
+
+            // An enemy-only item (0x04) starts on the preferred target; one with nothing allowed nearby does not start.
+            Assert.True(_service.BeginItemSubTarget(ContainerId.Inventory, 8, 4400, 0x04, _world.TryGetByServerId(HareId, out var hare) ? hare : null));
+            Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+            Assert.False(_service.BeginItemSubTarget(ContainerId.Inventory, 9, 4401, 0x40)); // NPCs only: none here
+            Assert.Null(_service.SubTargeting);
+        }
+
+        [Fact]
+        public async Task SubTargetCursor_IsTheEntryPointForOtherCallers()
+        {
+            WorldEntity? picked = null;
+            var started = _service.BeginSubTarget("Echo Drops", ActionTargetFlags.Self | ActionTargetFlags.Party,
+                entity => { picked = entity; return Task.FromResult(PlayerActionResult.Ok("used")); });
+            Assert.True(started.Success);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            Assert.False(_service.MoveSubTarget(HareId)); // not allowed
+            var result = await _service.ConfirmSubTargetAsync();
+            Assert.Equal("used", result.Message);
+            Assert.Equal(SelfId, picked!.ServerId);
         }
 
         /// <summary>The retail Magic and Abilities windows (ROM/119/51). Skipped without the game install.</summary>
@@ -389,6 +511,24 @@ namespace Gordian.Core.Tests.Actions
                 }
             }
             Assert.Equal(8, library.TryGetMenu(StockUiActionMenu.MagicCategoryMenu, out var categories) ? categories.Buttons.Count(StockUiMenuController.IsSelectable) : 0);
+            // The Options windows and the info window over the target window (112 x 42, bottom right at 384,208).
+            Assert.True(library.TryGetMenu(StockUiActionMenu.OptionsMenu, out _));
+            Assert.True(library.TryGetMenu(StockUiActionMenu.BlueOptionsMenu, out _));
+            Assert.True(library.TryGetMenu(StockUiActionMenu.InfoMenu, out var info));
+            Assert.Equal((384, 208, 112, 42, UiAnchor.BottomRight), (info.Frame.X, info.Frame.Y, info.Frame.Width, info.Frame.Height, info.Frame.Anchor));
+            // The list icons (ROM/280/15): the songs' notes are images 32-39, Soul Voice's picture 75.
+            Assert.True(library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons));
+            Assert.Equal(677, icons.Images.Count);
+            var catalog = Gordian.Core.Actions.ActionCatalog.Load(rm)!;
+            Assert.True(catalog.TryFindSpell("Victory March", out var march));
+            Assert.Equal((420, 36, 784), (march.Id, march.Icon, march.MenuIndex));
+            Assert.True(catalog.TryFindJobAbility("Soul Voice", out _, out var soulVoice));
+            Assert.Equal(75, StockUiActionMenu.CommandIcon(soulVoice));
+            // Job traits at command 1536 + id (LandSandBoat sql/traits.sql: Fencer 107), named in ROM/181/72.
+            Assert.Equal("Magic Def. Bonus", catalog.JobAbilityName(StockUiActionMenu.TraitBase + 6 - 512));
+            Assert.Equal("Fencer", catalog.JobAbilityName(StockUiActionMenu.TraitBase + 107 - 512));
+            // Pet commands at command 1024 + the pet bit: Healing Ruby is LandSandBoat's ability 512.
+            Assert.Equal("Healing Ruby", catalog.JobAbilityName(StockUiActionMenu.PetCommandBase - 512));
             foreach (string name in new[] { StockUiActionMenu.SpellListMenu, StockUiActionMenu.AbilityListMenu })
             {
                 Assert.True(library.TryGetMenu(name, out var list), name);

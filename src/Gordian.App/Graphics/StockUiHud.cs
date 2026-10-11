@@ -128,7 +128,7 @@ namespace Gordian.App.Graphics
         /// target's name, or on the overhead point when it has none.
         /// </summary>
         public void Render(StockUiRenderer renderer, CharacterSession? session, Framebuffer framebuffer, uint width, uint height,
-            Vector2? targetCursor = null, IReadOnlyList<NamePlateAnchor>? namePlates = null)
+            Vector2? targetCursor = null, IReadOnlyList<NamePlateAnchor>? namePlates = null, Vector2? subTargetCursor = null)
         {
             var library = _library;
             if (!Enabled || library == null || session == null)
@@ -172,7 +172,7 @@ namespace Gordian.App.Graphics
             var groups = GroupParty(session);
             // An event's message mode (opcode 0x67) hides the HUD windows and shows the event's lines on the screen instead; name plates stay (the retail recording shows them through the aerial shots).
             bool cutscene = session.Events.IsCutsceneHud;
-            NamePlateBounds? targetPlate = null;
+            NamePlateBounds? targetPlate = null, subTargetPlate = null;
             if (namePlates != null && _font is { } plateFont)
             {
                 var ownParty = new List<uint>();
@@ -180,17 +180,26 @@ namespace Gordian.App.Graphics
                 // The plates belong to the scene: they fade to black with it (the fdo? / fdi? fades) and come back with it.
                 var scene = presentation.SceneColor;
                 renderer.Opacity = presentation.InterfaceOpacity * Math.Clamp((scene.X + scene.Y + scene.Z) / 3f, 0f, 1f);
-                targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, Layout.NamePlateScale);
+                targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, out subTargetPlate, Layout.NamePlateScale);
                 renderer.Opacity = presentation.InterfaceOpacity;
             }
-            if (targetCursor is { } cursor && session.ActionService.DisplayedTarget != null && !cutscene)
+            long now = Stopwatch.GetTimestamp();
+            Vector2? targetTip = null;
+            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene)
             {
-                if (targetPlate is { } plate)
+                targetTip = CursorTip(cursor, targetPlate);
+                StockUiTargetWindow.DrawCursor(renderer, library, targetTip.Value, Layout.Scale, now);
+            }
+            if (subTargetCursor is { } subCursor && session.ActionService.SubTargeting is { } picking && !cutscene)
+            {
+                // The sub-target cursor (#240): the target cursor in violet; on your own target it sits 12 px above
+                // that target's cursor (retail capture 2026-10-11, maintainer: video frames at 2556 x 1434, 1:1).
+                var tip = CursorTip(subCursor, subTargetPlate);
+                if (picking.Current.ServerId == session.ActionService.CurrentTarget?.ServerId && targetTip is { } shared)
                 {
-                    float tip = Math.Min(plate.Center.Y - plate.GlyphHeight * StockUiNamePlates.CursorGapShare, plate.Top);
-                    cursor = new Vector2(plate.Center.X, tip);
+                    tip = shared - new Vector2(0, SubTargetCursorRise * Layout.Scale);
                 }
-                StockUiTargetWindow.DrawCursor(renderer, library, cursor, Layout.Scale, Stopwatch.GetTimestamp());
+                StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetCursorTint);
             }
             if (!cutscene)
             {
@@ -222,6 +231,21 @@ namespace Gordian.App.Graphics
             }
             renderer.End(framebuffer, width, height);
         }
+
+        /// <summary>The cursor's tip above the name plate (when the entity has one), else on the overhead point.</summary>
+        private static Vector2 CursorTip(Vector2 cursor, NamePlateBounds? plate)
+        {
+            if (plate is not { } p) return cursor;
+            float tip = Math.Min(p.Center.Y - p.GlyphHeight * StockUiNamePlates.CursorGapShare, p.Top);
+            return new Vector2(p.Center.X, tip);
+        }
+
+        /// <summary>
+        /// The sub-target cursor's colour: the gold target arrow turned violet (peak (132, 102, 213) in the maintainer's
+        /// retail video, 2026-10-11, against the gold's ~(230, 170, 110)), and how far above a shared target's cursor it sits.
+        /// </summary>
+        private static readonly UiColor SubTargetCursorTint = new(0x49, 0x4D, 0xF8, 0x80);
+        private const float SubTargetCursorRise = 12;
 
         /// <summary>The screen height the event text positions were measured at (the maintainer's 1440p retail client area).</summary>
         public const float EventTextReferenceHeight = 1416f;
@@ -292,7 +316,8 @@ namespace Gordian.App.Graphics
         {
             var open = menus.OpenMenus;
             _menuPlacements.Clear();
-            if (open.Count == 0)
+            // While the sub-target cursor picks the target of an action chosen in the menus they step aside (#240).
+            if (open.Count == 0 || menus.Suspended)
             {
                 menus.SetScreenPlacements(_menuPlacements);
                 if (Drag.Unlocked && library.TryGetMenu("menuwind", out var closedMenu))
@@ -333,6 +358,8 @@ namespace Gordian.App.Graphics
                 var menu = open[i];
                 bool covered = false;
                 for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].OverlapsAuthored(menu);
+                // A main-menu spell list puts its Options window where the Magic categories were (retail image-16).
+                for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].ShowsActionOptions && menu.Name.Equals(StockUiActionMenu.MagicCategoryMenu, StringComparison.OrdinalIgnoreCase);
                 if (covered) continue;
 
                 StockUiPlacement placement;
@@ -349,6 +376,12 @@ namespace Gordian.App.Graphics
                     bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    if (menu.IsActionList && _window1Top is { } listTop)
+                    {
+                        // The spell and ability lists sit on Window 1's top edge as the command menu does (retail image-14, the video).
+                        x = authored.X;
+                        y = Math.Clamp(listTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    }
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
@@ -359,10 +392,24 @@ namespace Gordian.App.Graphics
                     var f = spoils.Frame;
                     renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
+                if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
+                    && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))
+                {
+                    var f = options.Frame;
+                    renderer.DrawMenu(options, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
+            }
+            if (_font is { } infoFont && open.LastOrDefault(m => m.IsActionList) is { } actionList)
+            {
+                StockUiMenuWindow.DrawActionInfo(renderer, library, infoFont, actionList, _actionInfoAnchor, root.Scale, timestamp,
+                    session.LocalPlayer.CurrentTp);
             }
             menus.SetScreenPlacements(_menuPlacements);
         }
+
+        /// <summary>The target window's (or, with no target, the party window's) left and top edge: the action info window sits on it.</summary>
+        private (float X, float Top)? _actionInfoAnchor;
 
         private readonly List<StockUiMenuPlacement> _menuPlacements = new();
 
@@ -415,11 +462,13 @@ namespace Gordian.App.Graphics
             if (!library.TryGetMenu("targetwi", out var menu)) return;
 
             var placement = ResolveWindow(StockUiWindowIds.Target, menu.Frame, width, height, out bool moved);
+            _actionInfoAnchor = party is { Hidden: false } anchorParty ? (placement.X, anchorParty.Y) : null;
             if (placement.Hidden) return;
             if (!moved && party is { Hidden: false } p)
             {
                 placement = placement with { Y = Math.Max(0, p.Y - (menu.Frame.Height + 2) * placement.Scale) };
             }
+            if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);
             if (target == null || font == null)
             {
                 DrawPlaceholder(renderer, StockUiWindowIds.Target, menu, placement);

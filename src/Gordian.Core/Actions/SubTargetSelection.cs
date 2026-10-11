@@ -1,43 +1,60 @@
 // src/Gordian.Core/Actions/SubTargetSelection.cs
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Gordian.Core.Input;
 using Gordian.Core.World;
 
 namespace Gordian.Core.Actions
 {
     /// <summary>
-    /// The sub-target cursor (retail's <c>&lt;st&gt;</c>): an action waiting for its target. The cursor starts on the
-    /// current target when the action may land on it, else on yourself, else on the nearest entity it may land on; the
-    /// target keys move it left and right through the allowed entities in screen order (wrapping), Confirm runs the
-    /// action on the one under it and Cancel drops it. Your own target does not change. PROVISIONAL (no retail capture):
-    /// the start rule, the screen-order cycling with wrapping, and that the cursor alone (not the target window) marks
-    /// the entity.
+    /// The sub-target cursor (retail's <c>&lt;st&gt;</c>, and what every spell or ability chosen in a menu opens): an
+    /// action waiting for its target. The cursor starts on the preferred entity (the command menu's target) when the
+    /// action may land on it, else on the current target, else on yourself, else on the nearest entity it may land on;
+    /// the target keys move it through the allowed entities in screen order (wrapping), Confirm runs the action on the
+    /// one under it and Cancel drops it. Your own target does not change.
+    /// <para>
+    /// Retail capture 2026-10-11 (maintainer, a 30 fps video at 1:1): choosing Advancing March (target bits 0x01,
+    /// yourself only) in the Magic list still opens the cursor; the lists leave the screen while it is up, the help bar
+    /// reads "Advancing March" / "Select target of spell.", and the cursor is the target arrow in violet, drawn 12 px above
+    /// the gold target arrow when both mark the same entity. After the cast the list is back with its cursor where it was.
+    /// PROVISIONAL: the start rule beyond yourself, the screen-order cycling, and the list returning after Cancel.
+    /// </para>
     /// </summary>
     public sealed class SubTargetSelection
     {
-        public SubTargetSelection(ActionKind kind, ushort id, string name, ActionTargetFlags allowed, WorldEntity start)
+        public SubTargetSelection(string name, ActionTargetFlags allowed, WorldEntity start, Func<WorldEntity, Task<PlayerActionResult>> run)
         {
-            Kind = kind;
-            Id = id;
-            Name = name;
+            Name = name ?? string.Empty;
             Allowed = allowed;
             Current = start ?? throw new ArgumentNullException(nameof(start));
+            Run = run ?? throw new ArgumentNullException(nameof(run));
         }
 
-        /// <summary>The action waiting: a spell, job ability or weapon skill (a ranged attack uses <see cref="ActionKind.WeaponSkill"/> with <see cref="IsRangedAttack"/>).</summary>
-        public ActionKind Kind { get; }
-        public ushort Id { get; }
+        /// <summary>The action's name (the help bar's "Select target of spell." line names it).</summary>
         public string Name { get; }
-
-        /// <summary>A ranged attack waiting for its target (Abilities' Ranged Atk. without one).</summary>
-        public bool IsRangedAttack { get; init; }
 
         /// <summary>The entity kinds the cursor may land on.</summary>
         public ActionTargetFlags Allowed { get; }
 
         /// <summary>The entity under the cursor.</summary>
         public WorldEntity Current { get; internal set; }
+
+        /// <summary>Runs the action on the picked entity (Confirm).</summary>
+        public Func<WorldEntity, Task<PlayerActionResult>> Run { get; }
+
+        /// <summary>Whether the stock menus were set aside for the cursor and come back when it ends (a menu choice).</summary>
+        public bool ResumesMenus { get; init; }
+
+        /// <summary>What waits: a spell, ability or weapon skill (<see cref="Id"/>), or an item (<see cref="ItemContainer"/> / <see cref="ItemSlot"/>).</summary>
+        public ActionKind Kind { get; init; }
+
+        /// <summary>The spell, ability or weapon skill id, or the item id for an item.</summary>
+        public ushort Id { get; init; }
+
+        /// <summary>The container and slot of the item being used (<see cref="ActionKind.Item"/> only).</summary>
+        public Network.Packets.ContainerId ItemContainer { get; init; }
+        public byte ItemSlot { get; init; }
 
         /// <summary>
         /// The server id the cursor moves to: the next candidate to the right (<paramref name="step"/> &gt; 0) or left in

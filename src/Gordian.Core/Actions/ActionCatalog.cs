@@ -26,12 +26,34 @@ namespace Gordian.Core.Actions
         Enemy = 0x20,
     }
 
+    /// <summary>Maps target bits between the item DAT's layout and the spell / command tables' (<see cref="ActionTargetFlags"/>).</summary>
+    public static class ItemTargetFlags
+    {
+        /// <summary>
+        /// An item record's ValidTargets (the item DAT; the layout of LandSandBoat's <c>TARGETTYPE</c>, src/map/entities/battle_entity.h: 0x01 self,
+        /// 0x02 party, 0x04 enemy, 0x08 alliance, 0x10 player, 0x40 NPC) as <see cref="ActionTargetFlags"/>; other bits are dropped.
+        /// </summary>
+        public static ActionTargetFlags ToActionTargets(int validTargets)
+        {
+            var flags = ActionTargetFlags.None;
+            if ((validTargets & 0x01) != 0) flags |= ActionTargetFlags.Self;
+            if ((validTargets & 0x02) != 0) flags |= ActionTargetFlags.Party;
+            if ((validTargets & 0x04) != 0) flags |= ActionTargetFlags.Enemy;
+            if ((validTargets & 0x08) != 0) flags |= ActionTargetFlags.Alliance;
+            if ((validTargets & 0x10) != 0) flags |= ActionTargetFlags.Player;
+            if ((validTargets & 0x40) != 0) flags |= ActionTargetFlags.Npc;
+            return flags;
+        }
+    }
+
     /// <summary>What a typed or menu action is: a spell (<c>/ma</c>), a job ability (<c>/ja</c>) or a weapon skill (<c>/ws</c>).</summary>
     public enum ActionKind
     {
         Spell,
         JobAbility,
         WeaponSkill,
+        /// <summary>An item used on a target (C2S 0x037), through the sub-target cursor.</summary>
+        Item,
     }
 
     /// <summary>

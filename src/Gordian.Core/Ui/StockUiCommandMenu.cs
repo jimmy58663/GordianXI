@@ -86,8 +86,12 @@ namespace Gordian.Core.Ui
         /// </summary>
         private static readonly StockUiCommandRow TreasureRow = Row(Treasure, StockUiMenuCommand.TreasurePool);
 
-        /// <summary>Magic ▶ opens the categories beside the menu (<c>magselec</c>), Abilities the ability list (<c>abiselec</c>; #240, #353).</summary>
-        private static readonly StockUiCommandRow MagicRow = new(Magic, new StockUiMenuEntry(Magic.Text, Opens: StockUiActionMenu.CommandMagicCategoryMenu));
+        /// <summary>
+        /// Magic ▶: Confirm lists all the magic you can cast, right opens the categories beside the menu (<c>magselec</c>; retail
+        /// capture 2026-10-11, maintainer). Abilities opens <c>abiselec</c> (#240, #353).
+        /// </summary>
+        private static readonly StockUiCommandRow MagicRow = new(Magic, new StockUiMenuEntry(Magic.Text, Opens: StockUiActionMenu.CommandMagicCategoryMenu,
+            Command: StockUiMenuCommand.SpellList, Argument: 0));
         private static readonly StockUiCommandRow AbilitiesRow = new(Abilities, new StockUiMenuEntry(Abilities.Text, Opens: StockUiActionMenu.CommandAbilityMenu));
 
         /// <summary>Trust opens the Trust spell list at once (PROVISIONAL: retail's window for it is not captured).</summary>

@@ -271,7 +271,7 @@ namespace Gordian.App.Graphics
             return group.Images[step < frames ? step : 2 * frames - 1 - step];
         }
 
-        public static void DrawCursor(StockUiRenderer renderer, UiResourceLibrary library, Vector2 tip, float scale, long timestamp)
+        public static void DrawCursor(StockUiRenderer renderer, UiResourceLibrary library, Vector2 tip, float scale, long timestamp, UiColor? tint = null)
         {
             if (!library.TryGetGroup("anc_s", out var group) || group.Images.Count == 0) return;
             var image = SelectCursorFrame(group, timestamp);
@@ -289,7 +289,7 @@ namespace Gordian.App.Graphics
                             Matrix3x2.CreateRotation(MathF.PI / 2) *
                             Matrix3x2.CreateScale(scale) *
                             Matrix3x2.CreateTranslation(tip);
-            renderer.DrawImage(image, transform);
+            renderer.DrawImage(image, transform, tint);
         }
 
         /// <summary>

@@ -869,10 +869,10 @@ namespace Gordian.App.Graphics
                             {
                                 var actions = _activeSession?.ActionService;
                                 var target = actions?.CurrentTarget;
-                                // While the sub-target cursor is up the cursor's anchor follows it (#240); it does not flash.
-                                var subTarget = actions?.SubTargeting?.Current;
-                                entityRenderer.TargetServerId = subTarget?.ServerId ?? target?.ServerId ?? 0;
-                                entityRenderer.TargetFlashAmount = subTarget == null && target != null && actions!.TargetSelectedTimestamp != 0
+                                // The sub-target cursor (#240) has its own anchor; the target keeps its cursor (retail capture 2026-10-11).
+                                entityRenderer.SubTargetServerId = actions?.SubTargeting?.Current.ServerId ?? 0;
+                                entityRenderer.TargetServerId = target?.ServerId ?? 0;
+                                entityRenderer.TargetFlashAmount = target != null && actions!.TargetSelectedTimestamp != 0
                                     ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)
                                     : 0.0f;
                             }
@@ -1462,6 +1462,9 @@ namespace Gordian.App.Graphics
             Vector2? cursor = _renderer?.EntityRenderer?.TargetAnchor is { } anchor
                 ? ProjectToScreen(anchor, viewProjection, width, height, gd.IsClipSpaceYInverted)
                 : null;
+            Vector2? subCursor = _renderer?.EntityRenderer?.SubTargetAnchor is { } subAnchor
+                ? ProjectToScreen(subAnchor, viewProjection, width, height, gd.IsClipSpaceYInverted)
+                : null;
             _namePlateAnchors.Clear();
             if (_renderer?.EntityRenderer is { } entities)
             {
@@ -1476,7 +1479,7 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
-            StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors);
+            StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors, subCursor);
         }
 
         private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();

@@ -103,6 +103,15 @@ namespace Gordian.Core.Ui
 
         /// <summary>Abilities' Ranged Atk.: a ranged attack on the target.</summary>
         RangedAttack,
+
+        /// <summary>Abilities' Job Traits: the job trait list.</summary>
+        JobTraitList,
+
+        /// <summary>Abilities' Mount: the mount list.</summary>
+        MountList,
+
+        /// <summary>Abilities' Pet Command: the pet command list.</summary>
+        PetCommandList,
     }
 
     /// <summary>
@@ -258,17 +267,17 @@ namespace Gordian.Core.Ui
             [(StockUiActionMenu.CommandMagicCategoryMenu, 7)] = Spells("Geomancy", 7),
 
             // Abilities (#353): "abimenu" (main menu) and "abiselec" (command menu, no Job Traits).
-            [(StockUiActionMenu.AbilityMenu, 1)] = new("Job Traits", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiActionMenu.AbilityMenu, 1)] = new("Job Traits", Command: StockUiMenuCommand.JobTraitList),
             [(StockUiActionMenu.AbilityMenu, 2)] = new("Job Abil.", Command: StockUiMenuCommand.JobAbilityList),
             [(StockUiActionMenu.AbilityMenu, 3)] = new("Weapon Skl.", Command: StockUiMenuCommand.WeaponSkillList),
             [(StockUiActionMenu.AbilityMenu, 4)] = new("Ranged Atk.", Command: StockUiMenuCommand.RangedAttack),
-            [(StockUiActionMenu.AbilityMenu, 6)] = new("Mount", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiActionMenu.AbilityMenu, 5)] = new("Pet Command", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiActionMenu.AbilityMenu, 6)] = new("Mount", Command: StockUiMenuCommand.MountList),
+            [(StockUiActionMenu.AbilityMenu, 5)] = new("Pet Command", Command: StockUiMenuCommand.PetCommandList),
             [(StockUiActionMenu.CommandAbilityMenu, 1)] = new("Job Abil.", Command: StockUiMenuCommand.JobAbilityList),
             [(StockUiActionMenu.CommandAbilityMenu, 2)] = new("Weapon Skl.", Command: StockUiMenuCommand.WeaponSkillList),
             [(StockUiActionMenu.CommandAbilityMenu, 3)] = new("Ranged Atk.", Command: StockUiMenuCommand.RangedAttack),
-            [(StockUiActionMenu.CommandAbilityMenu, 5)] = new("Mount", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiActionMenu.CommandAbilityMenu, 4)] = new("Pet Command", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiActionMenu.CommandAbilityMenu, 5)] = new("Mount", Command: StockUiMenuCommand.MountList),
+            [(StockUiActionMenu.CommandAbilityMenu, 4)] = new("Pet Command", Command: StockUiMenuCommand.PetCommandList),
         };
 
         private static StockUiMenuEntry Spells(string label, int button) =>

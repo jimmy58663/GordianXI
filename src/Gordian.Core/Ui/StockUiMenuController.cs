@@ -1096,6 +1096,7 @@ namespace Gordian.Core.Ui
         public bool ProcessInput(InputState input, TimeSpan elapsed)
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
+            if (_suspended) return true; // the sub-target cursor has the input
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1125,7 +1126,7 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
-            if (input.WasActionTriggered(InputAction.CycleLogWindow) && ToggleTreasureDone())
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleActionOptions()))
             {
                 // The Treasure Pool's + / Y: the cursor to Done and back.
                 SoundCue?.Invoke(StockUiSoundCue.CursorMove);
@@ -1479,6 +1480,12 @@ namespace Gordian.Core.Ui
                 return;
             }
 
+            if (top.IsActionOptions)
+            {
+                ActivateActionOptions(top, button.ButtonId);
+                return;
+            }
+
             if (top.TreasureActionSlot != null)
             {
                 ActivateTreasureAction(top, button);
@@ -1563,7 +1570,9 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
                 return;
             }
-            if (entry.Opens != null)
+            // An entry with both a window and a command (the command menu's Magic: Confirm lists all castable magic,
+            // right opens the categories) runs the command on Confirm.
+            if (entry.Opens != null && entry.Command == StockUiMenuCommand.None)
             {
                 lock (_sync) Push(entry.Opens, top, Array.Empty<string>(), null, null);
                 return;
@@ -1811,6 +1820,18 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.RangedAttack:
                     RunRangedAttack();
+                    break;
+
+                case StockUiMenuCommand.JobTraitList:
+                    OpenActionList(StockUiActionList.JobTraits, 0, from);
+                    break;
+
+                case StockUiMenuCommand.MountList:
+                    OpenActionList(StockUiActionList.Mounts, 0, from);
+                    break;
+
+                case StockUiMenuCommand.PetCommandList:
+                    OpenActionList(StockUiActionList.PetCommands, 0, from);
                     break;
 
                 case StockUiMenuCommand.HomePoint:

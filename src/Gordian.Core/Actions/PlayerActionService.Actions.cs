@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 using Gordian.Core.Network;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Ui;
 using Gordian.Core.World;
 
@@ -66,6 +67,9 @@ namespace Gordian.Core.Actions
                 HasSpell = _localPlayer.HasSpell,
                 HasJobAbility = _localPlayer.HasJobAbility,
                 HasWeaponSkill = _localPlayer.HasWeaponSkill,
+                HasTrait = _localPlayer.HasTrait,
+                HasPetAbility = _localPlayer.HasPetAbility,
+                Engaged = combat.IsEngaged,
                 MainJob = _localPlayer.MainJob,
                 MainJobLevel = _localPlayer.MainJobLevel,
                 SubJob = _localPlayer.SubJob,
@@ -77,28 +81,32 @@ namespace Gordian.Core.Actions
             };
             return list switch
             {
-                StockUiActionList.Spells => StockUiActionMenu.SpellRows(catalog, state, category, target),
+                // The command menu's lists hold only what you can use (retail capture 2026-10-11).
+                StockUiActionList.Spells => StockUiActionMenu.SpellRows(catalog, state, category, target, usableOnly: target != null),
                 StockUiActionList.JobAbilities => StockUiActionMenu.JobAbilityRows(catalog, state, target),
-                _ => StockUiActionMenu.WeaponSkillRows(catalog, state, target),
+                StockUiActionList.WeaponSkills => StockUiActionMenu.WeaponSkillRows(catalog, state, target),
+                StockUiActionList.JobTraits => StockUiActionMenu.TraitRows(catalog, state),
+                StockUiActionList.PetCommands => StockUiActionMenu.PetCommandRows(catalog, state, target),
+                _ => Array.Empty<StockUiActionRow>(),
             };
         }
 
-        /// <summary>An action chosen in a Magic or Abilities window: on the command menu's target, else picked as a typed command without a target is.</summary>
-        private async Task<PlayerActionResult> RunMenuActionAsync(StockUiActionRequest request)
+        /// <summary>
+        /// An action chosen in a Magic or Abilities window: the sub-target cursor opens (even for an action only you can
+        /// take: retail video 2026-10-11, Advancing March), on the command menu's target when it may be the target, while
+        /// the menus step aside; they come back when the cursor ends.
+        /// </summary>
+        private Task<PlayerActionResult> RunMenuActionAsync(StockUiActionRequest request)
         {
-            WorldEntity? target = null;
-            if (request.Target is { } context)
+            WorldEntity? preferred = null;
+            if (request.Target is { } context && (!_world.TryGetByServerId(context.TargetServerId, out preferred) || preferred == null))
             {
-                if (!_world.TryGetByServerId(context.TargetServerId, out target) || target == null)
-                {
-                    return PlayerActionResult.Warn($"{context.TargetName} is no longer here.");
-                }
+                return Task.FromResult(PlayerActionResult.Warn($"{context.TargetName} is no longer here."));
             }
             if (request.Type == StockUiActionType.RangedAttack)
             {
-                target ??= CurrentTarget;
-                if (target == null) return BeginSubTarget(ActionKind.WeaponSkill, 0, request.Name, ActionTargetFlags.Enemy, rangedAttack: true);
-                return await ShootAsync(target.ServerId, target.TargetIndex).ConfigureAwait(false);
+                return Task.FromResult(BeginSubTarget(request.Name, ActionTargetFlags.Enemy,
+                    entity => ShootAsync(entity.ServerId, entity.TargetIndex), preferred, resumeMenus: true));
             }
             var kind = request.Type switch
             {
@@ -106,8 +114,9 @@ namespace Gordian.Core.Actions
                 StockUiActionType.JobAbility => ActionKind.JobAbility,
                 _ => ActionKind.WeaponSkill,
             };
-            if (target != null) return await UseActionAsync(kind, request.Id, target).ConfigureAwait(false);
-            return await UseActionWithoutTargetAsync(kind, request.Id, request.Name, request.TargetFlags).ConfigureAwait(false);
+            var allowed = request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags;
+            ushort id = request.Id;
+            return Task.FromResult(BeginSubTarget(request.Name, allowed, entity => UseActionAsync(kind, id, entity), preferred, resumeMenus: true));
         }
 
         /// <summary>
@@ -208,7 +217,8 @@ namespace Gordian.Core.Actions
         {
             ActionKind.Spell => CastMagicAsync(id, targetId, targetIndex),
             ActionKind.JobAbility => JobAbilityAsync(id, targetId, targetIndex),
-            _ => WeaponskillAsync(id, targetId, targetIndex),
+            ActionKind.WeaponSkill => WeaponskillAsync(id, targetId, targetIndex),
+            _ => Task.FromResult(PlayerActionResult.Warn("An item is used through BeginItemSubTarget (it needs its container and slot).")),
         };
 
         private static ChatCommandResultKind ResultKind(ActionKind kind) => kind switch
@@ -326,14 +336,34 @@ namespace Gordian.Core.Actions
         }
 
         /// <summary>
-        /// Starts the sub-target cursor for an action (closing the menus): on the current target when allowed, else on
-        /// yourself, else on the nearest allowed entity. Warns when nothing around may be the target.
+        /// Starts the sub-target cursor for a typed action (<c>&lt;st&gt;</c>, or no target given): see
+        /// <see cref="BeginSubTarget(string, ActionTargetFlags, Func{WorldEntity, Task{PlayerActionResult}}, WorldEntity?, bool)"/>.
         /// </summary>
-        public PlayerActionResult BeginSubTarget(ActionKind kind, ushort id, string name, ActionTargetFlags allowed, bool rangedAttack = false)
+        public PlayerActionResult BeginSubTarget(ActionKind kind, ushort id, string name, ActionTargetFlags allowed) =>
+            StartSubTarget(name, allowed, entity => UseActionAsync(kind, id, entity), null, false, kind, id, default, 0);
+
+        /// <summary>
+        /// Starts the sub-target cursor: the entry point for anything that needs a target picked on screen (spells,
+        /// abilities, ranged attacks, and item use: Lane B's Items window calls this with the item's target bits and a
+        /// callback that sends the use). <paramref name="allowed"/> filters what the cursor may land on;
+        /// <paramref name="onConfirm"/> runs on the picked entity. The cursor starts on <paramref name="preferred"/> (a
+        /// command menu's target) when allowed, else on the current target, else on yourself, else on the nearest allowed
+        /// entity. With <paramref name="resumeMenus"/> the open menus step aside (<see cref="StockUiMenuController.Suspended"/>)
+        /// and come back when the cursor ends, as retail's do; otherwise they close. Warns when nothing around may be the
+        /// target.
+        /// </summary>
+        public PlayerActionResult BeginSubTarget(string name, ActionTargetFlags allowed, Func<WorldEntity, Task<PlayerActionResult>> onConfirm,
+            WorldEntity? preferred = null, bool resumeMenus = false) =>
+            StartSubTarget(name, allowed, onConfirm, preferred, resumeMenus, ActionKind.Spell, 0, default, 0);
+
+        private PlayerActionResult StartSubTarget(string name, ActionTargetFlags allowed, Func<WorldEntity, Task<PlayerActionResult>> onConfirm,
+            WorldEntity? preferred, bool resumeMenus, ActionKind kind, ushort id, ContainerId container, byte slot)
         {
+            ArgumentNullException.ThrowIfNull(onConfirm);
             var self = LocalEntity();
             WorldEntity? start = null;
-            if (CurrentTarget is { } current && AcceptsTarget(allowed, current) && TargetCycling.IsTargetable(current)) start = current;
+            if (preferred != null && AcceptsTarget(allowed, preferred)) start = preferred;
+            else if (CurrentTarget is { } current && AcceptsTarget(allowed, current) && TargetCycling.IsTargetable(current)) start = current;
             else if (self != null && AcceptsTarget(allowed, self)) start = self;
             else if (self != null)
             {
@@ -349,12 +379,21 @@ namespace Gordian.Core.Actions
                     }
                 }
             }
-            if (start == null) return PlayerActionResult.Warn($"{name}: there is no one here it can be used on.", ResultKind(kind));
-            Menus.CloseAll();
-            _subTarget = new SubTargetSelection(kind, id, name, allowed, start) { IsRangedAttack = rangedAttack };
+            if (start == null) return PlayerActionResult.Warn($"{name}: there is no one here it can be used on.");
+            CancelSubTarget();
+            if (resumeMenus && Menus.IsOpen) Menus.Suspended = true;
+            else Menus.CloseAll();
+            _subTarget = new SubTargetSelection(name, allowed, start, onConfirm)
+            {
+                ResumesMenus = resumeMenus,
+                Kind = kind,
+                Id = id,
+                ItemContainer = container,
+                ItemSlot = slot,
+            };
             GordianLog.Info("ACTION", $"Sub-target cursor for {name} (targets 0x{(int)allowed:X2}) on {start.Name}.");
             SubTargetChanged?.Invoke();
-            return PlayerActionResult.Info($"{name}: select a target.", ResultKind(kind));
+            return PlayerActionResult.Info($"{name}: select a target.");
         }
 
         /// <summary>Moves the sub-target cursor to an entity (one the action may land on).</summary>
@@ -368,25 +407,64 @@ namespace Gordian.Core.Actions
             return true;
         }
 
-        /// <summary>Drops the sub-target cursor without acting.</summary>
+        /// <summary>Drops the sub-target cursor without acting; menus set aside for it come back.</summary>
         public void CancelSubTarget()
         {
-            if (_subTarget == null) return;
+            var selection = _subTarget;
+            if (selection == null) return;
             _subTarget = null;
+            if (selection.ResumesMenus) Menus.Suspended = false;
             SubTargetChanged?.Invoke();
         }
 
-        /// <summary>Confirm on the sub-target cursor: the action runs on the entity under it.</summary>
+        /// <summary>Confirm on the sub-target cursor: the action runs on the entity under it, and menus set aside for it come back.</summary>
         public async Task<PlayerActionResult> ConfirmSubTargetAsync()
         {
             var selection = _subTarget;
             if (selection == null) return PlayerActionResult.Warn("No target is being selected.");
             _subTarget = null;
+            if (selection.ResumesMenus) Menus.Suspended = false;
             SubTargetChanged?.Invoke();
             var target = selection.Current;
             LastSubTarget = target;
-            if (selection.IsRangedAttack) return await ShootAsync(target.ServerId, target.TargetIndex).ConfigureAwait(false);
-            return await UseActionAsync(selection.Kind, selection.Id, target).ConfigureAwait(false);
+            return await selection.Run(target).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Item use through the sub-target cursor (Lane B's Items window, <c>/item ... &lt;st&gt;</c>): starts the cursor on
+        /// the entities the item's <paramref name="validTargets"/> allow (the item DAT's bits, mapped by
+        /// <see cref="ItemTargetFlags.ToActionTargets"/>), on <paramref name="preferred"/> (a command menu's target) when
+        /// allowed; Confirm sends C2S 0x037 with count 0 (LandSandBoat rejects any other count) for the item at
+        /// <paramref name="container"/> / <paramref name="slot"/>. Open menus step aside and come back afterwards (retail
+        /// capture 2026-10-11: a potion from the command menu's Items goes to the sub-target cursor). Returns whether the
+        /// cursor started; without a target allowed nearby, a notice is posted and nothing starts.
+        /// </summary>
+        public bool BeginItemSubTarget(ContainerId container, byte slot, ushort itemId, int validTargets, WorldEntity? preferred = null)
+        {
+            var allowed = ItemTargetFlags.ToActionTargets(validTargets);
+            if (allowed == ActionTargetFlags.None) allowed = ActionTargetFlags.Self;
+            string name = Menus.ItemLookup?.Invoke(itemId)?.Name is { Length: > 0 } itemName ? itemName : $"Item #{itemId}";
+            var result = StartSubTarget(name, allowed, entity => UseItemOnAsync(container, slot, itemId, entity), preferred,
+                resumeMenus: true, ActionKind.Item, itemId, container, slot);
+            if (!result.Success) Menus.PostNotice(result.Message);
+            return result.Success;
+        }
+
+        /// <summary>Sends C2S 0x037 (use an item) on a target: count 0, the item's container and slot.</summary>
+        private async Task<PlayerActionResult> UseItemOnAsync(ContainerId container, byte slot, ushort itemId, WorldEntity target)
+        {
+            var inventory = InventoryModule;
+            if (inventory == null) return PlayerActionResult.Warn("Items are not available in this session.");
+            try
+            {
+                await inventory.UseItemAsync(target.ServerId, target.TargetIndex, 0, slot, container).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Using item #{itemId} on {target.Name}.");
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error("ACTION", $"Item use failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"Item use failed: {ex.Message}");
+            }
         }
 
         /// <summary>

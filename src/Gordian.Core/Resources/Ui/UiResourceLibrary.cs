@@ -22,6 +22,9 @@ namespace Gordian.Core.Resources.Ui
     {
         public const int EnglishMenuFileId = 39542;
         public const int BaseMenuFileId = 1;
+
+        /// <summary>The spell icon DAT (ROM/280/15): 32 x 32 textures and the element group the magic lists draw from.</summary>
+        public const int SpellIconFileId = 39551;
         public const int FirstWindowSkinFileId = 14;
         public const int WindowSkinCount = 8;
 
@@ -61,6 +64,9 @@ namespace Gordian.Core.Resources.Ui
             var skinBytes = resources.LoadDatBytesByFileId(FirstWindowSkinFileId + skin - 1);
             var library = FromDats(english, baseMenu, skinBytes);
             library.WindowSkin = skin;
+            // The spell icons the Magic lists draw before each name (#240): ROM/280/15, a 0x31 group over 32 x 32 textures.
+            var spellIcons = resources.LoadDatBytesByFileId(SpellIconFileId);
+            if (spellIcons != null) library.AddDat(spellIcons);
             GordianLog.Info("UI", $"Stock UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
                                   $"{library._texturePayloads.Count} textures (window skin {skin}).");
             return library;

@@ -15,7 +15,7 @@ namespace Gordian.Core.Ui
 
         public bool IsActionList => ActionList != StockUiActionList.None;
 
-        /// <summary>The spell kind a spell list shows.</summary>
+        /// <summary>The spell kind a spell list shows (0: every kind but Trust).</summary>
         public int ActionCategory { get; init; }
 
         /// <summary>The action list's rows, parallel to <see cref="Rows"/>.</summary>
@@ -34,22 +34,49 @@ namespace Gordian.Core.Ui
 
         /// <summary>The command menu target the list was opened for (null from the main menu).</summary>
         public StockUiTargetContext? ActionTarget { get; init; }
+
+        /// <summary>What an empty action list writes in its window ("No mounts available."); null when it has rows.</summary>
+        public string? EmptyText { get; internal set; }
+
+        /// <summary>The spell lists' Options window (<see cref="StockUiActionMenu.OptionsMenu"/>) opened over a list with + / Y.</summary>
+        public bool IsActionOptions { get; init; }
+
+        /// <summary>Whether this is a spell list opened from the main menu, which shows the Options window at the top right.</summary>
+        public bool ShowsActionOptions => ActionList == StockUiActionList.Spells && ActionTarget == null;
     }
 
     public sealed partial class StockUiMenuController
     {
         /// <summary>
         /// Composes an action list's rows for the character (the action service's catalog and state): the list, the spell
-        /// kind for a spell list, and the command menu's target. Null when the session has no catalog (no game DATs).
+        /// kind for a spell list, and the command menu's target (whose lists hold only what you can use). Null when the
+        /// session has no catalog (no game DATs).
         /// </summary>
         public Func<StockUiActionList, int, StockUiTargetContext?, IReadOnlyList<StockUiActionRow>?>? ActionRowsProvider { get; set; }
 
-        /// <summary>Runs an action chosen in the Magic or Abilities windows (the action service picks or asks for the target).</summary>
+        /// <summary>Runs an action chosen in the Magic or Abilities windows (the action service opens the sub-target cursor).</summary>
         public Func<StockUiActionRequest, Task<PlayerActionResult>>? ActionRequested { get; set; }
 
+        private volatile bool _suspended;
+
         /// <summary>
-        /// Opens a spell, job ability or weapon skill list over <paramref name="parent"/> (the category or Abilities window).
-        /// An empty list posts a notice instead. Returns the list, or null.
+        /// The open menus are set aside (not drawn, no input) while the sub-target cursor picks the target of an action
+        /// chosen in them, and come back as they were when it ends (retail video 2026-10-11).
+        /// </summary>
+        public bool Suspended
+        {
+            get => _suspended;
+            set
+            {
+                if (_suspended == value) return;
+                _suspended = value;
+                Changed?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Opens a spell, job ability, weapon skill, trait, pet command or mount list over <paramref name="parent"/>. An
+        /// empty list opens with its "No ... available." text. Returns the list, or null without the window or the tables.
         /// </summary>
         public StockUiOpenMenu? OpenActionList(StockUiActionList list, int category, StockUiOpenMenu? parent)
         {
@@ -61,21 +88,12 @@ namespace Gordian.Core.Ui
                 return null;
             }
             var target = CommandMenuTarget;
-            var provider = ActionRowsProvider;
-            var rows = provider?.Invoke(list, category, target);
+            IReadOnlyList<StockUiActionRow>? rows = list == StockUiActionList.Mounts
+                ? Array.Empty<StockUiActionRow>()
+                : ActionRowsProvider?.Invoke(list, category, target);
             if (rows == null)
             {
                 NoticePosted?.Invoke("Magic and abilities are not available in this session (the game's spell tables are not loaded).");
-                return null;
-            }
-            if (rows.Count == 0)
-            {
-                NoticePosted?.Invoke(list switch
-                {
-                    StockUiActionList.Spells => $"You have no {StockUiActionMenu.CategoryName(category)} spells you can use.",
-                    StockUiActionList.JobAbilities => "You have no job abilities you can use.",
-                    _ => "You have no weapon skills you can use.",
-                });
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, StockUiActionMenu.VisibleRows)
@@ -85,7 +103,7 @@ namespace Gordian.Core.Ui
                 ActionTarget = target,
             };
             SetActionRows(menu, rows);
-            menu.SelectedButtonId = 1;
+            menu.SelectedButtonId = rows.Count > 0 ? 1 : 0;
             lock (_sync)
             {
                 var open = new StockUiOpenMenu[_open.Length + 1];
@@ -100,13 +118,14 @@ namespace Gordian.Core.Ui
         private static void SetActionRows(StockUiOpenMenu menu, IReadOnlyList<StockUiActionRow> rows)
         {
             var listRows = new List<StockUiListRow>(rows.Count);
-            for (int i = 0; i < rows.Count; i++) listRows.Add(new StockUiListRow(i + 1, rows[i].Name, false, Value: rows[i].Value));
+            for (int i = 0; i < rows.Count; i++) listRows.Add(new StockUiListRow(i + 1, rows[i].Name, false));
             menu.ActionRows = rows;
             menu.Rows = listRows;
+            menu.EmptyText = rows.Count == 0 ? StockUiActionMenu.EmptyText(menu.ActionList) : null;
         }
 
         /// <summary>
-        /// The character's state changed (MP, TP, recasts, learned spells): open action lists take fresh rows, keeping the
+        /// The character's state changed (MP, TP, recasts, learned lists): open action lists take fresh rows, keeping the
         /// cursor on its action.
         /// </summary>
         public void RefreshActionLists()
@@ -116,7 +135,7 @@ namespace Gordian.Core.Ui
             bool changed = false;
             foreach (var menu in _open)
             {
-                if (!menu.IsActionList) continue;
+                if (!menu.IsActionList || menu.ActionList == StockUiActionList.Mounts) continue;
                 var rows = provider(menu.ActionList, menu.ActionCategory, menu.ActionTarget);
                 if (rows == null) continue;
                 lock (_sync)
@@ -129,28 +148,35 @@ namespace Gordian.Core.Ui
                         if (rows[i].Id == id) index = i;
                     }
                     int maxFirst = Math.Max(0, rows.Count - menu.VisibleRows);
-                    if (index >= 0)
+                    if (rows.Count == 0)
+                    {
+                        menu.FirstRow = 0;
+                        menu.SelectedButtonId = 0;
+                    }
+                    else if (index >= 0)
                     {
                         if (index < menu.FirstRow || index >= menu.FirstRow + menu.VisibleRows) menu.FirstRow = Math.Clamp(index, 0, maxFirst);
-                        menu.ScrollFrom = menu.FirstRow;
                         menu.SelectedButtonId = index - menu.FirstRow + 1;
                     }
                     else
                     {
                         menu.FirstRow = Math.Clamp(menu.FirstRow, 0, maxFirst);
-                        menu.ScrollFrom = menu.FirstRow;
                         menu.SelectedButtonId = Math.Clamp(menu.SelectedButtonId, 1, Math.Max(1, Math.Min(menu.VisibleRows, rows.Count - menu.FirstRow)));
                     }
+                    menu.ScrollFrom = menu.FirstRow;
                 }
                 changed = true;
             }
             if (changed) Changed?.Invoke();
         }
 
-        /// <summary>Confirm on an action list's row: a greyed one posts why; otherwise the menus close and the action runs.</summary>
+        /// <summary>
+        /// Confirm on an action list's row: a greyed one posts why, a trait does nothing, a running recast posts the time
+        /// left; otherwise the action service opens the sub-target cursor and the menus step aside until it ends.
+        /// </summary>
         private void ActivateActionRow(StockUiOpenMenu list)
         {
-            if (list.SelectedActionRow is not { } row) return;
+            if (list.SelectedActionRow is not { } row || row.Type == StockUiActionType.Trait) return;
             if (row.GreyedReason is { } reason)
             {
                 NoticePosted?.Invoke(reason);
@@ -162,18 +188,12 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke($"{row.Name} can be used again in {StockUiActionMenu.FormatRecast(left)}.");
                 return;
             }
-            var request = new StockUiActionRequest(row.Type, row.Id, row.Name, row.TargetFlags, list.ActionTarget);
-            CloseAll();
-            _ = RequestActionAsync(request);
+            _ = RequestActionAsync(new StockUiActionRequest(row.Type, row.Id, row.Name, row.TargetFlags, list.ActionTarget));
         }
 
-        /// <summary>Abilities' Ranged Atk.: a ranged attack on the command menu's target, or the current one.</summary>
-        private void RunRangedAttack()
-        {
-            var request = new StockUiActionRequest(StockUiActionType.RangedAttack, 0, "Ranged Attack", ActionTargetFlags.Enemy, CommandMenuTarget);
-            CloseAll();
-            _ = RequestActionAsync(request);
-        }
+        /// <summary>Abilities' Ranged Atk.: a ranged attack, through the sub-target cursor on enemies.</summary>
+        private void RunRangedAttack() =>
+            _ = RequestActionAsync(new StockUiActionRequest(StockUiActionType.RangedAttack, 0, "Ranged Attack", ActionTargetFlags.Enemy, CommandMenuTarget));
 
         private async Task RequestActionAsync(StockUiActionRequest request)
         {
@@ -196,6 +216,59 @@ namespace Gordian.Core.Ui
                 GordianLog.Warning("UI", $"{request.Name} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{request.Name} failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// + on the keyboard or Y on the gamepad over a main-menu spell list: the cursor goes to the Options window at the
+        /// top right ("+ : Sort", Auto, Manual; retail capture 2026-10-11), and back again (or Cancel). Returns whether it applied.
+        /// </summary>
+        public bool ToggleActionOptions()
+        {
+            var library = _library;
+            var top = Top;
+            if (top is { IsActionOptions: true })
+            {
+                CloseMenu(top);
+                return true;
+            }
+            if (top is not { ShowsActionOptions: true } || library == null) return false;
+            string name = top.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu;
+            if (!library.TryGetMenu(name, out var definition)) return false;
+            var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsActionOptions = true };
+            options.SelectedButtonId = StockUiActionMenu.OptionsAutoButton;
+            lock (_sync)
+            {
+                var open = new StockUiOpenMenu[_open.Length + 1];
+                Array.Copy(_open, open, _open.Length);
+                open[^1] = options;
+                _open = open;
+            }
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// The Options window: Auto sorts the list back into the spell table's order and returns to it; Manual (retail: pick
+        /// a spell, then where to put it, as the item list's Manual) is not built yet.
+        /// </summary>
+        private void ActivateActionOptions(StockUiOpenMenu options, int buttonId)
+        {
+            if (buttonId == StockUiActionMenu.OptionsManualButton)
+            {
+                NoticePosted?.Invoke("Manual sorting is not available yet.");
+                return;
+            }
+            CloseMenu(options);
+            if (options.Parent is { } list)
+            {
+                lock (_sync)
+                {
+                    list.FirstRow = 0;
+                    list.ScrollFrom = 0;
+                    list.SelectedButtonId = list.ActionRows.Count > 0 ? 1 : 0;
+                }
+            }
+            RefreshActionLists();
         }
     }
 }

@@ -19,6 +19,7 @@ namespace Gordian.Core.Tests.Actions
         public const ushort Cure = 1, Fire = 144, Shantotto = 896;
         public const ushort Berserk = 31, Provoke = 35, CuringWaltz = 190;
         public const ushort FastBlade = 32;
+        public const ushort Fight = 69, MagicDefBonus = 6;
 
         public static readonly Dictionary<int, string> SpellNames = new()
         {
@@ -29,6 +30,7 @@ namespace Gordian.Core.Tests.Actions
         {
             [FastBlade] = "Fast Blade", [512 + Berserk] = "Berserk", [512 + Provoke] = "Provoke", [512 + CuringWaltz] = "Curing Waltz",
             [512 + 1] = "Dual Wield", // a job trait (type 4): never an ability
+            [512 + Fight] = "Fight", [1024] = "Healing Ruby", [1536 + MagicDefBonus] = "Magic Def. Bonus",
         };
 
         public static ActionCatalog Build()
@@ -36,14 +38,18 @@ namespace Gordian.Core.Tests.Actions
             var spells = new byte[SpellCommandTables.SpellRecordSize * 1024];
             // Cure: white, MP 8, anyone (0x3F), WHM 1 / RDM 3, menu slot 1. Fire: black, MP 7, enemies, BLM 13 / RDM 19.
             Spell(spells, Cure, kind: 1, flags: 0x3F, mp: 8, menu: 1, (3, 1), (5, 3));
+            SetSpellIcon(spells, Cure, 6);
             Spell(spells, Fire, kind: 2, flags: 0x20, mp: 7, menu: 197, (4, 13), (5, 19));
             Spell(spells, Shantotto, kind: 8, flags: 0x01, mp: 0, menu: 918, Enumerable.Range(1, 22).Select(j => (j, 1)).ToArray());
             var commands = new byte[SpellCommandTables.CommandRecordSize * 2816];
             Command(commands, FastBlade, type: 3, flags: 0x20, recastId: 900, tp: -1);
-            Command(commands, 512 + Berserk, type: 1, flags: 0x01, recastId: 1, tp: -1);
+            Command(commands, 512 + Berserk, type: 1, flags: 0x01, recastId: 1, tp: -1, icon: 40, icon2: 361);
             Command(commands, 512 + Provoke, type: 1, flags: 0x20, recastId: 5, tp: -1);
             Command(commands, 512 + CuringWaltz, type: 12, flags: 0x3F, recastId: 217, tp: 200);
             Command(commands, 512 + 1, type: 4, flags: 0x01, recastId: 0, tp: -1);
+            Command(commands, 512 + Fight, type: 2, flags: 0x20, recastId: 100, tp: -1);
+            Command(commands, 1024, type: 10, flags: 0x05, recastId: 174, tp: -1);
+            Command(commands, 1536 + MagicDefBonus, type: 4, flags: 0x01, recastId: 0, tp: -1, icon: 46, icon2: 46);
             var file = Section("mgc_", DatSectionType.SpellList, spells).Concat(Section("comm", DatSectionType.AbilityList, commands)).ToArray();
             var tables = SpellCommandTables.Parse(file)!;
             return new ActionCatalog(tables, id => SpellNames.GetValueOrDefault(id), id => CommandNames.GetValueOrDefault(id));
@@ -62,11 +68,22 @@ namespace Gordian.Core.Tests.Actions
             SpellCommandTables.Scramble(r);
         }
 
-        private static void Command(byte[] table, int id, int type, int flags, int recastId, int tp)
+        private static void SetSpellIcon(byte[] table, int id, int icon)
+        {
+            var r = table.AsSpan(id * SpellCommandTables.SpellRecordSize, SpellCommandTables.SpellRecordSize);
+            SpellCommandTables.Unscramble(r);
+            BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x40), (ushort)icon);
+            BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x42), 0xFFFF);
+            SpellCommandTables.Scramble(r);
+        }
+
+        private static void Command(byte[] table, int id, int type, int flags, int recastId, int tp, int icon = 46, int icon2 = -1)
         {
             var r = table.AsSpan(id * SpellCommandTables.CommandRecordSize, SpellCommandTables.CommandRecordSize);
             BinaryPrimitives.WriteUInt16LittleEndian(r, (ushort)id);
             r[0x02] = (byte)type;
+            r[0x03] = (byte)icon;
+            BinaryPrimitives.WriteInt16LittleEndian(r.Slice(0x04), (short)icon2);
             BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x08), (ushort)recastId);
             BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x0A), (ushort)flags);
             BinaryPrimitives.WriteInt16LittleEndian(r.Slice(0x0C), (short)tp);
