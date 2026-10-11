@@ -21,7 +21,10 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal("LT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteCtrl)));
             Assert.Equal("RT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteAlt)));
             Assert.Equal("-", GamepadAssignments.Describe(profile, Function(InputAction.TargetNearest)));
-            Assert.Equal("L3", GamepadAssignments.Describe(profile, Function(InputAction.ToggleLockOn)));
+            Assert.Equal("L3", GamepadAssignments.Describe(profile, Function(InputAction.LockOnOrHeal)));
+            Assert.Equal("-", GamepadAssignments.Describe(profile, Function(InputAction.ToggleLockOn)));
+            Assert.Equal("R3", GamepadAssignments.Describe(profile, Function(InputAction.ToggleCameraMode)));
+            Assert.Equal("D-Pad Up", GamepadAssignments.Describe(profile, Function(InputAction.MenuUp)));
             Assert.Equal("RB", GamepadAssignments.Describe(profile, Function(InputAction.ToggleAutorun)));
             Assert.Equal("LB", GamepadAssignments.Describe(profile, Function(InputAction.CycleCharacter)));
             Assert.Equal("D-Pad Left", GamepadAssignments.Describe(profile, Function(InputAction.MenuLeft)));
@@ -32,15 +35,16 @@ namespace Gordian.Core.Tests.Input
         public void Assign_SwapsWithTheFunctionThatHadTheButton()
         {
             var profile = InputProfile.CreateCompact();
-            GamepadAssignments.Assign(profile, Function(InputAction.ToggleLockOn), GamepadButton.Y);
+            GamepadAssignments.Assign(profile, Function(InputAction.LockOnOrHeal), GamepadButton.Y);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.Y), out var y));
-            Assert.Equal(InputAction.ToggleLockOn, y);
+            Assert.Equal(InputAction.LockOnOrHeal, y);
             // Select Window had Y: it takes Lock On's old button, L3.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var l3));
             Assert.Equal(InputAction.CycleLogWindow, l3);
             // Keyboard bindings are untouched.
             Assert.Contains(new InputChord(GordianKey.T), profile.GetChords(InputAction.ToggleLockOn));
+            Assert.DoesNotContain(new InputChord(GamepadButton.Y), profile.GetChords(InputAction.ToggleLockOn));
             Assert.Contains(new InputChord(GordianKey.NumPadAdd), profile.GetChords(InputAction.CycleLogWindow));
         }
 
@@ -106,32 +110,93 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(GamepadButton.DPadUp, GamepadAssignments.FirstButton(GamepadButton.DPadUp | GamepadButton.Y));
         }
 
+        /// <summary>A profile as an older build saved it: the round-0 gamepad layout, before #326 and the retail rounds.</summary>
+        private static InputProfile Round0Profile()
+        {
+            var p = InputProfile.CreateCompact();
+            foreach (var chords in p.Bindings.Values) chords.RemoveAll(c => c.IsGamepadChord);
+            foreach (var a in new[] { InputAction.CycleCharacter, InputAction.MacroPaletteCtrl, InputAction.MacroPaletteAlt, InputAction.Logout, InputAction.LockOnOrHeal })
+            {
+                p.Bindings.Remove(a);
+            }
+            void Pad(InputAction a, GamepadButton b) => p.Bind(a, new InputChord(b));
+            Pad(InputAction.Confirm, GamepadButton.A);
+            Pad(InputAction.Cancel, GamepadButton.B);
+            Pad(InputAction.OpenMenu, GamepadButton.X);
+            Pad(InputAction.CycleLogWindow, GamepadButton.Y);
+            Pad(InputAction.ToggleWalkRun, GamepadButton.LeftThumb);
+            Pad(InputAction.ResetCamera, GamepadButton.RightThumb);
+            Pad(InputAction.TargetPrevious, GamepadButton.LeftTrigger);
+            Pad(InputAction.TargetNearest, GamepadButton.RightTrigger);
+            Pad(InputAction.OpenMenu, GamepadButton.Start);
+            Pad(InputAction.OpenChat, GamepadButton.Back);
+            Pad(InputAction.MacroCtrl1, GamepadButton.LeftShoulder);
+            Pad(InputAction.MacroAlt1, GamepadButton.RightShoulder);
+            return p;
+        }
+
         [Fact]
         public void SavedProfileFromBefore326_GetsTheNewShortcuts_OnlyWhereTheOldDefaultsStand()
         {
-            var old = InputProfile.CreateCompact();
-            old.Bindings.Remove(InputAction.CycleCharacter);
-            old.Unbind(InputAction.ToggleLockOn, new InputChord(GamepadButton.LeftThumb));
-            old.Unbind(InputAction.ToggleAutorun, new InputChord(GamepadButton.RightShoulder));
-            old.Bind(InputAction.ToggleWalkRun, new InputChord(GamepadButton.LeftThumb));
-            old.Bind(InputAction.MacroAlt1, new InputChord(GamepadButton.RightShoulder));
-            old.Bind(InputAction.MacroCtrl1, new InputChord(GamepadButton.X)); // the user moved Ctrl+1 off LB
-            string json = old.SaveToJson();
+            var old = Round0Profile();
+            old.Unbind(InputAction.MacroCtrl1, new InputChord(GamepadButton.LeftShoulder));
+            old.Bind(InputAction.MacroCtrl1, new InputChord(GamepadButton.Guide)); // the user moved Ctrl+1 off LB
 
-            var loaded = InputProfile.FromJson(json);
+            var loaded = InputProfile.FromJson(old.SaveToJson());
             Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var l3));
-            Assert.Equal(InputAction.ToggleLockOn, l3);
+            Assert.Equal(InputAction.LockOnOrHeal, l3);           // walk/run -> lock-on (#326) -> lock-on / heal (round 3)
+            Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.RightThumb), out var r3));
+            Assert.Equal(InputAction.ToggleCameraMode, r3);
             Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.RightShoulder), out var rb));
             Assert.Equal(InputAction.ToggleAutorun, rb);
             Assert.Empty(loaded.GetChords(InputAction.CycleCharacter)); // LB was not on Ctrl+1: left alone
-            Assert.DoesNotContain(new InputChord(GamepadButton.LeftThumb), loaded.GetChords(InputAction.ToggleWalkRun));
+            // The d-pad (which this profile had lost) gets its menu and targeting functions back.
+            var left = new InputChord(GamepadButton.DPadLeft);
+            Assert.True(loaded.TryGetAction(left, menuContext: true, out var inMenu));
+            Assert.Equal(InputAction.MenuLeft, inMenu);
+            Assert.True(loaded.TryGetAction(left, menuContext: false, out var outside));
+            Assert.Equal(InputAction.TargetCursorLeft, outside);
 
-            // Once migrated (CycleCharacter saved, even empty), a later load changes nothing.
+            // Once migrated, a later load changes nothing.
             loaded.Bind(InputAction.ToggleWalkRun, new InputChord(GamepadButton.LeftThumb));
-            loaded.Unbind(InputAction.ToggleLockOn, new InputChord(GamepadButton.LeftThumb));
+            loaded.Unbind(InputAction.LockOnOrHeal, new InputChord(GamepadButton.LeftThumb));
             var again = InputProfile.FromJson(loaded.SaveToJson());
             Assert.True(again.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var stays));
             Assert.Equal(InputAction.ToggleWalkRun, stays);
+        }
+
+        [Fact]
+        public void DPadMigration_RestoresOnlyContextsWhereTheDirectionDrivesNothing()
+        {
+            // A round-2 profile after its gamepad reset: the d-pad kept its targeting but lost the menu cursor.
+            var p = InputProfile.CreateCompact();
+            foreach (var a in new[] { InputAction.MenuUp, InputAction.MenuDown, InputAction.MenuLeft, InputAction.MenuRight })
+            {
+                p.Bindings[a].RemoveAll(c => c.IsGamepadChord);
+            }
+            // The user put Lock On on d-pad up; d-pad down is free in game.
+            p.Unbind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
+            p.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.DPadUp));
+            p.Unbind(InputAction.TargetParty2, new InputChord(GamepadButton.DPadDown));
+
+            p.EnsureDPadBindings();
+            Assert.True(p.TryGetAction(new InputChord(GamepadButton.DPadUp), menuContext: true, out var up));
+            Assert.Equal(InputAction.MenuUp, up);
+            Assert.True(p.TryGetAction(new InputChord(GamepadButton.DPadUp), menuContext: false, out var upGame));
+            Assert.Equal(InputAction.ToggleLockOn, upGame);           // the user's choice stays
+            Assert.Contains(new InputChord(GamepadButton.DPadDown), p.GetChords(InputAction.TargetParty2));
+            Assert.Contains(new InputChord(GamepadButton.DPadRight), p.GetChords(InputAction.MenuRight));
+        }
+
+        [Fact]
+        public void ResetDefaults_KeepsTheDPadsMenuFunctions()
+        {
+            var profile = InputProfile.CreateCompact();
+            GamepadAssignments.ResetDefaults(profile);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.DPadDown), menuContext: true, out var down));
+            Assert.Equal(InputAction.MenuDown, down);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.DPadRight), menuContext: false, out var right));
+            Assert.Equal(InputAction.TargetCursorRight, right);
         }
 
         [Fact]

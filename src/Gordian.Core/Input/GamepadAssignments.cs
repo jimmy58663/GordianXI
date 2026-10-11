@@ -49,16 +49,18 @@ namespace Gordian.Core.Input
             new GamepadFunction("Open Main Menu", 140, InputAction.OpenMenu),
             new GamepadFunction("Select Window", 139, InputAction.CycleLogWindow),
             new GamepadFunction("Open Chat", -1, InputAction.OpenChat),
-            new GamepadFunction("Menu/Target Cursor Up", 97, InputAction.MenuUp, InputAction.TargetParty1),
-            new GamepadFunction("Menu/Target Cursor Down", 98, InputAction.MenuDown, InputAction.TargetParty2),
+            // Two-purpose functions name both purposes, menu first, as retail's own "Menu/Target Cursor Left" does.
+            new GamepadFunction("Menu Up / Target Party 2", -1, InputAction.MenuUp, InputAction.TargetParty1),
+            new GamepadFunction("Menu Down / Target Party 3", -1, InputAction.MenuDown, InputAction.TargetParty2),
             new GamepadFunction("Menu/Target Cursor Left", 100, InputAction.MenuLeft, InputAction.TargetCursorLeft),
             new GamepadFunction("Menu/Target Cursor Right", 99, InputAction.MenuRight, InputAction.TargetCursorRight),
             new GamepadFunction("Cycle Target Left", -1, InputAction.TargetPrevious),
             new GamepadFunction("Cycle Target Right", -1, InputAction.TargetNearest),
+            new GamepadFunction("Lock On / Heal (no target)", -1, InputAction.LockOnOrHeal),
             new GamepadFunction("Lock On", -1, InputAction.ToggleLockOn),
             new GamepadFunction("Autorun", 108, InputAction.ToggleAutorun),
             new GamepadFunction("Toggle Walk/Run", 138, InputAction.ToggleWalkRun),
-            new GamepadFunction("Change View", 107, InputAction.ToggleCameraMode),
+            new GamepadFunction("Change View (3rd/1st/Free)", -1, InputAction.ToggleCameraMode),
             new GamepadFunction("Reset Camera", -1, InputAction.ResetCamera),
             new GamepadFunction("Zoom In", 137, InputAction.CameraZoomIn),
             new GamepadFunction("Zoom Out", 136, InputAction.CameraZoomOut),
@@ -140,7 +142,7 @@ namespace Gordian.Core.Input
         {
             ArgumentNullException.ThrowIfNull(profile);
             foreach (var chords in profile.Bindings.Values) chords.RemoveAll(c => c.IsGamepadChord);
-            InputProfile.BindDefaultGamepadButtons(profile);
+            InputProfile.BindDefaultGamepadButtons(profile); // the d-pad's menu functions included
         }
 
         /// <summary>The lowest gamepad button set in <paramref name="buttons"/>, or None.</summary>

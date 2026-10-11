@@ -290,6 +290,65 @@ namespace Gordian.Core.Input
             if (!Bindings.ContainsKey(InputAction.MacroPaletteCtrl)) Bindings[InputAction.MacroPaletteCtrl] = new List<InputChord>();
         }
 
+        /// <summary>The d-pad's default functions, per context: menu cursor in menus, targeting otherwise.</summary>
+        private static readonly (GamepadButton Button, InputAction Menu, InputAction Game)[] DPadDefaults =
+        {
+            (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetParty1),
+            (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetParty2),
+            (GamepadButton.DPadLeft, InputAction.MenuLeft, InputAction.TargetCursorLeft),
+            (GamepadButton.DPadRight, InputAction.MenuRight, InputAction.TargetCursorRight),
+        };
+
+        private static void BindDPadDefaults(InputProfile p)
+        {
+            foreach (var (button, menu, game) in DPadDefaults)
+            {
+                p.Bind(menu, new InputChord(button));
+                p.Bind(game, new InputChord(button));
+            }
+        }
+
+        /// <summary>
+        /// Gives back a d-pad direction its default function in a context where that direction drives nothing (a
+        /// profile reset with the round-1 / round-2 gamepad reset lost the menu ones). A direction the user gave
+        /// another function in that context keeps it.
+        /// </summary>
+        public void EnsureDPadBindings()
+        {
+            foreach (var (button, menu, game) in DPadDefaults)
+            {
+                var chord = new InputChord(button);
+                bool inMenu = false, inGame = false;
+                foreach (var (action, chords) in Bindings)
+                {
+                    if (!chords.Contains(chord)) continue;
+                    if (IsMenuNavigationAction(action)) inMenu = true; else inGame = true;
+                }
+                if (!inMenu) Bind(menu, chord);
+                if (!inGame) Bind(game, chord);
+            }
+        }
+
+        /// <summary>
+        /// Gives a profile saved before round 3 retail's sticks: L3 (was Toggle Lock-On) becomes Lock On / Heal and R3
+        /// (was Reset Camera) cycles the camera, only where the old default still stands. An empty
+        /// <see cref="InputAction.LockOnOrHeal"/> entry marks the profile as migrated.
+        /// </summary>
+        public void EnsureGamepadStickBindings()
+        {
+            if (Bindings.ContainsKey(InputAction.LockOnOrHeal)) return;
+            foreach (var (old, button, action) in new[]
+            {
+                (InputAction.ToggleLockOn, GamepadButton.LeftThumb, InputAction.LockOnOrHeal),
+                (InputAction.ResetCamera, GamepadButton.RightThumb, InputAction.ToggleCameraMode),
+            })
+            {
+                var chord = new InputChord(button);
+                if (Bindings.TryGetValue(old, out var chords) && chords.Remove(chord)) Bind(action, chord);
+            }
+            if (!Bindings.ContainsKey(InputAction.LockOnOrHeal)) Bindings[InputAction.LockOnOrHeal] = new List<InputChord>();
+        }
+
         /// <summary>Whether an action is a macro palette held with the gamepad's other buttons.</summary>
         public static bool IsMacroPaletteAction(InputAction action) =>
             action is InputAction.MacroPaletteCtrl or InputAction.MacroPaletteAlt;
@@ -540,12 +599,13 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GamepadButton.X));
             p.Bind(InputAction.CycleLogWindow, new InputChord(GamepadButton.Y));
 
-            // L3 toggles lock-on and R1 auto-run (the maintainer's request, #326); L1 shows the next character in the
-            // primary view (GordianXI multi-box, like Ctrl+Tab). See EnsureGamepadShortcutBindings for saved profiles.
-            p.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.LeftThumb));
-            p.Bind(InputAction.ResetCamera, new InputChord(GamepadButton.RightThumb));
+            // L3 toggles lock-on with a target and heals without one; R3 cycles the camera (third person, first person,
+            // free camera); R1 toggles auto-run (retail, the maintainer's checks, #326); L1 shows the next character in
+            // the primary view (GordianXI multi-box, like Ctrl+Tab). See the Ensure* migrations for saved profiles.
+            p.Bind(InputAction.LockOnOrHeal, new InputChord(GamepadButton.LeftThumb));
+            p.Bind(InputAction.ToggleCameraMode, new InputChord(GamepadButton.RightThumb));
 
-            // Retail (the maintainer's check, 2026-10-10): hold LT / RT for the Ctrl / Alt macro palettes, Start logs out,
+            // Retail (the maintainer's check, 2026-10-10): hold LT / RT for the Ctrl / Alt macro palettes (#339), Start logs out,
             // the d-pad's left / right cycle targets (TargetCursorLeft/Right below). Before round 2: LT / RT cycled
             // targets and Start opened the main menu (EnsureGamepadRetailBindings moves saved profiles).
             p.Bind(InputAction.MacroPaletteCtrl, new InputChord(GamepadButton.LeftTrigger));
@@ -554,10 +614,10 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.Logout, new InputChord(GamepadButton.Start));
             p.Bind(InputAction.OpenChat, new InputChord(GamepadButton.Back));
 
-            p.Bind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
-            p.Bind(InputAction.TargetParty2, new InputChord(GamepadButton.DPadDown));
-            p.Bind(InputAction.TargetCursorLeft, new InputChord(GamepadButton.DPadLeft));
-            p.Bind(InputAction.TargetCursorRight, new InputChord(GamepadButton.DPadRight));
+            // The d-pad is two-purpose, as in retail: in a menu it moves the cursor, otherwise up / down target party
+            // members and left / right cycle targets (repeating while held). Its menu bindings belong to the gamepad
+            // layer too, so a gamepad reset keeps them (round 2 lost them: they were only bound with the keyboard presets).
+            BindDPadDefaults(p);
 
             p.Bind(InputAction.CycleCharacter, new InputChord(GamepadButton.LeftShoulder));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GamepadButton.RightShoulder));
@@ -584,6 +644,8 @@ namespace Gordian.Core.Input
             profile.EnsureLockOnBindings();
             profile.EnsureGamepadShortcutBindings();
             profile.EnsureGamepadRetailBindings();
+            profile.EnsureGamepadStickBindings();
+            profile.EnsureDPadBindings();
             return profile;
         }
 

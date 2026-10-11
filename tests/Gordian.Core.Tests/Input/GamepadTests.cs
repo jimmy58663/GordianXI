@@ -99,7 +99,11 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(InputAction.ToggleAutorun, actRB);
 
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftThumb), out var actL3));
-            Assert.Equal(InputAction.ToggleLockOn, actL3);
+            Assert.Equal(InputAction.LockOnOrHeal, actL3);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.RightThumb), out var actR3));
+            Assert.Equal(InputAction.ToggleCameraMode, actR3);
+            Assert.True(profile.TryGetAction(new InputChord(GamepadButton.DPadLeft), menuContext: true, out var menuLeft));
+            Assert.Equal(InputAction.MenuLeft, menuLeft);
 
             // Retail (round 2): LT / RT hold the macro palettes, Start logs out, the d-pad cycles targets.
             Assert.True(profile.TryGetAction(new InputChord(GamepadButton.LeftTrigger), out var actLT));

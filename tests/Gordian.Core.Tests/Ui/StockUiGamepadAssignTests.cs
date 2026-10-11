@@ -75,7 +75,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("A", list.Rows[0].Value);
             Assert.Equal(StockUiMenuController.GamepadResetLabel, list.Rows[^1].Text);
             Assert.True(list.CanScroll);
-            int lockOn = GamepadAssignments.Functions.ToList().FindIndex(f => f.Actions[0] == InputAction.ToggleLockOn);
+            int lockOn = GamepadAssignments.Functions.ToList().FindIndex(f => f.Actions[0] == InputAction.LockOnOrHeal);
             Assert.Equal("L3", list.Rows[lockOn].Value);
         }
 

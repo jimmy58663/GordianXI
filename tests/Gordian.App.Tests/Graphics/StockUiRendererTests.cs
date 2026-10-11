@@ -793,6 +793,11 @@ namespace Gordian.App.Tests.Graphics
                     }
                 }
                 Assert.True(valueDrawn, "button name at the row's right");
+                // The reset question fits the comyn prompt (round 2: the longer wording ran past its right edge).
+                Assert.True(library.TryGetMenu(StockUiMenuEntries.MessageYesNoMenu, out var comyn));
+                Assert.True(font.MeasureWidth(StockUiMenuController.GamepadResetPrompt) <= comyn.Frame.Width - 16,
+                    $"prompt {font.MeasureWidth(StockUiMenuController.GamepadResetPrompt)} px in a {comyn.Frame.Width} px window");
+                Assert.False(font.MeasureWidth("Reset gamepad assignment to default?") <= comyn.Frame.Width - 16, "the round-2 wording overflowed");
 
                 // Font Colors: the Chat list draws the message types in white and the box above it the selected row's
                 // sample in its colour (the tell row pink: red and blue over green); the R/G/B editor fills its bars

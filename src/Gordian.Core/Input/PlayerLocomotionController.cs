@@ -312,6 +312,7 @@ namespace Gordian.Core.Input
         {
             if (elapsed <= TimeSpan.Zero) return;
             LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            _updateSeconds = elapsed.TotalSeconds;
 
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
             //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
@@ -1212,12 +1213,49 @@ namespace Gordian.Core.Input
         /// <summary>
         /// Tab / Shift+Tab (and the triggers) and the d-pad's left / right target cursor (see <see cref="TargetCycling"/>).
         /// </summary>
+        /// <summary>
+        /// Holding a target-cycling key or button keeps cycling that way: after <see cref="TargetRepeatDelay"/>, then every
+        /// <see cref="TargetRepeatInterval"/> (the maintainer's request, round 2; ours, not measured against retail), so a
+        /// single press never races through targets.
+        /// </summary>
+        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.25;
+
+        private double _updateSeconds;
+        private InputAction _cycleHeld;
+        private double _cycleHeldFor, _cycleNextRepeat;
+
+        private static readonly (InputAction Action, TargetCycleMode Mode)[] CycleActions =
+        {
+            (InputAction.TargetNearest, TargetCycleMode.TabRight),
+            (InputAction.TargetPrevious, TargetCycleMode.TabLeft),
+            (InputAction.TargetCursorRight, TargetCycleMode.CursorRight),
+            (InputAction.TargetCursorLeft, TargetCycleMode.CursorLeft),
+        };
+
         private void UpdateTargetCycling()
         {
-            if (_inputState.WasActionTriggered(InputAction.TargetNearest)) CycleTarget(TargetCycleMode.TabRight);
-            else if (_inputState.WasActionTriggered(InputAction.TargetPrevious)) CycleTarget(TargetCycleMode.TabLeft);
-            else if (_inputState.WasActionTriggered(InputAction.TargetCursorRight)) CycleTarget(TargetCycleMode.CursorRight);
-            else if (_inputState.WasActionTriggered(InputAction.TargetCursorLeft)) CycleTarget(TargetCycleMode.CursorLeft);
+            foreach (var (action, mode) in CycleActions)
+            {
+                if (!_inputState.WasActionTriggered(action)) continue;
+                CycleTarget(mode);
+                _cycleHeld = action;
+                _cycleHeldFor = 0;
+                _cycleNextRepeat = TargetRepeatDelay;
+                return;
+            }
+            if (_cycleHeld == InputAction.None) return;
+            if (!_inputState.IsActionHeld(_cycleHeld))
+            {
+                _cycleHeld = InputAction.None;
+                return;
+            }
+            _cycleHeldFor += _updateSeconds;
+            if (_cycleHeldFor < _cycleNextRepeat) return;
+            _cycleNextRepeat += TargetRepeatInterval;
+            foreach (var (action, mode) in CycleActions)
+            {
+                if (action == _cycleHeld) CycleTarget(mode);
+            }
         }
 
         /// <summary>Targets what <see cref="TargetCycling.Pick"/> chooses for <paramref name="mode"/>.</summary>
@@ -1250,6 +1288,26 @@ namespace Gordian.Core.Input
                 Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
             }
             else if (!keyHeld) _lockKeyLogged = false;
+            if (_inputState.WasActionTriggered(InputAction.LockOnOrHeal))
+            {
+                // Retail's L3: lock-on with a target (or a fight to lock on to), /heal without one.
+                bool hasTarget = _actionService.CurrentTarget != null || _actionService.IsLockedOn
+                    || _actionService.Combat is { IsEngaged: true, TargetServerId: not 0 };
+                if (hasTarget)
+                {
+                    _actionService.ToggleLockOn();
+                    Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by L3: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+                }
+                else
+                {
+                    var service = _actionService;
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var result = await service.HealAsync().ConfigureAwait(false);
+                        Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"L3 with no target: {result.Message}");
+                    });
+                }
+            }
             if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
             _actionService.ToggleLockOn();
             Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");

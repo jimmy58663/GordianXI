@@ -26,8 +26,11 @@ namespace Gordian.Core.Ui
         /// <summary>The list's last row, after the functions.</summary>
         public const string GamepadResetLabel = "Reset to Default";
 
-        /// <summary>The question the reset row asks (GordianXI wording, after the keyboard's row 143).</summary>
-        public const string GamepadResetPrompt = "Reset gamepad assignment to default?";
+        /// <summary>
+        /// The question the reset row asks (GordianXI wording). Short enough for the <c>comyn</c> window: the longer
+        /// "Reset gamepad assignment to default?" ran past its right edge (round 2, B12).
+        /// </summary>
+        public const string GamepadResetPrompt = "Reset gamepad to default?";
 
         /// <summary>The user's input profile the list shows (null outside a session: the list then shows no buttons).</summary>
         public Func<InputProfile?>? GamepadProfile { get; set; }

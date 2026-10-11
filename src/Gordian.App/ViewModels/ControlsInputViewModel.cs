@@ -746,7 +746,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.CameraZoomIn, "Camera", "Zoom In (Closer)");
             AddBindingRow(InputAction.CameraZoomOut, "Camera", "Zoom Out (Farther)");
             AddBindingRow(InputAction.ResetCamera, "Camera", "Reset / Center Camera");
-            AddBindingRow(InputAction.ToggleCameraMode, "Camera", "Change View (First / Third Person)");
+            AddBindingRow(InputAction.ToggleCameraMode, "Camera", "Change View (Third / First Person / Free Camera)");
 
             // Targeting & Menus
             AddBindingRow(InputAction.Confirm, "Interaction", "Confirm / Action");
@@ -756,6 +756,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.TargetCursorRight, "Targeting", "Target Cursor Right (via yourself)");
             AddBindingRow(InputAction.TargetCursorLeft, "Targeting", "Target Cursor Left (via yourself)");
             AddBindingRow(InputAction.ToggleLockOn, "Targeting", "Toggle Lock-On");
+            AddBindingRow(InputAction.LockOnOrHeal, "Targeting", "Lock-On (target) / Heal (no target)");
             AddBindingRow(InputAction.TargetSelf, "Targeting", "Target Self");
             AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 2");
             AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 3");
