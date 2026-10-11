@@ -98,6 +98,14 @@ namespace Gordian.Core.Network.Packets
         public event Action<TranslateMessage>? TranslateReceived;
         public event Action<LinkshellMessage>? LinkshellMessageReceived;
 
+        /// <summary>
+        /// The server message, rebuilt from its S2C 0x04D fragments (asked for with <see cref="RequestServerMessageAsync"/>
+        /// at login and by <c>/servmes</c>). Not raised for an empty message.
+        /// </summary>
+        public event Action<string>? ServerMessageReceived;
+
+        private readonly ServerMessageAssembler _serverMessage = new();
+
         public ChatPacketModule(
             Func<ReadOnlyMemory<byte>, bool, Task> sendChunkCallback,
             Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? logPacketCallback = null)
@@ -113,6 +121,53 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x009_SysMessage.PacketId, HandleSysMessage);
             dispatcher.Register(S2C_0x047_Translate.PacketId, HandleTranslate);
             dispatcher.Register(S2C_0x0CC_LinkshellMessage.PacketId, HandleLinkshellMessage);
+            dispatcher.Register(S2C_0x04D_Fragments.PacketId, HandleFragments);
+        }
+
+        private void HandleFragments(PacketHeader header, ReadOnlySpan<byte> payload)
+        {
+            var fragment = new S2C_0x04D_Fragments(payload);
+            if (!fragment.IsValid) return;
+
+            if (fragment.Kind != FragmentsKind.ServerMessage)
+            {
+                // Ranking boards (event opcode 0xB3) are not run by the event VM yet: decoded and logged only.
+                GordianLog.Debug("CHAT", $"[FRAGMENTS] Kind={fragment.Kind}, Command=0x{fragment.Command:X2}, Result={fragment.Result}, Board={fragment.Value2}, Offset={fragment.Offset}, Size={fragment.DataSize}/{fragment.SizeTotal}");
+                return;
+            }
+
+            switch (_serverMessage.Add(in fragment, out string? message))
+            {
+                case ServerMessageFragmentResult.Complete:
+                    GordianLog.Info("CHAT", $"[SERVMES] Server message ({message?.Length ?? 0} characters).");
+                    if (!string.IsNullOrEmpty(message)) ServerMessageReceived?.Invoke(message);
+                    break;
+                case ServerMessageFragmentResult.NeedMore:
+                    // Ask for the next fragment where this one ended.
+                    _ = SendFragmentsRequestAsync(_serverMessage.NextOffset, _serverMessage.Timestamp, _serverMessage.SizeTotal);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Asks the server for its server message (C2S 0x04B kind 1, English): what retail does at login and for
+        /// <c>/servmes</c>. The answer arrives as <see cref="ServerMessageReceived"/>.
+        /// </summary>
+        public Task RequestServerMessageAsync()
+        {
+            _serverMessage.Reset();
+            return SendFragmentsRequestAsync(0, 0, 0);
+        }
+
+        private async Task SendFragmentsRequestAsync(int offset, int timestamp, int sizeTotal)
+        {
+            ushort seq = ++_sequenceNumber;
+            byte[] packet = FragmentsOutboundPackets.BuildServerMessageRequest(offset, timestamp, sizeTotal, sequenceId: seq);
+            if (LogOutboundOnRoute)
+            {
+                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x04B, seq, packet);
+            }
+            await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
 
         private void HandleChatStd(PacketHeader header, ReadOnlySpan<byte> payload)

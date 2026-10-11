@@ -1143,6 +1143,38 @@ namespace Gordian.Core.Events
 
         void IEventVmHost.UnlockEnvironment() => UnlockEnvironment();
 
+        /// <summary>
+        /// The zone module that sends the sub-map packets (C2S 0x0EB for event opcode 0xA6, C2S 0x0F2 for 0x75 sub 2);
+        /// null in tests, where both opcodes go on without sending.
+        /// </summary>
+        public LifecyclePacketModule? Lifecycle { get; set; }
+
+        void IEventVmHost.OpenIndoorRoom(int room)
+        {
+            GordianLog.Info("EVENT", $"Event opens indoor room {room}.");
+            _world?.SubMap.OpenIndoorRoom(room);
+        }
+
+        bool IEventVmHost.SendSubMapChange(int subMapNumber)
+        {
+            var lifecycle = Lifecycle;
+            if (lifecycle != null) _ = lifecycle.SendSubMapChangeAsync(SubMapChangeState.Event, unchecked((ushort)subMapNumber));
+            else _world?.SubMap.SetSubMapNumber(subMapNumber);
+            return true;
+        }
+
+        bool IEventVmHost.RequestSubMapNumber()
+        {
+            var lifecycle = Lifecycle;
+            if (lifecycle == null) return true; // nothing to wait for
+            _ = lifecycle.RequestSubMapNumberAsync();
+            return true;
+        }
+
+        bool IEventVmHost.SubMapNumberPending => _world?.SubMap.RequestPending ?? false;
+
+        int IEventVmHost.SubMapNumber => _world?.SubMap.SubMapNumber ?? 0;
+
         byte[]? IEventVmHost.LoadDat(int fileId)
         {
             try

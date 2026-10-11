@@ -137,7 +137,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x72 | `CodeGETWEATER` | by sub | runs | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
 | 0x73 | `CodeMAGICSCHEDULOR` | 11 | stepped | 947 | Starts a spell-casting task (tag `main`) from one actor toward another. |
 | 0x74 |  | 2 | stepped | 12 | Sets or clears bit 31 of the event entity's `Render.Flags1`. |
-| 0x75 | `CodeLOADROOM` | by sub | stepped | 951 | Opens an indoor room of the zone and reports the player's sub-region to the server (C2S 0x0F2). |
+| 0x75 | `CodeLOADROOM` | by sub | runs | 951 | Opens an indoor room of the zone and reports the player's sub-region to the server (C2S 0x0F2, [#117](https://github.com/jimmy58663/GordianXI/issues/117)). |
 | 0x76 |  | 5 | runs | 4,173 | Waits while the named actor is still turning. |
 | 0x77 |  | 5 | runs | 1,181 | Stops the clock at an hour and / or sets the weather for the event; 255 leaves either alone. |
 | 0x78 |  | 1 | runs | 1,240 | Restarts the clock and gives the zone its own weather back. |
@@ -186,7 +186,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xA3 | `CodeENDLOADSCHEDULER_Main` | 15 | runs | 5 | Stops a 0x9F task ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). |
 | 0xA4 |  | 2 | stepped | 442 | Sets or clears `Render.Flags3` bit 26 of the event entity. |
 | 0xA5 |  | 2 | stepped | 406 | Sets or clears `Render.Flags3` bit 11 of the event entity. |
-| 0xA6 |  | by sub | stepped | 203 | Asks the server for the event map number (C2S 0x0EB, answer S2C 0x10E), waits, or reads the sub-map. Real use: one event (see Part 2). |
+| 0xA6 |  | by sub | runs | 203 | Asks the server for the event map number (C2S 0x0EB, answer S2C 0x10E), waits, or reads the sub-map. Real use: one event (see Part 2). |
 | 0xA7 |  | by sub | stepped | 55 | Battlefield registration handshake: waits for the server's answer and stores its result. |
 | 0xA8 |  | 6 | stepped | 56 | Resets an NPC map marker to an empty entry, opening the map first if needed. |
 | 0xA9 |  | 3 | stepped | 6 | Stops the clock at a time derived from a work value (minute 30). |
@@ -590,7 +590,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x75 `CodeLOADROOM`
 
 - Layout: `75 00 room:work` (4), `75 01` (2), `75 02` (2). Every sub yields while the zone is still reading room data. Sub 0 opens the indoor room without telling the server, sub 1 passes, sub 2 sends the player's sub-region (C2S 0x0F2) and retries until it is queued (XiEvents OpCodes/0x0075).
-- Stepped: rooms are not loaded and 0x0F2 is not sent.
+- GordianXI (#117): sub 0 records the room as `WorldState.SubMap.IndoorRoom` (`IEventVmHost.OpenIndoorRoom`) for the renderer of building interiors ([#68](https://github.com/jimmy58663/GordianXI/issues/68)), which does not draw it yet; sub 2 sends C2S 0x0F2 state 2 through `LifecyclePacketModule.SendSubMapChangeAsync` and stores the number as the sub-map. Nothing reads room data yet, so `IsReadingRoomData` never makes a sub wait. A sub other than 0-2, where retail stalls, is stepped over with a diagnostic.
+- Where `75 02` runs (2026-10-10 scan, every zone): Port Bastok (236) event 322, Norg (252) events 209 / 210, Lower Jeuno (245) events 99 / 100 and 10057-10070, the room a block constant (operand `0x80nn`), and 17 events in Heavens Tower (242). Port Jeuno (246) has none: its airship doors (event 54 of the Arrivals Entrance, 0x010F6053) walk the player with 0x1F in the player's block instead.
 - **Beyond XiEvents:** XiEvents' sub 2 moves the program position back 6 bytes before it reads its operand, and moves forward 8 once the packet is queued. Every one of the 33 retail `75 02` sites (2026-10-01, all zones) follows `75 00 room 75 01`, so sub 2 reuses the room operand of the `75 00` six bytes earlier and is 2 bytes long.
 
 ### 0x77, 0x78, 0xC9
@@ -735,7 +736,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0xA6
 
 - Layout: `A6 00` (2) queues C2S 0x0EB and yields; `A6 01` (2) yields until the S2C 0x10E answer clears the flag; `A6 02 dest:work` (4) stores the sub-map number (XiEvents OpCodes/0x00A6; the packet pairing is also in xi-tools `docs/reference/ps2_decomp_crosscheck.md`).
-- Real use: subs 0, 1 and 2 once each, in one event (2026-10-01 scan). The other 202 census events are table data (see 0x9D). Stepped.
+- Real use: subs 0, 1 and 2 once each, in one event (2026-10-01 scan; XiPackets 0x010E names it: Windurst mission 9-2's last cutscene, Heavens Tower to Windurst Walls, answered with 0). The other 202 census events are table data (see 0x9D). The event is Windurst Walls (zone 239) event 443, in NPC block 0x010EF064 (and 60 other blocks; LSB's Kalupa-Tawalupa.lua notes it as "CS 443, Long Star Sybil CS"); `A6 00 A6 01 A6 02 dest` sits at offset 1708, followed by `75 00 dest 75 01`, which opens the indoor room the server's number names (2026-10-10 scan, every zone). `!cs 443` in Windurst Walls plays it on LSB.
+- GordianXI (#117): runs. Sub 0 sends C2S 0x0EB (`LifecyclePacketModule.RequestSubMapNumberAsync`) and marks `WorldState.SubMap.RequestPending`; sub 1 waits until S2C 0x10E clears it; sub 2 stores `WorldState.SubMap.SubMapNumber`. Every sub yields a frame, as retail's set RetFlag. LSB answers C2S 0x0EB only while an event holds the character, which is the case here.
 
 ### 0xAB
 
