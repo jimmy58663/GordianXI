@@ -1,6 +1,6 @@
 # Wire Enums
 
-> Scope: the numeric ids that travel on the wire or in retail data and that more than one GordianXI subsystem reads: emotes, action kinds and action results, cutscene mode flags, party kinds, weather, the two different "status" enumerations, sub-animation values, entity kinds, position modes, races and jobs. Each table gives the value, its name, the reference it comes from and the GordianXI type that holds it; every type was checked in `src/`. Flag words of the entity updates are in [entity-flags.md](entity-flags.md); units and clocks in [conventions.md](conventions.md). Date of this pass: 2026-10-01.
+> Scope: the numeric ids that travel on the wire or in retail data and that more than one GordianXI subsystem reads: emotes, action kinds and action results, cutscene mode flags, party kinds, weather, the two different "status" enumerations, sub-animation values, entity kinds, position modes, races and jobs, item containers, equipment slots and item targets. Each table gives the value, its name, the reference it comes from and the GordianXI type that holds it; every type was checked in `src/`. Flag words of the entity updates are in [entity-flags.md](entity-flags.md); units and clocks in [conventions.md](conventions.md). Date of this pass: 2026-10-01.
 
 ## Emotes (C2S 0x05D `Number`, event opcode 0x6E)
 
@@ -264,3 +264,11 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 `CharacterSlot` (grap table index, 0x00D / 0x051 / 0x00A): 0 race and face, 1 head, 2 body, 3 hands, 4 legs, 5 feet, 6 main, 7 sub, 8 ranged.
 
 `JobId` (`EntityPackets.cs`): 0 none, 1 WAR, 2 MNK, 3 WHM, 4 BLM, 5 RDM, 6 THF, 7 PLD, 8 DRK, 9 BST, 10 BRD, 11 RNG, 12 SAM, 13 NIN, 14 DRG, 15 SMN, 16 BLU, 17 COR, 18 PUP, 19 DNC, 20 SCH, 21 GEO, 22 RUN.
+
+## Item containers, equipment slots and item targets
+
+`ContainerId` (`InventoryPackets.cs`; the `Category` of C2S 0x028 / 0x029 / 0x037 / 0x03A / 0x050 and S2C 0x01C-0x020 / 0x050, LandSandBoat `CONTAINER_ID`): 0 Inventory, 1 Mog Safe, 2 Storage, 3 Temporary Items, 4 Mog Locker, 5 Mog Satchel, 6 Mog Sack, 7 Mog Case, 8 Mog Wardrobe, 9 Mog Safe 2, 10-16 Mog Wardrobe 2-8, 17 Recycle Bin. Items are used from 0, 3, 8, 10-16 and worn from 0, 8, 10-16 (LandSandBoat `0x037_item_use.cpp`, `0x050_equip_set.cpp`; `StockUiItems.UsableContainers` / `EquippableContainers`, #351 / #352). S2C 0x01C gives each size as 1 + its slots.
+
+`EquipSlotId` (S2C 0x050 / C2S 0x050 `EquipKind`, LandSandBoat `SLOTTYPE`): 0 Main, 1 Sub, 2 Ranged, 3 Ammo, 4 Head, 5 Body, 6 Hands, 7 Legs, 8 Feet, 9 Neck, 10 Waist, 11 Ear1, 12 Ear2, 13 Ring1, 14 Ring2, 15 Back, 16-17 linkshells. A DAT item's `EquipSlotsMask` bit n is slot n (`StockUiItems.FitsSlot`); its `JobsMask` bit n is `JobId` n.
+
+Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTYPE` in `battle_entity.h`; `StockUiItems.Target*`): 0x001 self, 0x002 party, 0x004 enemy, 0x008 alliance, 0x010 player, 0x020 dead player, 0x040 NPC, 0x080 party (Pianissimo), 0x100 pet. 0 means the item cannot be used (the Items window greys Use).

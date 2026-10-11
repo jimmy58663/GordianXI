@@ -29,8 +29,8 @@ namespace Gordian.App.Graphics
         /// <summary>The row layout: the 16 x 16 slot box at the row's origin, the name from 19 px in, the count 10 px from the frame's right edge.</summary>
         private const float IconSize = 16, NameInset = 19, CountRightInset = 10;
 
-        /// <summary>The header on the top border: storage name 8 px in, "used/total" right-aligned 10 px from the edge, at the title band's height.</summary>
-        private const float HeaderInset = 8, HeaderY = -4;
+        /// <summary>The header just above the top border: storage name 8 px in, "used/total" right-aligned 10 px from the edge.</summary>
+        private const float HeaderInset = 8, HeaderY = -11;
 
         /// <summary>The description window's top (layout y), under the list or the grid, as the check window's.</summary>
         public const float DescriptionTop = 240;
@@ -132,7 +132,40 @@ namespace Gordian.App.Graphics
                 if (item != 0) StockUiMenuWindow.DrawItemIcon(renderer, menu, item, placement.X + button.X * s, placement.Y + button.Y * s, 32 * s);
             }
             DrawStats(renderer, library, font, menu, placement);
+            DrawCombatStats(renderer, font, menu, placement);
             if (!menu.IsListOpen) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp);
+        }
+
+        /// <summary>
+        /// The grid frame (<c>frames</c> #13) bakes in "Attack" (4..47, y 148) and "Defense" (98..142) under the slots and two
+        /// rows of four faint element marks (<c>colorbal</c>, 10 x 10) at x 6, 50, 94, 138 and y 162 / 176, coloured (read from
+        /// the texture) Fire, Wind, Thunder, Light over Ice, Earth, Water, Dark. The values go after them: Attack right-aligned
+        /// before Defense, Defense before the frame's edge, each resistance 12 px after its mark (PROVISIONAL places).
+        /// </summary>
+        private static readonly (float X, float Y, int Element)[] ElementMarks =
+        {
+            (6, 162, 0), (50, 162, 2), (94, 162, 4), (138, 162, 6),
+            (6, 176, 1), (50, 176, 3), (94, 176, 5), (138, 176, 7),
+        };
+
+        private const float AttackRight = 88, DefenseRight = 176, CombatY = 149, ResistInset = 12;
+
+        private static void DrawCombatStats(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        {
+            if (menu.CharacterStats?.Invoke() is not { } stats) return;
+            float s = placement.Scale;
+            float ts = s * StockUiPartyWindow.TextScale;
+            string attack = stats.Attack.ToString(CultureInfo.InvariantCulture);
+            string defense = stats.Defense.ToString(CultureInfo.InvariantCulture);
+            renderer.DrawText(font, attack, placement.X + AttackRight * s - font.MeasureWidth(attack) * ts, placement.Y + CombatY * s, ts);
+            renderer.DrawText(font, defense, placement.X + DefenseRight * s - font.MeasureWidth(defense) * ts, placement.Y + CombatY * s, ts);
+            if (stats.Resistances is not { } resistances) return;
+            foreach (var (x, y, element) in ElementMarks)
+            {
+                if (element >= resistances.Count) continue;
+                string value = resistances[element].ToString(CultureInfo.InvariantCulture);
+                renderer.DrawText(font, value, placement.X + (x + ResistInset) * s, placement.Y + (y - 1) * s, ts);
+            }
         }
 
         /// <summary>The stats side (<c>persona</c>, authored at 16,48 left of the grid): name and jobs at the top, then the values on its baked rows.</summary>

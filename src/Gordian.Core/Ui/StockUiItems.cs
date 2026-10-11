@@ -36,10 +36,12 @@ namespace Gordian.Core.Ui
 
     /// <summary>
     /// The Equipment window's stats side (the English menu DAT's <c>persona</c> panel: HP, MP, TP, then STR ... CHR): the
-    /// character's name, jobs line and the values. Base and bonus are S2C 0x061's (or 0x01B's) base stats and modifiers.
+    /// character's name, jobs line and the values. Base and bonus are S2C 0x061's (or 0x01B's) base stats and modifiers;
+    /// Attack, Defense and the eight elemental resistances (Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark, as
+    /// <see cref="LocalPlayerState.ElementalResistances"/>) fill the labels and element marks baked under the grid.
     /// </summary>
     public sealed record StockUiCharacterStats(string Name, string Jobs, int MaxHp, int MaxMp, int Tp,
-        IReadOnlyList<int> BaseStats, IReadOnlyList<int> StatBonuses);
+        IReadOnlyList<int> BaseStats, IReadOnlyList<int> StatBonuses, int Attack = 0, int Defense = 0, IReadOnlyList<int>? Resistances = null);
 
     /// <summary>
     /// The stock Items window (#351) and Equipment window (#352) from the English menu DAT (39542, ROM/119/51; read

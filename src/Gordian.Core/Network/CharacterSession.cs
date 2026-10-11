@@ -439,7 +439,7 @@ namespace Gordian.Core.Network
 
         /// <summary>
         /// The Equipment window's stats side (#352): the name, "WAR75/NIN37", max HP and MP, TP, and the base stats with
-        /// their equipment bonus (S2C 0x061 / 0x01B, as <see cref="LocalPlayerState"/> keeps them).
+        /// their equipment bonus, Attack, Defense and the elemental resistances (S2C 0x061 / 0x01B, as <see cref="LocalPlayerState"/> keeps them).
         /// </summary>
         private Ui.StockUiCharacterStats CharacterStats()
         {
@@ -455,7 +455,9 @@ namespace Gordian.Core.Network
                 bases[i] = p.BaseStats[i];
                 bonuses[i] = p.StatModifiers[i];
             }
-            return new Ui.StockUiCharacterStats(CharacterName, jobs, p.MaxHp, p.MaxMp, p.CurrentTp, bases, bonuses);
+            var resistances = new int[8];
+            for (int i = 0; i < 8; i++) resistances[i] = p.ElementalResistances[i];
+            return new Ui.StockUiCharacterStats(CharacterName, jobs, p.MaxHp, p.MaxMp, p.CurrentTp, bases, bonuses, p.Attack, p.Defense, resistances);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

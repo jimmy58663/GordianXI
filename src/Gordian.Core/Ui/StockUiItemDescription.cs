@@ -152,7 +152,8 @@ namespace Gordian.Core.Ui
         public static List<StockUiItemDescriptionPage> Pages(ItemRecord record)
         {
             string name = DisplayName(record);
-            // Items that are not equipment (the Items window, #351) have no slot and races line, and their description
+            // Items that are not equipment (the Items window, #351) have no slot and races line nor level line (a Potion's DAT
+            // record carries a level and job bits that are not an equip requirement), and their description
             // lines are wrapped at the window's width (PROVISIONAL: retail's wrapping of long item text is not captured).
             bool equipment = record.EquipSlotsMask != 0 || record.Skill != 0;
             string slotLine = equipment ? SlotLine(record) : string.Empty;
@@ -164,7 +165,7 @@ namespace Gordian.Core.Ui
                 if (equipment) body.Add(trimmed);
                 else body.AddRange(WrapWords(trimmed, WrapColumns));
             }
-            var level = LevelLines(record);
+            var level = equipment ? LevelLines(record) : new List<string>();
             string footer = Footer(record);
 
             var pages = new List<StockUiItemDescriptionPage>();
