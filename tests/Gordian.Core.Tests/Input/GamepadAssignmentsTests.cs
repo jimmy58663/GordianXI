@@ -20,9 +20,7 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal("Start", GamepadAssignments.Describe(profile, Function(InputAction.Logout)));
             Assert.Equal("LT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteCtrl)));
             Assert.Equal("RT", GamepadAssignments.Describe(profile, Function(InputAction.MacroPaletteAlt)));
-            Assert.Equal("-", GamepadAssignments.Describe(profile, Function(InputAction.TargetNearest)));
             Assert.Equal("L3", GamepadAssignments.Describe(profile, Function(InputAction.LockOnOrHeal)));
-            Assert.Equal("-", GamepadAssignments.Describe(profile, Function(InputAction.ToggleLockOn)));
             Assert.Equal("R3", GamepadAssignments.Describe(profile, Function(InputAction.ToggleCameraMode)));
             Assert.Equal("D-Pad Up", GamepadAssignments.Describe(profile, Function(InputAction.MenuUp)));
             Assert.Equal("RB", GamepadAssignments.Describe(profile, Function(InputAction.ToggleAutorun)));
@@ -217,6 +215,30 @@ namespace Gordian.Core.Tests.Input
             Assert.Equal(InputAction.Confirm, rt);                // left alone
             Assert.Empty(loaded.GetChords(InputAction.MacroPaletteAlt));
             Assert.Contains(new InputChord(GordianKey.Tab), loaded.GetChords(InputAction.TargetNearest));
+        }
+
+        [Fact]
+        public void KeyboardOnlyActions_HaveNoRow_AndLoseAnyPadButtonOnLoad()
+        {
+            // Round 4: Cycle Target Left / Right and plain Lock On are covered by the combined rows; their pad buttons
+            // would be invisible in the list, so a load takes them off (keyboard bindings stay).
+            foreach (var action in new[] { InputAction.TargetPrevious, InputAction.TargetNearest, InputAction.ToggleLockOn })
+            {
+                Assert.False(GamepadAssignments.IsListed(action));
+            }
+            Assert.Contains(GamepadAssignments.Functions, f => f.Label == "Menu Up / Target Party Up");
+            Assert.Contains(GamepadAssignments.Functions, f => f.Label == "Menu Down / Target Party Down");
+
+            var saved = InputProfile.CreateCompact();
+            saved.Bind(InputAction.TargetNearest, new InputChord(GamepadButton.Guide));   // as the round-1 list could
+            saved.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.Back, InputModifiers.Control)); // a modifier chord stays
+            var loaded = InputProfile.FromJson(saved.SaveToJson());
+            Assert.DoesNotContain(new InputChord(GamepadButton.Guide), loaded.GetChords(InputAction.TargetNearest));
+            Assert.Contains(new InputChord(GordianKey.Tab), loaded.GetChords(InputAction.TargetNearest));
+            Assert.Contains(new InputChord(GordianKey.T), loaded.GetChords(InputAction.ToggleLockOn));
+            Assert.Contains(new InputChord(GamepadButton.Back, InputModifiers.Control), loaded.GetChords(InputAction.ToggleLockOn));
+            // The list's own defaults are untouched by the clean-up.
+            Assert.Equal("D-Pad Left", GamepadAssignments.Describe(loaded, Function(InputAction.MenuLeft)));
         }
     }
 }

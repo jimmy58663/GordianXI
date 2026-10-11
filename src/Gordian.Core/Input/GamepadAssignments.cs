@@ -50,14 +50,14 @@ namespace Gordian.Core.Input
             new GamepadFunction("Select Window", 139, InputAction.CycleLogWindow),
             new GamepadFunction("Open Chat", -1, InputAction.OpenChat),
             // Two-purpose functions name both purposes, menu first, as retail's own "Menu/Target Cursor Left" does.
-            new GamepadFunction("Menu Up / Target Party 2", -1, InputAction.MenuUp, InputAction.TargetParty1),
-            new GamepadFunction("Menu Down / Target Party 3", -1, InputAction.MenuDown, InputAction.TargetParty2),
+            new GamepadFunction("Menu Up / Target Party Up", -1, InputAction.MenuUp, InputAction.TargetParty1),
+            new GamepadFunction("Menu Down / Target Party Down", -1, InputAction.MenuDown, InputAction.TargetParty2),
             new GamepadFunction("Menu/Target Cursor Left", 100, InputAction.MenuLeft, InputAction.TargetCursorLeft),
             new GamepadFunction("Menu/Target Cursor Right", 99, InputAction.MenuRight, InputAction.TargetCursorRight),
-            new GamepadFunction("Cycle Target Left", -1, InputAction.TargetPrevious),
-            new GamepadFunction("Cycle Target Right", -1, InputAction.TargetNearest),
+            // Cycle Target Left / Right (Tab / Shift+Tab) and plain Lock On (T, keypad *) stay keyboard-only: the
+            // combined rows cover them on the pad (round 3, B24); InputProfile.EnsureNoHiddenGamepadBindings takes a pad
+            // button off any action without a row so none is left bound where the list cannot show it.
             new GamepadFunction("Lock On / Heal (no target)", -1, InputAction.LockOnOrHeal),
-            new GamepadFunction("Lock On", -1, InputAction.ToggleLockOn),
             new GamepadFunction("Autorun", 108, InputAction.ToggleAutorun),
             new GamepadFunction("Toggle Walk/Run", 138, InputAction.ToggleWalkRun),
             new GamepadFunction("Change View (3rd/1st/Free)", -1, InputAction.ToggleCameraMode),
@@ -69,6 +69,16 @@ namespace Gordian.Core.Input
             new GamepadFunction("Log Out", -1, InputAction.Logout),
             new GamepadFunction("Next Character", -1, InputAction.CycleCharacter),
         };
+
+        /// <summary>Whether some function of the list drives <paramref name="action"/>.</summary>
+        public static bool IsListed(InputAction action)
+        {
+            foreach (var function in Functions)
+            {
+                if (Array.IndexOf(function.Actions, action) >= 0) return true;
+            }
+            return false;
+        }
 
         /// <summary>The buttons a function has in <paramref name="profile"/> (those of its first action), in bit order.</summary>
         public static IReadOnlyList<GamepadButton> ButtonsOf(InputProfile profile, GamepadFunction function)

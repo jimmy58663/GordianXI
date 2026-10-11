@@ -349,6 +349,19 @@ namespace Gordian.Core.Input
             if (!Bindings.ContainsKey(InputAction.LockOnOrHeal)) Bindings[InputAction.LockOnOrHeal] = new List<InputChord>();
         }
 
+        /// <summary>
+        /// Takes plain gamepad buttons off every action the gamepad key-assignment list has no row for (Cycle Target Left
+        /// / Right and plain Lock On since round 4, or anything an older build bound), so no pad button is bound where the
+        /// list cannot show or change it. Keyboard and mouse bindings, and chords with a modifier, stay.
+        /// </summary>
+        public void EnsureNoHiddenGamepadBindings()
+        {
+            foreach (var (action, chords) in Bindings)
+            {
+                if (!GamepadAssignments.IsListed(action)) chords.RemoveAll(c => c.IsGamepadChord && c.Modifiers == InputModifiers.None);
+            }
+        }
+
         /// <summary>Whether an action is a macro palette held with the gamepad's other buttons.</summary>
         public static bool IsMacroPaletteAction(InputAction action) =>
             action is InputAction.MacroPaletteCtrl or InputAction.MacroPaletteAlt;
@@ -646,6 +659,7 @@ namespace Gordian.Core.Input
             profile.EnsureGamepadRetailBindings();
             profile.EnsureGamepadStickBindings();
             profile.EnsureDPadBindings();
+            profile.EnsureNoHiddenGamepadBindings();
             return profile;
         }
 

@@ -668,8 +668,47 @@ namespace Gordian.Core.Input
             return 0;
         }
 
+        /// <summary>LandSandBoat's Healing animation status (<c>xi.animation.HEALING</c>), sent in S2C 0x037.</summary>
+        public const byte StatusHealing = 33;
+
+        private bool _healCancelSent;
+
+        /// <summary>
+        /// Moving while resting stands the character up (the maintainer's request, round 3): any movement input (keys,
+        /// stick, auto-run) while the server reports the Healing status sends /heal off (C2S 0x0E8) once; it is sent again
+        /// only after the status has left Healing.
+        /// </summary>
+        private void UpdateHealCancel()
+        {
+            if (_actionService == null || _localPlayer.ServerStatus != StatusHealing)
+            {
+                _healCancelSent = false;
+                return;
+            }
+            if (_healCancelSent || !HasMovementInput()) return;
+            _healCancelSent = true;
+            var service = _actionService;
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                var result = await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
+                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while healing: {result.Message}");
+            });
+        }
+
+        private bool HasMovementInput()
+        {
+            if (_inputState.AutorunActive) return true;
+            foreach (var action in new[] { InputAction.MoveForward, InputAction.MoveBackward, InputAction.TurnLeft, InputAction.TurnRight, InputAction.StrafeLeft, InputAction.StrafeRight })
+            {
+                if (_inputState.IsActionHeld(action)) return true;
+            }
+            var pad = _inputState.CurrentGamepad;
+            return pad.IsConnected && GamepadState.ApplyRadialDeadzone(pad.LeftThumb, (_profile.GamepadSettings ?? new GamepadSettings()).LeftStickDeadzone) != Vector2.Zero;
+        }
+
         private void UpdateLocomotion(TimeSpan elapsed)
         {
+            UpdateHealCancel();
             if (_camera.Mode == CameraMode.FreeCam)
             {
                 // In FreeCam, player entity remains stationary while camera flies
@@ -1215,10 +1254,10 @@ namespace Gordian.Core.Input
         /// </summary>
         /// <summary>
         /// Holding a target-cycling key or button keeps cycling that way: after <see cref="TargetRepeatDelay"/>, then every
-        /// <see cref="TargetRepeatInterval"/> (the maintainer's request, round 2; ours, not measured against retail), so a
-        /// single press never races through targets.
+        /// <see cref="TargetRepeatInterval"/> (the maintainer's values, in-game rounds 2-3), so a single press never races
+        /// through targets.
         /// </summary>
-        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.25;
+        public const double TargetRepeatDelay = 0.5, TargetRepeatInterval = 0.15;
 
         private double _updateSeconds;
         private InputAction _cycleHeld;
