@@ -794,6 +794,7 @@ namespace Gordian.Core.Resources
             _entityModelCache.Clear();
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
+            Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
             _itemCache.Clear();
             _loadedItemTables.Clear();
             _dmsgCache.Clear();

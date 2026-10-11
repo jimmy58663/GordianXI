@@ -22,7 +22,7 @@ namespace Gordian.App.Graphics
     /// and authentic FFXI distance fog.
     /// Clean-room implementation referencing FFXI rendering pipeline conventions.
     /// </summary>
-    public sealed class ZoneTerrainRenderer : IDisposable
+    public sealed partial class ZoneTerrainRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
         // Layouts, light table, texture cache and resident zones shared by every window on the device (#300, #322).
@@ -760,6 +760,7 @@ namespace Gordian.App.Graphics
             _entityRenderer?.ResetEnvironmentProbes();
             _lightSourceVisibility.Clear();
             _actorEffects.Clear();
+            ClearActionEffects();
             _subEnvironmentUniforms.Clear();
             _subEnvironmentActorLights.Clear();
             _viewerFloorProbe = new Vector3(float.NaN);
@@ -1392,6 +1393,7 @@ namespace Gordian.App.Graphics
             }
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
+            UpdateActionEffects(camera, environment, entities, resourceManager, deltaSeconds);
 
             // Pass 3: Translucent Water and the blended parts of alpha-tested meshes (ZoneSubmeshPass.Water / DeferredBlend: 0x8000 only)
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
@@ -1458,7 +1460,7 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0))
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || _actionEffects.Count > 0))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1479,6 +1481,7 @@ namespace Gordian.App.Graphics
                 }
                 AddActorEffectDraws(camera);
                 AddSceneEffectDraws(camera);
+                AddActionEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)

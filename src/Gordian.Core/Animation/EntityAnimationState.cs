@@ -165,6 +165,9 @@ namespace Gordian.Core.Animation
         /// <summary>The bank the playing action's routine comes from (its clips are looked up there first), or null.</summary>
         private EventMotionBank? _actionBank;
 
+        /// <summary>Whether the playing action is an action presentation's <c>main</c> (#132): it gives the body back at its last clip.</summary>
+        private bool _isPresentation;
+
         /// <summary>
         /// Whether the playing action is an event gesture whose last clip loops until replaced (<see cref="MotionRoutine.HoldsLastClip"/>):
         /// it does not end with its routine but keeps the pose until the next motion, a stop or reset, a move or the event's end (#193).
@@ -425,6 +428,8 @@ namespace Gordian.Core.Animation
             _queuedActions.Clear();
             ActiveRoutine = null;
             _actionRequest = null;
+            _actionBank = null;
+            _isPresentation = false;
             _holdsLastClip = false;
             _weaponMotion = WeaponMotion.None;
             _overlayClip = null;
@@ -497,9 +502,22 @@ namespace Gordian.Core.Animation
                 }
 
                 EventMotionBank? bank = null;
-                var (routine, allowsLocomotion) = isEventMotion
-                    ? (ResolveEventMotion(model, request.Routine, out bank), false)
-                    : ResolveRoutine(model, request, isMoving);
+                MotionRoutine? routine;
+                bool allowsLocomotion = false;
+                if (isEventMotion)
+                {
+                    routine = ResolveEventMotion(model, request.Routine, out bank);
+                }
+                else if (ResolvePresentation(model, request) is { } presentation)
+                {
+                    // The weapon skill, monster move, job ability or spell's own main routine (#132).
+                    routine = presentation;
+                    bank = request.Asset!.Motion;
+                }
+                else
+                {
+                    (routine, allowsLocomotion) = ResolveRoutine(model, request, isMoving);
+                }
                 if (routine == null || routine.Segments.Count == 0)
                 {
                     // Nothing to show on the body: the result still lands.
@@ -538,6 +556,7 @@ namespace Gordian.Core.Animation
             EventMotionBank? bank = null)
         {
             _actionBank = bank;
+            _isPresentation = request?.Asset?.Motion is { } motion && ReferenceEquals(motion, bank);
             _holdsLastClip = request?.Motion == ActionMotion.EventMotion && routine.HoldsLastClip;
             IsPlayingTransition = false;
             TransitionClip = null;
@@ -621,7 +640,7 @@ namespace Gordian.Core.Animation
             ElapsedSeconds = Math.Max(0f, clipSeconds);
             AdvanceBlend(dt);
 
-            if (!_holdsLastClip && _actionTicks >= RoutineEndTick(routine))
+            if (!_holdsLastClip && _actionTicks >= (_isPresentation ? BodyEndTick(routine) : RoutineEndTick(routine)))
             {
                 EndAction(model, blend: true);
             }
@@ -640,13 +659,24 @@ namespace Gordian.Core.Animation
             var routine = ActiveRoutine;
             var request = _actionRequest;
             bool actionClipLoops = LoopsCurrentClip;
+            bool hitStillAhead = _isPresentation && _actionHitTick > _actionTicks;
             ActiveRoutine = null;
             _actionRequest = null;
             _actionBank = null;
+            _isPresentation = false;
             _holdsLastClip = false;
             _segmentIndex = -1;
             _weaponMotion = WeaponMotion.None;
-            request?.DeliverHits();
+            if (request != null && hitStillAhead && request.Sink != null && !request.HitsDelivered)
+            {
+                // A presentation's result shows at its own tick (a spell's mdam long after the release): the queue's timer
+                // shows it then, while the body already returns to its stance.
+                request.DetachHits();
+            }
+            else
+            {
+                request?.DeliverHits();
+            }
 
             float blendOut = routine != null && routine.Segments.Count > 0
                 ? Math.Max(routine.Segments[^1].BlendOutTicks / RoutineTicksPerSecond, 0.1f)
@@ -699,6 +729,30 @@ namespace Gordian.Core.Animation
                 default:
                     return (null, false);
             }
+        }
+
+        /// <summary>
+        /// The action presentation's <c>main</c> routine on this model (#132), when it moves the body: the weapon skill's
+        /// clips, the monster move's, the job ability's <c>cm0?</c> / <c>cm1?</c> from the actor's pool, the spell's link to the
+        /// caster's release. Null when the request has none or it plays no clip on this model (a monster without the release
+        /// a spell links): the stand-in plays instead.
+        /// </summary>
+        internal static MotionRoutine? ResolvePresentation(EntityModel model, ActionRequest request)
+        {
+            if (request.Asset?.Motion is not { } bank) return null;
+            var routine = bank.BuildOnModel(model, ActionAsset.MainRoutine);
+            return routine != null && routine.Segments.Count > 0 ? routine : null;
+        }
+
+        /// <summary>
+        /// When a presentation gives the body back: at the end of its last clip step (its routine runs on for the effects
+        /// and the result, e.g. Cure's <c>main</c> for 200 ticks after a release of about 60).
+        /// </summary>
+        internal static float BodyEndTick(MotionRoutine routine)
+        {
+            int end = 0;
+            foreach (var segment in routine.Segments) end = Math.Max(end, segment.StartTick + Math.Max(segment.DurationTicks, 1));
+            return end;
         }
 
         /// <summary>An event gesture's routine: from the most recent event motion bank that has it, else the model.</summary>

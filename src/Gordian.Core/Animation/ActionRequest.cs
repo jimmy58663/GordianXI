@@ -29,7 +29,7 @@ namespace Gordian.Core.Animation
         /// <summary>The spell release matching the actor's last chant: <c>ca??</c> -> <c>sh??</c>.</summary>
         CastRelease,
 
-        /// <summary>A job ability gesture: the actor's <c>cm0</c> clip.</summary>
+        /// <summary>A job ability gesture: the actor's <c>cm0</c> clip (the stand-in when the ability's presentation plays nothing, #132).</summary>
         Ability,
 
         /// <summary>Stops the actor's sustained action (a chant or item use that was interrupted).</summary>
@@ -77,6 +77,16 @@ namespace Gordian.Core.Animation
 
         public IReadOnlyList<ActionHit> Hits { get; init; } = Array.Empty<ActionHit>();
 
+        /// <summary>
+        /// The action's presentation DAT (a weapon skill, monster move, job ability or spell, #132), or null: its <c>main</c>
+        /// routine replaces the stand-in <see cref="Motion"/> when it plays a clip on the actor, and the renderer plays its
+        /// particle effects.
+        /// </summary>
+        public ActionAsset? Asset { get; init; }
+
+        /// <summary>The server id of the first target the action shows a result on (where target-side effects play), or 0.</summary>
+        public uint PrimaryTargetId => Hits.Count > 0 ? Hits[0].TargetId : 0;
+
         /// <summary><see cref="System.Diagnostics.Stopwatch"/> timestamp the request was built at.</summary>
         public long ReceivedTimestamp { get; init; }
 
@@ -96,6 +106,17 @@ namespace Gordian.Core.Animation
         public int HitTick { get; private set; } = -1;
 
         public bool HitsDelivered => Volatile.Read(ref _hitsDelivered) != 0;
+
+        /// <summary>
+        /// Whether the actor's body motion ended before the routine's hit tick (a presentation whose result shows after its
+        /// last clip, e.g. a spell's <c>mdam</c> long after the release): the queue then shows the hits at the hit tick itself.
+        /// </summary>
+        public bool HitsDetached => Volatile.Read(ref _hitsDetached) != 0;
+
+        private int _hitsDetached;
+
+        /// <summary>Hands the hits to the queue's timer (see <see cref="HitsDetached"/>).</summary>
+        public void DetachHits() => Interlocked.Exchange(ref _hitsDetached, 1);
 
         /// <summary>Records that the actor's animation state took the request into its queue.</summary>
         public void MarkAccepted(long timestamp) => Interlocked.CompareExchange(ref _acceptedTimestamp, timestamp, 0);
