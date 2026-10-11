@@ -111,7 +111,7 @@ namespace Gordian.App.Graphics
             uint localId = session.LocalPlayer.ServerId;
             var claimGroup = new List<uint>();
             foreach (var member in session.Party.Members) claimGroup.Add(member.ServerId);
-            uint targetId = session.ActionService.CurrentTarget?.ServerId ?? 0;
+            uint targetId = session.ActionService.DisplayedTarget?.ServerId ?? 0; // the sub-target while one is picked
 
             NamePlateBounds? target = null;
             foreach (var anchor in ordered)

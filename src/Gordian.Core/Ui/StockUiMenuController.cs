@@ -1255,6 +1255,12 @@ namespace Gordian.Core.Ui
                         // (or from the last row with an item) scroll the list, wrapping at the ends.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
+                    else if (top.IsActionList)
+                    {
+                        // The spell and ability lists' end rows link to themselves, as the shop list's do: up and down
+                        // past them scroll (wrapping), left and right page.
+                        changed = horizontal ? PageList(top, direction == InputAction.MenuRight) : ScrollList(top, direction == InputAction.MenuDown);
+                    }
                     else if (horizontal && top.IsShopList)
                     {
                         // Right (d-pad right) turns a page or, on the last page, goes to the bottom; left the reverse.
@@ -1464,6 +1470,12 @@ namespace Gordian.Core.Ui
             if (top.IsTreasureList)
             {
                 ActivateTreasureRow(top);
+                return;
+            }
+
+            if (top.IsActionList)
+            {
+                ActivateActionRow(top);
                 return;
             }
 
@@ -1783,6 +1795,22 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.TreasurePool:
                     OpenTreasurePool(from);
+                    break;
+
+                case StockUiMenuCommand.SpellList:
+                    OpenActionList(StockUiActionList.Spells, entry.Argument, from);
+                    break;
+
+                case StockUiMenuCommand.JobAbilityList:
+                    OpenActionList(StockUiActionList.JobAbilities, 0, from);
+                    break;
+
+                case StockUiMenuCommand.WeaponSkillList:
+                    OpenActionList(StockUiActionList.WeaponSkills, 0, from);
+                    break;
+
+                case StockUiMenuCommand.RangedAttack:
+                    RunRangedAttack();
                     break;
 
                 case StockUiMenuCommand.HomePoint:

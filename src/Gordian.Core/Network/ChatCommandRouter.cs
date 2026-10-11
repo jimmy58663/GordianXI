@@ -558,37 +558,7 @@ namespace Gordian.Core.Network
                 };
             }
 
-            string trimmed = args.Trim();
-            string actionName;
-            string targetPart = string.Empty;
-
-            // Handle quoted actions: e.g. "Fast Blade" <t> or "Cure IV" <t>
-            if (trimmed.StartsWith('"'))
-            {
-                int closingQuote = trimmed.IndexOf('"', 1);
-                if (closingQuote > 1)
-                {
-                    actionName = trimmed.Substring(1, closingQuote - 1).Trim();
-                    targetPart = trimmed.Substring(closingQuote + 1).Trim();
-                }
-                else
-                {
-                    actionName = trimmed.Trim('"');
-                }
-            }
-            else
-            {
-                int spaceIdx = trimmed.IndexOf(' ');
-                if (spaceIdx > 0)
-                {
-                    actionName = trimmed.Substring(0, spaceIdx).Trim();
-                    targetPart = trimmed.Substring(spaceIdx + 1).Trim();
-                }
-                else
-                {
-                    actionName = trimmed;
-                }
-            }
+            var (actionName, targetPart) = SplitActionArguments(args);
 
             ushort actionId = 0;
             _ = ushort.TryParse(actionName, out actionId);
@@ -597,12 +567,9 @@ namespace Gordian.Core.Network
             ushort targetIndex = 0;
             string targetName = targetPart;
 
-            if (targetName.StartsWith('<') && targetName.EndsWith('>'))
-            {
-                targetName = targetName.Substring(1, targetName.Length - 2).Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(targetName) && targetName != "t" && world != null)
+            // A target placeholder (<t>, <me>, <st>, <p1>, <bt> ...) is kept as typed, brackets and all, for the action
+            // service to resolve; a plain name is looked up here.
+            if (!string.IsNullOrWhiteSpace(targetName) && !IsTargetToken(targetName) && world != null)
             {
                 if (world.TryGetByName(targetName, out var entity) && entity != null)
                 {
@@ -621,6 +588,40 @@ namespace Gordian.Core.Network
                 TargetIndex = targetIndex,
                 TargetName = targetName
             };
+        }
+
+        /// <summary>Whether a target argument is a placeholder in angle brackets (<c>&lt;t&gt;</c>, <c>&lt;me&gt;</c>, <c>&lt;st&gt;</c> ...).</summary>
+        public static bool IsTargetToken(string target) =>
+            target.Length > 2 && target[0] == '<' && target[^1] == '>';
+
+        /// <summary>
+        /// Splits the arguments of <c>/ma</c>, <c>/ja</c> and <c>/ws</c> into the action's name and its target, as retail
+        /// takes them: a quoted name (<c>"Cure IV" &lt;t&gt;</c>), an unquoted name followed by a placeholder
+        /// (<c>Cure IV &lt;t&gt;</c>), a numeric id followed by anything (<c>1 Goblin</c>), or an unquoted name alone, which
+        /// keeps every word (<c>Cure IV</c>; the action service splits a trailing target name off when the whole text is
+        /// not a known name, as in <c>Cure Goblin</c>).
+        /// </summary>
+        public static (string Name, string Target) SplitActionArguments(string args)
+        {
+            string trimmed = args.Trim();
+            if (trimmed.StartsWith('"'))
+            {
+                int closingQuote = trimmed.IndexOf('"', 1);
+                return closingQuote > 1
+                    ? (trimmed.Substring(1, closingQuote - 1).Trim(), trimmed.Substring(closingQuote + 1).Trim())
+                    : (trimmed.Trim('"').Trim(), string.Empty);
+            }
+            int lastSpace = trimmed.LastIndexOf(' ');
+            if (lastSpace > 0 && IsTargetToken(trimmed[(lastSpace + 1)..]))
+            {
+                return (trimmed[..lastSpace].Trim(), trimmed[(lastSpace + 1)..]);
+            }
+            int firstSpace = trimmed.IndexOf(' ');
+            if (firstSpace > 0 && ushort.TryParse(trimmed[..firstSpace], out _))
+            {
+                return (trimmed[..firstSpace], trimmed[(firstSpace + 1)..].Trim());
+            }
+            return (trimmed, string.Empty);
         }
 
         /// <summary><c>/acceptraise</c> and <c>/accepttractor</c>: bare (or yes/accept) accepts; no/decline declines.</summary>

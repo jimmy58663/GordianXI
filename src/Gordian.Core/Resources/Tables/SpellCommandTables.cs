@@ -33,7 +33,24 @@ namespace Gordian.Core.Resources.Tables
     /// 512 + id. Only the fields checked against the retail data are named.
     /// </summary>
     /// <param name="Type">1 job ability, 2 pet ability, 3 weapon skill, 4 job trait, 6 Blood Pact: Rage, 8 Corsair's Roll, ... (xi-tools).</param>
-    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range);
+    /// <param name="RecastId">
+    /// The recast timer the ability shares (+0x08, u16): the <c>TimerId</c> S2C 0x119 reports its recast under.
+    /// <b>Beyond xi-tools:</b> xi-tools leaves +0x08 unnamed; on the retail table (2026-10-11) it equals LandSandBoat's
+    /// <c>abilities.recastId</c> for every ability checked (Mighty Strikes 0, Berserk 1, Warcry 2, Defender 3, Provoke 5,
+    /// Chakra 15, Boost 16, Steal 60, Flee 62, Hide 63; the waltzes 217). Weapon skills carry an unrelated value there.
+    /// </param>
+    /// <param name="TpCost">TP the command costs (+0x0C, i16; -1 for none: weapon skills read -1 and take 1000 TP by rule).</param>
+    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1)
+    {
+        /// <summary>The <see cref="Type"/> of a weapon skill.</summary>
+        public const int WeaponSkillType = 3;
+
+        /// <summary>The <see cref="Type"/> of a job trait (listed, not used).</summary>
+        public const int TraitType = 4;
+
+        /// <summary>Command ids from here up are job abilities (512 + the ability id the server knows).</summary>
+        public const int JobAbilityBase = 512;
+    }
 
     /// <summary>
     /// The client's spell and command tables: file id 81 (<c>ROM/118/114</c>, a "menu" container) holds section 0x49
@@ -46,8 +63,9 @@ namespace Gordian.Core.Resources.Tables
     /// the field offsets are referenced from xi-tools (https://github.com/vekien/xi-tools, <c>docs/dats/ROM_118_114.md</c>);
     /// the spell fields were checked against the retail table on 2026-10-10 (Cure: white, light, healing magic, 8 MP,
     /// cast 2 s, recast 5 s, WHM 1 / RDM 3 / PLD 5; Fire: black, fire, elemental, 7 MP, BLM 13 / RDM 19; Sleep (253):
-    /// enfeebling, dark, 19 MP, BLM 20 / RDM 25). The command fields beyond id, type, icon, targets and range are not
-    /// checked (the level byte xi-tools names at +0x0F reads 0 for job abilities), so they are not exposed.
+    /// enfeebling, dark, 19 MP, BLM 20 / RDM 25). Of the command fields, id, type, icon, targets, range, the recast id
+    /// (+0x08, see <see cref="CommandRecord.RecastId"/>) and the TP cost (+0x0C, Curing Waltz 200) were checked; the rest
+    /// are not exposed (the level byte xi-tools names at +0x0F reads 0 for job abilities).
     /// </para>
     /// </summary>
     public sealed class SpellCommandTables
@@ -168,6 +186,8 @@ namespace Gordian.Core.Resources.Tables
             Type: r[0x02],
             Icon: r[0x03],
             TargetFlags: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x0A)),
-            Range: r[0x10]);
+            Range: r[0x10],
+            RecastId: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x08)),
+            TpCost: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x0C)));
     }
 }

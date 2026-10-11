@@ -86,6 +86,14 @@ namespace Gordian.Core.Ui
         /// </summary>
         private static readonly StockUiCommandRow TreasureRow = Row(Treasure, StockUiMenuCommand.TreasurePool);
 
+        /// <summary>Magic ▶ opens the categories beside the menu (<c>magselec</c>), Abilities the ability list (<c>abiselec</c>; #240, #353).</summary>
+        private static readonly StockUiCommandRow MagicRow = new(Magic, new StockUiMenuEntry(Magic.Text, Opens: StockUiActionMenu.CommandMagicCategoryMenu));
+        private static readonly StockUiCommandRow AbilitiesRow = new(Abilities, new StockUiMenuEntry(Abilities.Text, Opens: StockUiActionMenu.CommandAbilityMenu));
+
+        /// <summary>Trust opens the Trust spell list at once (PROVISIONAL: retail's window for it is not captured).</summary>
+        private static readonly StockUiCommandRow TrustRow = new(Trust,
+            new StockUiMenuEntry(Trust.Text, Command: StockUiMenuCommand.SpellList, Argument: StockUiActionMenu.TrustKind));
+
         /// <summary>The rows the menu shows for a target; empty when that kind of target has no command menu.</summary>
         public static IReadOnlyList<StockUiCommandRow> Compose(in StockUiTargetContext context)
         {
@@ -97,10 +105,10 @@ namespace Gordian.Core.Ui
                     // Retail (the maintainer's in-game checks, 2026-09-28): yourself and another player both show
                     // Chat, Magic, Abilities, Trust, Items, Trade, Check. Disengage's place while engaged is a guess.
                     rows.Add(new StockUiCommandRow(Chat, new StockUiMenuEntry(Chat.Text, Opens: ChatMenu)));
-                    rows.Add(Unavailable(Magic));
-                    rows.Add(Unavailable(Abilities));
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
                     if (context.Engaged) rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
-                    rows.Add(Unavailable(Trust));
+                    rows.Add(TrustRow);
                     rows.Add(Unavailable(Items));
                     rows.Add(Unavailable(Trade));
                     if (context.HasTreasure) rows.Add(TreasureRow);
@@ -113,9 +121,9 @@ namespace Gordian.Core.Ui
                         // "attackmo" (Switch Target, Abilities, Magic, Items, Disengage, Treasure, Check) with the
                         // unengaged list's order: Magic before Abilities, Trust after them (in-game check 2026-09-28).
                         rows.Add(Unavailable(SwitchTarget));
-                        rows.Add(Unavailable(Magic));
-                        rows.Add(Unavailable(Abilities));
-                        rows.Add(Unavailable(Trust));
+                        rows.Add(MagicRow);
+                        rows.Add(AbilitiesRow);
+                        rows.Add(TrustRow);
                         rows.Add(Unavailable(Items));
                         rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                         if (context.HasTreasure) rows.Add(TreasureRow);
@@ -125,9 +133,9 @@ namespace Gordian.Core.Ui
                     {
                         // Retail (in-game check 2026-09-28): Attack, Magic, Abilities, Trust, Items, Check.
                         rows.Add(Row(Attack, StockUiMenuCommand.Attack));
-                        rows.Add(Unavailable(Magic));
-                        rows.Add(Unavailable(Abilities));
-                        rows.Add(Unavailable(Trust));
+                        rows.Add(MagicRow);
+                        rows.Add(AbilitiesRow);
+                        rows.Add(TrustRow);
                         rows.Add(Unavailable(Items));
                         if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
@@ -136,8 +144,8 @@ namespace Gordian.Core.Ui
 
                 case StockUiTargetKind.Pet:
                 case StockUiTargetKind.Trust:
-                    rows.Add(Unavailable(Magic));
-                    rows.Add(Unavailable(Abilities));
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
                     rows.Add(Unavailable(Items));
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
                     break;

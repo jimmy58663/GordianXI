@@ -869,8 +869,10 @@ namespace Gordian.App.Graphics
                             {
                                 var actions = _activeSession?.ActionService;
                                 var target = actions?.CurrentTarget;
-                                entityRenderer.TargetServerId = target?.ServerId ?? 0;
-                                entityRenderer.TargetFlashAmount = target != null && actions!.TargetSelectedTimestamp != 0
+                                // While the sub-target cursor is up the cursor's anchor follows it (#240); it does not flash.
+                                var subTarget = actions?.SubTargeting?.Current;
+                                entityRenderer.TargetServerId = subTarget?.ServerId ?? target?.ServerId ?? 0;
+                                entityRenderer.TargetFlashAmount = subTarget == null && target != null && actions!.TargetSelectedTimestamp != 0
                                     ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)
                                     : 0.0f;
                             }

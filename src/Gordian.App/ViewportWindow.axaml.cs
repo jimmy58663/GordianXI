@@ -584,7 +584,8 @@ namespace Gordian.App
                 return;
             }
             // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
-            bool confirmTaken = session.ActionService.CurrentTarget != null || session.Events.IsActive || chat.IsSelecting;
+            // The sub-target cursor (#240) takes Enter as Confirm too.
+            bool confirmTaken = session.ActionService.CurrentTarget != null || session.ActionService.SubTargeting != null || session.Events.IsActive || chat.IsSelecting;
             if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol, confirmTaken))
             {
                 e.Handled = true;

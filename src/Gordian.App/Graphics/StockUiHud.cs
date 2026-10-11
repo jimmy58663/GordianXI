@@ -183,7 +183,7 @@ namespace Gordian.App.Graphics
                 targetPlate = StockUiNamePlates.Draw(renderer, library, plateFont, session, namePlates, ownParty, width, height, Layout.NamePlateScale);
                 renderer.Opacity = presentation.InterfaceOpacity;
             }
-            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene)
+            if (targetCursor is { } cursor && session.ActionService.DisplayedTarget != null && !cutscene)
             {
                 if (targetPlate is { } plate)
                 {

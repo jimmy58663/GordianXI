@@ -124,6 +124,10 @@ namespace Gordian.App.Graphics
             {
                 DrawQuery(renderer, font, menu, placement, firstQueryRow, timestamp);
             }
+            else if (font != null && menu.IsActionList && definition.FindButton(1) is { } firstActionRow)
+            {
+                DrawActionList(renderer, font, menu, placement, firstActionRow, timestamp);
+            }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
                 // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's
@@ -267,6 +271,58 @@ namespace Gordian.App.Graphics
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
         }
 
+
+        /// <summary>
+        /// The spell and ability lists' row layout (the <c>magic</c> / <c>ability</c> frames, #240 / #353): the name from
+        /// the row button's origin plus <see cref="ActionRowTextInset"/>, the MP cost (spells) or the time left on the
+        /// recast right-aligned <see cref="ActionRowRightInset"/> from the frame's right edge, before the scrollbar.
+        /// PROVISIONAL: the insets and what the right column shows are not measured against a retail capture.
+        /// </summary>
+        private const float ActionRowTextInset = 4, ActionRowRightInset = 10;
+
+        /// <summary>
+        /// A spell, job ability or weapon skill list: one action per row over the twelve invisible row buttons, greyed
+        /// when it cannot be used now (level, MP, TP, a running recast, the command menu's target), the selected row tinted
+        /// as any selected entry; the recast counts down live; long lists slide and show the scrollbar as the other lists.
+        /// </summary>
+        private static void DrawActionList(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement,
+            UiMenuButton firstRow, long timestamp)
+        {
+            float s = placement.Scale;
+            var definition = menu.Menu;
+            var frame = definition.Frame;
+            var rows = menu.ActionRows;
+            if (rows.Count == 0 || menu.VisibleRows == 0) return;
+            var secondRow = definition.FindButton(2);
+            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+            float first = menu.FirstRow;
+            if (menu.ScrollFrom != menu.FirstRow)
+            {
+                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
+                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
+            }
+            float areaY = placement.Y + firstRow.Y * s;
+            renderer.SetClip(placement.X, areaY, frame.Width * s, menu.VisibleRows * pitch * s);
+            int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
+            int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+            float textX = placement.X + (firstRow.X + ActionRowTextInset) * s;
+            float rightEdge = placement.X + (frame.Width - ActionRowRightInset) * s;
+            for (int i = from; i <= to; i++)
+            {
+                var row = rows[i];
+                float ry = areaY + (i - first) * pitch * s;
+                float textY = ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f;
+                bool greyed = row.IsGreyed(timestamp);
+                UiColor? tint = i == selectedEntry ? SelectedGlyphTint : greyed ? GreyedTextTint : null;
+                renderer.DrawText(font, row.Name, textX, textY, s, tint);
+                // A running recast shows its time left; otherwise a spell shows its MP cost.
+                string right = StockUiActionMenu.FormatRecast(row.RecastLeft(timestamp));
+                if (right.Length == 0) right = row.Value ?? string.Empty;
+                if (right.Length > 0) renderer.DrawText(font, right, rightEdge - font.MeasureWidth(right) * s, textY, s, tint);
+            }
+            renderer.ClearClip();
+            if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, rows.Count, menu.VisibleRows);
+        }
 
         /// <summary>
         /// The shop list's row layout (the "shop" frame, Tier 2 chunk 6c): the DAT authors ten invisible 132 x 16 rows
