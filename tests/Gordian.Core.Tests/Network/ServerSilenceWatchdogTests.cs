@@ -73,6 +73,52 @@ namespace Gordian.Core.Tests.Network
                 compressed.AsSpan(0, length).CopyTo(datagram.AsSpan(28));
                 return Net.ProcessInboundDatagram(datagram);
             }
+
+            /// <summary>
+            /// Feeds a datagram with no sub-packets, as LandSandBoat answers when nothing is queued for the character
+            /// (most answers while an event holds it, #340).
+            /// </summary>
+            public bool ReceiveEmptyServerDatagram()
+            {
+                byte[] compressed = new byte[64];
+                int length = FfxiCodec.Default.Compress(ReadOnlySpan<byte>.Empty, compressed);
+                byte[] datagram = new byte[28 + length + 16];
+                BinaryPrimitives.WriteUInt16LittleEndian(datagram, ++_serverSeq);
+                compressed.AsSpan(0, length).CopyTo(datagram.AsSpan(28));
+                return Net.ProcessInboundDatagram(datagram);
+            }
+        }
+
+        [Fact]
+        public void EmptyServerDatagram_CountsAsServerTraffic()
+        {
+            var f = new Fixture();
+            f.Wait(15);
+            Assert.True(f.Net.IsConnectionLost);
+
+            Assert.True(f.ReceiveEmptyServerDatagram());
+            Assert.False(f.Net.IsConnectionLost);
+            Assert.Equal(TimeSpan.Zero, f.Net.TimeSinceLastServerPacket);
+        }
+
+        [Fact]
+        public void LongCutscene_AnsweredOnlyByEmptyDatagrams_StaysConnected_ButARealDropIsStillCaught()
+        {
+            // The 2026-10-10 Bastok Mines intro: a new (empty) answer about every 1.25 s for two minutes.
+            var f = new Fixture();
+            for (int i = 0; i < 100; i++)
+            {
+                f.Wait(1.25);
+                Assert.True(f.ReceiveEmptyServerDatagram());
+            }
+            Assert.Empty(f.LostChanges);
+            Assert.Empty(f.Logouts);
+
+            // The link then really drops mid-cutscene: nothing at all arrives.
+            f.Wait(10);
+            Assert.True(f.Net.IsConnectionLost);
+            f.Wait(50);
+            Assert.Equal(LogoutState.Timeout, Assert.Single(f.Logouts).State);
         }
 
         [Fact]
