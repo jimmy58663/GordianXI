@@ -37,6 +37,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>#8 orange: called for help on (XiPackets: YellFlag turns the name orange; the index is probable).</summary>
         CalledForHelp = 8,
+
+        /// <summary>
+        /// #9 grey: a dead monster (#327). The only grey in the group (half-scale 64, 64, 64), right after the eight known
+        /// colours; that it is the one retail uses for the dead is probable, not captured.
+        /// </summary>
+        Dead = 9,
     }
 
     /// <summary>
@@ -76,7 +82,8 @@ namespace Gordian.Core.Ui
         /// </summary>
         public static bool ShowsName(WorldEntity entity, NamePlateFlags flags)
         {
-            if (!entity.IsSpawned || (entity.IsHidden && !entity.IsInEvent) || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
+            if (!entity.IsSpawned || ((entity.IsHidden || entity.IsSleeping || entity.IsAutoTargetOnly) && !entity.IsInEvent)
+                || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
             if (entity.HidesEventName) return false;
             return HasNamePlate(entity, flags);
         }
@@ -137,6 +144,8 @@ namespace Gordian.Core.Ui
         public static NamePlateColor Color(WorldEntity entity, NamePlateFlags flags, uint localServerId,
             IReadOnlyCollection<uint> ownPartyIds, IReadOnlyCollection<uint> claimGroupIds)
         {
+            // A dead monster's name greys out (#327; the death status, WorldEntity.IsDeadBattleEntity).
+            if (entity.IsDeadBattleEntity) return NamePlateColor.Dead;
             if ((flags & NamePlateFlags.CalledForHelp) != 0) return NamePlateColor.CalledForHelp;
 
             if (entity.Type == EntityType.Monster)

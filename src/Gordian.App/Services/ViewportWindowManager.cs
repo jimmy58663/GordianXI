@@ -112,7 +112,11 @@ namespace Gordian.App.Services
                 if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby)) Sync();
             }
 
+            // The focus target draws every frame, the other viewport windows at the background rate (#301).
+            void OnFocusChanged(object? sender, EventArgs e) => window.SetFocusTarget(InputFocus.IsFocusTarget(window));
+
             viewModel.PropertyChanged += OnChanged;
+            InputFocus.Changed += OnFocusChanged;
             window.Activated += (_, _) => InputFocus.Activated(window);
             window.Deactivated += (_, _) =>
             {
@@ -123,9 +127,11 @@ namespace Gordian.App.Services
             window.Closed += (_, _) =>
             {
                 viewModel.PropertyChanged -= OnChanged;
+                InputFocus.Changed -= OnFocusChanged;
                 InputFocus.Remove(window);
             };
             Sync();
+            OnFocusChanged(this, EventArgs.Empty);
         }
 
         /// <summary>

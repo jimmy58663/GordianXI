@@ -350,7 +350,8 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName);
+            var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (lines.Count > 0)
             {
                 DispatchToUi(() =>
@@ -381,12 +382,17 @@ namespace Gordian.App.ViewModels
                 return null;
             }
 
-            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName);
+            string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName,
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             if (!string.IsNullOrEmpty(line))
             {
                 DispatchToUi(() =>
                 {
-                    AddMessageItem(ChatItemViewModel.CreateCombat(line));
+                    // A battle message may span lines (a critical hit, a spell and its effect): one item each.
+                    foreach (string part in line.Split('\n'))
+                    {
+                        if (part.Length > 0) AddMessageItem(ChatItemViewModel.CreateCombat(part));
+                    }
                 });
             }
         }

@@ -374,13 +374,22 @@ namespace Gordian.Core.Actions
             if (previous == StatusEngaged && current != StatusEngaged) EndEngagement();
         }
 
-        /// <summary>The engaged target died: end the engagement and drop it as the target.</summary>
+        /// <summary>
+        /// The engaged target died: end the engagement and drop it as the target. A selected target the server's state no
+        /// longer lets be targeted (a dead monster, TargetOff, SleepFlag, auto-target only; #327, #334) is dropped too, as
+        /// retail does; one taking part in the running event is kept.
+        /// </summary>
         private void OnEntityUpdated(WorldEntity entity)
         {
             if (entity.Type == EntityType.Player && entity.ServerId == _localPlayer.ServerId) return;
             if (entity.Hpp == 0 || entity.AnimationState is StatusDead or StatusDespawning)
             {
                 if (Combat is { IsEngaged: true } combat && combat.TargetServerId == entity.ServerId) EndEngagement();
+            }
+            if (CurrentTarget != null && CurrentTarget.ServerId == entity.ServerId && !entity.IsInEvent
+                && (entity.IsDeadBattleEntity || entity.IsTargetOff || entity.IsSleeping || entity.IsAutoTargetOnly))
+            {
+                ClearTarget();
             }
         }
 

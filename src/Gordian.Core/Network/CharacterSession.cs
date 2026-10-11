@@ -228,7 +228,9 @@ namespace Gordian.Core.Network
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
-            Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName);
+            // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...". Named monsters (NamedFlag, #334) take none.
+            Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
+                id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
             // The server message (S2C 0x04D, #117): asked for once, when the first zone-in after login completes; /servmes
             // asks again.
             NetworkManager.Parser.HandshakeCompleted += () =>

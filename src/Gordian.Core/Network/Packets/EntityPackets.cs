@@ -234,6 +234,51 @@ namespace Gordian.Core.Network.Packets
         public bool IsHidden => ((Flags1 >> 1) & 0x01) != 0;
 
         /// <summary>
+        /// <c>facetarget</c> (Flags0 bits 17-31): the target index of the player's current target, which the client turns
+        /// the player's head toward; 0 for none. LandSandBoat writes it (the player's <c>m_TargID</c>) only with the Position
+        /// send flag. Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D flags0_t and
+        /// LandSandBoat (https://github.com/LandSandBoat/server) packets/char_update.cpp.
+        /// </summary>
+        public ushort FaceTargetIndex => (ushort)(Flags0 >> 17);
+
+        /// <summary>
+        /// <c>SleepFlag</c> (Flags1 bit 2): the player's scheduler is suspended; the client neither draws nor targets it
+        /// (not the Sleep status). Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D flags1_t.
+        /// </summary>
+        public bool IsSleeping => ((Flags1 >> 2) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>TargetOffFlag</c> (Flags1 bit 19): the player cannot be targeted by normal means. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000D flags1_t.
+        /// </summary>
+        public bool IsTargetOff => ((Flags1 >> 19) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>TurnFlag</c> (Flags1 bit 30): the client eases the heading toward a new direction over time instead of turning
+        /// at once. LandSandBoat never sets it. Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D flags1_t.
+        /// </summary>
+        public bool EasesHeading => ((Flags1 >> 30) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>ShadowFlag</c> (Flags2 bit 25): the player's shadow is hidden. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000D flags2_t.
+        /// </summary>
+        public bool HidesShadow => ((Flags2 >> 25) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>MotStopFlag</c> (Flags3 bit 4): the player's motion is paused, frozen in its current pose (petrify, terror;
+        /// LandSandBoat sets it under Terror). Referenced from XiPackets (https://github.com/atom0s/XiPackets)
+        /// world/server/0x000D flags3_t and LandSandBoat (https://github.com/LandSandBoat/server) packets/char_update.cpp.
+        /// </summary>
+        public bool IsMotionStopped => ((Flags3 >> 4) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>CliPriorityFlag</c> (Flags3 bit 5): drawn even past the client's per-frame entity limit. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000D flags3_t.
+        /// </summary>
+        public bool IsPriorityDrawn => ((Flags3 >> 5) & 0x01) != 0;
+
+        /// <summary>
         /// <c>Flags4</c> (payload 0x2F): bit 1 TrialFlag, bit 6 JobMasterFlag. 0 when the packet is too short.
         /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D flags4_t.
         /// </summary>
@@ -654,6 +699,123 @@ namespace Gordian.Core.Network.Packets
         /// Flag layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t unknown_3_4.
         /// </summary>
         public bool IsNonBlocking => ((Flags3 >> 28) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>facetarget</c> (Flags0 bits 17-31): the target index the entity's head turns toward; 0 for none. LandSandBoat
+        /// writes the entity's <c>m_TargID</c> (an NPC's database <c>LookAt</c> / <c>flag &gt;&gt; 16</c>, or whom a script
+        /// has it look at) as the u16 at packet 0x1A shifted left by one, only with the Position send flag.
+        /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags0_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) packets/entity_update.cpp, utils/zoneutils.cpp.
+        /// </summary>
+        public ushort FaceTargetIndex => (ushort)(Flags0 >> 17);
+
+        /// <summary>
+        /// <c>KingFlag</c> (Flags0 bit 16): one of the "king" entities the client waits for at zone-in (the 0x00A
+        /// <c>SendCount</c>). Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags0_t.
+        /// </summary>
+        public bool IsKing => ((Flags0 >> 16) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>SleepFlag</c> (Flags1 bit 2): the entity's scheduler is suspended; the client neither draws nor targets it (not
+        /// the Sleep status). LandSandBoat's status byte sets it for status 4, 5, 6 (cutscene only), 7 and 20.
+        /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t.
+        /// </summary>
+        public bool IsSleeping => ((Flags1 >> 2) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>TargetOffFlag</c> (Flags1 bit 19): the entity cannot be targeted by normal means. LandSandBoat's
+        /// <c>entity_flags.untargetable</c> (0x800 of the database flags written at packet 0x21) lands here.
+        /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) data/enums/entity_flags.yaml.
+        /// </summary>
+        public bool IsTargetOff => ((Flags1 >> 19) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>TurnFlag</c> (Flags1 bit 30): the client eases the heading toward a new direction over time instead of turning
+        /// at once. LandSandBoat never sets it. Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags1_t.
+        /// </summary>
+        public bool EasesHeading => ((Flags1 >> 30) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>Flags2.g</c> (bits 8-15, packet 0x25): the model's hitbox size in tenths of a yalm (the client reads
+        /// <c>g * 0.1</c>). LandSandBoat writes 8 for a living mob and 0 once it has no HP, whatever its database hitbox.
+        /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags2_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) packets/entity_update.cpp.
+        /// </summary>
+        public byte ModelHitboxSize => (byte)((Flags2 >> 8) & 0xFF);
+
+        /// <summary>The model's hitbox size as the client reads it: <see cref="ModelHitboxSize"/> * 0.1 yalms.</summary>
+        public float ModelHitboxRadius => ModelHitboxSize * 0.1f;
+
+        /// <summary>
+        /// <c>ShadowFlag</c> (Flags2 bit 25): the entity's shadow is hidden. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000E flags2_t.
+        /// </summary>
+        public bool HidesShadow => ((Flags2 >> 25) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>NamedFlag</c> (Flags2 bit 29): a proper name; mentions of the entity take no "The". LandSandBoat's name prefix
+        /// (packet 0x27) 0x20 lands here: 338 notorious monster pools (Adelheid, Amikiri...) and every dynamic NPC.
+        /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags2_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) sql/mob_pools.sql name_prefix, lua/luautils.cpp.
+        /// </summary>
+        public bool HasProperName => ((Flags2 >> 29) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>SingleFlag</c> (Flags2 bit 30): the entity is referred to in the plural (LandSandBoat name prefix 0x40, e.g.
+        /// Archaic Gears). Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags2_t.
+        /// </summary>
+        public bool IsPlural => ((Flags2 >> 30) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>AutoPartyFlag</c> (Flags2 bit 31) on 0x00E: the entity is invisible and cannot be targeted by normal means; only
+        /// auto-targeting picks it once it attacks the player. Referenced from XiPackets (https://github.com/atom0s/XiPackets)
+        /// world/server/0x000E flags2_t.
+        /// </summary>
+        public bool IsAutoTargetOnly => ((Flags2 >> 31) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>PetNewFlag</c> (Flags3 bit 2): a pet being spawned, which changes its spawn animation. LandSandBoat sets it for a
+        /// special spawn animation and in every Trust update (0x45). Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) packets/entity_update.cpp.
+        /// </summary>
+        public bool IsPetSpawning => ((Flags3 >> 2) & 0x01) != 0;
+
+        /// <summary>
+        /// PS2 <c>PetKillFlag</c> (Flags3 bit 3; XiPackets <c>unknown_0_3</c>, purpose unknown). LandSandBoat sets it for a mob
+        /// in its death animation that still has HP. Referenced from XiPackets (https://github.com/atom0s/XiPackets)
+        /// world/server/0x000E flags3_t and LandSandBoat (https://github.com/LandSandBoat/server) packets/entity_update.cpp.
+        /// </summary>
+        public bool IsPetKill => ((Flags3 >> 3) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>MotStopFlag</c> (Flags3 bit 4): the entity's motion is paused, frozen in its current pose (petrify, terror;
+        /// LandSandBoat sets it under Terror). Referenced from XiPackets (https://github.com/atom0s/XiPackets)
+        /// world/server/0x000E flags3_t and LandSandBoat (https://github.com/LandSandBoat/server) packets/entity_update.cpp.
+        /// </summary>
+        public bool IsMotionStopped => ((Flags3 >> 4) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>CliPriorityFlag</c> (Flags3 bit 5): drawn even past the client's per-frame entity limit (LandSandBoat: every
+        /// Pso'Xja mob and <c>priorityRender</c> entities). Referenced from XiPackets (https://github.com/atom0s/XiPackets)
+        /// world/server/0x000E flags3_t and LandSandBoat (https://github.com/LandSandBoat/server) packets/entity_update.cpp.
+        /// </summary>
+        public bool IsPriorityDrawn => ((Flags3 >> 5) & 0x01) != 0;
+
+        /// <summary>
+        /// <c>OcclusionoffFlag</c> (Flags3 bit 7): the entity is left out of the client's entity occlusion tests. Referenced
+        /// from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t.
+        /// </summary>
+        public bool IsOcclusionExempt => ((Flags3 >> 7) & 0x01) != 0;
+
+        /// <summary>
+        /// Flags3 bit 31 (<c>unknown_3_7</c>): the entity is drawn half-transparent (the client's distance alpha is overridden
+        /// to 0.5). LandSandBoat's name visibility 0x80 (<c>ghost_phase</c>, packet 0x2B) lands here. Referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000E flags3_t and LandSandBoat
+        /// (https://github.com/LandSandBoat/server) data/enums/name_vis.yaml.
+        /// </summary>
+        public bool IsHalfTransparent => ((Flags3 >> 31) & 0x01) != 0;
 
         /// <summary>
         /// The name plate flags an NPC or monster carries: flags1 YellFlag (13, orange name), flags1 PlayOnelineFlag (16,
