@@ -538,6 +538,9 @@ namespace Gordian.Core.Animation
             return false;
         }
 
+        /// <summary>A chant with an action waiting behind it plays at least this long (60 Hz ticks) before giving way.</summary>
+        public const float MinSustainedTicks = 6f;
+
         /// <summary>An event gesture that waited longer than this to start (its entity was off screen) starts partway through.</summary>
         private const float CatchUpSeconds = 0.1f;
 
@@ -615,6 +618,15 @@ namespace Gordian.Core.Animation
         {
             var routine = ActiveRoutine!;
             _actionTicks += dt * RoutineTicksPerSecond;
+
+            // A chant (or a held event pose) with something already waiting behind it gives way at once: a cast's start and
+            // finish can arrive in one datagram (an instant cast, #132 round 1), and the chant would otherwise hold the body
+            // for its 30 s until the finish went stale, skipping the release and its effects.
+            if ((routine.IsSustained || _holdsLastClip) && _queuedActions.Count > 0 && _actionTicks >= MinSustainedTicks)
+            {
+                EndAction(model, blend: true);
+                return;
+            }
 
             // Step to the segment the routine clock has reached.
             int next = _segmentIndex + 1;

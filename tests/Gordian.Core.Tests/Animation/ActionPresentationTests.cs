@@ -358,6 +358,14 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(target, ActionEffectPlayer.IsTargetSide(generator));
         }
 
+        private static List<ActionEffectEvent> Step(ActionEffectTracker tracker, WorldEntity entity)
+        {
+            var events = new List<ActionEffectEvent>();
+            tracker.Step(entity, events);
+            tracker.EndFrame();
+            return events;
+        }
+
         [Fact]
         public void Tracker_StartsEachPresentationOnce()
         {
@@ -368,21 +376,128 @@ namespace Gordian.Core.Tests.Animation
             var tracker = new ActionEffectTracker();
 
             entity.Animation.Advance(0f, AnimationCategory.Combat, 0, model);
-            Assert.Null(tracker.Observe(entity));
-            tracker.EndFrame();
+            Assert.Empty(Step(tracker, entity));
 
-            entity.Animation.EnqueueAction(new ActionRequest { Motion = ActionMotion.Ability, Asset = asset, ReceivedTimestamp = Stopwatch.GetTimestamp() });
+            entity.Animation.EnqueueAction(new ActionRequest
+            {
+                Motion = ActionMotion.Ability, Asset = asset, Hits = [new ActionHit(7, default)], ReceivedTimestamp = Stopwatch.GetTimestamp()
+            });
             entity.Animation.Advance(Tick, AnimationCategory.Combat, 0, model);
-            Assert.Same(asset, tracker.Observe(entity)!.Asset);
-            tracker.EndFrame();
+            var started = Assert.Single(Step(tracker, entity));
+            Assert.Equal(ActionEffectEventKind.Presentation, started.Kind);
+            Assert.Same(asset, started.Request!.Asset);
+            Assert.Equal(7u, started.TargetId);
             entity.Animation.Advance(Tick, AnimationCategory.Combat, 0, model);
-            Assert.Null(tracker.Observe(entity)); // the same action
-            tracker.EndFrame();
+            Assert.Empty(Step(tracker, entity)); // the same action
 
             // An action without a presentation starts nothing.
             entity.Animation.EnqueueAction(new ActionRequest { Motion = ActionMotion.Ability, ReceivedTimestamp = Stopwatch.GetTimestamp() });
             for (int i = 0; i < 200; i++) entity.Animation.Advance(Tick, AnimationCategory.Combat, 0, model);
-            Assert.Null(tracker.Observe(entity));
+            Assert.Empty(Step(tracker, entity));
+        }
+
+        /// <summary>An op 0x19 command (spell effect): u32 spell animation at +8.</summary>
+        private static byte[] SpellEffectCommand(int animation, int delay = 0)
+        {
+            var command = new byte[12];
+            command[0] = 0x19;
+            BinaryPrimitives.WriteUInt16LittleEndian(command.AsSpan(1), 3);
+            BinaryPrimitives.WriteUInt16LittleEndian(command.AsSpan(4), (ushort)delay);
+            BinaryPrimitives.WriteUInt32LittleEndian(command.AsSpan(8), (uint)animation);
+            return command;
+        }
+
+        /// <summary>
+        /// A caster as retail authors one: the chant <c>cawh</c> plays <c>mw0?</c> looping and links the shared circle
+        /// <c>ner2</c>; the release <c>shwh</c> links the shared stop <c>stwh</c> and flash <c>eis4</c>, and the local
+        /// <c>sswh</c> that plays the clips; <c>spop</c> plays spell effect 921 (a Trust appearing).
+        /// </summary>
+        private static EntityModel Caster()
+        {
+            var model = new EntityModel { Name = "Caster" };
+            foreach (var name in new[] { "idl", "btl", "wlk", "run", "mw0", "mw1" }) model.Animations[name] = Clip(name, 1f);
+            void Add(string name, byte[] payload) => model.RawMotionRoutines[name] = MotionRoutineDecoder.Decode(payload, name)!;
+            Add("cawh", MotionRoutineDecoderTests.Routine(93,
+                MotionRoutineDecoderTests.PlayClip("mw0?", 0, 93, 10, 10, 23),
+                MotionRoutineDecoderTests.Link(0x03, "hwmg", 0),
+                MotionRoutineDecoderTests.Link(0x03, "ner2", 0)));
+            Add("shwh", MotionRoutineDecoderTests.Routine(1,
+                MotionRoutineDecoderTests.Link(0x03, "stwh", 0),
+                MotionRoutineDecoderTests.Link(0x03, "eis4", 1),
+                MotionRoutineDecoderTests.Link(0x03, "sswh", 0)));
+            Add("sswh", MotionRoutineDecoderTests.Routine(60, MotionRoutineDecoderTests.PlayClip("mw1?", 60, 60, 10, 20, 1)));
+            Add("spop", MotionRoutineDecoderTests.Routine(0, SpellEffectCommand(921)));
+            model.RebuildMotionRoutines();
+            return model;
+        }
+
+        [Fact]
+        public void RoutineEffects_FollowLocalLinks_AndNameTheSharedRoutines()
+        {
+            var model = Caster();
+            Assert.Equal(new[] { new RoutineEffectCue(0, "ner2") }, model.GetRoutineEffects("cawh"));
+            Assert.Equal(new[] { new RoutineEffectCue(0, "stwh"), new RoutineEffectCue(0, "eis4") }, model.GetRoutineEffects("shwh"));
+            Assert.Equal(new[] { new RoutineEffectCue(0, string.Empty, 921) }, model.GetRoutineEffects("spop"));
+            Assert.Empty(model.GetRoutineEffects("sswh"));
+        }
+
+        /// <summary>
+        /// The chant starts its circle; the release replaces the chant, so the circle is reported over (the renderer stops
+        /// it, as the release's own <c>stwh</c> does) and the release's stop and flash start.
+        /// </summary>
+        [Fact]
+        public void Tracker_ReportsSharedRoutinesOnTheRoutineClock_AndTheChantsEnd()
+        {
+            var model = Caster();
+            var entity = new WorldEntity(1, 1, EntityType.Player);
+            var tracker = new ActionEffectTracker();
+            entity.Animation.Advance(0f, AnimationCategory.Idle, 0, model);
+            Assert.Empty(Step(tracker, entity));
+
+            entity.Animation.EnqueueAction(new ActionRequest { Motion = ActionMotion.Routine, Routine = "cawh", ReceivedTimestamp = Stopwatch.GetTimestamp() });
+            entity.Animation.Advance(Tick, AnimationCategory.Idle, 0, model);
+            var chant = Assert.Single(Step(tracker, entity));
+            Assert.Equal((ActionEffectEventKind.SharedRoutine, "ner2"), (chant.Kind, chant.Routine));
+            for (int i = 0; i < 60; i++) entity.Animation.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Empty(Step(tracker, entity));
+
+            entity.Animation.EnqueueAction(new ActionRequest { Motion = ActionMotion.Routine, Routine = "shwh", ReceivedTimestamp = Stopwatch.GetTimestamp() });
+            entity.Animation.Advance(Tick, AnimationCategory.Idle, 0, model);
+            entity.Animation.Advance(Tick, AnimationCategory.Idle, 0, model);
+            var release = Step(tracker, entity);
+            Assert.Equal(new[] { (ActionEffectEventKind.ActionEnded, "ner2"), (ActionEffectEventKind.SharedRoutine, "stwh"), (ActionEffectEventKind.SharedRoutine, "eis4") },
+                release.Select(e => (e.Kind, e.Routine)).ToArray());
+        }
+
+        [Fact]
+        public void Tracker_PlaysTheSummonedEffect_WhenATrustAppears()
+        {
+            var model = Caster();
+            var trust = new WorldEntity(9, 9, EntityType.Trust) { IsPetSpawning = true };
+            trust.Animation.Advance(0f, AnimationCategory.Idle, 0, model);
+            var tracker = new ActionEffectTracker();
+            var appear = Assert.Single(Step(tracker, trust));
+            Assert.Equal((ActionEffectEventKind.SpellEffect, 921, 9u), (appear.Kind, appear.SpellAnimation, appear.ActorId));
+            Assert.Empty(Step(tracker, trust)); // once, when first seen
+        }
+
+        /// <summary>
+        /// A cast's start and finish in one datagram (an instant cast, round 1 C7 / D3): the chant gives way to the waiting
+        /// release after a few ticks instead of holding the body for 30 s until the release went stale.
+        /// </summary>
+        [Fact]
+        public void Chant_WithTheReleaseAlreadyQueued_GivesWayAtOnce()
+        {
+            var model = Caster();
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            long now = Stopwatch.GetTimestamp();
+            state.EnqueueAction(new ActionRequest { Motion = ActionMotion.Routine, Routine = "cawh", ReceivedTimestamp = now });
+            state.EnqueueAction(new ActionRequest { Motion = ActionMotion.Routine, Routine = "shwh", ReceivedTimestamp = now });
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("cawh", state.ActiveRoutine!.Name);
+            for (int i = 0; i < 10; i++) state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("shwh", state.ActiveRoutine!.Name);
         }
 
         // --- Retail data -----------------------------------------------------------------------------------------------
@@ -428,7 +543,7 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(105f, EntityAnimationState.BodyEndTick(routine));
             Assert.True(asset.Effects!.Routines.ContainsKey("main"));
             // Its sound commands (0x0A on 8050 at the hit) play on the routine clock.
-            Assert.NotEmpty(asset.Motion.GetSoundsOnModel(model, ActionAsset.MainRoutine).Where(c => !c.IsTargetLink && c.Choices.Any(id => id > 0)));
+            Assert.Contains(asset.Motion.GetSoundsOnModel(model, ActionAsset.MainRoutine), c => !c.IsTargetLink && c.Choices.Any(id => id > 0));
         }
 
         /// <summary>
@@ -449,6 +564,63 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(new[] { "mw1", "mw2" }, cure.Segments.Select(s => s.ClipName).ToArray());
             Assert.Equal(new[] { 205 }, cure.HitTicks);
             Assert.True(EntityAnimationState.BodyEndTick(cure) < 205);
+        }
+
+        /// <summary>
+        /// Hume male's chant <c>cawh</c> links the shared circle <c>ner2</c>, its release <c>shwh</c> the stop <c>stwh</c> and
+        /// flash <c>eis4</c>; Fast Blade's <c>main</c> links <c>eis1</c>; Trust model 3000's <c>spop</c> plays spell effect 921;
+        /// <c>ROM/0/0</c> holds those routines and their generators.
+        /// </summary>
+        [Fact]
+        public void Retail_SharedEffects_AreLinkedFromTheActorsRoutines()
+        {
+            if (Retail() is not { } rm || HumeMale(rm) is not { } model) return;
+            Assert.Contains(new RoutineEffectCue(0, "ner2"), model.GetRoutineEffects("cawh"));
+            var release = model.GetRoutineEffects("shwh").Select(c => c.Routine).ToArray();
+            Assert.Contains("stwh", release);
+            Assert.Contains("eis4", release);
+
+            var library = new ActionMotionLibrary(rm.LoadDatBytesByFileId);
+            var fastBlade = library.Resolve(ActionCategory.SkillFinish, 1, CharacterRace.HumeMale)!;
+            Assert.Contains(fastBlade.Motion!.GetEffectsOnModel(model, ActionAsset.MainRoutine), c => c.Routine == "eis1");
+
+            var trust = EntityModelLoader.LoadMonsterModel(3000, rm.LoadDatBytesByFileId)!;
+            Assert.Contains(new RoutineEffectCue(0, string.Empty, 921), trust.GetRoutineEffects(ActionEffectTracker.SummonedRoutine));
+            Assert.NotNull(library.ResolveSpellEffect(921)?.Effects);
+
+            var shared = rm.GetSharedRoutineEffects();
+            Assert.NotNull(shared);
+            foreach (var name in new[] { "ner1", "ner2", "nefa", "stwh", "eis1", "eis4" }) Assert.True(shared!.Value.Routines.TryGetRoutine(name, out _), name);
+            var player = new ActionEffectPlayer(shared!.Value.Routines, shared.Value.Effects, 1, 1);
+            Assert.True(player.Start("ner2"));
+            var frame = new ZoneParticleFrame(new Vector3(0, -2, -5), 0.5f, Vector3.One, Vector3.UnitZ, 0, 0);
+            for (int i = 0; i < 30; i++) player.Update(1f, frame, frame, frame);
+            Assert.Contains(player.Player.Instance.Emitters, e => e.Emitter.Particles.Count > 0);
+            Assert.True(player.StopIfSustained("ner2"));
+            Assert.False(player.StopIfSustained("eis4"));
+        }
+
+        /// <summary>
+        /// The bee (model 272, <c>ROM/172/70</c>) idles with <c>idl0</c> (80 frames, the body) and <c>idl1</c> (4 frames, the
+        /// wings): joined into <c>idl</c>, the wing tracks keep their own length and flap through a whole cycle in 4 frames
+        /// instead of being stretched over the body's 80 (round 1: "bees' wings aren't animating").
+        /// </summary>
+        [Fact]
+        public void Retail_BeeWings_LoopAtTheirOwnLength()
+        {
+            if (Retail() is not { } rm) return;
+            var bee = EntityModelLoader.LoadMonsterModel(272, rm.LoadDatBytesByFileId);
+            Assert.NotNull(bee);
+            var idle = bee!.Animations["idl"];
+            var wing = bee.Animations["idl1"];
+            Assert.True(wing.DurationSeconds < idle.DurationSeconds / 4);
+            var joint = wing.Tracks.Keys.First(j => idle.Tracks[j].PartDurationSeconds > 0f);
+            Assert.Equal(wing.DurationSeconds, idle.Tracks[joint].PartDurationSeconds, 3);
+            // Sampled at the wing part's own times, the joined clip matches the part.
+            float t = wing.DurationSeconds * 0.5f;
+            Assert.True(idle.TrySample(joint, t, true, out var joined, out _));
+            Assert.True(wing.TrySample(joint, t, true, out var own, out _));
+            Assert.True(MathF.Abs(System.Numerics.Quaternion.Dot(joined, own)) > 0.9999f);
         }
 
         /// <summary>

@@ -202,19 +202,32 @@ namespace Gordian.Core.Animation
             if (raceKey == 5) raceKey = 4;
             if (_cache.TryGetValue((kind, raceKey, animation), out var cached)) return cached;
             var asset = _cache.GetOrAdd((kind, raceKey, animation), key => Load(key.Kind, key.Animation, race, loader));
-            if (asset?.Effects != null && _loader == null && EffectsPreloader is { } preload)
+            if (asset?.Effects != null && _loader == null && EffectsPreloader is { } preload) Preload(preload, asset.FileId, asset.ToString());
+            return asset;
+        }
+
+        /// <summary>
+        /// Decodes a presentation's particle effects on the thread pool, so neither the network thread (which would hold
+        /// every packet behind it) nor the renderer waits for it.
+        /// </summary>
+        private static void Preload(Action<int> preload, int fileId, string label) =>
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
-                    preload(asset.FileId);
+                    preload(fileId);
                 }
                 catch (Exception ex)
                 {
-                    Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"Effects of {asset} could not be preloaded: {ex.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"Effects of {label} could not be preloaded: {ex.Message}");
                 }
-            }
-            return asset;
-        }
+            });
+
+        /// <summary>
+        /// The effects of spell animation <paramref name="animation"/> for an op 0x19 (a Trust's <c>spop</c>), or null.
+        /// Spell presentations do not depend on the race.
+        /// </summary>
+        public ActionAsset? ResolveSpellEffect(int animation) => Resolve(ActionCategory.MagicFinish, animation, CharacterRace.Unknown);
 
         private static ActionAsset? Load(ActionAssetKind kind, int animation, CharacterRace race, Func<int, byte[]?> loader)
         {

@@ -97,6 +97,16 @@ namespace Gordian.Core.Graphics
             _running.RemoveAll(r => r.Next >= r.Routine.Commands.Count && !r.Loop);
         }
 
+        /// <summary>Stops the running routine <paramref name="routine"/> by name, as op 0x5F does (its particles live out their life).</summary>
+        public void StopRoutine(string routine)
+        {
+            foreach (var run in _running)
+            {
+                if (string.Equals(run.Routine.Name, routine, StringComparison.Ordinal)) End(run);
+            }
+            _running.RemoveAll(r => r.Next >= r.Routine.Commands.Count && !r.Loop);
+        }
+
         /// <summary>Stops every routine and removes every particle.</summary>
         public void Kill()
         {

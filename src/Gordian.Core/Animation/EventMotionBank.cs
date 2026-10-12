@@ -99,6 +99,22 @@ namespace Gordian.Core.Animation
             return cues;
         }
 
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, IReadOnlyList<RoutineEffectCue>> _effectsOnModel = new();
+
+        /// <summary>
+        /// The shared effect routines and spell effects routine <see cref="ActionAsset.MainRoutine"/> starts on an actor,
+        /// through the bank's routines and then the actor's (a weapon skill's <c>eis1</c>, a spell's release <c>shwh</c> with
+        /// its <c>stwh</c> / <c>eis4</c>); cached per model. The bank's own generators are played from its effect routines.
+        /// </summary>
+        public IReadOnlyList<RoutineEffectCue> GetEffectsOnModel(EntityModel model, string name)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            if (name == ActionAsset.MainRoutine && _effectsOnModel.TryGetValue(model, out var cached)) return cached;
+            var cues = RoutineEffectCollector.Collect(new LayeredRoutines(_raw, model.RawMotionRoutines), name);
+            if (name == ActionAsset.MainRoutine) _effectsOnModel.AddOrUpdate(model, cues);
+            return cues;
+        }
+
         /// <summary>Two routine sets read as one, the first winning a name both have.</summary>
         private sealed class LayeredRoutines : IReadOnlyDictionary<string, RawMotionRoutine>
         {
