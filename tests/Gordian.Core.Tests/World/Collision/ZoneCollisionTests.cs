@@ -191,6 +191,34 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.Equal(y, localEnt.Position.Y);
         }
 
+        [Fact]
+        public void ZoneIn_SettlesOntoTheFloorOnceCollisionLoads()
+        {
+            // A zone line lands at the centre of the next zone's landing box, about two yalms above the street (#350).
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(0.0f, -2.0f, 0.0f), IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            var controller = new PlayerLocomotionController(new InputState(), InputProfile.CreateCompact(), world, player);
+            player.RequestGroundSettle();
+
+            // No collision yet: the request waits.
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(-2.0f, localEnt.Position.Y);
+            Assert.True(player.GroundSettlePending);
+
+            world.Collision = new ZoneCollisionMesh(Floor(-10, -10, 10, 10, 0.0f).ToList());
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(0.0f, localEnt.Position.Y, 3);
+            Assert.False(player.GroundSettlePending);
+            Assert.False(controller.IsFalling);
+
+            // A later placement in mid-air (a GM /moveto) still holds: the settle was once per zone-in.
+            player.RequestPositionCorrection(new Vector3(1, -3, 1), 0);
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(-3.0f, localEnt.Position.Y);
+        }
+
         /// <summary>
         /// A ZoneDef payload holding one collision mesh (one triangle) placed once by a translation transform.
         /// </summary>

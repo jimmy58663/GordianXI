@@ -742,6 +742,13 @@ namespace Gordian.Core.Input
                 CancelKnockback(); // a server placement ends any slide
             }
 
+            // Zone-in (S2C 0x00A): stand on the floor under the arrival position once the zone's collision is there.
+            if (_localPlayer.GroundSettlePending && _world.Collision != null)
+            {
+                _localPlayer.ClearGroundSettle();
+                SettleOnGround(localEnt);
+            }
+
             // Locked by the server (an event) or charmed (the server drives the character): no input movement.
             if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true }))
             {
@@ -1111,6 +1118,25 @@ namespace Gordian.Core.Input
                 return;
             }
             localEnt.Position = new Vector3(position.X, ground.Height, position.Z);
+        }
+
+        /// <summary>
+        /// Puts the player on the floor under its feet at once (no fall), for the zone-in position: LandSandBoat sends the
+        /// arrival point of a zone line, the centre of the next zone's landing box (e.g. Southern San d'Oria's <c>z6e1</c>,
+        /// 4 yalms tall, its centre about two yalms above the street), and the legacy client shows the player standing
+        /// (round 1 of in-game testing, 2026-10-12, saw GordianXI's player floating there). The floor is the highest one at
+        /// most <see cref="StepUpHeight"/> above the feet and at most <see cref="MaxFallDistance"/> below; nothing changes
+        /// where there is none or ground collision is off.
+        /// </summary>
+        internal void SettleOnGround(WorldEntity localEnt)
+        {
+            if ((EffectiveCollision & CollisionLayers.Ground) == 0) return;
+            var collision = _world.Collision;
+            if (collision == null) return;
+            if (!TryFindGround(collision, localEnt.Position, FootRadius, out var ground)) return;
+            localEnt.Position = new Vector3(localEnt.Position.X, ground.Height, localEnt.Position.Z);
+            _airborne = false;
+            _fallSpeed = 0.0f;
         }
 
         /// <summary>

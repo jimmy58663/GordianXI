@@ -150,6 +150,19 @@ namespace Gordian.Core.Tests.World.Collision
         }
 
         [Fact]
+        public void PendingRequest_HoldsPositionUpdatesUntilRefused()
+        {
+            // Retail sends no C2S 0x015 after its zone-line request (LSB map server log, 2026-10-12).
+            using var net = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54240);
+            Assert.False(net.PositionSendsHeld);
+            net.ZoneLines.Update(230, TwoLines, new Vector3(10, 0, 0), true, 0);
+            Assert.NotNull(net.ZoneLines.Update(230, TwoLines, new Vector3(0, 0, 0), true, 0.1));
+            Assert.True(net.PositionSendsHeld);
+            net.ZoneLines.CancelPending();
+            Assert.False(net.PositionSendsHeld);
+        }
+
+        [Fact]
         public void Monitor_PendingBlocksOtherLines()
         {
             var monitor = new ZoneLineMonitor();

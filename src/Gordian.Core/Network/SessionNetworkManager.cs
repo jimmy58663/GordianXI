@@ -593,7 +593,15 @@ namespace Gordian.Core.Network
         /// Whether an outbound sub-packet may still be sent: nothing once the session is ending, and no C2S 0x015 while
         /// position updates are suspended (see <see cref="PositionUpdatesSuspended"/>).
         /// </summary>
-        private bool MaySend(ushort packetId) => !SessionEnding && !(packetId == 0x015 && _positionUpdatesSuspended);
+        private bool MaySend(ushort packetId) => !SessionEnding && !(packetId == 0x015 && PositionSendsHeld);
+
+        /// <summary>
+        /// No C2S 0x015 now: position updates are suspended (<see cref="PositionUpdatesSuspended"/>), or a zone-line request
+        /// is waiting for the server (#350). The retail client sends no position after its C2S 0x05E (maintainer's
+        /// LandSandBoat map server log, 2026-10-12: GordianXI's updates after the request were rejected as "Character is
+        /// disappearing", retail sent none); they resume if the server refuses the line.
+        /// </summary>
+        public bool PositionSendsHeld => _positionUpdatesSuspended || _zoneLines.PendingId != null;
 
         /// <summary>
         /// Drops the queued sub-packets <see cref="MaySend"/> refuses from the outbound staging buffer (they may have been
@@ -601,7 +609,7 @@ namespace Gordian.Core.Network
         /// </summary>
         private void DropRefusedQueuedSubPackets()
         {
-            if (_currentBufferLength == 0 || (!SessionEnding && !_positionUpdatesSuspended)) return;
+            if (_currentBufferLength == 0 || (!SessionEnding && !PositionSendsHeld)) return;
             if (SessionEnding)
             {
                 _currentBufferLength = 0;
@@ -1162,8 +1170,8 @@ namespace Gordian.Core.Network
                                     // Overwrite the queued 0x015 in-place with latest coordinates, heading, and slide frames
                                     Span<byte> existingPos = _outboundQueueBuffer.AsSpan(scanOffset, 32);
                                     BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(4, 4), PositionX);
-                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(8, 4), PositionZ); // Wire offset 8 is Elevation
-                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionY); // Wire offset 12 is North/South
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(8, 4), PositionY); // Wire offset 8 is Elevation (internal Y, as BuildPosPingPongSubPacket)
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionZ); // Wire offset 12 is North/South
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(18, 2), _moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
                                     existingPos[20] = Direction;
