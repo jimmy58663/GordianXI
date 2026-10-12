@@ -92,6 +92,9 @@ namespace Gordian.Core.Ui
     public static class StockUiItems
     {
         public const string ListMenu = "inventor";
+
+        /// <summary>The main menu's Items entry ("menuwind" button 4), where the cursor returns with the Items window.</summary>
+        public const int MainMenuItemsButton = 4;
         public const int ListRows = 10;
 
         public const string ActionMenu = "iuse";
@@ -254,11 +257,73 @@ namespace Gordian.Core.Ui
         /// </summary>
         public static bool IsCrystal(ushort itemId) => itemId is >= 4096 and <= 4103 or >= 4238 and <= 4245;
 
-        /// <summary>Whether an item can be used at all: a crystal (synthesis), or its DAT valid targets name someone.</summary>
-        public static bool IsUsable(ItemRecord? record) => record != null && (record.ValidTargets != 0 || IsCrystal((ushort)record.ItemId));
+        /// <summary>
+        /// Whether an item can be used: a crystal (synthesis), or an item flagged CanUse (LandSandBoat <c>ItemFlag::CanUse</c>,
+        /// 0x200) whose DAT valid targets name someone. Equipment carrying valid targets without the flag (an Ark Sword's
+        /// 0x01) is not usable: retail greys its Use (the maintainer's retail check, 2026-10-11).
+        /// </summary>
+        public static bool IsUsable(ItemRecord? record) =>
+            record != null && (IsCrystal((ushort)record.ItemId) || ((record.Flags & CanUseFlag) != 0 && record.ValidTargets != 0));
 
-        /// <summary>Whether an item can only be used on yourself (no sub-target cursor needed).</summary>
-        public static bool IsSelfOnly(ItemRecord? record) => record != null && (record.ValidTargets == TargetSelf || IsCrystal((ushort)record.ItemId));
+        /// <summary>
+        /// Whether an item is equipment: DAT item type 4 (weapons, ammo, instruments) or 5 (armour, shields). Other types can
+        /// carry a non-zero equip mask in the same field (a Linkshell's reads 0x01), so the mask alone does not say; a record
+        /// without a type (tests, hand-made records) falls back to the mask.
+        /// </summary>
+        public static bool IsEquipment(ItemRecord? record) =>
+            record != null && (record.ItemType is ItemTypeWeapon or ItemTypeArmor || (record.ItemType == 0 && (record.EquipSlotsMask != 0 || record.Skill != 0)));
+
+        /// <summary>DAT item types (the record's type field; read from the English item DATs, 2026-10-12).</summary>
+        public const ushort ItemTypeGeneral = 1, ItemTypeWeapon = 4, ItemTypeArmor = 5, ItemTypeLinkshell = 6, ItemTypeUsable = 7, ItemTypeCrystal = 8,
+            ItemTypeFurnishing = 10;
+
+        /// <summary>
+        /// Type 1 auto-sort ("Sort items by category when organizing them.", Config > Gameplay > Inventory Type). Derived from
+        /// the maintainer's retail captures (2026-10-12, image-29 to image-37) against the DAT fields of every item shown:
+        /// crystals (type 8); usable items (CanUse); weapons by skill (dagger, sword, great sword, ... katana, great katana;
+        /// archery, marksmanship); ammo (the ammo slot, fishing lures included); instruments and other range-slot tools (string,
+        /// wind, handbell, fishing); shields; then head, body, hands, legs, feet, neck, waist, back, earrings, rings; then
+        /// everything else (materials, linkshells, furnishings, key-like items). Equipment within a group goes by level
+        /// descending (the item level when it has one: 119 before 99), then item id; the other groups by item id.
+        /// </summary>
+        public static int SortCategory(ItemRecord? record)
+        {
+            if (record == null) return 99;
+            if (record.ItemType == ItemTypeCrystal || IsCrystal((ushort)record.ItemId)) return 0;
+            if (!IsEquipment(record)) return (record.Flags & CanUseFlag) != 0 && record.ValidTargets != 0 ? 1 : 90;
+            bool range = record.CanEquipSlot((int)EquipSlotId.Ranged), main = record.CanEquipSlot((int)EquipSlotId.Main);
+            if (record.CanEquipSlot((int)EquipSlotId.Ammo)) return 30;
+            if (range && record.Skill is 41 or 42 or 45 or 48) return 40;
+            if (main || range) return 20;
+            if (record.ShieldSize > 0 || record.CanEquipSlot((int)EquipSlotId.Sub)) return 50;
+            ReadOnlySpan<EquipSlotId> order = stackalloc EquipSlotId[]
+            {
+                EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet, EquipSlotId.Neck,
+                EquipSlotId.Waist, EquipSlotId.Back, EquipSlotId.Ear1, EquipSlotId.Ring1,
+            };
+            for (int i = 0; i < order.Length; i++)
+            {
+                if (record.CanEquipSlot((int)order[i])) return 60 + i;
+            }
+            return 89;
+        }
+
+        /// <summary>The level an equipment group sorts by: the item level when there is one, else the level (65535 = none).</summary>
+        private static int SortLevel(ItemRecord record) => record.ItemLevel > 0 ? record.ItemLevel : record.Level == ushort.MaxValue ? 0 : record.Level;
+
+        /// <summary>Compares two items in Type 1 order (<see cref="SortCategory"/>).</summary>
+        public static int CompareByCategory(ItemRecord? a, ItemRecord? b, ushort idA, ushort idB)
+        {
+            int ca = SortCategory(a), cb = SortCategory(b);
+            if (ca != cb) return ca.CompareTo(cb);
+            if (a != null && b != null && IsEquipment(a))
+            {
+                if (ca == 20 && a.Skill != b.Skill) return a.Skill.CompareTo(b.Skill);
+                int byLevel = SortLevel(b).CompareTo(SortLevel(a));
+                if (byLevel != 0) return byLevel;
+            }
+            return idA.CompareTo(idB);
+        }
 
         /// <summary>
         /// A container's rows in slot order (gil left out), worn items marked; with <paramref name="usableOnly"/> only the
@@ -299,14 +364,20 @@ namespace Gordian.Core.Ui
             });
         }
 
-        /// <summary>Auto-sort's order: by item id, then slot (PROVISIONAL: retail's order, probably by item category, is not captured).</summary>
-        public static List<byte> AutoOrder(IEnumerable<StockUiItemRow> rows)
+        /// <summary>
+        /// Auto-sort's order of slots: Type 1 by category (<see cref="CompareByCategory"/>, from the retail captures), Type 2 by
+        /// name ("Sort items by name when organizing them and stacking them when possible."; PROVISIONAL: on retail the
+        /// maintainer saw Type 2 leave the order unchanged). Equal items keep slot order.
+        /// </summary>
+        public static List<byte> AutoOrder(IEnumerable<StockUiItemRow> rows, Func<ushort, ItemRecord?>? lookup, int type = 1)
         {
             var sorted = new List<StockUiItemRow>(rows);
             sorted.Sort((a, b) =>
             {
-                int byId = a.ItemId.CompareTo(b.ItemId);
-                return byId != 0 ? byId : a.Slot.CompareTo(b.Slot);
+                int by = type == 2
+                    ? string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+                    : CompareByCategory(lookup?.Invoke(a.ItemId), lookup?.Invoke(b.ItemId), a.ItemId, b.ItemId);
+                return by != 0 ? by : a.Slot.CompareTo(b.Slot);
             });
             return sorted.ConvertAll(r => r.Slot);
         }
@@ -360,7 +431,7 @@ namespace Gordian.Core.Ui
             {
                 if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId) continue;
                 var record = lookup?.Invoke(item.ItemId);
-                if (record == null || record.EquipSlotsMask == 0) continue;
+                if (record == null || !IsEquipment(record) || record.EquipSlotsMask == 0) continue;
                 if (slot is { } fit && !FitsSlot(record, fit)) continue;
                 bool isEquipped = equipped.Contains((container, item.Slot));
                 bool wornHere = worn != null && worn.Container == container && worn.Slot == item.Slot;

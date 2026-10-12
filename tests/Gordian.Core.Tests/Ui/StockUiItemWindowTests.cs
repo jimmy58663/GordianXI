@@ -26,8 +26,8 @@ namespace Gordian.Core.Tests.Ui
 
         private static readonly Dictionary<ushort, ItemRecord> Records = new()
         {
-            [Potion] = new ItemRecord { ItemId = Potion, Name = "Potion", LogName = "potion", StackSize = 12, ValidTargets = StockUiItems.TargetSelf | StockUiItems.TargetParty, Description = "Restores 50 HP." },
-            [EchoDrops] = new ItemRecord { ItemId = EchoDrops, Name = "Echo Drops", LogName = "flask of echo drops", StackSize = 12, ValidTargets = StockUiItems.TargetSelf },
+            [Potion] = new ItemRecord { ItemId = Potion, Name = "Potion", LogName = "potion", StackSize = 12, ValidTargets = StockUiItems.TargetSelf | StockUiItems.TargetParty, Flags = StockUiItems.CanUseFlag, Description = "Restores 50 HP." },
+            [EchoDrops] = new ItemRecord { ItemId = EchoDrops, Name = "Echo Drops", LogName = "flask of echo drops", StackSize = 12, ValidTargets = StockUiItems.TargetSelf, Flags = StockUiItems.CanUseFlag },
             [Chestnut] = new ItemRecord { ItemId = Chestnut, Name = "Ronfaure Chestnut", LogName = "Ronfaure chestnut", LogPlural = "Ronfaure chestnuts", StackSize = 12 },
             [FireCrystal] = new ItemRecord { ItemId = FireCrystal, Name = "Fire Crystal", LogName = "fire crystal", StackSize = 12 },
             [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", LogName = "bronze cap", Level = 7, JobsMask = 0x7FFFFE, EquipSlotsMask = 1 << (int)EquipSlotId.Head, RacesMask = 0x1FE },
@@ -210,7 +210,7 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Use_SelfOnlyItemGoesOnTheResolvedTarget_AndClosesTheMenus()
+        public void Use_WithoutTheCursorGoesOnTheResolvedTarget_AndReturnsToTheList()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
@@ -220,22 +220,35 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(EchoDrops, action.ItemAction!.Value.ItemId);
             h.Menus.Activate();
             Assert.Equal((0x01020304u, (ushort)10, ContainerId.Inventory, (byte)5), Assert.Single(h.Uses));
-            Assert.False(h.Menus.IsOpen);
+            Assert.Same(list, h.Menus.Top); // back on the Items list (round 1, 2026-10-12)
         }
 
-        [Fact]
-        public void Use_AnItemForOthersStartsTheSubTargetCursorWhenWired()
+        [Theory]
+        [InlineData(Potion)]
+        [InlineData(EchoDrops)] // self-only items get the cursor too (on yourself)
+        public void Use_StartsTheSubTargetCursorWhenWired_AndTheListComesBackAfterwards(ushort itemId)
         {
             var h = new Harness();
             StockUiItemRow? started = null;
-            h.Menus.ItemSubTarget = (row, targets) => { started = row; return true; };
+            h.Menus.ItemSubTarget = (row, targets) =>
+            {
+                started = row;
+                h.Menus.CloseAll(); // the cursor's owner closes the menus
+                return true;
+            };
             var list = h.OpenFromMainMenu(4);
-            h.SelectItem(list, Potion);
+            h.SelectItem(list, itemId);
+            int selected = list.SelectedButtonId;
             h.Menus.Activate();
             h.Menus.Activate();
-            Assert.Equal(Potion, started!.Value.ItemId);
+            Assert.Equal(itemId, started!.Value.ItemId);
             Assert.Empty(h.Uses);
             Assert.False(h.Menus.IsOpen);
+            var back = h.Menus.ResumeItemWindow()!;
+            Assert.Equal(StockUiItemListKind.Items, back.ItemListKind);
+            Assert.Equal(selected, back.SelectedButtonId);
+            Assert.Equal(StockUiMenuEntries.MainMenu, h.Menus.OpenMenus[0].Name);
+            Assert.Null(h.Menus.ResumeItemWindow()); // only once
         }
 
         [Fact]
@@ -312,7 +325,7 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Options_AutoAsksThenSendsItemStackAndOrdersTheListByItem()
+        public void Options_AutoAsksThenSendsItemStackAndOrdersTheListByCategory()
         {
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
@@ -333,7 +346,8 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.Activate();
             Assert.Equal(ContainerId.Inventory, Assert.Single(h.Sorts));
             Assert.Same(list, h.Menus.Top);
-            Assert.Equal(list.ItemRows.Select(r => r.ItemId).OrderBy(id => id), list.ItemRows.Select(r => r.ItemId));
+            // Type 1 (by category): crystals, usable items, head gear by level, then the rest.
+            Assert.Equal(new ushort[] { FireCrystal, Potion, EchoDrops, LeatherBandana, Brass, BronzeCap, Chestnut }, list.ItemRows.Select(r => r.ItemId));
             // + again from the list opens the options; pressed on them it returns to the list.
             Assert.True(h.Menus.ToggleItemOptions());
             Assert.True(h.Menus.ToggleItemOptions());
@@ -357,24 +371,123 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(0, list.ManualSortFrom);
             list.SelectedButtonId = 3;
             h.Menus.Activate();
-            Assert.False(list.IsManualSort);
+            Assert.True(list.IsManualSort); // the mode stays for the next pair (round 1, 2026-10-12)
+            Assert.Null(list.ManualSortFrom);
             Assert.Equal(new ushort[] { Potion, BronzeCap, Chestnut, EchoDrops, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
             // Echo Drops (fourth) onto Potion (first): it goes above it.
-            h.Menus.ToggleItemOptions();
-            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
-            h.Menus.Activate();
             list.SelectedButtonId = 4;
             h.Menus.Activate();
             list.SelectedButtonId = 1;
             h.Menus.Activate();
             Assert.Equal(new ushort[] { EchoDrops, Potion, BronzeCap, Chestnut, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
-            // Cancel in Manual sort leaves the mode, not the list.
-            h.Menus.ToggleItemOptions();
-            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
-            h.Menus.Activate();
+            // The first Cancel returns to the options with Manual under the cursor; the second to the list.
+            h.Menus.CloseTop();
+            Assert.False(list.IsManualSort);
+            Assert.True(h.Menus.Top!.IsItemOptions);
+            Assert.Equal(StockUiItems.ManualSortButton, h.Menus.Top.SelectedButtonId);
             h.Menus.CloseTop();
             Assert.Same(list, h.Menus.Top);
-            Assert.False(list.IsManualSort);
+        }
+
+        [Fact]
+        public void AutoOrder_Type1_MatchesTheRetailCaptures()
+        {
+            // The maintainer's Type 1 captures (2026-10-12, image-29 to image-37), with each item's DAT fields
+            // (type, flags, valid targets, level, item level, slots, skill, shield) read from the English item DATs.
+            ItemRecord R(ushort id, ushort type, uint flags, ushort vt, ushort lv, byte il, ushort slots, byte skill = 0, byte shield = 0) =>
+                new() { ItemId = id, Name = id.ToString(System.Globalization.CultureInfo.InvariantCulture), ItemType = type, Flags = flags, ValidTargets = vt,
+                    Level = lv, ItemLevel = il, EquipSlotsMask = slots, Skill = skill, ShieldSize = shield };
+            var records = new Dictionary<ushort, ItemRecord>
+            {
+                // image-29 to image-31: Fire / Wind Crystal, Potion, Brz. Bull. Pouch, Carnwenhan, Bronze Bullet, Marsyas,
+                // Loughnashade, Bihu / Fili head, body, hands, legs, feet, Linkshell, Linkpearl, Seashell, Dragon Talon, Shell
+                // Powder, Kindred's / H. / S. Kindred Crest, Thunder / Shadow Geode.
+                [4096] = R(4096, 8, 0x204, 1, 0, 0, 0), [4098] = R(4098, 8, 0x204, 1, 0, 0, 0),
+                [4112] = R(4112, 7, 0x604, 1, 4, 0, 0), [5359] = R(5359, 7, 0x604, 1, 4, 0, 0),
+                [20561] = R(20561, 4, 0xF840, 0, 99, 119, 0x3, 2), [17343] = R(17343, 4, 0x804, 0, 1, 0, 0x8, 26),
+                [21398] = R(21398, 4, 0xF840, 0, 99, 0, 0x4, 42), [22304] = R(22304, 4, 0xF840, 0, 99, 0, 0x4, 42),
+                [23407] = R(23407, 5, 0xF840, 0, 99, 119, 0x10), [23429] = R(23429, 5, 0xF840, 0, 99, 119, 0x10),
+                [23474] = R(23474, 5, 0xF840, 0, 99, 119, 0x20), [23496] = R(23496, 5, 0xF840, 0, 99, 119, 0x20),
+                [23541] = R(23541, 5, 0xF840, 0, 99, 119, 0x40), [23563] = R(23563, 5, 0xF840, 0, 99, 119, 0x40),
+                [23608] = R(23608, 5, 0xF840, 0, 99, 119, 0x80), [23630] = R(23630, 5, 0xF840, 0, 99, 119, 0x80),
+                [23675] = R(23675, 5, 0xF840, 0, 99, 119, 0x100), [23697] = R(23697, 5, 0xF840, 0, 99, 119, 0x100),
+                [513] = R(513, 6, 0x7140, 0, 65535, 0, 0x1), [515] = R(515, 6, 0x3140, 0, 65535, 0, 0x1),
+                [888] = R(888, 1, 0x4, 0, 65535, 0, 0), [903] = R(903, 1, 0x4, 0, 65535, 0, 0), [1883] = R(1883, 1, 0x4, 0, 65535, 0, 0),
+                [2955] = R(2955, 1, 0x7044, 0, 65535, 0, 0), [2956] = R(2956, 1, 0x7044, 0, 65535, 0, 0), [2957] = R(2957, 1, 0x7044, 0, 65535, 0, 0),
+                [3301] = R(3301, 1, 0x4, 0, 65535, 0, 0), [3304] = R(3304, 1, 0x4, 0, 65535, 0, 0),
+                // image-32 heads then bodies: Kasuga Kabuto +2, Wakido Kabuto +3, Mpaca's Cap, Nyame Helm, Hiza. Somen +2,
+                // Sakonji Kabuto +1; Sakonji Domaru +2, Kasuga Domaru +2, Wakido Domaru +3.
+                [23096] = R(23096, 5, 0xF840, 0, 99, 119, 0x10), [23386] = R(23386, 5, 0xF840, 0, 99, 119, 0x10),
+                [23758] = R(23758, 5, 0xE840, 0, 99, 119, 0x10), [23761] = R(23761, 5, 0xE840, 0, 99, 119, 0x10),
+                [25576] = R(25576, 5, 0xF840, 0, 99, 119, 0x10), [26647] = R(26647, 5, 0xF840, 0, 99, 119, 0x10),
+                [23141] = R(23141, 5, 0xF840, 0, 99, 119, 0x20), [23163] = R(23163, 5, 0xF840, 0, 99, 119, 0x20), [23453] = R(23453, 5, 0xF840, 0, 99, 119, 0x20),
+                // image-33 weapons: Qutrub Knife, Joyeuse, Ark Sword, Mercurial Sword, Ophidian Sword, Bounty Sickle, Quint
+                // Spear, Tzee Xicu's Blade, Yagyu Shortblade, Shinai.
+                [20576] = R(20576, 4, 0xF840, 0, 1, 0, 0x3, 2), [17652] = R(17652, 4, 0xF854, 0, 70, 0, 0x3, 3),
+                [18913] = R(18913, 4, 0x7C58, 1, 1, 0, 0x3, 3), [18377] = R(18377, 4, 0x804, 0, 62, 0, 0x1, 4),
+                [21681] = R(21681, 4, 0xF840, 0, 1, 0, 0x1, 4), [18968] = R(18968, 4, 0x8804, 0, 82, 0, 0x1, 7),
+                [19314] = R(19314, 4, 0x8804, 0, 82, 0, 0x1, 8), [21863] = R(21863, 4, 0xF840, 0, 1, 0, 0x1, 8),
+                [21933] = R(21933, 4, 0x7840, 0, 1, 0, 0x3, 9), [18441] = R(18441, 4, 0xF850, 0, 1, 0, 0x1, 10),
+                // image-34 ammo, shields, heads: Per. Lucky Egg, Oshasha's Treatise, Incantor Stone, Joiner's Scutum, Ark
+                // Shield, Aya. Zucchetto +2, Inyanga Tiara +2, Arrogance Crown, Wh. Rarab Cap +1, Inyanga Jubbah +2.
+                [22299] = R(22299, 4, 0xF840, 0, 99, 0, 0x8), [22302] = R(22302, 4, 0xF840, 0, 99, 0, 0x8), [19257] = R(19257, 4, 0x8804, 0, 83, 0, 0x8),
+                [26425] = R(26425, 5, 0xF840, 0, 1, 0, 0x2, 0, 4), [26490] = R(26490, 5, 0xF840, 0, 1, 0, 0x2, 0, 4),
+                [25572] = R(25572, 5, 0xF840, 0, 99, 119, 0x10), [25577] = R(25577, 5, 0xF840, 0, 99, 119, 0x10),
+                [23856] = R(23856, 5, 0xF840, 0, 1, 0, 0x10), [25679] = R(25679, 5, 0xFC40, 1, 1, 0, 0x10, 1),
+                [25793] = R(25793, 5, 0xF840, 0, 99, 119, 0x20),
+                // image-35 and image-36 usable items (types 7 and 1 with CanUse) by id, then a scythe and a bolt: Super Ether,
+                // Panacea, Holy Water, Prism Powder, Silent Oil, Pamama au Lait, Gysahl Greens, Tornado, Gnatbane, Pluton Case,
+                // Boulder Case, Beitetsu Box, Miso Ramen, Abdhaljs Seal, L. Wing Box, Trust Primer, Foenaria, Blind Bolt.
+                [4136] = R(4136, 7, 0x604, 1, 40, 0, 0), [4149] = R(4149, 7, 0x604, 1, 4, 0, 0), [4154] = R(4154, 7, 0x604, 1, 4, 0, 0),
+                [4164] = R(4164, 7, 0x604, 1, 4, 0, 0), [4165] = R(4165, 7, 0x604, 1, 4, 0, 0), [4302] = R(4302, 7, 0x60C, 1, 4, 0, 0),
+                [4545] = R(4545, 7, 0x60C, 1, 4, 0, 0), [4816] = R(4816, 7, 0x868C, 1, 4, 0, 0), [5984] = R(5984, 7, 0x604, 1, 4, 0, 0),
+                [6180] = R(6180, 1, 0x365C, 1, 4, 0, 0), [6182] = R(6182, 1, 0x365C, 1, 4, 0, 0), [6184] = R(6184, 1, 0x3658, 1, 4, 0, 0),
+                [6460] = R(6460, 1, 0x60C, 1, 4, 0, 0), [6500] = R(6500, 1, 0x7640, 1, 4, 0, 0), [6592] = R(6592, 7, 0x765C, 1, 4, 0, 0),
+                [6716] = R(6716, 7, 0x7648, 1, 4, 0, 0), [21834] = R(21834, 4, 0xF840, 0, 99, 119, 0x1, 7), [18150] = R(18150, 4, 0x804, 0, 10, 0, 0x8, 26),
+                // image-37: Dwarf Pugil (a lure in the ammo slot), Tea Set, Goblin Mail, Silver Ingot, Mtl. Beastcoin, Amber,
+                // Sheep Wool, Kindred's Seal, Shinobi-Tabi, Earth Ore.
+                [17007] = R(17007, 4, 0x7854, 0, 1, 0, 0x8, 48), [133] = R(133, 10, 0x4, 0, 5, 0, 0x1), [507] = R(507, 1, 0x1004, 0, 65535, 0, 0x1),
+                [744] = R(744, 1, 0x4, 0, 65535, 0, 0), [749] = R(749, 1, 0x4, 0, 65535, 0, 0), [814] = R(814, 1, 0x4, 0, 65535, 0, 0),
+                [832] = R(832, 1, 0x4, 0, 65535, 0, 0), [1127] = R(1127, 1, 0x7044, 0, 65535, 0, 0), [1194] = R(1194, 1, 0x4, 0, 65535, 0, 0),
+                [1258] = R(1258, 1, 0x4, 0, 65535, 0, 0),
+            };
+            ushort[][] captures =
+            {
+                new ushort[] { 4096, 4098, 4112, 5359, 20561, 17343, 21398, 22304, 23407, 23429, 23474, 23496, 23541, 23563, 23608, 23630,
+                    23675, 23697, 513, 515, 888, 903, 1883, 2955, 2956, 2957, 3301, 3304 },
+                new ushort[] { 23096, 23386, 23758, 23761, 25576, 26647, 23141, 23163, 23453 },
+                new ushort[] { 20576, 17652, 18913, 18377, 21681, 18968, 19314, 21863, 21933, 18441 },
+                new ushort[] { 22299, 22302, 19257, 26425, 26490, 25572, 25577, 23856, 25679, 25793 },
+                new ushort[] { 4136, 4149, 4154, 4164, 4165, 4302, 4545, 4816 },
+                new ushort[] { 5984, 6180, 6182, 6184, 6460, 6500, 6592, 6716, 21834, 18150 },
+                new ushort[] { 17007, 133, 507, 744, 749, 814, 832, 1127, 1194, 1258 },
+            };
+            foreach (var expected in captures)
+            {
+                // Fed in reverse slot order, so only the comparison can put them right.
+                var rows = expected.Reverse().Select((id, i) => new StockUiItemRow(id, id.ToString(System.Globalization.CultureInfo.InvariantCulture), 1, ContainerId.Inventory, (byte)(i + 1))).ToList();
+                var order = StockUiItems.AutoOrder(rows, id => records[id]);
+                StockUiItems.ApplyOrder(rows, order);
+                Assert.Equal(expected, rows.Select(r => r.ItemId));
+            }
+        }
+
+        [Fact]
+        public async Task InventorySortOn_KeepsTheListSorted_AndMergesStacksOnceAfterAnItemIsObtained()
+        {
+            var h = new Harness();
+            var sorted = new TaskCompletionSource<ContainerId>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Menus.ItemSort = container => { sorted.TrySetResult(container); return Task.CompletedTask; };
+            h.Menus.Settings.SetValue(StockUiSettingKey.InventorySort, 1);
+            var list = h.OpenFromMainMenu(4);
+            // Type 1: crystals, usable items (Potion, Echo Drops), equipment by slot and level, then the rest.
+            Assert.Equal(new ushort[] { FireCrystal, Potion, EchoDrops, LeatherBandana, Brass, BronzeCap, Chestnut }, list.ItemRows.Select(r => r.ItemId));
+            h.Inventory.SetItem(ContainerId.Inventory, 20, Chestnut, 2, ItemLockFlag.Normal);
+            Assert.Equal(ContainerId.Inventory, await sorted.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            // Type 2 sorts by name.
+            h.Menus.Settings.SetValue(StockUiSettingKey.InventoryType, 2);
+            h.Menus.OnItemsChanged();
+            Assert.Equal(list.ItemRows.Select(r => r.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase), list.ItemRows.Select(r => r.Name));
         }
 
         [Fact]
@@ -441,6 +554,7 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.Activate(); // no Use / Drop: used at once
             Assert.Equal(target, h.LastContext);
             Assert.Single(h.Uses);
+            Assert.Same(list, h.Menus.Top); // back on the command menu's list (round 1, 2026-10-12)
         }
 
         [Fact]

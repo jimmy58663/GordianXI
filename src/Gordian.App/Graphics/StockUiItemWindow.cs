@@ -33,8 +33,12 @@ namespace Gordian.App.Graphics
         /// <summary>The row layout: the 16 x 16 slot box at the row's origin, the name from 19 px in.</summary>
         private const float IconSize = 16, NameInset = 19;
 
-        /// <summary>The count over the icon: right edge 15 px into the box, its top 4 px down (retail capture: the "4" of Wind Crystal).</summary>
-        private const float CountRight = 15, CountTop = 4;
+        /// <summary>
+        /// The count over the icon: right edge 15 px into the box, the font cell's bottom 17 px down so the digit ends about
+        /// 1 px above the icon's bottom (retail capture: the "4" of Wind Crystal ends near the box's bottom; lowered after the
+        /// maintainer's round 1, 2026-10-12).
+        /// </summary>
+        private const float CountRight = 15, CountBottom = 17;
 
         /// <summary>The description window's top under a list or the grid (layout y 240, the DAT's item info place).</summary>
         public const float DescriptionTop = 240;
@@ -106,7 +110,7 @@ namespace Gordian.App.Graphics
             else if (menu.ShowsQuantity) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 StockUiItems.EquipDescriptionX, null, screen);
             else if (menu.HasItemActionOver) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
-                frame.X, placement.Y + (frame.Height + 2) * s);
+                frame.X, placement.Y + (frame.Height + 2) * s, screen, aboveLog: true);
             else DrawDescription(renderer, library, font, logFont, menu, placement, timestamp, frame.X, null, screen);
         }
 
@@ -139,7 +143,7 @@ namespace Gordian.App.Graphics
                 if (row.ShowsCount)
                 {
                     string count = row.Count.ToString(CultureInfo.InvariantCulture);
-                    renderer.DrawText(font, count, areaX + CountRight * s - font.MeasureWidth(count) * ts, ry + CountTop * s, ts);
+                    renderer.DrawText(font, count, areaX + CountRight * s - font.MeasureWidth(count) * ts, ry + CountBottom * s - font.LineHeight * ts, ts);
                 }
                 UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Equipped ? EquippedTint : null;
                 renderer.DrawText(font, row.Name, areaX + NameInset * s, textY, s, tint);
@@ -329,7 +333,7 @@ namespace Gordian.App.Graphics
         /// <paramref name="top"/> (screen px) when given, else with its bottom at <see cref="BottomOf"/>.
         /// </summary>
         private static void DrawDescription(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
-            StockUiPlacement placement, long timestamp, float layoutX, float? top, StockUiScreen screen = default)
+            StockUiPlacement placement, long timestamp, float layoutX, float? top, StockUiScreen screen = default, bool aboveLog = false)
         {
             var pages = menu.DescriptionPages;
             if (pages.Count == 0) return;
@@ -341,6 +345,8 @@ namespace Gordian.App.Graphics
             float y = top ?? (screen.Height > 0 || screen.Window1Top != null
                 ? BottomOf(screen, s) - info.Frame.Height * s
                 : placement.Y + (DescriptionTop - frame.Y) * s);
+            // Anything at the bottom left sits on Window 1 and rises with it (the maintainer's notes, 2026-10-12).
+            if (aboveLog && screen.Window1Top is { } logTop) y = Math.Min(y, logTop - info.Frame.Height * s);
             DrawDescriptionPage(renderer, library, font, logFont, menu, menu.DescribedItem, page, new StockUiPlacement(x, Math.Max(0, y), s, false), info, timestamp);
         }
 

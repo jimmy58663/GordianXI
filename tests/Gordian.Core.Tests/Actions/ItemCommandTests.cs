@@ -28,9 +28,9 @@ namespace Gordian.Core.Tests.Actions
 
         private static readonly Dictionary<ushort, ItemRecord> Records = new()
         {
-            [Potion] = new ItemRecord { ItemId = Potion, Name = "Potion", StackSize = 12, ValidTargets = StockUiItems.TargetSelf | StockUiItems.TargetParty },
-            [EchoDrops] = new ItemRecord { ItemId = EchoDrops, Name = "Echo Drops", LogName = "flask of echo drops", StackSize = 12, ValidTargets = StockUiItems.TargetSelf },
-            [Grenade] = new ItemRecord { ItemId = Grenade, Name = "Grenade", StackSize = 12, ValidTargets = StockUiItems.TargetEnemy },
+            [Potion] = new ItemRecord { ItemId = Potion, Name = "Potion", StackSize = 12, ValidTargets = StockUiItems.TargetSelf | StockUiItems.TargetParty, Flags = StockUiItems.CanUseFlag },
+            [EchoDrops] = new ItemRecord { ItemId = EchoDrops, Name = "Echo Drops", LogName = "flask of echo drops", StackSize = 12, ValidTargets = StockUiItems.TargetSelf, Flags = StockUiItems.CanUseFlag },
+            [Grenade] = new ItemRecord { ItemId = Grenade, Name = "Grenade", StackSize = 12, ValidTargets = StockUiItems.TargetEnemy, Flags = StockUiItems.CanUseFlag },
             [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", Level = 7, JobsMask = 0x7FFFFE, EquipSlotsMask = 1 << (int)EquipSlotId.Head },
         };
 

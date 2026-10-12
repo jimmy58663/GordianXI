@@ -284,8 +284,55 @@ namespace Gordian.Core.Ui
         private List<StockUiItemRow> OrderedRows(ContainerId container, bool usableOnly = false)
         {
             var rows = StockUiItems.Rows(Inventory, container, ItemLookup, usableOnly);
+            if (container == ContainerId.Inventory && _settings.IsOn(StockUiSettingKey.InventorySort))
+            {
+                // Config > Gameplay > Inventory Sort On: the inventory is kept sorted (the maintainer's retail notes: every
+                // item obtained triggers the sort).
+                StockUiItems.ApplyOrder(rows, StockUiItems.AutoOrder(rows, ItemLookup, SortType));
+                return rows;
+            }
             StockUiItems.ApplyOrder(rows, _itemOrder.TryGetValue(container, out var order) ? order : null);
             return rows;
+        }
+
+        /// <summary>Config > Gameplay > Inventory Type: 1 by category, 2 by name.</summary>
+        private int SortType => _settings.GetValue(StockUiSettingKey.InventoryType) == 2 ? 2 : 1;
+
+        /// <summary>Filled inventory slots last seen (-1 before the first count), to notice an item obtained.</summary>
+        private int _inventoryFilled = -1;
+        private long _autoStackPending;
+
+        /// <summary>The minimum time between two automatic 0x03A (LandSandBoat logs a player out who sorts too fast, LIGHTLUGGAGE_BLOCK).</summary>
+        public static readonly TimeSpan AutoStackDelay = TimeSpan.FromSeconds(2);
+
+        /// <summary>
+        /// With Inventory Sort On, an item obtained (more filled inventory slots than before) sends one C2S 0x03A to merge the
+        /// stacks, at most once per <see cref="AutoStackDelay"/> (the client's order follows by itself).
+        /// </summary>
+        private void NoteInventoryCount()
+        {
+            int filled = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;
+            int before = _inventoryFilled;
+            _inventoryFilled = filled;
+            if (before < 0 || filled <= before || !_settings.IsOn(StockUiSettingKey.InventorySort) || ItemSort is not { } sort) return;
+            if (System.Threading.Interlocked.Exchange(ref _autoStackPending, 1) == 1) return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AutoStackDelay).ConfigureAwait(false);
+                    GordianLog.Info("ITEM", "Inventory Sort: merging the inventory's stacks after an item was obtained.");
+                    await sort(ContainerId.Inventory).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warning("ITEM", $"Inventory Sort failed: {ex.Message}");
+                }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _autoStackPending, 0);
+                }
+            });
         }
 
         /// <summary>Rebuilds an item list's rows (under the lock), keeping the cursor on the same item when it is still listed.</summary>
@@ -330,6 +377,7 @@ namespace Gordian.Core.Ui
         /// </summary>
         public void OnItemsChanged()
         {
+            NoteInventoryCount();
             StockUiOpenMenu? closeFrom = null;
             bool changed = false;
             lock (_sync)
@@ -367,11 +415,22 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>Cancel in Manual sort leaves the mode (the list stays open); true when it did.</summary>
+        /// <summary>
+        /// Cancel in Manual sort (called under the lock): leaves the mode and returns the cursor to the options with Manual
+        /// under it; a second Cancel then closes the options and returns to the list (the maintainer's round 1, 2026-10-12).
+        /// </summary>
         private bool CancelItemMode(StockUiOpenMenu top)
         {
             if (!top.IsManualSort) return false;
             top.IsManualSort = false;
             top.ManualSortFrom = null;
+            var library = _library;
+            if (library != null && library.TryGetMenu(StockUiItems.OptionsMenu, out var definition))
+            {
+                var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = true };
+                options.SelectedButtonId = StockUiItems.ManualSortButton;
+                PushOpen(options);
+            }
             return true;
         }
 
@@ -484,7 +543,7 @@ namespace Gordian.Core.Ui
                     ActivateEquipRow(list, row);
                     return;
                 case StockUiItemListKind.Usable:
-                    UseItem(row, list.ItemTarget);
+                    UseItem(row, list.ItemTarget, list);
                     return;
                 case StockUiItemListKind.RecycleBin:
                     if (row.Count > 1) OpenItemQuantity(list, list, row, restore: true);
@@ -532,7 +591,7 @@ namespace Gordian.Core.Ui
             }
             if (button.ButtonId == StockUiItems.UseButton)
             {
-                UseItem(row, (menu.Parent ?? menu).ItemTarget);
+                UseItem(row, (menu.Parent ?? menu).ItemTarget, menu.Parent ?? menu);
                 return;
             }
             if (button.ButtonId != StockUiItems.DropButton) return;
@@ -545,12 +604,14 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// Uses an item (the maintainer's retail check, 2026-10-11): a crystal opens the synthesis window, or with a full
-        /// inventory prints "Unable to execute that command. Your inventory is full." in red (ROM/165/70 #140); an item that
-        /// can be used on others goes to the sub-target cursor (<see cref="ItemSubTarget"/>); otherwise C2S 0x037 goes out
-        /// on the resolved target (count 0, as LandSandBoat requires) and the menus close.
+        /// Uses an item (the maintainer's retail checks, 2026-10-11 / 12): a crystal opens the synthesis window, or with a full
+        /// inventory prints "Unable to execute that command. Your inventory is full." in red (ROM/165/70 #140); every other
+        /// usable item goes to the sub-target cursor (<see cref="ItemSubTarget"/>; retail opens it for a Potion too, the cursor
+        /// limited to the item's targets, so a self-only item gets it on yourself). Without the hook, C2S 0x037 goes out on
+        /// the resolved target (count 0, as LandSandBoat requires). Either way the Items list stays (or comes back after the
+        /// cursor, <see cref="ResumeItemWindow"/>): only the Use / Drop window closes.
         /// </summary>
-        private void UseItem(StockUiItemRow row, StockUiTargetContext? context)
+        private void UseItem(StockUiItemRow row, StockUiTargetContext? context, StockUiOpenMenu list)
         {
             var known = ItemLookup?.Invoke(row.ItemId);
             var record = known ?? StockUiShop.Lookup(ItemLookup, row.ItemId);
@@ -565,10 +626,13 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke($"{record.Name} cannot be used.");
                 return;
             }
-            if (!StockUiItems.IsSelfOnly(known) && ItemSubTarget is { } subTarget && subTarget(row, record.ValidTargets))
+            CloseItemAction(list);
+            if (ItemSubTarget is { } subTarget)
             {
-                CloseAll();
-                return;
+                // The cursor's owner closes the menus; remember the list so it can come back afterwards.
+                _itemsResume = (list.ItemListKind ?? StockUiItemListKind.Items, context, list.FirstRow, list.SelectedButtonId);
+                if (subTarget(row, record.ValidTargets)) return;
+                _itemsResume = null;
             }
             var (target, error) = ItemUseTarget?.Invoke(record.ValidTargets, context) ?? (null, "Items cannot be used in this session.");
             var use = ItemUse;
@@ -577,9 +641,64 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke(error ?? "Items cannot be used in this session.");
                 return;
             }
-            CloseAll();
             GordianLog.Info("ITEM", $"Using {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) on {t.Name} ({t.ServerId}, index {t.TargetIndex}).");
             _ = SendItemAsync(() => use(t.ServerId, t.TargetIndex, row.Container, row.Slot), "Use");
+        }
+
+        /// <summary>Closes a Use / Drop window open over <paramref name="list"/>, if any (the list keeps the cursor).</summary>
+        private void CloseItemAction(StockUiOpenMenu list)
+        {
+            foreach (var menu in _open)
+            {
+                if (menu.ItemAction != null && ReferenceEquals(menu.Parent, list))
+                {
+                    CloseMenu(menu);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>The Items list to bring back after the sub-target cursor: its kind, the command menu's target, its place.</summary>
+        private (StockUiItemListKind Kind, StockUiTargetContext? Target, int First, int Selected)? _itemsResume;
+
+        /// <summary>
+        /// Brings the Items window back after the sub-target cursor used or dropped an item (the maintainer's round 1, 2026-10-12:
+        /// using or cancelling returns to the Items list, the command menu's one included): the main menu's Items, or the
+        /// command menu's on its target, at the place it was. The cursor's owner calls it when the cursor ends; nothing happens
+        /// when no item started the cursor. Returns the reopened list.
+        /// </summary>
+        public StockUiOpenMenu? ResumeItemWindow()
+        {
+            if (_itemsResume is not { } resume) return null;
+            _itemsResume = null;
+            StockUiOpenMenu? parent = null;
+            if (resume.Kind == StockUiItemListKind.Usable && resume.Target is { } target)
+            {
+                if (!OpenCommandMenu(target)) return null;
+                parent = Top;
+            }
+            else
+            {
+                if (!OpenMainMenu()) return null;
+                parent = Top;
+                if (parent != null && parent.Menu.FindButton(StockUiItems.MainMenuItemsButton) != null && parent.PageRing.Count > 0
+                    && parent.Name.Equals(StockUiMenuEntries.MainMenu, StringComparison.OrdinalIgnoreCase))
+                {
+                    parent.SelectedButtonId = StockUiItems.MainMenuItemsButton;
+                }
+            }
+            var list = OpenItems(parent, resume.Kind == StockUiItemListKind.Usable ? resume.Target : null);
+            if (list != null)
+            {
+                lock (_sync)
+                {
+                    list.FirstRow = Math.Clamp(resume.First, 0, Math.Max(0, list.Rows.Count - list.VisibleRows));
+                    list.ScrollFrom = list.FirstRow;
+                    list.SelectedButtonId = Math.Clamp(resume.Selected, 1, Math.Max(1, Math.Min(list.VisibleRows, list.Rows.Count - list.FirstRow)));
+                }
+                Changed?.Invoke();
+            }
+            return list;
         }
 
         /// <summary>
@@ -740,7 +859,7 @@ namespace Gordian.Core.Ui
             var container = list.ItemContainer;
             lock (_sync)
             {
-                _itemOrder[container] = StockUiItems.AutoOrder(StockUiItems.Rows(Inventory, container, ItemLookup));
+                _itemOrder[container] = StockUiItems.AutoOrder(StockUiItems.Rows(Inventory, container, ItemLookup), ItemLookup, SortType);
                 FillItemRows(list);
             }
             Changed?.Invoke();
@@ -754,7 +873,8 @@ namespace Gordian.Core.Ui
         /// <summary>
         /// Manual sort: the first Confirm picks the item, the second the place; the first item takes the second's place (below
         /// it when it was above, above it when it was below; the maintainer's retail check, 2026-10-11). The order is the
-        /// client's (LandSandBoat has no packet to reorder a container); the mode ends after the move.
+        /// client's (LandSandBoat has no packet to reorder a container). The mode stays for the next pair until Cancel (the
+        /// maintainer's round 1, 2026-10-12).
         /// </summary>
         private void ManualSortStep(StockUiOpenMenu list)
         {
@@ -770,7 +890,6 @@ namespace Gordian.Core.Ui
                 {
                     _itemOrder[list.ItemContainer] = StockUiItems.MoveInOrder(list.ItemRows, from, index);
                     list.ManualSortFrom = null;
-                    list.IsManualSort = false;
                     FillItemRows(list);
                 }
             }
