@@ -708,6 +708,8 @@ namespace Gordian.Core.Actions
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
                 case StockUiMenuCommand.Check:
                     return await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                case StockUiMenuCommand.ReleaseTrust:
+                    return await ReleaseTrustAsync(entity.Name).ConfigureAwait(false);
                 default:
                     return PlayerActionResult.Warn($"{command} is not available yet.");
             }

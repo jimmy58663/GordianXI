@@ -112,6 +112,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Abilities' Pet Command: the pet command list.</summary>
         PetCommandList,
+
+        /// <summary>A Trust's command menu Release: releases that Trust (as <c>/refa</c>).</summary>
+        ReleaseTrust,
     }
 
     /// <summary>

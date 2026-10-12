@@ -764,7 +764,31 @@ namespace Gordian.App
                 if (drag.Unlocked) LogUnlockedPress(path, drag, x, y);
                 if (drag.OnMouseDown(x, y)) return true;
             }
-            return session.ActionService.Menus.OnMouseDown(button, x, y);
+            if (session.ActionService.Menus.OnMouseDown(button, x, y)) return true;
+            if (button == Gordian.Core.Input.MouseButton.Left)
+            {
+                // A left click confirms the sub-target cursor and an NPC's waiting line, as Enter does (the maintainer's
+                // round 1 note, 2026-10-12).
+                var actions = session.ActionService;
+                if (actions.SubTargeting != null)
+                {
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var result = await actions.ConfirmSubTargetAsync().ConfigureAwait(false);
+                        if (result.Kind is Gordian.Core.Actions.PlayerActionResultKind.Warning or Gordian.Core.Actions.PlayerActionResultKind.Error)
+                        {
+                            actions.Menus.PostNotice(result.Message);
+                        }
+                    });
+                    return true;
+                }
+                if (session.Events.IsWaitingForConfirm)
+                {
+                    session.Events.Confirm();
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>Offers a mouse release to the stock UI; true when its press was the stock UI's.</summary>

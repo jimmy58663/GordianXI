@@ -271,6 +271,30 @@ namespace Gordian.App.Graphics
             return group.Images[step < frames ? step : 2 * frames - 1 - step];
         }
 
+        /// <summary>
+        /// The small selector the party and alliance windows show beside the member the sub-target cursor is on (retail
+        /// image-26, 2026-10-12): the menu cursor pointing right at half size (about 13 x 7 px), its tip at the row's left
+        /// edge, level with the name.
+        /// </summary>
+        public static void DrawRowSelector(StockUiRenderer renderer, UiResourceLibrary library, Vector2 tip, float scale, long timestamp)
+        {
+            if (!library.TryGetGroup("anc_s", out var group) || group.Images.Count == 0) return;
+            var image = SelectCursorFrame(group, timestamp);
+            if (image.Parts.Count == 0) return;
+            float right = float.MinValue, top = float.MaxValue, bottom = float.MinValue;
+            foreach (var part in image.Parts)
+            {
+                right = Math.Max(right, Math.Max(part.TopRight.X, part.BottomRight.X));
+                top = Math.Min(top, Math.Min(part.TopLeft.Y, part.TopRight.Y));
+                bottom = Math.Max(bottom, Math.Max(part.BottomLeft.Y, part.BottomRight.Y));
+            }
+            float s = scale * RowSelectorScale;
+            var transform = Matrix3x2.CreateTranslation(-right, -(top + bottom) * 0.5f) * Matrix3x2.CreateScale(s) * Matrix3x2.CreateTranslation(tip);
+            renderer.DrawImage(image, transform);
+        }
+
+        public const float RowSelectorScale = 0.5f;
+
         public static void DrawCursor(StockUiRenderer renderer, UiResourceLibrary library, Vector2 tip, float scale, long timestamp, UiColor? tint = null)
         {
             if (!library.TryGetGroup("anc_s", out var group) || group.Images.Count == 0) return;

@@ -225,11 +225,12 @@ namespace Gordian.Core.Tests.Actions
             Assert.Equal("0:05", StockUiActionMenu.FormatRecast(recast.RecastLeft(now)));
             Assert.Equal("0:00", StockUiActionMenu.FormatRecast(TimeSpan.Zero));
 
-            // Trust lists every learned trust whatever the job; from the command menu on yourself Fire is greyed.
+            // Trust lists every learned trust whatever the job; from the command menu on yourself Fire is listed and not
+            // greyed (the cursor then picks a valid target, retail note C5, 2026-10-12).
             Assert.Equal(new[] { "Shantotto" }, StockUiActionMenu.SpellRows(catalog, State(JobId.Warrior, 1, 0), 8, null).Select(r => r.Name));
             var self = new StockUiTargetContext(StockUiTargetKind.Self, SelfId, "Gemini");
             var blackOnSelf = StockUiActionMenu.SpellRows(catalog, State(JobId.BlackMage, 20, 50), 2, self, usableOnly: true);
-            Assert.Contains("cannot use Fire on Gemini", blackOnSelf[0].GreyedReason);
+            Assert.Null(Assert.Single(blackOnSelf).GreyedReason);
         }
 
         [Fact]
@@ -250,7 +251,9 @@ namespace Gordian.Core.Tests.Actions
             var abilities = StockUiActionMenu.JobAbilityRows(catalog, state, null);
             Assert.Equal(new[] { "Berserk", "Provoke", "Curing Waltz" }, abilities.Select(r => r.Name)); // the trait and Fight are elsewhere
             Assert.Equal("1:30", StockUiActionMenu.FormatRecast(abilities[0].RecastLeft(now)));
-            Assert.Equal(361, abilities[0].Icon); // the command's picture (+0x04)
+            Assert.Equal((361, 40), (abilities[0].Icon, abilities[0].SmallIcon)); // the command's picture (+0x04), small icon (+0x03)
+            Assert.True(abilities[0].IsGreyedAt(now)); // in recast (retail note D2)
+            Assert.False(abilities[0].IsGreyedAt(now + System.Diagnostics.Stopwatch.Frequency * 91));
             Assert.Null(abilities[2].GreyedReason); // 200 TP, 1500 held
 
             // Weapon skills are greyed out of combat even with TP (retail image-21), and under 1000 TP.
@@ -262,8 +265,10 @@ namespace Gordian.Core.Tests.Actions
             var traits = StockUiActionMenu.TraitRows(catalog, state);
             Assert.Equal((StockUiActionType.Trait, "Magic Def. Bonus", 46), (traits[0].Type, Assert.Single(traits).Name, traits[0].Icon));
             var pets = StockUiActionMenu.PetCommandRows(catalog, state, null);
-            Assert.Equal(new[] { "Fight", "Healing Ruby" }, pets.Select(r => r.Name));
-            Assert.Equal((ushort)512, pets[1].Id); // used as job ability 512 + bit
+            Assert.Equal(new[] { "Fight" }, pets.Select(r => r.Name)); // pet commands are the type-2 abilities (retail image-40)
+            var pacts = StockUiActionMenu.PetAbilityRows(catalog, state, 10); // Blood Pact: Ward's list
+            Assert.Equal(("Healing Ruby", (ushort)512), (Assert.Single(pacts).Name, pacts[0].Id)); // used as job ability 512 + bit
+            Assert.Empty(StockUiActionMenu.PetAbilityRows(catalog, state, 6));
         }
 
         [Fact]
@@ -476,6 +481,122 @@ namespace Gordian.Core.Tests.Actions
             _service.CancelSubTarget();
             Assert.False(_service.BeginItemSubTarget(ContainerId.Inventory, 9, 4401, 0x40)); // NPCs only: none here
             Assert.Null(_service.SubTargeting);
+        }
+
+        [Fact]
+        public async Task SubTargetCursor_UnlocksTheLockOnAndRestoresIt_OnFinishedRunsOnce()
+        {
+            // Locked on to the hare: the cursor lets go of the lock while the player picks and takes it back after (C3).
+            _service.SetTargetByName("Forest_Hare");
+            _service.SetLockOn(true);
+            int finished = 0;
+            Assert.True(_service.BeginItemSubTarget(ContainerId.Inventory, 3, 4112, 0x01, onFinished: () => finished++));
+            Assert.False(_service.IsLockedOn);
+            Assert.Equal(HareId, _service.CurrentTarget!.ServerId); // the target and the fight stay
+            _service.CancelSubTarget();
+            Assert.True(_service.IsLockedOn);
+            Assert.Equal(1, finished);
+
+            // Confirm: onFinished after the use is sent (no inventory module here: a warning, still finished once).
+            Assert.True(_service.BeginItemSubTarget(ContainerId.Inventory, 3, 4112, 0x01, onFinished: () => finished++));
+            await _service.ConfirmSubTargetAsync();
+            Assert.Equal(2, finished);
+            _service.CancelSubTarget(); // nothing running: no third call
+            Assert.Equal(2, finished);
+            Assert.False(_service.BeginItemSubTarget(ContainerId.Inventory, 3, 4112, 0x40, onFinished: () => finished++)); // nothing allowed
+            Assert.Equal(2, finished);
+        }
+
+        [Fact]
+        public async Task PetCommand_BloodPactRageOpensItsListAndAbilitiesInRecastStayListed()
+        {
+            LoadMenus();
+            var data = new byte[224];
+            data[64 + (91 >> 3)] |= 1 << (91 & 7);   // Blood Pact: Rage (job ability bits)
+            data[128 + (1 >> 3)] |= 1 << (1 & 7);    // Poison Nails (pet bit 1 = command 1025)
+            _localPlayer.UpdateFromCommandData(new S2C_0x0AC_CommandData(data));
+            var menus = _service.Menus;
+            Assert.True(menus.Open(StockUiActionMenu.AbilityMenu));
+            for (int i = 0; i < 4; i++) menus.Move(InputAction.MenuDown); // Pet Command (button 5 in these test windows)
+            menus.Activate();
+            var pet = menus.Top!;
+            Assert.Equal(StockUiActionList.PetCommands, pet.ActionList);
+            var rage = Assert.Single(pet.ActionRows);
+            Assert.Equal((StockUiActionType.PetList, 6), (rage.Type, rage.OpensPetList));
+            menus.Activate();
+            Assert.Equal((StockUiActionList.PetAbilities, 6), (menus.Top!.ActionList, menus.Top.ActionCategory));
+            Assert.Equal("Poison Nails", Assert.Single(menus.Top.ActionRows).Name);
+            menus.Activate(); // a pact: the cursor on enemies
+            for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+        }
+
+        [Fact]
+        public void CommandMenu_TrustReleaseRow_CombatLock_AndTheMainMenuOverIt()
+        {
+            var trust = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Trust, 0x01FFFF01, "Shantotto"));
+            Assert.Equal(new[] { "Magic", "Abilities", "Trust", "Items", "Release" }, trust.Select(r => r.Label.Text)); // retail image-25
+            Assert.Equal((668, StockUiMenuCommand.ReleaseTrust), (trust[^1].Label.Sprite, trust[^1].Entry.Command));
+            Assert.Equal(ChatCommandResultKind.ReleaseTrust, ChatCommandRouter.Parse("/retr all").Kind);
+
+            LoadMenus();
+            var menus = _service.Menus;
+            _service.SetTargetByName("Forest_Hare");
+            Assert.True(_service.OpenTargetCommandMenu());
+            // The main menu opens over the command menu, and Cancel goes back to it.
+            Assert.True(menus.OpenMainMenu());
+            Assert.Equal(2, menus.OpenMenus.Count);
+            menus.CloseTop();
+            Assert.True(menus.Top!.IsCommandMenu);
+            // While engaged the command menu cannot be cancelled.
+            _combat.Engage(HareId, HareIndex);
+            var input = new InputState();
+            var cancel = new InputProfile("t", "t");
+            cancel.Bind(InputAction.Cancel, new InputChord(GordianKey.Escape));
+            input.SetKeyDown(GordianKey.Escape);
+            input.Update(cancel, TimeSpan.FromMilliseconds(16));
+            menus.ProcessInput(input, TimeSpan.FromMilliseconds(16));
+            Assert.True(menus.IsOpen);
+            _combat.Disengage();
+            input.SetKeyUp(GordianKey.Escape);
+            input.Update(cancel, TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.Escape);
+            input.Update(cancel, TimeSpan.FromMilliseconds(16));
+            menus.ProcessInput(input, TimeSpan.FromMilliseconds(16));
+            Assert.False(menus.IsOpen);
+        }
+
+        [Fact]
+        public async Task TargetTokens_FromTheMacroPage()
+        {
+            // <r>: the tell partner; <ht>: a monster someone called for help on; <ft>, <focust>: not supported, nothing sent.
+            _service.Menus.TellTarget = () => "Tarudrake";
+            Assert.True((await _service.ExecuteCommandAsync("/ma Cure <r>")).Success);
+            Assert.Equal(FriendId, LastAction().Target);
+            _world.TryGetByServerId(HareId, out var hare);
+            hare!.NamePlate |= NamePlateFlags.CalledForHelp;
+            Assert.Equal(HareId, _service.ResolveTargetToken("ht", out _)!.ServerId);
+            Assert.Null(_service.ResolveTargetToken("ft", out string? problem));
+            Assert.Contains("not supported", problem);
+            Assert.Null(_service.ResolveTargetToken("pet", out problem));
+            Assert.Equal("You have no pet.", problem);
+            Assert.Null(_service.ResolveTargetToken("a10", out problem)); // no alliance
+        }
+
+        [Fact]
+        public void KeypadMinus_OpensTheMainMenuInEveryPreset()
+        {
+            var chord = new InputChord(GordianKey.NumPadSubtract);
+            Assert.Contains(chord, InputProfile.CreateCompact().GetChords(InputAction.OpenMenu));
+            Assert.Contains(chord, InputProfile.CreateFullNumpad().GetChords(InputAction.OpenMenu));
+            var old = new InputProfile("old", "saved before");
+            old.EnsureKeypadMinusMenuBinding();
+            Assert.Contains(chord, old.GetChords(InputAction.OpenMenu));
+            var taken = new InputProfile("taken", "minus used elsewhere");
+            taken.Bind(InputAction.ToggleWalkRun, chord);
+            taken.EnsureKeypadMinusMenuBinding();
+            Assert.DoesNotContain(chord, taken.GetChords(InputAction.OpenMenu));
         }
 
         [Fact]

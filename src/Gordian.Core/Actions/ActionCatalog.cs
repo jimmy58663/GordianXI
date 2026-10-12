@@ -70,8 +70,13 @@ namespace Gordian.Core.Actions
         private readonly object _sync = new();
         private Dictionary<string, int>? _spellsByName, _abilitiesByName, _weaponSkillsByName;
 
-        public ActionCatalog(SpellCommandTables tables, Func<int, string?> spellName, Func<int, string?> commandName)
+        private readonly Func<int, string?>? _spellHelp, _commandHelp;
+
+        public ActionCatalog(SpellCommandTables tables, Func<int, string?> spellName, Func<int, string?> commandName,
+            Func<int, string?>? spellHelp = null, Func<int, string?>? commandHelp = null)
         {
+            _spellHelp = spellHelp;
+            _commandHelp = commandHelp;
             Tables = tables ?? throw new ArgumentNullException(nameof(tables));
             _spellName = spellName ?? throw new ArgumentNullException(nameof(spellName));
             _commandName = commandName ?? throw new ArgumentNullException(nameof(commandName));
@@ -86,7 +91,9 @@ namespace Gordian.Core.Actions
             if (tables == null) return null;
             return new ActionCatalog(tables,
                 id => resources.TryGetString(Resources.Models.DMsgCategory.Spells, id, out var name) ? name : null,
-                id => resources.TryGetString(Resources.Models.DMsgCategory.Abilities, id, out var name) ? name : null);
+                id => resources.TryGetString(Resources.Models.DMsgCategory.Abilities, id, out var name) ? name : null,
+                id => resources.TryGetString(Resources.Models.DMsgCategory.SpellHelp, id, out var help) ? help : null,
+                id => resources.TryGetString(Resources.Models.DMsgCategory.AbilityHelp, id, out var help) ? help : null);
         }
 
         /// <summary>
@@ -113,6 +120,12 @@ namespace Gordian.Core.Actions
             weaponSkillId is >= 0 and < CommandRecord.JobAbilityBase && Tables.GetCommand(weaponSkillId) is { Type: CommandRecord.WeaponSkillType } ws ? ws : null;
 
         public string? SpellName(int id) => Clean(_spellName(id));
+
+        /// <summary>A spell's help line (ROM/181/75, row = spell id), shown in the help bar.</summary>
+        public string? SpellHelp(int id) => Clean(_spellHelp?.Invoke(id));
+
+        /// <summary>A command's help line (ROM/181/74, row = command id: traits and abilities alike), shown in the help bar.</summary>
+        public string? CommandHelp(int commandId) => Clean(_commandHelp?.Invoke(commandId));
 
         public string? JobAbilityName(int abilityId) => Clean(_commandName(CommandRecord.JobAbilityBase + abilityId));
 

@@ -214,6 +214,7 @@ namespace Gordian.App.Graphics
                 DrawEventText(renderer, eventText, width, height);
             }
             DrawMenus(renderer, library, session, menus, width, height);
+            if (!cutscene) DrawActionHelpBar(renderer, library, session, width, height);
             bool unlocked = Drag.Unlocked;
             if (unlocked)
             {
@@ -230,6 +231,31 @@ namespace Gordian.App.Graphics
                 renderer.DrawScreenTint(width, height, new Vector3(1f - Math.Clamp(LoadingOpacity, 0f, 1f)));
             }
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// The help bar over the Magic and Abilities lists (the list's title and the selected action's help line) and over the
+        /// sub-target cursor (the action's name and "Select target of spell."; the retail video, 2026-10-11).
+        /// </summary>
+        private void DrawActionHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font) return;
+            var actions = session.ActionService;
+            if (actions.SubTargeting is { } picking)
+            {
+                // PROVISIONAL: only the spell line is captured; the item and ability lines are guesses in the same wording.
+                string line = picking.Kind switch
+                {
+                    Gordian.Core.Actions.ActionKind.Spell => "Select target of spell.",
+                    Gordian.Core.Actions.ActionKind.Item => "Select target of item.",
+                    _ => "Select target of ability.",
+                };
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, picking.Name, line, Layout.Scale, width, height);
+                return;
+            }
+            if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
+            string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
+            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
         }
 
         /// <summary>The cursor's tip above the name plate (when the entity has one), else on the overhead point.</summary>
@@ -376,7 +402,14 @@ namespace Gordian.App.Graphics
                     bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
-                    if (menu.IsActionList && _window1Top is { } listTop)
+                    if (menu.PageRing.Count > 0)
+                    {
+                        // The main menu opened over the target command menu takes its own place, not the command menu's offset.
+                        var own = ResolveWindow(StockUiWindowIds.MainMenu, frame, width, height, out _);
+                        x = own.X;
+                        y = own.Y;
+                    }
+                    else if (menu.IsActionList && _window1Top is { } listTop)
                     {
                         // The spell and ability lists sit on Window 1's top edge as the command menu does (retail image-14, the video).
                         x = authored.X;
@@ -457,7 +490,9 @@ namespace Gordian.App.Graphics
         private void DrawTargetWindow(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session,
             StockUiPlacement? party, uint width, uint height)
         {
-            var target = session.ActionService.CurrentTarget;
+            // The target window follows the sub-target cursor while it is up (retail note C3 and image-26, 2026-10-12).
+            var picking = session.ActionService.SubTargeting;
+            var target = picking?.Current ?? session.ActionService.CurrentTarget;
             var font = _font;
             if (!library.TryGetMenu("targetwi", out var menu)) return;
 
@@ -484,7 +519,7 @@ namespace Gordian.App.Graphics
             bool showGauge = NamePlateStyle.ShowsTargetHealthBar(target, target.NamePlate);
             StockUiTargetWindow.Draw(renderer, font, menu, placement, target.Name, target.Hpp, kind, showGauge);
 
-            if (session.ActionService.IsLockedOn) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
+            if (session.ActionService.IsLockedOn && picking == null) StockUiTargetWindow.DrawLockOverlay(renderer, library, placement);
         }
 
         private readonly List<float> _statusOpacities = new();
@@ -727,6 +762,8 @@ namespace Gordian.App.Graphics
             if (font == null) return result;
             var rows = GetPartyRows(session, groups, count, _resources);
             StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
+            DrawRowSelector(renderer, library, session, menu, placement,
+                groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId).ToList() : new List<uint> { session.LocalPlayer.ServerId });
             if (RollTexts(session, groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId) : new[] { session.LocalPlayer.ServerId }) is { } rolls)
             {
                 StockUiTreasureWindow.DrawRollColumn(renderer, font, menu, placement, rolls, label: true);
@@ -764,12 +801,35 @@ namespace Gordian.App.Graphics
                 var rows = new List<PartyRowVitals>(6);
                 foreach (var m in groups.Others[i].Take(6)) rows.Add(ToRow(m, session.World.CurrentZoneId, _resources));
                 StockUiPartyWindow.DrawAllianceRows(renderer, font, menu, placement, rows);
+                DrawRowSelector(renderer, library, session, menu, placement, groups.Others[i].Take(6).Select(m => m.ServerId).ToList());
                 if (RollTexts(session, groups.Others[i].Take(6).Select(m => m.ServerId)) is { } rolls)
                 {
                     StockUiTreasureWindow.DrawRollColumn(renderer, font, menu, placement, rolls, label: false);
                 }
             }
         }
+
+        /// <summary>
+        /// The sub-target cursor's selector beside its member's row in the party or an alliance window (retail image-26,
+        /// 2026-10-12): the half-size menu cursor, its tip at the row's left edge, level with the name (6 px down).
+        /// </summary>
+        private static void DrawRowSelector(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, UiMenuDefinition menu,
+            StockUiPlacement placement, IReadOnlyList<uint> memberIds)
+        {
+            if (session.ActionService.SubTargeting is not { } picking) return;
+            int index = -1;
+            for (int i = 0; i < memberIds.Count && i < menu.Buttons.Count; i++)
+            {
+                if (memberIds[i] == picking.Current.ServerId) index = i;
+            }
+            if (index < 0) return;
+            var button = menu.Buttons[index];
+            float s = placement.Scale;
+            var tip = new Vector2(placement.X + (button.X - 1) * s, placement.Y + (button.Y + RowSelectorDrop) * s);
+            StockUiTargetWindow.DrawRowSelector(renderer, library, tip, s, Stopwatch.GetTimestamp());
+        }
+
+        private const float RowSelectorDrop = 6;
 
         /// <summary>
         /// The "roll" column's texts for some members while the Treasure Pool list is open: each one's lot or pass on the

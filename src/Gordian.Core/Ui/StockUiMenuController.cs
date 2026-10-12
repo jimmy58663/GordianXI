@@ -451,6 +451,9 @@ namespace Gordian.Core.Ui
             if (moved) SoundCue?.Invoke(StockUiSoundCue.CursorMove);
         }
 
+        /// <summary>Whether the character is engaged: the target command menu cannot be cancelled then.</summary>
+        public Func<bool>? InCombat { get; set; }
+
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
 
@@ -585,7 +588,8 @@ namespace Gordian.Core.Ui
             lock (_sync)
             {
                 // Over a pinned window alone (the dead character's home point window) the main menu still opens.
-                if (_open.Length > 0 && !(_open.Length == 1 && _open[0].Pinned)) return true;
+                // The main menu also opens over the target command menu (the maintainer's round 1 note, 2026-10-12).
+                if (_open.Length > 0 && !(_open.Length == 1 && (_open[0].Pinned || _open[0].IsCommandMenu))) return true;
                 return Push(_mainMenuPage, null, StockUiMenuEntries.MainMenuPages, null, null) != null;
             }
         }
@@ -1102,7 +1106,7 @@ namespace Gordian.Core.Ui
             {
                 // The menu button opens the main menu; pressed again it turns the page of a paged menu (retail
                 // behaviour, confirmed in-game 2026-09-26). Only Cancel closes menus.
-                if (!wasOpen || Top is { Pinned: true })
+                if (!wasOpen || Top is { Pinned: true } || (_open.Length == 1 && Top is { IsCommandMenu: true }))
                 {
                     int before = _open.Length;
                     if (OpenMainMenu() && _open.Length > before) SoundCue?.Invoke(StockUiSoundCue.MainMenuOpen);
@@ -1135,6 +1139,8 @@ namespace Gordian.Core.Ui
             if (input.WasActionTriggered(InputAction.Cancel))
             {
                 if (Top is { Pinned: true }) return true;
+                // The command menu stays up while fighting (the maintainer's round 1 note, 2026-10-12).
+                if (_open.Length == 1 && Top is { IsCommandMenu: true } && InCombat?.Invoke() == true) return true;
                 CloseTop();
                 SoundCue?.Invoke(StockUiSoundCue.Close);
                 return true;
@@ -1819,7 +1825,7 @@ namespace Gordian.Core.Ui
                     break;
 
                 case StockUiMenuCommand.RangedAttack:
-                    RunRangedAttack();
+                    RunRangedAttack(from);
                     break;
 
                 case StockUiMenuCommand.JobTraitList:
@@ -1843,6 +1849,7 @@ namespace Gordian.Core.Ui
                 case StockUiMenuCommand.Disengage:
                 case StockUiMenuCommand.Invite:
                 case StockUiMenuCommand.Check:
+                case StockUiMenuCommand.ReleaseTrust:
                     var target = CommandMenuTarget;
                     CloseAll();
                     if (target is { } t) _ = RunTargetCommandAsync(entry, t);

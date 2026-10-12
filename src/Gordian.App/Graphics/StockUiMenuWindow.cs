@@ -336,8 +336,10 @@ namespace Gordian.App.Graphics
             {
                 var row = rows[i];
                 float ry = areaY + (i - first) * pitch * s;
-                if (icons != null && row.Icon >= 0 && row.Icon < icons.Images.Count) DrawIcon(renderer, icons.Images[row.Icon], iconX, ry, ActionIconSize * s);
-                UiColor tint = i == selectedEntry ? ActionSelectedTint : row.IsGreyed ? ActionGreyedTint : White;
+                // The picture, else the small icon (pictures 677 and up are not in magiconw; their source is unknown).
+                int icon = icons != null && row.Icon >= 0 && row.Icon < icons.Images.Count ? row.Icon : row.SmallIcon;
+                if (icons != null && icon >= 0 && icon < icons.Images.Count) DrawIcon(renderer, icons.Images[icon], iconX, ry, ActionIconSize * s);
+                UiColor tint = i == selectedEntry ? ActionSelectedTint : row.IsGreyedAt(timestamp) ? ActionGreyedTint : White;
                 if (logFont != null) logFont.Draw(renderer, row.Name, textX, ry + ActionRowTextDrop * s, s, tint);
                 else renderer.DrawText(font, row.Name, textX, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, tint);
             }
@@ -385,6 +387,41 @@ namespace Gordian.App.Graphics
         }
 
         private const float InfoLabelX = 7, InfoValueRightInset = 8, InfoLine1Y = 8, InfoLine2Y = 26;
+
+        /// <summary>
+        /// The help bar at the top of the screen for the Magic and Abilities lists and the sub-target cursor (retail image-14,
+        /// -27, -41 and the video, 2026-10-11/12): the title ("Magic List", "Abilities", or the action being aimed) in
+        /// <c>titlewin</c> and the line ("Restores target's HP.", "Select target of spell.") in <c>helpwind</c> stretched to
+        /// 16 px short of the screen's right edge, both in the log font 8 px in, as the check window draws its bar. The bar
+        /// for every other menu is #313.
+        /// </summary>
+        public static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
+            string title, string? text, float scale, uint width, uint height)
+        {
+            float s = scale;
+            void Line(string line, float x, float y)
+            {
+                if (logFont != null) logFont.Draw(renderer, line, x, y, s, White);
+                else renderer.DrawText(font, line, x, y, s);
+            }
+            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
+            {
+                var f = titleWindow.Frame;
+                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
+                renderer.DrawMenu(titleWindow, at, includeButtons: false, opaqueBody: true);
+                Line(title, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
+            }
+            if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
+            {
+                var f = help.Frame;
+                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
+                float barWidth = Math.Max(f.Width, (width - at.X) / s - HelpBarRightMargin);
+                renderer.DrawMenu(help, at, includeButtons: false, opaqueBody: true, frameWidth: barWidth);
+                if (!string.IsNullOrEmpty(text)) Line(text, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
+            }
+        }
+
+        private const float HelpBarTextX = 8, HelpBarRightMargin = 16;
 
         /// <summary>Draws an element-group image scaled so its bounds fill a square of <paramref name="size"/> pixels.</summary>
         private static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)

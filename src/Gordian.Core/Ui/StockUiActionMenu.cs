@@ -19,6 +19,11 @@ namespace Gordian.Core.Ui
         JobTraits,
         PetCommands,
         Mounts,
+        /// <summary>
+        /// A pet command's own list (retail image-41 / -42, 2026-10-12): Blood Pact: Rage (command type 6), Blood Pact:
+        /// Ward (10) or Ready (18); <see cref="StockUiOpenMenu.ActionCategory"/> is the command type.
+        /// </summary>
+        PetAbilities,
     }
 
     /// <summary>What a Magic or Abilities entry asks the action service to do.</summary>
@@ -30,6 +35,8 @@ namespace Gordian.Core.Ui
         RangedAttack,
         /// <summary>A job trait: listed only, nothing to use.</summary>
         Trait,
+        /// <summary>A pet command that opens a list of its own (Blood Pact: Rage / Ward, Ready): Confirm opens it.</summary>
+        PetList,
     }
 
     /// <summary>
@@ -41,21 +48,26 @@ namespace Gordian.Core.Ui
 
     /// <summary>
     /// One row of a spell or ability list: the action, its name, its icon (an image of the <c>magiconw</c> group, -1 for
-    /// none), the MP it costs (spells; -1 otherwise), its recast's end (<see cref="System.Diagnostics.Stopwatch"/> ticks,
-    /// 0 when ready) and why it is greyed (null when usable).
+    /// none) and the small icon to fall back on, the MP it costs (spells; -1 otherwise), its recast's end
+    /// (<see cref="System.Diagnostics.Stopwatch"/> ticks, 0 when ready), why it is greyed (null when usable), whether a
+    /// running recast greys it (job abilities, retail D2 note 2026-10-12), its help line, and for a pet command that opens
+    /// a list, that list's command type.
     /// </summary>
     public readonly record struct StockUiActionRow(StockUiActionType Type, ushort Id, string Name, ActionTargetFlags TargetFlags,
-        int Icon, int MpCost, long RecastEndsAt, string? GreyedReason)
+        int Icon, int MpCost, long RecastEndsAt, string? GreyedReason, int SmallIcon = -1, bool GreyedInRecast = false,
+        string? Help = null, int OpensPetList = 0)
     {
-        /// <summary>Whether the row is greyed (by a reason; a running recast does not grey a row, retail shows it under "Next").</summary>
+        /// <summary>Whether the row is greyed by a reason (level, MP, TP, out of combat).</summary>
         public bool IsGreyed => GreyedReason != null;
+
+        /// <summary>Whether the row is greyed at <paramref name="now"/>: by a reason, or by a running recast where that greys it.</summary>
+        public bool IsGreyedAt(long now) => GreyedReason != null || (GreyedInRecast && RecastEndsAt > now);
 
         /// <summary>The time left on the row's recast at <paramref name="now"/>.</summary>
         public TimeSpan RecastLeft(long now) => RecastEndsAt > now
             ? TimeSpan.FromSeconds((RecastEndsAt - now) / (double)System.Diagnostics.Stopwatch.Frequency)
             : TimeSpan.Zero;
     }
-
     /// <summary>The character state the action lists are composed from (the action service fills it).</summary>
     public sealed class StockUiActionState
     {
@@ -175,8 +187,10 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// The spells of a kind (0: every kind but Trust). From the main menu (<paramref name="usableOnly"/> false) every
-        /// learned spell, greyed when neither job can cast it at its level; from the command menu only those your jobs can
-        /// cast. Sorted by the spell table's menu index.
+        /// learned spell, greyed when neither job can cast it at its level; from the command menu every spell your jobs can
+        /// cast, whatever its target can take (retail note C5, 2026-10-12: the cursor then picks a valid target). Sorted
+        /// by the spell table's menu index. The icon is the spell's picture (+0x42) when it has one (retail image-39, the
+        /// Cures), else its small icon (+0x40: the songs' notes, image-14).
         /// </summary>
         public static List<StockUiActionRow> SpellRows(ActionCatalog catalog, StockUiActionState state, int kind, StockUiTargetContext? target,
             bool usableOnly = false)
@@ -195,17 +209,19 @@ namespace Gordian.Core.Ui
                 string? reason = !castable ? $"You cannot cast {name} on your current job and level." : null;
                 if (reason == null && spell.MpCost > state.CurrentMp) reason = $"You do not have enough MP to cast {name}.";
                 var flags = (ActionTargetFlags)(spell.TargetFlags & 0x3F);
-                reason ??= TargetReason(flags, target, name);
                 long ends = EndsAt(state, state.SpellRecast((ushort)id));
-                found.Add((spell.MenuIndex, new StockUiActionRow(StockUiActionType.Spell, (ushort)id, name, flags, spell.Icon, spell.MpCost, ends, reason)));
+                int icon = spell.Icon2 != 0xFFFF ? spell.Icon2 : spell.Icon;
+                found.Add((spell.MenuIndex, new StockUiActionRow(StockUiActionType.Spell, (ushort)id, name, flags, icon, spell.MpCost, ends, reason,
+                    SmallIcon: spell.Icon, Help: catalog.SpellHelp(id))));
             }
             found.Sort((a, b) => a.Order != b.Order ? a.Order.CompareTo(b.Order) : a.Row.Id.CompareTo(b.Row.Id));
             return found.ConvertAll(f => f.Row);
         }
 
         /// <summary>
-        /// The job abilities S2C 0x0AC lists, in id order (pet commands, type 2, are under Pet Command; traits and blood
-        /// pacts never sit in the job ability bits).
+        /// The job abilities S2C 0x0AC lists, in id order (pet commands, type 2, are under Pet Command); greyed while in
+        /// recast or short of TP, never by the target (retail note D2, 2026-10-12: Chi Blast stays usable with yourself
+        /// targeted; the cursor then picks a monster).
         /// </summary>
         public static List<StockUiActionRow> JobAbilityRows(ActionCatalog catalog, StockUiActionState state, StockUiTargetContext? target)
         {
@@ -214,15 +230,22 @@ namespace Gordian.Core.Ui
             {
                 if (!state.HasJobAbility((ushort)id) || catalog.GetJobAbility(id) is not { } record || catalog.JobAbilityName(id) is not { } name) continue;
                 if (record.Type is CommandRecord.TraitType or CommandRecord.WeaponSkillType or 2 or 6 or 10) continue;
-                rows.Add(AbilityRow(catalog, state, target, record, (ushort)id, name));
+                rows.Add(AbilityRow(catalog, state, record, (ushort)id, name));
             }
             return rows;
         }
 
+        /// <summary>The LandSandBoat ability ids of the pet commands that open lists of their own, and the command type each lists.</summary>
+        public static readonly IReadOnlyDictionary<int, int> PetListCommands = new Dictionary<int, int>
+        {
+            [91] = 6,   // Blood Pact: Rage (retail image-41)
+            [172] = 10, // Blood Pact: Ward (image-42)
+            [251] = 18, // Ready (BST; PROVISIONAL, by analogy)
+        };
+
         /// <summary>
-        /// Pet commands: the job abilities of type 2 S2C 0x0AC lists (Fight, Heel ...) and the pet abilities of its pet
-        /// bits (blood pacts, Ready moves: command 1024 + bit, used as job ability 512 + bit, LandSandBoat
-        /// <c>charutils::BuildingCharPetAbilityTable</c>).
+        /// Pet Command (retail image-40: Assault, Retreat, Release, Blood Pact: Rage, Blood Pact: Ward, Avatar's Favor): the
+        /// job abilities of type 2 S2C 0x0AC lists, in id order. Blood Pact: Rage / Ward and Ready open their lists.
         /// </summary>
         public static List<StockUiActionRow> PetCommandRows(ActionCatalog catalog, StockUiActionState state, StockUiTargetContext? target)
         {
@@ -230,26 +253,38 @@ namespace Gordian.Core.Ui
             for (int id = 0; id < CommandRecord.JobAbilityBase; id++)
             {
                 if (!state.HasJobAbility((ushort)id) || catalog.GetJobAbility(id) is not { Type: 2 } record || catalog.JobAbilityName(id) is not { } name) continue;
-                rows.Add(AbilityRow(catalog, state, target, record, (ushort)id, name));
-            }
-            for (int bit = 0; bit < TraitBase - PetCommandBase; bit++)
-            {
-                int command = PetCommandBase + bit;
-                if (!state.HasPetAbility((ushort)bit) || catalog.Tables.GetCommand(command) is not { } record
-                    || catalog.JobAbilityName(command - CommandRecord.JobAbilityBase) is not { } name) continue;
-                rows.Add(AbilityRow(catalog, state, target, record, (ushort)(command - CommandRecord.JobAbilityBase), name));
+                var row = AbilityRow(catalog, state, record, (ushort)id, name);
+                if (PetListCommands.TryGetValue(id, out int listType)) row = row with { Type = StockUiActionType.PetList, OpensPetList = listType };
+                rows.Add(row);
             }
             return rows;
         }
 
-        private static StockUiActionRow AbilityRow(ActionCatalog catalog, StockUiActionState state, StockUiTargetContext? target,
-            CommandRecord record, ushort id, string name)
+        /// <summary>
+        /// A pet command's list: the pet abilities S2C 0x0AC's pet bits name (command 1024 + bit, used as job ability 512 +
+        /// bit, LandSandBoat <c>charutils::BuildingCharPetAbilityTable</c>) of one command type: 6 Blood Pact: Rage, 10
+        /// Blood Pact: Ward, 18 Ready.
+        /// </summary>
+        public static List<StockUiActionRow> PetAbilityRows(ActionCatalog catalog, StockUiActionState state, int commandType)
+        {
+            var rows = new List<StockUiActionRow>();
+            for (int bit = 0; bit < TraitBase - PetCommandBase; bit++)
+            {
+                int command = PetCommandBase + bit;
+                if (!state.HasPetAbility((ushort)bit) || catalog.Tables.GetCommand(command) is not { } record || record.Type != commandType
+                    || catalog.JobAbilityName(command - CommandRecord.JobAbilityBase) is not { } name) continue;
+                rows.Add(AbilityRow(catalog, state, record, (ushort)(command - CommandRecord.JobAbilityBase), name));
+            }
+            return rows;
+        }
+
+        private static StockUiActionRow AbilityRow(ActionCatalog catalog, StockUiActionState state, CommandRecord record, ushort id, string name)
         {
             var flags = (ActionTargetFlags)(record.TargetFlags & 0x3F);
             string? reason = record.TpCost > 0 && state.CurrentTp < record.TpCost ? $"You do not have enough TP to use {name}." : null;
-            reason ??= TargetReason(flags, target, name);
             return new StockUiActionRow(StockUiActionType.JobAbility, id, name, flags, CommandIcon(record), -1,
-                EndsAt(state, state.AbilityRecast(record.RecastId)), reason);
+                EndsAt(state, state.AbilityRecast(record.RecastId)), reason, SmallIcon: record.Icon, GreyedInRecast: true,
+                Help: catalog.CommandHelp(record.Id));
         }
 
         /// <summary>
@@ -265,13 +300,13 @@ namespace Gordian.Core.Ui
                 var flags = (ActionTargetFlags)(record.TargetFlags & 0x3F);
                 string? reason = !state.Engaged ? $"You must be engaged to use {name}."
                     : state.CurrentTp < WeaponSkillTp ? $"You do not have enough TP to use {name}." : null;
-                reason ??= TargetReason(flags, target, name);
-                rows.Add(new StockUiActionRow(StockUiActionType.WeaponSkill, (ushort)id, name, flags, CommandIcon(record), -1, 0, reason));
+                rows.Add(new StockUiActionRow(StockUiActionType.WeaponSkill, (ushort)id, name, flags, CommandIcon(record), -1, 0, reason,
+                    SmallIcon: record.Icon, Help: catalog.CommandHelp(record.Id)));
             }
             return rows;
         }
 
-        /// <summary>The job traits S2C 0x0AC lists (command 1536 + trait id), in id order; never greyed (image-19).</summary>
+        /// <summary>The job traits S2C 0x0AC lists (command 1536 + trait id), in id order; never greyed (image-19), help in the bar (image-27).</summary>
         public static List<StockUiActionRow> TraitRows(ActionCatalog catalog, StockUiActionState state)
         {
             var rows = new List<StockUiActionRow>();
@@ -280,26 +315,22 @@ namespace Gordian.Core.Ui
                 int command = TraitBase + id;
                 if (!state.HasTrait((ushort)id) || catalog.Tables.GetCommand(command) is not { } record
                     || catalog.JobAbilityName(command - CommandRecord.JobAbilityBase) is not { } name) continue;
-                rows.Add(new StockUiActionRow(StockUiActionType.Trait, (ushort)id, name, ActionTargetFlags.None, CommandIcon(record), -1, 0, null));
+                rows.Add(new StockUiActionRow(StockUiActionType.Trait, (ushort)id, name, ActionTargetFlags.None, CommandIcon(record), -1, 0, null,
+                    SmallIcon: record.Icon, Help: catalog.CommandHelp(command)));
             }
             return rows;
         }
 
         /// <summary>
         /// A command's list icon: its picture (+0x04, Soul Voice 75) when it has one, else its small icon (+0x03, the "Ab"
-        /// tiles traits show). Spells show their small icon (+0x40: the coloured notes of the songs).
+        /// tiles traits show). Pictures numbered 677 and up (Inner Strength 1065, Clarion Call 1073 and the other newer
+        /// abilities, 122 spells) lie past <c>magiconw</c>'s 677 images; their source is not found yet, so the lists fall
+        /// back to the small icon for them.
         /// </summary>
         public static int CommandIcon(CommandRecord record) => record.Icon2 >= 0 ? record.Icon2 : record.Icon;
 
         private static long EndsAt(StockUiActionState state, TimeSpan left) =>
             left > TimeSpan.Zero ? state.Now + (long)(left.TotalSeconds * System.Diagnostics.Stopwatch.Frequency) : 0;
-
-        /// <summary>Why an action cannot be used on the command menu's target (null when it can, or without one).</summary>
-        private static string? TargetReason(ActionTargetFlags flags, StockUiTargetContext? target, string name)
-        {
-            if (target is not { } t || flags == ActionTargetFlags.None || Accepts(flags, t.Kind)) return null;
-            return $"You cannot use {name} on {t.TargetName}.";
-        }
 
         /// <summary>
         /// Whether an action's target bits allow a command-menu target of this kind. A player may be in your party or

@@ -30,7 +30,7 @@ namespace Gordian.Core.Tests.Actions
         {
             [FastBlade] = "Fast Blade", [512 + Berserk] = "Berserk", [512 + Provoke] = "Provoke", [512 + CuringWaltz] = "Curing Waltz",
             [512 + 1] = "Dual Wield", // a job trait (type 4): never an ability
-            [512 + Fight] = "Fight", [1024] = "Healing Ruby", [1536 + MagicDefBonus] = "Magic Def. Bonus",
+            [512 + Fight] = "Fight", [512 + 91] = "Blood Pact: Rage", [1025] = "Poison Nails", [1024] = "Healing Ruby", [1536 + MagicDefBonus] = "Magic Def. Bonus",
         };
 
         public static ActionCatalog Build()
@@ -49,6 +49,8 @@ namespace Gordian.Core.Tests.Actions
             Command(commands, 512 + 1, type: 4, flags: 0x01, recastId: 0, tp: -1);
             Command(commands, 512 + Fight, type: 2, flags: 0x20, recastId: 100, tp: -1);
             Command(commands, 1024, type: 10, flags: 0x05, recastId: 174, tp: -1);
+            Command(commands, 512 + 91, type: 2, flags: 0x01, recastId: 173, tp: -1);
+            Command(commands, 1025, type: 6, flags: 0x20, recastId: 173, tp: -1);
             Command(commands, 1536 + MagicDefBonus, type: 4, flags: 0x01, recastId: 0, tp: -1, icon: 46, icon2: 46);
             var file = Section("mgc_", DatSectionType.SpellList, spells).Concat(Section("comm", DatSectionType.AbilityList, commands)).ToArray();
             var tables = SpellCommandTables.Parse(file)!;

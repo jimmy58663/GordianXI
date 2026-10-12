@@ -47,6 +47,7 @@ namespace Gordian.Core.Actions
         {
             Menus.ActionRowsProvider = ComposeActionRows;
             Menus.ActionRequested = RunMenuActionAsync;
+            Menus.InCombat = () => Combat?.IsEngaged == true;
             Action refresh = () =>
             {
                 if (Menus.IsOpen) Menus.RefreshActionLists();
@@ -87,6 +88,7 @@ namespace Gordian.Core.Actions
                 StockUiActionList.WeaponSkills => StockUiActionMenu.WeaponSkillRows(catalog, state, target),
                 StockUiActionList.JobTraits => StockUiActionMenu.TraitRows(catalog, state),
                 StockUiActionList.PetCommands => StockUiActionMenu.PetCommandRows(catalog, state, target),
+                StockUiActionList.PetAbilities => StockUiActionMenu.PetAbilityRows(catalog, state, category),
                 _ => Array.Empty<StockUiActionRow>(),
             };
         }
@@ -105,8 +107,8 @@ namespace Gordian.Core.Actions
             }
             if (request.Type == StockUiActionType.RangedAttack)
             {
-                return Task.FromResult(BeginSubTarget(request.Name, ActionTargetFlags.Enemy,
-                    entity => ShootAsync(entity.ServerId, entity.TargetIndex), preferred, resumeMenus: true));
+                return Task.FromResult(StartSubTarget(request.Name, ActionTargetFlags.Enemy,
+                    entity => ShootAsync(entity.ServerId, entity.TargetIndex), preferred, true, ActionKind.WeaponSkill, 0, default, 0));
             }
             var kind = request.Type switch
             {
@@ -116,7 +118,7 @@ namespace Gordian.Core.Actions
             };
             var allowed = request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags;
             ushort id = request.Id;
-            return Task.FromResult(BeginSubTarget(request.Name, allowed, entity => UseActionAsync(kind, id, entity), preferred, resumeMenus: true));
+            return Task.FromResult(StartSubTarget(request.Name, allowed, entity => UseActionAsync(kind, id, entity), preferred, true, kind, id, default, 0));
         }
 
         /// <summary>
@@ -281,6 +283,50 @@ namespace Gordian.Core.Actions
                     if (LastSubTarget == null) problem = "No sub-target has been selected yet.";
                     return LastSubTarget;
             }
+            switch (token)
+            {
+                case "pet":
+                    // Your pet: the actor index S2C 0x037 / 0x067 report for it.
+                    if (_localPlayer.PetActorIndex != 0 && _world.TryGetByTargetIndex(_localPlayer.PetActorIndex, out var pet) && pet != null) return pet;
+                    problem = "You have no pet.";
+                    return null;
+                case "r":
+                    // The last person you exchanged tells with (the chat's tell partner; retail: the last who sent you one).
+                    if (Menus.TellTarget?.Invoke() is { Length: > 0 } teller && _world.TryGetByName(teller, out var tellEntity) && tellEntity != null) return tellEntity;
+                    problem = "No one who sent you a tell is here.";
+                    return null;
+                case "scan":
+                    // The entity the wide scan is tracking (S2C 0x0F5).
+                    if (CommandModule?.State.WideScan.Track is { } track && _world.TryGetByTargetIndex(track.ActIndex, out var tracked) && tracked != null) return tracked;
+                    problem = "Nothing is being tracked.";
+                    return null;
+                case "ht":
+                    // The nearest monster someone called for help on (its name plate's CalledForHelp flag).
+                    if (LocalEntity() is { } me)
+                    {
+                        WorldEntity? best = null;
+                        float bestDistance = float.MaxValue;
+                        foreach (var entity in _world.GetEntitiesInRadius(me.Position, TargetCycling.Range))
+                        {
+                            if (entity.Type != EntityType.Monster || (entity.NamePlate & NamePlateFlags.CalledForHelp) == 0) continue;
+                            float d = System.Numerics.Vector3.DistanceSquared(me.Position, entity.Position);
+                            if (d < bestDistance) { bestDistance = d; best = entity; }
+                        }
+                        if (best != null) return best;
+                    }
+                    problem = "No one has called for help nearby.";
+                    return null;
+                case "ft":
+                case "focust":
+                    problem = $"<{token}> is not supported yet (no adventuring fellow or focus target in this client).";
+                    return null;
+            }
+            if (token.Length == 3 && token[0] == 'a' && token[1] is '1' or '2' && token[2] is >= '0' and <= '5')
+            {
+                var member = AllianceSlotEntity(token[1] - '0', token[2] - '0');
+                if (member == null) problem = $"<{token}>: no alliance member in that slot here.";
+                return member;
+            }
             if (token.Length == 2 && token[0] == 'p' && token[1] is >= '1' and <= '5')
             {
                 var member = PartySlotEntity(token[1] - '0');
@@ -293,6 +339,23 @@ namespace Gordian.Core.Actions
 
         private WorldEntity? LocalEntity() =>
             _world.TryGetByServerId(_localPlayer.ServerId, out var self) ? self : null;
+
+        /// <summary>
+        /// <c>&lt;a10&gt;</c>-<c>&lt;a25&gt;</c>: the member in a slot (0-5) of the alliance's other parties, the first (1) and
+        /// second (2) in party-number order, as the alliance windows list them. PROVISIONAL: whether retail's first party is
+        /// the first other party or the alliance's first party (possibly your own).
+        /// </summary>
+        private WorldEntity? AllianceSlotEntity(int party, int slot)
+        {
+            var members = _partyModule.State.Members;
+            var me = members.FirstOrDefault(m => m.ServerId == _localPlayer.ServerId);
+            byte ownParty = me?.PartyNumber ?? 0;
+            var others = members.Where(m => m.PartyNumber != ownParty).GroupBy(m => m.PartyNumber).OrderBy(g => g.Key).ToList();
+            if (party < 1 || party > others.Count) return null;
+            var list = others[party - 1].OrderBy(m => m.MemberNumber).ToList();
+            if (slot < 0 || slot >= list.Count) return null;
+            return _world.TryGetByServerId(list[slot].ServerId, out var entity) ? entity : null;
+        }
 
         /// <summary>The member in a slot (1-5) of your own party, in party window order, if in the zone.</summary>
         private WorldEntity? PartySlotEntity(int slot)
@@ -357,7 +420,7 @@ namespace Gordian.Core.Actions
             StartSubTarget(name, allowed, onConfirm, preferred, resumeMenus, ActionKind.Spell, 0, default, 0);
 
         private PlayerActionResult StartSubTarget(string name, ActionTargetFlags allowed, Func<WorldEntity, Task<PlayerActionResult>> onConfirm,
-            WorldEntity? preferred, bool resumeMenus, ActionKind kind, ushort id, ContainerId container, byte slot)
+            WorldEntity? preferred, bool resumeMenus, ActionKind kind, ushort id, ContainerId container, byte slot, Action? onFinished = null)
         {
             ArgumentNullException.ThrowIfNull(onConfirm);
             var self = LocalEntity();
@@ -383,9 +446,15 @@ namespace Gordian.Core.Actions
             CancelSubTarget();
             if (resumeMenus && Menus.IsOpen) Menus.Suspended = true;
             else Menus.CloseAll();
+            // A lock-on lets go while the player picks, and comes back after (retail note C3, 2026-10-12); the engagement
+            // and auto-attacks are not touched: the cursor never changes the battle target.
+            WorldEntity? relock = IsLockedOn ? CurrentTarget : null;
+            if (relock != null) SetLockOn(false);
             _subTarget = new SubTargetSelection(name, allowed, start, onConfirm)
             {
                 ResumesMenus = resumeMenus,
+                OnFinished = onFinished,
+                RestoreLockOn = relock,
                 Kind = kind,
                 Id = id,
                 ItemContainer = container,
@@ -413,7 +482,15 @@ namespace Gordian.Core.Actions
             var selection = _subTarget;
             if (selection == null) return;
             _subTarget = null;
+            EndSubTarget(selection);
+            selection.OnFinished?.Invoke();
+        }
+
+        /// <summary>The cursor is over: menus set aside come back, an unlocked lock-on locks again.</summary>
+        private void EndSubTarget(SubTargetSelection selection)
+        {
             if (selection.ResumesMenus) Menus.Suspended = false;
+            if (selection.RestoreLockOn is { } relock && CurrentTarget?.ServerId == relock.ServerId) SetLockOn(true);
             SubTargetChanged?.Invoke();
         }
 
@@ -423,11 +500,17 @@ namespace Gordian.Core.Actions
             var selection = _subTarget;
             if (selection == null) return PlayerActionResult.Warn("No target is being selected.");
             _subTarget = null;
-            if (selection.ResumesMenus) Menus.Suspended = false;
-            SubTargetChanged?.Invoke();
+            EndSubTarget(selection);
             var target = selection.Current;
             LastSubTarget = target;
-            return await selection.Run(target).ConfigureAwait(false);
+            try
+            {
+                return await selection.Run(target).ConfigureAwait(false);
+            }
+            finally
+            {
+                selection.OnFinished?.Invoke();
+            }
         }
 
         /// <summary>
@@ -439,13 +522,14 @@ namespace Gordian.Core.Actions
         /// capture 2026-10-11: a potion from the command menu's Items goes to the sub-target cursor). Returns whether the
         /// cursor started; without a target allowed nearby, a notice is posted and nothing starts.
         /// </summary>
-        public bool BeginItemSubTarget(ContainerId container, byte slot, ushort itemId, int validTargets, WorldEntity? preferred = null)
+        public bool BeginItemSubTarget(ContainerId container, byte slot, ushort itemId, int validTargets, WorldEntity? preferred = null,
+            Action? onFinished = null)
         {
             var allowed = ItemTargetFlags.ToActionTargets(validTargets);
             if (allowed == ActionTargetFlags.None) allowed = ActionTargetFlags.Self;
             string name = Menus.ItemLookup?.Invoke(itemId)?.Name is { Length: > 0 } itemName ? itemName : $"Item #{itemId}";
             var result = StartSubTarget(name, allowed, entity => UseItemOnAsync(container, slot, itemId, entity), preferred,
-                resumeMenus: true, ActionKind.Item, itemId, container, slot);
+                resumeMenus: true, ActionKind.Item, itemId, container, slot, onFinished);
             if (!result.Success) Menus.PostNotice(result.Message);
             return result.Success;
         }

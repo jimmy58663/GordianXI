@@ -52,6 +52,15 @@ namespace Gordian.Core.Actions
         /// <summary>The spell, ability or weapon skill id, or the item id for an item.</summary>
         public ushort Id { get; init; }
 
+        /// <summary>Runs once when the cursor ends, after Confirm (the use sent) or Cancel: Lane B's Items list comes back through it.</summary>
+        public Action? OnFinished { get; init; }
+
+        /// <summary>
+        /// The locked-on target the cursor unlocked to let the player pick (retail note C3, 2026-10-12); the lock comes back
+        /// to it when the cursor ends, if it is still the target.
+        /// </summary>
+        public WorldEntity? RestoreLockOn { get; init; }
+
         /// <summary>The container and slot of the item being used (<see cref="ActionKind.Item"/> only).</summary>
         public Network.Packets.ContainerId ItemContainer { get; init; }
         public byte ItemSlot { get; init; }

@@ -211,6 +211,8 @@ namespace Gordian.Core.Network
                     "ma" or "magic" or "cast" => ParseCombatActionCommand(ChatCommandResultKind.CombatCast, args, world),
                     "ws" or "weaponskill" => ParseCombatActionCommand(ChatCommandResultKind.CombatWeaponskill, args, world),
                     "ja" or "jobability" => ParseCombatActionCommand(ChatCommandResultKind.CombatJobAbility, args, world),
+                    // Pet commands, blood pacts and Ready moves are job abilities to the server (C2S 0x01A kind 9).
+                    "pet" => ParseCombatActionCommand(ChatCommandResultKind.CombatJobAbility, args, world),
                     "ra" or "shoot" => ParseCombatTargetCommand(ChatCommandResultKind.CombatRanged, args, world),
                     "as" or "assist" => ParseCombatTargetCommand(ChatCommandResultKind.CombatAssist, args, world),
                     "cancel" => ParseBuffCancel(args),
@@ -224,7 +226,7 @@ namespace Gordian.Core.Network
                     "homepoint" => new ChatCommandResult { Kind = ChatCommandResultKind.HomePoint },
                     "acceptraise" => ParseReviveAnswer(ChatCommandResultKind.RaiseAnswer, "acceptraise", args),
                     "accepttractor" => ParseReviveAnswer(ChatCommandResultKind.TractorAnswer, "accepttractor", args),
-                    "refa" or "returnfaith" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
+                    "refa" or "returnfaith" or "retr" or "returntrust" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
                     "emote" or "em" => ParseEmote(args, world),
 
                     // Standard Emotes

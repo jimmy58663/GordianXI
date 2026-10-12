@@ -87,7 +87,7 @@ namespace Gordian.Core.Ui
                 GordianLog.Warning("UI", $"Stock menu '{menuName}' is not available.");
                 return null;
             }
-            var target = CommandMenuTarget;
+            var target = CommandTargetOf(parent);
             IReadOnlyList<StockUiActionRow>? rows = list == StockUiActionList.Mounts
                 ? Array.Empty<StockUiActionRow>()
                 : ActionRowsProvider?.Invoke(list, category, target);
@@ -177,6 +177,12 @@ namespace Gordian.Core.Ui
         private void ActivateActionRow(StockUiOpenMenu list)
         {
             if (list.SelectedActionRow is not { } row || row.Type == StockUiActionType.Trait) return;
+            if (row.Type == StockUiActionType.PetList)
+            {
+                // Blood Pact: Rage / Ward (and Ready) open their own lists (retail image-41, -42).
+                OpenActionList(StockUiActionList.PetAbilities, row.OpensPetList, list);
+                return;
+            }
             if (row.GreyedReason is { } reason)
             {
                 NoticePosted?.Invoke(reason);
@@ -192,8 +198,21 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>Abilities' Ranged Atk.: a ranged attack, through the sub-target cursor on enemies.</summary>
-        private void RunRangedAttack() =>
-            _ = RequestActionAsync(new StockUiActionRequest(StockUiActionType.RangedAttack, 0, "Ranged Attack", ActionTargetFlags.Enemy, CommandMenuTarget));
+        private void RunRangedAttack(StockUiOpenMenu from) =>
+            _ = RequestActionAsync(new StockUiActionRequest(StockUiActionType.RangedAttack, 0, "Ranged Attack", ActionTargetFlags.Enemy, CommandTargetOf(from)));
+
+        /// <summary>
+        /// The command menu target a window was opened under (walking up its parents), or null for one opened from the main
+        /// menu, which can now sit over the command menu.
+        /// </summary>
+        private static StockUiTargetContext? CommandTargetOf(StockUiOpenMenu? menu)
+        {
+            for (var m = menu; m != null; m = m.Parent)
+            {
+                if (m.IsCommandMenu) return m.Target;
+            }
+            return null;
+        }
 
         private async Task RequestActionAsync(StockUiActionRequest request)
         {
