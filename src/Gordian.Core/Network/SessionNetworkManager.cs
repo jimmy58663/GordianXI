@@ -604,6 +604,27 @@ namespace Gordian.Core.Network
         public bool PositionSendsHeld => _positionUpdatesSuspended || _zoneLines.PendingId != null;
 
         /// <summary>
+        /// The empty sub-packet header of a keep-alive datagram (type 0, size 0): LandSandBoat's parse loop stops at a
+        /// zero-size sub-packet, so the datagram carries nothing but its header and acknowledgement.
+        /// </summary>
+        internal const int KeepAliveSize = 4;
+
+        /// <summary>
+        /// Queues an empty keep-alive sub-packet when nothing else is waiting (call under <see cref="_writeLock"/>). While
+        /// a zone-line request waits no C2S 0x015 goes out, but the map server only sends in answer to a datagram
+        /// (LandSandBoat <c>map_networking.cpp</c>: <c>parse</c> answers each one, and <c>tapLastUpdate</c> keeps the
+        /// session alive), so without one the S2C 0x00B waited 10-16 s and both sides saw the client as gone (round 2 of
+        /// in-game testing, 2026-10-12: our "connection lost" after 10 s of silence and the red link-dead mark). LSB's own
+        /// note there says the retail client sends datagrams without a valid sub-packet in such moments.
+        /// </summary>
+        private void QueueKeepAliveLocked()
+        {
+            if (_currentBufferLength != 0 || _currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
+            _outboundQueueBuffer.AsSpan(0, KeepAliveSize).Clear();
+            _currentBufferLength = KeepAliveSize;
+        }
+
+        /// <summary>
         /// Drops the queued sub-packets <see cref="MaySend"/> refuses from the outbound staging buffer (they may have been
         /// queued before the S2C 0x00B arrived). Call under <see cref="_writeLock"/>.
         /// </summary>
@@ -1199,6 +1220,10 @@ namespace Gordian.Core.Network
                                         _currentBufferLength += posPacket.Length;
                                     }
                                 }
+                            }
+                            else if (CurrentState == SessionState.ActiveInWorld && !_positionUpdatesSuspended && _zoneLines.PendingId != null)
+                            {
+                                QueueKeepAliveLocked();
                             }
 
                             await FlushBundledPacketAsync(socket, _serverEndpoint, token).ConfigureAwait(false);

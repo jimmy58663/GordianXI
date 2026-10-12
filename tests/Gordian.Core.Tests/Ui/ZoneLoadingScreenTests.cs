@@ -8,10 +8,10 @@ namespace Gordian.Core.Tests.Ui
     public class ZoneLoadingScreenTests
     {
         [Fact]
-        public void ZoneLinePending_GoesBlackWithoutTheIndicator()
+        public void ZoneLinePending_GoesBlackWithTheIndicatorOnceBlack()
         {
             var screen = new ZoneLoadingScreen();
-            // Settled in zone 230, then the zone-line request goes out: black, but no "Downloading data ..." yet.
+            // Settled in zone 230, then the zone-line request goes out: black, and "Downloading data ..." as soon as it is.
             Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 0, 230, 0));
             for (double t = 1; t <= 1.05 + ZoneLoadingScreen.FadeOutSeconds; t += 0.1)
             {
@@ -19,8 +19,8 @@ namespace Gordian.Core.Tests.Ui
             }
             Assert.True(screen.IsLoading);
             Assert.Equal(1f, screen.Opacity);
-            Assert.False(screen.IndicatorVisible);
-            // The zone change arrives: the session connects to the next map server and the sprite shows.
+            Assert.True(screen.IndicatorVisible);
+            // The zone change arrives: the session connects to the next map server, the sprite stays.
             screen.Update(SessionState.ConnectingToGameServer, 230, 0, 230, 3);
             Assert.True(screen.IndicatorVisible);
             // In the new zone, loaded: the sprite goes at once and the scene fades in.

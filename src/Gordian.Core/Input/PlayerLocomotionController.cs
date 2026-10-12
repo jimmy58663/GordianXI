@@ -131,6 +131,28 @@ namespace Gordian.Core.Input
         /// </summary>
         public bool IsFalling => _airborne;
 
+        /// <summary>
+        /// Set by the view while the screen is black for a zone change (#350): input does not move the player and
+        /// auto-run is cancelled, as retail disables the controls until the zone is shown. Server placements and the
+        /// zone-in ground settle still apply.
+        /// </summary>
+        public bool InputBlocked { get; set; }
+
+        /// <summary>
+        /// Counts zone-in ground settles (<see cref="SettleOnGround"/>), so a view can snap its own camera and position
+        /// smoothing once after each instead of easing the drop onto the floor into view.
+        /// </summary>
+        public int ArrivalSettleCount { get; private set; }
+
+        private int _ticksSinceSettle = int.MaxValue;
+        private ushort _lastZoneId;
+
+        /// <summary>
+        /// Whether the zone-in has settled: no ground settle is waiting and at least one tick has passed since the last
+        /// one, so the settled position has been reported. The loading screen waits for it before fading in (#350).
+        /// </summary>
+        public bool ArrivalReady => !_localPlayer.GroundSettlePending && _ticksSinceSettle >= 1;
+
         private readonly object _knockbackLock = new();
         private (Vector2 Direction, int Level)? _pendingKnockback;
         private Vector2 _knockbackDirection;
@@ -747,6 +769,30 @@ namespace Gordian.Core.Input
             {
                 _localPlayer.ClearGroundSettle();
                 SettleOnGround(localEnt);
+                _camera.ResetFollowHeight();
+                ArrivalSettleCount++;
+                _ticksSinceSettle = 0;
+            }
+            else if (_ticksSinceSettle < int.MaxValue)
+            {
+                _ticksSinceSettle++;
+            }
+
+            // A zone change ends auto-run: it is not carried into the next zone (round 2 of in-game testing).
+            ushort zone = _world.CurrentZoneId;
+            if (zone != _lastZoneId)
+            {
+                _lastZoneId = zone;
+                _inputState.AutorunActive = false;
+            }
+
+            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops.
+            if (InputBlocked)
+            {
+                _inputState.AutorunActive = false;
+                localEnt.Speed = 0;
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
             }
 
             // Locked by the server (an event) or charmed (the server drives the character): no input movement.

@@ -195,6 +195,7 @@ namespace Gordian.App.Graphics
                         }
                     }
 
+                    if (_activeSession?.Locomotion is { } previousLocomotion) previousLocomotion.InputBlocked = false;
                     _activeSession = value;
                     // The new character's own camera, kept up to date while it was not shown (#322 round 2).
                     _view = ViewFor(value);
@@ -879,11 +880,13 @@ namespace Gordian.App.Graphics
                             // own model are on screen.
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
                                 ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
-                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId),
+                                    Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
                                     loadingSession.NetworkManager.ZoneLines.PendingId != null)
                                 : 0f;
                             StockUi.LoadingIndicatorVisible = _activeSession != null && _loadingScreen.IndicatorVisible;
                             StockUi.InterfaceHidden = _activeSession != null && _loadingScreen.IsLoading;
+                            // No input moves the player while the screen is black for a zone change (#350, as retail).
+                            if (_activeSession?.Locomotion is { } blockedLocomotion) blockedLocomotion.InputBlocked = _loadingScreen.IsLoading && _loadingScreen.Opacity >= 1f;
                             // Never the placeholder model while the screen is not fully clear (it showed during the fade).
                             if (_renderer.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
 
@@ -963,6 +966,9 @@ namespace Gordian.App.Graphics
             public ViewportCamera Camera { get; set; } = new();
             public TickPositionSmoother PlayerSmoother { get; } = new();
             public TickPositionSmoother OrbitSmoother { get; } = new(snapDistance: 120.0f);
+
+            /// <summary>The session's <c>ArrivalSettleCount</c> this view last snapped to (#350).</summary>
+            public int ArrivalSettleCount { get; set; }
             public uint SmoothedPlayerServerId { get; set; }
             public float LastRawCameraYaw { get; set; }
             public float UnwrappedCameraYaw { get; set; }
@@ -1014,6 +1020,13 @@ namespace Gordian.App.Graphics
         {
             var camera = view.Camera;
             bool snap = deltaSeconds <= 0.0f;
+            // A zone-in settled onto the floor (#350): take the new height at once rather than easing the drop into view.
+            if (session?.Locomotion is { } arrivalLocomotion && arrivalLocomotion.ArrivalSettleCount != view.ArrivalSettleCount)
+            {
+                view.ArrivalSettleCount = arrivalLocomotion.ArrivalSettleCount;
+                camera.ResetFollowHeight();
+                view.PlayerSmoother.Reset();
+            }
             if (snap)
             {
                 view.PlayerSmoother.Reset();
@@ -1329,6 +1342,14 @@ namespace Gordian.App.Graphics
         /// Whether the session's own character is in the world with a model that loads (its look has arrived): until then
         /// the entity renderer would draw the placeholder model, so the loading screen stays black (#36).
         /// </summary>
+        /// <summary>
+        /// Whether the zone-in has settled (#350): the player stands on the new zone's floor and the camera follows it, so
+        /// the fade-in shows no drop or camera jump. A zone without a collision mesh (its geometry loaded and still none)
+        /// has nothing to settle on.
+        /// </summary>
+        private static bool ArrivalReady(Gordian.Core.Network.CharacterSession session) =>
+            session.Locomotion is not { } locomotion || locomotion.ArrivalReady || session.World.Collision == null;
+
         private bool LocalPlayerModelReady(Gordian.Core.Network.CharacterSession session, uint localPlayerServerId)
         {
             if (localPlayerServerId == 0 || !session.World.TryGetByServerId(localPlayerServerId, out var player) || player == null) return false;

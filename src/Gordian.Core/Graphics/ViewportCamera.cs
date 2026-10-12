@@ -153,6 +153,12 @@ namespace Gordian.Core.Graphics
         private bool _hasFollowHeight;
 
         /// <summary>
+        /// Makes the next update follow the character's height at once instead of easing to it (a zone-in settled onto
+        /// the floor, #350: the ease would show as a camera drift after the screen fades in).
+        /// </summary>
+        public void ResetFollowHeight() => _hasFollowHeight = false;
+
+        /// <summary>
         /// Updates the camera from the target player position and spherical angles.
         /// </summary>
         public void Update(Vector3 targetPosition, float pitch, float yaw, float distance, float aspectRatio)

@@ -46,16 +46,12 @@ namespace Gordian.Core.Ui
         /// <summary>Whether the last update counted the view as loading.</summary>
         public bool IsLoading { get; private set; }
 
-        private bool _downloading;
-
         /// <summary>
-        /// Whether retail's "Downloading data ..." sprite shows (<see cref="ZoneLoadingIndicator"/>): only once the screen
-        /// is fully black and the client has left the zone (the server's zone change has arrived and the session is
-        /// connecting to or waiting for the next zone), not while the zone-line request alone holds the black. On the
-        /// retail recording the screen stayed black without it for 2.2 s and 5.3 s (until the old zone was torn down),
-        /// and it went away 4 frames before the scene began to fade in.
+        /// Whether the "Downloading data ..." sprite shows (<see cref="ZoneLoadingIndicator"/>): as soon as the screen is fully
+        /// black while loading. Retail waited longer (its black stayed empty until the old zone was torn down: 2.2 s and 5.3 s
+        /// on the 2026-10-11 recording); the maintainer asked not to imitate retail's slower loading (round 2, 2026-10-12).
         /// </summary>
-        public bool IndicatorVisible => IsLoading && _downloading && _opacity >= 1f;
+        public bool IndicatorVisible => IsLoading && _opacity >= 1f;
 
         /// <summary>Restarts the fade: black at once (a session that is still connecting) or clear.</summary>
         public void Reset(bool black)
@@ -79,7 +75,6 @@ namespace Gordian.Core.Ui
         public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
             bool playerReady = true, bool zoneLinePending = false)
         {
-            _downloading = true;
             if (state is SessionState.ConnectingToGameServer or SessionState.ExchangingCryptoKeys or SessionState.LoadingWorldData)
             {
                 _waitingZone = 0;
@@ -89,9 +84,7 @@ namespace Gordian.Core.Ui
             if (state != SessionState.ActiveInWorld || eventZone != 0 || currentZone == 0 || currentZone == _settledZone)
             {
                 _waitingZone = 0;
-                // The zone-line request (#350): retail fades to black as soon as the player crosses, before the server
-                // answers, and shows nothing over the black until the zone change arrives.
-                _downloading = false;
+                // The zone-line request (#350): retail fades to black as soon as the player crosses, before the server answers.
                 return state == SessionState.ActiveInWorld && eventZone == 0 && zoneLinePending;
             }
             if (loadedZone == currentZone && playerReady)
