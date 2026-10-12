@@ -222,6 +222,7 @@ namespace Gordian.Core.Tests.Actions
             Assert.Contains("level", StockUiActionMenu.SpellRows(catalog, State(JobId.RedMage, 2, 50), 1, null)[0].GreyedReason);
             var recast = StockUiActionMenu.SpellRows(catalog, State(JobId.WhiteMage, 1, 50, TimeSpan.FromSeconds(4.2)), 1, null)[0];
             Assert.False(recast.IsGreyed);
+            Assert.True(recast.IsGreyedAt(now)); // spells in recast are greyed too (retail, round 2 check 2026-10-12)
             Assert.Equal("0:05", StockUiActionMenu.FormatRecast(recast.RecastLeft(now)));
             Assert.Equal("0:00", StockUiActionMenu.FormatRecast(TimeSpan.Zero));
 
@@ -266,6 +267,7 @@ namespace Gordian.Core.Tests.Actions
             Assert.Equal((StockUiActionType.Trait, "Magic Def. Bonus", 46), (traits[0].Type, Assert.Single(traits).Name, traits[0].Icon));
             var pets = StockUiActionMenu.PetCommandRows(catalog, state, null);
             Assert.Equal(new[] { "Fight" }, pets.Select(r => r.Name)); // pet commands are the type-2 abilities (retail image-40)
+            Assert.Equal((3, 2, 0), (StockUiActionMenu.ReadyCharges(TimeSpan.Zero), StockUiActionMenu.ReadyCharges(TimeSpan.FromSeconds(12)), StockUiActionMenu.ReadyCharges(TimeSpan.FromSeconds(90))));
             var pacts = StockUiActionMenu.PetAbilityRows(catalog, state, 10); // Blood Pact: Ward's list
             Assert.Equal(("Healing Ruby", (ushort)512), (Assert.Single(pacts).Name, pacts[0].Id)); // used as job ability 512 + bit
             Assert.Empty(StockUiActionMenu.PetAbilityRows(catalog, state, 6));
@@ -650,6 +652,8 @@ namespace Gordian.Core.Tests.Actions
             Assert.Equal("Fencer", catalog.JobAbilityName(StockUiActionMenu.TraitBase + 107 - 512));
             // Pet commands at command 1024 + the pet bit: Healing Ruby is LandSandBoat's ability 512.
             Assert.Equal("Healing Ruby", catalog.JobAbilityName(StockUiActionMenu.PetCommandBase - 512));
+            // A blood pact's MP cost is +0x06 (retail image-46): Healing Ruby 6, Poison Nails 11, Shining Ruby 44.
+            Assert.Equal((6, 11, 44), (catalog.Tables.GetCommand(1024)!.Charges, catalog.Tables.GetCommand(1025)!.Charges, catalog.Tables.GetCommand(1026)!.Charges));
             foreach (string name in new[] { StockUiActionMenu.SpellListMenu, StockUiActionMenu.AbilityListMenu })
             {
                 Assert.True(library.TryGetMenu(name, out var list), name);

@@ -66,6 +66,29 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void RendersPetRowAndBloodPactInfoWindow()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var rows = new List<StockUiActionRow>
+            {
+                new(StockUiActionType.JobAbility, 513, "Poison Nails", ActionTargetFlags.Enemy, 22, 11, 0, null),
+            };
+            var menus = new StockUiMenuController { Library = screen.Library, ActionRowsProvider = (_, _, _) => rows };
+            var list = menus.OpenActionList(StockUiActionList.PetAbilities, 6, null)!;
+            var anchor = (screen.Width - 128f, screen.Height - 100f);
+            var shot = screen.Render(r =>
+            {
+                StockUiPartyWindow.DrawPetRow(r, screen.Font, "Garuda", 100, 300, 400, 1);
+                StockUiMenuWindow.DrawActionInfo(r, screen.Library, screen.Font, list, anchor, 1, Stopwatch.GetTimestamp(), 0, ("Garuda", (byte)100));
+            }, "gpu_pet_row.png");
+            Assert.True(screen.HasLightPixel(shot, 300, 340, 405, 150), "no pet name");
+            int infoTop = (int)anchor.Item2 - 44;
+            Assert.True(screen.HasLightPixel(shot, (int)anchor.Item1 + 6, (int)anchor.Item1 + 50, infoTop + 8, 150), "no pet name in the info window");
+            Assert.True(screen.HasLightPixel(shot, (int)anchor.Item1 + 7, (int)anchor.Item1 + 60, infoTop + 30), "no MP Cost label");
+        }
+
+        [Fact]
         public void RendersEmptyMountListText()
         {
             using var screen = StockUiOffscreen.TryCreate();

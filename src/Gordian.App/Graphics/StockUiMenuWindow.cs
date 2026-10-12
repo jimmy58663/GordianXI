@@ -356,7 +356,7 @@ namespace Gordian.App.Graphics
         /// traits: no window.
         /// </summary>
         public static void DrawActionInfo(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu list,
-            (float X, float Top)? anchor, float scale, long timestamp, int currentTp)
+            (float X, float Top)? anchor, float scale, long timestamp, int currentTp, (string Name, byte Hpp)? pet = null)
         {
             if (list.ActionList == StockUiActionList.JobTraits || anchor is not { } at) return;
             if (!library.TryGetMenu(StockUiActionMenu.InfoMenu, out var info)) return;
@@ -375,6 +375,24 @@ namespace Gordian.App.Graphics
                     renderer.DrawText(font, "Next", left, line2, ts);
                     Value(StockUiActionMenu.FormatRecast(row?.RecastLeft(timestamp) ?? TimeSpan.Zero), line2);
                     break;
+                case StockUiActionList.PetAbilities when list.ActionCategory is 6 or 10:
+                    // Blood pacts (retail image-46): the pet's name and HP gauge on top, then "MP Cost" and the pact's cost.
+                    if (pet is { } p)
+                    {
+                        StockUiPartyWindow.DrawPetRow(renderer, font, p.Name, p.Hpp, placement.X + InfoPetX * s, placement.Y + InfoPetY * s, s,
+                            InfoPetGaugeDx, InfoPetGaugeDy);
+                    }
+                    renderer.DrawText(font, "MP Cost", left, line2, ts);
+                    Value((row is { MpCost: >= 0 } r ? r.MpCost : 0).ToString(System.Globalization.CultureInfo.InvariantCulture), line2);
+                    break;
+                case StockUiActionList.PetAbilities when list.ActionCategory == StockUiActionMenu.ReadyCommandType:
+                    // Ready (retail image-47): "Charge" and the charges left, then "Next".
+                    var readyLeft = row?.RecastLeft(timestamp) ?? TimeSpan.Zero;
+                    renderer.DrawText(font, "Charge", left, line1, ts);
+                    Value(StockUiActionMenu.ReadyCharges(readyLeft).ToString(System.Globalization.CultureInfo.InvariantCulture), line1);
+                    renderer.DrawText(font, "Next", left, line2, ts);
+                    Value(StockUiActionMenu.FormatRecast(readyLeft), line2);
+                    break;
                 case StockUiActionList.WeaponSkills:
                     renderer.DrawText(font, "TP", left, line1, ts);
                     Value(currentTp.ToString(System.Globalization.CultureInfo.InvariantCulture), line2);
@@ -387,6 +405,9 @@ namespace Gordian.App.Graphics
         }
 
         private const float InfoLabelX = 7, InfoValueRightInset = 8, InfoLine1Y = 8, InfoLine2Y = 26;
+
+        /// <summary>The pet in a blood pact list's info window (retail image-46): name 6 px in at y 4, its gauge 23 px right and 12 px down.</summary>
+        private const float InfoPetX = 6, InfoPetY = 4, InfoPetGaugeDx = 23, InfoPetGaugeDy = 12;
 
         /// <summary>
         /// The help bar at the top of the screen for the Magic and Abilities lists and the sub-target cursor (retail image-14,

@@ -212,7 +212,7 @@ namespace Gordian.Core.Ui
                 long ends = EndsAt(state, state.SpellRecast((ushort)id));
                 int icon = spell.Icon2 != 0xFFFF ? spell.Icon2 : spell.Icon;
                 found.Add((spell.MenuIndex, new StockUiActionRow(StockUiActionType.Spell, (ushort)id, name, flags, icon, spell.MpCost, ends, reason,
-                    SmallIcon: spell.Icon, Help: catalog.SpellHelp(id))));
+                    SmallIcon: spell.Icon, GreyedInRecast: true, Help: catalog.SpellHelp(id))));
             }
             found.Sort((a, b) => a.Order != b.Order ? a.Order.CompareTo(b.Order) : a.Row.Id.CompareTo(b.Row.Id));
             return found.ConvertAll(f => f.Row);
@@ -273,10 +273,34 @@ namespace Gordian.Core.Ui
                 int command = PetCommandBase + bit;
                 if (!state.HasPetAbility((ushort)bit) || catalog.Tables.GetCommand(command) is not { } record || record.Type != commandType
                     || catalog.JobAbilityName(command - CommandRecord.JobAbilityBase) is not { } name) continue;
-                rows.Add(AbilityRow(catalog, state, record, (ushort)(command - CommandRecord.JobAbilityBase), name));
+                var row = AbilityRow(catalog, state, record, (ushort)(command - CommandRecord.JobAbilityBase), name);
+                if (commandType == ReadyCommandType)
+                {
+                    // Ready moves take charges (+0x06), not the whole recast: greyed only without enough charges.
+                    int left = ReadyCharges(row.RecastLeft(state.Now));
+                    row = row with { GreyedInRecast = false };
+                    if (row.GreyedReason == null && left < Math.Max(1, record.Charges)) row = row with { GreyedReason = $"{name} needs {Math.Max(1, record.Charges)} charge(s)." };
+                }
+                if (commandType is 6 or 10)
+                {
+                    // A blood pact's MP cost is the record's +0x06 (retail image-46: "MP Cost"); greyed without the MP (PROVISIONAL).
+                    row = row with { MpCost = record.Charges };
+                    if (row.GreyedReason == null && record.Charges > state.CurrentMp) row = row with { GreyedReason = $"You do not have enough MP to use {name}." };
+                }
+                rows.Add(row);
             }
             return rows;
         }
+
+        /// <summary>
+        /// Ready's charges left (retail image-47: "Charge 3"): LandSandBoat gives Ready (recast id 102) 3 charges of 30 s each
+        /// (<c>sql/abilities_charges.sql</c>), so the charges are 3 less one per started 30 s still on the recast. PROVISIONAL:
+        /// merits shorten the charge time, which the client cannot see here.
+        /// </summary>
+        public static int ReadyCharges(TimeSpan recastLeft) =>
+            Math.Clamp(ReadyMaxCharges - (int)Math.Ceiling(recastLeft.TotalSeconds / ReadyChargeSeconds), 0, ReadyMaxCharges);
+
+        public const int ReadyMaxCharges = 3, ReadyChargeSeconds = 30, ReadyCommandType = 18;
 
         private static StockUiActionRow AbilityRow(ActionCatalog catalog, StockUiActionState state, CommandRecord record, ushort id, string name)
         {

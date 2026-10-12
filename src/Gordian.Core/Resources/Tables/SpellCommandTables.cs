@@ -39,8 +39,13 @@ namespace Gordian.Core.Resources.Tables
     /// <c>abilities.recastId</c> for every ability checked (Mighty Strikes 0, Berserk 1, Warcry 2, Defender 3, Provoke 5,
     /// Chakra 15, Boost 16, Steal 60, Flee 62, Hide 63; the waltzes 217). Weapon skills carry an unrelated value there.
     /// </param>
+    /// <param name="Charges">
+    /// +0x06 (i16), which xi-tools names the charges required: for a Ready move the charges it takes, and for a blood pact
+    /// its MP cost. <b>Beyond xi-tools:</b> checked 2026-10-12 against the blood pacts' MP costs (Healing Ruby 6, Poison Nails
+    /// 11, Shining Ruby 44, Healing Ruby II 124; retail image-46 shows a pact's "MP Cost" from it); the astral flow pacts read 0.
+    /// </param>
     /// <param name="TpCost">TP the command costs (+0x0C, i16; -1 for none: weapon skills read -1 and take 1000 TP by rule).</param>
-    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1, int Icon2 = -1)
+    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1, int Icon2 = -1, int Charges = 0)
     {
         /// <summary>The <see cref="Type"/> of a weapon skill.</summary>
         public const int WeaponSkillType = 3;
@@ -190,6 +195,7 @@ namespace Gordian.Core.Resources.Tables
             Range: r[0x10],
             RecastId: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x08)),
             TpCost: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x0C)),
-            Icon2: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x04)));
+            Icon2: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x04)),
+            Charges: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x06)));
     }
 }

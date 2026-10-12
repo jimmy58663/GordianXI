@@ -553,13 +553,10 @@ namespace Gordian.Core.Ui
                     if (rows[i].Greyed) greyed.Add(i + 1);
                 }
                 menu.SetGreyed(greyed.Count > 0 ? greyed : null);
-                // The cursor is remembered by entry (the lists differ per target), as retail keeps it on the row.
-                int selected = 0;
-                for (int i = 0; i < rows.Count && selected == 0; i++)
-                {
-                    if (rows[i].Label.Text.Equals(_lastCommandLabel, StringComparison.Ordinal)) selected = i + 1;
-                }
-                menu.SelectedButtonId = selected != 0 ? selected : FirstSelectable(definition);
+                // The cursor starts on the top entry every time (the maintainer's round 2 note, 2026-10-12: retail does not
+                // remember it).
+                menu.SelectedButtonId = FirstSelectable(definition);
+
                 _open = new[] { menu };
             }
             Changed?.Invoke();

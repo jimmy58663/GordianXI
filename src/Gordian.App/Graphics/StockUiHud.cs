@@ -243,7 +243,7 @@ namespace Gordian.App.Graphics
             var actions = session.ActionService;
             if (actions.SubTargeting is { } picking)
             {
-                // PROVISIONAL: only the spell line is captured; the item and ability lines are guesses in the same wording.
+                // All three lines confirmed as retail's (the maintainer's round 2 check, 2026-10-12).
                 string line = picking.Kind switch
                 {
                     Gordian.Core.Actions.ActionKind.Spell => "Select target of spell.",
@@ -435,8 +435,9 @@ namespace Gordian.App.Graphics
             }
             if (_font is { } infoFont && open.LastOrDefault(m => m.IsActionList) is { } actionList)
             {
+                var petNow = session.Pet.Current;
                 StockUiMenuWindow.DrawActionInfo(renderer, library, infoFont, actionList, _actionInfoAnchor, root.Scale, timestamp,
-                    session.LocalPlayer.CurrentTp);
+                    session.LocalPlayer.CurrentTp, petNow != null ? (petNow.Name, petNow.Hpp) : null);
             }
             menus.SetScreenPlacements(_menuPlacements);
         }
@@ -762,8 +763,14 @@ namespace Gordian.App.Graphics
             if (font == null) return result;
             var rows = GetPartyRows(session, groups, count, _resources);
             StockUiPartyWindow.Draw(renderer, font, menu, placement, rows, Layout.ShowPartyTp);
-            DrawRowSelector(renderer, library, session, menu, placement,
-                groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId).ToList() : new List<uint> { session.LocalPlayer.ServerId });
+            var memberIds = groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId).ToList() : new List<uint> { session.LocalPlayer.ServerId };
+            DrawRowSelector(renderer, library, session, menu, placement, memberIds);
+            // The pet beside your own row (retail image-45 / -48), unless a blood pact list shows it in its info window (image-46).
+            if (session.Pet.Current is { } pet && !ShowsPetInInfo(session.ActionService.Menus))
+            {
+                string petName = string.IsNullOrEmpty(pet.Name) && session.World.TryGetByServerId(pet.ServerId, out var petEntity) && petEntity != null ? petEntity.Name : pet.Name;
+                StockUiPartyWindow.DrawPetRow(renderer, font, menu, placement, Math.Max(0, memberIds.IndexOf(session.LocalPlayer.ServerId)), petName, pet.Hpp);
+            }
             if (RollTexts(session, groups.InGroup ? groups.Own.Take(count).Select(m => m.ServerId) : new[] { session.LocalPlayer.ServerId }) is { } rolls)
             {
                 StockUiTreasureWindow.DrawRollColumn(renderer, font, menu, placement, rolls, label: true);
@@ -830,6 +837,10 @@ namespace Gordian.App.Graphics
         }
 
         private const float RowSelectorDrop = 6;
+
+        /// <summary>Whether an open blood pact list draws the pet in its info window (then the floating pet row is left out).</summary>
+        private static bool ShowsPetInInfo(StockUiMenuController menus) =>
+            !menus.Suspended && menus.OpenMenus.LastOrDefault(m => m.IsActionList) is { ActionList: StockUiActionList.PetAbilities, ActionCategory: 6 or 10 };
 
         /// <summary>
         /// The "roll" column's texts for some members while the Treasure Pool list is open: each one's lot or pass on the
