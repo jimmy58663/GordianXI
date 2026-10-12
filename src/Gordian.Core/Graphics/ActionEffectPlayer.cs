@@ -68,7 +68,7 @@ namespace Gordian.Core.Graphics
         public bool StopIfSustained(string routine)
         {
             if (!Routines.TryGetRoutine(routine, out var found) || found.TotalFrames < SustainedRoutineFrames) return false;
-            Player.StopRoutine(routine);
+            Player.StopRoutineAndGenerators(routine);
             return true;
         }
 

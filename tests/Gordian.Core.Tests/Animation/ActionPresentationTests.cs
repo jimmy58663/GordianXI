@@ -342,6 +342,19 @@ namespace Gordian.Core.Tests.Animation
             Assert.Null(Post(ActionCategory.SkillFinish, 2).Asset);
         }
 
+        /// <summary>A cast, weapon skill or ability request leaves at once, not on the next 250 ms tick (round 2: casting felt delayed).</summary>
+        [Fact]
+        public async System.Threading.Tasks.Task ActionRequests_AreFlushedAtOnce()
+        {
+            var priorities = new List<bool>();
+            var module = new Gordian.Core.Network.Packets.CombatPacketModule(new CombatState(), new LocalPlayerState(),
+                (_, highPriority) => { priorities.Add(highPriority); return System.Threading.Tasks.Task.CompletedTask; });
+            await module.RequestCastMagicAsync(2, 2, 1);
+            await module.RequestWeaponskillAsync(2, 2, 32);
+            await module.RequestJobAbilityAsync(2, 2, 17);
+            Assert.Equal(new[] { true, true, true }, priorities);
+        }
+
         // --- Effects ---------------------------------------------------------------------------------------------------
 
         [Theory]
@@ -621,6 +634,67 @@ namespace Gordian.Core.Tests.Animation
             Assert.True(idle.TrySample(joint, t, true, out var joined, out _));
             Assert.True(wing.TrySample(joint, t, true, out var own, out _));
             Assert.True(MathF.Abs(System.Numerics.Quaternion.Dot(joined, own)) > 0.9999f);
+        }
+
+        private static int LiveParticles(ActionEffectPlayer player)
+        {
+            int count = 0;
+            foreach (var (_, emitter) in player.Player.Instance.Emitters) count += emitter.Particles.Count;
+            return count;
+        }
+
+        /// <summary>
+        /// The release's <c>stwh</c> stops the white-magic circle: its op 0x2D (StopGenerator) names <c>gn21</c> and
+        /// <c>gn20</c>, which <c>ner2</c> started for 1800 frames; without it the circle went on for 30 s after the cast
+        /// (round 2, D6). The circle's particles then die out.
+        /// </summary>
+        [Fact]
+        public void Retail_ReleaseStop_EndsTheChantCircle()
+        {
+            if (Retail() is not { } rm || rm.GetSharedRoutineEffects() is not { } shared) return;
+            Assert.True(shared.Routines.TryGetRoutine("stwh", out var stop));
+            Assert.Contains(stop.Commands, c => c.Kind == Gordian.Core.Resources.Events.SceneCommandKind.StopGenerator && c.Reference == "gn20");
+
+            var frame = new ZoneParticleFrame(new Vector3(0, -2, -5), 0.5f, Vector3.One, Vector3.UnitZ, 0, 0);
+            var released = new ActionEffectPlayer(shared.Routines, shared.Effects, 1, 1);
+            released.Start("ner2");
+            for (int i = 0; i < 60; i++) released.Update(1f, frame, frame, frame);
+            Assert.True(LiveParticles(released) > 0);
+            released.Start("stwh");
+            for (int i = 0; i < 600; i++) released.Update(1f, frame, frame, frame);
+            Assert.Equal(0, LiveParticles(released));
+
+            // A chant that ends without its release (interrupted, replaced, or the release skipped) is stopped the same way.
+            var ended = new ActionEffectPlayer(shared.Routines, shared.Effects, 1, 1);
+            ended.Start("ner2");
+            for (int i = 0; i < 60; i++) ended.Update(1f, frame, frame, frame);
+            Assert.True(ended.StopIfSustained("ner2"));
+            for (int i = 0; i < 600; i++) ended.Update(1f, frame, frame, frame);
+            Assert.Equal(0, LiveParticles(ended));
+
+            // Left alone, the circle still runs.
+            var alone = new ActionEffectPlayer(shared.Routines, shared.Effects, 1, 1);
+            alone.Start("ner2");
+            for (int i = 0; i < 660; i++) alone.Update(1f, frame, frame, frame);
+            Assert.True(LiveParticles(alone) > 0);
+        }
+
+        /// <summary>
+        /// The bee's wing beat (<c>idl1</c>) is laid over its single-part motions too: the walk, run and swings beat their
+        /// wings at the idle's 4 frames (round 2, D10: they stopped while moving); the death and corpse clips do not.
+        /// </summary>
+        [Fact]
+        public void Retail_BeeWings_BeatWhileMoving()
+        {
+            if (Retail() is not { } rm) return;
+            var bee = EntityModelLoader.LoadMonsterModel(272, rm.LoadDatBytesByFileId)!;
+            float wing = bee.Animations["idl1"].DurationSeconds;
+            foreach (var name in new[] { "wlk", "run", "at0" })
+            {
+                Assert.True(bee.Animations.TryGetValue(name, out var clip), name);
+                Assert.Contains(clip!.Tracks.Values, t => MathF.Abs(t.PartDurationSeconds - wing) < 0.001f);
+            }
+            Assert.DoesNotContain(bee.Animations["ded"].Tracks.Values, t => t.PartDurationSeconds > 0f);
         }
 
         /// <summary>

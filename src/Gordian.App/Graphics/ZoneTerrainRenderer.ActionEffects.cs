@@ -105,6 +105,13 @@ namespace Gordian.App.Graphics
             _finishedSharedEffects.Clear();
             foreach (var (actor, slot) in _sharedActorEffects)
             {
+                // An actor no longer drawn (despawned, left view) takes its cast effects with it: its action's end was
+                // never seen, so a chant circle would otherwise run out its 1800 frames where it stood.
+                if (!_entityRenderer.ActorAnchors.ContainsKey(actor))
+                {
+                    _finishedSharedEffects.Add(actor);
+                    continue;
+                }
                 if (!Advance(slot) || slot.Player.IsFinished || slot.Player.Age > MaxSharedEffectFrames) _finishedSharedEffects.Add(actor);
             }
             foreach (uint actor in _finishedSharedEffects) _sharedActorEffects.Remove(actor);

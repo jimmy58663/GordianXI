@@ -671,6 +671,58 @@ namespace Gordian.Core.Resources
         internal static void MergeBodyRegionParts(EntityModel model, List<AnimationClip> clips)
         {
             foreach (var joined in JoinBodyRegionParts(clips)) model.Animations[joined.Name] = joined;
+            foreach (var carried in CarryIdleOverlay(clips)) model.Animations[carried.Name] = carried;
+        }
+
+        /// <summary>
+        /// Lays the idle's short overlay part (see <see cref="OverlayParts"/>: the bee's 4-frame wing beat <c>idl1</c>) over
+        /// every motion stored as a single part 0 of at least twice its length (<c>wlk0</c>, <c>run0</c>, the swings
+        /// <c>at00</c>...). The parts play as separate channels and a motion with no part 1 leaves the wing channel playing,
+        /// so the wings keep beating while the bee walks, runs or attacks (#132 round 2: they stopped while moving); not on
+        /// the death and corpse clips (<c>ded</c>, <c>cor</c>), which is a guess. Joined
+        /// under the stem name, which is what the routines (<c>wlk?</c>, <c>at0?</c>) and the stance resolver look up.
+        /// </summary>
+        internal static List<AnimationClip> CarryIdleOverlay(List<AnimationClip> clips)
+        {
+            var result = new List<AnimationClip>();
+            var byName = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in clips) byName[clip.Name] = clip;
+            var idleParts = new List<AnimationClip>();
+            foreach (var name in (ReadOnlySpan<string>)["idl0", "idl1", "idl2"])
+            {
+                if (byName.TryGetValue(name, out var part)) idleParts.Add(part);
+            }
+            if (idleParts.Count < 2 || OverlayParts(idleParts, out var idleBase) == null) return result;
+            var overlays = idleParts.FindAll(p => !ReferenceEquals(p, idleBase));
+
+            foreach (var clip in byName.Values)
+            {
+                string stem = StripBodyRegionSuffix(clip.Name);
+                if (stem == clip.Name || clip.Name[^1] != '0' || stem.Equals("idl", StringComparison.OrdinalIgnoreCase)
+                    || stem.Equals("ded", StringComparison.OrdinalIgnoreCase) || stem.Equals("cor", StringComparison.OrdinalIgnoreCase)) continue; // not on a corpse
+                if (byName.ContainsKey(stem + "1") || byName.ContainsKey(stem + "2") || byName.ContainsKey(stem)) continue;
+                var tracks = new Dictionary<int, BoneAnimationTrack>(clip.Tracks);
+                bool applied = false;
+                foreach (var overlay in overlays)
+                {
+                    if (overlay.DurationSeconds * 2 > clip.DurationSeconds) continue;
+                    foreach (var (joint, track) in overlay.Tracks)
+                    {
+                        if (track.IsReset) continue;
+                        tracks[joint] = new BoneAnimationTrack
+                        {
+                            JointIndex = track.JointIndex,
+                            Rotations = track.Rotations,
+                            Translations = track.Translations,
+                            Scales = track.Scales,
+                            PartDurationSeconds = overlay.DurationSeconds
+                        };
+                        applied = true;
+                    }
+                }
+                if (applied) result.Add(new AnimationClip { Name = stem, NumFrames = clip.NumFrames, KeyFrameDuration = clip.KeyFrameDuration, Tracks = tracks });
+            }
+            return result;
         }
 
         /// <summary>
