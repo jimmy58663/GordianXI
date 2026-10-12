@@ -197,13 +197,14 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// Whether a container is available: S2C 0x01C gave it slots and did not disable it. LandSandBoat sends every size
-        /// as 1 + the container's slots (slot 0 counted) and a usable size of 0 for a disabled one (<c>0x01c_item_max.cpp</c>).
+        /// as 1 + the container's slots (slot 0 counted) and a usable size of 0 for a disabled one (<c>0x01c_item_max.cpp</c>);
+        /// <see cref="S2C_0x01C_ItemMax"/> already takes the 1 off, so <see cref="ContainerState.MaxSize"/> is the slot count.
         /// </summary>
         public static bool IsAvailable(InventoryState? inventory, ContainerId container)
         {
             if (inventory == null) return false;
             var state = inventory.GetContainer(container);
-            return state.MaxSize > 1 && state.UsableSize > 1;
+            return state.MaxSize > 0 && state.UsableSize > 0;
         }
 
         /// <summary>The used and total slots the help bar shows ("29/30"): occupied slots (gil left out) over the usable size.</summary>
@@ -216,8 +217,9 @@ namespace Gordian.Core.Ui
                 if (item.Slot >= 1 && item.ItemId != 0 && item.ItemId != InventoryState.GilItemId) used++;
             }
             var state = inventory.GetContainer(container);
-            // S2C 0x01C counts slot 0 in every size: 81 means 80 item slots.
-            int total = (state.UsableSize > 0 ? state.UsableSize : state.MaxSize) - 1;
+            // The decoder (S2C_0x01C_ItemMax) has already taken off LandSandBoat's slot 0: the sizes are the item slots. Subtracting
+            // it again showed 29 for a 30-slot inventory (the maintainer's round 2, 2026-10-12).
+            int total = state.UsableSize > 0 ? state.UsableSize : state.MaxSize;
             return (used, Math.Max(0, total));
         }
 

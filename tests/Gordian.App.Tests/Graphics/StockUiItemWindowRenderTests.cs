@@ -19,7 +19,7 @@ namespace Gordian.App.Tests.Graphics
             if (screen == null) return;
 
             var inventory = new InventoryState();
-            inventory.SetContainerSizes(ContainerId.Inventory, 81, 81);
+            inventory.SetContainerSizes(ContainerId.Inventory, 80, 80);
             inventory.SetItem(ContainerId.Inventory, 1, 4112, 12, ItemLockFlag.Normal);   // Potion x12
             inventory.SetItem(ContainerId.Inventory, 2, 4096, 3, ItemLockFlag.Normal);    // Fire Crystal x3
             inventory.SetItem(ContainerId.Inventory, 3, 12448, 1, ItemLockFlag.Normal);   // Bronze Cap

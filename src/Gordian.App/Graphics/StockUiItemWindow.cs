@@ -293,13 +293,14 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The help bar (retail captures 2026-10-11): the title in <c>titlewin</c> (16,16) in the log font with the fraction after
-        /// it, the numerator right-aligned at x 91 at the box's top and "/" plus the denominator from x 88 ten px lower, both in
+        /// it, the numerator right-aligned at x 91 six px down, its bottom just over the "/" (lowered from 3 after the maintainer's
+        /// round 2, 2026-10-12, so the gaps between the "/" and each number match), and "/" plus the denominator from x 88 at y 12, both in
         /// the small font; the help line in <c>helpwind</c> (130,16) stretched toward the screen's right edge.
         /// </summary>
         private static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiItemHelpBar bar, StockUiPlacement placement, StockUiScreen screen)
         {
-            const float BarTextX = 8, HelpRightMargin = 16, NumeratorRight = 91, NumeratorY = 3, DenominatorX = 88, DenominatorY = 12;
+            const float BarTextX = 8, HelpRightMargin = 16, NumeratorRight = 91, NumeratorY = 6, DenominatorX = 88, DenominatorY = 12;
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
             if (library.TryGetMenu(StockUiCheck.TitleMenu, out var title))

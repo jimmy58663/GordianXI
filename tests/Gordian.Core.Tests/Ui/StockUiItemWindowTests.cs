@@ -147,9 +147,9 @@ namespace Gordian.Core.Tests.Ui
                 Menus.EquipCharacter = () => Character;
                 Inventory.ItemChanged += (_, _, _) => Menus.OnInventoryChanged();
                 Inventory.EquipChanged += (_, _, _) => Menus.OnItemsChanged();
-                Inventory.SetContainerSizes(ContainerId.Inventory, 81, 81);
-                Inventory.SetContainerSizes(ContainerId.Wardrobe, 81, 81);
-                Inventory.SetContainerSizes(ContainerId.RecycleBin, 11, 11);
+                Inventory.SetContainerSizes(ContainerId.Inventory, 80, 80);
+                Inventory.SetContainerSizes(ContainerId.Wardrobe, 80, 80);
+                Inventory.SetContainerSizes(ContainerId.RecycleBin, 10, 10);
                 Inventory.SetItem(ContainerId.Inventory, 0, InventoryState.GilItemId, 5000, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 1, Chestnut, 12, ItemLockFlag.Normal);
                 Inventory.SetItem(ContainerId.Inventory, 2, Potion, 3, ItemLockFlag.Normal);
@@ -271,7 +271,7 @@ namespace Gordian.Core.Tests.Ui
         public void Use_ACrystalWithAFullInventoryPrintsRetailsError()
         {
             var h = new Harness();
-            h.Inventory.SetContainerSizes(ContainerId.Inventory, 8, 8); // 7 slots, 7 used
+            h.Inventory.SetContainerSizes(ContainerId.Inventory, 7, 7); // 7 slots (as decoded from S2C 0x01C), 7 used
             var list = h.OpenFromMainMenu(4);
             h.SelectItem(list, FireCrystal);
             h.Menus.Activate();
@@ -473,22 +473,57 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public async Task InventorySortOn_KeepsTheListSorted_AndMergesStacksOnceAfterAnItemIsObtained()
+        public async Task InventorySortOn_SortsWhenAnItemArrives_AndLeavesAManualOrderAloneUntilThen()
         {
             var h = new Harness();
             var sorted = new TaskCompletionSource<ContainerId>(TaskCreationOptions.RunContinuationsAsynchronously);
             h.Menus.ItemSort = container => { sorted.TrySetResult(container); return Task.CompletedTask; };
+            h.Menus.OnItemsChanged(); // the inventory's first count
             h.Menus.Settings.SetValue(StockUiSettingKey.InventorySort, 1);
             var list = h.OpenFromMainMenu(4);
-            // Type 1: crystals, usable items (Potion, Echo Drops), equipment by slot and level, then the rest.
-            Assert.Equal(new ushort[] { FireCrystal, Potion, EchoDrops, LeatherBandana, Brass, BronzeCap, Chestnut }, list.ItemRows.Select(r => r.ItemId));
+            // Not sorted just because the setting is on (round 2, 2026-10-12): slot order until an item arrives.
+            Assert.Equal(new ushort[] { Chestnut, Potion, BronzeCap, EchoDrops, LeatherBandana, Brass, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
+            // A manual move stays.
+            h.Menus.ToggleItemOptions();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
+            h.Menus.Activate();
+            list.SelectedButtonId = 7;
+            h.Menus.Activate();
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal(FireCrystal, list.ItemRows[0].ItemId);
+            h.Menus.OnItemsChanged(); // a count change that is no new item
+            Assert.Equal(FireCrystal, list.ItemRows[0].ItemId);
+            Assert.Equal(Chestnut, list.ItemRows[1].ItemId);
+            // An item arrives: Type 1 (crystals, usable items, equipment by slot and level, then the rest), and one 0x03A.
             h.Inventory.SetItem(ContainerId.Inventory, 20, Chestnut, 2, ItemLockFlag.Normal);
+            Assert.Equal(new ushort[] { FireCrystal, Potion, EchoDrops, LeatherBandana, Brass, BronzeCap, Chestnut, Chestnut }, list.ItemRows.Select(r => r.ItemId));
             Assert.Equal(ContainerId.Inventory, await sorted.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
-            // Type 2 sorts by name.
+            // Type 2 sorts by name, at the next item.
             h.Menus.Settings.SetValue(StockUiSettingKey.InventoryType, 2);
-            h.Menus.OnItemsChanged();
+            h.Inventory.SetItem(ContainerId.Inventory, 21, Potion, 1, ItemLockFlag.Normal);
             Assert.Equal(list.ItemRows.Select(r => r.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase), list.ItemRows.Select(r => r.Name));
         }
+
+        [Fact]
+        public void Use_WhenTheCursorKeepsTheMenusOpen_TheListIsNotStackedTwice()
+        {
+            // The combined branch's cursor sets the menus aside rather than closing them, then calls ResumeItemWindow: the list
+            // must come back alone, so one Cancel leaves it (round 2, 2026-10-12: two Cancels were needed).
+            var h = new Harness();
+            h.Menus.ItemSubTarget = (row, targets) => true;
+            var list = h.OpenFromMainMenu(4);
+            int depth = h.Menus.OpenMenus.Count;
+            h.SelectItem(list, Potion);
+            h.Menus.Activate();
+            h.Menus.Activate();
+            Assert.Same(list, h.Menus.ResumeItemWindow());
+            Assert.Same(list, h.Menus.Top);
+            Assert.Equal(depth, h.Menus.OpenMenus.Count);
+            h.Menus.CloseTop();
+            Assert.Equal(StockUiMenuEntries.MainMenu, h.Menus.Top!.Name);
+        }
+
 
         [Fact]
         public void Options_RecycleBinListsThrownAwayItems_AndRestoresWithTheCount()
@@ -705,14 +740,24 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Containers_AvailabilityAndFillCountSlotZero()
+        public void Containers_AvailabilityAndFill_FromLandSandBoatsItemMax()
         {
+            // LandSandBoat sends 1 + the slots (a 30-slot inventory as 31, an unbought wardrobe as 1); the decoder takes the 1
+            // off, and the help bar shows "x/30", not "x/29" (round 2, 2026-10-12).
+            var payload = new byte[68];
+            payload[(int)ContainerId.Inventory] = 31;
+            payload[(int)ContainerId.Wardrobe3] = 1;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(32 + 2 * (int)ContainerId.Inventory), 31);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(32 + 2 * (int)ContainerId.Wardrobe3), 1);
+            var packet = new S2C_0x01C_ItemMax(payload);
             var inventory = new InventoryState();
-            inventory.SetContainerSizes(ContainerId.Inventory, 81, 81);
-            inventory.SetContainerSizes(ContainerId.Wardrobe3, 1, 1);
+            foreach (var c in new[] { ContainerId.Inventory, ContainerId.Wardrobe3 }) inventory.SetContainerSizes(c, packet.GetMaxSize(c), packet.GetUsableSize(c));
+            inventory.SetItem(ContainerId.Inventory, 3, Chestnut, 1, ItemLockFlag.Normal);
             Assert.True(StockUiItems.IsAvailable(inventory, ContainerId.Inventory));
             Assert.False(StockUiItems.IsAvailable(inventory, ContainerId.Wardrobe3));
-            Assert.Equal((0, 80), StockUiItems.Fill(inventory, ContainerId.Inventory));
+            Assert.Equal((1, 30), StockUiItems.Fill(inventory, ContainerId.Inventory));
+            inventory.RemoveItem(ContainerId.Inventory, 3); // a drop does not change the total
+            Assert.Equal((0, 30), StockUiItems.Fill(inventory, ContainerId.Inventory));
         }
 
         [Theory]

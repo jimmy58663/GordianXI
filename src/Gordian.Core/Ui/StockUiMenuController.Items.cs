@@ -284,13 +284,6 @@ namespace Gordian.Core.Ui
         private List<StockUiItemRow> OrderedRows(ContainerId container, bool usableOnly = false)
         {
             var rows = StockUiItems.Rows(Inventory, container, ItemLookup, usableOnly);
-            if (container == ContainerId.Inventory && _settings.IsOn(StockUiSettingKey.InventorySort))
-            {
-                // Config > Gameplay > Inventory Sort On: the inventory is kept sorted (the maintainer's retail notes: every
-                // item obtained triggers the sort).
-                StockUiItems.ApplyOrder(rows, StockUiItems.AutoOrder(rows, ItemLookup, SortType));
-                return rows;
-            }
             StockUiItems.ApplyOrder(rows, _itemOrder.TryGetValue(container, out var order) ? order : null);
             return rows;
         }
@@ -306,15 +299,19 @@ namespace Gordian.Core.Ui
         public static readonly TimeSpan AutoStackDelay = TimeSpan.FromSeconds(2);
 
         /// <summary>
-        /// With Inventory Sort On, an item obtained (more filled inventory slots than before) sends one C2S 0x03A to merge the
-        /// stacks, at most once per <see cref="AutoStackDelay"/> (the client's order follows by itself).
+        /// With Inventory Sort On, an item obtained (more filled inventory slots than before) sorts the inventory by the
+        /// Inventory Type and sends one C2S 0x03A to merge the stacks, at most once per <see cref="AutoStackDelay"/>. Between
+        /// items the order is left alone, so a manual order stays until the next item arrives.
         /// </summary>
         private void NoteInventoryCount()
         {
             int filled = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;
             int before = _inventoryFilled;
             _inventoryFilled = filled;
-            if (before < 0 || filled <= before || !_settings.IsOn(StockUiSettingKey.InventorySort) || ItemSort is not { } sort) return;
+            if (before < 0 || filled <= before || !_settings.IsOn(StockUiSettingKey.InventorySort)) return;
+            // The sort runs only when an item arrives: a manual order stays until then (the maintainer's round 2, 2026-10-12).
+            lock (_sync) _itemOrder[ContainerId.Inventory] = StockUiItems.AutoOrder(StockUiItems.Rows(Inventory, ContainerId.Inventory, ItemLookup), ItemLookup, SortType);
+            if (ItemSort is not { } sort) return;
             if (System.Threading.Interlocked.Exchange(ref _autoStackPending, 1) == 1) return;
             _ = Task.Run(async () =>
             {
@@ -630,7 +627,7 @@ namespace Gordian.Core.Ui
             if (ItemSubTarget is { } subTarget)
             {
                 // The cursor's owner closes the menus; remember the list so it can come back afterwards.
-                _itemsResume = (list.ItemListKind ?? StockUiItemListKind.Items, context, list.FirstRow, list.SelectedButtonId);
+                _itemsResume = (list.ItemListKind ?? StockUiItemListKind.Items, context, list.FirstRow, list.SelectedButtonId, list);
                 if (subTarget(row, record.ValidTargets)) return;
                 _itemsResume = null;
             }
@@ -659,7 +656,7 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>The Items list to bring back after the sub-target cursor: its kind, the command menu's target, its place.</summary>
-        private (StockUiItemListKind Kind, StockUiTargetContext? Target, int First, int Selected)? _itemsResume;
+        private (StockUiItemListKind Kind, StockUiTargetContext? Target, int First, int Selected, StockUiOpenMenu List)? _itemsResume;
 
         /// <summary>
         /// Brings the Items window back after the sub-target cursor used or dropped an item (the maintainer's round 1, 2026-10-12:
@@ -671,6 +668,16 @@ namespace Gordian.Core.Ui
         {
             if (_itemsResume is not { } resume) return null;
             _itemsResume = null;
+            if (Array.IndexOf(_open, resume.List) >= 0)
+            {
+                // The list is still open (the cursor did not close the menus): only the windows over it go, so no second list
+                // stacks on it. A stacked copy needed two Cancels to leave (the maintainer's round 2, 2026-10-12).
+                for (var top = Top; top != null && !ReferenceEquals(top, resume.List); top = Top) CloseMenu(top);
+                Changed?.Invoke();
+                return resume.List;
+            }
+            // Anything else still open (not the list) goes first, so the reopened menus are the only ones.
+            if (IsOpen) CloseAll();
             StockUiOpenMenu? parent = null;
             if (resume.Kind == StockUiItemListKind.Usable && resume.Target is { } target)
             {
