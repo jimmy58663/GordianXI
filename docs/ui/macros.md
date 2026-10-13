@@ -92,7 +92,7 @@ Routed by `ChatCommandRouter` and run in `PlayerActionService.Macros.cs`; they w
 
 Chat text (say, party, tell ..., `/echo`) has its placeholders filled before it is sent and echoed, as retail does: `<hp>` / `<mp>` "current/max", `<hpp>` / `<mpp>` "n%", `<tp>` the number, `<job>` "WAR75/NIN37", `<mjob>` "WAR75", `<sjob>` "NIN37", `<pethpp>` / `<petmpp>` "n%" and `<pettp>` from the pet (S2C 0x068), `<recast=Name>` "m:ss", and the target placeholders (`<t>`, `<me>`, `<bt>`, `<p0>`-`<p5>`, `<a10>`-`<a25>`, `<pet>`, `<r>`, `<ht>`, `<scan>`, `<lastst>`) as the entity's name. `<wait n>` is removed. A placeholder nothing can fill (no pet, nothing targeted, an unknown word) and the sub-target ones (`<st>` ...) stay as typed. **PROVISIONAL:** every output format above is ours (BG-Wiki shows usage, not output); to check in retail with `/echo <hp> <hpp> <tp> <job> <mjob> <sjob> <recast=Provoke>`.
 
-Not done (issues): `<pos>` (needs the map grid), `<call>` / `<ncall>` / `<scall>` (call sounds on the wire), `<fthpp>` (adventuring fellows), auto-translate phrases in macros and chat.
+Not done: `<pos>` (needs the map grid), `<call>` / `<ncall>` / `<scall>` (call sounds on the wire), `<fthpp>` (adventuring fellows): [#387](https://github.com/jimmy58663/GordianXI/issues/387); auto-translate phrases in macros and chat: [#388](https://github.com/jimmy58663/GordianXI/issues/388).
 
 ## Working notes
 
