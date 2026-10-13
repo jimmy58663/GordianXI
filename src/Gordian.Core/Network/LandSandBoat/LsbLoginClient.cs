@@ -1,6 +1,7 @@
 // src/Gordian.Core/Network/LandSandBoat/LsbLoginClient.cs
 using System;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -10,6 +11,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
@@ -27,7 +29,24 @@ namespace Gordian.Core.Network.LandSandBoat
         public string ZoneIp { get; init; } = "127.0.0.1";
         public int ZonePort { get; init; } = 54230;
         public byte[] SessionHash { get; init; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// The old-style (<see cref="LsbKeyStyle.Legacy"/>) map session key: the key sent in 0xA2 with LandSandBoat's
+        /// old per-operation increments. The key the server really uses is one of <see cref="KeyCandidates"/>.
+        /// </summary>
         public byte[] BlowfishKey { get; init; } = Array.Empty<byte>();
+
+        /// <summary>Every map session key the server may use, newest LandSandBoat scheme first (see <see cref="LsbSessionKeys"/>).</summary>
+        public IReadOnlyList<LsbSessionKeyCandidate> KeyCandidates { get; init; } = Array.Empty<LsbSessionKeyCandidate>();
+
+        /// <summary>The lobby key counter when 0xA2 was sent (the counter key's bytes 16-19 are this + 3); 0 if never set.</summary>
+        public uint LobbyKeyCounter { get; init; }
+
+        /// <summary>The candidates for the packet crypto suite, or the single <see cref="BlowfishKey"/> when there are none.</summary>
+        public IReadOnlyList<Gordian.Core.Network.Crypto.SessionKeyCandidate> CryptoKeyCandidates =>
+            KeyCandidates.Count > 0
+                ? KeyCandidates.Select(c => c.ToCryptoCandidate()).ToList()
+                : new[] { new Gordian.Core.Network.Crypto.SessionKeyCandidate(nameof(LsbKeyStyle.Legacy), BlowfishKey) };
     }
 
     /// <summary>
@@ -85,8 +104,51 @@ namespace Gordian.Core.Network.LandSandBoat
         }
 
         /// <summary>
+        /// The xiloader version GordianXI reports first: what current LandSandBoat requires (2.2 since 08ae16d27d, the
+        /// xi_profile transport). An older server that wants another major.minor says so and the login is retried.
+        /// </summary>
+        public static readonly (byte Major, byte Minor, byte Patch) DefaultXiloaderVersion = (2, 2, 0);
+
+        /// <summary>The xiloader version each auth server (host:port) accepted, for the rest of this process.</summary>
+        private static readonly ConcurrentDictionary<string, (byte Major, byte Minor, byte Patch)> s_acceptedVersions =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        private static string ServerKey(string host, int port) => $"{host}:{port}";
+
+        /// <summary>The xiloader version that will be sent first to <paramref name="host"/>:<paramref name="port"/>.</summary>
+        public static (byte Major, byte Minor, byte Patch) XiloaderVersionFor(string host, int port) =>
+            s_acceptedVersions.TryGetValue(ServerKey(host, port), out var version) ? version : DefaultXiloaderVersion;
+
+        private static readonly Regex s_requiredVersion = new(
+            @"(?:requires version|update to version)\s*'?(?<major>\d{1,3})\.(?<minor>\d{1,3})",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The xiloader major.minor an LSB auth rejection asks for: "Unsupported xiloader version a.b.c. This server
+        /// requires version X.Y.x." (LandSandBoat since f660a273e5, Sep 2026) or "Your xiloader is too old. Please update to
+        /// version 'X.Y.x'. ..." (before it). Message formats referenced from LandSandBoat
+        /// (https://github.com/LandSandBoat/server, src/login/auth_session.cpp, commits 1d1c2320cc and f660a273e5).
+        /// </summary>
+        public static bool TryParseRequiredXiloaderVersion(string? message, out (byte Major, byte Minor) required)
+        {
+            required = default;
+            if (string.IsNullOrEmpty(message)) return false;
+            var match = s_requiredVersion.Match(message);
+            if (!match.Success
+                || !byte.TryParse(match.Groups["major"].Value, out byte major)
+                || !byte.TryParse(match.Groups["minor"].Value, out byte minor))
+            {
+                return false;
+            }
+            required = (major, minor);
+            return true;
+        }
+
+        /// <summary>
         /// Authenticates against xi_connect (TCP TLS) using JSON command 0x10 (LOGIN_ATTEMPT).
-        /// Returns the account ID and 16-byte session hash.
+        /// Returns the account ID and 16-byte session hash. The server's version check is negotiated: GordianXI reports
+        /// <see cref="DefaultXiloaderVersion"/> (or the version this server last accepted) and, when the server answers
+        /// that it requires another xiloader major.minor, logs in once more reporting that version.
         /// </summary>
         public async Task<(uint AccountId, byte[] SessionHash)> AuthenticateAsync(
             string host,
@@ -98,7 +160,33 @@ namespace Gordian.Core.Network.LandSandBoat
         {
             ArgumentNullException.ThrowIfNull(host);
 
-            GordianLog.Info("LSB_LOGIN", $"Connecting to auth server {host}:{port} for user '{username}'...");
+            var version = XiloaderVersionFor(host, port);
+            var (result, error) = await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+            if (error != null
+                && TryParseRequiredXiloaderVersion(error, out var required)
+                && (required.Major, required.Minor) != (version.Major, version.Minor))
+            {
+                var retryVersion = (required.Major, required.Minor, (byte)0);
+                GordianLog.Info("LSB_LOGIN", $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; logging in again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
+                version = retryVersion;
+                (result, error) = await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+            }
+            if (error != null)
+            {
+                throw new InvalidOperationException($"LandSandBoat auth error: {error}");
+            }
+
+            s_acceptedVersions[ServerKey(host, port)] = version;
+            GordianLog.Info("LSB_LOGIN", $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}.");
+            return result;
+        }
+
+        /// <summary>One login attempt: the result, or the server's <c>error_message</c>.</summary>
+        private async Task<((uint AccountId, byte[] SessionHash) Result, string? Error)> AuthenticateOnceAsync(
+            string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
+            CancellationToken ct)
+        {
+            GordianLog.Info("LSB_LOGIN", $"Connecting to auth server {host}:{port} for user '{username}' (xiloader version {version.Major}.{version.Minor}.{version.Patch})...");
             using var ctsAuth = CancellationTokenSource.CreateLinkedTokenSource(ct);
             ctsAuth.CancelAfter(10000); // 10 second timeout for auth server
             var authCt = ctsAuth.Token;
@@ -123,7 +211,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 ["otp"] = otp ?? string.Empty,
                 ["trust_token"] = "",
                 ["trust_this_computer"] = false,
-                ["version"] = new int[] { 2, 1, 0 }
+                // LSB auth rejects any major.minor other than its SupportedXiloaderVersion (negotiated in AuthenticateAsync).
+                ["version"] = new int[] { version.Major, version.Minor, version.Patch }
             };
 
             string jsonString = JsonSerializer.Serialize(authPayload);
@@ -145,7 +234,7 @@ namespace Gordian.Core.Network.LandSandBoat
 
             if (root.TryGetProperty("error_message", out var errorElem) && !string.IsNullOrWhiteSpace(errorElem.GetString()))
             {
-                throw new InvalidOperationException($"LandSandBoat auth error: {errorElem.GetString()}");
+                return (default, errorElem.GetString());
             }
 
             int result = root.TryGetProperty("result", out var resElem) ? resElem.GetInt32() : 0;
@@ -168,7 +257,7 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             GordianLog.Info("LSB_LOGIN", $"Auth success! Account ID: {accountId}. Session hash acquired ({sessionHash.Length} bytes).");
-            return (accountId, sessionHash);
+            return ((accountId, sessionHash), null);
         }
 
         /// <summary>

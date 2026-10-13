@@ -1501,8 +1501,8 @@ namespace Gordian.App.ViewModels
                 Ticket = ticket.SessionHash
             };
 
-            // Initialize session Blowfish crypto key from LandSandBoat handshake
-            netManager.Parser.InitializeSessionCrypto(ticket.BlowfishKey);
+            // Initialize the session Blowfish key: every candidate LandSandBoat scheme, the map server's first datagram picks one
+            netManager.Parser.InitializeSessionCrypto(ticket.CryptoKeyCandidates);
 
             var session = new CharacterSession(
                 netManager.CharacterName,
