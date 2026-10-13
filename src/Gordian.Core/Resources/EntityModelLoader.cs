@@ -715,7 +715,8 @@ namespace Gordian.Core.Resources
                             Rotations = track.Rotations,
                             Translations = track.Translations,
                             Scales = track.Scales,
-                            PartDurationSeconds = overlay.DurationSeconds
+                            PartDurationSeconds = overlay.DurationSeconds,
+                            LoopsAlways = true
                         };
                         applied = true;
                     }
@@ -760,10 +761,12 @@ namespace Gordian.Core.Resources
                 // Timing from the part that moves the most joints (the parts of one motion mostly share it in the retail models).
                 var timing = parts[0];
                 foreach (var part in parts) if (part.Tracks.Count > timing.Tracks.Count) timing = part;
+                bool overlay = false;
                 if (!disjoint)
                 {
                     if (OverlayParts(parts, out timing) is not { } overlaid) continue;
                     tracks = overlaid;
+                    overlay = true;
                 }
                 // A part of another length keeps it: each part plays as its own channel and loops at its own length (the
                 // bee's wings, idl1 / btl1, flap in 4 frames while its body idles over 80; joined at the body's length they
@@ -782,6 +785,7 @@ namespace Gordian.Core.Resources
                             Translations = track.Translations,
                             Scales = track.Scales,
                             PartDurationSeconds = part.DurationSeconds,
+                            LoopsAlways = overlay,
                             IsReset = track.IsReset
                         };
                     }

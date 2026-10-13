@@ -695,6 +695,16 @@ namespace Gordian.Core.Tests.Animation
                 Assert.Contains(clip!.Tracks.Values, t => MathF.Abs(t.PartDurationSeconds - wing) < 0.001f);
             }
             Assert.DoesNotContain(bee.Animations["ded"].Tracks.Values, t => t.PartDurationSeconds > 0f);
+
+            // A swing plays once (not looped), but its wing channel keeps beating (round 3, D12): sampled one-shot past the
+            // wing loop's length, the swing's wing joint follows the looped wing part, not its held last key.
+            var swing = bee.Animations["at0"];
+            var wingPart = bee.Animations["idl1"];
+            int joint = swing.Tracks.First(t => t.Value.LoopsAlways).Key;
+            float t = wing * 2.5f;
+            Assert.True(swing.TrySample(joint, t, false, out var swung, out _));
+            Assert.True(wingPart.TrySample(joint, t, true, out var beat, out _));
+            Assert.True(MathF.Abs(System.Numerics.Quaternion.Dot(swung, beat)) > 0.9999f);
         }
 
         /// <summary>

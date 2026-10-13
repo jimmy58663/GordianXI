@@ -30,6 +30,13 @@ namespace Gordian.Core.Resources.Models
         /// <c>idl1</c> resets every joint but the two wings).
         /// </summary>
         public bool IsReset { get; init; }
+
+        /// <summary>
+        /// Whether the track loops even when its clip plays once: an overlay channel (the bee's 4-frame wing beat laid over
+        /// its swings) keeps beating through a one-shot action clip instead of holding its last key after 4 frames (#132
+        /// round 3: the wings stopped while the bee attacked).
+        /// </summary>
+        public bool LoopsAlways { get; init; }
     }
 
     /// <summary>
@@ -102,7 +109,7 @@ namespace Gordian.Core.Resources.Models
             float duration = track.PartDurationSeconds > 0f ? track.PartDurationSeconds : DurationSeconds;
             float phase = duration > 0.0001f ? timeSeconds / duration : 0f;
 
-            if (loop)
+            if (loop || track.LoopsAlways)
             {
                 phase %= 1.0f;
                 if (phase < 0f) phase += 1.0f;
