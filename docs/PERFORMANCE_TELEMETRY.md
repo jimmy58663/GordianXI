@@ -4,6 +4,8 @@ This document establishes the runtime telemetry definitions, monitoring architec
 
 ---
 
+> **In the viewport:** the performance overlay (hidden by default; Ctrl+F12 or `/perf fps | full`, #30) shows FPS, the frame pacing graph and 1% low, draw calls, CPU and GPU pass timings (GPU on Direct3D 11 for now) and the managed heap, allocation rate and GC counts below, per viewport window. See [rendering/viewport-and-terrain.md](rendering/viewport-and-terrain.md#tier-3-imgui-overlays-and-the-performance-overlay-30).
+
 ## 📊 Telemetry Metrics & Operational Thresholds
 
 | Metric Display | Category | Description & Units | 🟢 Good (Optimal) | 🟡 Warning (Investigate) | 🔴 Bad (Critical Issue) |

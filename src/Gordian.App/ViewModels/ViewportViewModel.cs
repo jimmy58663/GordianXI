@@ -30,6 +30,8 @@ namespace Gordian.App.ViewModels
         private bool _isVsyncEnabled = true;
         private int _backgroundFrameRate = ViewportRenderSettings.DefaultBackgroundFrameRate;
         private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
+        private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
+        private readonly object _saveLock = new();
         private CameraMode _activeCameraMode = CameraMode.ThirdPersonOrbital;
         private int _drawCalls;
         private int _visibleMeshes;
@@ -60,7 +62,9 @@ namespace Gordian.App.ViewModels
                 _settings.IsVsyncEnabled = _isVsyncEnabled;
                 _settings.BackgroundFrameRate = _backgroundFrameRate;
                 _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
-                _settings.SaveToFile(_settingsPath);
+                _settings.PerformanceOverlay = _performanceOverlay;
+                // The overlay mode can change on a viewport's render or key thread (Ctrl+F12, /perf).
+                lock (_saveLock) _settings.SaveToFile(_settingsPath);
             }
             catch (Exception ex)
             {
@@ -89,8 +93,14 @@ namespace Gordian.App.ViewModels
             _isVsyncEnabled = _settings.IsVsyncEnabled;
             _backgroundFrameRate = ViewportRenderSettings.ClampFrameRate(_settings.BackgroundFrameRate);
             _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
+            _performanceOverlay = _settings.PerformanceOverlay;
             // Every viewport window reads these each frame (#301, #322).
             ViewportRenderSettings.Apply(_settings);
+            if (_enableAutoSave)
+            {
+                // The shortcut and /perf set the overlay mode directly (#30); the saving view model keeps the file current.
+                ViewportRenderSettings.PerformanceOverlayChanged += OnPerformanceOverlayChanged;
+            }
 
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
             ToggleCameraModeCommand = new RelayCommand(() =>
@@ -350,6 +360,36 @@ namespace Gordian.App.ViewModels
                     AutoSaveSettings();
                 }
             }
+        }
+
+        /// <summary>What the viewport performance overlay shows (#30): Settings, Ctrl+F12 or /perf; every window at once.</summary>
+        public PerformanceOverlayMode PerformanceOverlay
+        {
+            get => _performanceOverlay;
+            set
+            {
+                if (SetProperty(ref _performanceOverlay, value))
+                {
+                    ViewportRenderSettings.PerformanceOverlay = value;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The performance overlay modes offered in Settings.</summary>
+        public ObservableCollection<PerformanceOverlayMode> AvailablePerformanceOverlayModes { get; } = new()
+        {
+            PerformanceOverlayMode.Hidden,
+            PerformanceOverlayMode.Fps,
+            PerformanceOverlayMode.Detailed,
+        };
+
+        private void OnPerformanceOverlayChanged(PerformanceOverlayMode mode)
+        {
+            if (_performanceOverlay == mode) return;
+            _performanceOverlay = mode;
+            AutoSaveSettings();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(PerformanceOverlay)));
         }
 
         /// <summary>The background frame rates offered in Settings.</summary>

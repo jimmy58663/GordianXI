@@ -19,6 +19,8 @@ namespace Gordian.App.Tests.Services
         [InlineData(Key.F9, KeyModifiers.Control, ViewportShortcut.ToggleOceanWater)]
         [InlineData(Key.F8, KeyModifiers.Control, ViewportShortcut.TogglePostProcess)]
         [InlineData(Key.F8, KeyModifiers.None, ViewportShortcut.None)]
+        [InlineData(Key.F12, KeyModifiers.Control, ViewportShortcut.CyclePerformanceOverlay)]
+        [InlineData(Key.F12, KeyModifiers.None, ViewportShortcut.None)]
         [InlineData(Key.W, KeyModifiers.Control, ViewportShortcut.None)]
         public void Classify_MapsTheWindowShortcuts(Key key, KeyModifiers modifiers, ViewportShortcut expected)
         {

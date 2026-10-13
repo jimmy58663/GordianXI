@@ -531,6 +531,9 @@ namespace Gordian.App
                 case ViewportShortcut.ToggleOceanWater: _viewportControl?.ToggleOceanWater(); break;
                 case ViewportShortcut.CycleWeather: _viewportControl?.CycleWeather(); break;
                 case ViewportShortcut.CycleTimeOfDay: _viewportControl?.CycleTimeOfDay(); break;
+                case ViewportShortcut.CyclePerformanceOverlay:
+                    ViewportRenderSettings.PerformanceOverlay = PerformanceOverlayModes.Next(ViewportRenderSettings.PerformanceOverlay);
+                    break;
             }
         }
 

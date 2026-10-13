@@ -18,6 +18,7 @@
 | xunit | 2.9.3 | xunit.v3.mtp-off 4.0.1 | xunit.v3 4.0.1 (2026-09-12) | Apache-2.0 | v2 superseded by v3 | **Replaced** ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)). The `mtp-off` variant keeps `dotnet test` on VSTest, so CI and coverlet.collector are unchanged; plain `xunit.v3` needs `dotnet test` in Microsoft Testing Platform mode on the .NET 10 SDK |
 | xunit.runner.visualstudio | 3.1.4 | 4.0.0 | 4.0.0 (2026-08-15) | Apache-2.0 | Active | **Updated** with the v3 move ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
 | Microsoft.NET.Test.Sdk | 17.14.1 | 18.10.1 | 18.10.1 | MIT | Active | **Updated** ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
+| Hexa.NET.ImGui (+ HexaGen.Runtime 1.1.21) | not referenced | 2.2.9 | 2.2.9 (2025-10-10), wraps Dear ImGui 1.92.2b | MIT (native `cimgui`: Dear ImGui and cimgui, MIT) | Active, essentially one maintainer | **Added** for the Tier 3 overlays ([#30](https://github.com/jimmy58663/GordianXI/issues/30)), as chosen below. 2.2.9 was still the latest stable on 2026-10-12 (a 2.2.10 prerelease exists); it covers everything the overlay needs, so the `dear_bindings` fallback was not taken. Bump when a newer stable lands |
 | coverlet.collector | 6.0.4 | 10.1.0 | 10.1.0 (2026-09-27) | MIT | Active | **Updated** and kept for coverage (`dotnet test --collect:"XPlat Code Coverage"`; not used by CI yet) ([PR #275](https://github.com/jimmy58663/GordianXI/pull/275)) |
 
 NeoVeldrid pulls in further Silk.NET 2.23.0 packages, including the native MoltenVK (macOS), shaderc and SPIRV-Cross libraries (Apache-2.0); see THIRD_PARTY_NOTICES.md.
@@ -26,7 +27,6 @@ NeoVeldrid pulls in further Silk.NET 2.23.0 packages, including the native Molte
 
 | Package | Latest stable (date) | Licence | For | Decision |
 |---|---|---|---|---|
-| Hexa.NET.ImGui | 2.2.9 (2025-10-10), wraps Dear ImGui 1.92.2b | MIT | Tier 3 overlays and `gordian.imgui` | **Chosen** (2026-10-05). See below |
 | KeraLua | 1.4.10 (2026-09-12) | MIT | Phase 6 Lua 5.4 runtime | Actively released; keep as planned. Who builds and signs the native Lua binaries per OS is still open ([post-mvp.md](../design/post-mvp.md)) |
 | ATRAC3 | n/a | n/a | Retail music and sound | Own clean-room decoder ([#38](https://github.com/jimmy58663/GordianXI/issues/38)); no FFmpeg |
 

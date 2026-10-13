@@ -1851,6 +1851,16 @@
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
+                                <!-- Performance overlay (#30) -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Performance overlay:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailablePerformanceOverlayModes}"
+                                              SelectedItem="{Binding Viewport.PerformanceOverlay, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="Hidden (default), Fps (frame rate and frame time) or Detailed (frame pacing graph, draw calls, CPU and GPU pass timings). Ctrl+F12 or /perf cycles it in the viewport."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
                                 <!-- Zone cache (multi-box) -->
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="Zone cache for other characters' zones (MB of GPU memory):" Foreground="#A0A0A0" FontSize="12"/>
