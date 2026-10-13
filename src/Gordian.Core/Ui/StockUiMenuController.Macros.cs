@@ -312,7 +312,7 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>+ (keypad +, gamepad Y) on a palette key or a macro line opens its options; again closes them.</summary>
-        private bool ToggleMacroOptions()
+        internal bool ToggleMacroOptions()
         {
             var top = Top;
             if (top == null || Macros is not { } library) return false;

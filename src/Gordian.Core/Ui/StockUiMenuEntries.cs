@@ -191,7 +191,7 @@ namespace Gordian.Core.Ui
             [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 5)] = new("Bazaar", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenuPage2, 6)] = new("Macros", Opens: StockUiMacroMenus.Menu),
+            [(MainMenuPage2, 6)] = new("Macros", Opens: "mcrmenu"),
             [(MainMenuPage2, 7)] = new("Config", Opens: ConfigMenu),
             [(MainMenuPage2, 8)] = new("Help Desk", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 10)] = new("Current Time", Command: StockUiMenuCommand.CurrentTime),
@@ -200,8 +200,8 @@ namespace Gordian.Core.Ui
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
             // Macros (#339): "mcrmenu" (labels windowps #698 Edit Macro, #699 Edit Equip. Set).
-            [(StockUiMacroMenus.Menu, 1)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
-            [(StockUiMacroMenus.Menu, 2)] = new("Edit Equip. Set", Command: StockUiMenuCommand.NotAvailable),
+            [("mcrmenu", 1)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
+            [("mcrmenu", 2)] = new("Edit Equip. Set", Command: StockUiMenuCommand.NotAvailable),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).

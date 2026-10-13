@@ -296,16 +296,16 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x063` | `DIG` | 16 | `built` | `CombatPacketBuilder.BuildDigFinishedRequest` | Sent at once after S2C 0x02F for the local player; LSB ignores it. |
 | `0x064` | `SCENARIOITEM` | 76 | `built, unused` | `ProgressionPacketBuilder.BuildScenarioItemRead` | `PlayerActionService.MarkKeyItemSeenAsync` has no caller [#91](https://github.com/jimmy58663/GordianXI/issues/91). |
 | `0x066` | `FISHING` | 20 | `not built` |  | Old fishing packet; LSB still has a handler (`0x066_fishing`). GordianXI uses 0x110. |
-| `0x06E` | `GROUP_SOLICIT_REQ` | 12 | `built` | `PartyPacketBuilder.BuildGroupSolicitReq` | `/invite`. `PartyKind.Alliance` is 5 [#98](https://github.com/jimmy58663/GordianXI/issues/98). |
-| `0x06F` | `GROUP_LEAVE` | 6 | `built` | `PartyPacketBuilder.BuildGroupLeave` | `/leave`. |
-| `0x070` | `GROUP_BREAKUP` | 6 | `built` | `PartyPacketBuilder.BuildGroupBreakup` | `/disband`. |
-| `0x071` | `GROUP_STRIKE` | 28 | `built` | `PartyPacketBuilder.BuildGroupStrike` | `/pcmd kick`. |
+| `0x06E` | `GROUP_SOLICIT_REQ` | 12 | `built` | `PartyPacketBuilder.BuildGroupSolicitReq` | `/invite`; `/acmd add` with kind 5 (#362). `PartyKind.Alliance` is 5 [#98](https://github.com/jimmy58663/GordianXI/issues/98). |
+| `0x06F` | `GROUP_LEAVE` | 6 | `built` | `PartyPacketBuilder.BuildGroupLeave` | `/leave`; `/acmd leave` with kind 5 (#362). |
+| `0x070` | `GROUP_BREAKUP` | 6 | `built` | `PartyPacketBuilder.BuildGroupBreakup` | `/disband`; `/acmd breakup` with kind 5 (#362). |
+| `0x071` | `GROUP_STRIKE` | 28 | `built` | `PartyPacketBuilder.BuildGroupStrike` | `/pcmd kick`; `/acmd kick` with kind 5 (#362). |
 | `0x072` | `GROUP_KICK` | 28 | `not built` |  | Not in LSB. |
 | `0x073` | `GROUP_CHANGE` | 12 | `not built` |  | Not in LSB. |
 | `0x074` | `GROUP_SOLICIT_RES` | 6 | `built` | `PartyPacketBuilder.BuildGroupSolicitRes` | `/join`, `/decline`. |
 | `0x075` | `GROUP_TALK` | var | `not built` |  | Not in LSB. |
 | `0x076` | `GROUP_LIST_REQ` | 6 | `built, unused` | `PartyPacketBuilder.BuildGroupListReq` | `SendGroupListReqAsync`: No caller of its module send method. |
-| `0x077` | `GROUP_CHANGE2` | 22 | `built, unused` | `PartyPacketBuilder.BuildGroupChange2` | 22 bytes, sent as 24. `SendGroupChange2Async`: No caller of its module send method. |
+| `0x077` | `GROUP_CHANGE2` | 22 | `built` | `PartyPacketBuilder.BuildGroupChange2` | 22 bytes, sent as 24. `/acmd leader` sends kind 5, change kind 1 SetAllianceLeader (LandSandBoat `0x077_group_change2.h`; #362). |
 | `0x078` | `GROUP_CHECKID` | 4 | `built, unused` | `SocialPacketBuilder.BuildGroupCheckId` | Header only. `SocialPacketModule.RequestGroupIdAsync`: No caller of its module send method [#113](https://github.com/jimmy58663/GordianXI/issues/113). |
 | `0x082` | `SHOP_REQ` | 8 | `not built` |  | Not in LSB. |
 | `0x083` | `SHOP_BUY` | 16 | `built` | `InventoryPacketBuilders.BuildShopBuy` | Shop buy (shop window). |

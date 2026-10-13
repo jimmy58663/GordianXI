@@ -52,7 +52,6 @@ namespace Gordian.App.Graphics
         {
             float s = placement.Scale;
             var definition = menu.Menu;
-            int current = macros.CurrentBook;
             for (int row = 1; row <= StockUiMacroMenus.BooksPerPage; row++)
             {
                 if (definition.FindButton(row) is not { } button) continue;
@@ -65,10 +64,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 UiColor? tint = row == menu.SelectedButtonId ? StockUiMenuWindow.SelectedGlyphTint : null;
-                string title = macros.GetBookTitle(book);
-                // The current book is marked with a dot before its name (GordianXI's; retail's mark is not captured).
-                if (book == current) title = "* " + title;
-                renderer.DrawText(font, title, x, y, s, tint);
+                renderer.DrawText(font, macros.GetBookTitle(book), x, y, s, tint);
             }
             // The page arrows beside the list (buttons 21 / 22, outside the frame, which the menu drawing leaves out).
             foreach (int id in new[] { StockUiMacroMenus.BookPrevPage, StockUiMacroMenus.BookNextPage })
@@ -79,9 +75,6 @@ namespace Gordian.App.Graphics
                     if (shape.Kind == 0 && library.TryGetImage(shape, out var image)) renderer.DrawImage(image, placement.X + arrow.X * s, placement.Y + arrow.Y * s, s);
                 }
             }
-            string page = menu.MacroBookPage == 0 ? "1-20" : "21-40";
-            float ts = s * StockUiPartyWindow.TextScale;
-            renderer.DrawText(font, page, placement.X + (definition.Frame.Width - 8) * s - font.MeasureWidth(page) * ts, placement.Y + (definition.Frame.Height - 2) * s - font.LineHeight * ts, ts);
         }
 
         /// <summary>The macro titles on a palette's keys (buttons 1-10 Ctrl, 11-20 Alt of a set's 20 macros).</summary>
@@ -106,9 +99,7 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             var slot = menu.MacroSlot;
             var macro = macros.Get(slot);
-            // "Edit Macros" in the title band, as the BG-Wiki screenshot shows it.
-            renderer.DrawText(font, StockUiMacroMenus.EditTitle, placement.X + 8 * s, placement.Y + 4 * s, s);
-
+            // ("Edit Macros" above the window is the help bar's title, drawn by the HUD, as the BG-Wiki screenshot shows.)
             // The key ("Ctrl 1") centred in its box.
             string key = (slot.Palette == MacroPalette.Alt ? "Alt " : "Ctrl ") + ((slot.Key + 1) % 10).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var keyBox = StockUiMacroMenus.KeyBox;
