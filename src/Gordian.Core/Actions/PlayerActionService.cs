@@ -56,7 +56,7 @@ namespace Gordian.Core.Actions
     /// Enforces <see cref="FeatureRestrictions"/> and acts as the unified bridge
     /// for UI input, CLI commands, and automated gambit execution.
     /// </summary>
-    public sealed class PlayerActionService
+    public sealed partial class PlayerActionService
     {
         private readonly SessionProfile _profile;
         private readonly WorldState _world;
@@ -324,6 +324,7 @@ namespace Gordian.Core.Actions
             };
             Menus.Settings = _uiSettings;
             DeathMenu = new StockUiDeathMenu(Menus, _localPlayer, HomePointAsync, AnswerDeathOfferAsync);
+            WireActionMenus();
             _uiSettings.Changed += OnUiSettingChanged;
             _uiSettings.ChatFiltersChanged += OnChatFiltersChanged;
 
@@ -396,6 +397,7 @@ namespace Gordian.Core.Actions
         /// <summary>The engaged or selected target despawned: end the engagement and drop the target.</summary>
         private void OnEntityDespawned(WorldEntity entity)
         {
+            if (_subTarget is { } picking && picking.Current.ServerId == entity.ServerId) CancelSubTarget();
             if (Combat is { IsEngaged: true } combat && combat.TargetServerId == entity.ServerId)
             {
                 EndEngagement();
@@ -706,6 +708,8 @@ namespace Gordian.Core.Actions
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
                 case StockUiMenuCommand.Check:
                     return await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                case StockUiMenuCommand.ReleaseTrust:
+                    return await ReleaseTrustAsync(entity.Name).ConfigureAwait(false);
                 default:
                     return PlayerActionResult.Warn($"{command} is not available yet.");
             }
@@ -755,15 +759,15 @@ namespace Gordian.Core.Actions
             var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
             if (resolvedId == 0)
             {
-                // If casting on self
-                resolvedId = _localPlayer.ServerId;
+                // Casting on yourself: LandSandBoat finds the target by its ActIndex, so the character's own index goes too.
+                (resolvedId, resolvedIdx) = SelfTarget();
                 resolvedName = "self";
             }
 
             try
             {
                 await _combatModule.RequestCastMagicAsync(resolvedId, resolvedIdx, spellId, targetOffset).ConfigureAwait(false);
-                return PlayerActionResult.Ok($"Casting spell #{spellId} on {resolvedName}.", ChatCommandResultKind.CombatCast);
+                return PlayerActionResult.Ok($"Casting {Catalog?.SpellName(spellId) ?? $"spell #{spellId}"} on {resolvedName}.", ChatCommandResultKind.CombatCast);
             }
             catch (Exception ex)
             {
@@ -783,7 +787,7 @@ namespace Gordian.Core.Actions
             try
             {
                 await _combatModule.RequestWeaponskillAsync(resolvedId, resolvedIdx, wsId).ConfigureAwait(false);
-                return PlayerActionResult.Ok($"Executed Weaponskill #{wsId} on {resolvedName}.", ChatCommandResultKind.CombatWeaponskill);
+                return PlayerActionResult.Ok($"Using {Catalog?.WeaponSkillName(wsId) ?? $"weapon skill #{wsId}"} on {resolvedName}.", ChatCommandResultKind.CombatWeaponskill);
             }
             catch (Exception ex)
             {
@@ -797,14 +801,14 @@ namespace Gordian.Core.Actions
             var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
             if (resolvedId == 0)
             {
-                resolvedId = _localPlayer.ServerId;
+                (resolvedId, resolvedIdx) = SelfTarget();
                 resolvedName = "self";
             }
 
             try
             {
                 await _combatModule.RequestJobAbilityAsync(resolvedId, resolvedIdx, abilityId).ConfigureAwait(false);
-                return PlayerActionResult.Ok($"Used Job Ability #{abilityId} on {resolvedName}.", ChatCommandResultKind.CombatJobAbility);
+                return PlayerActionResult.Ok($"Using {Catalog?.JobAbilityName(abilityId) ?? $"job ability #{abilityId}"} on {resolvedName}.", ChatCommandResultKind.CombatJobAbility);
             }
             catch (Exception ex)
             {
@@ -812,6 +816,10 @@ namespace Gordian.Core.Actions
                 return PlayerActionResult.Fail($"JobAbility failed: {ex.Message}", ChatCommandResultKind.CombatJobAbility);
             }
         }
+
+        /// <summary>The character's own server id and target index (the index is 0 until the character's entity is known).</summary>
+        private (uint ServerId, ushort TargetIndex) SelfTarget() =>
+            _world.TryGetByServerId(_localPlayer.ServerId, out var self) && self != null ? (self.ServerId, self.TargetIndex) : (_localPlayer.ServerId, (ushort)0);
 
         public async Task<PlayerActionResult> ShootAsync(uint targetId = 0, ushort targetIndex = 0)
         {
@@ -2556,13 +2564,13 @@ namespace Gordian.Core.Actions
                     return await DisengageAsync().ConfigureAwait(false);
 
                 case ChatCommandResultKind.CombatCast:
-                    return await CastMagicAsync(cmd.ActionParam, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+                    return await RunTypedActionAsync(ActionKind.Spell, cmd).ConfigureAwait(false);
 
                 case ChatCommandResultKind.CombatWeaponskill:
-                    return await WeaponskillAsync(cmd.ActionParam, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+                    return await RunTypedActionAsync(ActionKind.WeaponSkill, cmd).ConfigureAwait(false);
 
                 case ChatCommandResultKind.CombatJobAbility:
-                    return await JobAbilityAsync(cmd.ActionParam, cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
+                    return await RunTypedActionAsync(ActionKind.JobAbility, cmd).ConfigureAwait(false);
 
                 case ChatCommandResultKind.CombatRanged:
                     return await ShootAsync(cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);

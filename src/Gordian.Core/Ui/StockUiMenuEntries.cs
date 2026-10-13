@@ -91,6 +91,30 @@ namespace Gordian.Core.Ui
 
         /// <summary>The config list's Gamepad: opens the gamepad key-assignment list (#21).</summary>
         GamepadAssign,
+
+        /// <summary>A Magic category (<see cref="StockUiActionMenu"/>): opens its spell list; the Argument is the spell kind.</summary>
+        SpellList,
+
+        /// <summary>Abilities' Job Abil.: opens the job ability list.</summary>
+        JobAbilityList,
+
+        /// <summary>Abilities' Weapon Skl.: opens the weapon skill list.</summary>
+        WeaponSkillList,
+
+        /// <summary>Abilities' Ranged Atk.: a ranged attack on the target.</summary>
+        RangedAttack,
+
+        /// <summary>Abilities' Job Traits: the job trait list.</summary>
+        JobTraitList,
+
+        /// <summary>Abilities' Mount: the mount list.</summary>
+        MountList,
+
+        /// <summary>Abilities' Pet Command: the pet command list.</summary>
+        PetCommandList,
+
+        /// <summary>A Trust's command menu Release: releases that Trust (as <c>/refa</c>).</summary>
+        ReleaseTrust,
     }
 
     /// <summary>
@@ -141,10 +165,10 @@ namespace Gordian.Core.Ui
             // Commands, page 1 (buttons in their authored top-to-bottom order).
             [(MainMenu, 1)] = new("Status", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 3)] = new("Magic", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 3)] = new("Magic", Opens: StockUiActionMenu.MagicCategoryMenu),
             [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 10)] = new("Synthesis", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 5)] = new("Abilities", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 5)] = new("Abilities", Opens: StockUiActionMenu.AbilityMenu),
             [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
@@ -226,7 +250,41 @@ namespace Gordian.Core.Ui
             [(ChatModeMenu, ChatModeLinkshell2Button)] = new("Linkshell 2", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Linkshell2),
             [(ChatModeMenu, ChatModeUnityButton)] = new("Unity", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Unity),
             [(ChatModeMenu, 7)] = new("Shout", Command: StockUiMenuCommand.ChatMode, Argument: (int)ChatInputMode.Shout),
+
+            // Magic (#240): the categories of "mgcmenu" (main menu) and "magselec" (command menu, no Trust), each opening
+            // its spell list; the Argument is the spell kind (StockUiActionMenu.CategoryKinds).
+            [(StockUiActionMenu.MagicCategoryMenu, 1)] = Spells("White Magic", 1),
+            [(StockUiActionMenu.MagicCategoryMenu, 2)] = Spells("Black Magic", 2),
+            [(StockUiActionMenu.MagicCategoryMenu, 3)] = Spells("Songs", 3),
+            [(StockUiActionMenu.MagicCategoryMenu, 4)] = Spells("Ninjutsu", 4),
+            [(StockUiActionMenu.MagicCategoryMenu, 5)] = Spells("Summoning", 5),
+            [(StockUiActionMenu.MagicCategoryMenu, 6)] = Spells("Blue Magic", 6),
+            [(StockUiActionMenu.MagicCategoryMenu, 7)] = Spells("Geomancy", 7),
+            [(StockUiActionMenu.MagicCategoryMenu, 8)] = Spells("Trust", 8),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 1)] = Spells("White Magic", 1),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 2)] = Spells("Black Magic", 2),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 3)] = Spells("Songs", 3),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 4)] = Spells("Ninjutsu", 4),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 5)] = Spells("Summoning", 5),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 6)] = Spells("Blue Magic", 6),
+            [(StockUiActionMenu.CommandMagicCategoryMenu, 7)] = Spells("Geomancy", 7),
+
+            // Abilities (#353): "abimenu" (main menu) and "abiselec" (command menu, no Job Traits).
+            [(StockUiActionMenu.AbilityMenu, 1)] = new("Job Traits", Command: StockUiMenuCommand.JobTraitList),
+            [(StockUiActionMenu.AbilityMenu, 2)] = new("Job Abil.", Command: StockUiMenuCommand.JobAbilityList),
+            [(StockUiActionMenu.AbilityMenu, 3)] = new("Weapon Skl.", Command: StockUiMenuCommand.WeaponSkillList),
+            [(StockUiActionMenu.AbilityMenu, 4)] = new("Ranged Atk.", Command: StockUiMenuCommand.RangedAttack),
+            [(StockUiActionMenu.AbilityMenu, 6)] = new("Mount", Command: StockUiMenuCommand.MountList),
+            [(StockUiActionMenu.AbilityMenu, 5)] = new("Pet Command", Command: StockUiMenuCommand.PetCommandList),
+            [(StockUiActionMenu.CommandAbilityMenu, 1)] = new("Job Abil.", Command: StockUiMenuCommand.JobAbilityList),
+            [(StockUiActionMenu.CommandAbilityMenu, 2)] = new("Weapon Skl.", Command: StockUiMenuCommand.WeaponSkillList),
+            [(StockUiActionMenu.CommandAbilityMenu, 3)] = new("Ranged Atk.", Command: StockUiMenuCommand.RangedAttack),
+            [(StockUiActionMenu.CommandAbilityMenu, 5)] = new("Mount", Command: StockUiMenuCommand.MountList),
+            [(StockUiActionMenu.CommandAbilityMenu, 4)] = new("Pet Command", Command: StockUiMenuCommand.PetCommandList),
         };
+
+        private static StockUiMenuEntry Spells(string label, int button) =>
+            new(label, Command: StockUiMenuCommand.SpellList, Argument: StockUiActionMenu.CategoryKinds[button]);
 
         /// <summary>
         /// Looks up what a menu's button does: the table above, then the config pages (an option choice, a slider,

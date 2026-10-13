@@ -47,6 +47,26 @@ public partial class App : Application
         var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
         Gordian.Core.Network.Packets.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
 
+        // Spells, job abilities and weapon skills by name (/ma, /ja, /ws and the Magic / Abilities windows, #240 / #353):
+        // the client's spell and command tables with their name tables, read once per resource manager.
+        object catalogGate = new();
+        object? catalogSource = null;
+        Gordian.Core.Actions.ActionCatalog? catalog = null;
+        Gordian.Core.Actions.ActionCatalog.Provider = () =>
+        {
+            var rm = AppResourceManager.Instance;
+            if (rm == null) return null;
+            lock (catalogGate)
+            {
+                if (!ReferenceEquals(catalogSource, rm))
+                {
+                    catalogSource = rm;
+                    catalog = Gordian.Core.Actions.ActionCatalog.Load(rm);
+                }
+                return catalog;
+            }
+        };
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();

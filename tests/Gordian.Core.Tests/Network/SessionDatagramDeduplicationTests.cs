@@ -263,5 +263,40 @@ namespace Gordian.Core.Tests.Network
             // Sequence 1 should now be accepted again for the new zone
             Assert.True(mgr.ProcessInboundDatagram(d1));
         }
+
+        private static byte[] Encrypt(byte[] datagram, byte[] key)
+        {
+            using var suite = new LegacyBlowfishCryptoSuite();
+            suite.InitializeKey(key);
+            var copy = (byte[])datagram.Clone();
+            suite.EncryptAndSign(copy, 28, copy.Length - 28 - 16);
+            return copy;
+        }
+
+        /// <summary>
+        /// The 2026-10-12 failure: the map server's first datagram did not decrypt with our key, and its retransmissions
+        /// (same sequence number) were then all dropped as duplicates. Before the first datagram verifies, one that fails
+        /// must not set the sequence baseline.
+        /// </summary>
+        [Fact]
+        public void ProcessInboundDatagram_BeforeTheFirstVerifiedDatagram_AFailedOneDoesNotSetTheBaseline()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230);
+            byte[] goodKey = Encoding.ASCII.GetBytes("the right 20b key!!!");
+            byte[] wrongKey = Encoding.ASCII.GetBytes("the wrong 20b key!!!");
+            mgr.Parser.InitializeSessionCrypto(goodKey);
+            mgr.CurrentState = SessionState.ExchangingCryptoKeys;
+
+            byte[] plain = BuildTestDatagram(serverSeq: 1, clientSeqAck: 1, BuildChatSubPacket(ChatMessageType.Say, "Cybin", "Hello"));
+            Assert.False(mgr.ProcessInboundDatagram(Encrypt(plain, wrongKey)));
+            Assert.Equal(SessionState.ExchangingCryptoKeys, mgr.CurrentState);
+
+            Assert.True(mgr.ProcessInboundDatagram(Encrypt(plain, goodKey)));
+            Assert.Equal(SessionState.LoadingWorldData, mgr.CurrentState);
+            Assert.Equal(1, mgr.ServerPacketIdSequence);
+            // Now a retransmission of it is a duplicate.
+            Assert.False(mgr.ProcessInboundDatagram(Encrypt(plain, goodKey)));
+            Assert.Equal(1, mgr.Performance.DuplicateDatagramsDropped);
+        }
     }
 }

@@ -247,6 +247,20 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
+        /// Keypad minus opens the main menu in every preset (retail's default key; the maintainer's round 1 note, 2026-10-12):
+        /// a profile saved before that gets it, unless the key is already bound to something.
+        /// </summary>
+        public void EnsureKeypadMinusMenuBinding()
+        {
+            var chord = new InputChord(GordianKey.NumPadSubtract);
+            foreach (var chords in Bindings.Values)
+            {
+                if (chords.Contains(chord)) return;
+            }
+            Bind(InputAction.OpenMenu, chord);
+        }
+
+        /// <summary>
         /// Gives a profile saved before #326 the new gamepad shortcuts: L3 (was Toggle Walk/Run) toggles lock-on, R1 (was
         /// macro Alt+1) toggles auto-run and L1 (was macro Ctrl+1) cycles the character in the primary view. Only buttons
         /// still on their old default move; a profile that already has a <see cref="InputAction.CycleCharacter"/>
@@ -495,6 +509,7 @@ namespace Gordian.Core.Input
             p.Bind(InputAction.TargetParty5, new InputChord(GordianKey.F6));
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.OemMinus));
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.M));
+            p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.NumPadSubtract)); // retail's default (maintainer, 2026-10-12)
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
             p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.NumPadAdd));
             BindMenuNavigationDefaults(p);
@@ -653,6 +668,7 @@ namespace Gordian.Core.Input
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
+            profile.EnsureKeypadMinusMenuBinding();
             profile.EnsureTargetCursorBindings();
             profile.EnsureLockOnBindings();
             profile.EnsureGamepadShortcutBindings();

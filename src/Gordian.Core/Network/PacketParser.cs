@@ -454,6 +454,15 @@ namespace Gordian.Core.Network
         }
 
         /// <summary>
+        /// Initializes the session crypto with several possible keys, preferred first; the server's first datagram that
+        /// verifies picks one (see <see cref="IPacketCryptoSuite.InitializeKeyCandidates"/>).
+        /// </summary>
+        public void InitializeSessionCrypto(System.Collections.Generic.IReadOnlyList<SessionKeyCandidate> candidates)
+        {
+            _cryptoSuite.InitializeKeyCandidates(candidates);
+        }
+
+        /// <summary>
         /// Emits an inspected packet event without allocations if no listeners are attached.
         /// </summary>
         public void LogPacket(PacketDirection direction, ushort packetId, ushort sequenceId, ReadOnlySpan<byte> fullSubPacket)

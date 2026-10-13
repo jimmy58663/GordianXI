@@ -7,6 +7,7 @@ using Xunit;
 
 namespace Gordian.App.Tests.Services
 {
+    [Collection("SessionRegistry")] // shares SessionRegistry.Default with ViewportViewModelTests
     public class ViewportWindowManagerTests : IDisposable
     {
         private readonly string _tempSettingsPath;
