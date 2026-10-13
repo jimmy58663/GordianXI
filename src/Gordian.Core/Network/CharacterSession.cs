@@ -305,6 +305,7 @@ namespace Gordian.Core.Network
             Locomotion.Chat = Chat;
             // Macros (#339, #362): the character's own books, run through the chat's submit so each line acts as typed.
             ActionService.Macros = Macros.Library;
+            ActionService.Menus.Macros = Macros.Library;
             ActionService.PetSnapshot = () => Pet.Current;
             Macros.Runner.SubmitLine = line => Chat.SubmitAsync(line, Chat.Input.Mode);
             Macros.Runner.IsSubTargeting = () => ActionService.SubTargeting != null;

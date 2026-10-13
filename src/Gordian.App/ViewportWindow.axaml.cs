@@ -564,6 +564,16 @@ namespace Gordian.App
             // are not handled here.
             var chat = session.Chat;
             bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
+            // A macro title, line or book name being typed (#339) owns the keyboard as the chat line does.
+            var macroField = session.ActionService.Menus.MacroField;
+            if (macroField.IsOpen)
+            {
+                if (typed) return;
+                if (gKey == GordianKey.V && mods == InputModifiers.Control) _ = PasteIntoFieldAsync(macroField);
+                else macroField.HandleKey(gKey, mods);
+                e.Handled = true;
+                return;
+            }
             if (chat.Input.IsOpen)
             {
                 // Tab / Shift+Tab still cycle targets while typing.
@@ -627,10 +637,24 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
+            if (_viewModel?.ActiveTab?.Session?.ActionService.Menus.MacroField is { IsOpen: true } field)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) field.InsertText(e.Text);
+                e.Handled = true;
+                return;
+            }
             var input = _viewModel?.ActiveTab?.Session?.Chat.Input;
             if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
             input.InsertText(e.Text);
             e.Handled = true;
+        }
+
+        private async System.Threading.Tasks.Task PasteIntoFieldAsync(StockUiTextField field)
+        {
+            var clipboard = Clipboard;
+            if (clipboard == null) return;
+            string? text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrEmpty(text)) field.InsertText(text.Replace("\r", string.Empty).Replace('\n', ' '));
         }
 
         private async System.Threading.Tasks.Task PasteIntoChatAsync(StockUiChatInput input)

@@ -129,6 +129,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
+            else if (font != null && menu.IsMacroWindow)
+            {
+                StockUiMacroWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
+            }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {
                 DrawQuery(renderer, font, menu, placement, firstQueryRow, timestamp);
@@ -700,14 +704,14 @@ namespace Gordian.App.Graphics
         /// Half-scale tint of the selected entry's capsule and any other alpha-blended part: the same capture's capsule
         /// goes from (127, 133, 186) unselected to (133, 87, 48) selected, about (1.05, 0.65, 0.26).
         /// </summary>
-        private static readonly UiColor SelectedCapsuleTint = new(0x86, 0x53, 0x21, 0x80);
+        internal static readonly UiColor SelectedCapsuleTint = new(0x86, 0x53, 0x21, 0x80);
 
         /// <summary>
         /// The glyph parts of a label: alpha-blended parts sampling a font sheet ("font", "menu2fon", "mn6font"...)
         /// or the key-cap digits ("keytop"; a retail capture shows a selected Window Type digit tinted whole).
         /// Other alpha parts (the "buttonto" capsule) take the capsule tint; the darkening glyph shadows are left alone.
         /// </summary>
-        private static bool IsGlyph(UiSpritePart part)
+        internal static bool IsGlyph(UiSpritePart part)
         {
             if (part.BlendMode != UiBlendMode.Alpha) return false;
             string texture = UiResourceLibrary.TrimResourceName(part.TextureName);

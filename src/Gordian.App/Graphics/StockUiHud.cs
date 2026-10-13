@@ -233,6 +233,7 @@ namespace Gordian.App.Graphics
             {
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene) DrawActionHelpBar(renderer, library, session, width, height);
+                if (!cutscene) DrawMacros(renderer, library, session, width, height);
             }
             bool unlocked = Drag.Unlocked;
             if (unlocked)
@@ -299,6 +300,37 @@ namespace Gordian.App.Graphics
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The macro palette in play while Ctrl / Alt (LT / RT) is held, and the help bar over it and over the macro windows
+        /// (#339): "Edit Macros" (or "MacroPalette" in play) and "Macro Set &lt;book&gt; (#&lt;set&gt;)"; over a window whose
+        /// selected entry has a help line (the book options, Line / Button Edit), that line. PROVISIONAL: whether retail shows
+        /// the bar in play is not captured.
+        /// </summary>
+        private void DrawMacros(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font) return;
+            var menus = session.ActionService.Menus;
+            if (menus.Suspended) return;
+            var top = menus.OpenMenus.LastOrDefault(m => m.IsMacroWindow);
+            if (top != null)
+            {
+                string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+                string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
+                if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+                return;
+            }
+            var macros = session.Macros;
+            if (menus.IsOpen || macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None) return;
+            var settings = session.ActionService.UiSettings;
+            bool compact = settings.GetValue(StockUiSettingKey.MacroPaletteSize) == 1;
+            bool atRight = settings.GetValue(StockUiSettingKey.MacroPalettePosition) == 1 || session.ActionService.Combat?.IsEngaged == true;
+            StockUiMacroWindow.DrawPlayPalette(renderer, library, font, macros, compact, atRight, Layout.Scale, width, height);
+            var library2 = macros.Library;
+            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, StockUiMacroMenus.PaletteTitle,
+                $"Macro Set {library2.GetBookTitle(library2.CurrentBook)} (#{library2.CurrentSet + 1})", Layout.Scale, width, height);
         }
 
         /// <summary>The cursor's tip above the name plate (when the entity has one), else on the overhead point.</summary>
@@ -443,7 +475,8 @@ namespace Gordian.App.Graphics
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
                     // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow;
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow
+                        || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
@@ -457,6 +490,14 @@ namespace Gordian.App.Graphics
                         var own = ResolveWindow(StockUiWindowIds.MainMenu, frame, width, height, out _);
                         x = own.X;
                         y = own.Y;
+                    }
+                    else if (menu.MacroView == StockUiMacroView.BookOptions && menu.Parent is { } bookList
+                        && _menuPlacements.FirstOrDefault(p => ReferenceEquals(p.Menu, bookList)) is { Menu: not null } listAt
+                        && bookList.Menu.FindButton(bookList.SelectedButtonId) is { } bookRow)
+                    {
+                        // A book's options open beside its row, left of the book list (PROVISIONAL: authored at 0,0; retail's place not captured).
+                        x = Math.Max(0, listAt.X - (frame.Width + 4) * root.Scale);
+                        y = Math.Clamp(listAt.Y + (bookRow.Y - 6) * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
                     else if (menu.IsActionList && _window1Top is { } listTop)
                     {
