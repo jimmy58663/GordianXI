@@ -188,6 +188,7 @@ namespace Gordian.App.Graphics
         /// <summary>Reads every pending slot whose results are ready, keeping the newest frame's times.</summary>
         private void Collect()
         {
+            Span<ulong> stamps = stackalloc ulong[PassCount + 1];
             // Oldest first, so the newest ready frame is the one kept.
             for (int i = 0; i < RingSize; i++)
             {
@@ -195,7 +196,6 @@ namespace Gordian.App.Graphics
                 if (!slot.Pending) continue;
                 QueryDataTimestampDisjoint disjoint;
                 if (_context->GetData((ID3D11Asynchronous*)slot.Disjoint, &disjoint, (uint)sizeof(QueryDataTimestampDisjoint), DoNotFlush) != 0) continue;
-                Span<ulong> stamps = stackalloc ulong[PassCount + 1];
                 bool ready = true;
                 for (int s = 0; s < stamps.Length && ready; s++)
                 {
