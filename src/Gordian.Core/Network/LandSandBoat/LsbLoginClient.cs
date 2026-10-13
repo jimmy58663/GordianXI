@@ -123,7 +123,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 ["otp"] = otp ?? string.Empty,
                 ["trust_token"] = "",
                 ["trust_this_computer"] = false,
-                ["version"] = new int[] { 2, 1, 0 }
+                // LSB auth rejects any major.minor other than its SupportedXiloaderVersion (2.2 since the xi_profile change).
+                ["version"] = new int[] { 2, 2, 0 }
             };
 
             string jsonString = JsonSerializer.Serialize(authPayload);

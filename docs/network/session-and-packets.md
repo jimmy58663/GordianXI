@@ -41,6 +41,10 @@
   - Packet sequence gap tracking & drop detection for UDP streams
   - Zero-allocation dispatch latency profiling (microsecond-level decode time)
 
+## Auth handshake (xi_connect)
+
+`LsbLoginClient` logs in over TLS with xiloader's JSON request (command 0x10, username, password, otp, trust token, `version`) and reads `result`, `account_id` and the 16-byte `session_hash` back. LSB's `auth_session` rejects any `version` whose major.minor differs from `SupportedXiloaderVersion` in `src/login/auth_session.h` ("Unsupported xiloader version ..."), so GordianXI sends the xiloader version the server expects: **2.2.0** since LSB `08ae16d27d` (Sep 2026, the xi_profile service). That bump didn't change the reply: the session hash is now random and also the xi_profile credential, and the server also stores a UDP port slot for xi_profile. GordianXI doesn't use xi_profile yet (#364).
+
 ## Lobby session (#35)
 
 `LsbLobbySession` (`src/Gordian.Core/Network/LandSandBoat`) is the character select screen's connection: it opens the xi_data (54230) and xi_view (54001) channels after the xi_connect login and keeps them open until a character is chosen, running one request at a time. `LobbyPackets` builds the requests into caller buffers and parses the replies; `LsbLoginClient.OpenLobbyAsync` / `LoginToLobbyAsync` open one, and the old one-shot `SelectCharacterAsync` (the saved-profile fast path: a profile with a character name or slot) now runs over it unchanged in behaviour. Every packet in both directions still reaches the packet inspector.
