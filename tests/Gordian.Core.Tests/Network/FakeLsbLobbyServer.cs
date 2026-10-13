@@ -77,8 +77,34 @@ namespace Gordian.Core.Tests.Network
         public List<byte> ViewCommands { get; } = new();
         public List<byte> DataCommands { get; } = new();
 
-        /// <summary>The key the server stored for the map session (the 0xA2 key with byte 16 raised).</summary>
+        /// <summary>The key the server stored for the map session (the scheme follows <see cref="CounterKeys"/>).</summary>
         public byte[]? StoredKey { get; private set; }
+
+        /// <summary>
+        /// Current LandSandBoat (393e176732 / 01e5b447e1): the stored key is MD5(session hash) and the lobby key counter
+        /// + 3, the counter following the view requests the server reads and the replies its view session writes.
+        /// Off: the older scheme, the 0xA2 key with byte 16 raised by the per-operation increments.
+        /// </summary>
+        public bool CounterKeys { get; set; }
+
+        /// <summary>The server's view of the client's lobby key counter (counter mode).</summary>
+        public uint KeyCounter { get; private set; }
+        private byte _lastRequest;
+
+        // LandSandBoat view_session.cpp stepsKeyOnRequest / stepsKeyOnReply / stepsKeyOnError.
+        private void CountRequest(byte command)
+        {
+            _lastRequest = command;
+            if (command is 0x07 or 0x14 or 0x1F or 0x21 or 0x22 or 0x24 or 0x28 or 0x2B) KeyCounter++;
+        }
+
+        private void CountReply(byte[] packet)
+        {
+            byte command = packet[8];
+            if (command == 0x05) KeyCounter = BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(0x1C)) + 1;
+            else if (command is 0x03 or 0x0B or 0x20 or 0x23) KeyCounter++;
+            else if (command == 0x04 && _lastRequest is 0x22 or 0x24 or 0x28 or 0x2B) KeyCounter++;
+        }
 
         private async Task AcceptDataAsync()
         {
@@ -146,6 +172,7 @@ namespace Gordian.Core.Tests.Network
                 }
                 byte command = packet[8];
                 lock (_sync) ViewCommands.Add(command);
+                CountRequest(command);
                 switch (command)
                 {
                     case 0x26:
@@ -242,8 +269,16 @@ namespace Gordian.Core.Tests.Network
                 return;
             }
             var key = a2.AsSpan(1, 20).ToArray();
-            if (_justCreated) key[16] += 6;
-            key[16] += (byte)_increment;
+            if (CounterKeys)
+            {
+                System.Security.Cryptography.MD5.HashData(SessionHash, key.AsSpan(0, 16));
+                if (KeyCounter != 0) BinaryPrimitives.WriteUInt32LittleEndian(key.AsSpan(16), KeyCounter + 3);
+            }
+            else
+            {
+                if (_justCreated) key[16] += 6;
+                key[16] += (byte)_increment;
+            }
             StoredKey = key;
             var character = Characters.First(c => c.Id == _requestedCharacter);
             var next = Header(0x48, 0x0B);
@@ -252,7 +287,8 @@ namespace Gordian.Core.Tests.Network
             Encoding.ASCII.GetBytes(character.Name).CopyTo(next, 36);
             next[56] = 127; next[59] = 1;
             BinaryPrimitives.WriteUInt32LittleEndian(next.AsSpan(60), 54230);
-            await WriteView(next);
+            // LandSandBoat writes 0x0B straight to the socket, past the counting do_write (the "+3" covers it).
+            await WriteView(next, count: false);
             _increment = 0;
             _justCreated = false;
             _viewClient?.Close();
@@ -330,9 +366,10 @@ namespace Gordian.Core.Tests.Network
             return Encoding.ASCII.GetString(packet, offset, (end < 0 ? offset + 15 : end) - offset);
         }
 
-        private async Task WriteView(byte[] packet)
+        private async Task WriteView(byte[] packet, bool count = true)
         {
             if (_viewStream == null) return;
+            if (count) CountReply(packet);
             await _viewStream.WriteAsync(packet);
         }
 

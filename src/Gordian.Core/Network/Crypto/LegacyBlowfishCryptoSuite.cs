@@ -307,6 +307,8 @@ namespace Gordian.Core.Network.Crypto
 
         public void InitializeKey(ReadOnlySpan<byte> key)
         {
+            DisposeCandidates();
+            NegotiatedKeyLabel = null;
             if (key.Length == 20)
             {
                 _rawKey = key.ToArray();
@@ -315,11 +317,104 @@ namespace Gordian.Core.Network.Crypto
             InitializeKeyCore(key);
         }
 
+        // Key negotiation: one suite per candidate key until an inbound datagram verifies with one of them.
+        private LegacyBlowfishCryptoSuite[]? _candidates;
+        private string[]? _candidateLabels;
+
+        /// <inheritdoc />
+        public string? NegotiatedKeyLabel { get; private set; }
+
+        /// <inheritdoc />
+        public bool IsNegotiatingKey => _candidates != null;
+
+        /// <summary>
+        /// Starts a session with several possible keys (LandSandBoat's map key scheme depends on the server version, which
+        /// the client cannot ask for). Outbound packets use the first candidate until one is locked in; the server's
+        /// first datagram is tried with each candidate on a copy, and the one whose MD5 checksum verifies becomes the
+        /// session key, zone advances made meanwhile included. The C2S 0x00A that precedes it is sent in the clear, so
+        /// trying candidates has no effect on the server.
+        /// </summary>
+        public void InitializeKeyCandidates(System.Collections.Generic.IReadOnlyList<SessionKeyCandidate> candidates)
+        {
+            ArgumentNullException.ThrowIfNull(candidates);
+            if (candidates.Count == 0) throw new ArgumentException("At least one key candidate is required.", nameof(candidates));
+            InitializeKey(candidates[0].Key);
+            if (candidates.Count == 1)
+            {
+                NegotiatedKeyLabel = candidates[0].Label;
+                return;
+            }
+
+            _candidates = new LegacyBlowfishCryptoSuite[candidates.Count];
+            _candidateLabels = new string[candidates.Count];
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                _candidates[i] = new LegacyBlowfishCryptoSuite();
+                _candidates[i].InitializeKey(candidates[i].Key);
+                _candidateLabels[i] = candidates[i].Label;
+            }
+            GordianLog.Info("CRYPTO", $"Negotiating the map session key among {candidates.Count} candidates: {string.Join(", ", _candidateLabels)}. Outbound packets use '{_candidateLabels[0]}' until the server's first datagram verifies.");
+        }
+
+        /// <summary>Tries every candidate on a copy of the datagram; on success adopts that candidate's state.</summary>
+        private bool TryNegotiate(Span<byte> packetData, int headerSize, out int decryptedPayloadLength)
+        {
+            decryptedPayloadLength = 0;
+            var candidates = _candidates!;
+            byte[] scratch = System.Buffers.ArrayPool<byte>.Shared.Rent(packetData.Length);
+            try
+            {
+                Span<byte> copy = scratch.AsSpan(0, packetData.Length);
+                for (int i = 0; i < candidates.Length; i++)
+                {
+                    packetData.CopyTo(copy);
+                    if (!candidates[i].TryDecryptAndVerify(copy, headerSize, out int length)) continue;
+
+                    copy.CopyTo(packetData);
+                    decryptedPayloadLength = length;
+                    Adopt(candidates[i]);
+                    NegotiatedKeyLabel = _candidateLabels![i];
+                    LastDecryptUsedPreviousKey = candidates[i].LastDecryptUsedPreviousKey;
+                    GordianLog.Info("CRYPTO", $"Map session key negotiated: '{NegotiatedKeyLabel}' (candidate {i + 1} of {candidates.Length}) verified the server's first datagram.");
+                    DisposeCandidates();
+                    return true;
+                }
+                return false;
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(scratch);
+            }
+        }
+
+        private void Adopt(LegacyBlowfishCryptoSuite source)
+        {
+            Array.Copy(source._p, _p, _p.Length);
+            Array.Copy(source._s, _s, _s.Length);
+            Array.Copy(source._prevP, _prevP, _prevP.Length);
+            Array.Copy(source._prevS, _prevS, _prevS.Length);
+            _hasPrevKey = source._hasPrevKey;
+            _rawKey = source._rawKey == null ? null : (byte[])source._rawKey.Clone();
+            IsKeyInitialized = source.IsKeyInitialized;
+        }
+
+        private void DisposeCandidates()
+        {
+            if (_candidates == null) return;
+            foreach (var candidate in _candidates) candidate.Dispose();
+            _candidates = null;
+            _candidateLabels = null;
+        }
+
         /// <inheritdoc />
         public bool LastDecryptUsedPreviousKey { get; private set; }
 
         public bool AdvanceZoneKey()
         {
+            if (_candidates != null)
+            {
+                foreach (var candidate in _candidates) candidate.AdvanceZoneKey();
+            }
             if (_rawKey == null || _rawKey.Length != 20)
             {
                 GordianLog.Warning("CRYPTO", "Cannot advance zone key: no 20-byte session key has been initialized.");
@@ -426,6 +521,11 @@ namespace Gordian.Core.Network.Crypto
             if (packetData.Length < headerSize + 16)
             {
                 return false;
+            }
+
+            if (_candidates != null)
+            {
+                return TryNegotiate(packetData, headerSize, out decryptedPayloadLength);
             }
 
             int totalCipherRegion = packetData.Length - headerSize;
@@ -616,6 +716,7 @@ namespace Gordian.Core.Network.Crypto
 
         public void Dispose()
         {
+            DisposeCandidates();
             Array.Clear(_p, 0, _p.Length);
             Array.Clear(_s, 0, _s.Length);
             Array.Clear(_prevP, 0, _prevP.Length);
