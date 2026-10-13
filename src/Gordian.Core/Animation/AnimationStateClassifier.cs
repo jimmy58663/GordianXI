@@ -128,6 +128,13 @@ namespace Gordian.Core.Animation
                 return isWalking ? AnimationCategory.Walk : AnimationCategory.Run;
             }
 
+            // Resting (/heal, status 33) or sitting (/sit, status 47) while standing still (#343). Movement comes first: the
+            // player's own /heal-off goes out when they move, and the status follows a moment later.
+            if (RestPosture.CategoryFor(entity.AnimationState) is { } seated)
+            {
+                return seated;
+            }
+
             if (isEngaged)
             {
                 return AnimationCategory.Combat;

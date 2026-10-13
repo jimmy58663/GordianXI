@@ -64,7 +64,7 @@
 
 ### Moving stands you up from /heal
 
-- Any movement input (movement keys, the left stick past its deadzone, auto-run) while the server reports the Healing status (S2C 0x037 status 33, LandSandBoat `xi.animation.HEALING`) sends /heal off (C2S 0x0E8, `RestMode.Off`) once (`PlayerLocomotionController.UpdateHealCancel`); it can be sent again only after the status has left Healing. The maintainer's request (round 3). The resting animation itself is #343.
+- Any movement input (movement keys, the left stick past its deadzone, auto-run) while the server reports the Healing status (S2C 0x037 status 33, LandSandBoat `xi.animation.HEALING`) sends /heal off (C2S 0x0E8, `RestMode.Off`) once (`PlayerLocomotionController.UpdateHealCancel`); it can be sent again only after the status has left Healing. The maintainer's request (round 3). The resting animation is drawn from the status ([entities-and-animation.md](../world/entities-and-animation.md), #343): moving plays the run at once (the status is still 33 for a moment, and movement wins over the seated posture), with no stand-up clip.
 
 ### Auto-run
 

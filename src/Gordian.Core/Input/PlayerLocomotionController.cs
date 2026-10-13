@@ -701,7 +701,7 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>LandSandBoat's Healing animation status (<c>xi.animation.HEALING</c>), sent in S2C 0x037.</summary>
-        public const byte StatusHealing = 33;
+        public const byte StatusHealing = Gordian.Core.Animation.RestPosture.StatusHealing;
 
         private bool _healCancelSent;
 
@@ -757,6 +757,8 @@ namespace Gordian.Core.Input
                 };
                 _world.UpsertEntity(localEnt);
             }
+            // The player's status (S2C 0x037) on its entity, also when the entity was made after the status came (#343).
+            localEnt.AnimationState = _localPlayer.ServerStatus;
 
             float dt = (float)elapsed.TotalSeconds;
             _tickSeconds = dt;

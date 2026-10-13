@@ -313,6 +313,7 @@ namespace Gordian.Core.Animation
             else if (categoryChanged || stanceChanged)
             {
                 byte fromStance = CurrentStance;
+                AnimationCategory fromCategory = Current;
                 Current = newCategory;
                 SubAnimation = subAnimation;
                 CurrentStance = targetStance;
@@ -322,6 +323,12 @@ namespace Gordian.Core.Animation
                 if (stanceChanged && !isLocomotionOrDeath)
                 {
                     transClip = NpcStanceResolver.ResolveTransitionClip(model, fromStance, targetStance);
+                }
+
+                // Sitting down into /heal or /sit, or standing up out of it (#343), plays once, then the new stance.
+                if (transClip == null && categoryChanged && !isLocomotionOrDeath)
+                {
+                    transClip = RestPosture.ResolveTransition(model, fromCategory, newCategory);
                 }
 
                 if (transClip != null)
