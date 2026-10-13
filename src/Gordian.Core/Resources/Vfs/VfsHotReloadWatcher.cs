@@ -17,6 +17,8 @@ namespace Gordian.Core.Resources.Vfs
         private readonly object _lock = new();
         private readonly List<FileSystemWatcher> _watchers = new();
         private readonly ConcurrentDictionary<string, byte> _pendingChanges = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _retries = new(StringComparer.OrdinalIgnoreCase);
+        private const int MaxRetries = 40;
         private readonly Timer _debounceTimer;
         private readonly int _debounceDelayMs;
         private bool _disposed;
@@ -30,6 +32,13 @@ namespace Gordian.Core.Resources.Vfs
         /// Fired when a directory addition/removal or manifest change occurs that requires pack re-indexing.
         /// </summary>
         public event Action? OnPacksStructureChanged;
+
+        /// <summary>
+        /// Fired once per settled burst of changes with every path that changed (created, written, renamed or deleted;
+        /// files and folders), after <see cref="OnPacksStructureChanged"/> / <see cref="OnAssetsChanged"/>. The VFS
+        /// re-indexes its packs on it (#374): a file added to or removed from a mounted pack changes the pack's index.
+        /// </summary>
+        public event Action<IReadOnlyList<string>>? OnChanged;
 
         public VfsHotReloadWatcher(int debounceDelayMs = 350)
         {
@@ -73,6 +82,44 @@ namespace Gordian.Core.Resources.Vfs
                 catch (Exception ex)
                 {
                     GordianLog.Warn("VFS", $"Could not attach hot-reload watcher to {path}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Watches one file in a directory (not its subdirectories): <c>vfs.json</c>, whose pack toggles and priorities
+        /// take effect when it is saved (#374).
+        /// </summary>
+        public void WatchFile(string directory, string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory))
+            {
+                return;
+            }
+
+            lock (_lock)
+            {
+                try
+                {
+                    var watcher = new FileSystemWatcher(directory, fileName)
+                    {
+                        IncludeSubdirectories = false,
+                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
+                    };
+
+                    watcher.Changed += OnFileSystemEvent;
+                    watcher.Created += OnFileSystemEvent;
+                    watcher.Deleted += OnFileSystemEvent;
+                    watcher.Renamed += OnFileSystemRenamed;
+
+                    watcher.EnableRaisingEvents = true;
+                    _watchers.Add(watcher);
+
+                    GordianLog.Info("VFS", $"Hot-reload watching file: {Path.Combine(directory, fileName)}");
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Warn("VFS", $"Could not attach hot-reload watcher to {Path.Combine(directory, fileName)}: {ex.Message}");
                 }
             }
         }
@@ -132,7 +179,19 @@ namespace Gordian.Core.Resources.Vfs
                 {
                     if (WaitForFileReady(path))
                     {
+                        _retries.TryRemove(path, out _);
                         accessibleChangedFiles.Add(path);
+                    }
+                    else if (_retries.AddOrUpdate(path, 1, (_, n) => n + 1) <= MaxRetries)
+                    {
+                        // Still being written (a large pack being copied in): look again after the next quiet period,
+                        // so the last file of a copy is not missed when no further event comes for it.
+                        EnqueueChange(path);
+                    }
+                    else
+                    {
+                        _retries.TryRemove(path, out _);
+                        GordianLog.Warn("VFS", $"Hot-reload gave up waiting for '{path}' to be readable.");
                     }
                 }
                 else
@@ -152,6 +211,11 @@ namespace Gordian.Core.Resources.Vfs
             {
                 GordianLog.Info("VFS", $"Hot-reload detected {accessibleChangedFiles.Count} asset changes.");
                 OnAssetsChanged?.Invoke(accessibleChangedFiles);
+            }
+
+            if (structuralChange || accessibleChangedFiles.Count > 0)
+            {
+                OnChanged?.Invoke(changedPaths);
             }
         }
 

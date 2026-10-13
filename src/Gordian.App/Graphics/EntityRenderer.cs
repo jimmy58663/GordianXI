@@ -394,7 +394,7 @@ namespace Gordian.App.Graphics
                 // The resource cache was cleared (a VFS reload): its models are rebuilt from the new files, so the
                 // GPU copies of the old ones would never be drawn again. Free them rather than keep them to exit.
                 _shared.EntityModelGeneration = resourceManager.CacheGeneration;
-                _shared.ClearEntityModels();
+                _shared.ReloadEntityResources();
             }
 
             int draws = 0;

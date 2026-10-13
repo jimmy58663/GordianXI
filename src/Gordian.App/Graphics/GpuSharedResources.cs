@@ -108,6 +108,17 @@ namespace Gordian.App.Graphics
             EntityModels.Clear();
         }
 
+        /// <summary>
+        /// A VFS reload or <c>/reloaddats</c> (#374): frees every entity model and the entity textures, so models and
+        /// textures are built again from the new files. The textures are keyed by DAT source, which a reread DAT keeps, so
+        /// without this the rebuilt models drew the old pixels. They upload again as each model is next drawn.
+        /// </summary>
+        internal void ReloadEntityResources()
+        {
+            ClearEntityModels();
+            EntityTextures.Clear();
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
