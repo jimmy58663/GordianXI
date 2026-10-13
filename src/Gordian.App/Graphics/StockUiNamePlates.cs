@@ -102,8 +102,14 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static NamePlateBounds? Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font,
             CharacterSession session, IReadOnlyList<NamePlateAnchor> anchors, IReadOnlyCollection<uint> ownPartyIds,
-            uint width, uint height, float sizeMultiplier = 1.0f)
+            uint width, uint height, float sizeMultiplier = 1.0f) => Draw(renderer, library, font, session, anchors, ownPartyIds, width, height, out _, sizeMultiplier);
+
+        /// <summary>As <see cref="Draw(StockUiRenderer, UiResourceLibrary, UiFont, CharacterSession, IReadOnlyList{NamePlateAnchor}, IReadOnlyCollection{uint}, uint, uint, float)"/>, also returning the sub-target's plate (#240).</summary>
+        public static NamePlateBounds? Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font,
+            CharacterSession session, IReadOnlyList<NamePlateAnchor> anchors, IReadOnlyCollection<uint> ownPartyIds,
+            uint width, uint height, out NamePlateBounds? subTarget, float sizeMultiplier = 1.0f)
         {
+            subTarget = null;
             if (anchors.Count == 0) return null;
             var ordered = new List<NamePlateAnchor>(anchors);
             ordered.Sort((a, b) => a.PixelsPerYalm.CompareTo(b.PixelsPerYalm));
@@ -112,6 +118,7 @@ namespace Gordian.App.Graphics
             var claimGroup = new List<uint>();
             foreach (var member in session.Party.Members) claimGroup.Add(member.ServerId);
             uint targetId = session.ActionService.CurrentTarget?.ServerId ?? 0;
+            uint subTargetId = session.ActionService.SubTargeting?.Current.ServerId ?? 0;
 
             NamePlateBounds? target = null;
             foreach (var anchor in ordered)
@@ -139,6 +146,7 @@ namespace Gordian.App.Graphics
                 var bounds = DrawPlate(renderer, font, entity.Name, anchor, color, icon, iconTint,
                     (flags & NamePlateFlags.JobMaster) != 0, width, height, sizeMultiplier);
                 if (bounds is { } drawn && entity.ServerId == targetId) target = drawn;
+                if (bounds is { } drawnSub && subTargetId != 0 && entity.ServerId == subTargetId) subTarget = drawnSub;
             }
             return target;
         }

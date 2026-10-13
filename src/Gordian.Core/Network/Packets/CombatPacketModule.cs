@@ -89,6 +89,8 @@ namespace Gordian.Core.Network.Packets
                 else if (action.Category == ActionCategory.MagicFinish)
                 {
                     _combatState.FinishCasting();
+                    // The header's info field is the spell's recast in seconds (category 4 only).
+                    if (action.Recast > 0) _combatState.SetSpellRecast((ushort)action.ActionId, action.Recast);
                 }
             }
 

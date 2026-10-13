@@ -353,9 +353,10 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiMenuCommand.Check, ran[1].Item1);
             Assert.Single(notices); // a success posts nothing
 
-            // The cursor is remembered by entry across the differing lists: Check is the player menu's last row.
+            // The cursor starts on the top entry every time (the maintainer's round 2 note, 2026-10-12).
             menus.OpenCommandMenu(Target(StockUiTargetKind.Player));
-            Assert.Equal(7, menus.Top!.SelectedButtonId);
+            Assert.Equal(1, menus.Top!.SelectedButtonId);
+            menus.Move(InputAction.MenuUp); // Check, the player menu's last row
             Assert.Equal("Check", menus.Top.CommandRows[6].Label.Text);
             menus.Activate();
             Assert.False(menus.IsOpen);
@@ -363,8 +364,7 @@ namespace Gordian.Core.Tests.Ui
 
             // The menu is about its target: the service closes it, and what it opened, when the target changes.
             menus.OpenCommandMenu(Target(StockUiTargetKind.Self));
-            Assert.Equal(7, menus.Top!.SelectedButtonId); // Check again, the self menu's last row
-            menus.Move(InputAction.MenuDown); // wraps to Chat
+            Assert.Equal(1, menus.Top!.SelectedButtonId); // the top entry again
             Assert.Equal("Chat", menus.Top.CommandRows[menus.Top.SelectedButtonId - 1].Label.Text);
             menus.Activate(); // the chat modes on top
             Assert.Equal(2, menus.OpenMenus.Count);

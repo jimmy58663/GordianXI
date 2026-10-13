@@ -685,6 +685,8 @@ namespace Gordian.Core.World
                 for (int i = 0; i < 31; i++)
                 {
                     var timer = abilRecast.GetTimer(i);
+                    // Slot 0 is the two-hour ability's; an unused slot (id 0, 0 s) must not clear it.
+                    if (i > 0 && timer.TimerId == 0 && timer.TimerSeconds == 0) continue;
                     if (timer.TimerId < AbilityRecasts.Length)
                     {
                         AbilityRecasts[timer.TimerId] = timer.TimerSeconds;

@@ -318,7 +318,9 @@ namespace Gordian.Core.Input
             //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
             var menus = _actionService?.Menus;
             var chat = Chat;
-            bool menuOpen = menus?.IsOpen ?? false;
+            // The sub-target cursor (an action waiting for its target) takes the menu keys as a menu does.
+            bool subTargeting = _actionService?.SubTargeting != null;
+            bool menuOpen = (menus?.IsOpen ?? false) || subTargeting;
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
@@ -379,7 +381,15 @@ namespace Gordian.Core.Input
 
             // 2. Feed the stock menus: with one open, Confirm/Cancel and targeting belong to it (movement keys and
             //    the left stick still move the character, as in retail).
-            _menuOpen = (menus != null && menus.ProcessInput(_inputState, elapsed)) || inEvent;
+            if (subTargeting)
+            {
+                UpdateSubTarget();
+                _menuOpen = true;
+            }
+            else
+            {
+                _menuOpen = (menus != null && menus.ProcessInput(_inputState, elapsed)) || inEvent;
+            }
 
             // 3. Update Camera from keyboard & mouse impulses
             UpdateCamera(elapsed);
@@ -1309,6 +1319,54 @@ namespace Gordian.Core.Input
             var candidates = TargetCycling.Gather(nearby, _localPlayer.ServerId, current, localEnt.Position, _camera);
             uint pick = TargetCycling.Pick(candidates, _localPlayer.ServerId, current, mode);
             if (pick != 0) _actionService.SetTargetByServerId(pick);
+        }
+
+        /// <summary>
+        /// The sub-target cursor (<see cref="PlayerActionService.SubTargeting"/>, #240 / #353): Cancel drops the action,
+        /// Confirm runs it on the entity under the cursor, the menu and target-cycling keys move the cursor through the
+        /// entities the action may land on in screen order (wrapping), F1 puts it on yourself and F2-F6 on party members.
+        /// </summary>
+        private void UpdateSubTarget()
+        {
+            var service = _actionService;
+            var selection = service?.SubTargeting;
+            if (service == null || selection == null) return;
+            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            {
+                service.CancelSubTarget();
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.Confirm))
+            {
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await service.ConfirmSubTargetAsync().ConfigureAwait(false);
+                    if (result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error) service.Menus.PostNotice(result.Message);
+                });
+                return;
+            }
+            if (_inputState.WasActionTriggered(InputAction.TargetSelf))
+            {
+                service.MoveSubTarget(_localPlayer.ServerId);
+                return;
+            }
+            for (int slot = 1; slot <= 5; slot++)
+            {
+                if (_inputState.WasActionTriggered((InputAction)((int)InputAction.TargetParty1 + slot - 1))
+                    && service.ResolveTargetToken("p" + slot, out _) is { } member)
+                {
+                    service.MoveSubTarget(member.ServerId);
+                    return;
+                }
+            }
+            int step = 0;
+            if (_inputState.WasActionTriggered(InputAction.MenuRight) || _inputState.WasActionTriggered(InputAction.MenuDown)
+                || _inputState.WasActionTriggered(InputAction.TargetCursorRight) || _inputState.WasActionTriggered(InputAction.TargetNearest)) step = 1;
+            else if (_inputState.WasActionTriggered(InputAction.MenuLeft) || _inputState.WasActionTriggered(InputAction.MenuUp)
+                || _inputState.WasActionTriggered(InputAction.TargetCursorLeft) || _inputState.WasActionTriggered(InputAction.TargetPrevious)) step = -1;
+            if (step == 0) return;
+            uint pick = SubTargetSelection.Step(service.SubTargetCandidates(_camera), selection.Current.ServerId, step);
+            service.MoveSubTarget(pick);
         }
 
         private bool _lockKeyLogged;
