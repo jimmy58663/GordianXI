@@ -293,14 +293,14 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The help bar (retail captures 2026-10-11): the title in <c>titlewin</c> (16,16) in the log font with the fraction after
-        /// it, the numerator right-aligned at x 91 six px down, its bottom just over the "/" (lowered from 3 after the maintainer's
-        /// round 2, 2026-10-12, so the gaps between the "/" and each number match), and "/" plus the denominator from x 88 at y 12, both in
-        /// the small font; the help line in <c>helpwind</c> (130,16) stretched toward the screen's right edge.
+        /// it in the small font, "23/30" on one line with the "/" at x 88 and y 12 (retail raises the used count above the "/";
+        /// the maintainer asked for it inline after rounds 2 and 3, 2026-10-12); the help line in <c>helpwind</c> (130,16)
+        /// stretched toward the screen's right edge.
         /// </summary>
         private static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiItemHelpBar bar, StockUiPlacement placement, StockUiScreen screen)
         {
-            const float BarTextX = 8, HelpRightMargin = 16, NumeratorRight = 91, NumeratorY = 6, DenominatorX = 88, DenominatorY = 12;
+            const float BarTextX = 8, HelpRightMargin = 16, DenominatorX = 88, DenominatorY = 12;
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
             if (library.TryGetMenu(StockUiCheck.TitleMenu, out var title))
@@ -311,9 +311,10 @@ namespace Gordian.App.Graphics
                 if (bar.Numerator is { } numerator && bar.Denominator is { } denominator)
                 {
                     float ts = s * StockUiPartyWindow.TextScale;
-                    string top = numerator.ToString(CultureInfo.InvariantCulture);
-                    renderer.DrawText(font, top, at.X + NumeratorRight * s - font.MeasureWidth(top) * ts, at.Y + NumeratorY * s, ts);
-                    renderer.DrawText(font, "/" + denominator.ToString(CultureInfo.InvariantCulture), at.X + DenominatorX * s, at.Y + DenominatorY * s, ts);
+                    // "23/30" on one line, the "/" where it was (the maintainer's round 3, 2026-10-12: inline rather than raised).
+                    string used = numerator.ToString(CultureInfo.InvariantCulture);
+                    renderer.DrawText(font, used + "/" + denominator.ToString(CultureInfo.InvariantCulture),
+                        at.X + DenominatorX * s - font.MeasureWidth(used) * ts, at.Y + DenominatorY * s, ts);
                 }
             }
             if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
