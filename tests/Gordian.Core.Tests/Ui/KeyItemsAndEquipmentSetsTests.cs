@@ -475,7 +475,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("Delete equipment set 2 (Doomed)?", prompt.Message);
             Assert.Equal(2, prompt.SelectedButtonId); // No under the cursor
             h.Choose(1);
-            for (int i = 0; i < 50 && h.Book.Get(2).Name != "Set002"; i++) await Task.Delay(10);
+            for (int i = 0; i < 50 && h.Book.Get(2).Name != "Set002"; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.True(h.Book.Get(2).IsEmpty);
             Assert.Equal("Set002", h.Book.Get(2).Name);
         }
