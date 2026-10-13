@@ -56,6 +56,18 @@ namespace Gordian.App.Tests.Audio
             Assert.Equal(new[] { 6062 }, Step(tracker, Actor(1, Monster, "ati0", 2, 1)));    // the same routine again
         }
 
+        /// <summary>A presentation's own sounds (#132: a weapon skill's main) play on its clock instead of a model routine's.</summary>
+        [Fact]
+        public void Presentation_PlaysItsOwnCues()
+        {
+            var tracker = NewTracker();
+            var cues = new[] { new RoutineSoundCue(0, new[] { 18050 }, 0x0A), new RoutineSoundCue(60, new[] { 18051 }, 0x0A) };
+            Step(tracker, Actor(1, Fighter));
+            Assert.Equal(new[] { 18050 }, Step(tracker, Actor(1, Fighter, serial: 1, ticks: 2) with { Cues = cues }));
+            Assert.Empty(Step(tracker, Actor(1, Fighter, serial: 1, ticks: 30) with { Cues = cues }));
+            Assert.Equal(new[] { 18051 }, Step(tracker, Actor(1, Fighter, serial: 1, ticks: 61) with { Cues = cues }));
+        }
+
         [Fact]
         public void AttackRound_AddsTheAttackCry()
         {

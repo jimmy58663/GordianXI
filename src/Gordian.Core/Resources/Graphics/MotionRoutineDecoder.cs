@@ -52,6 +52,7 @@ namespace Gordian.Core.Resources.Graphics
         private const byte OpShowHideWeapon = 0x75;
         private const byte OpRangedStart = 0x76;
         private const byte OpRangedFinish = 0x77;
+        private const byte OpSpellEffect = 0x19;
 
         /// <summary>
         /// The shared hit routines a link to which marks the moment the result shows: <c>dada</c> (melee), <c>mdam</c>
@@ -72,6 +73,7 @@ namespace Gordian.Core.Resources.Graphics
 
             var commands = new List<MotionRoutineCommand>();
             var sounds = new List<RoutineSoundCommand>();
+            List<RoutineSpellEffect>? spellEffects = null;
             int choiceGroup = -1, choiceGroups = 0;
             int clock = 0;
             int p = commandsOffset;
@@ -86,6 +88,10 @@ namespace Gordian.Core.Resources.Graphics
                 int duration = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 6));
                 var command = payload.Slice(p, Math.Min(sizeBytes, payload.Length - p));
                 RoutineSoundCollector.ReadCommand(op, command, start, sounds, ref choiceGroup, ref choiceGroups);
+                if (op == OpSpellEffect && command.Length >= 12)
+                {
+                    (spellEffects ??= new List<RoutineSpellEffect>()).Add(new RoutineSpellEffect(start, (int)BinaryPrimitives.ReadUInt32LittleEndian(command.Slice(8))));
+                }
 
                 switch (op)
                 {
@@ -137,7 +143,8 @@ namespace Gordian.Core.Resources.Graphics
                 Name = name ?? string.Empty,
                 TotalTicks = totalTicks > 0 ? totalTicks : clock,
                 Commands = commands,
-                SoundCommands = sounds
+                SoundCommands = sounds,
+                SpellEffects = spellEffects ?? (IReadOnlyList<RoutineSpellEffect>)Array.Empty<RoutineSpellEffect>()
             };
         }
 

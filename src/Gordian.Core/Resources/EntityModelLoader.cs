@@ -671,6 +671,59 @@ namespace Gordian.Core.Resources
         internal static void MergeBodyRegionParts(EntityModel model, List<AnimationClip> clips)
         {
             foreach (var joined in JoinBodyRegionParts(clips)) model.Animations[joined.Name] = joined;
+            foreach (var carried in CarryIdleOverlay(clips)) model.Animations[carried.Name] = carried;
+        }
+
+        /// <summary>
+        /// Lays the idle's short overlay part (see <see cref="OverlayParts"/>: the bee's 4-frame wing beat <c>idl1</c>) over
+        /// every motion stored as a single part 0 of at least twice its length (<c>wlk0</c>, <c>run0</c>, the swings
+        /// <c>at00</c>...). The parts play as separate channels and a motion with no part 1 leaves the wing channel playing,
+        /// so the wings keep beating while the bee walks, runs or attacks (#132 round 2: they stopped while moving); not on
+        /// the death and corpse clips (<c>ded</c>, <c>cor</c>), which is a guess. Joined
+        /// under the stem name, which is what the routines (<c>wlk?</c>, <c>at0?</c>) and the stance resolver look up.
+        /// </summary>
+        internal static List<AnimationClip> CarryIdleOverlay(List<AnimationClip> clips)
+        {
+            var result = new List<AnimationClip>();
+            var byName = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in clips) byName[clip.Name] = clip;
+            var idleParts = new List<AnimationClip>();
+            foreach (var name in (ReadOnlySpan<string>)["idl0", "idl1", "idl2"])
+            {
+                if (byName.TryGetValue(name, out var part)) idleParts.Add(part);
+            }
+            if (idleParts.Count < 2 || OverlayParts(idleParts, out var idleBase) == null) return result;
+            var overlays = idleParts.FindAll(p => !ReferenceEquals(p, idleBase));
+
+            foreach (var clip in byName.Values)
+            {
+                string stem = StripBodyRegionSuffix(clip.Name);
+                if (stem == clip.Name || clip.Name[^1] != '0' || stem.Equals("idl", StringComparison.OrdinalIgnoreCase)
+                    || stem.Equals("ded", StringComparison.OrdinalIgnoreCase) || stem.Equals("cor", StringComparison.OrdinalIgnoreCase)) continue; // not on a corpse
+                if (byName.ContainsKey(stem + "1") || byName.ContainsKey(stem + "2") || byName.ContainsKey(stem)) continue;
+                var tracks = new Dictionary<int, BoneAnimationTrack>(clip.Tracks);
+                bool applied = false;
+                foreach (var overlay in overlays)
+                {
+                    if (overlay.DurationSeconds * 2 > clip.DurationSeconds) continue;
+                    foreach (var (joint, track) in overlay.Tracks)
+                    {
+                        if (track.IsReset) continue;
+                        tracks[joint] = new BoneAnimationTrack
+                        {
+                            JointIndex = track.JointIndex,
+                            Rotations = track.Rotations,
+                            Translations = track.Translations,
+                            Scales = track.Scales,
+                            PartDurationSeconds = overlay.DurationSeconds,
+                            LoopsAlways = true
+                        };
+                        applied = true;
+                    }
+                }
+                if (applied) result.Add(new AnimationClip { Name = stem, NumFrames = clip.NumFrames, KeyFrameDuration = clip.KeyFrameDuration, Tracks = tracks });
+            }
+            return result;
         }
 
         /// <summary>
@@ -705,10 +758,38 @@ namespace Gordian.Core.Resources
                         if (!tracks.TryAdd(joint, track)) disjoint = false;
                     }
                 }
-                if (!disjoint) continue;
-                // Timing from the part that moves the most joints (the parts of one motion share it in the retail models).
+                // Timing from the part that moves the most joints (the parts of one motion mostly share it in the retail models).
                 var timing = parts[0];
                 foreach (var part in parts) if (part.Tracks.Count > timing.Tracks.Count) timing = part;
+                bool overlay = false;
+                if (!disjoint)
+                {
+                    if (OverlayParts(parts, out timing) is not { } overlaid) continue;
+                    tracks = overlaid;
+                    overlay = true;
+                }
+                // A part of another length keeps it: each part plays as its own channel and loops at its own length (the
+                // bee's wings, idl1 / btl1, flap in 4 frames while its body idles over 80; joined at the body's length they
+                // barely moved, #132 round 1).
+                foreach (var part in parts)
+                {
+                    if (ReferenceEquals(part, timing) || MathF.Abs(part.DurationSeconds - timing.DurationSeconds) < 0.001f) continue;
+                    foreach (var (joint, track) in part.Tracks)
+                    {
+                        // Only the tracks the joined clip took from this part (an overlay part's reset entries are not).
+                        if (!tracks.TryGetValue(joint, out var taken) || !ReferenceEquals(taken, track)) continue;
+                        tracks[joint] = new BoneAnimationTrack
+                        {
+                            JointIndex = track.JointIndex,
+                            Rotations = track.Rotations,
+                            Translations = track.Translations,
+                            Scales = track.Scales,
+                            PartDurationSeconds = part.DurationSeconds,
+                            LoopsAlways = overlay,
+                            IsReset = track.IsReset
+                        };
+                    }
+                }
                 joinedClips.Add(new AnimationClip
                 {
                     Name = stem,
@@ -718,6 +799,46 @@ namespace Gordian.Core.Resources
                 });
             }
             return joinedClips;
+        }
+
+        /// <summary>
+        /// Joins parts that all key every joint, some of them only as reset entries (<see cref="BoneAnimationTrack.IsReset"/>):
+        /// the part that keys the most joints is the base, and each other part whose keyed joints are a small subset of it
+        /// (at most half) and whose loop is at most half as long lays its keys over the base's. The bee (model 272, <c>ROM/172/70</c>, #132 round 1) idles with
+        /// <c>idl0</c> (80 frames, every joint keyed, the wings held still) and <c>idl1</c> (4 frames, only the wings 14 and
+        /// 15 keyed, the rest reset): the wings flap only with <c>idl1</c> laid over. Null when the parts are variants of a
+        /// motion rather than an overlay (the elemental models 11 and 12, whose parts are as long as each other), which keep
+        /// part 0. A scan of models 1-3500 (2026-10-12) finds 52 such stems on 15 models: the bees 272, 273, 1936 and 2919
+        /// (12 joints keyed in 4 frames over 80), 448 / 449 (3 in 4 frames over 120), 1720 / 1721 / 2229 and 2012 / 2013 (4-5
+        /// in 8 frames, every stance and locomotion stem), 1818 (2 in 2 frames), and 2162 / 2165 / 2168 (a 2-frame pose of
+        /// 1-2 joints held over each stance).
+        /// <b>Beyond xi-model-viewer</b>, which pins reset joints to the bind pose.
+        /// </summary>
+        private static Dictionary<int, BoneAnimationTrack>? OverlayParts(List<AnimationClip> parts, out AnimationClip timing)
+        {
+            static int Keyed(AnimationClip clip)
+            {
+                int count = 0;
+                foreach (var track in clip.Tracks.Values) if (!track.IsReset) count++;
+                return count;
+            }
+
+            timing = parts[0];
+            foreach (var part in parts) if (Keyed(part) > Keyed(timing)) timing = part;
+            var tracks = new Dictionary<int, BoneAnimationTrack>(timing.Tracks);
+            int baseKeyed = Keyed(timing);
+            foreach (var part in parts)
+            {
+                if (ReferenceEquals(part, timing)) continue;
+                int keyed = Keyed(part);
+                // A short loop (the wings beat in 4 frames against the body's 80); parts of one length are variants.
+                if (keyed == 0 || keyed * 2 > baseKeyed || part.DurationSeconds * 2 > timing.DurationSeconds) return null;
+                foreach (var (joint, track) in part.Tracks)
+                {
+                    if (!track.IsReset) tracks[joint] = track;
+                }
+            }
+            return tracks;
         }
 
         /// <summary>

@@ -49,7 +49,17 @@ namespace Gordian.Core.Resources.Models
             MotionRoutines = MotionRoutineDecoder.BuildAll(RawMotionRoutines, clip => Animations.ContainsKey(clip), RangedType);
             _routineSounds.Clear();
             _offHandSounds.Clear();
+            _routineEffects.Clear();
         }
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineEffectCue>> _routineEffects = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The shared effect routines and spell effects routine <paramref name="name"/> starts on the actor, through its own
+        /// links (#132, <see cref="RoutineEffectCollector"/>: a chant's circle, a release's flash); cached per name.
+        /// </summary>
+        public IReadOnlyList<RoutineEffectCue> GetRoutineEffects(string name) =>
+            _routineEffects.GetOrAdd(name, n => RoutineEffectCollector.Collect(RawMotionRoutines, n));
 
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _routineSounds = new(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _offHandSounds = new(StringComparer.Ordinal);

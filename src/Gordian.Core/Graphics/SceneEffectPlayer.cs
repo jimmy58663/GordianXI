@@ -97,6 +97,41 @@ namespace Gordian.Core.Graphics
             _running.RemoveAll(r => r.Next >= r.Routine.Commands.Count && !r.Loop);
         }
 
+        /// <summary>
+        /// Stops routine <paramref name="routine"/> and every generator it (or a routine it starts) spawns from emitting,
+        /// whether it still runs or already ran all its commands (a chant circle's routine spawns its generators for 1800
+        /// frames in its first ticks and is done). Live particles finish their lives.
+        /// </summary>
+        public void StopRoutineAndGenerators(string routine)
+        {
+            StopRoutine(routine);
+            StopGenerators(routine, 0);
+
+            void StopGenerators(string name, int depth)
+            {
+                if (depth > 4 || !_resource.TryGetRoutine(name, out var found)) return;
+                foreach (var command in found.Commands)
+                {
+                    if (command.Kind == SceneCommandKind.SpawnGenerator && _byName.TryGetValue(command.Reference, out var emitter)) emitter.StopEmitting();
+                    else if (command.Kind is SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine && command.Reference != name)
+                    {
+                        StopRoutine(command.Reference);
+                        StopGenerators(command.Reference, depth + 1);
+                    }
+                }
+            }
+        }
+
+        /// <summary>Stops the running routine <paramref name="routine"/> by name, as op 0x5F does (its particles live out their life).</summary>
+        public void StopRoutine(string routine)
+        {
+            foreach (var run in _running)
+            {
+                if (string.Equals(run.Routine.Name, routine, StringComparison.Ordinal)) End(run);
+            }
+            _running.RemoveAll(r => r.Next >= r.Routine.Commands.Count && !r.Loop);
+        }
+
         /// <summary>Stops every routine and removes every particle.</summary>
         public void Kill()
         {
@@ -152,6 +187,9 @@ namespace Gordian.Core.Graphics
                     break;
                 case SceneCommandKind.KillGenerator:
                     if (_byName.TryGetValue(command.Reference, out var killed)) killed.Kill();
+                    break;
+                case SceneCommandKind.StopGenerator:
+                    if (_byName.TryGetValue(command.Reference, out var stopped)) stopped.StopEmitting();
                     break;
                 case SceneCommandKind.ReplaceGenerator:
                     if (_byName.TryGetValue(command.Reference, out var replaced)) replaced.Kill();

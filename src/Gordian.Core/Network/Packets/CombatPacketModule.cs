@@ -263,6 +263,13 @@ namespace Gordian.Core.Network.Packets
         #region Outbound Action Methods
 
         /// <summary>
+        /// Player action requests (C2S 0x01A and the other requests below) leave at once instead of waiting for the next
+        /// 250 ms network tick: a cast waited up to a quarter second on our side before the server even saw it (#132 round
+        /// 2, "casting feels delayed"). The datagram also carries whatever else is queued.
+        /// </summary>
+        internal const bool SendActionsAtOnce = true;
+
+        /// <summary>
         /// Sends a death menu answer (C2S 0x01A <see cref="CliActionId.HomepointMenu"/>, <see cref="CliActionId.RaiseMenu"/>
         /// or <see cref="CliActionId.TractorMenu"/>) for the local player with ActionBuf[0] = <paramref name="statusId"/>.
         /// </summary>
@@ -283,7 +290,7 @@ namespace Gordian.Core.Network.Packets
             };
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestAttackAsync(uint targetId, ushort targetIndex)
@@ -294,7 +301,7 @@ namespace Gordian.Core.Network.Packets
 
             _combatState.Engage(targetId, targetIndex);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         /// <summary>Talks to an NPC or door (0x01A action 0): the server starts its event or prints its line.</summary>
@@ -305,7 +312,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildTalkRequest(buffer, seq, targetId, targetIndex);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         /// <summary>Examines a target (0x0DD kind 0: the command menu's Check, <c>/check</c>); the server answers with its check message.</summary>
@@ -316,7 +323,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildCheckRequest(buffer, seq, targetId, targetIndex);
 
             LogOutbound(0x0DD, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestAttackOffAsync(uint targetId, ushort targetIndex)
@@ -327,7 +334,7 @@ namespace Gordian.Core.Network.Packets
 
             _combatState.Disengage();
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestCastMagicAsync(uint targetId, ushort targetIndex, ushort spellId, Vector3 targetOffset = default)
@@ -338,7 +345,9 @@ namespace Gordian.Core.Network.Packets
 
             _combatState.StartCasting(spellId);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            // Times the press-to-chant delay against the 0x028 start in the session log (#132 round 2).
+            GordianLog.Debug("COMBAT", $"Sending 0x01A cast: spell {spellId} on {targetId:X8}.");
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestWeaponskillAsync(uint targetId, ushort targetIndex, ushort wsId)
@@ -348,7 +357,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildWeaponskillRequest(buffer, seq, targetId, targetIndex, wsId);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestJobAbilityAsync(uint targetId, ushort targetIndex, ushort abilityId)
@@ -358,7 +367,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildJobAbilityRequest(buffer, seq, targetId, targetIndex, abilityId);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestShootAsync(uint targetId, ushort targetIndex)
@@ -368,7 +377,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildShootRequest(buffer, seq, targetId, targetIndex);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestAssistAsync(uint targetId, ushort targetIndex)
@@ -378,7 +387,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildAssistRequest(buffer, seq, targetId, targetIndex);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestMountAsync(uint mountId)
@@ -388,7 +397,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildMountRequest(buffer, seq, mountId);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestDismountAsync()
@@ -398,7 +407,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildDismountRequest(buffer, seq);
 
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -414,7 +423,7 @@ namespace Gordian.Core.Network.Packets
 
             if (action == CliActionId.ChangeTarget) _combatState.Engage(targetId, targetIndex);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestEmoteAsync(uint targetId, ushort targetIndex, EmoteId emoteId, byte mode = 0, ushort param = 0)
@@ -424,7 +433,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildEmoteRequest(buffer, seq, targetId, targetIndex, emoteId, mode, param);
 
             LogOutbound(0x05D, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         public async Task RequestBuffCancelAsync(ushort buffId)
@@ -434,7 +443,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildBuffCancelRequest(buffer, seq, buffId);
 
             LogOutbound(0x0F1, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -449,7 +458,7 @@ namespace Gordian.Core.Network.Packets
             int length = CombatPacketBuilder.BuildJumpRequest(buffer, seq, playerId, playerIndex);
 
             LogOutbound(0x11D, seq, buffer.AsSpan(4, length - 4));
-            await _sendChunkCallback(buffer.AsMemory(0, length), false).ConfigureAwait(false);
+            await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 
         private void LogOutbound(ushort packetId, ushort sequenceId, ReadOnlySpan<byte> payload)

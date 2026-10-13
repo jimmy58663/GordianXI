@@ -16,6 +16,27 @@ namespace Gordian.Core.Resources.Models
         public Quaternion[] Rotations { get; init; } = Array.Empty<Quaternion>();
         public Vector3[] Translations { get; init; } = Array.Empty<Vector3>();
         public Vector3[] Scales { get; init; } = Array.Empty<Vector3>();
+
+        /// <summary>
+        /// The length in seconds of the body-region part this track came from when a joined clip's parts differ in length
+        /// (a bee's <c>idl1</c>, its wings, is 4 frames against the body's 80: each part loops at its own length, #132 round
+        /// 1); 0 to follow the clip's <see cref="AnimationClip.DurationSeconds"/>.
+        /// </summary>
+        public float PartDurationSeconds { get; init; }
+
+        /// <summary>
+        /// Whether the clip stores the joint as a reset entry (negative channel offsets: the bind pose) rather than keys. In
+        /// a motion stored as parts, a part's reset entries are the joints it leaves to the other parts (the bee's wing part
+        /// <c>idl1</c> resets every joint but the two wings).
+        /// </summary>
+        public bool IsReset { get; init; }
+
+        /// <summary>
+        /// Whether the track loops even when its clip plays once: an overlay channel (the bee's 4-frame wing beat laid over
+        /// its swings) keeps beating through a one-shot action clip instead of holding its last key after 4 frames (#132
+        /// round 3: the wings stopped while the bee attacked).
+        /// </summary>
+        public bool LoopsAlways { get; init; }
     }
 
     /// <summary>
@@ -85,10 +106,10 @@ namespace Gordian.Core.Resources.Models
                 return true;
             }
 
-            float duration = DurationSeconds;
+            float duration = track.PartDurationSeconds > 0f ? track.PartDurationSeconds : DurationSeconds;
             float phase = duration > 0.0001f ? timeSeconds / duration : 0f;
 
-            if (loop)
+            if (loop || track.LoopsAlways)
             {
                 phase %= 1.0f;
                 if (phase < 0f) phase += 1.0f;
