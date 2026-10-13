@@ -62,6 +62,8 @@ namespace Gordian.Core.Ui
             _settledZone = 0;
             _fadingOut = false;
             _blackSince = double.NaN;
+            _eventWaitZone = 0;
+            _eventSettledZone = 0;
             IsLoading = black;
         }
 
@@ -71,6 +73,15 @@ namespace Gordian.Core.Ui
         /// snapped camera under the black (round 3 of in-game testing saw them change while the fade was still running).
         /// </summary>
         public const double MinimumBlackSeconds = 0.2;
+
+        /// <summary>
+        /// Longest the screen stays black after an event's scene zone is on screen, waiting for the event to place its camera
+        /// (<c>eventCameraPending</c>): a scene that sets no camera still shows (a safety limit).
+        /// </summary>
+        public const double EventCameraWaitSeconds = 3.0;
+
+        private ushort _eventWaitZone, _eventSettledZone;
+        private double _eventWaitSince;
 
         private bool _fadingOut;
         private double _blackSince = double.NaN;
@@ -92,10 +103,12 @@ namespace Gordian.Core.Ui
         /// geometry swap the view has to make (<paramref name="zoneSwapPending"/>: the zone to draw, the session's or an
         /// event's scene zone, is not the one on screen) counts, so an event's or a cutscene's zone, the first zone-in after
         /// character creation and any other swap load under the black too (round 3). Otherwise an event's scene zone
-        /// (<paramref name="eventZone"/>) is the event's own business.
+        /// (<paramref name="eventZone"/>) is the event's own business, except that once its zone is on screen the black
+        /// holds until the event has placed its camera (<paramref name="eventCameraPending"/>, at most
+        /// <see cref="EventCameraWaitSeconds"/>), so the fade-in opens on the cutscene's first shot.
         /// </summary>
         public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false)
+            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false, bool eventCameraPending = false)
         {
             if (state is SessionState.ConnectingToGameServer or SessionState.ExchangingCryptoKeys or SessionState.LoadingWorldData)
             {
@@ -106,6 +119,22 @@ namespace Gordian.Core.Ui
             if (state != SessionState.ActiveInWorld)
             {
                 _waitingZone = 0;
+                return false;
+            }
+            if (eventZone == 0) _eventSettledZone = 0;
+            if (!zoneSwapPending && eventZone != 0 && eventZone != _eventSettledZone && eventZone == loadedZone)
+            {
+                // An event's scene zone is on screen: stay black until the event has placed its camera (round 4: the first
+                // view after the fade-in was not the cutscene's), at most EventCameraWaitSeconds.
+                if (_eventWaitZone != eventZone)
+                {
+                    _eventWaitZone = eventZone;
+                    _eventWaitSince = nowSeconds;
+                }
+                // Only when the swap to it went under the black (an event showing the zone already on screen fades nothing).
+                if (eventCameraPending && IsLoading && nowSeconds - _eventWaitSince < EventCameraWaitSeconds) return true;
+                _eventSettledZone = eventZone;
+                _eventWaitZone = 0;
                 return false;
             }
             if (!zoneSwapPending && (eventZone != 0 || currentZone == 0 || currentZone == _settledZone))
@@ -161,7 +190,7 @@ namespace Gordian.Core.Ui
 
         /// <summary><see cref="ComputeLoading"/> and <see cref="Update"/> in one call.</summary>
         public float Update(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false) =>
-            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady, zoneLinePending, zoneSwapPending), nowSeconds);
+            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false, bool eventCameraPending = false) =>
+            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady, zoneLinePending, zoneSwapPending, eventCameraPending), nowSeconds);
     }
 }

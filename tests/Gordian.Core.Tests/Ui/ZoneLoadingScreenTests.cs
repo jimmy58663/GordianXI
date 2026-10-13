@@ -66,6 +66,30 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void EventSceneZone_HoldsBlackUntilTheEventPlacesItsCamera()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Reset(black: true); // the swap to the scene zone went under the black
+            screen.Update(SessionState.ActiveInWorld, 230, 239, 230, 0, zoneSwapPending: true);
+            // Scene zone on screen, no camera yet: still black.
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 1, eventCameraPending: true));
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 2, eventCameraPending: true));
+            // The first camera shot: fade in, and the event zone stays settled when its camera is later released.
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 2.5, eventCameraPending: false));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 3, eventCameraPending: true));
+        }
+
+        [Fact]
+        public void EventSceneZone_CameraWaitIsCapped()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Reset(black: true);
+            screen.Update(SessionState.ActiveInWorld, 230, 239, 230, 0, zoneSwapPending: true);
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 1, eventCameraPending: true));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 1 + ZoneLoadingScreen.EventCameraWaitSeconds + 0.1, eventCameraPending: true));
+        }
+
+        [Fact]
         public void EventSceneZoneSwap_CountsAsLoading()
         {
             var screen = new ZoneLoadingScreen();

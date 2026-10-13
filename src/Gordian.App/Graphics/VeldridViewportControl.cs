@@ -445,6 +445,33 @@ namespace Gordian.App.Graphics
             _deferredZone = null;
         }
 
+        private CameraFrame? _heldCameraFrame;
+        private bool _presentationHeld;
+        private ushort _fadeStartZone;
+
+        /// <summary>
+        /// Whether the view holds its last camera and player pose this frame (#350 round 4): from the moment a zone change
+        /// is under way during a fade-out (the session left the world or is between servers, its zone changed, or a zone
+        /// swap is waiting) until the screen is fully black. The maintainer's recording of 2026-10-13 showed the player and
+        /// camera at the next zone's arrival point (S2C 0x00A) while the old zone still faded out, for zone lines and the GM
+        /// <c>!zone</c> alike. Before that moment the player keeps moving through the fade, as in retail.
+        /// </summary>
+        private bool HoldPresentation(Gordian.Core.Network.CharacterSession? session)
+        {
+            if (session == null || !_loadingScreen.IsLoading || _loadingScreen.IsFullyBlack)
+            {
+                _presentationHeld = false;
+                if (session != null) _fadeStartZone = session.World.CurrentZoneId;
+                return false;
+            }
+            if (!_presentationHeld)
+            {
+                _presentationHeld = session.State != SessionState.ActiveInWorld || session.NetworkManager.PositionUpdatesSuspended
+                    || session.World.CurrentZoneId != _fadeStartZone || ZoneSwapPending(session);
+            }
+            return _presentationHeld;
+        }
+
         private void CheckAndLoadPendingZone()
         {
             ShowDeferredZone();
@@ -880,7 +907,12 @@ namespace Gordian.App.Graphics
                 // switch to one shows its view at once (#322 round 2).
                 var view = _view;
                 bool snap = view.NeedsSnap();
-                var cameraFrame = UpdateSessionCamera(view, _activeSession, WorldState, snap ? 0.0f : deltaSeconds, aspect);
+                // While the screen fades out over a zone change, the view holds the last camera and player pose (#350 round 4):
+                // the new zone's arrival position (S2C 0x00A) and camera only show once the screen is fully black.
+                var cameraFrame = HoldPresentation(_activeSession) && _heldCameraFrame is { } held
+                    ? held
+                    : UpdateSessionCamera(view, _activeSession, WorldState, snap ? 0.0f : deltaSeconds, aspect);
+                _heldCameraFrame = cameraFrame;
                 Vector3 playerPos = cameraFrame.PlayerPosition;
                 bool hasPlayerPos = cameraFrame.HasPlayerPosition;
                 Vector3? displayPlayerPos = cameraFrame.DisplayPlayerPosition;
@@ -945,7 +977,8 @@ namespace Gordian.App.Graphics
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
                                 ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
-                                    loadingSession.NetworkManager.ZoneLines.PendingId != null, ZoneSwapPending(loadingSession))
+                                    loadingSession.NetworkManager.ZoneLines.PendingId != null, ZoneSwapPending(loadingSession),
+                                    loadingSession.World.EventZoneId != 0 && !loadingSession.Events.Presentation.TryGetCamera(out _))
                                 : 0f;
                             StockUi.LoadingIndicatorVisible = _activeSession != null && _loadingScreen.IndicatorVisible;
                             StockUi.InterfaceHidden = _activeSession != null && _loadingScreen.IsLoading;
@@ -961,7 +994,8 @@ namespace Gordian.App.Graphics
                                 deltaSeconds,
                                 _deviceManager.CurrentWidth,
                                 _deviceManager.CurrentHeight,
-                                (_activeSession?.World ?? WorldState)?.EventZoneId is > 0 ? SceneZoneEntities(WorldState) : WorldState?.Entities,
+                                _presentationHeld ? HeldPoseEntities(WorldState, localPlayerServerId)
+                                    : (_activeSession?.World ?? WorldState)?.EventZoneId is > 0 ? SceneZoneEntities(WorldState) : WorldState?.Entities,
                                 ResourceManager,
                                 localPlayerServerId,
                                 isLocalPlayerEngaged,
@@ -1524,6 +1558,17 @@ namespace Gordian.App.Graphics
             DateTime now = DateTime.UtcNow;
             if (_activeSession is { } session) return session.World.GetTimeOfDayHours(now);
             return WorldState?.Clock.GetTimeOfDayHours(now) ?? VanaTime.GetTimeOfDayHours(now);
+        }
+
+        /// <summary>
+        /// While the pose is held (<see cref="HoldPresentation"/>), only the local player is drawn: the old zone's actors are
+        /// gone with S2C 0x00B and the next zone's, at that zone's coordinates, must not appear in the old scene.
+        /// </summary>
+        private System.Collections.Generic.List<WorldEntity> HeldPoseEntities(WorldState? world, uint localPlayerServerId)
+        {
+            _sceneZoneEntities.Clear();
+            if (world != null && localPlayerServerId != 0 && world.TryGetByServerId(localPlayerServerId, out var local) && local != null) _sceneZoneEntities.Add(local);
+            return _sceneZoneEntities;
         }
 
         private System.Collections.Generic.List<WorldEntity> SceneZoneEntities(WorldState? world)
