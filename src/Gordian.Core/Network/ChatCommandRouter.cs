@@ -64,6 +64,10 @@ namespace Gordian.Core.Network
         Lockstyle,
         /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
         LockstyleSet,
+        /// <summary><c>/item "&lt;name&gt;" &lt;target&gt;</c>: uses an item (C2S 0x037, #351).</summary>
+        ItemUse,
+        /// <summary><c>/equip &lt;slot&gt; ["&lt;name&gt;"]</c>: equips an item, or without a name removes the slot's (C2S 0x050, #352).</summary>
+        Equip,
         /// <summary><c>/servmes</c>: shows the server message again (C2S 0x04B, answered with S2C 0x04D).</summary>
         ServerMessage,
 
@@ -211,6 +215,8 @@ namespace Gordian.Core.Network
                     "ma" or "magic" or "cast" => ParseCombatActionCommand(ChatCommandResultKind.CombatCast, args, world),
                     "ws" or "weaponskill" => ParseCombatActionCommand(ChatCommandResultKind.CombatWeaponskill, args, world),
                     "ja" or "jobability" => ParseCombatActionCommand(ChatCommandResultKind.CombatJobAbility, args, world),
+                    // Pet commands, blood pacts and Ready moves are job abilities to the server (C2S 0x01A kind 9).
+                    "pet" => ParseCombatActionCommand(ChatCommandResultKind.CombatJobAbility, args, world),
                     "ra" or "shoot" => ParseCombatTargetCommand(ChatCommandResultKind.CombatRanged, args, world),
                     "as" or "assist" => ParseCombatTargetCommand(ChatCommandResultKind.CombatAssist, args, world),
                     "cancel" => ParseBuffCancel(args),
@@ -224,7 +230,7 @@ namespace Gordian.Core.Network
                     "homepoint" => new ChatCommandResult { Kind = ChatCommandResultKind.HomePoint },
                     "acceptraise" => ParseReviveAnswer(ChatCommandResultKind.RaiseAnswer, "acceptraise", args),
                     "accepttractor" => ParseReviveAnswer(ChatCommandResultKind.TractorAnswer, "accepttractor", args),
-                    "refa" or "returnfaith" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
+                    "refa" or "returnfaith" or "retr" or "returntrust" => new ChatCommandResult { Kind = ChatCommandResultKind.ReleaseTrust, Message = args },
                     "emote" or "em" => ParseEmote(args, world),
 
                     // Standard Emotes
@@ -276,6 +282,10 @@ namespace Gordian.Core.Network
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
                     "lockstyleset" => new ChatCommandResult { Kind = ChatCommandResultKind.LockstyleSet, Message = args },
+
+                    // Items and equipment (#351, #352)
+                    "item" => new ChatCommandResult { Kind = ChatCommandResultKind.ItemUse, Message = args },
+                    "equip" or "eq" => new ChatCommandResult { Kind = ChatCommandResultKind.Equip, Message = args },
 
                     // Server message
                     "servmes" => new ChatCommandResult { Kind = ChatCommandResultKind.ServerMessage, Message = args },
@@ -558,37 +568,7 @@ namespace Gordian.Core.Network
                 };
             }
 
-            string trimmed = args.Trim();
-            string actionName;
-            string targetPart = string.Empty;
-
-            // Handle quoted actions: e.g. "Fast Blade" <t> or "Cure IV" <t>
-            if (trimmed.StartsWith('"'))
-            {
-                int closingQuote = trimmed.IndexOf('"', 1);
-                if (closingQuote > 1)
-                {
-                    actionName = trimmed.Substring(1, closingQuote - 1).Trim();
-                    targetPart = trimmed.Substring(closingQuote + 1).Trim();
-                }
-                else
-                {
-                    actionName = trimmed.Trim('"');
-                }
-            }
-            else
-            {
-                int spaceIdx = trimmed.IndexOf(' ');
-                if (spaceIdx > 0)
-                {
-                    actionName = trimmed.Substring(0, spaceIdx).Trim();
-                    targetPart = trimmed.Substring(spaceIdx + 1).Trim();
-                }
-                else
-                {
-                    actionName = trimmed;
-                }
-            }
+            var (actionName, targetPart) = SplitActionArguments(args);
 
             ushort actionId = 0;
             _ = ushort.TryParse(actionName, out actionId);
@@ -597,12 +577,9 @@ namespace Gordian.Core.Network
             ushort targetIndex = 0;
             string targetName = targetPart;
 
-            if (targetName.StartsWith('<') && targetName.EndsWith('>'))
-            {
-                targetName = targetName.Substring(1, targetName.Length - 2).Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(targetName) && targetName != "t" && world != null)
+            // A target placeholder (<t>, <me>, <st>, <p1>, <bt> ...) is kept as typed, brackets and all, for the action
+            // service to resolve; a plain name is looked up here.
+            if (!string.IsNullOrWhiteSpace(targetName) && !IsTargetToken(targetName) && world != null)
             {
                 if (world.TryGetByName(targetName, out var entity) && entity != null)
                 {
@@ -621,6 +598,40 @@ namespace Gordian.Core.Network
                 TargetIndex = targetIndex,
                 TargetName = targetName
             };
+        }
+
+        /// <summary>Whether a target argument is a placeholder in angle brackets (<c>&lt;t&gt;</c>, <c>&lt;me&gt;</c>, <c>&lt;st&gt;</c> ...).</summary>
+        public static bool IsTargetToken(string target) =>
+            target.Length > 2 && target[0] == '<' && target[^1] == '>';
+
+        /// <summary>
+        /// Splits the arguments of <c>/ma</c>, <c>/ja</c> and <c>/ws</c> into the action's name and its target, as retail
+        /// takes them: a quoted name (<c>"Cure IV" &lt;t&gt;</c>), an unquoted name followed by a placeholder
+        /// (<c>Cure IV &lt;t&gt;</c>), a numeric id followed by anything (<c>1 Goblin</c>), or an unquoted name alone, which
+        /// keeps every word (<c>Cure IV</c>; the action service splits a trailing target name off when the whole text is
+        /// not a known name, as in <c>Cure Goblin</c>).
+        /// </summary>
+        public static (string Name, string Target) SplitActionArguments(string args)
+        {
+            string trimmed = args.Trim();
+            if (trimmed.StartsWith('"'))
+            {
+                int closingQuote = trimmed.IndexOf('"', 1);
+                return closingQuote > 1
+                    ? (trimmed.Substring(1, closingQuote - 1).Trim(), trimmed.Substring(closingQuote + 1).Trim())
+                    : (trimmed.Trim('"').Trim(), string.Empty);
+            }
+            int lastSpace = trimmed.LastIndexOf(' ');
+            if (lastSpace > 0 && IsTargetToken(trimmed[(lastSpace + 1)..]))
+            {
+                return (trimmed[..lastSpace].Trim(), trimmed[(lastSpace + 1)..]);
+            }
+            int firstSpace = trimmed.IndexOf(' ');
+            if (firstSpace > 0 && ushort.TryParse(trimmed[..firstSpace], out _))
+            {
+                return (trimmed[..firstSpace], trimmed[(firstSpace + 1)..].Trim());
+            }
+            return (trimmed, string.Empty);
         }
 
         /// <summary><c>/acceptraise</c> and <c>/accepttractor</c>: bare (or yes/accept) accepts; no/decline declines.</summary>

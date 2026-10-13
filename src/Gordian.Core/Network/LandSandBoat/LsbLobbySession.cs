@@ -44,11 +44,13 @@ namespace Gordian.Core.Network.LandSandBoat
     /// Refusals come back as view 0x04 with an error code.
     /// </para>
     /// <para>
-    /// <b>Session key accounting (LandSandBoat <c>data_session.cpp</c> / <c>view_session.cpp</c>):</b> the server stores
-    /// the key the client sends in 0xA2 with byte 16 raised by 4 per deletion and per rename, 1 per refused "already
-    /// logged in" selection and 6 when a character was created in this session; the map server then decrypts with
-    /// that key. The client must use the same raised key for the map session, so the ticket's key carries the same
-    /// increments while 0xA2 carries the base key.
+    /// <b>Session key accounting (LandSandBoat <c>data_session.cpp</c> / <c>view_session.cpp</c>).</b> Which key the map
+    /// server decrypts with depends on the LandSandBoat version, so the ticket carries every candidate
+    /// (<see cref="LsbSessionKeys.BuildCandidates"/>) and the map session picks the one the server's first datagram
+    /// verifies with. Current LandSandBoat (since 393e176732) stores MD5(session hash) and the lobby key counter + 3,
+    /// the counter following every view request and reply (<see cref="LobbyKeyCounter"/>). Older servers store the key
+    /// the client sends in 0xA2 with byte 16 raised by 4 per deletion and per rename, 1 per refused "already logged
+    /// in" selection and 6 when a character was created in this session (<see cref="KeyIncrement"/>).
     /// </para>
     /// </summary>
     public sealed class LsbLobbySession : ILobbyBackend, IDisposable
@@ -72,6 +74,7 @@ namespace Gordian.Core.Network.LandSandBoat
         private List<LobbyCharacter> _characters = new();
         private bool _justCreatedCharacter;
         private int _keyIncrement;
+        private readonly LobbyKeyCounter _keyCounter = new();
         private bool _broken;
         private bool _disposed;
 
@@ -101,6 +104,9 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>What LandSandBoat will add to byte 16 of the session key at selection (see the class remarks).</summary>
         public int KeyIncrement => _keyIncrement + (_justCreatedCharacter ? 6 : 0);
+
+        /// <summary>The lobby key counter as current LandSandBoat follows it (see <see cref="LobbyKeyCounter"/>).</summary>
+        public uint KeyCounter => _keyCounter.Value;
 
         public bool IsConnected => !_broken && !_disposed && _viewClient.Connected;
 
@@ -365,6 +371,8 @@ namespace Gordian.Core.Network.LandSandBoat
                     $"LandSandBoat character selection failed: the data server sent {prompt.Length} bytes (0x{(prompt.Length > 0 ? prompt[0] : 0):X2}) instead of the key prompt (0x02). Check LSB server console for details."));
             }
 
+            // LandSandBoat derives the counter key while handling 0xA2, from the counter as it stands then.
+            uint counterAtKey = _keyCounter.Value;
             var a2 = new byte[LobbyPackets.DataPacketSize];
             LobbyPackets.WriteDataKey(a2, _baseKey, character.ContentId);
             GordianLog.Debug("LSB_LOGIN", $"Transmitting 0xA2 character selection & Blowfish key to xi_data for char ID {character.ContentId}...");
@@ -390,12 +398,18 @@ namespace Gordian.Core.Network.LandSandBoat
             int zonePort = next.ServerPort != 0 ? (int)next.ServerPort : LsbLoginClient.DefaultDataPort;
             string name = next.Name.Length > 0 ? next.Name : character.Name;
 
-            var key = (byte[])_baseKey.Clone();
-            key[16] = unchecked((byte)(key[16] + KeyIncrement));
+            var key = LsbSessionKeys.DeriveLegacyKey(_baseKey, KeyIncrement);
             if (KeyIncrement != 0)
             {
-                GordianLog.Info("LSB_LOGIN", $"Session key byte 16 raised by {KeyIncrement} for this lobby session's creations/deletions/renames (LandSandBoat key accounting).");
+                GordianLog.Info("LSB_LOGIN", $"Legacy session key byte 16 raised by {KeyIncrement} for this lobby session's creations/deletions/renames (old LandSandBoat key accounting).");
             }
+            var candidates = LsbSessionKeys.BuildCandidates(_sessionHash, counterAtKey, _baseKey, KeyIncrement);
+            if (counterAtKey == 0)
+            {
+                GordianLog.Warning("LSB_LOGIN", "No lobby key counter (no 0x05 reply seen); the counter-style key keeps the loader's bytes 16-19, as LandSandBoat does.");
+            }
+            GordianLog.Info("LSB_LOGIN", $"Map session key candidates (lobby key counter {counterAtKey:X8}, legacy increment {KeyIncrement}): " +
+                string.Join("; ", candidates.Select(c => c.Describe())) + ". Compare with the connect server's \"key value\" / \"key counter\" line.");
             _keyIncrement = 0;
             _justCreatedCharacter = false;
             // The server closes the view channel after 0x0B; the lobby session is over.
@@ -411,6 +425,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 ZonePort = zonePort,
                 SessionHash = _sessionHash,
                 BlowfishKey = key,
+                KeyCandidates = candidates,
+                LobbyKeyCounter = counterAtKey,
             };
         }
 
@@ -447,6 +463,12 @@ namespace Gordian.Core.Network.LandSandBoat
             catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
             {
                 throw Broken(new LobbyRequestException(name, 0, $"Lobby view connection lost while sending {name}.", ex));
+            }
+            if (packet.Length > 8)
+            {
+                // A 0x1F counts when its 0x01 prompt arrives: LandSandBoat can lose one (see RefreshUnlockedAsync).
+                byte command = packet.Span[8];
+                _keyCounter.OnRequest(command, deferStep: command == LobbyCommand.RequestGetChr);
             }
             Log(PacketDirection.Outbound, packet.Span.Length > 8 ? packet.Span[8] : (byte)0, packet.Span, name);
         }
@@ -489,6 +511,7 @@ namespace Gordian.Core.Network.LandSandBoat
                     throw Broken(new LobbyRequestException(request, 0, $"Lobby {request}: the view connection closed mid-packet."));
                 }
                 Log(PacketDirection.Inbound, packet[8], packet, ViewPacketName(packet[8]));
+                _keyCounter.OnReply(packet);
                 return packet;
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -543,6 +566,8 @@ namespace Gordian.Core.Network.LandSandBoat
                     message = first;
                 }
                 Log(PacketDirection.Inbound, message[0], message, DataPacketName(message[0]));
+                // Each account prompt answers one 0x1F the view server read, a late duplicate included.
+                if (message[0] == LobbyDataCommand.RequestAccount) _keyCounter.ConfirmDeferredRequest();
                 if (message[0] == 0x24 && message.Length >= 34 && LobbyPackets.ReadCommand(message) == LobbyCommand.ResponseError)
                 {
                     throw Broken(LobbyRequestException.FromServer(request, LobbyPackets.ReadErrorCode(message)));

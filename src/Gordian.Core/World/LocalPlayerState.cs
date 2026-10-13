@@ -90,6 +90,7 @@ namespace Gordian.Core.World
         public int MaxMp { get; private set; }
         public short CurrentTp { get; private set; }
         public byte Hpp { get; private set; }
+        public byte Mpp { get; private set; }
         #endregion
 
         #region Identity & Progression
@@ -474,6 +475,12 @@ namespace Gordian.Core.World
                 CurrentMp = (int)attr.Mp;
                 CurrentTp = (short)attr.Tp;
                 Hpp = attr.Hpp;
+                Mpp = attr.Mpp;
+                // LandSandBoat sends no S2C 0x061 when the maxima change from a status effect (MAX_HP_BOOST, !godmode,
+                // charutils' UpdateHealth only flags UPDATE_HP: 0x0DF and 0x037), so the maxima follow from 0x0DF's
+                // values and percentages (the maintainer's round 3, 2026-10-12: 9999 stayed after !godmode until zoning).
+                MaxHp = ReconcileMax(MaxHp, CurrentHp, Hpp);
+                MaxMp = ReconcileMax(MaxMp, CurrentMp, Mpp);
 
                 if (attr.MainJob != JobId.None && (MainJob == JobId.None || attr.MainJobLevel > 0))
                 {
@@ -489,6 +496,23 @@ namespace Gordian.Core.World
 
             VitalsUpdated?.Invoke();
             StatsUpdated?.Invoke();
+        }
+
+        /// <summary>
+        /// The maximum that a current value and its percentage imply, keeping <paramref name="max"/> when it agrees.
+        /// LandSandBoat's percentage is floor(current / max * 100), at least 1 while current &gt; 0
+        /// (<c>CBattleEntity::GetHPP</c> / <c>GetMPP</c>, https://github.com/LandSandBoat/server), so a max agrees when it
+        /// floors to the same percentage; otherwise 100% means max = current, and any other percentage gives the largest
+        /// max that floors to it (current * 100 / percent; exact at 100%, within one percent's step otherwise). 1% also
+        /// stands for less than 1%, so it only raises the max to the current value. Unknown values (0) change nothing.
+        /// </summary>
+        internal static int ReconcileMax(int max, int current, byte percent)
+        {
+            if (current <= 0 || percent == 0) return max;
+            if (max >= current && max > 0 && Math.Max(1, (int)Math.Floor(current * 100.0 / max)) == percent) return max;
+            if (percent >= 100) return current;
+            if (percent == 1) return Math.Max(max, current);
+            return current * 100 / percent;
         }
 
         public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
@@ -707,6 +731,8 @@ namespace Gordian.Core.World
                 for (int i = 0; i < 31; i++)
                 {
                     var timer = abilRecast.GetTimer(i);
+                    // Slot 0 is the two-hour ability's; an unused slot (id 0, 0 s) must not clear it.
+                    if (i > 0 && timer.TimerId == 0 && timer.TimerSeconds == 0) continue;
                     if (timer.TimerId < AbilityRecasts.Length)
                     {
                         AbilityRecasts[timer.TimerId] = timer.TimerSeconds;

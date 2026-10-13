@@ -164,7 +164,7 @@ namespace Gordian.Core.Network
 
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
-            _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world);
+            _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world, Animation.ActionMotionLibrary.Shared);
 
             _configModule = new ConfigPacketModule(_config, _sendChunkCallback, LogPacket);
             _configModule.Register(_dispatcher);
@@ -453,6 +453,15 @@ namespace Gordian.Core.Network
         public void InitializeSessionCrypto(ReadOnlySpan<byte> key)
         {
             _cryptoSuite.InitializeKey(key);
+        }
+
+        /// <summary>
+        /// Initializes the session crypto with several possible keys, preferred first; the server's first datagram that
+        /// verifies picks one (see <see cref="IPacketCryptoSuite.InitializeKeyCandidates"/>).
+        /// </summary>
+        public void InitializeSessionCrypto(System.Collections.Generic.IReadOnlyList<SessionKeyCandidate> candidates)
+        {
+            _cryptoSuite.InitializeKeyCandidates(candidates);
         }
 
         /// <summary>

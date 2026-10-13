@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 
 namespace Gordian.Core.Animation
@@ -19,7 +21,9 @@ namespace Gordian.Core.Animation
     /// <c>cmd_arg</c> is the routine <c>atk0</c>, which dispatches to the weapon's swings; the start packets of casts, item
     /// uses, ranged attacks and readied skills carry the actor's routine FourCC (<c>cabk</c>, <c>cait</c>, <c>calg</c>,
     /// <c>cate</c>), or an <c>sp??</c> one when interrupted; a finished spell plays the release of the chant (<c>ca??</c> to
-    /// <c>sh??</c>).
+    /// <c>sh??</c>). Finished weapon skills, monster moves, pet skills, job abilities and spells also carry their presentation
+    /// DAT (<see cref="ActionRequest.Asset"/>, from the result's <c>sub_kind</c> through <see cref="ActionMotionLibrary"/>, #132),
+    /// whose <c>main</c> the actor plays instead of the stand-in.
     /// </para>
     /// Packet semantics referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x0028) and
     /// LandSandBoat (https://github.com/LandSandBoat/server, src/map/attack.h AttackAnimation, enums/action/knockback.h,
@@ -44,12 +48,22 @@ namespace Gordian.Core.Animation
         /// <summary>Raised on the delivering thread when a hit lands on a target (after its reaction is queued).</summary>
         public event Action<WorldEntity, HitReaction>? HitLanded;
 
-        public ActionPlaybackQueue(CombatState combat, WorldState world)
+        /// <param name="combat">The combat state whose actions are played.</param>
+        /// <param name="world">The entities.</param>
+        /// <param name="library">
+        /// Where weapon skill, monster move, job ability and spell presentations are read from (#132); null plays the
+        /// stand-ins (a swing, the <c>cm0</c> clip, the chant's release).
+        /// </param>
+        public ActionPlaybackQueue(CombatState combat, WorldState world, ActionMotionLibrary? library = null)
         {
             _combat = combat ?? throw new ArgumentNullException(nameof(combat));
             _world = world ?? throw new ArgumentNullException(nameof(world));
+            Library = library;
             _combat.ActionExecuted += Dispatch;
         }
+
+        /// <summary>Where action presentations are read from, or null for the stand-ins.</summary>
+        public ActionMotionLibrary? Library { get; }
 
         /// <summary>Requests whose hits have not been shown yet.</summary>
         public int OutstandingCount
@@ -115,6 +129,8 @@ namespace Gordian.Core.Animation
             }
 
             var (motion, routine) = MotionFor(record);
+            ushort subKind = record.Targets.Count > 0 && record.Targets[0].Results.Count > 0 ? record.Targets[0].Results[0].Animation : (ushort)0;
+            var asset = ResolveAsset(record.Category, subKind, actor);
             var hits = new List<ActionHit>(record.Targets.Count);
             foreach (var target in record.Targets)
             {
@@ -130,11 +146,41 @@ namespace Gordian.Core.Animation
                 Category = record.Category,
                 Motion = motion,
                 Routine = routine,
-                SubKind = record.Targets.Count > 0 && record.Targets[0].Results.Count > 0 ? record.Targets[0].Results[0].Animation : (ushort)0,
+                SubKind = subKind,
                 Hits = hits,
+                Asset = asset,
                 ReceivedTimestamp = now,
                 Sink = this
             });
+        }
+
+        /// <summary>
+        /// The presentation DAT of a finish packet (#132): a weapon skill by the actor's race (a fixed-model actor has no
+        /// weapon skill bank and keeps the stand-in), the others by the animation number alone.
+        /// </summary>
+        private ActionAsset? ResolveAsset(ActionCategory category, ushort animation, WorldEntity? actor)
+        {
+            var library = Library;
+            if (library == null || ActionMotionLibrary.KindOf(category) is not { } kind) return null;
+            var race = CharacterRace.Unknown;
+            if (kind == ActionAssetKind.WeaponSkill)
+            {
+                if (actor == null || actor.Appearance.ModelId > 0) return null;
+                race = (CharacterRace)((actor.Appearance.FaceModel >> 8) & 0xFF);
+            }
+            try
+            {
+                long started = Stopwatch.GetTimestamp();
+                var asset = library.Resolve(category, animation, race);
+                GordianLog.Debug("ANIM", $"Action {category} animation {animation} on {actor?.ServerId ?? 0:X8}: " +
+                    (asset != null ? $"{asset} ({Seconds(started, Stopwatch.GetTimestamp()) * 1000f:F1} ms)" : "no presentation (stand-in)"));
+                return asset;
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("ANIM", $"Action {category} animation {animation}: presentation not read ({ex.Message}).");
+                return null;
+            }
         }
 
         private static bool IsStart(ActionCategory category) => category is ActionCategory.SkillStart or ActionCategory.MagicStart
@@ -162,7 +208,8 @@ namespace Gordian.Core.Animation
                 case ActionCategory.RangedFinish:
                     return fourCc.Length > 0 ? (ActionMotion.Routine, fourCc) : (ActionMotion.None, string.Empty);
 
-                // Weapon skills and monster / pet skills have their own animation DATs (not played yet); a swing stands in.
+                // Weapon skills and monster / pet skills play their presentation DAT (ActionRequest.Asset, #132); a swing stands in
+                // where it plays nothing on the actor.
                 case ActionCategory.SkillFinish:
                 case ActionCategory.MobSkillFinish:
                 case ActionCategory.PetSkillFinish:
@@ -223,6 +270,11 @@ namespace Gordian.Core.Animation
         private static bool IsOverdue(ActionRequest request, long now)
         {
             long started = request.StartedTimestamp;
+            if (started != 0 && request.HitsDetached)
+            {
+                // The body motion ended before its hit: the result shows at the hit tick itself.
+                return Seconds(started, now) >= Math.Max(0, request.HitTick) / EntityAnimationState.RoutineTicksPerSecond;
+            }
             if (started != 0)
             {
                 float hitSeconds = Math.Max(0, request.HitTick) / EntityAnimationState.RoutineTicksPerSecond;

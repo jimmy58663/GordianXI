@@ -425,6 +425,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.WeatherNames => Path.Combine("ROM", "165", "79.DAT"),
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
+            DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),
@@ -773,6 +774,31 @@ namespace Gordian.Core.Resources
             });
         }
 
+        private (Events.EventSceneResource Routines, Gordian.Core.Graphics.ActorEffectSet Effects)? _sharedRoutineEffects;
+        private bool _sharedRoutineEffectsLoaded;
+
+        /// <summary>
+        /// The routines and particle generators of the shared effects DAT <c>ROM/0/0</c> that actors' motion routines link
+        /// (#132: the chant circles <c>ner1</c> / <c>ner2</c> / <c>nefa</c>, the release flashes <c>eis3</c> / <c>eis4</c>, the
+        /// weapon skill flash <c>eis1</c>, the stops <c>stwh</c> / <c>stbk</c>), or null when it cannot be read. Loaded once.
+        /// </summary>
+        public (Events.EventSceneResource Routines, Gordian.Core.Graphics.ActorEffectSet Effects)? GetSharedRoutineEffects()
+        {
+            if (Volatile.Read(ref _sharedRoutineEffectsLoaded)) return _sharedRoutineEffects;
+            lock (_lock)
+            {
+                if (!_sharedRoutineEffectsLoaded)
+                {
+                    string sharedPath = Path.Combine("ROM", "0", "0.DAT");
+                    byte[]? bytes = LoadDatBytes(sharedPath);
+                    var effects = bytes is { Length: > 0 } ? Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), sharedPath, cameraEffects: true) : null;
+                    _sharedRoutineEffects = effects != null ? (Events.EventSceneResource.Parse(bytes), effects) : null;
+                    Volatile.Write(ref _sharedRoutineEffectsLoaded, true);
+                }
+                return _sharedRoutineEffects;
+            }
+        }
+
         private int _cacheGeneration;
 
         /// <summary>
@@ -796,6 +822,12 @@ namespace Gordian.Core.Resources
             _entityModelCache.Clear();
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
+            Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
+            lock (_lock)
+            {
+                _sharedRoutineEffects = null;
+                _sharedRoutineEffectsLoaded = false;
+            }
             _itemCache.Clear();
             _loadedItemTables.Clear();
             _dmsgCache.Clear();

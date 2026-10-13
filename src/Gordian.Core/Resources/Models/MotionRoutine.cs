@@ -151,6 +151,28 @@ namespace Gordian.Core.Resources.Models
         /// unchanged: sound commands, links, random-choice members. See <see cref="RoutineSoundCommand"/>.
         /// </summary>
         public IReadOnlyList<RoutineSoundCommand> SoundCommands { get; init; } = Array.Empty<RoutineSoundCommand>();
+
+        /// <summary>
+        /// The routine's op 0x19 commands (#132): each plays a spell effect, the presentation of spell animation
+        /// <see cref="RoutineSpellEffect.Animation"/> (file 0xAF0 + animation), on the actor; e.g. a Trust model's <c>spop</c>
+        /// (summoned) plays 921. Op meaning from xi-tools (docs/ability/inspect.md: "0x19's argument is a spell animation
+        /// index"); the argument is the u32 at +8, read from the retail Trust model 3000 (<c>ROM/309/20</c>, 2026-10-12).
+        /// </summary>
+        public IReadOnlyList<RoutineSpellEffect> SpellEffects { get; init; } = Array.Empty<RoutineSpellEffect>();
+    }
+
+    /// <summary>One op 0x19 of a routine: at <paramref name="StartTick"/>, play spell animation <paramref name="Animation"/>'s effects.</summary>
+    public readonly record struct RoutineSpellEffect(int StartTick, int Animation);
+
+    /// <summary>
+    /// An effect a motion routine starts on its actor (#132), flattened through the actor's own links: at <see cref="Tick"/>,
+    /// either the shared effect routine <see cref="Routine"/> (a routine of <c>ROM/0/0</c> such as the chant circles
+    /// <c>ner1</c> / <c>ner2</c>, the release flash <c>eis4</c>, the stop <c>stwh</c>) or, when <see cref="SpellAnimation"/>
+    /// is 0 or more, a spell presentation's effects.
+    /// </summary>
+    public readonly record struct RoutineEffectCue(int Tick, string Routine, int SpellAnimation = -1)
+    {
+        public bool IsSpellEffect => SpellAnimation >= 0;
     }
 
     /// <summary>

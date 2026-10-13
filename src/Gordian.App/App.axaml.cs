@@ -25,6 +25,9 @@ public partial class App : Application
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
         Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
         Gordian.Core.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
+        // Weapon skill / ability / spell effects (#132): decoded on the network thread when the action arrives, so the
+        // renderer finds them cached instead of parsing the DAT mid-frame.
+        Gordian.Core.Animation.ActionMotionLibrary.EffectsPreloader = fileId => AppResourceManager.Instance?.GetSceneEffects(fileId);
         // Zone routines an event starts (0x2D, #226): their length from the loaded zone, for the event's 0x54 wait.
         Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = (zoneId, routine) =>
         {
@@ -43,6 +46,26 @@ public partial class App : Application
         // file-id loader above on first use.
         var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
         Gordian.Core.Network.Packets.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
+
+        // Spells, job abilities and weapon skills by name (/ma, /ja, /ws and the Magic / Abilities windows, #240 / #353):
+        // the client's spell and command tables with their name tables, read once per resource manager.
+        object catalogGate = new();
+        object? catalogSource = null;
+        Gordian.Core.Actions.ActionCatalog? catalog = null;
+        Gordian.Core.Actions.ActionCatalog.Provider = () =>
+        {
+            var rm = AppResourceManager.Instance;
+            if (rm == null) return null;
+            lock (catalogGate)
+            {
+                if (!ReferenceEquals(catalogSource, rm))
+                {
+                    catalogSource = rm;
+                    catalog = Gordian.Core.Actions.ActionCatalog.Load(rm);
+                }
+                return catalog;
+            }
+        };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

@@ -1344,6 +1344,23 @@ namespace Gordian.Core.Network
                 return accepted;
             }
 
+            // The same before the map server's first datagram has verified: a datagram we cannot decrypt (a wrong key, or
+            // a key candidate not yet locked in) must not set the sequence baseline, or the server's retransmissions of it
+            // would all be dropped as duplicates (seen when LandSandBoat changed its key scheme, 2026-10-12).
+            if (CurrentState == SessionState.ExchangingCryptoKeys)
+            {
+                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                if (accepted)
+                {
+                    RecordServerTraffic();
+                    ResetSequenceTracking();
+                    CheckAndTrackSequence(newSeq);
+                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
+                    CurrentState = SessionState.LoadingWorldData;
+                }
+                return accepted;
+            }
+
             Volatile.Write(ref _serverPacketIdSequence, newSeq);
 
             if (EnableSequenceDeduplication && CheckAndTrackSequence(newSeq))

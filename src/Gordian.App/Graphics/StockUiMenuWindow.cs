@@ -57,6 +57,7 @@ namespace Gordian.App.Graphics
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
                 if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
                 {
+                    // (The Equipment window keeps its slot labels under the icons: retail shows "Main" through a dagger's icon.)
                     if (menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
                     {
                         // A check window slot with an item: the slot box without its label; the icon covers it.
@@ -120,9 +121,21 @@ namespace Gordian.App.Graphics
             {
                 StockUiCheckWindow.Draw(renderer, library, font, logFont, menu, check, placement, screen ?? default, timestamp);
             }
+            else if (font != null && menu.IsItemList)
+            {
+                StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
+            else if (font != null && menu.IsEquipment)
+            {
+                StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.IsQuery && definition.FindButton(1) is { } firstQueryRow)
             {
                 DrawQuery(renderer, font, menu, placement, firstQueryRow, timestamp);
+            }
+            else if (font != null && menu.IsActionList && definition.FindButton(1) is { } firstActionRow)
+            {
+                DrawActionList(renderer, library, font, logFont, menu, placement, firstActionRow, timestamp);
             }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
@@ -267,6 +280,195 @@ namespace Gordian.App.Graphics
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
         }
 
+
+        /// <summary>
+        /// The spell and ability lists' row layout, measured on the maintainer's retail captures (2026-10-11, 2560 x 1440,
+        /// UI 1:1; image-14, -16, -19, -20, -21): each row's 16 x 16 icon at the row button's origin (the <c>magiconw</c>
+        /// image the record names), the name in the log font <see cref="ActionRowTextInset"/> px further in, rows at the
+        /// DAT's 16 px pitch, no value column. White text; greyed rows (lavender grey, sampled (159, 158, 203) on Foe Requiem
+        /// VIII) and the selected row (pink, sampled (255, 132, 216) / (255, 128, 184)).
+        /// </summary>
+        private const float ActionRowTextInset = 19, ActionIconSize = 16;
+
+        /// <summary>The log font's cell sits 1 px below the row's top: the capitals start 4 px into the row, as in the captures.</summary>
+        private const float ActionRowTextDrop = 1;
+
+        /// <summary>An empty list's text ("No mounts available."): log font from (11, 20), lines 20 px apart (image-22, -23).</summary>
+        private const float ActionEmptyTextX = 11, ActionEmptyTextY = 20, ActionEmptyPitch = 20, ActionEmptyWidth = 150;
+
+        private static readonly UiColor ActionSelectedTint = new(0x80, 0x41, 0x64, 0x80);
+        private static readonly UiColor ActionGreyedTint = new(0x4F, 0x4F, 0x65, 0x80);
+
+        /// <summary>
+        /// A spell, job ability, weapon skill, trait or pet command list: one action per row over the twelve invisible row
+        /// buttons; long lists slide and show the scrollbar as the other lists do; an empty list writes its text.
+        /// </summary>
+        private static void DrawActionList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
+            StockUiOpenMenu menu, StockUiPlacement placement, UiMenuButton firstRow, long timestamp)
+        {
+            float s = placement.Scale;
+            var definition = menu.Menu;
+            var frame = definition.Frame;
+            var rows = menu.ActionRows;
+            if (rows.Count == 0)
+            {
+                if (menu.EmptyText is { } empty)
+                {
+                    Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
+                    var lines = StockUiTreasureWindow.Wrap(measure, empty, ActionEmptyWidth, 4);
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        float x = placement.X + ActionEmptyTextX * s, y = placement.Y + (ActionEmptyTextY + i * ActionEmptyPitch) * s;
+                        if (logFont != null) logFont.Draw(renderer, lines[i], x, y, s, White);
+                        else renderer.DrawText(font, lines[i], x, y, s);
+                    }
+                }
+                return;
+            }
+            if (menu.VisibleRows == 0) return;
+            var secondRow = definition.FindButton(2);
+            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+            float first = menu.FirstRow;
+            if (menu.ScrollFrom != menu.FirstRow)
+            {
+                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
+                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
+            }
+            float areaY = placement.Y + firstRow.Y * s;
+            renderer.SetClip(placement.X, areaY, frame.Width * s, menu.VisibleRows * pitch * s);
+            int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
+            int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
+            float iconX = placement.X + firstRow.X * s;
+            float textX = iconX + ActionRowTextInset * s;
+            library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons);
+            for (int i = from; i <= to; i++)
+            {
+                var row = rows[i];
+                float ry = areaY + (i - first) * pitch * s;
+                // The picture, else the small icon (pictures 677 and up are not in magiconw; their source is unknown).
+                int icon = icons != null && row.Icon >= 0 && row.Icon < icons.Images.Count ? row.Icon : row.SmallIcon;
+                if (icons != null && icon >= 0 && icon < icons.Images.Count) DrawIcon(renderer, icons.Images[icon], iconX, ry, ActionIconSize * s);
+                UiColor tint = i == selectedEntry ? ActionSelectedTint : row.IsGreyedAt(timestamp) ? ActionGreyedTint : White;
+                if (logFont != null) logFont.Draw(renderer, row.Name, textX, ry + ActionRowTextDrop * s, s, tint);
+                else renderer.DrawText(font, row.Name, textX, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, tint);
+            }
+            renderer.ClearClip();
+            if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, rows.Count, menu.VisibleRows);
+        }
+
+        /// <summary>
+        /// The small window (<c>subwindo</c>, 112 x 42) the action lists show above the target window, or above the party
+        /// window with no target, 2 px apart (retail image-14, -16, -20 ... -23, 2026-10-11): in <c>fontshp</c> at the party
+        /// rows' 7/8 scale, labels 7 px in and values right-aligned 8 px from the right edge, glyph tops 9 and 27 px down.
+        /// Spells: "MP Cost" and the cost, then "Next" and the recast ("0:00" when ready); job abilities, pet commands and
+        /// mounts: "Next" on the second line only; weapon skills: "TP", then your TP right-aligned on the second line; job
+        /// traits: no window.
+        /// </summary>
+        public static void DrawActionInfo(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu list,
+            (float X, float Top)? anchor, float scale, long timestamp, int currentTp, (string Name, byte Hpp)? pet = null)
+        {
+            if (list.ActionList == StockUiActionList.JobTraits || anchor is not { } at) return;
+            if (!library.TryGetMenu(StockUiActionMenu.InfoMenu, out var info)) return;
+            float s = scale, ts = s * StockUiPartyWindow.TextScale;
+            var placement = new StockUiPlacement(at.X, Math.Max(0, at.Top - (info.Frame.Height + 2) * s), s, false);
+            renderer.DrawMenu(info, placement, includeButtons: false);
+            float left = placement.X + InfoLabelX * s, right = placement.X + (info.Frame.Width - InfoValueRightInset) * s;
+            float line1 = placement.Y + InfoLine1Y * s, line2 = placement.Y + InfoLine2Y * s;
+            void Value(string text, float y) => renderer.DrawText(font, text, right - font.MeasureWidth(text) * ts, y, ts);
+            var row = list.SelectedActionRow;
+            switch (list.ActionList)
+            {
+                case StockUiActionList.Spells:
+                    renderer.DrawText(font, "MP Cost", left, line1, ts);
+                    Value((row?.MpCost ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture), line1);
+                    renderer.DrawText(font, "Next", left, line2, ts);
+                    Value(StockUiActionMenu.FormatRecast(row?.RecastLeft(timestamp) ?? TimeSpan.Zero), line2);
+                    break;
+                case StockUiActionList.PetAbilities when list.ActionCategory is 6 or 10:
+                    // Blood pacts (retail image-46): the pet's name and HP gauge on top, then "MP Cost" and the pact's cost.
+                    if (pet is { } p)
+                    {
+                        StockUiPartyWindow.DrawPetRow(renderer, font, p.Name, p.Hpp, placement.X + InfoPetX * s, placement.Y + InfoPetY * s, s,
+                            InfoPetGaugeDx, InfoPetGaugeDy);
+                    }
+                    renderer.DrawText(font, "MP Cost", left, line2, ts);
+                    Value((row is { MpCost: >= 0 } r ? r.MpCost : 0).ToString(System.Globalization.CultureInfo.InvariantCulture), line2);
+                    break;
+                case StockUiActionList.PetAbilities when list.ActionCategory == StockUiActionMenu.ReadyCommandType:
+                    // Ready (retail image-47): "Charge" and the charges left, then "Next".
+                    var readyLeft = row?.RecastLeft(timestamp) ?? TimeSpan.Zero;
+                    renderer.DrawText(font, "Charge", left, line1, ts);
+                    Value(StockUiActionMenu.ReadyCharges(readyLeft).ToString(System.Globalization.CultureInfo.InvariantCulture), line1);
+                    renderer.DrawText(font, "Next", left, line2, ts);
+                    Value(StockUiActionMenu.FormatRecast(readyLeft), line2);
+                    break;
+                case StockUiActionList.WeaponSkills:
+                    renderer.DrawText(font, "TP", left, line1, ts);
+                    Value(currentTp.ToString(System.Globalization.CultureInfo.InvariantCulture), line2);
+                    break;
+                default:
+                    renderer.DrawText(font, "Next", left, line2, ts);
+                    Value(StockUiActionMenu.FormatRecast(row?.RecastLeft(timestamp) ?? TimeSpan.Zero), line2);
+                    break;
+            }
+        }
+
+        private const float InfoLabelX = 7, InfoValueRightInset = 8, InfoLine1Y = 8, InfoLine2Y = 26;
+
+        /// <summary>The pet in a blood pact list's info window (retail image-46): name 6 px in at y 4, its gauge 23 px right and 12 px down.</summary>
+        private const float InfoPetX = 6, InfoPetY = 4, InfoPetGaugeDx = 23, InfoPetGaugeDy = 12;
+
+        /// <summary>
+        /// The help bar at the top of the screen for the Magic and Abilities lists and the sub-target cursor (retail image-14,
+        /// -27, -41 and the video, 2026-10-11/12): the title ("Magic List", "Abilities", or the action being aimed) in
+        /// <c>titlewin</c> and the line ("Restores target's HP.", "Select target of spell.") in <c>helpwind</c> stretched to
+        /// 16 px short of the screen's right edge, both in the log font 8 px in, as the check window draws its bar. The bar
+        /// for every other menu is #313.
+        /// </summary>
+        public static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
+            string title, string? text, float scale, uint width, uint height)
+        {
+            float s = scale;
+            void Line(string line, float x, float y)
+            {
+                if (logFont != null) logFont.Draw(renderer, line, x, y, s, White);
+                else renderer.DrawText(font, line, x, y, s);
+            }
+            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
+            {
+                var f = titleWindow.Frame;
+                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
+                renderer.DrawMenu(titleWindow, at, includeButtons: false, opaqueBody: true);
+                Line(title, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
+            }
+            if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
+            {
+                var f = help.Frame;
+                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
+                float barWidth = Math.Max(f.Width, (width - at.X) / s - HelpBarRightMargin);
+                renderer.DrawMenu(help, at, includeButtons: false, opaqueBody: true, frameWidth: barWidth);
+                if (!string.IsNullOrEmpty(text)) Line(text, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
+            }
+        }
+
+        private const float HelpBarTextX = 8, HelpBarRightMargin = 16;
+
+        /// <summary>Draws an element-group image scaled so its bounds fill a square of <paramref name="size"/> pixels.</summary>
+        private static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
+        {
+            float left = float.MaxValue, top = float.MaxValue, right = float.MinValue, bottom = float.MinValue;
+            foreach (var part in image.Parts)
+            {
+                left = Math.Min(left, Math.Min(part.TopLeft.X, part.BottomLeft.X));
+                top = Math.Min(top, Math.Min(part.TopLeft.Y, part.TopRight.Y));
+                right = Math.Max(right, Math.Max(part.TopRight.X, part.BottomRight.X));
+                bottom = Math.Max(bottom, Math.Max(part.BottomLeft.Y, part.BottomRight.Y));
+            }
+            float extent = Math.Max(right - left, bottom - top);
+            if (extent <= 0) return;
+            float scale = size / extent;
+            renderer.DrawImage(image, x - left * scale, y - top * scale, scale);
+        }
 
         /// <summary>
         /// The shop list's row layout (the "shop" frame, Tier 2 chunk 6c): the DAT authors ten invisible 132 x 16 rows
@@ -550,7 +752,7 @@ namespace Gordian.App.Graphics
         private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
         private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
-        private static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
+        internal static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
         {
             float s = placement.Scale;
             float x = placement.X + (frame.Width - ScrollbarInset) * s;

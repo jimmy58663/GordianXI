@@ -317,6 +317,12 @@ namespace Gordian.Core.Ui
                     right = Math.Max(right, StockUiShop.CompanionRight);
                     bottom = Math.Max(bottom, StockUiShop.CompanionBottom);
                 }
+                // The Items list's options stand at the top right beside it, the Recycling Bin's inventory list right of the
+                // bin, and the Equipment grid's stats side at its left and the storage's list at its right (retail captures
+                // 2026-10-11).
+                if (ItemListKind == StockUiItemListKind.Items) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
+                if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
+                if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 return (f.X, f.Y, right, bottom);
             }
         }
@@ -451,6 +457,9 @@ namespace Gordian.Core.Ui
             if (moved) SoundCue?.Invoke(StockUiSoundCue.CursorMove);
         }
 
+        /// <summary>Whether the character is engaged: the target command menu cannot be cancelled then.</summary>
+        public Func<bool>? InCombat { get; set; }
+
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
 
@@ -550,13 +559,10 @@ namespace Gordian.Core.Ui
                     if (rows[i].Greyed) greyed.Add(i + 1);
                 }
                 menu.SetGreyed(greyed.Count > 0 ? greyed : null);
-                // The cursor is remembered by entry (the lists differ per target), as retail keeps it on the row.
-                int selected = 0;
-                for (int i = 0; i < rows.Count && selected == 0; i++)
-                {
-                    if (rows[i].Label.Text.Equals(_lastCommandLabel, StringComparison.Ordinal)) selected = i + 1;
-                }
-                menu.SelectedButtonId = selected != 0 ? selected : FirstSelectable(definition);
+                // The cursor starts on the top entry every time (the maintainer's round 2 note, 2026-10-12: retail does not
+                // remember it).
+                menu.SelectedButtonId = FirstSelectable(definition);
+
                 _open = new[] { menu };
             }
             Changed?.Invoke();
@@ -585,7 +591,8 @@ namespace Gordian.Core.Ui
             lock (_sync)
             {
                 // Over a pinned window alone (the dead character's home point window) the main menu still opens.
-                if (_open.Length > 0 && !(_open.Length == 1 && _open[0].Pinned)) return true;
+                // The main menu also opens over the target command menu (the maintainer's round 1 note, 2026-10-12).
+                if (_open.Length > 0 && !(_open.Length == 1 && (_open[0].Pinned || _open[0].IsCommandMenu))) return true;
                 return Push(_mainMenuPage, null, StockUiMenuEntries.MainMenuPages, null, null) != null;
             }
         }
@@ -611,8 +618,21 @@ namespace Gordian.Core.Ui
                 if (_open.Length == 0) return;
                 closed = _open[^1];
                 if (closed.Pinned) return;
-                Remember(closed);
-                _open = _open[..^1];
+                if (CancelItemMode(closed))
+                {
+                    closed = null;
+                }
+                else
+                {
+                    Remember(closed);
+                    _open = _open[..^1];
+                }
+            }
+            if (closed == null)
+            {
+                // Cancel in the Items list's Manual sort leaves the mode; the list stays.
+                Changed?.Invoke();
+                return;
             }
             closed.Cancelled = true;
             closed.Prompt?.TrySetResult(false);
@@ -889,6 +909,11 @@ namespace Gordian.Core.Ui
         private void Remember(StockUiOpenMenu menu)
         {
             if (menu.IsPrompt || menu.IsQuery || menu.ShopSide != null) return;
+            if (menu.IsItemWindow)
+            {
+                RememberItemWindow(menu);
+                return;
+            }
             if (menu.IsCommandMenu)
             {
                 int index = menu.SelectedButtonId - 1;
@@ -1096,12 +1121,13 @@ namespace Gordian.Core.Ui
         public bool ProcessInput(InputState input, TimeSpan elapsed)
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
+            if (_suspended) return true; // the sub-target cursor has the input
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
                 // The menu button opens the main menu; pressed again it turns the page of a paged menu (retail
                 // behaviour, confirmed in-game 2026-09-26). Only Cancel closes menus.
-                if (!wasOpen || Top is { Pinned: true })
+                if (!wasOpen || Top is { Pinned: true } || (_open.Length == 1 && Top is { IsCommandMenu: true }))
                 {
                     int before = _open.Length;
                     if (OpenMainMenu() && _open.Length > before) SoundCue?.Invoke(StockUiSoundCue.MainMenuOpen);
@@ -1116,6 +1142,11 @@ namespace Gordian.Core.Ui
                     // The check window: the gamepad's X pages the item description (retail screenshot, 2026-10-07).
                     if (NextCheckPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
                 }
+                else if (Top is { IsItemList: true } or { IsEquipment: true })
+                {
+                    // The Items and Equipment windows page the description the same way (PROVISIONAL: as the check window).
+                    if (NextItemPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
+                }
                 Array.Clear(_repeat);
                 return wasOpen;
             }
@@ -1125,15 +1156,17 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
-            if (input.WasActionTriggered(InputAction.CycleLogWindow) && ToggleTreasureDone())
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions() || ToggleActionOptions()))
             {
-                // The Treasure Pool's + / Y: the cursor to Done and back.
+                // The Treasure Pool's + / Y: the cursor to Done and back; the Items window's: to its options and back.
                 SoundCue?.Invoke(StockUiSoundCue.CursorMove);
                 return true;
             }
             if (input.WasActionTriggered(InputAction.Cancel))
             {
                 if (Top is { Pinned: true }) return true;
+                // The command menu stays up while fighting (the maintainer's round 1 note, 2026-10-12).
+                if (_open.Length == 1 && Top is { IsCommandMenu: true } && InCombat?.Invoke() == true) return true;
                 CloseTop();
                 SoundCue?.Invoke(StockUiSoundCue.Close);
                 return true;
@@ -1249,13 +1282,20 @@ namespace Gordian.Core.Ui
                     {
                         changed = FlipPage(top, direction == InputAction.MenuRight ? 1 : -1);
                     }
-                    else if (!horizontal && top.IsShopList)
+                    else if (!horizontal && (top.IsShopList || top.IsItemList))
                     {
                         // The shop list's end rows link to themselves: up from the first row and down from the last
-                        // (or from the last row with an item) scroll the list, wrapping at the ends.
+                        // (or from the last row with an item) scroll the list, wrapping at the ends. The item list
+                        // (inventor) is authored the same way.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
-                    else if (horizontal && top.IsShopList)
+                    else if (top.IsActionList)
+                    {
+                        // The spell and ability lists' end rows link to themselves, as the shop list's do: up and down
+                        // past them scroll (wrapping), left and right page.
+                        changed = horizontal ? PageList(top, direction == InputAction.MenuRight) : ScrollList(top, direction == InputAction.MenuDown);
+                    }
+                    else if (horizontal && (top.IsShopList || top.IsItemList))
                     {
                         // Right (d-pad right) turns a page or, on the last page, goes to the bottom; left the reverse.
                         changed = PageList(top, direction == InputAction.MenuRight);
@@ -1451,7 +1491,8 @@ namespace Gordian.Core.Ui
 
             if (top.IsQuantity)
             {
-                RunQuantity(top);
+                if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
+                else RunQuantity(top);
                 return;
             }
 
@@ -1464,6 +1505,18 @@ namespace Gordian.Core.Ui
             if (top.IsTreasureList)
             {
                 ActivateTreasureRow(top);
+                return;
+            }
+
+            if (top.IsActionList)
+            {
+                ActivateActionRow(top);
+                return;
+            }
+
+            if (top.IsActionOptions)
+            {
+                ActivateActionOptions(top, button.ButtonId);
                 return;
             }
 
@@ -1484,6 +1537,8 @@ namespace Gordian.Core.Ui
                 ActivateCheck(top, button);
                 return;
             }
+
+            if (TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -1551,7 +1606,9 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
                 return;
             }
-            if (entry.Opens != null)
+            // An entry with both a window and a command (the command menu's Magic: Confirm lists all castable magic,
+            // right opens the categories) runs the command on Confirm.
+            if (entry.Opens != null && entry.Command == StockUiMenuCommand.None)
             {
                 lock (_sync) Push(entry.Opens, top, Array.Empty<string>(), null, null);
                 return;
@@ -1785,6 +1842,42 @@ namespace Gordian.Core.Ui
                     OpenTreasurePool(from);
                     break;
 
+                case StockUiMenuCommand.SpellList:
+                    OpenActionList(StockUiActionList.Spells, entry.Argument, from);
+                    break;
+
+                case StockUiMenuCommand.JobAbilityList:
+                    OpenActionList(StockUiActionList.JobAbilities, 0, from);
+                    break;
+
+                case StockUiMenuCommand.WeaponSkillList:
+                    OpenActionList(StockUiActionList.WeaponSkills, 0, from);
+                    break;
+
+                case StockUiMenuCommand.RangedAttack:
+                    RunRangedAttack(from);
+                    break;
+
+                case StockUiMenuCommand.Items:
+                    OpenItems(from, from.Target);
+                    break;
+
+                case StockUiMenuCommand.Equipment:
+                    OpenEquipment(from);
+                    break;
+
+                case StockUiMenuCommand.JobTraitList:
+                    OpenActionList(StockUiActionList.JobTraits, 0, from);
+                    break;
+
+                case StockUiMenuCommand.MountList:
+                    OpenActionList(StockUiActionList.Mounts, 0, from);
+                    break;
+
+                case StockUiMenuCommand.PetCommandList:
+                    OpenActionList(StockUiActionList.PetCommands, 0, from);
+                    break;
+
                 case StockUiMenuCommand.HomePoint:
                     if (HomePointSelected != null) HomePointSelected();
                     else NoticePosted?.Invoke("Back to Home Point is not available in this session.");
@@ -1794,6 +1887,7 @@ namespace Gordian.Core.Ui
                 case StockUiMenuCommand.Disengage:
                 case StockUiMenuCommand.Invite:
                 case StockUiMenuCommand.Check:
+                case StockUiMenuCommand.ReleaseTrust:
                     var target = CommandMenuTarget;
                     CloseAll();
                     if (target is { } t) _ = RunTargetCommandAsync(entry, t);
@@ -1941,9 +2035,10 @@ namespace Gordian.Core.Ui
             _confirmPending = null;
         }
 
-        /// <summary>The character's items or gil changed: refreshes an open Sell list and the gil shown.</summary>
+        /// <summary>The character's items or gil changed: refreshes open item lists (<see cref="OnItemsChanged"/>), an open Sell list and the gil shown.</summary>
         public void OnInventoryChanged()
         {
+            OnItemsChanged();
             if (!_shopOpen) return;
             lock (_sync)
             {
