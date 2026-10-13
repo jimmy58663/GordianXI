@@ -53,6 +53,11 @@ namespace Gordian.Core.Resources.Models
         /// message types (36-62, 196), Font Colors samples (63-88, 197, 204-205), Effects rows (153-170).
         /// </summary>
         MenuConfigRows,
+        /// <summary>
+        /// The menus' help text by id (ROM/165/75.DAT, 1099 entries, #19): the <c>HelpTextId</c> of menu frames and buttons
+        /// ("Select an item.", "Use an item."), shown in the help bar (<c>helpwind</c>).
+        /// </summary>
+        MenuHelp,
         Custom
     }
 

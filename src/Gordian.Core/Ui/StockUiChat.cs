@@ -270,6 +270,7 @@ namespace Gordian.Core.Ui
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
+            menus.ErrorPosted += message => Log.Add(ChatLogChannel.Error, message);
         }
 
         /// <summary>

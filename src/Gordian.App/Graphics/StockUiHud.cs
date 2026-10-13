@@ -149,6 +149,7 @@ namespace Gordian.App.Graphics
             {
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
+                menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
             }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
@@ -398,11 +399,17 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // The shop's list and quantity prompt and the Treasure Pool windows keep their own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow;
+                    // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
+                    // own places; the other windows follow the root.
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
-                    if (menu.PageRing.Count > 0)
+                    if (menu.ItemDropRow != null)
+                    {
+                        // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).
+                        y = Math.Max(0, StockUiItemWindow.BottomOf(new StockUiScreen(width, height, _window1Top), root.Scale) - frame.Height * root.Scale);
+                    }
+                    else if (menu.PageRing.Count > 0)
                     {
                         // The main menu opened over the target command menu takes its own place, not the command menu's offset.
                         var own = ResolveWindow(StockUiWindowIds.MainMenu, frame, width, height, out _);
@@ -424,6 +431,12 @@ namespace Gordian.App.Graphics
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.
                     var f = spoils.Frame;
                     renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (menu.ItemListKind == StockUiItemListKind.Items && i == open.Count - 1 && library.TryGetMenu(StockUiItems.OptionsMenu, out var itemOptions))
+                {
+                    // The Items window's options ("+ : Sort") stand at the top right while the list takes input; + / Y puts the cursor on them.
+                    var f = itemOptions.Frame;
+                    StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
                 if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
                     && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))

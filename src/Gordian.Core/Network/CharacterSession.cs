@@ -328,6 +328,16 @@ namespace Gordian.Core.Network
                 }
             };
             Inventory.ItemChanged += (_, _, _) => ActionService.Menus.OnInventoryChanged();
+            // The Items and Equipment windows (#351, #352): use (0x037; LandSandBoat requires the count 0), drop (0x028),
+            // equip (0x050), auto-sort (0x03A). Equipment and container sizes refresh the open lists.
+            ActionService.Menus.ItemUse = (id, index, container, slot) => InventoryModule.UseItemAsync(id, index, 0, slot, container);
+            ActionService.Menus.ItemDrop = (container, slot, count) => InventoryModule.DropItemAsync(container, slot, count);
+            ActionService.Menus.ItemEquip = (slot, equipSlot, container) => InventoryModule.EquipItemAsync(slot, equipSlot, container);
+            ActionService.Menus.ItemSort = container => InventoryModule.SortContainerAsync(container);
+            ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
+            ActionService.Menus.CharacterStats = CharacterStats;
+            Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
+            Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.
             InventoryModule.LockstyleFailed += items =>
             {
@@ -381,6 +391,9 @@ namespace Gordian.Core.Network
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
+                // LandSandBoat empties the recycle bin whenever the character is loaded, i.e. at every zone-in
+                // (charutils::EmptyRecycleBin), without telling the client; retail's help text says the same (#351).
+                Inventory.ClearContainer(Packets.ContainerId.RecycleBin);
                 Treasure.Clear();
                 // The pet, the wide scan list and the tracked entity do not survive a zone change; the server sends the
                 // pet again (S2C 0x068) when it comes along.
@@ -426,6 +439,31 @@ namespace Gordian.Core.Network
         {
             if (id == LocalPlayer.ServerId || id == CharacterId) return CharacterName;
             return World.TryGetByServerId(id, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
+        }
+
+        /// <summary>
+        /// The Equipment window's stats side (#352), as the maintainer's retail capture (2026-10-11) lays it out: the name,
+        /// "Lv99 Bard", "Lv49 White Mage", "ILv 119/Su 0", HP and MP current / max, TP, the base stats with their equipment
+        /// bonus, Attack, Defense and the elemental resistances (S2C 0x061 / 0x01B, as <see cref="LocalPlayerState"/> keeps them).
+        /// </summary>
+        private Ui.StockUiCharacterStats CharacterStats()
+        {
+            var p = LocalPlayer;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string main = p.MainJob == Packets.JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
+            string sub = p.SubJob == Packets.JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
+            string itemLevel = string.Create(inv, $"ILv {p.ItemLevel}/Su {p.SuperiorLevel}");
+            var bases = new int[7];
+            var bonuses = new int[7];
+            for (int i = 0; i < 7; i++)
+            {
+                bases[i] = p.BaseStats[i];
+                bonuses[i] = p.StatModifiers[i];
+            }
+            var resistances = new int[8];
+            for (int i = 0; i < 8; i++) resistances[i] = p.ElementalResistances[i];
+            return new Ui.StockUiCharacterStats(CharacterName, main, sub, itemLevel, p.CurrentHp, p.MaxHp, p.CurrentMp, p.MaxMp, p.CurrentTp,
+                bases, bonuses, p.Attack, p.Defense, resistances);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)
