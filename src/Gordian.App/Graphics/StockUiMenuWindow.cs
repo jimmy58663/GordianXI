@@ -137,6 +137,10 @@ namespace Gordian.App.Graphics
             {
                 DrawActionList(renderer, library, font, logFont, menu, placement, firstActionRow, timestamp);
             }
+            else if (font != null && (menu.IsKeyItemWindow || menu.IsEquipSetWindow))
+            {
+                StockUiKeyItemWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
                 // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's

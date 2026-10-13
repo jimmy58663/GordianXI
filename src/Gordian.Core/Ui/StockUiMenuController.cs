@@ -1289,7 +1289,7 @@ namespace Gordian.Core.Ui
                         // (inventor) is authored the same way.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
-                    else if (top.IsActionList)
+                    else if (top.IsActionList || top.PagesAsList)
                     {
                         // The spell and ability lists' end rows link to themselves, as the shop list's do: up and down
                         // past them scroll (wrapping), left and right page.
@@ -1538,6 +1538,7 @@ namespace Gordian.Core.Ui
                 return;
             }
 
+            if (TryActivateKeyItems(top) || TryActivateEquipSets(top, button)) return;
             if (TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
@@ -1864,6 +1865,14 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.Equipment:
                     OpenEquipment(from);
+                    break;
+
+                case StockUiMenuCommand.KeyItems:
+                    OpenKeyItems(from);
+                    break;
+
+                case StockUiMenuCommand.EquipmentSets:
+                    OpenEquipmentSets(from);
                     break;
 
                 case StockUiMenuCommand.JobTraitList:

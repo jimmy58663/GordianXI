@@ -171,6 +171,12 @@ namespace Gordian.App.Graphics
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
                 Gordian.Core.Network.Packets.StandardMessages.ItemLookup ??= menus.ItemLookup;
             }
+            if (menus.KeyItemCatalog == null && _resources is { } keyItems)
+            {
+                // The Key Items window's categories, names and descriptions (ROM/175/35, #91), read once when first opened.
+                var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
+                menus.KeyItemCatalog = () => catalog.Value;
+            }
 
             renderer.Begin(library);
             // An event's screen fades (#165): the 3D scene's under the interface (and its 0x72 flashes, #192), then the interface's own.
