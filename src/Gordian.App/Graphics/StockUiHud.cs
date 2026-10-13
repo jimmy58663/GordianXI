@@ -58,6 +58,14 @@ namespace Gordian.App.Graphics
         /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Core.Ui.ZoneLoadingScreen"/>).</summary>
         public float LoadingOpacity { get; set; }
 
+        /// <summary>Whether the view counts as loading this frame, which shows retail's "Downloading data ..." over the black (<see cref="ZoneLoadingIndicator"/>).</summary>
+        public bool LoadingIndicatorVisible { get; set; }
+
+        /// <summary>Whether the view is zoning (fading out or black): the interface and name plates are not drawn.</summary>
+        public bool InterfaceHidden { get; set; }
+
+        private long _loadingIndicatorSince;
+
         /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
@@ -174,7 +182,10 @@ namespace Gordian.App.Graphics
             // An event's message mode (opcode 0x67) hides the HUD windows and shows the event's lines on the screen instead; name plates stay (the retail recording shows them through the aerial shots).
             bool cutscene = session.Events.IsCutsceneHud;
             NamePlateBounds? targetPlate = null, subTargetPlate = null;
-            if (namePlates != null && _font is { } plateFont)
+            // Zoning (#350): retail closes the interface and the name plates the moment the player crosses, before the scene
+            // fades, and opens them again as the next zone starts to fade in (the 2026-10-11 retail recording).
+            bool zoning = InterfaceHidden;
+            if (namePlates != null && _font is { } plateFont && !zoning)
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
@@ -186,7 +197,7 @@ namespace Gordian.App.Graphics
             }
             long now = Stopwatch.GetTimestamp();
             Vector2? targetTip = null;
-            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene)
+            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene && !zoning)
             {
                 targetTip = CursorTip(cursor, targetPlate);
                 StockUiTargetWindow.DrawCursor(renderer, library, targetTip.Value, Layout.Scale, now);
@@ -202,7 +213,11 @@ namespace Gordian.App.Graphics
                 }
                 StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetCursorTint);
             }
-            if (!cutscene)
+            if (zoning)
+            {
+                // Nothing but the black and the loading sprite below.
+            }
+            else if (!cutscene)
             {
                 var party = DrawPartyWindow(renderer, library, session, groups, width, height);
                 DrawAllianceWindows(renderer, library, session, groups, width, height);
@@ -214,8 +229,11 @@ namespace Gordian.App.Graphics
             {
                 DrawEventText(renderer, eventText, width, height);
             }
-            DrawMenus(renderer, library, session, menus, width, height);
-            if (!cutscene) DrawActionHelpBar(renderer, library, session, width, height);
+            if (!zoning)
+            {
+                DrawMenus(renderer, library, session, menus, width, height);
+                if (!cutscene) DrawActionHelpBar(renderer, library, session, width, height);
+            }
             bool unlocked = Drag.Unlocked;
             if (unlocked)
             {
@@ -231,7 +249,31 @@ namespace Gordian.App.Graphics
                 renderer.Opacity = 1f;
                 renderer.DrawScreenTint(width, height, new Vector3(1f - Math.Clamp(LoadingOpacity, 0f, 1f)));
             }
+            DrawLoadingIndicator(renderer, library, width, height);
             renderer.End(framebuffer, width, height);
+        }
+
+        /// <summary>
+        /// Retail's loading indicator (#350) in the bottom-right corner while the view is loading: the menu DAT's own
+        /// "Downloading data ..." sprite (<see cref="ZoneLoadingIndicator"/>), its dimmed dot pair cycling, appearing with
+        /// the black (<see cref="Gordian.Core.Ui.ZoneLoadingScreen.IndicatorVisible"/>) and gone as soon as loading ends.
+        /// </summary>
+        private void DrawLoadingIndicator(StockUiRenderer renderer, UiResourceLibrary library, uint width, uint height)
+        {
+            if (!LoadingIndicatorVisible)
+            {
+                _loadingIndicatorSince = 0;
+                return;
+            }
+            long now = Stopwatch.GetTimestamp();
+            if (_loadingIndicatorSince == 0) _loadingIndicatorSince = now;
+            int index = ZoneLoadingIndicator.ImageAt(Stopwatch.GetElapsedTime(_loadingIndicatorSince, now).TotalSeconds);
+            if (!library.TryGetGroup(ZoneLoadingIndicator.GroupName, out var group) || index >= group.Images.Count) return;
+            float s = Layout.Scale;
+            var (x, y) = ZoneLoadingIndicator.Position(width, height, s);
+            renderer.Opacity = 1f;
+            renderer.DrawImage(group.Images[index], x, y, s);
+            renderer.Opacity = 1f;
         }
 
         /// <summary>

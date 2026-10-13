@@ -593,7 +593,36 @@ namespace Gordian.Core.Network
         /// Whether an outbound sub-packet may still be sent: nothing once the session is ending, and no C2S 0x015 while
         /// position updates are suspended (see <see cref="PositionUpdatesSuspended"/>).
         /// </summary>
-        private bool MaySend(ushort packetId) => !SessionEnding && !(packetId == 0x015 && _positionUpdatesSuspended);
+        private bool MaySend(ushort packetId) => !SessionEnding && !(packetId == 0x015 && PositionSendsHeld);
+
+        /// <summary>
+        /// No C2S 0x015 now: position updates are suspended (<see cref="PositionUpdatesSuspended"/>), or a zone-line request
+        /// is waiting for the server (#350). The retail client sends no position after its C2S 0x05E (maintainer's
+        /// LandSandBoat map server log, 2026-10-12: GordianXI's updates after the request were rejected as "Character is
+        /// disappearing", retail sent none); they resume if the server refuses the line.
+        /// </summary>
+        public bool PositionSendsHeld => _positionUpdatesSuspended || _zoneLines.PendingId != null;
+
+        /// <summary>
+        /// The empty sub-packet header of a keep-alive datagram (type 0, size 0): LandSandBoat's parse loop stops at a
+        /// zero-size sub-packet, so the datagram carries nothing but its header and acknowledgement.
+        /// </summary>
+        internal const int KeepAliveSize = 4;
+
+        /// <summary>
+        /// Queues an empty keep-alive sub-packet when nothing else is waiting (call under <see cref="_writeLock"/>). While
+        /// a zone-line request waits no C2S 0x015 goes out, but the map server only sends in answer to a datagram
+        /// (LandSandBoat <c>map_networking.cpp</c>: <c>parse</c> answers each one, and <c>tapLastUpdate</c> keeps the
+        /// session alive), so without one the S2C 0x00B waited 10-16 s and both sides saw the client as gone (round 2 of
+        /// in-game testing, 2026-10-12: our "connection lost" after 10 s of silence and the red link-dead mark). LSB's own
+        /// note there says the retail client sends datagrams without a valid sub-packet in such moments.
+        /// </summary>
+        private void QueueKeepAliveLocked()
+        {
+            if (_currentBufferLength != 0 || _currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
+            _outboundQueueBuffer.AsSpan(0, KeepAliveSize).Clear();
+            _currentBufferLength = KeepAliveSize;
+        }
 
         /// <summary>
         /// Drops the queued sub-packets <see cref="MaySend"/> refuses from the outbound staging buffer (they may have been
@@ -601,7 +630,7 @@ namespace Gordian.Core.Network
         /// </summary>
         private void DropRefusedQueuedSubPackets()
         {
-            if (_currentBufferLength == 0 || (!SessionEnding && !_positionUpdatesSuspended)) return;
+            if (_currentBufferLength == 0 || (!SessionEnding && !PositionSendsHeld)) return;
             if (SessionEnding)
             {
                 _currentBufferLength = 0;
@@ -762,6 +791,45 @@ namespace Gordian.Core.Network
             {
                 _ = TriggerImmediatePosUpdateAsync();
             }
+
+            CheckZoneLines(position);
+        }
+
+        private readonly World.Collision.ZoneLineMonitor _zoneLines = new();
+        private int _zoneLineCorrectionMark;
+
+        /// <summary>The zone-line request state of this session (#350).</summary>
+        public World.Collision.ZoneLineMonitor ZoneLines => _zoneLines;
+
+        /// <summary>
+        /// Sends the zone-line request (C2S 0x05E) once when the player walks into a zone line of the current zone
+        /// (see <see cref="World.Collision.ZoneLineMonitor"/>): the line's id and the player's position, or for the Mog House
+        /// exit (<c>zmrq</c>) the exit to the area the player entered from. Not while the session is out of the world,
+        /// already changing zones, or held by an event (LandSandBoat ignores the request in an event).
+        /// </summary>
+        private void CheckZoneLines(Vector3 position)
+        {
+            var world = _parser.World;
+            // A placement while the request waits is LandSandBoat's refusal (S2C 0x065 turning the player round): the
+            // screen comes back and the player must walk out and back in.
+            if (_zoneLines.PendingId != null && !ZoneTransitionPending && _parser.LocalPlayer.PositionCorrectionCount != _zoneLineCorrectionMark)
+            {
+                GordianLog.Info("ZONE", $"Zone line '{_zoneLines.PendingId}' refused by the server.");
+                _zoneLines.CancelPending();
+            }
+            bool canSend = CurrentState == SessionState.ActiveInWorld && !ZoneTransitionPending
+                && !_parser.LocalPlayer.IsMovementLocked && world.EventZoneId == 0;
+            var line = _zoneLines.Update(world.CurrentZoneId, world.Collision?.ZoneLineVolumes, position, canSend,
+                System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
+            if (line is not { } crossing) return;
+            _zoneLineCorrectionMark = _parser.LocalPlayer.PositionCorrectionCount;
+
+            GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
+            Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
+                ? RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom)
+                : RequestZoneTransitionByZonelineAsync(crossing.Id);
+            _ = request.ContinueWith(t => GordianLog.Warning("ZONE", $"Zone line request failed: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         private async Task TriggerImmediatePosUpdateAsync()
@@ -1123,8 +1191,8 @@ namespace Gordian.Core.Network
                                     // Overwrite the queued 0x015 in-place with latest coordinates, heading, and slide frames
                                     Span<byte> existingPos = _outboundQueueBuffer.AsSpan(scanOffset, 32);
                                     BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(4, 4), PositionX);
-                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(8, 4), PositionZ); // Wire offset 8 is Elevation
-                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionY); // Wire offset 12 is North/South
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(8, 4), PositionY); // Wire offset 8 is Elevation (internal Y, as BuildPosPingPongSubPacket)
+                                    BinaryPrimitives.WriteSingleLittleEndian(existingPos.Slice(12, 4), PositionZ); // Wire offset 12 is North/South
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(16, 2), 0); // MovTime: Always 0 on retail FFXI protocol
                                     BinaryPrimitives.WriteUInt16LittleEndian(existingPos.Slice(18, 2), _moveFrame); // MoveFlame / Run Count: accumulating frame counter when moving, 1 when stationary
                                     existingPos[20] = Direction;
@@ -1152,6 +1220,10 @@ namespace Gordian.Core.Network
                                         _currentBufferLength += posPacket.Length;
                                     }
                                 }
+                            }
+                            else if (CurrentState == SessionState.ActiveInWorld && !_positionUpdatesSuspended && _zoneLines.PendingId != null)
+                            {
+                                QueueKeepAliveLocked();
                             }
 
                             await FlushBundledPacketAsync(socket, _serverEndpoint, token).ConfigureAwait(false);

@@ -191,6 +191,83 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.Equal(y, localEnt.Position.Y);
         }
 
+        [Fact]
+        public void ZoneIn_SettlesOntoTheFloorOnceCollisionLoads()
+        {
+            // A zone line lands at the centre of the next zone's landing box, about two yalms above the street (#350).
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(0.0f, -2.0f, 0.0f), IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            var controller = new PlayerLocomotionController(new InputState(), InputProfile.CreateCompact(), world, player);
+            player.RequestGroundSettle();
+
+            // No collision yet: the request waits.
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(-2.0f, localEnt.Position.Y);
+            Assert.True(player.GroundSettlePending);
+
+            world.Collision = new ZoneCollisionMesh(Floor(-10, -10, 10, 10, 0.0f).ToList());
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(0.0f, localEnt.Position.Y, 3);
+            Assert.False(player.GroundSettlePending);
+            Assert.False(controller.IsFalling);
+
+            // A later placement in mid-air (a GM /moveto) still holds: the settle was once per zone-in.
+            player.RequestPositionCorrection(new Vector3(1, -3, 1), 0);
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(-3.0f, localEnt.Position.Y);
+        }
+
+        [Fact]
+        public void ArrivalReady_WaitsForTheSettleAndOneTick()
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(0.0f, -2.0f, 0.0f), IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            var controller = new PlayerLocomotionController(new InputState(), InputProfile.CreateCompact(), world, player);
+            player.RequestGroundSettle();
+            Assert.False(controller.ArrivalReady);
+
+            world.Collision = new ZoneCollisionMesh(Floor(-10, -10, 10, 10, 0.0f).ToList());
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(1, controller.ArrivalSettleCount);
+            Assert.False(controller.ArrivalReady); // settled this tick; reported on the next
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(controller.ArrivalReady);
+        }
+
+        [Fact]
+        public void InputBlocked_StopsMovementAndAutoRun_AndAZoneChangeEndsAutoRun()
+        {
+            var world = new WorldState { CurrentZoneId = 230 };
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = Vector3.Zero, IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            world.Collision = new ZoneCollisionMesh(Floor(-50, -50, 50, 50, 0.0f).ToList());
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player);
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+
+            controller.InputBlocked = true;
+            input.SetKeyDown(GordianKey.W);
+            input.AutorunActive = true;
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.False(input.AutorunActive);
+
+            controller.InputBlocked = false;
+            input.SetKeyUp(GordianKey.W);
+            input.AutorunActive = true;
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(input.AutorunActive);
+            world.CurrentZoneId = 101;
+            world.Collision = new ZoneCollisionMesh(Floor(-50, -50, 50, 50, 0.0f).ToList());
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.False(input.AutorunActive);
+        }
+
         /// <summary>
         /// A ZoneDef payload holding one collision mesh (one triangle) placed once by a translation transform.
         /// </summary>

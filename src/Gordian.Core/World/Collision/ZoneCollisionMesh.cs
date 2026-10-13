@@ -136,6 +136,11 @@ namespace Gordian.Core.World.Collision
         public IReadOnlyList<DoorBlocker> Doors { get; internal set; } = Array.Empty<DoorBlocker>();
 
         /// <summary>
+        /// The zone's zone-line volumes (Section 0x36 <c>z</c> records from every table), see <see cref="ZoneLines"/>.
+        /// </summary>
+        public IReadOnlyList<Resources.Graphics.ZoneInteraction> ZoneLineVolumes { get; internal set; } = Array.Empty<Resources.Graphics.ZoneInteraction>();
+
+        /// <summary>
         /// The level walkable floors (|normal.Y| above 0.7) whose centroid lies in the XZ rectangle: height, area, XZ centroid.
         /// </summary>
         public IEnumerable<(float Height, float Area, Vector2 Centroid)> FloorsNear(Vector2 min, Vector2 max)

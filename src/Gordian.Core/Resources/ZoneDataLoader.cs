@@ -1030,6 +1030,7 @@ namespace Gordian.Core.Resources
                 {
                     zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision, allInteractions);
                     zone.Collision.Doors = ZoneDoors.CreateBlockers(interactions);
+                    zone.Collision.ZoneLineVolumes = ZoneLines.Select(allInteractions);
                 }
             }
 

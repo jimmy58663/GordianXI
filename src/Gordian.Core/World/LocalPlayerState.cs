@@ -31,8 +31,30 @@ namespace Gordian.Core.World
                 else if (!_hasPendingCorrection) _pendingPosition = null;
                 _pendingDirection = direction;
                 _hasPendingCorrection = true;
+                PositionCorrectionCount++;
             }
         }
+
+        /// <summary>
+        /// How many server placements have been queued; a change tells a waiting zone-line request that the server
+        /// answered it with a placement (LandSandBoat's refusal turns the player round with S2C 0x065) instead of a zone change.
+        /// </summary>
+        public int PositionCorrectionCount { get; private set; }
+
+        private volatile bool _groundSettlePending;
+
+        /// <summary>
+        /// Set by a map server login (S2C 0x00A): the zone-in position is where the server put the character, not
+        /// necessarily on the floor (a zone line lands at the centre of the next zone's landing box, about two yalms up,
+        /// #350), so the locomotion loop settles the player onto the ground once the zone's collision is there.
+        /// </summary>
+        public bool GroundSettlePending => _groundSettlePending;
+
+        /// <summary>Asks the locomotion loop to settle the player onto the floor under the zone-in position.</summary>
+        public void RequestGroundSettle() => _groundSettlePending = true;
+
+        /// <summary>Clears <see cref="GroundSettlePending"/> (the locomotion loop settled the player, or a placement superseded it).</summary>
+        public void ClearGroundSettle() => _groundSettlePending = false;
 
         /// <summary>
         /// Takes the pending server correction, if any; <paramref name="position"/> is null for a facing-only change.

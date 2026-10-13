@@ -96,6 +96,8 @@ namespace Gordian.Core.Network
             {
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
+                // The S2C 0x00A login position (set just before) is settled onto this zone's floor once its collision loads (#350).
+                _localPlayer.RequestGroundSettle();
             };
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
             _lifecycleModule.ServerGameTimeReceived += gameTime => _world.Clock.SynchronizeServerTime(gameTime);
