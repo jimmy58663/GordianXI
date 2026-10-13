@@ -8,6 +8,9 @@ using Xunit;
 
 namespace Gordian.App.Tests.Graphics
 {
+    // Both this class and ViewportWindowManagerTests set the shared SessionRegistry's primary rendering session; run them
+    // one after the other (they raced under parallel classes).
+    [Collection("SessionRegistry")]
     public class ViewportViewModelTests
     {
         private static (ViewportViewModel vm, string tempFile) CreateIsolatedViewModel()

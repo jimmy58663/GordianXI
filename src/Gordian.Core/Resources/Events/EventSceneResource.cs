@@ -187,6 +187,14 @@ namespace Gordian.Core.Resources.Events
         /// Scene files use 0x60 (57129 <c>se00</c>, 30905 <c>who1</c>).
         /// </summary>
         Sound,
+
+        /// <summary>
+        /// Op 0x2D: the generator <see cref="SceneCommand.Reference"/> stops emitting; its live particles finish their lives
+        /// (xi-tools docs/fx/spells.md: "0x1E 0x2D ParticleDampen / StopGenerator"). The shared release stops use it on the
+        /// chant circles: <c>ROM/0/0</c> <c>stwh</c> runs 0x5F <c>ner2</c>, 0x1E <c>gn2s</c>, 0x2D <c>gn21</c> and <c>gn20</c>
+        /// (read 2026-10-12, #132 round 2: without it the circle emitted for its whole 1800 frames after the cast).
+        /// </summary>
+        StopGenerator,
     }
 
     /// <summary>
@@ -198,7 +206,7 @@ namespace Gordian.Core.Resources.Events
     {
         /// <summary>Whether the command runs a particle generator or a routine (what <see cref="Gordian.Core.Graphics.SceneEffectPlayer"/> plays).</summary>
         public bool IsEffect => Kind is SceneCommandKind.SpawnGenerator or SceneCommandKind.KillGenerator or SceneCommandKind.ReplaceGenerator
-            or SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine or SceneCommandKind.StopRoutine;
+            or SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine or SceneCommandKind.StopRoutine or SceneCommandKind.StopGenerator;
     }
 
     /// <summary>
@@ -308,6 +316,7 @@ namespace Gordian.Core.Resources.Events
             0x03 => SceneCommandKind.StartRoutine,
             0x73 => SceneCommandKind.LoopRoutine,
             0x5F => SceneCommandKind.StopRoutine,
+            0x2D => SceneCommandKind.StopGenerator,
             _ => null,
         };
 

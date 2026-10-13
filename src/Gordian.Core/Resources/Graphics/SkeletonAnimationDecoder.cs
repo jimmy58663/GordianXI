@@ -105,7 +105,8 @@ namespace Gordian.Core.Resources.Graphics
                         JointIndex = jointIndex,
                         Rotations = resetRots,
                         Translations = resetTrans,
-                        Scales = resetScales
+                        Scales = resetScales,
+                        IsReset = true
                     };
                     continue;
                 }

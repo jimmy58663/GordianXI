@@ -76,7 +76,7 @@ namespace Gordian.Core.Animation
             {
                 clips.AddRange(EntityModelLoader.ParseDatContainer(waist, $"Emote_{file + 6}").Animations);
             }
-            var renamed = new RawMotionRoutine { Name = RoutineName(emote), TotalTicks = routine.TotalTicks, Commands = routine.Commands };
+            var renamed = new RawMotionRoutine { Name = RoutineName(emote), TotalTicks = routine.TotalTicks, Commands = routine.Commands, SoundCommands = routine.SoundCommands, SpellEffects = routine.SpellEffects };
             return new EventMotionBank(file, clips, new[] { renamed });
         }
     }

@@ -46,6 +46,135 @@ namespace Gordian.Core.Animation
 
         public IReadOnlyDictionary<string, AnimationClip> Clips => _clips;
 
+        /// <summary>The bank's routines as read, before links are followed (an action presentation links the actor's own).</summary>
+        internal IReadOnlyDictionary<string, RawMotionRoutine> RawRoutines => _raw;
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, MotionRoutine?[]> _onModel = new();
+
+        /// <summary>
+        /// Routine <paramref name="name"/> flattened for one actor: links reach the bank's routines first, then the actor's
+        /// own (a spell's <c>main</c> runs the caster's release <c>shwh</c>, a monster move its <c>stnm</c>), and clip
+        /// references resolve against the bank's clips, then the actor's (a job ability's <c>cm0?</c> is the actor's).
+        /// Null when it plays no clip, hit or reaction. Cached per model, for <see cref="ActionAsset.MainRoutine"/> only.
+        /// </summary>
+        public MotionRoutine? BuildOnModel(EntityModel model, string name)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            bool cache = name == ActionAsset.MainRoutine;
+            if (cache && _onModel.TryGetValue(model, out var cached)) return cached[0];
+            var lookup = new LayeredRoutines(_raw, model.RawMotionRoutines);
+            int joints = model.Skeleton?.Joints.Count ?? int.MaxValue;
+            var built = MotionRoutineDecoder.Build(lookup, name,
+                clip => _clips.TryGetValue(clip, out var own) ? FitsSkeleton(own, joints) : model.Animations.ContainsKey(clip), model.RangedType);
+            if (cache) _onModel.AddOrUpdate(model, [built]);
+            return built;
+        }
+
+        /// <summary>
+        /// Whether a bank clip can play on a skeleton of <paramref name="joints"/> joints: a clip keying a joint the skeleton
+        /// lacks is authored for another one (a monster move file of another family) and would tear the model apart.
+        /// </summary>
+        internal static bool FitsSkeleton(AnimationClip clip, int joints)
+        {
+            foreach (int joint in clip.Tracks.Keys)
+            {
+                if (joint >= joints) return false;
+            }
+            return true;
+        }
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, IReadOnlyList<RoutineSoundCue>> _soundsOnModel = new();
+
+        /// <summary>
+        /// The sounds routine <see cref="ActionAsset.MainRoutine"/> plays on an actor, through the bank's routines and then
+        /// the actor's (a weapon skill's own sound commands, the release's swish of a spell), on the routine clock; cached per
+        /// model. Generators that play a sound (the audio generators of spells and job abilities) are not included.
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GetSoundsOnModel(EntityModel model, string name)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            if (name == ActionAsset.MainRoutine && _soundsOnModel.TryGetValue(model, out var cached)) return cached;
+            var cues = RoutineSoundCollector.Collect(new LayeredRoutines(_raw, model.RawMotionRoutines), name);
+            if (name == ActionAsset.MainRoutine) _soundsOnModel.AddOrUpdate(model, cues);
+            return cues;
+        }
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, IReadOnlyList<RoutineEffectCue>> _effectsOnModel = new();
+
+        /// <summary>
+        /// The shared effect routines and spell effects routine <see cref="ActionAsset.MainRoutine"/> starts on an actor,
+        /// through the bank's routines and then the actor's (a weapon skill's <c>eis1</c>, a spell's release <c>shwh</c> with
+        /// its <c>stwh</c> / <c>eis4</c>); cached per model. The bank's own generators are played from its effect routines.
+        /// </summary>
+        public IReadOnlyList<RoutineEffectCue> GetEffectsOnModel(EntityModel model, string name)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            if (name == ActionAsset.MainRoutine && _effectsOnModel.TryGetValue(model, out var cached)) return cached;
+            var cues = RoutineEffectCollector.Collect(new LayeredRoutines(_raw, model.RawMotionRoutines), name);
+            if (name == ActionAsset.MainRoutine) _effectsOnModel.AddOrUpdate(model, cues);
+            return cues;
+        }
+
+        /// <summary>Two routine sets read as one, the first winning a name both have.</summary>
+        private sealed class LayeredRoutines : IReadOnlyDictionary<string, RawMotionRoutine>
+        {
+            private readonly IReadOnlyDictionary<string, RawMotionRoutine> _first;
+            private readonly IReadOnlyDictionary<string, RawMotionRoutine> _second;
+
+            public LayeredRoutines(IReadOnlyDictionary<string, RawMotionRoutine> first, IReadOnlyDictionary<string, RawMotionRoutine> second)
+            {
+                _first = first;
+                _second = second;
+            }
+
+            public RawMotionRoutine this[string key] => TryGetValue(key, out var value) ? value : throw new KeyNotFoundException(key);
+
+            public IEnumerable<string> Keys
+            {
+                get
+                {
+                    foreach (var key in _first.Keys) yield return key;
+                    foreach (var key in _second.Keys)
+                    {
+                        if (!_first.ContainsKey(key)) yield return key;
+                    }
+                }
+            }
+
+            public IEnumerable<RawMotionRoutine> Values
+            {
+                get
+                {
+                    foreach (var key in Keys) yield return this[key];
+                }
+            }
+
+            public int Count
+            {
+                get
+                {
+                    int count = _first.Count;
+                    foreach (var key in _second.Keys)
+                    {
+                        if (!_first.ContainsKey(key)) count++;
+                    }
+                    return count;
+                }
+            }
+
+            public bool ContainsKey(string key) => _first.ContainsKey(key) || _second.ContainsKey(key);
+
+            public bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out RawMotionRoutine value) =>
+                _first.TryGetValue(key, out value) || _second.TryGetValue(key, out value);
+
+            public IEnumerator<KeyValuePair<string, RawMotionRoutine>> GetEnumerator()
+            {
+                foreach (var key in Keys) yield return new KeyValuePair<string, RawMotionRoutine>(key, this[key]);
+            }
+
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
         /// <summary>Reads a bank from its DAT; null when it has no routines.</summary>
         public static EventMotionBank? Parse(ReadOnlySpan<byte> file, int fileId)
         {

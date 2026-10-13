@@ -96,7 +96,7 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             return changed
-                ? new RawMotionRoutine { Name = routine.Name, TotalTicks = routine.TotalTicks, Commands = routine.Commands, SoundCommands = resolved }
+                ? new RawMotionRoutine { Name = routine.Name, TotalTicks = routine.TotalTicks, Commands = routine.Commands, SoundCommands = resolved, SpellEffects = routine.SpellEffects }
                 : routine;
         }
 

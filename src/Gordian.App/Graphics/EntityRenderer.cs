@@ -116,6 +116,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         public Vector3? TargetAnchor { get; private set; }
 
+        /// <summary>The entity under the sub-target cursor (#240), 0 = none; its overhead point is <see cref="SubTargetAnchor"/>.</summary>
+        public uint SubTargetServerId { get; set; }
+
+        /// <summary>The sub-target's overhead point this frame, when drawn.</summary>
+        public Vector3? SubTargetAnchor { get; private set; }
+
         /// <summary>
         /// The overhead point (see <see cref="TargetAnchor"/>) of every entity drawn this frame, where its name plate is
         /// centred.
@@ -395,6 +401,7 @@ namespace Gordian.App.Graphics
             int visible = 0;
             int culled = 0;
             TargetAnchor = null;
+            SubTargetAnchor = null;
             _overheadAnchors.Clear();
 
             float fogFar = (environment.FogEnabled && environment.FogEnd > environment.FogStart) ? environment.FogEnd : -1.0f;
@@ -539,6 +546,7 @@ namespace Gordian.App.Graphics
                         // A door is still a target: retail points the cursor at its middle, where the server places the
                         // door entity (the centre of its doorway's 0x36 box; Metalworks retail screenshot, 2026-10-03).
                         if (entity.Type == EntityType.Door && TargetServerId != 0 && entity.ServerId == TargetServerId) TargetAnchor = pos;
+                        if (entity.Type == EntityType.Door && SubTargetServerId != 0 && entity.ServerId == SubTargetServerId) SubTargetAnchor = pos;
                         continue;
                     }
 
@@ -641,6 +649,7 @@ namespace Gordian.App.Graphics
                 var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
+                if (SubTargetServerId != 0 && entity.ServerId == SubTargetServerId) SubTargetAnchor = overhead;
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
                 if (faded)

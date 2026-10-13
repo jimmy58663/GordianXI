@@ -24,7 +24,8 @@ namespace Gordian.Core.Ui
         bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true, bool HasTreasure = false);
 
     /// <summary>A label sprite of the command menus: the DAT menu and button that carry it.</summary>
-    public readonly record struct StockUiCommandLabel(string Text, string Menu, int Button);
+    /// <param name="Sprite">A <c>windowps</c> image to draw instead of a DAT button's label, for labels no menu carries (Release, #668); -1 for none.</param>
+    public readonly record struct StockUiCommandLabel(string Text, string Menu, int Button, int Sprite = -1);
 
     /// <summary>One row of a composed command menu: its label sprite, what it does, and whether it is greyed.</summary>
     public readonly record struct StockUiCommandRow(StockUiCommandLabel Label, StockUiMenuEntry Entry, bool Greyed = false);
@@ -72,6 +73,12 @@ namespace Gordian.Core.Ui
         public static readonly StockUiCommandLabel SwitchTarget = new("Switch Target", "attackmo", 1);
         public static readonly StockUiCommandLabel Disengage = new("Disengage", "mp_pmode", 6); // "attackmo" 5 is the arrowed variant
 
+        /// <summary>
+        /// Release (a Trust's command menu, retail image-25, 2026-10-12): the <c>windowps</c> #668 label, which no DAT menu uses
+        /// (found by reading every label sprite's <c>menu2fon</c> glyphs; help 719 "Release an alter ego under your service.").
+        /// </summary>
+        public static readonly StockUiCommandLabel Release = new("Release", Template, 0, Sprite: 668);
+
         private static readonly StockUiMenuEntry NotAvailable = new(string.Empty, Command: StockUiMenuCommand.NotAvailable);
 
         private static StockUiCommandRow Row(StockUiCommandLabel label, StockUiMenuCommand command, bool greyed = false) =>
@@ -85,6 +92,18 @@ namespace Gordian.Core.Ui
         /// ... Disengage, Treasure, Check). PROVISIONAL: that retail shows it only with items in the pool (#143).
         /// </summary>
         private static readonly StockUiCommandRow TreasureRow = Row(Treasure, StockUiMenuCommand.TreasurePool);
+
+        /// <summary>
+        /// Magic ▶: Confirm lists all the magic you can cast, right opens the categories beside the menu (<c>magselec</c>; retail
+        /// capture 2026-10-11, maintainer). Abilities opens <c>abiselec</c> (#240, #353).
+        /// </summary>
+        private static readonly StockUiCommandRow MagicRow = new(Magic, new StockUiMenuEntry(Magic.Text, Opens: StockUiActionMenu.CommandMagicCategoryMenu,
+            Command: StockUiMenuCommand.SpellList, Argument: 0));
+        private static readonly StockUiCommandRow AbilitiesRow = new(Abilities, new StockUiMenuEntry(Abilities.Text, Opens: StockUiActionMenu.CommandAbilityMenu));
+
+        /// <summary>Trust opens the Trust spell list at once (PROVISIONAL: retail's window for it is not captured).</summary>
+        private static readonly StockUiCommandRow TrustRow = new(Trust,
+            new StockUiMenuEntry(Trust.Text, Command: StockUiMenuCommand.SpellList, Argument: StockUiActionMenu.TrustKind));
 
         /// <summary>Items: the Items window (#351), its items used on the menu's target.</summary>
         private static readonly StockUiCommandRow ItemsRow = Row(Items, StockUiMenuCommand.Items);
@@ -100,10 +119,10 @@ namespace Gordian.Core.Ui
                     // Retail (the maintainer's in-game checks, 2026-09-28): yourself and another player both show
                     // Chat, Magic, Abilities, Trust, Items, Trade, Check. Disengage's place while engaged is a guess.
                     rows.Add(new StockUiCommandRow(Chat, new StockUiMenuEntry(Chat.Text, Opens: ChatMenu)));
-                    rows.Add(Unavailable(Magic));
-                    rows.Add(Unavailable(Abilities));
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
                     if (context.Engaged) rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
-                    rows.Add(Unavailable(Trust));
+                    rows.Add(TrustRow);
                     rows.Add(ItemsRow);
                     rows.Add(Unavailable(Trade));
                     if (context.HasTreasure) rows.Add(TreasureRow);
@@ -116,9 +135,9 @@ namespace Gordian.Core.Ui
                         // "attackmo" (Switch Target, Abilities, Magic, Items, Disengage, Treasure, Check) with the
                         // unengaged list's order: Magic before Abilities, Trust after them (in-game check 2026-09-28).
                         rows.Add(Unavailable(SwitchTarget));
-                        rows.Add(Unavailable(Magic));
-                        rows.Add(Unavailable(Abilities));
-                        rows.Add(Unavailable(Trust));
+                        rows.Add(MagicRow);
+                        rows.Add(AbilitiesRow);
+                        rows.Add(TrustRow);
                         rows.Add(ItemsRow);
                         rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                         if (context.HasTreasure) rows.Add(TreasureRow);
@@ -128,9 +147,9 @@ namespace Gordian.Core.Ui
                     {
                         // Retail (in-game check 2026-09-28): Attack, Magic, Abilities, Trust, Items, Check.
                         rows.Add(Row(Attack, StockUiMenuCommand.Attack));
-                        rows.Add(Unavailable(Magic));
-                        rows.Add(Unavailable(Abilities));
-                        rows.Add(Unavailable(Trust));
+                        rows.Add(MagicRow);
+                        rows.Add(AbilitiesRow);
+                        rows.Add(TrustRow);
                         rows.Add(ItemsRow);
                         if (context.HasTreasure) rows.Add(TreasureRow);
                         rows.Add(Row(Check, StockUiMenuCommand.Check));
@@ -138,11 +157,19 @@ namespace Gordian.Core.Ui
                     break;
 
                 case StockUiTargetKind.Pet:
-                case StockUiTargetKind.Trust:
-                    rows.Add(Unavailable(Magic));
-                    rows.Add(Unavailable(Abilities));
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
                     rows.Add(ItemsRow);
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
+                    break;
+
+                case StockUiTargetKind.Trust:
+                    // Retail image-25 (2026-10-12): Magic ▶, Abilities, Trust, Items, Release.
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
+                    rows.Add(TrustRow);
+                    rows.Add(Unavailable(Items));
+                    rows.Add(Row(Release, StockUiMenuCommand.ReleaseTrust));
                     break;
             }
             return rows;
@@ -179,8 +206,9 @@ namespace Gordian.Core.Ui
                     NavDown = (sbyte)(i == rows.Count - 1 ? 1 : i + 2),
                     NavLeft = (sbyte)(i + 1),
                     NavRight = (sbyte)(i + 1),
-                    Shapes = source?.Shapes ?? Array.Empty<UiShapeReference>(),
-                    HelpTextId = source?.HelpTextId ?? -1,
+                    Shapes = label.Sprite >= 0 ? new[] { new UiShapeReference(0, (ushort)label.Sprite, "menu    windowps") }
+                        : source?.Shapes ?? Array.Empty<UiShapeReference>(),
+                    HelpTextId = label.Sprite >= 0 ? -1 : source?.HelpTextId ?? -1,
                 });
             }
 

@@ -105,6 +105,38 @@ namespace Gordian.App.Graphics
             _ => new UiColor(0x7F, 0x40, 0x40, 0x7F),
         };
 
+        /// <summary>The pet's name colour (retail image-45 / -48, 2026-10-12: sampled (194, 255, 255), the party members' pale cyan).</summary>
+        public static readonly UiColor PetNameColor = new(0x61, 0x80, 0x80, 0x80);
+
+        /// <summary>
+        /// Where the pet row sits against your own party row: 113 px to its left and 5 px lower (retail image-45 / -48:
+        /// "Garuda" / "WarlikePatrick" beside "Cybin"; no window frame), its HP gauge 25 px right of and 7 px under the name's
+        /// top, as a party row's.
+        /// </summary>
+        public const float PetRowOffsetX = -113, PetRowOffsetY = 5, PetGaugeDx = 25, PetGaugeDy = 7;
+
+        /// <summary>
+        /// The pet row (retail image-45 / -48): the pet's name in <c>fontshp</c> at 7/8 in pale cyan and its HP gauge, no
+        /// frame and no MP or TP (the captures show none). <paramref name="x"/> / <paramref name="y"/> are the name's top-left.
+        /// </summary>
+        public static void DrawPetRow(StockUiRenderer renderer, UiFont font, string name, int hpPercent, float x, float y, float s,
+            float gaugeDx = PetGaugeDx, float gaugeDy = PetGaugeDy)
+        {
+            DrawGauge(renderer, x + gaugeDx * s, y + gaugeDy * s, 64, withKnob: true, HpGaugeColor, hpPercent, s);
+            renderer.DrawText(font, name, x, y, s * TextScale, PetNameColor);
+        }
+
+        /// <summary>The pet row beside your own row of the party window (row <paramref name="ownRow"/>).</summary>
+        public static void DrawPetRow(StockUiRenderer renderer, UiFont font, UiMenuDefinition menu, StockUiPlacement placement, int ownRow,
+            string name, int hpPercent)
+        {
+            if (ownRow < 0 || ownRow >= menu.Buttons.Count) return;
+            float s = placement.Scale;
+            var button = menu.Buttons[ownRow];
+            float x = placement.X + (button.X + PetRowOffsetX) * s, y = placement.Y + (button.Y + PetRowOffsetY) * s;
+            DrawPetRow(renderer, font, name, hpPercent, x, y, s);
+        }
+
         public static void Draw(StockUiRenderer renderer, UiFont font, UiMenuDefinition menu, StockUiPlacement placement,
             IReadOnlyList<PartyRowVitals> rows, bool showTp)
         {

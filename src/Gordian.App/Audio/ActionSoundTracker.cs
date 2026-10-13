@@ -24,8 +24,13 @@ namespace Gordian.App.Audio
     /// <param name="IsDead">Whether the actor is dead (its death motion plays).</param>
     /// <param name="IsAttackRound">Whether the playing action is a melee attack (a swing or counter, S2C 0x028 basic attack).</param>
     /// <param name="OffHand">Whether the playing action is an off-hand attack (the result's <c>sub_kind</c> 1).</param>
+    /// <param name="Cues">
+    /// The sounds of a playing action presentation (#132: a weapon skill's <c>main</c>, through its DAT's routines and the
+    /// actor's), played instead of <paramref name="Routine"/>'s; null otherwise.
+    /// </param>
     public readonly record struct ActorSoundState(uint Id, Vector3 Position, EntityModel? Model, string? Routine, int ActionSerial,
-        float ActionTicks, int ReactionSerial, HitReaction LastReaction, bool IsDead, bool IsAttackRound = false, bool OffHand = false);
+        float ActionTicks, int ReactionSerial, HitReaction LastReaction, bool IsDead, bool IsAttackRound = false, bool OffHand = false,
+        IReadOnlyList<RoutineSoundCue>? Cues = null);
 
     /// <summary>
     /// Combat and action sounds (#41): plays the sounds an actor's motion routines carry, on the routine clock, so they
@@ -90,9 +95,16 @@ namespace Gordian.App.Audio
             string? routine = active is not null && a.Model is { } model && model.MotionRoutines.TryGetValue(active.Name, out var own)
                 && ReferenceEquals(own, active) ? active.Name : null;
             ActionRequest? request = a.ActiveRequest;
-            bool attack = request is { Motion: ActionMotion.Swing or ActionMotion.Counter };
+            // A presentation's main (#132) is not the model's: its sounds come through the presentation's own routines.
+            IReadOnlyList<RoutineSoundCue>? cues = null;
+            if (routine == null && active is not null && a.Model is { } actorModel && request?.Asset?.Motion is { } bank
+                && ReferenceEquals(bank.BuildOnModel(actorModel, ActionAsset.MainRoutine), active))
+            {
+                cues = bank.GetSoundsOnModel(actorModel, ActionAsset.MainRoutine);
+            }
+            bool attack = cues == null && request is { Motion: ActionMotion.Swing or ActionMotion.Counter };
             return new ActorSoundState(entity.ServerId, entity.Position, a.Model, routine, a.ActionSerial, a.ActionTicks,
-                a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death, attack, attack && request!.SubKind == 1);
+                a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death, attack, attack && request!.SubKind == 1, cues);
         }
 
         /// <summary>Checks every drawn actor near the listener and adds the sounds due this frame.</summary>
@@ -122,7 +134,12 @@ namespace Gordian.App.Audio
             }
 
             EntityModel? model = actor.Model;
-            if (model is not null && actor.Routine is { Length: > 0 } routine)
+            if (actor.Cues is { } presentation)
+            {
+                bool started = actor.ActionSerial != last.ActionSerial;
+                Play(presentation, started ? -1f : last.ActionTicks, actor.ActionTicks, actor.Position, into);
+            }
+            else if (model is not null && actor.Routine is { Length: > 0 } routine)
             {
                 bool started = actor.ActionSerial != last.ActionSerial;
                 float from = started ? -1f : last.ActionTicks;
