@@ -16,6 +16,8 @@ namespace Gordian.Core.Input
 
         // Raw physical inputs
         private readonly HashSet<GordianKey> _heldKeys = new HashSet<GordianKey>();
+        private readonly HashSet<GordianKey> _previousKeys = new HashSet<GordianKey>();
+        private readonly HashSet<GordianKey> _pressedKeys = new HashSet<GordianKey>();
         private InputModifiers _modifiers = InputModifiers.None;
         private MouseButton _heldMouseButtons = MouseButton.None;
         private GamepadState _gamepadState = GamepadState.Disconnected;
@@ -193,6 +195,8 @@ namespace Gordian.Core.Input
             lock (_lock)
             {
                 _heldKeys.Clear();
+                _previousKeys.Clear();
+                _pressedKeys.Clear();
                 _modifiers = InputModifiers.None;
                 _heldMouseButtons = MouseButton.None;
                 _gamepadState = GamepadState.Disconnected;
@@ -251,6 +255,15 @@ namespace Gordian.Core.Input
                 _releasedActions.Clear();
                 _gamepadActions.Clear();
 
+                // 0. Keys that went down since the last update (the macro palette's Ctrl/Alt + Shift + digit, arrows).
+                _pressedKeys.Clear();
+                foreach (var key in _heldKeys)
+                {
+                    if (!_previousKeys.Contains(key)) _pressedKeys.Add(key);
+                }
+                _previousKeys.Clear();
+                foreach (var key in _heldKeys) _previousKeys.Add(key);
+
                 // 1. Evaluate Keyboard key chords
                 foreach (var key in _heldKeys)
                 {
@@ -260,8 +273,10 @@ namespace Gordian.Core.Input
                     {
                         _heldActions.Add(act);
                     }
-                    // If no modifier match and modifiers were pressed, also check modifier-free chord
-                    else if (_modifiers != InputModifiers.None)
+                    // If no modifier match and modifiers were pressed, also check modifier-free chord. Ctrl or Alt held
+                    // with a macro palette key (digits, arrows, Enter) is the palette's (#339): Ctrl+Up changes the
+                    // macro set rather than also turning the camera.
+                    else if (_modifiers != InputModifiers.None && !IsMacroPaletteKey(key, _modifiers))
                     {
                         var plainChord = new InputChord(key, InputModifiers.None);
                         if (profile.TryGetAction(plainChord, menuContext, out var plainAct))
@@ -339,7 +354,7 @@ namespace Gordian.Core.Input
                             }
                         }
                         // A held macro palette (retail: hold LT / RT, then a button) takes the pad's other buttons, so
-                        // LT + A does not also confirm. Picking a macro with them is not built yet.
+                        // LT + A does not also confirm; the macro controller reads them from GamepadButtonsPressed (#339).
                         for (int i = 0; i < count; i++)
                         {
                             if (palette && !InputProfile.IsMacroPaletteAction(padActs[i])) continue;
@@ -393,6 +408,16 @@ namespace Gordian.Core.Input
         }
 
         /// <summary>
+        /// Whether a key held with these modifiers belongs to the macro palette (#339): with Ctrl or Alt held, the digits
+        /// (run a macro, with Shift change the set), the arrows (change the set, pick a macro) and Enter (run the picked
+        /// macro). Such keys do not fall back to their unmodified binding.
+        /// </summary>
+        public static bool IsMacroPaletteKey(GordianKey key, InputModifiers modifiers) =>
+            (modifiers & (InputModifiers.Control | InputModifiers.Alt)) != 0
+            && key is (>= GordianKey.D0 and <= GordianKey.D9) or GordianKey.Up or GordianKey.Down or GordianKey.Left or GordianKey.Right
+                or GordianKey.Enter or GordianKey.NumPadEnter;
+
+        /// <summary>
         /// Atomically retrieves the accumulated mouse delta and wheel offsets and resets them to zero.
         /// </summary>
         public void ConsumeMouseDeltas(out float dx, out float dy, out float wheel)
@@ -434,6 +459,12 @@ namespace Gordian.Core.Input
         public bool WasActionReleased(InputAction action)
         {
             lock (_lock) return _releasedActions.Contains(action);
+        }
+
+        /// <summary>Whether a key went down since the previous <see cref="Update"/>.</summary>
+        public bool WasKeyPressed(GordianKey key)
+        {
+            lock (_lock) return _pressedKeys.Contains(key);
         }
 
         public bool IsKeyHeld(GordianKey key)

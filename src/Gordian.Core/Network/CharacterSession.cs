@@ -168,6 +168,9 @@ namespace Gordian.Core.Network
         /// </summary>
         public Input.PlayerLocomotionController Locomotion { get; }
 
+        /// <summary>The character's macros, palettes and macro runner (#339), kept per character (<see cref="Gordian.Core.Macros.MacroStore"/>).</summary>
+        public Gordian.Core.Macros.MacroController Macros { get; }
+
         private int _serverMessageRequested;
 
         /// <summary>
@@ -224,6 +227,7 @@ namespace Gordian.Core.Network
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
             ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
+            Macros = new Gordian.Core.Macros.MacroController(Gordian.Core.Macros.MacroStore.GetForCharacter(characterName));
             // Every character runs on its own copy of the user's input profile (#314); see InputProfileHub.
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,
@@ -299,6 +303,14 @@ namespace Gordian.Core.Network
                 if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == Packets.LinkshellSlot.LS1 ? 1 : 2, true);
             };
             Locomotion.Chat = Chat;
+            // Macros (#339, #362): the character's own books, run through the chat's submit so each line acts as typed.
+            ActionService.Macros = Macros.Library;
+            ActionService.PetSnapshot = () => Pet.Current;
+            Macros.Runner.SubmitLine = line => Chat.SubmitAsync(line, Chat.Input.Mode);
+            Macros.Runner.IsSubTargeting = () => ActionService.SubTargeting != null;
+            Locomotion.Macros = Macros;
+            Chat.ExpandTokens = ActionService.ExpandChatTokens;
+            Chat.Macros = () => Macros.Library;
             Events.Attach(NetworkManager.Progression, ProgressionModule, World, LocalPlayer, Chat, ActionService.Menus, () => CharacterName,
                 Party, index => _ = EntityModule.RequestEntityInfoAsync(index));
             Locomotion.Events = Events;

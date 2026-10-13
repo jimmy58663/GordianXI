@@ -349,6 +349,10 @@ namespace Gordian.Core.Input
             _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
             _inputState.Update(_profile, elapsed);
 
+            // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,
+            //     the chat line or a selected log window has the input.
+            Macros?.Update(_inputState, blocked: menuOpen || (chat != null && (chat.Input.IsOpen || chat.IsSelecting)));
+
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
             //     the gamepad's cancel button drops it as Escape does, and Tab / Shift+Tab still cycle targets. The
             //     chat button opens it; keypad + (gamepad Y) cycles the log window selected for scrolling.
@@ -429,6 +433,9 @@ namespace Gordian.Core.Input
 
         /// <summary>The session's stock chat (null outside a session).</summary>
         public Ui.StockUiChat? Chat { get; set; }
+
+        /// <summary>The session's macro palettes (null outside a session); fed each tick (#339).</summary>
+        public Macros.MacroController? Macros { get; set; }
 
         /// <summary>The session's event dialog (null outside a session); ticked here so the dialog runs with the input.</summary>
         public Events.EventDialogController? Events { get; set; }

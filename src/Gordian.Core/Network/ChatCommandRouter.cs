@@ -117,6 +117,20 @@ namespace Gordian.Core.Network
         Logout,
         /// <summary><c>/shutdown [on|off]</c>: asks to shut down (C2S 0x0E7 kind 3); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         Shutdown,
+        /// <summary><c>/macro book &lt;1-40&gt;</c> / <c>/macro set &lt;1-10&gt;</c>: changes the current macro book or set (#339, #362); <see cref="ChatCommandResult.Message"/> is the arguments.</summary>
+        Macro,
+        /// <summary><c>/wait [n]</c>: a macro's pause (the macro runner takes it); typed, it does nothing.</summary>
+        Wait,
+        /// <summary><c>/recast "&lt;name&gt;"</c>: shows a spell's or ability's recast (#362); <see cref="ChatCommandResult.Message"/> is the name.</summary>
+        Recast,
+        /// <summary><c>/targetnpc</c>: targets the closest NPC (#362).</summary>
+        TargetNpc,
+        /// <summary><c>/targetbnpc</c>: targets the closest enemy (#362).</summary>
+        TargetBattleNpc,
+        /// <summary><c>/lastsynth</c>: repeats the last synthesis with the same items (#362).</summary>
+        LastSynth,
+        /// <summary><c>/acmd &lt;add|leave|breakup|kick|leader&gt; [name]</c>: alliance commands (#362); <see cref="ChatCommandResult.Message"/> is the arguments.</summary>
+        AllianceCommand,
         DiscoverCommands,
         DiscoverGmCommands,
         LocalEcho,
@@ -267,6 +281,15 @@ namespace Gordian.Core.Network
                     "blacklist" => new ChatCommandResult { Kind = ChatCommandResultKind.Blacklist, Message = args },
                     "untrack" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = "off" },
                     "jobmasterdisp" => ParseJobMasterDisplay(args),
+
+                    // Macros and their commands (#339, #362)
+                    "macro" => new ChatCommandResult { Kind = ChatCommandResultKind.Macro, Message = args },
+                    "wait" => new ChatCommandResult { Kind = ChatCommandResultKind.Wait, Message = args },
+                    "recast" => new ChatCommandResult { Kind = ChatCommandResultKind.Recast, Message = args.Trim().Trim('"').Trim() },
+                    "targetnpc" => new ChatCommandResult { Kind = ChatCommandResultKind.TargetNpc },
+                    "targetbnpc" => new ChatCommandResult { Kind = ChatCommandResultKind.TargetBattleNpc },
+                    "lastsynth" => new ChatCommandResult { Kind = ChatCommandResultKind.LastSynth },
+                    "acmd" => new ChatCommandResult { Kind = ChatCommandResultKind.AllianceCommand, Message = args },
 
                     // Treasure pool
                     "lot" => new ChatCommandResult { Kind = ChatCommandResultKind.TreasureLot, Message = args },
