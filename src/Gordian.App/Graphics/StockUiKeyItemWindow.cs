@@ -17,7 +17,7 @@ namespace Gordian.App.Graphics
     /// selected row in the menus' orange, categories with nothing held greyed; the scrollbar; the help bar ("Key Items"
     /// and the main menu's help); the description of the key item under the cursor at the bottom left, in the item info
     /// window sized to its lines.</item>
-    /// <item>Equipment Sets: the set names over <c>mcres20</c>'s capsules (the page's twenty sets) and "n/10" for the page;
+    /// <item>Equipment Sets: the set names over <c>mcres20</c>'s capsules (the page's twenty sets) and its page arrows;
     /// beside the options, and in the grid while it is edited, the set's items as icons over <c>mcresed</c>'s slots,
     /// "Remove piece" slots with a red X.</item>
     /// </list>
@@ -42,7 +42,7 @@ namespace Gordian.App.Graphics
             StockUiPlacement placement, long timestamp, StockUiScreen screen)
         {
             if (menu.IsKeyItemWindow) DrawKeyItems(renderer, library, font, logFont, menu, placement, timestamp, screen);
-            else if (menu.IsEquipSetList) DrawSetList(renderer, font, menu, placement);
+            else if (menu.IsEquipSetList) DrawSetList(renderer, library, font, menu, placement);
             else if (menu.IsEquipSetOptions && !menu.IsEquipSetGridOpen && library.TryGetMenu(StockUiEquipSets.GridMenu, out var grid))
             {
                 // The set's grid beside its options (PROVISIONAL), at its authored place relative to the options'.
@@ -70,8 +70,7 @@ namespace Gordian.App.Graphics
             var frame = definition.Frame;
             if (screen.Width > 0 && screen.Height > 0)
             {
-                string title = menu.KeyItemCategory?.Name ?? StockUiKeyItems.Title;
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, title, menu.ItemHelpText(StockUiKeyItems.HelpKeyItems), s, (uint)screen.Width, (uint)screen.Height);
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, StockUiKeyItems.Title, menu.ItemHelpText(StockUiKeyItems.HelpKeyItems), s, (uint)screen.Width, (uint)screen.Height);
             }
             if (menu.Rows.Count == 0)
             {
@@ -131,8 +130,8 @@ namespace Gordian.App.Graphics
             }
         }
 
-        /// <summary>The page's set names over the capsules, the page number in the title band's right.</summary>
-        private static void DrawSetList(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        /// <summary>The page's set names over the capsules, and the page arrows.</summary>
+        private static void DrawSetList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
         {
             float s = placement.Scale;
             var definition = menu.Menu;
@@ -148,9 +147,19 @@ namespace Gordian.App.Graphics
                 float y = placement.Y + button.Y * s + (button.Height * s - font.LineHeight * s) * 0.5f;
                 renderer.DrawText(font, set.Name, placement.X + (button.X + StockUiEquipSets.NameInset) * s, y, s, color);
             }
-            string page = $"{menu.FirstRow / StockUiEquipSets.VisibleRows + 1}/{Gordian.Core.World.EquipmentSetBook.PageCount}";
-            float ts = s * StockUiPartyWindow.TextScale;
-            renderer.DrawText(font, page, placement.X + (definition.Frame.Width - 6) * s - font.MeasureWidth(page) * ts, placement.Y + 1 * s, ts);
+            // The DAT's page arrows (buttons 21 / 22, outside the frame): the generic drawing shows them only for the main
+            // menu's pages, so they are drawn here, each while there is a page that way.
+            int pageIndex = menu.FirstRow / StockUiEquipSets.VisibleRows;
+            foreach (var (id, show) in new[] { (StockUiEquipSets.PreviousPageButton, pageIndex > 0), (StockUiEquipSets.NextPageButton, pageIndex < Gordian.Core.World.EquipmentSetBook.PageCount - 1) })
+            {
+                if (!show || definition.FindButton(id) is not { } arrow) continue;
+                foreach (var shape in arrow.Shapes)
+                {
+                    if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
+                    renderer.DrawImage(image, placement.X + arrow.X * s, placement.Y + arrow.Y * s, s);
+                    break;
+                }
+            }
         }
 
         /// <summary>The set's items as 32 x 32 icons over the grid's slots; "Remove piece" slots with a red X.</summary>

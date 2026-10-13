@@ -34,6 +34,9 @@ namespace Gordian.Core.Ui
         public const int EditButton = 1, ChangeNameButton = 2, CopyButton = 3, PasteButton = 4, DeleteButton = 5,
             UseCurrentButton = 6, EquipButton = 7, StyleLockButton = 8;
 
+        /// <summary><c>mcres20</c>'s page arrows (left of and right of its title band).</summary>
+        public const int PreviousPageButton = 21, NextPageButton = 22;
+
         /// <summary>The rows <c>mcres20</c> shows at once (its buttons 1-20).</summary>
         public const int VisibleRows = EquipmentSetBook.SetsPerPage;
 
