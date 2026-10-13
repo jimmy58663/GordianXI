@@ -409,7 +409,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | xi_data | C2S | `0xA1` | account id (LSB) | 28 | `built` | Account id 1, search server address 5, session hash 12; answered with data `0x03` and view `0x20`. Not in XiPackets. |
 | xi_data | S2C | `0x01` | account prompt (LSB) | 5 | `decoded` | LSB's answer to view `0x1F`: the client sends `0xA1` again. |
 | xi_data | S2C | `0x03` | character id list (LSB) | 328 | `decoded` | Count at 1, 16-byte entries from 16. Not the xi_view `0x03` below. |
-| xi_data | C2S | `0xA2` | session key (LSB) | 28 | `built` | 20-byte client key at 1 and the character id at 21; LSB then sends `0x0B` (or `0x04`) on xi_view. LSB stores the key with byte 16 raised by its lobby key accounting ([session-and-packets.md](session-and-packets.md#lobby-session-35)). |
+| xi_data | C2S | `0xA2` | session key (LSB) | 28 | `built` | 20-byte client key at 1 and the character id at 21; LSB then sends `0x0B` (or `0x04`) on xi_view. What LSB stores for the map session depends on its version: MD5 of the session hash and the lobby key counter + 3 since `393e176732`, the key with byte 16 raised before ([session-and-packets.md](session-and-packets.md#map-session-key)). |
 | xi_data | S2C | `0x02` | key prompt (LSB) | 5 | `decoded` | LSB's answer to view `0x07`, before `0xA2`. |
 | xi_view (54001) | C2S | `0x26` | `RequestLobbyLogin` | 152 | `built` | Retail size; version string at 0x74 (LSB compares its first 6 characters with `login.CLIENT_VER`), `excode_client` at 0x84 = every expansion. |
 | xi_view | S2C | `0x05` | `ResponseKey` | 40 | `decoded` | `excode_server` (expansions) and `excode_server2` (features) kept on the session. |
