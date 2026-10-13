@@ -872,6 +872,7 @@ namespace Gordian.App.Graphics
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
                 {
+                    SilenceWorldAudio(deltaSeconds);
                     RenderLobbyFrame(lobby, deltaSeconds);
                     ThrottleFrame(frameStart, mode, cancellationToken);
                     continue;
@@ -882,6 +883,7 @@ namespace Gordian.App.Graphics
                 // same window, which the lobby then fades in over.
                 if (HoldBlack)
                 {
+                    SilenceWorldAudio(deltaSeconds);
                     RenderBlackFrame();
                     if (mode == ViewportRenderMode.Background) ThrottleFrame(frameStart, mode, cancellationToken);
                     else Thread.Sleep(15);
@@ -1381,6 +1383,11 @@ namespace Gordian.App.Graphics
             {
                 GordianLog.Debug("Graphics", $"Paused camera update failed: {ex.Message}");
             }
+            if (Lobby != null || HoldBlack)
+            {
+                SilenceWorldAudio(deltaSeconds);
+                return;
+            }
             try
             {
                 Audio.GameAudioService.Instance.Update(this, session, Camera, deltaSeconds);
@@ -1483,6 +1490,23 @@ namespace Gordian.App.Graphics
         /// <summary>The lobby being drawn and when it first was (render thread only), for its fade in.</summary>
         private Gordian.Core.Ui.Lobby.LobbyController? _lobbyShown;
         private long _lobbyShownAt;
+
+        /// <summary>
+        /// The lobby and the black screen of a Log Out show no world, so the last zone's music, ambience and sounds stop
+        /// there (#368) when this viewport is the one heard; before, the render loop skipped the audio update on those
+        /// frames and the zone music played on in the character select screen.
+        /// </summary>
+        private void SilenceWorldAudio(float deltaSeconds)
+        {
+            try
+            {
+                Audio.GameAudioService.UpdateWithoutWorldIfCreated(this, Camera, deltaSeconds);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+            }
+        }
 
         private void RenderBlackFrame()
         {

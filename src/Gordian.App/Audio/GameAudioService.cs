@@ -184,13 +184,7 @@ namespace Gordian.App.Audio
 
             if (!ReferenceEquals(session, _session))
             {
-                DetachSession(_session);
-                Volatile.Write(ref _session, session);
-                AttachSession(session);
-                _music.StopAll(1f);
-                StopAmbient(1f);
-                _emitters.StopAll(1f);
-                _zoneId = 0;
+                SwitchSession(session);
             }
 
             if (session is null)
@@ -224,6 +218,50 @@ namespace Gordian.App.Audio
             }
 
             _emitters.Update(_listenerPosition, hour / 24f);
+        }
+
+        /// <summary>
+        /// Per-frame update from a viewport that shows no world: the character lobby, or the black screen between a Log Out
+        /// and the lobby (#368). The zone's music, ambience, zone sounds and the last character's sound effects fade out,
+        /// leaving the lobby as quiet as on the first launch (its title music is not played yet, #378). Does nothing
+        /// while the service was never created (a first launch's lobby opens no audio device) or another viewport is heard.
+        /// </summary>
+        public static void UpdateWithoutWorldIfCreated(object owner, ViewportCamera camera, double deltaSeconds)
+        {
+            if (_created)
+            {
+                _instance.Value.Update(owner, null, camera, deltaSeconds);
+            }
+        }
+
+        /// <summary>
+        /// Moves the sound to another session (or to none: <see cref="UpdateWithoutWorldIfCreated"/>). Everything the last
+        /// one was playing fades: music (and an event's music override), ambience, zone sounds, scene sounds and sound effects.
+        /// The trackers forget their actors and the new session's pending scene sounds are dropped, so a switch plays only
+        /// what happens after it (#377): each session has its own world, whose actors would otherwise all look new.
+        /// </summary>
+        private void SwitchSession(CharacterSession? session)
+        {
+            DetachSession(_session);
+            Volatile.Write(ref _session, session);
+            AttachSession(session);
+            _music.StopAll(1f);
+            _music.ClearOverride();
+            StopAmbient(1f);
+            _emitters.StopAll(1f);
+            StopSceneLoops(1f);
+            _engine.Mixer.StopCategory(AudioCategory.Effects, 0.5f);
+            _actionSounds.Clear();
+            _footsteps.Clear();
+            _zoneId = 0;
+            if (session is not null)
+            {
+                var presentation = session.Events.Presentation;
+                _sceneSoundResets = presentation.SoundResets;
+                _sceneSounds.Clear();
+                presentation.TakeDueSounds(_sceneSounds);
+                _sceneSounds.Clear();
+            }
         }
 
         /// <summary>Near / far range of footsteps (provisional).</summary>
