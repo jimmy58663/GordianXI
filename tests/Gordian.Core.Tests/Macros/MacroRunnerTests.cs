@@ -97,7 +97,7 @@ namespace Gordian.Core.Tests.Macros
             };
             var first = runner.Run(new Macro("A", new[] { "/echo a1", "/wait 5", "/echo a2" }));
             // Let the first reach its wait.
-            for (int i = 0; i < 100 && !sent.Contains("/echo a1"); i++) await Task.Delay(10);
+            for (int i = 0; i < 100 && !sent.Contains("/echo a1"); i++) await Task.Delay(10, TestContext.Current.CancellationToken);
             var second = runner.Run(new Macro("B", new[] { "/echo b1" }));
             await second;
             await first;

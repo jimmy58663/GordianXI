@@ -207,7 +207,7 @@ namespace Gordian.Core.Tests.Ui
             if (prompt.SelectedButtonId != 1) controller.Move(InputAction.MenuLeft);
             Assert.Equal(1, prompt.SelectedButtonId);
             controller.Activate();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.Equal("BookWAR", macros.GetBookTitle(1));
             Assert.Equal("One", macros.Get(new MacroSlot(1, 0, MacroPalette.Ctrl, 0)).Title);
         }
