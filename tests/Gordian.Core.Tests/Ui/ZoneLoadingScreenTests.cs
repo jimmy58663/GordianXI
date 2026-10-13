@@ -36,9 +36,43 @@ namespace Gordian.Core.Tests.Ui
             screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0);
             screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0.5, zoneLinePending: true);
             Assert.True(screen.Opacity > 0f);
-            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0.6, zoneLinePending: false);
+            // Refused: the fade-out still reaches full black (round 3: a fade, once started, always covers the change),
+            // holds it briefly and then fades back in.
+            double t = 0.6;
+            for (; t < 3.0 && screen.Opacity < 1f; t += 0.05) screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t, zoneLinePending: false);
+            Assert.Equal(1f, screen.Opacity);
+            for (; t < 3.5 && screen.IsLoading; t += 0.05) screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t, zoneLinePending: false);
             Assert.False(screen.IsLoading);
             Assert.False(screen.IndicatorVisible);
+        }
+
+        [Fact]
+        public void FadeOut_AlwaysReachesBlack_AndHoldsTheMinimumBeforeFadingIn()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0);
+            // A swap to a cached zone: ready almost at once, but the fade-out runs to full black first.
+            screen.Update(SessionState.ActiveInWorld, 230, 0, 230, 0.05, zoneSwapPending: true);
+            Assert.False(screen.IsFullyBlack);
+            double t = 0.1;
+            for (; t < 0.9; t += 0.05) screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t);
+            Assert.True(screen.IsLoading);
+            Assert.True(screen.Opacity < 1f);
+            for (; screen.Opacity < 1f && t < 3; t += 0.05) screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t);
+            double blackAt = t;
+            Assert.True(screen.IndicatorVisible);
+            for (; screen.IsLoading && t < 3; t += 0.01) screen.Update(SessionState.ActiveInWorld, 230, 0, 230, t);
+            Assert.InRange(t - blackAt, ZoneLoadingScreen.MinimumBlackSeconds - 0.06, ZoneLoadingScreen.MinimumBlackSeconds + 0.06);
+        }
+
+        [Fact]
+        public void EventSceneZoneSwap_CountsAsLoading()
+        {
+            var screen = new ZoneLoadingScreen();
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 0, 230, 0));
+            // An event opens Windurst Walls (239) for its scene: the swap loads under the black, then the event's zone is its own.
+            Assert.True(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 230, 1, zoneSwapPending: true));
+            Assert.False(screen.ComputeLoading(SessionState.ActiveInWorld, 230, 239, 239, 2));
         }
 
         [Fact]

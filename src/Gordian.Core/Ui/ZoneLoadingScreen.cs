@@ -60,20 +60,42 @@ namespace Gordian.Core.Ui
             _lastSeconds = double.NaN;
             _waitingZone = 0;
             _settledZone = 0;
+            _fadingOut = false;
+            _blackSince = double.NaN;
             IsLoading = black;
         }
+
+        /// <summary>
+        /// Shortest time the screen stays fully black before it fades in (a zone already in the GPU cache can be ready
+        /// before the fade-out ends): long enough to draw a frame or two of the new zone, the settled player and the
+        /// snapped camera under the black (round 3 of in-game testing saw them change while the fade was still running).
+        /// </summary>
+        public const double MinimumBlackSeconds = 0.2;
+
+        private bool _fadingOut;
+        private double _blackSince = double.NaN;
+
+        /// <summary>
+        /// Whether the view is fully black (a new zone may be swapped in now, unseen). A zone swap waits for this (#350
+        /// round 3): the viewport keeps drawing the old zone while the screen fades out and shows the new one only under
+        /// full black.
+        /// </summary>
+        public bool IsFullyBlack => _opacity >= 1f;
 
         /// <summary>
         /// Whether a session's view is loading: the session is connecting to or zoning into a map server (not yet in
         /// the world), or it is in the world but its zone's geometry or the player's own model
         /// (<paramref name="playerReady"/>) is not on screen yet (for at most <see cref="GeometryWaitSeconds"/>), so the
         /// player never appears as the placeholder model while the look is still on its way (round-2 in-game test). Once
-        /// a zone has finished loading it stays loaded until the zone changes. An event's scene zone
-        /// (<paramref name="eventZone"/>) is the event's own business and does not count. A zone-line request waiting for
-        /// the server's answer (<paramref name="zoneLinePending"/>) counts too: retail goes black as the player crosses.
+        /// a zone has finished loading it stays loaded until the zone changes. A zone-line request waiting for the server's
+        /// answer (<paramref name="zoneLinePending"/>) counts too: retail goes black as the player crosses. And any zone
+        /// geometry swap the view has to make (<paramref name="zoneSwapPending"/>: the zone to draw, the session's or an
+        /// event's scene zone, is not the one on screen) counts, so an event's or a cutscene's zone, the first zone-in after
+        /// character creation and any other swap load under the black too (round 3). Otherwise an event's scene zone
+        /// (<paramref name="eventZone"/>) is the event's own business.
         /// </summary>
         public bool ComputeLoading(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true, bool zoneLinePending = false)
+            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false)
         {
             if (state is SessionState.ConnectingToGameServer or SessionState.ExchangingCryptoKeys or SessionState.LoadingWorldData)
             {
@@ -81,42 +103,65 @@ namespace Gordian.Core.Ui
                 _settledZone = 0;
                 return true;
             }
-            if (state != SessionState.ActiveInWorld || eventZone != 0 || currentZone == 0 || currentZone == _settledZone)
+            if (state != SessionState.ActiveInWorld)
+            {
+                _waitingZone = 0;
+                return false;
+            }
+            if (!zoneSwapPending && (eventZone != 0 || currentZone == 0 || currentZone == _settledZone))
             {
                 _waitingZone = 0;
                 // The zone-line request (#350): retail fades to black as soon as the player crosses, before the server answers.
-                return state == SessionState.ActiveInWorld && eventZone == 0 && zoneLinePending;
+                return eventZone == 0 && zoneLinePending;
             }
-            if (loadedZone == currentZone && playerReady)
+            if (!zoneSwapPending && loadedZone == currentZone && playerReady)
             {
                 _waitingZone = 0;
                 _settledZone = currentZone;
                 return false;
             }
-            if (_waitingZone != currentZone)
+            ushort waitKey = currentZone != 0 ? currentZone : eventZone;
+            if (_waitingZone != waitKey)
             {
-                _waitingZone = currentZone;
+                _waitingZone = waitKey;
                 _waitingSince = nowSeconds;
             }
             if (nowSeconds - _waitingSince < GeometryWaitSeconds) return true;
-            _settledZone = currentZone;
+            if (!zoneSwapPending) _settledZone = currentZone;
             return false;
         }
 
-        /// <summary>Advances the fade toward black while <paramref name="loading"/>, toward clear otherwise; returns the opacity.</summary>
+        /// <summary>
+        /// Advances the fade toward black while <paramref name="loading"/>, toward clear otherwise; returns the opacity.
+        /// A fade-out, once started, always reaches full black, and the black then holds for at least
+        /// <see cref="MinimumBlackSeconds"/>, even when the loading ended meanwhile: the black covers the whole swap.
+        /// <see cref="IsLoading"/> stays true until the fade-in may start.
+        /// </summary>
         public float Update(bool loading, double nowSeconds)
         {
-            IsLoading = loading;
             double dt = double.IsNaN(_lastSeconds) ? 0 : Math.Clamp(nowSeconds - _lastSeconds, 0, 0.25);
             _lastSeconds = nowSeconds;
-            float step = (float)(dt / (loading ? FadeOutSeconds : FadeInSeconds));
-            _opacity = loading ? Math.Min(1f, _opacity + step) : Math.Max(0f, _opacity - step);
+            if (loading && _opacity < 1f) _fadingOut = true;
+            if (_opacity >= 1f)
+            {
+                _fadingOut = false;
+                if (double.IsNaN(_blackSince)) _blackSince = nowSeconds;
+            }
+            else
+            {
+                _blackSince = double.NaN;
+            }
+            bool holdBlack = _opacity >= 1f && !double.IsNaN(_blackSince) && nowSeconds - _blackSince < MinimumBlackSeconds;
+            bool darken = loading || _fadingOut || holdBlack;
+            IsLoading = darken;
+            float step = (float)(dt / (darken ? FadeOutSeconds : FadeInSeconds));
+            _opacity = darken ? Math.Min(1f, _opacity + step) : Math.Max(0f, _opacity - step);
             return _opacity;
         }
 
         /// <summary><see cref="ComputeLoading"/> and <see cref="Update"/> in one call.</summary>
         public float Update(SessionState state, ushort currentZone, ushort eventZone, ushort loadedZone, double nowSeconds,
-            bool playerReady = true, bool zoneLinePending = false) =>
-            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady, zoneLinePending), nowSeconds);
+            bool playerReady = true, bool zoneLinePending = false, bool zoneSwapPending = false) =>
+            Update(ComputeLoading(state, currentZone, eventZone, loadedZone, nowSeconds, playerReady, zoneLinePending, zoneSwapPending), nowSeconds);
     }
 }

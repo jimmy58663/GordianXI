@@ -202,6 +202,8 @@ namespace Gordian.App.Graphics
                     WorldState = value?.World;
                     // A session still connecting starts black (#36); one already in the world shows at once.
                     _loadingScreen.Reset(black: value != null && value.State != SessionState.ActiveInWorld);
+                    // Switching characters shows the other one's zone at once (#322), not under a zoning fade.
+                    _ungatedZoneSwap = value != null && value.State == SessionState.ActiveInWorld;
 
                     if (_activeSession != null)
                     {
@@ -397,8 +399,55 @@ namespace Gordian.App.Graphics
         // to a resident zone meanwhile) does not replace it.
         private int _zoneLoadSerial;
 
+        /// <summary>A zone loaded while the screen was still fading out, waiting for full black (under <see cref="_renderLock"/>).</summary>
+        private (ushort Zone, ZoneGeometry Geometry, ZoneTerrainRenderer.ResidentZone Resident, int Generation, int Serial)? _deferredZone;
+
+        /// <summary>Set when the viewport switches to another session: its zone is shown at once (the #322 switch), not under a fade.</summary>
+        private volatile bool _ungatedZoneSwap;
+
+        /// <summary>
+        /// Whether a zone swap must wait (#350 round 3): a session is shown and its screen is not fully black. The new zone
+        /// is drawn only under the black, so neither its half-loaded parts nor the camera moving to it show through the fade.
+        /// </summary>
+        private bool ZoneSwapGated => _activeSession != null && !_ungatedZoneSwap && !_loadingScreen.IsFullyBlack;
+
+        /// <summary>Whether the zone to draw (the session's, or an event's scene zone) is not the one on screen.</summary>
+        private bool ZoneSwapPending(Gordian.Core.Network.CharacterSession session)
+        {
+            ushort scene = session.World.SceneZoneId;
+            ushort wanted = scene != 0 ? scene : session.World.CurrentZoneId;
+            if (_ungatedZoneSwap)
+            {
+                // The switched-to session's zone is on screen already (or it has none yet): later swaps fade again.
+                if (wanted == 0 || wanted == _loadedZoneId) _ungatedZoneSwap = false;
+                return false;
+            }
+            return wanted != 0 && wanted != _loadedZoneId;
+        }
+
+        /// <summary>Shows the deferred zone once the screen is black (render thread).</summary>
+        private void ShowDeferredZone()
+        {
+            if (ZoneSwapGated) return;
+            lock (_renderLock)
+            {
+                if (_deferredZone is not { } deferred) return;
+                _deferredZone = null;
+                if (_renderer != null && deferred.Serial == Volatile.Read(ref _zoneLoadSerial)) ShowZone(deferred.Zone, deferred.Geometry, deferred.Resident, deferred.Generation);
+                else _renderer?.SharedResources.Zones.Release(deferred.Resident);
+            }
+        }
+
+        /// <summary>Drops a deferred zone that a newer choice replaced (under <see cref="_renderLock"/>); it stays resident.</summary>
+        private void ReleaseDeferredZone()
+        {
+            if (_deferredZone is { } stale) _renderer?.SharedResources.Zones.Release(stale.Resident);
+            _deferredZone = null;
+        }
+
         private void CheckAndLoadPendingZone()
         {
+            ShowDeferredZone();
             var rm = ResourceManager;
             var zones = _renderer?.SharedResources.Zones;
             if (rm == null || zones == null) return;
@@ -414,6 +463,11 @@ namespace Gordian.App.Graphics
             int targetZone = _pendingZoneLoad != 0 ? _pendingZoneLoad : (loadedZoneStale ? _loadedZoneId : 0);
             if (targetZone == 0 || (targetZone == _loadedZoneId && !loadedZoneStale)) return;
 
+            // Under a fade-out the new zone waits for full black (#350 round 3): it may load meanwhile, but is shown only then.
+            if (ZoneSwapGated && !loadedZoneStale)
+            {
+                if (rm.TryGetLoadedZone((ushort)targetZone) is { } residentGeometry && zones.IsResident(residentGeometry)) return;
+            }
             // A zone already on the GPU (shown in another window, preloaded for a character in it, or shown before) is
             // only rebound, on this frame: the Ctrl+Tab case of #322.
             if (TryShowResidentZone((ushort)targetZone, generation, rm, zones)) return;
@@ -445,7 +499,16 @@ namespace Gordian.App.Graphics
                         {
                             if (_renderer != null && serial == Volatile.Read(ref _zoneLoadSerial))
                             {
-                                ShowZone(zoneToLoad, zoneGeom, resident, generation);
+                                if (ZoneSwapGated)
+                                {
+                                    // Loaded before the screen is black: shown by ShowDeferredZone once it is.
+                                    ReleaseDeferredZone();
+                                    _deferredZone = (zoneToLoad, zoneGeom, resident, generation, serial);
+                                }
+                                else
+                                {
+                                    ShowZone(zoneToLoad, zoneGeom, resident, generation);
+                                }
                                 shown = true;
                             }
                         }
@@ -510,6 +573,7 @@ namespace Gordian.App.Graphics
         private void ShowZone(ushort zoneId, ZoneGeometry zoneGeom, ZoneTerrainRenderer.ResidentZone resident, int generation)
         {
             _renderer!.ActivateZone(resident);
+            _ungatedZoneSwap = false;
             _loadedZoneId = zoneId;
             // Read before the load, so a reload that lands mid-load triggers another one.
             _loadedZoneGeneration = generation;
@@ -881,7 +945,7 @@ namespace Gordian.App.Graphics
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
                                 ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
-                                    loadingSession.NetworkManager.ZoneLines.PendingId != null)
+                                    loadingSession.NetworkManager.ZoneLines.PendingId != null, ZoneSwapPending(loadingSession))
                                 : 0f;
                             StockUi.LoadingIndicatorVisible = _activeSession != null && _loadingScreen.IndicatorVisible;
                             StockUi.InterfaceHidden = _activeSession != null && _loadingScreen.IsLoading;
