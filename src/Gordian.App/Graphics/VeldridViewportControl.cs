@@ -1268,7 +1268,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Keeps the cameras of the logged-in characters not on screen moving with them (about 30 times a second), each
-        /// against its own zone's collision, so a Ctrl+Tab to one shows its settled view on the first frame.
+        /// against its own zone's collision, so a Ctrl+Tab to one shows its settled view on the first frame. Their action
+        /// hits and log window sizing keep up too (#377).
         /// </summary>
         private void TickHiddenCameras(float aspect)
         {
@@ -1282,6 +1283,10 @@ namespace Gordian.App.Graphics
                 {
                     float delta = view.NeedsSnap() ? 0.0f : (float)Stopwatch.GetElapsedTime(view.LastUpdate, now).TotalSeconds;
                     UpdateSessionCamera(view, session, session.World, delta, aspect);
+                    // #377: the hits of its actions land now (not all at once when it is shown, replaying their
+                    // reactions), and its log windows keep their size, so a switch shows the character as it already is.
+                    session.ActionPlayback.Update();
+                    StockUi.TickHiddenLog(session);
                 }
                 catch (Exception ex)
                 {

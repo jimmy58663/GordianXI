@@ -152,6 +152,21 @@ namespace Gordian.Core.Graphics
         /// <summary>The routine a summoned Trust or pet runs as it appears (Trust model 3000: op 0x19, spell animation 921).</summary>
         public const string SummonedRoutine = "spop";
 
+        /// <summary>
+        /// A pet or Trust first drawn more than this long after its spawn flag arrived (#377: the viewport switched to a
+        /// character who saw it appear while not on screen, or it came into view later) shows no appearance effect. Covers
+        /// its model's first load. GordianXI's limit (provisional).
+        /// </summary>
+        public const double MaxSpawnEffectDelaySeconds = 3.0;
+
+        /// <summary>Whether a pet or Trust's spawn is recent enough for its appearance to play (see <see cref="MaxSpawnEffectDelaySeconds"/>).</summary>
+        public static bool IsFreshSpawn(WorldEntity entity, long now)
+        {
+            ArgumentNullException.ThrowIfNull(entity);
+            if (!entity.IsPetSpawning || entity.PetSpawnTimestamp == 0) return false;
+            return (now - entity.PetSpawnTimestamp) / (double)System.Diagnostics.Stopwatch.Frequency <= MaxSpawnEffectDelaySeconds;
+        }
+
         private sealed class Tracked
         {
             public int Serial;
@@ -179,7 +194,7 @@ namespace Gordian.Core.Graphics
             if (!known)
             {
                 _entities[id] = tracked;
-                if (entity.IsPetSpawning && model != null)
+                if (model != null && IsFreshSpawn(entity, System.Diagnostics.Stopwatch.GetTimestamp()))
                 {
                     foreach (var cue in model.GetRoutineEffects(SummonedRoutine)) Emit(id, id, cue, into, null);
                 }
