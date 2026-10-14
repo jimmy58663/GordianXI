@@ -69,6 +69,12 @@ namespace Gordian.Core.Graphics
             set => _eyeOffset = value;
         }
 
+        /// <summary>
+        /// The first-person camera's height above the character's feet (yalms): the drawn character's eye level
+        /// (<see cref="Animation.FirstPersonEye"/> times its size scale, #305), or null to use <see cref="EyeOffset"/>.
+        /// </summary>
+        public float? FirstPersonEyeHeight { get; set; }
+
         public float Pitch
         {
             get => _pitch;
@@ -245,7 +251,7 @@ namespace Gordian.Core.Graphics
                     break;
 
                 case CameraMode.FirstPerson:
-                    _position = targetPosition + _eyeOffset;
+                    _position = targetPosition + (FirstPersonEyeHeight is { } eye ? new Vector3(0.0f, eye, 0.0f) : _eyeOffset);
                     _target = _position + forwardDir;
                     break;
 

@@ -63,9 +63,10 @@
 - **The list** (Config -> Gamepad, [stock-ui.md](../ui/stock-ui.md#gamepad-key-assignment-21)): Confirm on a row waits for the next pad button (`InputState.GamepadButtonsPressed`, the edge of the effective buttons, triggers included) and assigns it to the shared profile. While it waits, and until the assigned button is let go, the pad drives no action (`InputState.SuppressGamepadActions`, set from `StockUiMenuController.IsCapturingGamepad` each tick), so assigning L3 never also toggles lock-on. The keyboard's Cancel or 5 s without a button give up.
 - The Controls & Input page lists Toggle Lock-On, Change View and Next Character with their chords.
 
-### Moving stands you up from /heal
+### Moving stands you up from /heal or /sit
 
-- Any movement input (movement keys, the left stick past its deadzone, auto-run) while the server reports the Healing status (S2C 0x037 status 33, LandSandBoat `xi.animation.HEALING`) sends /heal off (C2S 0x0E8, `RestMode.Off`) once (`PlayerLocomotionController.UpdateHealCancel`); it can be sent again only after the status has left Healing. The maintainer's request (round 3). The resting animation itself is #343.
+- Any movement input (movement keys, turn keys, the left stick past its deadzone, auto-run) while the server reports the Healing status (S2C 0x037 status 33, LandSandBoat `xi.animation.HEALING`) sends /heal off (C2S 0x0E8, `RestMode.Off`) once, and while it reports Sit (47, `xi.animation.SIT`) sends /sit off (C2S 0x0EA) once (`PlayerLocomotionController.UpdateHealCancel`); it can be sent again only after the status has changed. LandSandBoat does not end a sit on movement itself (`c2s/0x015_pos.cpp` leaves the animation alone), so without the /sit off other players would keep seeing the character sit. The maintainer's request (round 3; /sit in #343 round 1).
+- **Rooted until the stand-up ends (#343 round 1, the maintainer's retail check).** While the status is seated, and after it leaves until the drawn character has stood up (`EntityAnimationState.IsStandingUp`, the `rx2` / `si2` clip, 0.93 s / 2.0 s; [entities](../world/entities-and-animation.md)), the player neither moves nor turns (`SeatedMovementHold`, checked beside the event movement lock), so the position reported to the server does not change. Held input then moves the character. The hold ends after at most 3 s past the status change (`SeatedMovementHold.MaxStandUpSeconds`) in case the character is not drawn (culled, no model) and never plays the clip.
 
 ### Auto-run
 

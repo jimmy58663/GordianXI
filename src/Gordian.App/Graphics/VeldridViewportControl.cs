@@ -989,7 +989,14 @@ namespace Gordian.App.Graphics
                             // No input moves the player while the screen is black for a zone change (#350, as retail).
                             if (_activeSession?.Locomotion is { } blockedLocomotion) blockedLocomotion.InputBlocked = _loadingScreen.IsLoading && _loadingScreen.Opacity >= 1f;
                             // Never the placeholder model while the screen is not fully clear (it showed during the fade).
-                            if (_renderer.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+                            if (_renderer.EntityRenderer is { } fadeEntities)
+                            {
+                                fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+                                // First person looks out of the character's eyes, so its own body is not drawn (#305), except
+                                // while an event's camera holds the view.
+                                fadeEntities.HideLocalPlayer = Camera.Mode == CameraMode.FirstPerson
+                                    && !(_activeSession?.Events.Presentation.TryGetCamera(out _) ?? false);
+                            }
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             _renderer.Render(
@@ -1114,6 +1121,17 @@ namespace Gordian.App.Graphics
             session.LocalPlayer.ServerId != 0 ? session.LocalPlayer.ServerId : session.CharacterId;
 
         /// <summary>
+        /// Where the first-person camera sits above the character's feet: its own model's eye level times its size scale
+        /// (#305), or null (the camera's fixed eye offset) while the model has not loaded.
+        /// </summary>
+        private float? FirstPersonEyeHeight(WorldEntity? entity)
+        {
+            if (entity == null || ResourceManager is not { } resources || !resources.TryLoadEntityModel(entity, out var model) || model == null) return null;
+            float size = entity.Type == EntityType.Player ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+            return Gordian.Core.Animation.FirstPersonEye.HeightOf(model) * size;
+        }
+
+        /// <summary>
         /// Advances one character's camera: its player position (tick-smoothed, on a ridden lift's live height), the
         /// locomotion orbit (yaw unwrapped, tick-smoothed), lock-on aim, collision against its own zone, an event's camera
         /// or the free camera. <paramref name="deltaSeconds"/> 0 places the camera outright.
@@ -1139,6 +1157,7 @@ namespace Gordian.App.Graphics
             Vector3 playerPos = Vector3.Zero;
             bool hasPlayerPos = false;
             uint localPlayerServerId = 0;
+            WorldEntity? cameraEntity = null;
             if (session != null)
             {
                 localPlayerServerId = LocalPlayerServerId(session);
@@ -1146,6 +1165,7 @@ namespace Gordian.App.Graphics
                 {
                     playerPos = localEnt.Position;
                     hasPlayerPos = true;
+                    cameraEntity = localEnt;
                 }
             }
             if (!hasPlayerPos && world != null)
@@ -1248,6 +1268,7 @@ namespace Gordian.App.Graphics
             else if (camera.Mode != CameraMode.FreeCam)
             {
                 view.FreeCamActive = false;
+                camera.FirstPersonEyeHeight = camera.Mode == CameraMode.FirstPerson ? FirstPersonEyeHeight(cameraEntity) : null;
                 if (displayPlayerPos.HasValue)
                 {
                     camera.Update(displayPlayerPos.Value, camera.Pitch, camera.Yaw, camera.Distance, aspect, deltaSeconds);
