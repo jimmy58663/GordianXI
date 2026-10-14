@@ -122,7 +122,14 @@ namespace Gordian.Core.Ui
             {
                 if (_selectedStatus < 0) return -1;
                 int count = StatusIds().Count;
-                return count == 0 ? -1 : Math.Min(_selectedStatus, count - 1);
+                if (count == 0)
+                {
+                    // The last icon went away: the selection ends. Left pending, it came back with the next icon (often one
+                    // gained in combat) and silently took the arrows / d-pad and blocked the macro palettes (#339 round 2).
+                    _selectedStatus = -1;
+                    return -1;
+                }
+                return Math.Min(_selectedStatus, count - 1);
             }
         }
 

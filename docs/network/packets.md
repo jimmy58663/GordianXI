@@ -296,7 +296,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x063` | `DIG` | 16 | `built` | `CombatPacketBuilder.BuildDigFinishedRequest` | Sent at once after S2C 0x02F for the local player; LSB ignores it. |
 | `0x064` | `SCENARIOITEM` | 76 | `built, unused` | `ProgressionPacketBuilder.BuildScenarioItemRead` | `PlayerActionService.MarkKeyItemSeenAsync` has no caller [#91](https://github.com/jimmy58663/GordianXI/issues/91). |
 | `0x066` | `FISHING` | 20 | `not built` |  | Old fishing packet; LSB still has a handler (`0x066_fishing`). GordianXI uses 0x110. |
-| `0x06E` | `GROUP_SOLICIT_REQ` | 12 | `built` | `PartyPacketBuilder.BuildGroupSolicitReq` | `/invite`; `/acmd add` with kind 5 (#362). `PartyKind.Alliance` is 5 [#98](https://github.com/jimmy58663/GordianXI/issues/98). |
+| `0x06E` | `GROUP_SOLICIT_REQ` | 12 | `built` | `PartyPacketBuilder.BuildGroupSolicitReq` | `/invite`, `/pcmd add`; `/acmd add` with kind 5 (#362). A player in another zone is invited by character id with ActIndex 0, the id from a search-server name search (LandSandBoat resolves it with `zoneutils::GetChar` or `ipc::PartyInvite`). `PartyKind.Alliance` is 5 [#98](https://github.com/jimmy58663/GordianXI/issues/98). |
 | `0x06F` | `GROUP_LEAVE` | 6 | `built` | `PartyPacketBuilder.BuildGroupLeave` | `/leave`; `/acmd leave` with kind 5 (#362). |
 | `0x070` | `GROUP_BREAKUP` | 6 | `built` | `PartyPacketBuilder.BuildGroupBreakup` | `/disband`; `/acmd breakup` with kind 5 (#362). |
 | `0x071` | `GROUP_STRIKE` | 28 | `built` | `PartyPacketBuilder.BuildGroupStrike` | `/pcmd kick`; `/acmd kick` with kind 5 (#362). |

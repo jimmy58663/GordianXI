@@ -40,7 +40,7 @@ namespace Gordian.Core.Ui
         /// <summary>Zone messages about the player (0x036 / 0x02A with the no-name flag: "Home point set!", "Obtained: ...").</summary>
         Message,
 
-        /// <summary><c>/echo</c> and <c>/recast</c> replies: pale lavender (maintainer retail capture 2026-10-13, #362).</summary>
+        /// <summary><c>/echo</c> and <c>/recast</c> replies: pale yellow, as the timestamps (maintainer retail capture 2026-10-13, #362).</summary>
         Echo,
     }
 

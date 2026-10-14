@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Input;
 using Gordian.Core.Macros;
@@ -196,6 +197,40 @@ namespace Gordian.Core.Actions
             return PlayerActionResult.Ok($"Passed party leadership to {name}.", kind);
         }
 
+        /// <summary>
+        /// Invites a player who is not in this zone (<c>/pcmd add</c>, <c>/invite</c>, <c>/acmd add</c>). C2S 0x06E carries no
+        /// name, only the invitee's character id (<c>UniqueNo</c>) and, in the same zone only, their target index; with the
+        /// index 0 the server finds the character by id, in its own zone or through the message server on another map server
+        /// (XiPackets <c>world/client/0x006E</c>: "ActIndex ... is only set if the target player is within the same zone";
+        /// LandSandBoat <c>packets/c2s/0x06e_group_solicit_req.cpp</c>: <c>zoneutils::GetChar</c>, else <c>ipc::PartyInvite</c>;
+        /// https://github.com/atom0s/XiPackets, https://github.com/LandSandBoat/server). The id comes from the search server: a
+        /// name search across every area (the same query as <c>/sea all name</c>), whose entries carry the character id.
+        /// </summary>
+        public async Task<PlayerActionResult> InviteOutOfZoneAsync(string name, PartyKind partyKind, ChatCommandResultKind kind)
+        {
+            name = name.Trim().Trim('"');
+            if (name.Length == 0) return PlayerActionResult.Warn("Usage: /pcmd add <player>", kind);
+            var service = SearchService;
+            if (service == null || !service.IsConfigured) return PlayerActionResult.Warn($"{name} is not in this area, and the search server is not known yet to find them.", kind);
+            try
+            {
+                var query = new Network.Search.SearchQuery { AllAreas = true, Name = name };
+                var result = await service.SearchAsync(query).ConfigureAwait(false);
+                var match = result.Players.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (match == null || match.CharacterId == 0)
+                {
+                    return PlayerActionResult.Warn(result.Complete ? $"{name} is not online." : "The search server did not answer.", kind);
+                }
+                await _partyModule.SendInviteAsync(match.CharacterId, 0, partyKind).ConfigureAwait(false);
+                return PlayerActionResult.Ok(partyKind == PartyKind.Alliance ? $"Invited {match.Name}'s party to the alliance." : $"Invited {match.Name} to party.", kind);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Diagnostics.GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
+                return PlayerActionResult.Fail($"Could not invite {name}: {ex.Message}", kind);
+            }
+        }
+
         private const string AllianceUsage = "Usage: /acmd <add|leave|breakup|kick|leader> [name]";
 
         /// <summary>
@@ -219,7 +254,8 @@ namespace Gordian.Core.Actions
             switch (parts[0].ToLowerInvariant())
             {
                 case "add" or "invite":
-                    if (named == null) return PlayerActionResult.Warn(name.Length == 0 ? AllianceUsage : $"{name} is not here.", kind);
+                    if (name.Length == 0) return PlayerActionResult.Warn(AllianceUsage, kind);
+                    if (named == null) return await InviteOutOfZoneAsync(name, PartyKind.Alliance, kind).ConfigureAwait(false);
                     await _partyModule.SendInviteAsync(named.ServerId, named.TargetIndex, PartyKind.Alliance).ConfigureAwait(false);
                     return PlayerActionResult.Ok($"Invited {name}'s party to the alliance.", kind);
                 case "leave":

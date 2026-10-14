@@ -323,7 +323,10 @@ namespace Gordian.App.Graphics
                 return;
             }
             var macros = session.Macros;
-            if (menus.IsOpen || macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None) return;
+            // The same rule as the input tick: the target command menu alone, which stays up while engaged, does not hide the
+            // palette (round 2, A22: this check hid it whenever any menu was open, so never while engaged).
+            if (macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None
+                || Gordian.Core.Macros.MacroController.IsBlockedBy(menus, session.Chat, session.ActionService.SubTargeting != null)) return;
             var settings = session.ActionService.UiSettings;
             bool compact = settings.GetValue(StockUiSettingKey.MacroPaletteSize) == 1;
             // Static: always shifted right; Dynamic: while engaged, when retail draws your own HP / MP / TP bars at its left.

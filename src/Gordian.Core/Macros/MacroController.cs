@@ -1,5 +1,6 @@
 // src/Gordian.Core/Macros/MacroController.cs
 using System;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Input;
 
 namespace Gordian.Core.Macros
@@ -55,7 +56,7 @@ namespace Gordian.Core.Macros
         /// Reads this tick's input. <paramref name="blocked"/> (a menu, the chat line, the editor) hides the palette and runs
         /// nothing. Returns true when the palette took the input (the caller then skips the keys it would otherwise act on).
         /// </summary>
-        public bool Update(InputState input, bool blocked, InputProfile? profile = null)
+        public bool Update(InputState input, bool blocked, InputProfile? profile = null, string? blockedReason = null)
         {
             ArgumentNullException.ThrowIfNull(input);
             var mods = input.CurrentModifiers;
@@ -71,10 +72,18 @@ namespace Gordian.Core.Macros
 
             if (blocked || Suspended)
             {
+                // Log once per hold why a palette did nothing (round 2, A22: the reason was not visible in the logs).
+                if (palette != MacroPalette.None && !_blockLogged)
+                {
+                    GordianLog.Info("MACRO", $"{(palette == MacroPalette.Alt ? "Alt" : "Ctrl")} palette held but blocked: {(Suspended ? "the macro editor is open" : blockedReason ?? "blocked")}.");
+                    _blockLogged = true;
+                }
+                if (palette == MacroPalette.None) _blockLogged = false;
                 ShownPalette = MacroPalette.None;
                 HeldByGamepad = false;
                 return false;
             }
+            _blockLogged = false;
             if (palette != ShownPalette) SelectedKey = 0;
             ShownPalette = palette;
             HeldByGamepad = byPad;
@@ -113,6 +122,32 @@ namespace Gordian.Core.Macros
             return true;
         }
 
+        /// <summary>
+        /// Whether the menus or the chat keep the palettes from showing and running (one rule for the input tick and the
+        /// HUD): an open menu other than the target command menu alone (which stays up while engaged), the sub-target
+        /// cursor, the chat input line, or a selected log window / status icon / full-screen log.
+        /// </summary>
+        public static bool IsBlockedBy(Ui.StockUiMenuController? menus, Ui.StockUiChat? chat, bool subTargeting = false) =>
+            BlockReason(menus, chat, subTargeting) != null;
+
+        /// <summary>Why the palettes are blocked (for the log), or null when they are not.</summary>
+        public static string? BlockReason(Ui.StockUiMenuController? menus, Ui.StockUiChat? chat, bool subTargeting = false)
+        {
+            if (subTargeting) return "the sub-target cursor is up";
+            if (menus != null && menus.IsOpen && !(menus.OpenMenus.Count == 1 && menus.Top is { IsCommandMenu: true }))
+            {
+                var names = new System.Collections.Generic.List<string>();
+                foreach (var menu in menus.OpenMenus) names.Add(menu.Name);
+                return "a menu is open (" + string.Join(" > ", names) + ")";
+            }
+            if (chat == null) return null;
+            if (chat.Input.IsOpen) return "the chat line is open";
+            if (chat.IsSelecting) return chat.FullLogOpen ? "the full-screen log is open" : chat.IsLogSelected ? "a log window is selected" : "a status icon is selected";
+            return null;
+        }
+
+        private bool _blockLogged;
+
         /// <summary>The pad buttons bound to Confirm (A when the profile has none).</summary>
         private static GamepadButton ConfirmButtons(InputProfile? profile)
         {
@@ -134,6 +169,7 @@ namespace Gordian.Core.Macros
             var slot = Library.CurrentSlot(palette, key);
             var macro = Library.Get(slot);
             if (macro.IsEmpty) return;
+            GordianLog.Info("MACRO", $"Running {slot.KeyLabel} \"{macro.Title}\" (book {slot.Book + 1}, set {slot.Set + 1}).");
             MacroStarted?.Invoke(slot);
             _ = Runner.Run(macro);
         }

@@ -2813,7 +2813,8 @@ namespace Gordian.Core.Actions
                         await _partyModule.SendInviteAsync(cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
                         return PlayerActionResult.Ok($"Invited {cmd.TargetName} to party.", cmd.Kind);
                     }
-                    return PlayerActionResult.Warn($"Player '{cmd.TargetName}' not found in area.", cmd.Kind);
+                    // Not in this zone: invited by character id, found through the search server (#362 round 2).
+                    return await InviteOutOfZoneAsync(cmd.TargetName, PartyKind.Party, cmd.Kind).ConfigureAwait(false);
 
                 case ChatCommandResultKind.PartyLeave:
                     await _partyModule.LeavePartyAsync().ConfigureAwait(false);
