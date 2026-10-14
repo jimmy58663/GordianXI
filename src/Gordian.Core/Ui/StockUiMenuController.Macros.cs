@@ -60,11 +60,11 @@ namespace Gordian.Core.Ui
         public const string EditTitle = "Edit Macros", PaletteTitle = "MacroPalette";
 
         /// <summary>
-        /// How far below the Ctrl row the editor draws the Alt row, in layout pixels: both rows are authored at (16,48), and
-        /// a retail screenshot (BG-Wiki) shows them stacked with their borders overlapping (PROVISIONAL, measured from a
-        /// scaled image).
+        /// How far below the Ctrl row the editor draws the Alt row, in layout pixels: both rows are authored at (16,48); the
+        /// maintainer retail capture 2026-10-13 (1:1) shows the Alt frame's borders 43 px below the Ctrl frame's (the 42-px
+        /// frames 1 px apart; to about a pixel).
         /// </summary>
-        public const int AltRowOffset = 38;
+        public const int AltRowOffset = 43;
 
         public const int BooksPerPage = 20, BookPrevPage = 21, BookNextPage = 22;
         public const int BookEdit = 1, BookRename = 2, BookCopy = 3, BookPaste = 4, BookDelete = 5;
@@ -306,8 +306,8 @@ namespace Gordian.Core.Ui
                 MacroField.Cancel();
                 return false;
             }
-            if (input.WasActionTriggered(InputAction.Cancel)) MacroField.Cancel();
-            else if (input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
+            // Cancel keeps the text as Confirm does (retail, the maintainer's check 2026-10-13).
+            if (input.WasActionTriggered(InputAction.Cancel) || input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
             return true;
         }
 
@@ -447,6 +447,8 @@ namespace Gordian.Core.Ui
             switch (id)
             {
                 case StockUiMacroMenus.BookEdit:
+                    // Confirm makes the book the current one (maintainer retail capture 2026-10-13) and opens its palettes.
+                    library.SelectBook(book);
                     OpenPaletteEditor(options, library, book);
                     break;
                 case StockUiMacroMenus.BookRename:
@@ -573,13 +575,16 @@ namespace Gordian.Core.Ui
             {
                 var current = library.Get(slot);
                 library.Set(slot, title ? current.WithTitle(typed) : current.WithLine(button - StockUiMacroMenus.EditorFirstLine, typed));
+                int target = button + step;
+                bool move = step != 0 && target >= StockUiMacroMenus.EditorTitle && target < StockUiMacroMenus.EditorFirstLine + MacroLibrary.LinesPerMacro;
                 lock (_sync)
                 {
                     editor.MacroFieldButton = 0;
-                    int target = button + step;
-                    if (step != 0 && target >= StockUiMacroMenus.EditorTitle && target < StockUiMacroMenus.EditorFirstLine + MacroLibrary.LinesPerMacro) editor.SelectedButtonId = target;
+                    if (move) editor.SelectedButtonId = target;
                 }
                 Changed?.Invoke();
+                // Up / Down move to the next field and keep typing there (the maintainer's retail check, 2026-10-13).
+                if (move && !editor.Cancelled) BeginMacroFieldEdit(editor, library, target);
             });
             MacroField.OpenChanged += ClearOnClose;
             void ClearOnClose(bool open)

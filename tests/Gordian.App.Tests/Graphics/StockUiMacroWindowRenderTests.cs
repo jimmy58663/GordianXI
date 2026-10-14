@@ -36,15 +36,15 @@ namespace Gordian.App.Tests.Graphics
             StockUiPlacement? full = null, compact = null;
             var shot = screen.Render(r =>
             {
-                full = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: false, atRight: false, 1, screen.Width, screen.Height);
-                compact = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: true, atRight: true, 1, screen.Width, screen.Height);
+                full = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: false, shifted: false, 1, screen.Width, screen.Height);
+                compact = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: true, shifted: true, 1, screen.Width, screen.Height);
                 StockUiMenuWindow.DrawHelpBar(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.PaletteTitle, "Macro Set WAR (#1)", 1, screen.Width, screen.Height);
             }, "gpu_macro_palette.png");
             Assert.NotNull(full);
             Assert.NotNull(compact);
             Assert.Equal(16, full!.Value.X);
             Assert.Equal(48, full.Value.Y);
-            Assert.True(compact!.Value.X > 700); // at the right edge
+            Assert.Equal(16 + StockUiMacroWindow.CombatShift, compact!.Value.X); // moved right for the combat vitals
             // "Provoke" on Ctrl1 (button at 4,4 of the Full palette): light glyphs near the key's top left.
             Assert.True(screen.HasLightPixel(shot, 16 + 8, 16 + 50, 48 + 9, 150) || screen.HasLightPixel(shot, 16 + 8, 16 + 50, 48 + 10, 150));
         }
@@ -81,6 +81,8 @@ namespace Gordian.App.Tests.Graphics
             {
                 StockUiMenuWindow.Draw(r, screen.Library, screen.Font, palette, Place(palette), 0, logFont: screen.LogFont);
                 StockUiMenuWindow.DrawHelpBar(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.EditTitle, palette.MacroSetCaption, 1, screen.Width, screen.Height);
+                Assert.True(screen.Library.TryGetMenu(StockUiMacroMenus.ButtonOptions, out var buttonEdit));
+                StockUiMacroWindow.DrawOptions(r, screen.Library, buttonEdit, Place(menus.Top!) with { X = screen.Width - 128, Y = 134 });
             }, "gpu_macro_palette_editor.png");
 
             menus.Activate(); // Ctrl1
@@ -92,6 +94,8 @@ namespace Gordian.App.Tests.Graphics
             var shot = screen.Render(r =>
             {
                 StockUiMenuWindow.Draw(r, screen.Library, screen.Font, editor, Place(editor), 0, logFont: screen.LogFont);
+                Assert.True(screen.Library.TryGetMenu(StockUiMacroMenus.LineOptions, out var lineEdit));
+                StockUiMacroWindow.DrawOptions(r, screen.Library, lineEdit, Place(editor) with { X = screen.Width - 128, Y = 48 });
             }, "gpu_macro_editor.png");
             // The first line's text in its box (18..358 x 66..94 from 16,48).
             Assert.True(screen.HasLightPixel(shot, 16 + 24, 16 + 120, 48 + 80, 150) || screen.HasLightPixel(shot, 16 + 24, 16 + 120, 48 + 78, 150));

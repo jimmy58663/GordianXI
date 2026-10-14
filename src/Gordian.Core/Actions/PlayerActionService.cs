@@ -2843,6 +2843,7 @@ namespace Gordian.Core.Actions
                 case ChatCommandResultKind.TargetBattleNpc:
                 case ChatCommandResultKind.LastSynth:
                 case ChatCommandResultKind.AllianceCommand:
+                case ChatCommandResultKind.PartyLeader:
                     return await ExecuteMacroCommandAsync(cmd).ConfigureAwait(false);
 
                 case ChatCommandResultKind.LocalEcho:

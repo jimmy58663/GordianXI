@@ -51,6 +51,8 @@ namespace Gordian.Core.Actions
                     return await LastSynthAsync().ConfigureAwait(false);
                 case ChatCommandResultKind.AllianceCommand:
                     return await AllianceCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+                case ChatCommandResultKind.PartyLeader:
+                    return await PartyLeaderAsync(cmd.TargetName).ConfigureAwait(false);
                 default:
                     return PlayerActionResult.Warn(cmd.Message ?? string.Empty, cmd.Kind);
             }
@@ -93,9 +95,8 @@ namespace Gordian.Core.Actions
             const ChatCommandResultKind kind = ChatCommandResultKind.Recast;
             if (name.Length == 0) return PlayerActionResult.Warn("Usage: /recast \"<spell or ability>\"", kind);
             if (FindRecast(name) is not { } found) return PlayerActionResult.Warn($"Unknown spell or ability: \"{name}\".", kind);
-            return PlayerActionResult.Info(found.Left <= TimeSpan.Zero
-                ? $"{found.Name}: ready."
-                : $"{found.Name}: {ChatTextTokens.Recast(found.Left)} until ready.", kind);
+            // Retail: "[Provoke] 0:00" (maintainer retail capture 2026-10-13).
+            return PlayerActionResult.Info($"[{found.Name}] {ChatTextTokens.Recast(found.Left)}", kind);
         }
 
         /// <summary>A spell's or job ability's recast by name (spells first), or null when the name is neither.</summary>
@@ -179,6 +180,20 @@ namespace Gordian.Core.Actions
             }
             var result = await SynthesizeCommandAsync(string.Join(' ', slots)).ConfigureAwait(false);
             return result.Success ? PlayerActionResult.Ok(string.Empty, kind) : result;
+        }
+
+        /// <summary>
+        /// <c>/pcmd leader name</c>: passes party leadership (C2S 0x077 kind 0 Party, change kind 0 SetPartyLeader; LandSandBoat
+        /// <c>packets/c2s/0x077_group_change2.h</c>, https://github.com/LandSandBoat/server). A placeholder (<c>&lt;t&gt;</c>) names its entity.
+        /// </summary>
+        public async Task<PlayerActionResult> PartyLeaderAsync(string name)
+        {
+            const ChatCommandResultKind kind = ChatCommandResultKind.PartyLeader;
+            if (ChatCommandRouter.IsTargetToken(name) && ResolveTargetToken(name[1..^1].ToLowerInvariant(), out _) is { } entity) name = entity.Name;
+            else if (_world.TryGetByName(name, out var found) && found != null) name = found.Name;
+            if (name.Length == 0) return PlayerActionResult.Warn("Usage: /pcmd leader <player>", kind);
+            await _partyModule.SendGroupChange2Async(name, 0, 0).ConfigureAwait(false);
+            return PlayerActionResult.Ok($"Passed party leadership to {name}.", kind);
         }
 
         private const string AllianceUsage = "Usage: /acmd <add|leave|breakup|kick|leader> [name]";

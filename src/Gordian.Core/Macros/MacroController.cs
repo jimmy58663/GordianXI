@@ -11,8 +11,9 @@ namespace Gordian.Core.Macros
     /// <item>Keyboard (BG-Wiki "Macro" hotkeys): holding Ctrl or Alt shows that palette; Ctrl/Alt + 1..0 runs a macro;
     /// Ctrl/Alt + Up/Down cycles the set; Ctrl/Alt + Shift + 1..0 changes to set 1..10; Ctrl/Alt + Left/Right picks a macro on
     /// the palette and Ctrl/Alt + Enter runs it.</item>
-    /// <item>Gamepad: holding LT / RT (<see cref="InputAction.MacroPaletteCtrl"/> / <see cref="InputAction.MacroPaletteAlt"/>)
-    /// shows the palette; the other buttons run the macros (<see cref="GamepadKeys"/>, PROVISIONAL mapping).</item>
+    /// <item>Gamepad (the maintainer's retail check, 2026-10-13): holding LT / RT (<see cref="InputAction.MacroPaletteCtrl"/> /
+    /// <see cref="InputAction.MacroPaletteAlt"/>) shows the palette; the d-pad moves as the arrow keys do (left / right pick a
+    /// macro, up / down change the set) and the Confirm button runs the picked macro. No other button touches a macro.</item>
     /// </list>
     /// </summary>
     public sealed class MacroController
@@ -40,7 +41,7 @@ namespace Gordian.Core.Macros
         /// <summary>The macro picked on the shown palette with Left/Right (0-9), shown highlighted; Enter runs it.</summary>
         public int SelectedKey { get; private set; }
 
-        /// <summary>True while a gamepad trigger holds the palette (the palette then shows the pad's button for each key).</summary>
+        /// <summary>True while a gamepad trigger holds the palette.</summary>
         public bool HeldByGamepad { get; private set; }
 
         /// <summary>Set while the macro editor is open: the keys then edit rather than run (the editor draws the palettes).</summary>
@@ -49,22 +50,12 @@ namespace Gordian.Core.Macros
         /// <summary>Raised when a macro runs, with its slot (for a palette flash or a log line).</summary>
         public event Action<MacroSlot>? MacroStarted;
 
-        /// <summary>
-        /// The pad buttons that run the ten macros of a held palette, key 1 first (PROVISIONAL: retail's PC gamepad mapping is
-        /// not documented; d-pad up, right, down, left, then the face buttons top, right, bottom, left, then LB and RB).
-        /// </summary>
-        public static readonly GamepadButton[] GamepadKeys =
-        {
-            GamepadButton.DPadUp, GamepadButton.DPadRight, GamepadButton.DPadDown, GamepadButton.DPadLeft,
-            GamepadButton.Y, GamepadButton.B, GamepadButton.A, GamepadButton.X,
-            GamepadButton.LeftShoulder, GamepadButton.RightShoulder,
-        };
 
         /// <summary>
         /// Reads this tick's input. <paramref name="blocked"/> (a menu, the chat line, the editor) hides the palette and runs
         /// nothing. Returns true when the palette took the input (the caller then skips the keys it would otherwise act on).
         /// </summary>
-        public bool Update(InputState input, bool blocked)
+        public bool Update(InputState input, bool blocked, InputProfile? profile = null)
         {
             ArgumentNullException.ThrowIfNull(input);
             var mods = input.CurrentModifiers;
@@ -99,10 +90,11 @@ namespace Gordian.Core.Macros
             if (byPad)
             {
                 var pressed = input.GamepadButtonsPressed;
-                for (int key = 0; key < GamepadKeys.Length; key++)
-                {
-                    if ((pressed & GamepadKeys[key]) != 0) RunKey(palette, key);
-                }
+                if ((pressed & GamepadButton.DPadUp) != 0) Library.CycleSet(-1);
+                if ((pressed & GamepadButton.DPadDown) != 0) Library.CycleSet(1);
+                if ((pressed & GamepadButton.DPadLeft) != 0) SelectedKey = (SelectedKey + MacroLibrary.KeysPerPalette - 1) % MacroLibrary.KeysPerPalette;
+                if ((pressed & GamepadButton.DPadRight) != 0) SelectedKey = (SelectedKey + 1) % MacroLibrary.KeysPerPalette;
+                if ((pressed & ConfirmButtons(profile)) != 0) RunKey(palette, SelectedKey);
                 return true;
             }
 
@@ -119,6 +111,17 @@ namespace Gordian.Core.Macros
             if (input.WasKeyPressed(GordianKey.Right)) SelectedKey = (SelectedKey + 1) % MacroLibrary.KeysPerPalette;
             if (input.WasKeyPressed(GordianKey.Enter) || input.WasKeyPressed(GordianKey.NumPadEnter)) RunKey(palette, SelectedKey);
             return true;
+        }
+
+        /// <summary>The pad buttons bound to Confirm (A when the profile has none).</summary>
+        private static GamepadButton ConfirmButtons(InputProfile? profile)
+        {
+            var buttons = GamepadButton.None;
+            if (profile != null)
+            {
+                foreach (var chord in profile.GetChords(InputAction.Confirm)) buttons |= chord.GamepadButton;
+            }
+            return buttons == GamepadButton.None ? GamepadButton.A : buttons;
         }
 
         /// <summary>The number row's key for a macro key: 1..9 then 0.</summary>

@@ -305,7 +305,7 @@ The rows carry the details; these are the ones most useful to other client and s
 | `0x074` | `GROUP_SOLICIT_RES` | 6 | `built` | `PartyPacketBuilder.BuildGroupSolicitRes` | `/join`, `/decline`. |
 | `0x075` | `GROUP_TALK` | var | `not built` |  | Not in LSB. |
 | `0x076` | `GROUP_LIST_REQ` | 6 | `built, unused` | `PartyPacketBuilder.BuildGroupListReq` | `SendGroupListReqAsync`: No caller of its module send method. |
-| `0x077` | `GROUP_CHANGE2` | 22 | `built` | `PartyPacketBuilder.BuildGroupChange2` | 22 bytes, sent as 24. `/acmd leader` sends kind 5, change kind 1 SetAllianceLeader (LandSandBoat `0x077_group_change2.h`; #362). |
+| `0x077` | `GROUP_CHANGE2` | 22 | `built` | `PartyPacketBuilder.BuildGroupChange2` | 22 bytes, sent as 24. `/pcmd leader` sends kind 0, change kind 0 SetPartyLeader; `/acmd leader` kind 5, change kind 1 SetAllianceLeader (LandSandBoat `0x077_group_change2.h`; #362). |
 | `0x078` | `GROUP_CHECKID` | 4 | `built, unused` | `SocialPacketBuilder.BuildGroupCheckId` | Header only. `SocialPacketModule.RequestGroupIdAsync`: No caller of its module send method [#113](https://github.com/jimmy58663/GordianXI/issues/113). |
 | `0x082` | `SHOP_REQ` | 8 | `not built` |  | Not in LSB. |
 | `0x083` | `SHOP_BUY` | 16 | `built` | `InventoryPacketBuilders.BuildShopBuy` | Shop buy (shop window). |

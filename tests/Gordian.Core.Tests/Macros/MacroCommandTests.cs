@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Macros/MacroCommandTests.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.Core.Actions;
@@ -76,6 +77,17 @@ namespace Gordian.Core.Tests.Macros
         }
 
         [Fact]
+        public async Task PartyLeader_SendsGroupChange2KindParty()
+        {
+            Assert.Equal(ChatCommandResultKind.PartyLeader, ChatCommandRouter.Parse("/pcmd leader Tester").Kind);
+            var result = await _service.ExecuteCommandAsync("/pcmd leader Tester");
+            Assert.True(result.Success);
+            var packet = _sent[^1];
+            Assert.Equal(0x77, packet[0] | ((packet[1] & 0x01) << 8));
+            Assert.Contains("Usage", (await _service.ExecuteCommandAsync("/pcmd leader")).Message);
+        }
+
+        [Fact]
         public async Task Wait_TypedDoesNothing()
         {
             var result = await _service.ExecuteCommandAsync("/wait 3");
@@ -135,6 +147,12 @@ namespace Gordian.Core.Tests.Macros
             var lines = new List<ChatLogLine>();
             chat.Log.CopyVisible(1, 10, lines);
             Assert.Contains(lines, l => l.Text == "(Tester) Healing Near Npc");
+
+            // /echo is drawn in retail's echo colour (maintainer retail capture 2026-10-13).
+            await chat.SubmitAsync("/echo hello", ChatInputMode.Say);
+            lines.Clear();
+            chat.Log.CopyVisible(1, 10, lines);
+            Assert.Equal(ChatLogChannel.Echo, lines.Single(l => l.Text == "hello").Channel);
         }
     }
 }

@@ -111,9 +111,15 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(StockUiMacroMenus.EditorFirstLine, editor.MacroFieldButton);
             controller.MacroField.InsertText("/ja \"Provoke\" <t>");
             controller.MacroField.HandleKey(GordianKey.Down, InputModifiers.None);
-            Assert.False(controller.MacroField.IsOpen);
+            // Down keeps the line and goes on typing in the next one (round 1); Escape keeps that line too.
+            Assert.True(controller.MacroField.IsOpen);
             Assert.Equal("/ja \"Provoke\" <t>", macros.Get(editor.MacroSlot).Lines[0]);
             Assert.Equal(StockUiMacroMenus.EditorFirstLine + 1, editor.SelectedButtonId);
+            Assert.Equal(StockUiMacroMenus.EditorFirstLine + 1, editor.MacroFieldButton);
+            controller.MacroField.InsertText("/echo kept");
+            controller.MacroField.HandleKey(GordianKey.Escape, InputModifiers.None);
+            Assert.False(controller.MacroField.IsOpen);
+            Assert.Equal("/echo kept", macros.Get(editor.MacroSlot).Lines[1]);
 
             controller.Move(InputAction.MenuUp);
             controller.Move(InputAction.MenuUp);

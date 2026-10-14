@@ -351,7 +351,9 @@ namespace Gordian.Core.Input
 
             // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,
             //     the chat line or a selected log window has the input.
-            Macros?.Update(_inputState, blocked: menuOpen || (chat != null && (chat.Input.IsOpen || chat.IsSelecting)));
+            //     The command menu alone does not block them: it stays up while fighting (round 1, A16: macros did nothing in combat).
+            bool commandMenuOnly = !subTargeting && menus is { OpenMenus.Count: 1 } && menus.Top is { IsCommandMenu: true };
+            Macros?.Update(_inputState, blocked: (menuOpen && !commandMenuOnly) || (chat != null && (chat.Input.IsOpen || chat.IsSelecting)), _profile);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
             //     the gamepad's cancel button drops it as Escape does, and Tab / Shift+Tab still cycle targets. The

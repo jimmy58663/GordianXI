@@ -1,8 +1,8 @@
 # Macros
 
-> The macro system ([#339](https://github.com/jimmy58663/GordianXI/issues/339)) and the macro commands and chat placeholders ([#362](https://github.com/jimmy58663/GordianXI/issues/362)): the books, sets and palettes, where GordianXI keeps them, the retail macro files and their import, running a macro, the keys, the stock macro windows, and what is still to check against retail. Status: built 2026-10-12 on `ui/339-362-macros`, awaiting the in-game test.
+> The macro system ([#339](https://github.com/jimmy58663/GordianXI/issues/339)) and the macro commands and chat placeholders ([#362](https://github.com/jimmy58663/GordianXI/issues/362)): the books, sets and palettes, where GordianXI keeps them, the retail macro files and their import, running a macro, the keys, the stock macro windows, and what is still to check against retail. Status: built 2026-10-12 on `ui/339-362-macros`; round 1 of the in-game test (2026-10-13) passed the keyboard, waits, storage, import and most windows, and its fixes (below) await round 2.
 
-Sources: BG-Wiki "Macro" (structure, hotkeys, commands, placeholders; fetched 2026-10-12), the maintainer's two BG-Wiki screenshots of the palette editor and the macro editor, the retail menu DAT (ROM/119/51) and string tables (ROM/165/75-76), and the maintainer's retail `USER` folders (read only; 16 characters, 2026-10-12).
+Sources: the maintainer's retail captures of 2026-10-13 (book list, book options, palette editor, play palette in combat, `/recast` and `/echo` lines; cited as "maintainer retail capture 2026-10-13"), BG-Wiki "Macro" (structure, hotkeys, commands, placeholders; fetched 2026-10-12), the maintainer's two BG-Wiki screenshots of the palette editor and the macro editor, the retail menu DAT (ROM/119/51) and string tables (ROM/165/75-76), and the maintainer's retail `USER` folders (read only; 16 characters, 2026-10-12).
 
 ## Model (`Gordian.Core.Macros`)
 
@@ -34,7 +34,7 @@ Read from the maintainer's 16 `USER` folders: all 911 set files are 7624 bytes a
   - +370 the title, 10 bytes: up to 8 characters, NUL-terminated; bytes after the NUL are leftovers of an older title ("Ichi\0rk").
   - Text is Shift-JIS. Auto-translate phrases appear as 0xFD, 4 bytes, 0xFD (26 in the maintainer's files); GordianXI's lines are plain ASCII, so the import leaves them out and says how many.
 - **`mcr.ttl`** (books 1-20) and **`mcr_2.ttl`** (21-40), 344 bytes: 20 titles of 16 bytes, NUL-terminated (retail fills unnamed books with `BookNN`).
-- **`mcr.sys`** (28 bytes): one u32, the current set as book x 10 + set. **PROVISIONAL:** inferred from the values (0, 40, 60, 106, 122, 142, 180, 222, 320: all in range, mostly set 1, some pointing at sets with no file); to confirm, compare the palette retail opens with the value.
+- **`mcr.sys`** (28 bytes): one u32, the current set as book x 10 + set. Confirmed by the in-game test (round 1, A2: the imported palette opened on the set retail had). First inferred from the values (0, 40, 60, 106, 122, 142, 180, 222, 320: all in range, mostly set 1, some pointing at sets with no file); to confirm, compare the palette retail opens with the value.
 
 ## Running a macro (`MacroRunner`)
 
@@ -42,14 +42,14 @@ Each line goes through the chat's own submit (`StockUiChat.SubmitAsync` with the
 
 - `/wait n` on a line of its own pauses n seconds; `<wait n>` (also `<waitn>`) in a line runs the line without it and then pauses (BG-Wiki). Decimals are accepted; pauses are capped at 60 s (**PROVISIONAL**, retail's limit is not documented); `/wait` alone is 1 s.
 - A line that opens the sub-target cursor (`<st>`, `<stpc>` ...) holds the next line until the target is chosen or the cursor cancelled (BG-Wiki: "the line after the subtarget runs once the player confirms").
-- Starting a macro while another runs stops the first (**PROVISIONAL**: not documented; to check in retail with a macro holding a long `/wait`).
+- Starting a macro while another runs stops the first (passed the maintainer's in-game comparison, round 1, A8).
 - Retail runs macro lines on a tick of about 0.42 s, which snaps waits to that tick (BG-Wiki, third-party timing: `<wait1>` lands at 0.83-1.25 s). GordianXI runs lines back to back and waits exactly the time given; not modelled.
 
 ## Keys (`MacroController`, fed by `PlayerLocomotionController` each tick)
 
 - **Keyboard** (BG-Wiki hotkeys): holding Ctrl or Alt shows that palette; Ctrl/Alt + 1..0 run a macro (`InputAction.MacroCtrl1..10` / `MacroAlt1..10`, the existing bindings); Ctrl/Alt + Up / Down cycle the set (wrapping); Ctrl/Alt + Shift + 1..0 change to set 1..10; Ctrl/Alt + Left / Right pick a macro on the palette (highlighted orange) and Ctrl/Alt + Enter runs it. With Ctrl or Alt held, the digits, arrows and Enter no longer fall back to their unmodified bindings (`InputState.IsMacroPaletteKey`), so Ctrl+Up does not also turn the camera.
-- **Gamepad:** holding LT / RT (`MacroPaletteCtrl` / `MacroPaletteAlt`) shows the palette and the other buttons drive nothing else (as before); keys 1-10 are d-pad up, right, down, left, then Y, B, A, X, then LB, RB (`MacroController.GamepadKeys`). **PROVISIONAL:** retail's PC gamepad mapping is not documented; to check in retail.
-- Nothing runs, and no palette shows, while a menu is open, the chat line is open or a log window is selected.
+- **Gamepad** (the maintainer's retail check, 2026-10-13): holding LT / RT (`MacroPaletteCtrl` / `MacroPaletteAlt`) shows the palette and the other buttons drive nothing else; the d-pad moves as the arrow keys do (left / right pick a macro, up / down change the set) and the Confirm button (A by default, whatever Confirm is bound to) runs the picked macro. No other button touches a macro. (Round 1 mapped ten buttons to the ten keys; retail does not.)
+- Nothing runs, and no palette shows, while a menu is open, the chat line is open or a log window is selected; the target command menu alone does not count, since it stays up while engaged (round 1: macros did nothing in combat).
 
 ## Windows (stock UI, Tier 2)
 
@@ -58,20 +58,20 @@ Found in the English menu DAT by name and read with `GORDIAN_UI_DUMP_MENUS=mcr*,
 | Window | Frame | Buttons | Use |
 |---|---|---|---|
 | `mcrmenu` | 384,48 112x42 TopRight, title 80 "MacroPalette" | 1 Edit Macro (help 829), 2 Edit Equip. Set (830) | the main menu's Macros (page 2) |
-| `mcrselec` | 384,48 112x330 TopRight | 1-20 book rows (`keytops3` #86 capsules, client text), 21 / 22 page arrows at x -16 / 113 | the 40 books, 20 to a page; left / right turn the page |
-| `mcrselop` | 0,0 112x90 | 1 Confirm (661), 2 Change Name (662), 3 Copy (663), 4 Paste (664), 5 Delete (665) | a book's options; placed by the client beside the book row (left of the list, **PROVISIONAL**) |
+| `mcrselec` | 384,48 112x330 TopRight | 1-20 book rows (`keytops3` #86 capsules, client text), 21 / 22 page arrows at x -16 / 113 | the 40 books, 20 to a page; left / right turn the page; the current book has a red underline (maintainer retail capture 2026-10-13) |
+| `mcrselop` | 0,0 112x90 | 1 Confirm (661), 2 Change Name (662), 3 Copy (663), 4 Paste (664), 5 Delete (665) | a book's options, left of the list beside the book's row (maintainer retail capture 2026-10-13); Confirm makes the book current |
 | `mcr1edlo` + `mcr2edlo` | 16,48 862x42 each, title 75 "Edit Macros" | 10 keys each, 80x32 (`keytops3` #474-#493 key art) | the set's Ctrl and Alt rows (Compact: `mcr1edit` / `mcr2edit`, 480x42, keys 40x32) |
 | `macro` | 16,48 366x248, title 75 | 1 Prev, 2 Next, 3 title field, 4-9 lines | one macro (`frames` #61 draws the key box 18..94 x 30..58, the title box 110..234, the line boxes 18..358 x 66+30n) |
-| `mcrbedit` | 384,134 112x77 | 1 Copy (659), 2 Paste (318), 3 Delete (317) under "+ : Button Edit" | a palette key's options |
-| `mcrledit` | 384,48 112x77 | 1 Copy Line (660), 2 Paste Line (320), 3 Delete Line (319) under "+ : Line Edit" | a line's options |
+| `mcrbedit` | 384,134 112x77 | 1 Copy (659), 2 Paste (318), 3 Delete (317) under "+ : Button Edit" | a palette key's options, shown at the top right whenever the palette editor has the cursor (maintainer retail capture 2026-10-13) |
+| `mcrledit` | 384,48 112x77 | 1 Copy Line (660), 2 Paste Line (320), 3 Delete Line (319) under "+ : Line Edit" | a line's options, shown at the top right whenever the macro editor has the cursor |
 | `mcr1long` / `mcr2long` | 16,48 862x42, title 80 | 10 keys | the palette in play, Full size |
 | `mcr1pall` / `mcr2pall` | 16,48 480x42, title 80 | 10 keys | the palette in play, Compact |
 
 `mcresmn`, `mcresed`, `mcres20` (title 172 "Equipment Sets") and `mcrmogc` (title 169 "Storage Options") are the equipment set and storage windows, not part of the macros.
 
-- **Flow:** Macros, Edit Macro, a book, Confirm opens the palette editor on the current set when the book is the current one, else set 1. Up / Down move between the Ctrl and Alt rows; up from the Ctrl row goes to the previous set's Alt row and down from the Alt row to the next set's Ctrl row (GordianXI's way to reach the ten sets; retail's is not captured). Confirm on a key opens the macro editor; Prev / Next walk the set's twenty macros (Ctrl 1 .. Alt 0, wrapping), the palette's cursor following. Confirm on the title or a line types in it: the field takes the keyboard as the chat line does (`StockUiTextField`; the viewport feeds it keys and text), Enter keeps the text, Escape (or B) drops it, Up / Down keep it and move to the field above / below; Ctrl+V pastes. + (keypad +, gamepad Y) on a key opens Button Edit, on a line Line Edit; Copy keeps the macro or line in a clipboard, Paste writes it, Delete clears it. Change Name types the book's name in its row; Paste and Delete on a book ask yes / no first.
-- **Layout (BG-Wiki screenshots):** the editor shows both rows stacked (the Ctrl row at the authored 16,48 and the Alt row 38 px lower, `StockUiMacroMenus.AltRowOffset`, **PROVISIONAL**: measured on a scaled screenshot), composed into one window so the cursor, mouse and Cancel work as on any menu. The help bar at the top (`titlewin` + `helpwind`) shows "Edit Macros" and "Macro Set Book01 (#10)" as the screenshot does; over a window whose entry has a help line (the book options, Button / Line Edit) that line.
-- **In play:** while a palette is held, only that palette's row is drawn, at the authored 16,48 (both rows share the spot; the maintainer's note), or at the right edge when Misc. 2 "Macro Palette Position" is Static, or Dynamic while engaged (help 688 "Shift macro palette to the right during combat.", 689 "Lock macro palette to the right at all times."). "Macro Palette Size" picks Full or Compact (help 687). Each key shows its macro's title in `fontshp` at 7/8 from its top left; the key picked with Ctrl/Alt + Left / Right is tinted as a selected menu entry. The help bar shows "MacroPalette" and the current set (**PROVISIONAL**: whether retail shows a bar in play is not captured).
+- **Flow:** Macros, Edit Macro, a book, Confirm makes the book the current one (keeping the set number, as `/macro book` does) and opens the palette editor on the current set. Up / Down move between the Ctrl and Alt rows; up from the Ctrl row goes to the previous set's Alt row and down from the Alt row to the next set's Ctrl row (GordianXI's way to reach the ten sets; retail's is not captured). Confirm on a key opens the macro editor; Prev / Next walk the set's twenty macros (Ctrl 1 .. Alt 0, wrapping), the palette's cursor following. Confirm on the title or a line types in it: the field takes the keyboard as the chat line does (`StockUiTextField`; the viewport feeds it keys and text), Enter, Escape and the gamepad's Confirm / Cancel all keep the text (retail keeps a line on Escape: the maintainer's check, 2026-10-13), Up / Down keep it and go on typing in the field above / below; Ctrl+V pastes. Button Edit and Line Edit are always shown beside the palette editor and the editor; + (keypad +, gamepad Y, as their "+ :" headers say) puts the cursor on them and back. Copy keeps the macro or line in a clipboard, Paste writes it, Delete clears it. Change Name types the book's name in its row; Paste and Delete on a book ask yes / no first.
+- **Layout (maintainer retail capture 2026-10-13, 1:1):** the editor shows both rows stacked (the Ctrl row at the authored 16,48 and the Alt row 43 px lower, `StockUiMacroMenus.AltRowOffset`: the 42-px frames 1 px apart, measured to about a pixel), composed into one window so the cursor, mouse and Cancel work as on any menu. The help bar at the top (`titlewin` + `helpwind`) shows "Edit Macros" and "Macro Set Book01 (#10)" as the screenshot and the maintainer retail capture 2026-10-13 do; over a window whose entry has a help line (the book options, Button / Line Edit) that line.
+- **In play:** while a palette is held, only that palette's row is drawn, at the authored 16,48 (both rows share the spot; the maintainer's note). Misc. 2 "Macro Palette Position" shifts it right by 128 px (`StockUiMacroWindow.CombatShift`) while engaged (Dynamic) or always (Static) (help 688 "Shift macro palette to the right during combat.", 689 "Lock macro palette to the right at all times."): in combat retail draws your own HP / MP / TP bars at its left and the palette sits just right of them (maintainer retail capture 2026-10-13, 1:1; the offset measured to about 4 px on a cropped capture). GordianXI does not draw those bars yet ([#391](https://github.com/jimmy58663/GordianXI/issues/391)). "Macro Palette Size" picks Full or Compact (help 687). Each key shows its macro's title in `fontshp` at 7/8 from its top left; the key picked with Ctrl/Alt + Left / Right is tinted as a selected menu entry. The help bar shows "MacroPalette" and "Macro Set Book09 (#1)" in play too (maintainer retail capture 2026-10-13).
 - Drawn checks: `StockUiMacroWindowRenderTests` (D3D11; `GORDIAN_UI_DUMP` writes `gpu_macro_palette.png`, `gpu_macro_palette_editor.png`, `gpu_macro_editor.png`, `gpu_macro_books.png`).
 
 ## Commands (#362)
@@ -82,13 +82,16 @@ Routed by `ChatCommandRouter` and run in `PlayerActionService.Macros.cs`; they w
 |---|---|
 | `/macro book n`, `/macro set n` | change the current book (1-40, keeping the set) or set (1-10) |
 | `/wait [n]` | a macro's pause; typed, nothing |
-| `/recast "name"` | a spell's or job ability's time to ready: "Provoke: 0:25 until ready." / "Provoke: ready." (wording **PROVISIONAL**) |
+| `/recast "name"` | a spell's or job ability's time to ready, as retail prints it: `[Provoke] 0:00` (maintainer retail capture 2026-10-13), in the echo colour |
 | `/targetnpc`, `/targetbnpc` | target the closest NPC (or door) / the closest living monster among what the targeting keys could pick, within 50 yalms |
 | `/lastsynth` | the last synthesis again with the same items, found anew in the inventory (the crystal and each ingredient from the first slots holding enough) |
+| `/pcmd leader name` | passes party leadership: C2S 0x077 kind 0, change kind 0 SetPartyLeader (LandSandBoat `0x077_group_change2.h`). The rest of `/pcmd` (add, leave, breakup, kick, accept, decline) was there already; LandSandBoat's other change kinds (quartermaster, lottery, level sync) have no `/pcmd` word we know of |
 | `/acmd add\|leave\|breakup\|kick\|leader [name]` | alliance commands: C2S 0x06E / 0x06F / 0x070 / 0x071 with kind 5, and 0x077 kind 5 change kind 1 (SetAllianceLeader); kinds from LandSandBoat `packets/c2s/0x071_group_strike.h`, `0x077_group_change2.h` |
 | `/equipset` | not here: equipment sets are [#92](https://github.com/jimmy58663/GordianXI/issues/92) |
 
 ## Chat placeholders (#362, `ChatTextTokens`)
+
+`/echo` lines (and `/recast` replies) are drawn pale lavender, glyph body about (206, 206, 247) (maintainer retail capture 2026-10-13; `ChatLogChannel.Echo`).
 
 Chat text (say, party, tell ..., `/echo`) has its placeholders filled before it is sent and echoed, as retail does: `<hp>` / `<mp>` "current/max", `<hpp>` / `<mpp>` "n%", `<tp>` the number, `<job>` "WAR75/NIN37", `<mjob>` "WAR75", `<sjob>` "NIN37", `<pethpp>` / `<petmpp>` "n%" and `<pettp>` from the pet (S2C 0x068), `<recast=Name>` "m:ss", and the target placeholders (`<t>`, `<me>`, `<bt>`, `<p0>`-`<p5>`, `<a10>`-`<a25>`, `<pet>`, `<r>`, `<ht>`, `<scan>`, `<lastst>`) as the entity's name. `<wait n>` is removed. A placeholder nothing can fill (no pet, nothing targeted, an unknown word) and the sub-target ones (`<st>` ...) stay as typed. **PROVISIONAL:** every output format above is ours (BG-Wiki shows usage, not output); to check in retail with `/echo <hp> <hpp> <tp> <job> <mjob> <sjob> <recast=Provoke>`.
 

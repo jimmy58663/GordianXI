@@ -184,28 +184,43 @@ namespace Gordian.Core.Tests.Macros
         }
 
         [Fact]
-        public async Task Controller_GamepadTriggerAndButtonRunAMacro()
+        public async Task Controller_GamepadDPadPicksAndConfirmRuns()
         {
             var library = new MacroLibrary();
-            library.Set(new MacroSlot(0, 0, MacroPalette.Alt, 6), new Macro("Seven", new[] { "/echo seven" }));
+            library.Set(new MacroSlot(0, 0, MacroPalette.Alt, 1), new Macro("Two", new[] { "/echo two" }));
             var recorder = new Recorder();
             var controller = new MacroController(library);
             controller.Runner.SubmitLine = recorder.Submit;
             var profile = InputProfile.CreateGamepadDefault();
             var input = new InputState();
 
-            input.SetGamepadState(new GamepadState(true, GamepadButton.None, default, default, 0f, 1f));
-            input.Update(profile, TimeSpan.FromMilliseconds(16));
-            controller.Update(input, blocked: false);
+            void Press(GamepadButton buttons)
+            {
+                input.SetGamepadState(new GamepadState(true, buttons, default, default, 0f, 1f));
+                input.Update(profile, TimeSpan.FromMilliseconds(16));
+                controller.Update(input, blocked: false, profile);
+            }
+
+            Press(GamepadButton.None);
             Assert.Equal(MacroPalette.Alt, controller.ShownPalette);
             Assert.True(controller.HeldByGamepad);
 
-            // Key 7 is the bottom face button (A).
-            input.SetGamepadState(new GamepadState(true, GamepadButton.A, default, default, 0f, 1f));
-            input.Update(profile, TimeSpan.FromMilliseconds(16));
-            controller.Update(input, blocked: false);
+            // Y, B, X, LB, RB touch no macro; the d-pad moves as the arrows; Confirm (A) runs the picked one.
+            Press(GamepadButton.Y | GamepadButton.B | GamepadButton.X | GamepadButton.LeftShoulder | GamepadButton.RightShoulder);
+            Press(GamepadButton.None);
+            Assert.Empty(recorder.Events);
+            Press(GamepadButton.DPadRight);
+            Press(GamepadButton.None);
+            Assert.Equal(1, controller.SelectedKey);
+            Press(GamepadButton.DPadDown);
+            Press(GamepadButton.None);
+            Assert.Equal(1, library.CurrentSet);
+            Press(GamepadButton.DPadUp);
+            Press(GamepadButton.None);
+            Assert.Equal(0, library.CurrentSet);
+            Press(GamepadButton.A);
             await controller.Runner.Current;
-            Assert.Equal(new[] { "/echo seven" }, recorder.Events);
+            Assert.Equal(new[] { "/echo two" }, recorder.Events);
             Assert.False(input.IsActionHeld(InputAction.Confirm)); // the palette takes the pad's other buttons
         }
     }

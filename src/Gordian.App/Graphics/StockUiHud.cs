@@ -304,9 +304,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The macro palette in play while Ctrl / Alt (LT / RT) is held, and the help bar over it and over the macro windows
-        /// (#339): "Edit Macros" (or "MacroPalette" in play) and "Macro Set &lt;book&gt; (#&lt;set&gt;)"; over a window whose
-        /// selected entry has a help line (the book options, Line / Button Edit), that line. PROVISIONAL: whether retail shows
-        /// the bar in play is not captured.
+        /// (#339): "Edit Macros" (or "MacroPalette" in play) and "Macro Set &lt;book&gt; (#&lt;set&gt;)", as the maintainer's retail
+        /// captures (2026-10-13) show; over a window whose selected entry has a help line (the book options, Line / Button
+        /// Edit), that line.
         /// </summary>
         private void DrawMacros(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
@@ -326,8 +326,9 @@ namespace Gordian.App.Graphics
             if (menus.IsOpen || macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None) return;
             var settings = session.ActionService.UiSettings;
             bool compact = settings.GetValue(StockUiSettingKey.MacroPaletteSize) == 1;
-            bool atRight = settings.GetValue(StockUiSettingKey.MacroPalettePosition) == 1 || session.ActionService.Combat?.IsEngaged == true;
-            StockUiMacroWindow.DrawPlayPalette(renderer, library, font, macros, compact, atRight, Layout.Scale, width, height);
+            // Static: always shifted right; Dynamic: while engaged, when retail draws your own HP / MP / TP bars at its left.
+            bool shifted = settings.GetValue(StockUiSettingKey.MacroPalettePosition) == 1 || session.ActionService.Combat?.IsEngaged == true;
+            StockUiMacroWindow.DrawPlayPalette(renderer, library, font, macros, compact, shifted, Layout.Scale, width, height);
             var library2 = macros.Library;
             StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, StockUiMacroMenus.PaletteTitle,
                 $"Macro Set {library2.GetBookTitle(library2.CurrentBook)} (#{library2.CurrentSet + 1})", Layout.Scale, width, height);
@@ -520,6 +521,14 @@ namespace Gordian.App.Graphics
                     // The Items window's options ("+ : Sort") stand at the top right while the list takes input; + / Y puts the cursor on them.
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
+                    && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
+                {
+                    // Button Edit beside the palettes and Line Edit beside the editor stand at their authored places at the top right
+                    // whenever those windows have the cursor (maintainer retail capture 2026-10-13); + / Y puts the cursor on them.
+                    var f = macroOptions.Frame;
+                    StockUiMacroWindow.DrawOptions(renderer, library, macroOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
                 if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
                     && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))

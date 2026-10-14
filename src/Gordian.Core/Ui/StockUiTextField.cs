@@ -7,8 +7,9 @@ namespace Gordian.Core.Ui
 {
     /// <summary>
     /// A one-line text field a stock window edits in place (the macro editor's title and lines, a macro book's name; #339).
-    /// While open it owns the keyboard as the chat input line does (the viewport feeds it keys and text): Enter keeps the
-    /// text, Escape drops it, Up / Down keep it and ask to move to the field above / below. Printable ASCII only, cut at
+    /// While open it owns the keyboard as the chat input line does (the viewport feeds it keys and text): Enter and Escape
+    /// keep the text (retail keeps a line on Escape: maintainer's retail check 2026-10-13), Up / Down keep it and ask to move
+    /// to the field above / below. Printable ASCII only, cut at
     /// <see cref="MaxLength"/>. Accessed from the UI thread (keys, text) and the render thread (drawing), so state changes
     /// take a lock.
     /// </summary>
@@ -109,7 +110,6 @@ namespace Gordian.Core.Ui
         public bool HandleKey(GordianKey key, InputModifiers modifiers)
         {
             int commitStep = int.MinValue;
-            bool cancel = false;
             lock (_sync)
             {
                 if (!IsOpen) return false;
@@ -118,7 +118,7 @@ namespace Gordian.Core.Ui
                     case GordianKey.Enter or GordianKey.NumPadEnter: commitStep = 0; break;
                     case GordianKey.Up: commitStep = -1; break;
                     case GordianKey.Down: commitStep = 1; break;
-                    case GordianKey.Escape: cancel = true; break;
+                    case GordianKey.Escape: commitStep = 0; break;
                     case GordianKey.Backspace:
                         if (_caret > 0) _text.Remove(--_caret, 1);
                         break;
@@ -139,8 +139,7 @@ namespace Gordian.Core.Ui
                         break;
                 }
             }
-            if (cancel) Cancel();
-            else if (commitStep != int.MinValue) Commit(commitStep);
+            if (commitStep != int.MinValue) Commit(commitStep);
             return true;
         }
     }

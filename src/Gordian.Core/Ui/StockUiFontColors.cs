@@ -247,6 +247,8 @@ namespace Gordian.Core.Ui
         {
             ChatLogChannel.ServerMessage => new UiColor(0x64, 0x32, 0x7F, 0x7F),
             ChatLogChannel.Notice => new UiColor(0x68, 0x70, 0x7F, 0x7F),
+            // /echo and /recast: glyph body (206, 206, 247) in the maintainer's retail captures, 2026-10-13 (#362).
+            ChatLogChannel.Echo => new UiColor(0x67, 0x67, 0x7B, 0x7F),
             ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
             _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
         };

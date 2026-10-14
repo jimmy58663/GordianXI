@@ -15,6 +15,8 @@ namespace Gordian.Core.Network
         PartyLeave,
         PartyDisband,
         PartyKick,
+        /// <summary><c>/pcmd leader &lt;name&gt;</c>: passes party leadership (C2S 0x077 kind 0, change kind 0 SetPartyLeader); <see cref="ChatCommandResult.TargetName"/> is the name.</summary>
+        PartyLeader,
         CombatAttack,
         CombatAttackOff,
         CombatCast,
@@ -528,7 +530,7 @@ namespace Gordian.Core.Network
         {
             if (string.IsNullOrWhiteSpace(args))
             {
-                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /pcmd <add|leave|breakup|kick|accept|decline> [player]" };
+                return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /pcmd <add|leave|breakup|kick|leader|accept|decline> [player]" };
             }
 
             int spaceIdx = args.IndexOf(' ');
@@ -543,10 +545,13 @@ namespace Gordian.Core.Network
                 "leave" => new ChatCommandResult { Kind = ChatCommandResultKind.PartyLeave },
                 "breakup" or "disband" => new ChatCommandResult { Kind = ChatCommandResultKind.PartyDisband },
                 "kick" => ParseKick(subArgs, world),
+                "leader" => subArgs.Length == 0
+                    ? new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /pcmd leader <player>" }
+                    : new ChatCommandResult { Kind = ChatCommandResultKind.PartyLeader, TargetName = subArgs.Trim('"') },
                 _ => new ChatCommandResult
                 {
                     Kind = ChatCommandResultKind.LocalNotice,
-                    Message = $"Unknown party command: /pcmd {subVerb}. Valid options: add, leave, breakup, kick, accept, decline."
+                    Message = $"Unknown party command: /pcmd {subVerb}. Valid options: add, leave, breakup, kick, leader, accept, decline."
                 }
             };
         }

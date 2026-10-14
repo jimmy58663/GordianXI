@@ -65,6 +65,12 @@ namespace Gordian.App.Graphics
                 }
                 UiColor? tint = row == menu.SelectedButtonId ? StockUiMenuWindow.SelectedGlyphTint : null;
                 renderer.DrawText(font, macros.GetBookTitle(book), x, y, s, tint);
+                if (book == macros.CurrentBook)
+                {
+                    // The current book's red underline under its row (maintainer retail capture 2026-10-13).
+                    renderer.DrawTextureRect("colorbal", 7, 23, 1, 1, placement.X + button.X * s, placement.Y + (button.Y + button.Height) * s,
+                        button.Width * s, 2 * s, CurrentBookBar);
+                }
             }
             // The page arrows beside the list (buttons 21 / 22, outside the frame, which the menu drawing leaves out).
             foreach (int id in new[] { StockUiMacroMenus.BookPrevPage, StockUiMacroMenus.BookNextPage })
@@ -152,39 +158,70 @@ namespace Gordian.App.Graphics
             else renderer.DrawText(font, text, x, y + 2 * s, s);
         }
 
+        /// <summary>The current book's red underline in the book list (maintainer retail capture 2026-10-13), as the config pages mark the value in effect.</summary>
+        private static readonly UiColor CurrentBookBar = new(0x80, 0x18, 0x18, 0x80);
+
+        /// <summary>
+        /// How far right the palette moves when Macro Palette Position shifts it (Static always, Dynamic while engaged): retail
+        /// draws your own HP / MP / TP bars at its left then (maintainer retail capture 2026-10-13, 1:1; measured to about
+        /// 4 px on a cropped capture).
+        /// </summary>
+        public const float CombatShift = 128;
+
+        /// <summary>
+        /// Button Edit / Line Edit beside the palettes and the editor (always shown while those have the cursor; + / Y moves the
+        /// cursor onto them). The first entry, Copy, is drawn highlighted as in the capture.
+        /// </summary>
+        public static void DrawOptions(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition options, StockUiPlacement at)
+        {
+            renderer.DrawMenu(options, at, includeButtons: false, opaqueBody: true);
+            foreach (var button in options.Buttons)
+            {
+                foreach (var shape in button.Shapes)
+                {
+                    if (shape.Kind != 0 || !library.TryGetImage(shape, out var label)) continue;
+                    DrawLabel(renderer, label, at.X + button.X * at.Scale, at.Y + button.Y * at.Scale, at.Scale, button.ButtonId == StockUiMacroMenus.OptionCopy);
+                }
+            }
+        }
+
+        private static void DrawLabel(StockUiRenderer renderer, UiImage label, float x, float y, float scale, bool selected)
+        {
+            if (!selected)
+            {
+                renderer.DrawImage(label, x, y, scale);
+                return;
+            }
+            foreach (var part in label.Parts)
+            {
+                UiColor? tint = part.BlendMode != UiBlendMode.Alpha ? null
+                    : StockUiMenuWindow.IsGlyph(part) ? StockUiMenuWindow.SelectedGlyphTint : StockUiMenuWindow.SelectedCapsuleTint;
+                renderer.DrawPart(part, x, y, scale, tint);
+            }
+        }
+
         /// <summary>
         /// The palette in play (#339): the held palette's row (Full <c>mcr1long</c> / <c>mcr2long</c>, or the Compact
-        /// <c>mcr1pall</c> / <c>mcr2pall</c>) at its authored place (16,48), or at the right edge when Misc. 2 "Macro Palette
-        /// Position" says so (Static always, Dynamic while engaged), with each key's macro title and the key picked with
-        /// Left / Right highlighted as a selected menu entry. Returns where it was drawn.
+        /// <c>mcr1pall</c> / <c>mcr2pall</c>) at its authored place (16,48), moved <see cref="CombatShift"/> right when Misc. 2
+        /// "Macro Palette Position" says so (Static always, Dynamic while engaged), with each key's macro title and the key picked
+        /// with Left / Right (the d-pad on a pad) highlighted as a selected menu entry. Returns where it was drawn.
         /// </summary>
         public static StockUiPlacement? DrawPlayPalette(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, MacroController macros,
-            bool compact, bool atRight, float scale, uint width, uint height)
+            bool compact, bool shifted, float scale, uint width, uint height)
         {
             var palette = macros.ShownPalette;
             if (palette == MacroPalette.None || !library.TryGetMenu(StockUiMacroMenus.PaletteMenu(palette, compact), out var definition)) return null;
             var f = definition.Frame;
             var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
-            if (atRight) at = at with { X = Math.Max(0, width - (f.Width + 16) * scale) };
+            if (shifted) at = at with { X = at.X + CombatShift * scale };
             renderer.DrawMenu(definition, at, includeButtons: false);
-            int selected = macros.HeldByGamepad ? -1 : macros.SelectedKey + 1;
+            int selected = macros.SelectedKey + 1;
             foreach (var button in definition.Buttons)
             {
-                float bx = at.X + button.X * scale, by = at.Y + button.Y * scale;
                 foreach (var shape in button.Shapes)
                 {
                     if (shape.Kind != 0 || !library.TryGetImage(shape, out var label)) continue;
-                    if (button.ButtonId != selected)
-                    {
-                        renderer.DrawImage(label, bx, by, scale);
-                        continue;
-                    }
-                    foreach (var part in label.Parts)
-                    {
-                        UiColor? tint = part.BlendMode != UiBlendMode.Alpha ? null
-                            : StockUiMenuWindow.IsGlyph(part) ? StockUiMenuWindow.SelectedGlyphTint : StockUiMenuWindow.SelectedCapsuleTint;
-                        renderer.DrawPart(part, bx, by, scale, tint);
-                    }
+                    DrawLabel(renderer, label, at.X + button.X * scale, at.Y + button.Y * scale, scale, button.ButtonId == selected);
                 }
             }
             var set = macros.Library.GetSet(macros.Library.CurrentBook, macros.Library.CurrentSet);

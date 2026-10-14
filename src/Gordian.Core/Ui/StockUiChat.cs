@@ -417,7 +417,9 @@ namespace Gordian.Core.Ui
             // Basic system messages); other client results keep GordianXI's notice colour.
             var channel = result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error
                 ? ChatLogChannel.Error
-                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System : ChatLogChannel.Notice;
+                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System
+                : parsed.Kind is ChatCommandResultKind.LocalEcho or ChatCommandResultKind.Recast ? ChatLogChannel.Echo
+                : ChatLogChannel.Notice;
             foreach (var row in result.Message.Split('\n'))
             {
                 string text = row.TrimEnd('\r');
