@@ -32,6 +32,9 @@ namespace Gordian.App.ViewModels
         private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
         private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
         private readonly object _saveLock = new();
+
+        /// <summary>Whether the notice for a saved OpenGL backend was logged (once per run, not once per view model).</summary>
+        private static int s_openGlNoticeLogged;
         private CameraMode _activeCameraMode = CameraMode.ThirdPersonOrbital;
         private int _drawCalls;
         private int _visibleMeshes;
@@ -87,8 +90,12 @@ namespace Gordian.App.ViewModels
             _selectedBackend = _settings.SelectedBackend;
             if (_selectedBackend == GraphicsBackendPreference.OpenGL)
             {
-                // OpenGL is not implemented (#390) and no longer offered; it always ran the automatic choice.
-                Gordian.Core.Diagnostics.GordianLog.Warn("VIEWPORT", "The saved OpenGL backend is not implemented (#390); using Auto.");
+                // OpenGL is no longer a choice (#390; it always ran the automatic backend): the saved setting loads as Auto,
+                // saved as Auto at the next settings change.
+                if (System.Threading.Interlocked.Exchange(ref s_openGlNoticeLogged, 1) == 0)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("VIEWPORT", "The saved OpenGL backend is no longer offered (#390); using Auto (Direct3D 11 on Windows, Vulkan elsewhere).");
+                }
                 _selectedBackend = GraphicsBackendPreference.Auto;
             }
             _selectedDisplayMode = _settings.SelectedDisplayMode;

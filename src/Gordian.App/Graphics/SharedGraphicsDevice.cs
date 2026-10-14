@@ -106,20 +106,18 @@ namespace Gordian.App.Graphics
         {
             GraphicsBackendPreference.Direct3D11 => backend == GraphicsBackend.Direct3D11,
             GraphicsBackendPreference.Vulkan or GraphicsBackendPreference.Metal => backend == GraphicsBackend.Vulkan,
-            GraphicsBackendPreference.OpenGL => backend is GraphicsBackend.OpenGL or GraphicsBackend.OpenGLES,
+            // Auto, and a legacy OpenGL setting, which means Auto (#390).
             _ => true
         };
 
         /// <summary>
-        /// Why the running backend is not the preferred one (null when it is, or for Auto): the preferred backend failed,
-        /// is not implemented (OpenGL, #390), or another window had already opened the shared device with another one.
+        /// Why the running backend is not the preferred one (null when it is, or for Auto): the preferred backend failed
+        /// to start, or another window had already opened the shared device with another one.
         /// </summary>
         public static string? FallbackNote(GraphicsBackendPreference preference, GraphicsBackend running)
         {
-            if (preference == GraphicsBackendPreference.Auto || Matches(preference, running)) return null;
-            return preference == GraphicsBackendPreference.OpenGL
-                ? $"OpenGL is not implemented (#390); running {running} instead."
-                : $"{preference} is not running (unavailable, or the shared device was already open); running {running} instead.";
+            if (Matches(preference, running)) return null;
+            return $"{preference} is not running (unavailable, or the shared device was already open); running {running} instead.";
         }
 
         private static GraphicsDevice CreateHeadlessDevice(GraphicsDeviceOptions options, GraphicsBackendPreference preference)

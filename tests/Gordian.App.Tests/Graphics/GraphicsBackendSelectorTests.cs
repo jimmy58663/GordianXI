@@ -53,12 +53,12 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void LegacyOpenGLPreference_RunsTheAutomaticChoice_AndSaysSo()
+        public void LegacyOpenGLPreference_MeansAuto()
         {
-            // OpenGL is not implemented (#390): the automatic candidates, and the fallback is reported.
+            // OpenGL is no longer a choice (#390): a saved OpenGL preference runs the automatic candidates, no fallback.
             Assert.Equal(VeldridDeviceManager.GetBackendCandidates(GraphicsBackendPreference.Auto),
                 VeldridDeviceManager.GetBackendCandidates(GraphicsBackendPreference.OpenGL));
-            Assert.Contains("OpenGL is not implemented", SharedGraphicsDevice.FallbackNote(GraphicsBackendPreference.OpenGL, GraphicsBackend.Direct3D11));
+            Assert.Null(SharedGraphicsDevice.FallbackNote(GraphicsBackendPreference.OpenGL, GraphicsBackend.Direct3D11));
         }
 
         [Theory]

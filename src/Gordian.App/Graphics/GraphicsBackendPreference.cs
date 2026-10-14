@@ -28,9 +28,9 @@ namespace Gordian.App.Graphics
         Metal = 3,
 
         /// <summary>
-        /// Legacy value kept so saved settings still load: OpenGL is not implemented (#390). The viewport windows share
-        /// one headless device with a swapchain per window (#300), which NeoVeldrid's OpenGL backend cannot provide, so
-        /// this selects the platform's automatic choice and logs the fallback. Not offered in the settings list.
+        /// Legacy value kept so saved settings still load: OpenGL was never implemented and is no longer a choice
+        /// (maintainer decision 2026-10-13, #390; macOS runs Vulkan through MoltenVK). A saved OpenGL setting loads as
+        /// <see cref="Auto"/> with a one-time notice (<c>ViewportViewModel</c>). Not offered in the settings list.
         /// </summary>
         OpenGL = 4
     }
