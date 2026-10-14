@@ -116,10 +116,24 @@ namespace Gordian.App.Tests.Graphics
             var op = Place(options);
             // The grid at its own place (16,48 top left), the options right against the list at the top right.
             Assert.Equal((int)lp.X - 112, (int)op.X);
-            int gx = 16, gy = 48;
-            var icon = screen.Pixel(optionsShot, gx + 24 + 16, gy + 45 + 16);
-            var empty = screen.Pixel(optionsShot, gx + 24 + 16, gy + 79 + 16);
-            Assert.True(System.Math.Abs(icon.R - empty.R) + System.Math.Abs(icon.G - empty.G) + System.Math.Abs(icon.B - empty.B) > 30, $"no icon in Head: {icon} vs {empty}");
+            // No grid until Edit (round 2): the screen's left is the clear colour where the grid's Head slot would be.
+            var clear = screen.Pixel(optionsShot, 2, 2);
+            Assert.Equal(clear, screen.Pixel(optionsShot, 16 + 24 + 16, 48 + 45 + 16));
+
+            // Change Name on set 2 (image-16): the name typed in its capsule, scrolled to its end.
+            sets.Top!.SelectedButtonId = StockUiEquipSets.ChangeNameButton;
+            sets.CloseTop();
+            setList.SelectedButtonId = 2;
+            sets.Activate();
+            sets.Top!.SelectedButtonId = StockUiEquipSets.ChangeNameButton;
+            sets.Activate();
+            Assert.True(sets.IsEditingName);
+            sets.NameEditInsert("Long");
+            byte[] renameShot = All("gpu_equip_set_rename.png");
+            Assert.True(screen.HasLightPixel(renameShot, (int)lp.X + 20, (int)lp.X + 100, (int)lp.Y + 22 + 8), "no name in the edited capsule");
+            sets.NameEditCancel();
+            sets.Top!.SelectedButtonId = 1;
+            sets.Activate();
 
             // Edit (image-12): the grid, the storage's equipment right of it and the slot's info under it.
             sets.Activate();

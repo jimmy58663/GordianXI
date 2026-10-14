@@ -1124,6 +1124,7 @@ namespace Gordian.Core.Ui
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
+            if (IsEditingName) return true; // Change Name has the keyboard (the window routes it)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {

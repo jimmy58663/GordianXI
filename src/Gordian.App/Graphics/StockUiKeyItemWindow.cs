@@ -40,6 +40,9 @@ namespace Gordian.App.Graphics
         private const string RemoveGroup = "keytops3";
         private const int RemoveImage = 429;
 
+        /// <summary>"You do not possess any key items." from (20, 20), at the window's left (round 2, image-15).</summary>
+        private const float EmptyTextX = 20, EmptyTextY = 20;
+
         /// <summary>The Examine question at (28, 32) (image-9).</summary>
         private const float QuestionX = 28, QuestionY = 32;
 
@@ -51,18 +54,7 @@ namespace Gordian.App.Graphics
         {
             if (menu.IsKeyItemWindow) DrawKeyItems(renderer, library, font, logFont, menu, placement, timestamp, screen);
             else if (menu.IsEquipSetList) DrawSetList(renderer, library, font, logFont, menu, placement);
-            else if (menu.IsEquipSetOptions && !menu.IsEquipSetGridOpen && library.TryGetMenu(StockUiEquipSets.GridMenu, out var grid))
-            {
-                // The set's grid beside its options (PROVISIONAL: image-11 is cropped to the options and the list), at its
-                // authored place relative to the options'.
-                var g = grid.Frame;
-                var frame = menu.Menu.Frame;
-                var at = screen.Width > 0 && screen.Height > 0
-                    ? StockUiLayout.Place(g.Anchor, g.X, g.Y, g.Width, g.Height, placement.Scale, screen.Width, screen.Height)
-                    : new StockUiPlacement(placement.X + (g.X - frame.X) * placement.Scale, placement.Y + (g.Y - frame.Y) * placement.Scale, placement.Scale, false);
-                renderer.DrawMenu(grid, at, includeButtons: true, opaqueBody: true);
-                DrawSetGrid(renderer, library, menu, grid, at);
-            }
+            // The set's grid shows only once Edit is chosen (round 2: not beside the options).
             else if (menu.IsEquipSetGrid) DrawEditedGrid(renderer, library, font, logFont, menu, placement, timestamp, screen);
         }
 
@@ -120,7 +112,7 @@ namespace Gordian.App.Graphics
             {
                 if (menu.EmptyText is { } empty)
                 {
-                    Text(renderer, font, logFont, empty, placement.X + (StockUiKeyItems.RowX + RowTextInset) * s, placement.Y + (StockUiKeyItems.RowY + 1) * s, s, White);
+                    Text(renderer, font, logFont, empty, placement.X + EmptyTextX * s, placement.Y + EmptyTextY * s, s, White);
                 }
                 return;
             }
@@ -163,9 +155,24 @@ namespace Gordian.App.Graphics
                 if (index >= EquipmentSetBook.SetCount || definition.FindButton(b) is not { } button) continue;
                 var set = book.Get(index + 1);
                 float x = placement.X + (button.X + StockUiEquipSets.NameInset) * s;
-                // Names longer than the capsule are cut at its end (retail's names fit; up to 15 characters can be stored).
-                renderer.SetClip(x, placement.Y + button.Y * s, (button.Width - StockUiEquipSets.NameInset - 4) * s, button.Height * s);
-                if (logFont != null)
+                bool editing = menu.EquipSetNameEdit is { } edit && edit.Number == index + 1;
+                // A name is cut where the capsule's text area ends (image-16: "BehavRese"); the name being typed is drawn at the
+                // log font's full size and scrolls left so its end and the caret stay in view (image-16's bottom capsule).
+                float clipWidth = (editing ? StockUiEquipSets.EditFieldWidth : StockUiEquipSets.NameFieldWidth) * s;
+                renderer.SetClip(x, placement.Y + button.Y * s, clipWidth, button.Height * s);
+                if (editing && menu.EquipSetNameEdit is { } typing)
+                {
+                    float es = s * StockUiEquipSets.EditScale;
+                    float caret = StockUiEquipSets.CaretWidth * s;
+                    float width = (logFont != null ? logFont.MeasureWidth(typing.Text) : font.MeasureWidth(typing.Text)) * es;
+                    float tx = x - Math.Max(0, width + caret - clipWidth);
+                    float ty = placement.Y + button.Y * s + (button.Height * s - StockUiLogFont.CellHeight * es) * 0.5f;
+                    if (logFont != null) logFont.Draw(renderer, typing.Text, tx, ty, es, White);
+                    else renderer.DrawText(font, typing.Text, tx, ty, es, White);
+                    // The caret: a thin bar after the text.
+                    renderer.DrawTextureRect("colorbal", 7, 23, 1, 1, tx + width + 1 * s, ty + 2 * s, 1 * s, (StockUiLogFont.CellHeight - 4) * es, White);
+                }
+                else if (logFont != null)
                 {
                     logFont.Draw(renderer, set.Name, x, placement.Y + button.Y * s + (button.Height * s - StockUiLogFont.CellHeight * ns) * 0.5f, ns, White);
                 }

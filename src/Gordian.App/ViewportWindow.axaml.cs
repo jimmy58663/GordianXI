@@ -564,6 +564,17 @@ namespace Gordian.App
             // are not handled here.
             var chat = session.Chat;
             bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
+            var menus = session.ActionService.Menus;
+            if (menus.IsEditingName)
+            {
+                // An equipment set's Change Name (#384) takes the keyboard: text arrives as text input (OnGameTextInput).
+                if (typed) return;
+                if (e.Key is Key.Enter or Key.Return) menus.NameEditCommit();
+                else if (e.Key == Key.Escape) menus.NameEditCancel();
+                else if (e.Key == Key.Back) menus.NameEditBackspace();
+                e.Handled = true;
+                return;
+            }
             if (chat.Input.IsOpen)
             {
                 // Tab / Shift+Tab still cycle targets while typing.
@@ -624,6 +635,12 @@ namespace Gordian.App
             if (ActiveLobby is { } lobby)
             {
                 if (!string.IsNullOrEmpty(e.Text)) lobby.HandleText(e.Text);
+                e.Handled = true;
+                return;
+            }
+            if (_viewModel?.ActiveTab?.Session?.ActionService.Menus is { IsEditingName: true } naming)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) naming.NameEditInsert(e.Text);
                 e.Handled = true;
                 return;
             }

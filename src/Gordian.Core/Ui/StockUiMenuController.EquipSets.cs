@@ -10,8 +10,14 @@ using Gordian.Core.World;
 
 namespace Gordian.Core.Ui
 {
+    /// <summary>A set name being typed with Change Name: the set and the text so far.</summary>
+    public sealed record StockUiNameEdit(int Number, string Text);
+
     public sealed partial class StockUiOpenMenu
     {
+        /// <summary>The set name being typed (Change Name), drawn in the set's capsule of the list; null when none.</summary>
+        public StockUiNameEdit? EquipSetNameEdit => ItemOwner?.NameEdit;
+
         /// <summary>The Equipment Sets list (<see cref="StockUiEquipSets.ListMenu"/>).</summary>
         public bool IsEquipSetList { get; init; }
 
@@ -250,8 +256,7 @@ namespace Gordian.Core.Ui
                     OpenEquipSetGrid(options);
                     break;
                 case StockUiEquipSets.ChangeNameButton:
-                    // Retail opens its text input here; GordianXI has none for menus yet (#384).
-                    NoticePosted?.Invoke("Naming equipment sets is not available yet.");
+                    BeginNameEdit(options, number, set);
                     break;
                 case StockUiEquipSets.CopyButton:
                     _copiedSet = set;
@@ -275,6 +280,69 @@ namespace Gordian.Core.Ui
                     _ = RunEquipSetAsync(EquipSetStyleLock, number, "Style Lock");
                     break;
             }
+        }
+
+        private volatile StockUiNameEdit? _nameEdit;
+
+        /// <summary>The set name being typed (Change Name), or null.</summary>
+        public StockUiNameEdit? NameEdit => _nameEdit;
+
+        /// <summary>Whether Change Name is taking typed text: the window routes the keyboard here (Enter, Escape, Backspace, text).</summary>
+        public bool IsEditingName => _nameEdit != null && Array.Exists(_open, m => m.IsEquipSetList);
+
+        /// <summary>
+        /// Change Name (maintainer retail capture 2026-10-13, image-16): the options close and the set's own capsule in the list
+        /// becomes the text field, starting with the set's name; typed text goes to its end (at most
+        /// <see cref="EquipmentSet.MaxNameLength"/> printable ASCII characters, what the retail file can hold).
+        /// </summary>
+        private void BeginNameEdit(StockUiOpenMenu options, int number, EquipmentSet set)
+        {
+            CloseMenu(options);
+            _nameEdit = new StockUiNameEdit(number, set.Name);
+            Changed?.Invoke();
+        }
+
+        /// <summary>Typed text for the name being changed.</summary>
+        public void NameEditInsert(string text)
+        {
+            if (_nameEdit is not { } edit || string.IsNullOrEmpty(text)) return;
+            var name = new System.Text.StringBuilder(edit.Text);
+            foreach (char c in text)
+            {
+                if (c < 0x20 || c > 0x7E || name.Length >= EquipmentSet.MaxNameLength) continue;
+                name.Append(c);
+            }
+            _nameEdit = edit with { Text = name.ToString() };
+            Changed?.Invoke();
+        }
+
+        /// <summary>Backspace: the name's last character goes.</summary>
+        public void NameEditBackspace()
+        {
+            if (_nameEdit is not { Text.Length: > 0 } edit) return;
+            _nameEdit = edit with { Text = edit.Text[..^1] };
+            Changed?.Invoke();
+        }
+
+        /// <summary>Enter: the set takes the typed name (its default name when left empty); the list keeps the cursor on it.</summary>
+        public void NameEditCommit()
+        {
+            if (_nameEdit is not { } edit) return;
+            _nameEdit = null;
+            if (EquipSets?.Invoke() is { } book && EquipmentSetBook.IsValidNumber(edit.Number))
+            {
+                string name = edit.Text.Trim();
+                book.Set(edit.Number, book.Get(edit.Number).WithName(name.Length > 0 ? name : EquipmentSet.DefaultName(edit.Number)));
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>Escape: the name stays as it was.</summary>
+        public void NameEditCancel()
+        {
+            if (_nameEdit == null) return;
+            _nameEdit = null;
+            Changed?.Invoke();
         }
 
         private async Task RunEquipSetAsync(Func<int, Task<PlayerActionResult>>? run, int number, string what)

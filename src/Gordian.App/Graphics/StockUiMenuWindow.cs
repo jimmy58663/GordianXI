@@ -41,8 +41,9 @@ namespace Gordian.App.Graphics
             // shows about 20%); it is left out so the fill drawn for the value is the only one.
             renderer.DrawMenu(definition, placement, includeButtons: false,
                 excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage,
-                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge.
-                opaqueTop: menu.ListKind == StockUiListKind.FontColors ? 0 : StockUiRenderer.MenuBandHeight);
+                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
+                // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
+                opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
 
             foreach (var button in definition.Buttons)
             {

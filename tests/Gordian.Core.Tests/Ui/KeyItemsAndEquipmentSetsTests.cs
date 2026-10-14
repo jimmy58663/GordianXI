@@ -608,6 +608,44 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(2, h.Checks.Count);
         }
         [Fact]
+        public void EquipSets_ChangeNameTypesInTheSetsCapsule_EnterKeepsIt_EscapeDropsIt()
+        {
+            var h = new SetHarness();
+            h.Book.Set(4, new EquipmentSet("Old"));
+            h.OpenOptions(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            // The options close; the list's capsule for set 4 is the field, starting with the name (image-16).
+            var list = h.Menus.Top!;
+            Assert.True(list.IsEquipSetList);
+            Assert.True(h.Menus.IsEditingName);
+            Assert.Equal(new StockUiNameEdit(4, "Old"), list.EquipSetNameEdit);
+            // The menus take no input meanwhile (the window routes the keyboard to the field).
+            var input = new InputState();
+            Assert.True(h.Menus.ProcessInput(input, TimeSpan.FromMilliseconds(16)));
+
+            h.Menus.NameEditBackspace();
+            h.Menus.NameEditBackspace();
+            h.Menus.NameEditBackspace();
+            h.Menus.NameEditBackspace(); // nothing left to delete
+            h.Menus.NameEditInsert("BehavResearch\u00e9\t!!!"); // non-ASCII and control characters are dropped; 15 at most
+            Assert.Equal("BehavResearch!!", h.Menus.NameEdit!.Text);
+            h.Menus.NameEditCommit();
+            Assert.False(h.Menus.IsEditingName);
+            Assert.Equal("BehavResearch!!", h.Book.Get(4).Name);
+
+            // Escape leaves the name; an empty name gives the set back its default.
+            h.OpenOptions(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            h.Menus.NameEditInsert("x");
+            h.Menus.NameEditCancel();
+            Assert.Equal("BehavResearch!!", h.Book.Get(4).Name);
+            h.Choose(4); // the list's row 4 again
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            for (int i = 0; i < 20; i++) h.Menus.NameEditBackspace();
+            h.Menus.NameEditCommit();
+            Assert.Equal("Set004", h.Book.Get(4).Name);
+        }
+        [Fact]
         public void RetailMenus_KeyItemAndEquipSetWindowsResolve()
         {
             if (!Directory.Exists(GameDirectory)) return;

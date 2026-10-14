@@ -68,10 +68,12 @@ namespace Gordian.Core.Ui
         public const int SlotListX = 198;
 
         /// <summary>
-        /// The set names: 6 px into a capsule, upright and white in the log font at 0.67 of its size, so "Set001" is 34 px wide and
-        /// about 10 px tall as in image-11, and "BehavResearch" fits the 88 px capsule (round 1 found it overflowing).
+        /// The set names (maintainer retail capture 2026-10-13, image-16): 6 px into a capsule, upright and white in the log font
+        /// at 0.83 of its size ("Set002" 43 px wide), cut where the 70 px text area ends ("BehavRese"; round 2 found 0.67
+        /// too small). While Change Name types one, the field draws it at the log font's full size (9 px a letter), 76 px wide,
+        /// scrolled left so the end of the text and the caret stay in view.
         /// </summary>
-        public const float NameInset = 6, NameScale = 0.67f;
+        public const float NameInset = 6, NameScale = 0.83f, NameFieldWidth = 70, EditScale = 1f, EditFieldWidth = 76, CaretWidth = 3;
 
         /// <summary>The menu message table's (ROM/165/72) set texts.</summary>
         public const int RemovePieceText = 275, KeepSamePieceText = 276, PastePromptText = 277, DeletePromptText = 278, UseCurrentPromptText = 279;
