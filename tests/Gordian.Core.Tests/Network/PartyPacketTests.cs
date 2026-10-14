@@ -4,6 +4,7 @@ using System.Linq;
 using System.Buffers.Binary;
 using System.Text;
 using System.Threading.Tasks;
+using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -494,6 +495,47 @@ namespace Gordian.Core.Tests.Network
             dispatcher.Dispatch(new PacketHeader(S2C_0x076_GroupEffects.PacketId, (ushort)(payload.Length + 4), 1), payload);
 
             Assert.Equal(new ushort[] { 40, 0x12A }, party.Members.Single().StatusEffectIds);
+        }
+
+        [Fact]
+        public void RemoveTrusts_DropsOnlyTheTrusts()
+        {
+            var party = new PartyState();
+            party.UpsertMember(new PartyMember { ServerId = 1001, Name = "Gordian", IsLeader = true });
+            party.UpsertMember(new PartyMember { ServerId = 1002, Name = "Cybin", MemberNumber = 1 });
+            party.UpsertMember(new PartyMember { ServerId = 0x01004802, Name = "Shantotto", MemberNumber = 2 });
+            party.UpsertMember(new PartyMember { ServerId = 0x01004804, Name = "Ayame", MemberNumber = 3 });
+            var left = new System.Collections.Generic.List<uint>();
+            party.MemberLeft += left.Add;
+
+            Assert.Equal(2, party.RemoveTrusts());
+
+            Assert.Equal(new uint[] { 0x01004802, 0x01004804 }, left);
+            Assert.Equal(new uint[] { 1001, 1002 }, party.Members.Select(m => m.ServerId).ToArray());
+            Assert.Equal(0, party.RemoveTrusts());
+        }
+
+        /// <summary>
+        /// #373: LandSandBoat dismisses Trusts as the character leaves the zone and the new zone sends no group table for a
+        /// party only Trusts formed, so the zone-in (S2C 0x00A) itself drops them; the local player stays, alone.
+        /// </summary>
+        [Fact]
+        public void ZoneIn_DismissesTrustsFromTheParty()
+        {
+            var parser = new PacketParser(new SessionProfile(), (_, _) => Task.CompletedTask);
+            parser.Party.UpsertMember(new PartyMember { ServerId = 0x00012345, Name = "Gordian", IsLeader = true });
+            parser.Party.UpsertMember(new PartyMember { ServerId = 0x01004802, Name = "Shantotto", MemberNumber = 1 });
+            Assert.True(parser.Party.IsInParty);
+
+            byte[] login = new byte[144];
+            BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), 0x00012345);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(44, 2), 101);
+            parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
+
+            Assert.Equal(101, parser.World.CurrentZoneId);
+            Assert.False(parser.Party.IsInParty);
+            Assert.Equal(0x00012345u, parser.Party.Members.Single().ServerId);
         }
 }
 }

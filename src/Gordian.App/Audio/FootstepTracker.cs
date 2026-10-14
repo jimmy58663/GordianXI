@@ -36,6 +36,13 @@ namespace Gordian.App.Audio
         private readonly Dictionary<uint, float> _phases = new();
         private readonly HashSet<uint> _seen = new();
 
+        /// <summary>Forgets every actor (the heard character changed: its world's actors are other objects).</summary>
+        public void Clear()
+        {
+            _phases.Clear();
+            _seen.Clear();
+        }
+
         /// <summary>Whether an animation category is a stepping gait.</summary>
         public static bool IsStepping(AnimationCategory category) => category is AnimationCategory.Walk or AnimationCategory.Run
             or AnimationCategory.CombatWalk or AnimationCategory.CombatRun or AnimationCategory.MoveBackward

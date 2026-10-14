@@ -1318,10 +1318,13 @@ namespace Gordian.App.ViewModels
                                 targetCharacterSlot: profile.CharacterSlot
                             ).ConfigureAwait(false);
 
-                            // A dropped connection goes to the character select screen, as retail does (#235); Log Out keeps the fast path.
-                            Func<Task> lobbyOnTimeout = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
+                            // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
+                            // though this launch skipped it: LandSandBoat ends the map session on Log Out, so the launcher logs in
+                            // to the lobby servers again (a new xi_data / xi_view session) exactly as after a character select
+                            // launch (round 2 of #368 / #377 testing: before, Log Out on the fast path ended the session).
+                            Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
                                 !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
-                            await StartLsbSessionAsync(profile, ticket, lobbyOnTimeout: lobbyOnTimeout).ConfigureAwait(false);
+                            await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1467,8 +1470,7 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
-            Func<Task>? lobbyOnTimeout = null)
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1540,12 +1542,12 @@ namespace Gordian.App.ViewModels
                 });
             };
 
-            // A session goes back to the character select screen on Log Out (/logout or the menu), as retail does, when it
-            // came through that screen (afterLogout); a shutdown does not. The server answers Log Out and Shut Down with the
-            // same S2C 0x00B state, so the client's own request decides (#270). When the map server stops answering for the
-            // timeout (#235), retail also tries to go back to the lobby, and shuts down when that fails (maintainer,
-            // 2026-10-07); a fast-path session uses lobbyOnTimeout for that. If the lobby cannot be reached, the error is
-            // shown and the session ends; Online goes off when the registry drops it.
+            // A session goes back to the character select screen on Log Out (/logout or the menu), as retail does
+            // (afterLogout: a launch through character select and a direct fast-path launch alike); a shutdown does not. The
+            // server answers Log Out and Shut Down with the same S2C 0x00B state, so the client's own request decides (#270).
+            // When the map server stops answering for the timeout (#235), retail also tries to go back to the lobby, and shuts
+            // down when that fails (maintainer, 2026-10-07). If the lobby cannot be reached, the error is shown and the
+            // session ends; Online goes off when the registry drops it.
             netManager.LoggedOut += logout =>
             {
                 bool timeout = logout.State == Gordian.Core.Network.Packets.LogoutState.Timeout;
@@ -1554,7 +1556,7 @@ namespace Gordian.App.ViewModels
                     GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
                     timedOut = true;
                 }
-                Func<Task>? toLobby = timeout ? afterLogout ?? lobbyOnTimeout : afterLogout;
+                Func<Task>? toLobby = afterLogout;
                 if (toLobby == null) return;
                 if (!logout.ReturnsToLobby)
                 {

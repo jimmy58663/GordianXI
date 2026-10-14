@@ -16,7 +16,8 @@ namespace Gordian.App.Audio
     /// Picks the music slot for the player's situation and plays its track: zone day / night, solo or party battle while
     /// engaged, mount, dead, Mog House, fishing. A slot the server left at 0 falls back to the zone music. A track change
     /// fades the old track out and then starts the new one from the top; the same track in the new slot keeps playing.
-    /// An event can override the zone's choice (<see cref="SetOverride"/>, opcodes 0x5C / 0x5D).
+    /// An event can override the zone's choice (<see cref="SetOverride"/>, opcodes 0x5C / 0x5D). Every logged-in character
+    /// has one; they play through a shared <see cref="MusicVoicePool"/>, where only the <see cref="Heard"/> one is audible.
     /// </summary>
     /// <remarks>
     /// Slot meanings referenced from XiPackets <c>world/server/0x005F</c> (https://github.com/atom0s/XiPackets).
@@ -35,28 +36,57 @@ namespace Gordian.App.Audio
         public const float TrackFadeSeconds = 1.5f;
 
         private readonly AudioMixer _mixer;
-        private readonly Func<int, IPcmSource?> _openMusic;
-        private readonly Action<Action> _runInBackground;
+        private readonly MusicVoicePool _pool;
         private int _currentTrack;
-        private int _currentHandle;
-        private int _startToken;
         private int _loggedTrack = -1;
-        private int _loading;
         private int _pendingTrack;
         private double _pendingDelay;
         private int _overrideTrack = -1;
         private int _volumeVersion = -1;
+        private bool _heard = true;
+        private bool _becameHeard = true;
 
-        /// <summary>Builds a director over the mixer and a music opener (usually <see cref="SoundLibrary.OpenMusic"/>).</summary>
+        /// <summary>A director with a voice pool of its own (one character; tests).</summary>
         /// <param name="mixer">The mixer.</param>
         /// <param name="openMusic">Opens a track; it reads a multi-megabyte file, so it runs through <paramref name="runInBackground"/>.</param>
         /// <param name="runInBackground">Runs the open off the frame thread; null uses the thread pool.</param>
         public MusicDirector(AudioMixer mixer, Func<int, IPcmSource?> openMusic, Action<Action>? runInBackground = null)
+            : this(mixer, new MusicVoicePool(mixer, openMusic, runInBackground))
         {
-            _mixer = mixer;
-            _openMusic = openMusic;
-            _runInBackground = runInBackground ?? (work => System.Threading.Tasks.Task.Run(work));
         }
+
+        /// <summary>One character's director, its tracks played through the voices every character shares.</summary>
+        public MusicDirector(AudioMixer mixer, MusicVoicePool pool)
+        {
+            _mixer = mixer ?? throw new ArgumentNullException(nameof(mixer));
+            _pool = pool ?? throw new ArgumentNullException(nameof(pool));
+        }
+
+        /// <summary>The voices this director plays through.</summary>
+        public MusicVoicePool Pool => _pool;
+
+        /// <summary>
+        /// Whether this character's music is the one heard. A director not heard still follows its character's situation
+        /// and holds its track, silent, so it is where it should be when the character is shown again; only the heard one
+        /// sets the music bus volume and picks the audible track.
+        /// </summary>
+        public bool Heard
+        {
+            get => _heard;
+            set
+            {
+                if (value && !_heard)
+                {
+                    _becameHeard = true;
+                    _volumeVersion = -1;
+                }
+
+                _heard = value;
+            }
+        }
+
+        /// <summary>The track that should be heard now: none while the last track fades out before the next starts.</summary>
+        public int AudibleTrack => _pendingDelay > 0 ? 0 : _currentTrack;
 
         /// <summary>The track playing (or about to), 0 for silence.</summary>
         public int CurrentTrack => _pendingDelay > 0 ? _pendingTrack : _currentTrack;
@@ -68,7 +98,7 @@ namespace Gordian.App.Audio
         /// Whether the music has settled on its track: no fade-out pending and the track loaded (or silence). Event opcode
         /// 0x9A waits for this.
         /// </summary>
-        public bool IsSettled => _pendingDelay <= 0 && System.Threading.Volatile.Read(ref _loading) == 0;
+        public bool IsSettled => _pendingDelay <= 0 && !_pool.IsLoading(_currentTrack);
 
         /// <summary>Sets the event master volume; the music bus is re-levelled on the next <see cref="Update"/>.</summary>
         public void SetScriptMaster(float gain)
@@ -145,11 +175,11 @@ namespace Gordian.App.Audio
             return track;
         }
 
-        /// <summary>Advances fades and switches tracks; call once a frame.</summary>
+        /// <summary>Advances fades and switches tracks; call once a frame (for every character, heard or not).</summary>
         public void Update(ZoneMusicState music, in MusicContext context, double deltaSeconds)
         {
             int volumeVersion = music.Version;
-            if (volumeVersion != _volumeVersion)
+            if (_heard && volumeVersion != _volumeVersion)
             {
                 _volumeVersion = volumeVersion;
                 _mixer.FadeCategory(AudioCategory.Music, ScriptMaster * music.Volume / ZoneMusicState.MaxVolume, music.VolumeFadeTime / 60f);
@@ -166,14 +196,26 @@ namespace Gordian.App.Audio
                 CurrentSlot = slot;
             }
 
+            Advance(music, wanted, deltaSeconds);
+            if (_heard)
+            {
+                // A switch to this character crossfades from the last one's track; its own track change fades the old one
+                // out first (the pending delay) and then starts or joins the next.
+                float fadeOut = _becameHeard ? MusicVoicePool.CrossfadeSeconds : TrackFadeSeconds;
+                _pool.SetAudible(AudibleTrack, fadeOut, MusicVoicePool.CrossfadeSeconds);
+                _becameHeard = false;
+            }
+        }
+
+        private void Advance(ZoneMusicState music, int wanted, double deltaSeconds)
+        {
             if (_pendingDelay > 0)
             {
                 _pendingTrack = wanted;
                 _pendingDelay -= deltaSeconds;
                 if (_pendingDelay <= 0)
                 {
-                    Start(_pendingTrack);
-                    if (_pendingTrack > 0) music.TrackStarted();
+                    Start(music, _pendingTrack);
                 }
 
                 return;
@@ -184,77 +226,44 @@ namespace Gordian.App.Audio
                 return;
             }
 
-            if (wanted != _loggedTrack)
+            if (_heard && wanted != _loggedTrack)
             {
                 _loggedTrack = wanted;
                 Gordian.Core.Diagnostics.GordianLog.Info("AUDIO", $"Music: slot {(_overrideTrack >= 0 ? "override" : CurrentSlot.ToString())} → track {wanted} (was {_currentTrack}).");
             }
 
-            int handle = System.Threading.Volatile.Read(ref _currentHandle);
-            if (handle != 0 && _mixer.IsPlaying(handle))
+            if (_currentTrack > 0)
             {
-                _mixer.Stop(handle, TrackFadeSeconds);
-                System.Threading.Volatile.Write(ref _currentHandle, 0);
+                // The old track fades out, then the new one starts from the top (or joins another character's).
+                _pool.Release(this, _currentTrack, TrackFadeSeconds);
+                _currentTrack = 0;
                 _pendingTrack = wanted;
                 _pendingDelay = TrackFadeSeconds;
                 return;
             }
 
-            Start(wanted);
-            if (wanted > 0) music.TrackStarted();
+            Start(music, wanted);
         }
 
-        /// <summary>Stops the music at once (zone change, logout).</summary>
+        /// <summary>Stops this character's music (the character left, the service closes): its track is let go.</summary>
         public void StopAll(float fadeSeconds = 0f)
         {
-            System.Threading.Interlocked.Increment(ref _startToken);
-            int handle = System.Threading.Interlocked.Exchange(ref _currentHandle, 0);
-            if (handle != 0)
-            {
-                _mixer.Stop(handle, fadeSeconds);
-            }
-
+            if (_currentTrack > 0) _pool.Release(this, _currentTrack, fadeSeconds);
             _currentTrack = 0;
             _pendingDelay = 0;
         }
 
-        private void Start(int track)
+        private void Start(ZoneMusicState music, int track)
         {
             _pendingDelay = 0;
             _currentTrack = track;
-            System.Threading.Volatile.Write(ref _currentHandle, 0);
-            int token = System.Threading.Interlocked.Increment(ref _startToken);
             if (track <= 0)
             {
                 return;
             }
 
-            System.Threading.Interlocked.Increment(ref _loading);
-            _runInBackground(() =>
-            {
-                IPcmSource? source;
-                try
-                {
-                    source = _openMusic(track);
-                }
-                finally
-                {
-                    System.Threading.Interlocked.Decrement(ref _loading);
-                }
-
-                if (source is null || System.Threading.Volatile.Read(ref _startToken) != token)
-                {
-                    return;
-                }
-
-                int handle = _mixer.Play(source, AudioCategory.Music);
-                if (System.Threading.Interlocked.CompareExchange(ref _currentHandle, handle, 0) != 0
-                    || System.Threading.Volatile.Read(ref _startToken) != token)
-                {
-                    // Superseded while loading.
-                    _mixer.Stop(handle);
-                }
-            });
+            // Only a track that starts from the top is a start for the server music volume (ZoneMusicState.TrackStarted).
+            if (_pool.Acquire(this, track)) music.TrackStarted();
         }
     }
 }
