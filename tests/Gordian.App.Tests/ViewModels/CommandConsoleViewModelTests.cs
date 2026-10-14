@@ -9,6 +9,8 @@ using Xunit;
 
 namespace Gordian.App.Tests.ViewModels
 {
+    // Shares the static CommandConsoleViewModel.UiDispatcher with ConsoleStockUiRestoreTests (StorageTests collection).
+    [Collection("StorageTests")]
     public sealed class CommandConsoleViewModelTests : IDisposable
     {
         private readonly SessionRegistry _registry;
