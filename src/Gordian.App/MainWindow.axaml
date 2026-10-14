@@ -1833,7 +1833,9 @@
                                     <ComboBox ItemsSource="{Binding Viewport.AvailableBackends}"
                                               SelectedItem="{Binding Viewport.SelectedBackend, Mode=TwoWay}"
                                               HorizontalAlignment="Stretch"/>
-                                    <TextBlock Text="Direct3D 11 is primary on Windows; Vulkan on Linux; Metal on macOS."
+                                    <TextBlock Text="{Binding Viewport.BackendStatus}"
+                                               Foreground="#DCDCDC" FontSize="11" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Auto: Direct3D 11 on Windows; Vulkan on Linux and on macOS (through MoltenVK). A change applies when every viewport window has closed and one opens again. OpenGL is not available (#390)."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 

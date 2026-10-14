@@ -35,11 +35,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// The menus and prompts (main menu tree, event choices, target command menu, shop, home point, check window) and
-        /// the action help bar. Hidden menus still take menu input: the replacement is expected to drive or close them.
+        /// the action help bar. Hidden menus neither open nor take input (their keys keep their gameplay meanings); a menu
+        /// the server opens meanwhile waits in the menu model for the replacement, or for the menus to be shown again.
         /// </summary>
         Menus = 1 << 5,
 
-        /// <summary>The log windows and the chat input line.</summary>
+        /// <summary>The log windows and the chat input line; hidden, the chat line does not open and an open one is closed.</summary>
         Chat = 1 << 6,
 
         /// <summary>The in-world name plates.</summary>
@@ -108,6 +109,22 @@ namespace Gordian.Core.Ui
 
         /// <summary>Drops everything an owner hides.</summary>
         public void Release(string owner) => Update(owner, _ => StockUiElement.None);
+
+        /// <summary>
+        /// Drops every owner's hides: the player's emergency restore (Ctrl+Shift+F12 in a viewport window), for when a hidden
+        /// chat line leaves no way to type <c>/stockui</c>. Addons apply theirs again when they next start.
+        /// </summary>
+        public void ReleaseAll()
+        {
+            bool changed;
+            lock (_sync)
+            {
+                _byOwner.Clear();
+                changed = _hidden != 0;
+                _hidden = 0;
+            }
+            if (changed) Changed?.Invoke();
+        }
 
         private void Update(string owner, Func<StockUiElement, StockUiElement> change)
         {

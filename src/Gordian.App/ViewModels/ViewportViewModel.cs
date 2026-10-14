@@ -85,6 +85,12 @@ namespace Gordian.App.ViewModels
                 : ViewportSettings.LoadOrDefault(_settingsPath);
 
             _selectedBackend = _settings.SelectedBackend;
+            if (_selectedBackend == GraphicsBackendPreference.OpenGL)
+            {
+                // OpenGL is not implemented (#390) and no longer offered; it always ran the automatic choice.
+                Gordian.Core.Diagnostics.GordianLog.Warn("VIEWPORT", "The saved OpenGL backend is not implemented (#390); using Auto.");
+                _selectedBackend = GraphicsBackendPreference.Auto;
+            }
             _selectedDisplayMode = _settings.SelectedDisplayMode;
             _selectedTabStyle = _settings.SelectedTabStyle;
             _autoLaunchOnConnect = _settings.AutoLaunchOnConnect;
@@ -201,6 +207,7 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _selectedBackend, value))
                 {
+                    OnPropertyChanged(nameof(BackendStatus));
                     AutoSaveSettings();
                 }
             }
@@ -308,7 +315,24 @@ namespace Gordian.App.ViewModels
         public string ActiveBackend
         {
             get => _activeBackend;
-            set => SetProperty(ref _activeBackend, value);
+            set
+            {
+                if (SetProperty(ref _activeBackend, value)) OnPropertyChanged(nameof(BackendStatus));
+            }
+        }
+
+        /// <summary>
+        /// The backend the viewport really runs, for Settings, with the reason when it is not the selected one (a failed
+        /// or unimplemented backend, or the shared device already open with another; the device is chosen again when
+        /// every viewport window has closed and one opens).
+        /// </summary>
+        public string BackendStatus
+        {
+            get
+            {
+                if (!Enum.TryParse<NeoVeldrid.GraphicsBackend>(_activeBackend, out var running)) return "Running: no viewport open yet.";
+                return SharedGraphicsDevice.FallbackNote(_selectedBackend, running) is { } note ? "Running: " + note : $"Running: {running}.";
+            }
         }
 
         public string GpuName
@@ -417,7 +441,6 @@ namespace Gordian.App.ViewModels
             GraphicsBackendPreference.Auto,
             GraphicsBackendPreference.Direct3D11,
             GraphicsBackendPreference.Vulkan,
-            GraphicsBackendPreference.OpenGL
         };
 
         public ObservableCollection<ViewportDisplayMode> AvailableDisplayModes { get; } = new()

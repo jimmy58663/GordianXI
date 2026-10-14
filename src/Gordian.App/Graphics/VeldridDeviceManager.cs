@@ -174,6 +174,7 @@ namespace Gordian.App.Graphics
                 GraphicsBackendPreference.Vulkan => [GraphicsBackend.Vulkan, GraphicsBackend.Direct3D11],
                 // NeoVeldrid has no Metal backend: macOS runs Vulkan through its bundled MoltenVK.
                 GraphicsBackendPreference.Metal => [GraphicsBackend.Vulkan],
+                // OpenGL is not implemented (#390): the automatic choice; the shared device logs the fallback.
                 _ => GetAutoCandidates()
             };
         }

@@ -25,7 +25,7 @@ namespace Gordian.Core.Actions
 
         internal const string StockUiUsage =
             "Usage: /stockui [hide | show <element ...|all>] | reset. Elements: target, vitals, party, alliance, buffs, menus, chat, names, cursor. " +
-            "Hides stock HUD elements until the client restarts (an addon's hides are its own; /uilayout <window> hide is saved per character).";
+            "Hides stock HUD elements until the client restarts (an addon's hides are its own; /uilayout <window> hide is saved per character). Hidden elements take no input; Ctrl+Shift+F12 in the viewport or the Command Console's /stockui reset restores them.";
 
         internal const string PerformanceOverlayUsage =
             "Usage: /perf [off | fps | full | next] - Viewport performance overlay: hidden, FPS only, or frame graph, draw calls and pass timings (Ctrl+F12 cycles).";

@@ -31,6 +31,12 @@ namespace Gordian.App.Tests.Graphics
                 Assert.Contains(GraphicsBackendPreference.Direct3D11, vm.AvailableBackends);
                 Assert.Contains(GraphicsBackendPreference.Vulkan, vm.AvailableBackends);
                 Assert.DoesNotContain(GraphicsBackendPreference.Metal, vm.AvailableBackends);
+                Assert.DoesNotContain(GraphicsBackendPreference.OpenGL, vm.AvailableBackends); // not implemented (#390)
+                Assert.Contains("no viewport", vm.BackendStatus);
+                vm.ActiveBackend = "Direct3D11";
+                Assert.Equal("Running: Direct3D11.", vm.BackendStatus);
+                vm.SelectedBackend = GraphicsBackendPreference.Vulkan;
+                Assert.Contains("running Direct3D11 instead", vm.BackendStatus);
             }
             finally
             {
@@ -45,7 +51,13 @@ namespace Gordian.App.Tests.Graphics
             try
             {
                 string? changedProp = null;
-                vm.PropertyChanged += (s, e) => changedProp = e.PropertyName;
+                int statusChanges = 0;
+                // The backend status line (#390) follows SelectedBackend and ActiveBackend.
+                vm.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(vm.BackendStatus)) statusChanges++;
+                    else changedProp = e.PropertyName;
+                };
 
                 vm.SelectedBackend = GraphicsBackendPreference.Direct3D11;
                 Assert.Equal(nameof(vm.SelectedBackend), changedProp);
@@ -58,6 +70,7 @@ namespace Gordian.App.Tests.Graphics
 
                 vm.ActiveBackend = "Direct3D 11";
                 Assert.Equal(nameof(vm.ActiveBackend), changedProp);
+                Assert.Equal(2, statusChanges);
             }
             finally
             {

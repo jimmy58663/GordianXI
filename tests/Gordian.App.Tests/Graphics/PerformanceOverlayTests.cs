@@ -105,6 +105,22 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void SavedOpenGLPreference_LoadsAsAuto()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"gordian_backend_{Guid.NewGuid():N}.json");
+            try
+            {
+                new ViewportSettings { SelectedBackend = GraphicsBackendPreference.OpenGL }.SaveToFile(path);
+                var vm = new ViewportViewModel(path, enableAutoSave: false);
+                Assert.Equal(GraphicsBackendPreference.Auto, vm.SelectedBackend);
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        [Fact]
         public void Stats_SummarizeTheRecentFrames()
         {
             var stats = new ViewportPerformanceStats();

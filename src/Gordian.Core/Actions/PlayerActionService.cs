@@ -642,7 +642,8 @@ namespace Gordian.Core.Actions
         public bool OpenTargetCommandMenu()
         {
             var target = CurrentTarget;
-            if (target == null) return false;
+            // A hidden stock menu layer (#29) opens nothing: Confirm is left for whatever replaces the menus.
+            if (target == null || UiVisibility.IsHidden(StockUiElement.Menus)) return false;
             var kind = target.Type switch
             {
                 EntityType.Player => target.ServerId == _localPlayer.ServerId ? StockUiTargetKind.Self : StockUiTargetKind.Player,
