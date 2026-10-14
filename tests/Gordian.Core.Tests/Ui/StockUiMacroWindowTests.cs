@@ -213,7 +213,8 @@ namespace Gordian.Core.Tests.Ui
             if (prompt.SelectedButtonId != 1) controller.Move(InputAction.MenuLeft);
             Assert.Equal(1, prompt.SelectedButtonId);
             controller.Activate();
-            await Task.Delay(50, TestContext.Current.CancellationToken);
+            // The answer runs on a continuation: wait for it rather than for a fixed time.
+            for (int i = 0; i < 200 && macros.GetBookTitle(1) != "BookWAR"; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.Equal("BookWAR", macros.GetBookTitle(1));
             Assert.Equal("One", macros.Get(new MacroSlot(1, 0, MacroPalette.Ctrl, 0)).Title);
         }
