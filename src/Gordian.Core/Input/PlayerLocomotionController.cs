@@ -703,16 +703,24 @@ namespace Gordian.Core.Input
         /// <summary>LandSandBoat's Healing animation status (<c>xi.animation.HEALING</c>), sent in S2C 0x037.</summary>
         public const byte StatusHealing = Gordian.Core.Animation.RestPosture.StatusHealing;
 
+        /// <summary>LandSandBoat's Sit animation status (<c>xi.animation.SIT</c>), sent in S2C 0x037.</summary>
+        public const byte StatusSitting = Gordian.Core.Animation.RestPosture.StatusSitting;
+
         private bool _healCancelSent;
+        private readonly SeatedMovementHold _seatedHold = new();
 
         /// <summary>
-        /// Moving while resting stands the character up (the maintainer's request, round 3): any movement input (keys,
-        /// stick, auto-run) while the server reports the Healing status sends /heal off (C2S 0x0E8) once; it is sent again
-        /// only after the status has left Healing.
+        /// Moving while resting or sitting stands the character up (the maintainer's request, round 3; /sit in #343 round 1):
+        /// any movement input (keys, stick, auto-run) while the server reports the Healing status sends /heal off (C2S 0x0E8),
+        /// or while it reports Sit, /sit off (C2S 0x0EA), once; it is sent again only after the status has changed. LandSandBoat
+        /// does not end a sit on movement by itself (<c>c2s/0x015_pos.cpp</c> leaves the animation alone, <c>0x0ea_sit.cpp</c>
+        /// sets it), so without the /sit off the server would keep the character sitting. The character stays rooted until
+        /// the stand-up has played (<see cref="SeatedMovementHold"/>).
         /// </summary>
         private void UpdateHealCancel()
         {
-            if (_actionService == null || _localPlayer.ServerStatus != StatusHealing)
+            byte status = _localPlayer.ServerStatus;
+            if (_actionService == null || (status != StatusHealing && status != StatusSitting))
             {
                 _healCancelSent = false;
                 return;
@@ -720,10 +728,13 @@ namespace Gordian.Core.Input
             if (_healCancelSent || !HasMovementInput()) return;
             _healCancelSent = true;
             var service = _actionService;
+            bool sitting = status == StatusSitting;
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
-                var result = await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
-                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while healing: {result.Message}");
+                var result = sitting
+                    ? await service.SitAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false)
+                    : await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
+                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while {(sitting ? "sitting" : "healing")}: {result.Message}");
             });
         }
 
@@ -807,8 +818,10 @@ namespace Gordian.Core.Input
                 return;
             }
 
-            // Locked by the server (an event) or charmed (the server drives the character): no input movement.
-            if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true }))
+            // Locked by the server (an event) or charmed (the server drives the character): no input movement. Resting or
+            // sitting, and standing up from either, roots the player in place too (#343).
+            if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true })
+                || _seatedHold.IsRooted(_localPlayer.ServerStatus, localEnt.Animation, System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency))
             {
                 localEnt.Speed = 0;
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);

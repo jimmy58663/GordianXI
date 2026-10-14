@@ -157,6 +157,70 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void IsStandingUp_FromTheStatusChangeUntilTheStandUpEnds()
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Healing, 0, model);
+            Assert.False(state.IsStandingUp);
+
+            state.Advance(0.016f, AnimationCategory.Idle, 0, model);
+            Assert.True(state.IsStandingUp);
+            state.Advance(0.3f, AnimationCategory.Idle, 0, model);
+            Assert.True(state.IsStandingUp);
+            state.Advance(0.3f, AnimationCategory.Idle, 0, model); // rx2 is 0.5 s
+            Assert.False(state.IsStandingUp);
+        }
+
+        [Fact]
+        public void IsStandingUp_NotWhileSittingDown()
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.Advance(0.016f, AnimationCategory.Healing, 0, model);
+            Assert.True(state.IsPlayingTransition);
+            Assert.False(state.IsStandingUp);
+        }
+
+        [Fact]
+        public void Hold_RootsWhileSeated_ThroughTheStandUp_ThenReleases()
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            state.Advance(0f, AnimationCategory.Healing, 0, model);
+
+            Assert.True(hold.IsRooted(RestPosture.StatusHealing, state, 0.0));
+            // /heal off arrived; the renderer has not drawn the change yet: still rooted.
+            Assert.True(hold.IsRooted(0, state, 0.1));
+            state.Advance(0.016f, AnimationCategory.Idle, 0, model);
+            Assert.True(hold.IsRooted(0, state, 0.2));
+            state.Advance(0.6f, AnimationCategory.Idle, 0, model); // the stand-up ends
+            Assert.False(hold.IsRooted(0, state, 0.8));
+            Assert.False(hold.IsRooted(0, state, 0.9));
+        }
+
+        [Fact]
+        public void Hold_SitTooAndNeverPastTheCap()
+        {
+            var state = new EntityAnimationState(); // never drawn: stays "seated" forever
+            state.Advance(0f, AnimationCategory.Sitting, 0, Model());
+            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            Assert.True(hold.IsRooted(RestPosture.StatusSitting, state, 10.0));
+            Assert.True(hold.IsRooted(0, state, 10.5));
+            Assert.False(hold.IsRooted(0, state, 10.5 + Gordian.Core.Input.SeatedMovementHold.MaxStandUpSeconds));
+        }
+
+        [Fact]
+        public void Hold_NeverSeated_NeverRoots()
+        {
+            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            Assert.False(hold.IsRooted(0, new EntityAnimationState(), 0.0));
+            Assert.False(hold.IsRooted(1, new EntityAnimationState(), 1.0));
+        }
+
+        [Fact]
         public void LoopClip_FallsBackToTheEnterRoutinesLastStep()
         {
             var model = Model();
