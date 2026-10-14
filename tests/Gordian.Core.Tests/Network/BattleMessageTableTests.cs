@@ -71,7 +71,7 @@ namespace Gordian.Core.Tests.Network
         private static string Format(ushort message, uint caster, uint target, uint param, uint value) =>
             CombatLogFormatter.FormatBattleMessage(
                 new CombatMessageRecord { MessageId = message, CasterId = caster, TargetId = target, Param = param, Value = value },
-                Names, entityTakesArticle: IsMonster, battleMessages: Lookup);
+                Names, entityTakesArticle: IsMonster, battleMessages: Lookup, catalog: Gordian.Core.Tests.Actions.TestCatalog.Build());
 
         [Fact]
         public void SkillUp_UsesTheTableWithTheSkillNameAndTenths()
@@ -118,7 +118,8 @@ namespace Gordian.Core.Tests.Network
         };
 
         private static string[] ActionLines(CombatActionRecord record) =>
-            CombatLogFormatter.FormatActionLines(record, Names, entityTakesArticle: IsMonster, battleMessages: Lookup)
+            CombatLogFormatter.FormatActionLines(record, Names, entityTakesArticle: IsMonster, battleMessages: Lookup,
+                    catalog: Gordian.Core.Tests.Actions.TestCatalog.Build())
                 .Select(l => l.Text).ToArray();
 
         [Fact]
@@ -220,7 +221,8 @@ namespace Gordian.Core.Tests.Network
                     ActorId = Rabbit, Category = ActionCategory.MagicFinish, ActionId = 144,
                     Targets = { new CombatActionTargetRecord { TargetId = Knot, Results = new() { new CombatActionResult { Param = 30, MessageId = 2 } } } },
                 },
-                id => id == Knot ? "Gemini" : Names(id), entityTakesArticle: IsMonster, battleMessages: table.GetMessage);
+                id => id == Knot ? "Gemini" : Names(id), entityTakesArticle: IsMonster, battleMessages: table.GetMessage,
+                catalog: Gordian.Core.Actions.ActionCatalog.Load(rm));
             Assert.Equal(new[] { "The Wild Rabbit casts Fire.", "Gemini takes 30 points of damage." }, spell.Select(l => l.Text));
         }
     }

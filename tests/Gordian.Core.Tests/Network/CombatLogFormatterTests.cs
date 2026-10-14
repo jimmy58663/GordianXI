@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Network/CombatLogFormatterTests.cs
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Tests.Actions;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -114,7 +115,7 @@ namespace Gordian.Core.Tests.Network
                 Value = 65
             };
 
-            string text = CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver);
+            string text = CombatLogFormatter.FormatBattleMessage(msg, MockEntityResolver, catalog: TestCatalog.Build());
             Assert.Equal("Cybin casts Fire.\nGoblin Fisher takes 65 points of damage.", text);
         }
 
@@ -214,7 +215,7 @@ namespace Gordian.Core.Tests.Network
                 }
             };
 
-            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver);
+            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver, catalog: TestCatalog.Build());
             Assert.Equal(new[] { "Cybin casts Cure.", "Cybin recovers 30 HP." }, lines);
         }
 
@@ -244,7 +245,7 @@ namespace Gordian.Core.Tests.Network
                 }
             };
 
-            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver);
+            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver, catalog: TestCatalog.Build());
             Assert.Equal(new[] { "Cybin uses Fast Blade.", "Wild Rabbit takes 78 points of damage." }, lines);
         }
 
@@ -274,9 +275,46 @@ namespace Gordian.Core.Tests.Network
                 }
             };
 
-            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver);
+            var lines = CombatLogFormatter.FormatAction(action, MockEntityResolver, catalog: TestCatalog.Build());
             Assert.Single(lines);
             Assert.Equal("Cybin uses Fast Blade, but misses Wild Rabbit.", lines[0]);
+        }
+
+        /// <summary>
+        /// Action names come from the client's tables through <see cref="Gordian.Core.Actions.ActionCatalog"/> (#355): job
+        /// abilities at command 512 + id (LandSandBoat's ability ids: Berserk 31, Provoke 35), weapon skills at their id,
+        /// spells at theirs. The old hand-written list named ability 16 "Berserk" (16 is Mighty Strikes).
+        /// </summary>
+        [Fact]
+        public void ActionNames_ComeFromTheActionCatalog()
+        {
+            var catalog = TestCatalog.Build();
+            Assert.Equal("Berserk", CombatLogFormatter.ResolveAbilityName(TestCatalog.Berserk, catalog: catalog));
+            Assert.Equal("Provoke", CombatLogFormatter.ResolveAbilityName(TestCatalog.Provoke, catalog: catalog));
+            Assert.Equal("Curing Waltz", CombatLogFormatter.ResolveAbilityName(TestCatalog.CuringWaltz, catalog: catalog));
+            Assert.Equal("Ability #16", CombatLogFormatter.ResolveAbilityName(16, catalog: catalog));
+            Assert.Equal("Fast Blade", CombatLogFormatter.ResolveWeaponSkillName(TestCatalog.FastBlade, catalog: catalog));
+            Assert.Equal("Fire", CombatLogFormatter.ResolveSpellName(TestCatalog.Fire, catalog: catalog));
+            Assert.Equal("Shantotto", CombatLogFormatter.ResolveSpellName(TestCatalog.Shantotto, catalog: catalog));
+
+            // A custom resolver wins; without a catalog (no install) the ids print as numbers.
+            Assert.Equal("Custom", CombatLogFormatter.ResolveSpellName(TestCatalog.Fire, _ => "Custom", catalog));
+            Assert.Equal("Spell #144", CombatLogFormatter.ResolveSpellName(144));
+            Assert.Equal("Ability #31", CombatLogFormatter.ResolveAbilityName(31));
+            Assert.Equal("Weapon Skill #32", CombatLogFormatter.ResolveWeaponSkillName(32));
+
+            // An ability result in an S2C 0x028 action names the ability by its command row.
+            var action = new CombatActionRecord
+            {
+                ActorId = 1001,
+                Category = ActionCategory.AbilityFinish,
+                ActionId = TestCatalog.Provoke,
+                Targets = new List<CombatActionTargetRecord>
+                {
+                    new() { TargetId = 2001, Results = new List<CombatActionResult> { new() { Resolution = ActionResolution.Hit, MessageId = 0 } } },
+                },
+            };
+            Assert.Equal("Cybin uses Provoke on Wild Rabbit.", CombatLogFormatter.FormatAction(action, MockEntityResolver, catalog: catalog)[0]);
         }
     }
 }

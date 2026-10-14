@@ -51,6 +51,8 @@ namespace Gordian.App.Audio
         private uint _cueTarget;
         private readonly FootstepTracker _footsteps = new();
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, FootwearInfo> _footwear = new();
+        /// <summary>ResourceManager.CacheGeneration <see cref="_footwear"/> was read under; a VFS reload reads it again (#374).</summary>
+        private int _footwearGeneration;
         private readonly System.Collections.Generic.List<FootstepEvent> _steps = new();
         private Vector3 _listenerPosition;
         private int _appliedMusicVolume = -1;
@@ -379,6 +381,12 @@ namespace Gordian.App.Audio
             if (_resources is null)
             {
                 return FootwearInfo.Default;
+            }
+            int generation = _resources.CacheGeneration;
+            if (generation != _footwearGeneration)
+            {
+                _footwearGeneration = generation;
+                _footwear.Clear();
             }
 
             int fileId;
