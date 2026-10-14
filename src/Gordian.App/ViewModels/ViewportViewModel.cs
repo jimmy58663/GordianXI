@@ -369,6 +369,26 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        private string _datReloadStatus = string.Empty;
+
+        /// <summary>The last Reload DATs report (#374), shown under the button.</summary>
+        public string DatReloadStatus
+        {
+            get => _datReloadStatus;
+            private set => SetProperty(ref _datReloadStatus, value);
+        }
+
+        /// <summary>What Reload DATs runs (<see cref="Services.DatReload.Reload"/>; replaced in tests).</summary>
+        internal Func<string> DatReloader { get; set; } = Services.DatReload.Reload;
+
+        private ICommand? _reloadDatsCommand;
+
+        /// <summary>
+        /// Reload DATs (#374): re-reads the VFS packs and every DAT, as <c>/reloaddats</c> does, for edits the hot reload
+        /// does not see or when it is off.
+        /// </summary>
+        public ICommand ReloadDatsCommand => _reloadDatsCommand ??= new RelayCommand(() => DatReloadStatus = DatReloader());
+
         /// <summary>The zone cache budgets offered in Settings (MB).</summary>
         public ObservableCollection<int> AvailableZoneCacheBudgets { get; } = new() { 0, 512, 1024, 1536, 2048, 4096 };
 

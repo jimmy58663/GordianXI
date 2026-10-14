@@ -34,8 +34,66 @@ namespace Gordian.Core.Input
         [JsonPropertyName("description")]
         public string Description { get; set; } = string.Empty;
 
-        [JsonPropertyName("bindings")]
+        [JsonIgnore]
         public Dictionary<InputAction, List<InputChord>> Bindings { get; set; } = new Dictionary<InputAction, List<InputChord>>();
+
+        /// <summary>
+        /// Saved bindings this build cannot read: an action or a chord name another build knows (a newer branch's
+        /// actions), by action name. Kept and written back unchanged, so switching builds loses nothing (#358).
+        /// </summary>
+        private Dictionary<string, List<string>> _unreadBindings = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The bindings as saved: action name to chord strings. Reading never fails on a name this build does not know
+        /// (#358): such entries go to <see cref="_unreadBindings"/> instead. A file with one unknown action name used
+        /// to fail to load as a whole, and the load then saved the default profile over it, so every setting (gamepad
+        /// camera inversion included) was lost whenever the maintainer switched to a build without that action.
+        /// </summary>
+        [JsonInclude]
+        [JsonPropertyName("bindings")]
+        private Dictionary<string, List<string>> SerializedBindings
+        {
+            get
+            {
+                var saved = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                foreach (var (action, chords) in Bindings)
+                {
+                    var names = new List<string>(chords.Count);
+                    foreach (var chord in chords) names.Add(chord.ToString());
+                    saved[action.ToString()] = names;
+                }
+                foreach (var (action, names) in _unreadBindings)
+                {
+                    if (saved.TryGetValue(action, out var known)) known.AddRange(names);
+                    else saved[action] = new List<string>(names);
+                }
+                return saved;
+            }
+            set
+            {
+                Bindings = new Dictionary<InputAction, List<InputChord>>();
+                _unreadBindings = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                if (value == null) return;
+                foreach (var (name, chordNames) in value)
+                {
+                    bool known = Enum.TryParse<InputAction>(name, ignoreCase: true, out var action) && Enum.IsDefined(action);
+                    var chords = known ? new List<InputChord>() : null;
+                    foreach (string chordName in chordNames ?? new List<string>())
+                    {
+                        if (chords != null && InputChord.TryParse(chordName, out var chord))
+                        {
+                            if (!chords.Contains(chord)) chords.Add(chord);
+                        }
+                        else
+                        {
+                            if (!_unreadBindings.TryGetValue(name, out var unread)) _unreadBindings[name] = unread = new List<string>();
+                            unread.Add(chordName);
+                        }
+                    }
+                    if (chords != null) Bindings[action] = chords;
+                }
+            }
+        }
 
         // Camera & Mouse Settings
         [JsonPropertyName("mouseSensitivityX")]
@@ -688,8 +746,19 @@ namespace Gordian.Core.Input
                 Directory.CreateDirectory(dir);
             }
 
+            // Written to a temporary file and moved over the old one, so a crash or a reader in another process never
+            // sees a half-written profile (#358).
             string json = SaveToJson(indented: true);
-            File.WriteAllText(filePath, json);
+            string temp = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(temp, json);
+                File.Move(temp, filePath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temp)) File.Delete(temp);
+            }
         }
 
         public static InputProfile LoadOrCreate(string filePath)
@@ -705,7 +774,18 @@ namespace Gordian.Core.Input
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("INPUT", $"Failed to load input profile from '{filePath}': {ex.Message}. Falling back to default.", ex);
+                    // Never save the defaults over a profile that could not be read (#358): set it aside first.
+                    string aside = filePath + ".bad";
+                    try
+                    {
+                        File.Copy(filePath, aside, overwrite: true);
+                    }
+                    catch (Exception copyEx)
+                    {
+                        GordianLog.Warn("INPUT", $"Could not keep the unreadable input profile as '{aside}': {copyEx.Message}");
+                        return CreateCompact();
+                    }
+                    GordianLog.Error("INPUT", $"Failed to load input profile from '{filePath}': {ex.Message}. Using the default; the file was kept as '{aside}'.", ex);
                 }
             }
 

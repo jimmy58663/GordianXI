@@ -77,6 +77,8 @@ namespace Gordian.Core.Events
         private Func<string> _playerName = () => string.Empty;
 
         private int _scriptZone = -1;
+        /// <summary><see cref="ZoneDatLoader.Generation"/> the zone data and the Unity messages were read under (#374).</summary>
+        private int _dataGeneration = ZoneDatLoader.Generation;
         private ZoneEventScript? _script;
         private ZoneDialogTable? _dialog;
         private PartyState? _party;
@@ -304,6 +306,7 @@ namespace Gordian.Core.Events
         {
             lock (_sync)
             {
+                DropStaleData();
                 if (_unityMessagesLoaded) return _unityMessages;
                 _unityMessagesLoaded = true;
                 try
@@ -700,6 +703,7 @@ namespace Gordian.Core.Events
         {
             lock (_sync)
             {
+                DropStaleData();
                 if (_scriptZone == zoneId) return;
                 _scriptZone = zoneId;
                 _script = null;
@@ -723,6 +727,22 @@ namespace Gordian.Core.Events
                     GordianLog.Error("EVENT", $"Failed to load the event data of zone {zoneId}: {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// After a resource cache clear (a VFS reload or <c>/reloaddats</c>, #374) the zone's scripts, its dialog and the
+        /// Unity messages are read again on next use. Call under the lock.
+        /// </summary>
+        private void DropStaleData()
+        {
+            int generation = ZoneDatLoader.Generation;
+            if (generation == _dataGeneration) return;
+            _dataGeneration = generation;
+            _scriptZone = -1;
+            _script = null;
+            _dialog = null;
+            _unityMessages = null;
+            _unityMessagesLoaded = false;
         }
 
         /// <summary>The zone's dialog table (loaded on demand), for the direct messages.</summary>

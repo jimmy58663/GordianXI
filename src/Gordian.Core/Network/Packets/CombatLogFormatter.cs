@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Actions;
 using Gordian.Core.Events;
 using Gordian.Core.Resources.Tables;
 
@@ -31,89 +32,49 @@ namespace Gordian.Core.Network.Packets
 
     public static class CombatLogFormatter
     {
-        private static readonly Dictionary<ushort, string> WellKnownSpells = new()
-        {
-            [1] = "Cure", [2] = "Cure II", [3] = "Cure III", [4] = "Cure IV", [5] = "Cure V", [6] = "Cure VI",
-            [7] = "Curaga", [8] = "Curaga II", [9] = "Curaga III", [10] = "Curaga IV", [11] = "Curaga V",
-            [14] = "Raise", [15] = "Raise II", [16] = "Raise III", [17] = "Reraise",
-            [23] = "Dia", [24] = "Dia II", [25] = "Dia III", [28] = "Diaga",
-            [33] = "Banish", [34] = "Banish II", [35] = "Banish III", [38] = "Banishga",
-            [43] = "Protect", [44] = "Protect II", [45] = "Protect III", [46] = "Protect IV", [47] = "Protect V",
-            [53] = "Shell", [54] = "Shell II", [55] = "Shell III", [56] = "Shell IV", [57] = "Shell V",
-            [144] = "Fire", [145] = "Fire II", [146] = "Fire III", [147] = "Fire IV", [148] = "Fire V",
-            [149] = "Blizzard", [150] = "Blizzard II", [151] = "Blizzard III", [152] = "Blizzard IV", [153] = "Blizzard V",
-            [154] = "Aero", [155] = "Aero II", [156] = "Aero III", [157] = "Aero IV", [158] = "Aero V",
-            [159] = "Stone", [160] = "Stone II", [161] = "Stone III", [162] = "Stone IV", [163] = "Stone V",
-            [164] = "Thunder", [165] = "Thunder II", [166] = "Thunder III", [167] = "Thunder IV", [168] = "Thunder V",
-            [169] = "Water", [170] = "Water II", [171] = "Water III", [172] = "Water IV", [173] = "Water V",
-            [216] = "Poison", [217] = "Poison II", [220] = "Paralyze", [221] = "Paralyze II",
-            [230] = "Bio", [231] = "Bio II", [232] = "Bio III", [245] = "Drain", [246] = "Aspir",
-            [253] = "Warp", [254] = "Warp II", [261] = "Escape"
-        };
-
-        private static readonly Dictionary<ushort, string> WellKnownWeaponSkills = new()
-        {
-            [1] = "Combo", [2] = "Shoulder Tackle", [3] = "One Knee", [4] = "Raging Fists", [5] = "Spinning Attack", [6] = "Howling Fist", [7] = "Dragon Kick", [8] = "Asuran Fists",
-            [16] = "Wasp Sting", [17] = "Viper Bite", [18] = "Shadowstitch", [19] = "Gust Slash", [20] = "Cyclone", [21] = "Energy Steal", [22] = "Energy Drain", [23] = "Dancing Edge", [24] = "Shark Bite", [25] = "Evisceration",
-            [32] = "Fast Blade", [33] = "Burning Blade", [34] = "Red Lotus Blade", [35] = "Flat Blade", [36] = "Shining Blade", [37] = "Seraph Blade", [38] = "Circle Blade", [39] = "Spirits Within", [40] = "Vorpal Blade", [41] = "Swift Blade", [42] = "Savage Blade",
-            [48] = "Hard Slash", [49] = "Power Slash", [50] = "Frostbite", [51] = "Freeze Bite", [52] = "Shockwave", [53] = "Crescent Moon", [54] = "Sickle Moon", [55] = "Spinning Slash", [56] = "Ground Strike"
-        };
-
-        private static readonly Dictionary<ushort, string> WellKnownJobAbilities = new()
-        {
-            [1] = "Mighty Strikes", [2] = "Hundred Fists", [3] = "Benediction", [4] = "Manafont",
-            [5] = "Chainspell", [6] = "Perfect Dodge", [7] = "Invincible", [8] = "Blood Weapon",
-            [16] = "Berserk", [17] = "Defender", [18] = "Warcry", [19] = "Aggressor", [20] = "Provoke",
-            [21] = "Focus", [22] = "Dodge", [23] = "Chakra", [24] = "Boost", [25] = "Counterstance",
-            [26] = "Steal", [27] = "Flee", [28] = "Hide", [29] = "Sneak Attack", [30] = "Mug", [31] = "Trick Attack"
-        };
+        /// <summary>
+        /// The catalog the action names come from: <paramref name="catalog"/>, else the app's
+        /// <see cref="ActionCatalog.Provider"/> (null in tests and without an install, when names fall back to "Spell #N").
+        /// </summary>
+        private static ActionCatalog? CatalogOrDefault(ActionCatalog? catalog) => catalog ?? ActionCatalog.Provider?.Invoke();
 
         /// <summary>
-        /// Retrieves the localized name of a spell by ID, or formats a fallback identifier.
+        /// A spell's name by id: <paramref name="customResolver"/>, else the client's spell name table (ROM/181/73, row =
+        /// spell id) through <see cref="ActionCatalog"/>, else "Spell #N".
         /// </summary>
-        public static string ResolveSpellName(ushort spellId, Func<ushort, string?>? customResolver = null)
+        public static string ResolveSpellName(ushort spellId, Func<ushort, string?>? customResolver = null, ActionCatalog? catalog = null)
         {
             if (customResolver != null && customResolver(spellId) is { } resolved && !string.IsNullOrWhiteSpace(resolved))
             {
                 return resolved;
             }
-            if (WellKnownSpells.TryGetValue(spellId, out var name))
-            {
-                return name;
-            }
-            return $"Spell #{spellId}";
+            return CatalogOrDefault(catalog)?.SpellName(spellId) ?? $"Spell #{spellId}";
         }
 
         /// <summary>
-        /// Retrieves the localized name of a weapon skill by ID, or formats a fallback identifier.
+        /// A weapon skill's name by id: <paramref name="customResolver"/>, else the client's command name table (ROM/181/72,
+        /// row = weapon skill id) through <see cref="ActionCatalog"/>, else "Weapon Skill #N".
         /// </summary>
-        public static string ResolveWeaponSkillName(ushort wsId, Func<ushort, string?>? customResolver = null)
+        public static string ResolveWeaponSkillName(ushort wsId, Func<ushort, string?>? customResolver = null, ActionCatalog? catalog = null)
         {
             if (customResolver != null && customResolver(wsId) is { } resolved && !string.IsNullOrWhiteSpace(resolved))
             {
                 return resolved;
             }
-            if (WellKnownWeaponSkills.TryGetValue(wsId, out var name))
-            {
-                return name;
-            }
-            return $"Weapon Skill #{wsId}";
+            return CatalogOrDefault(catalog)?.WeaponSkillName(wsId) ?? $"Weapon Skill #{wsId}";
         }
 
         /// <summary>
-        /// Retrieves the localized name of an ability by ID, or formats a fallback identifier.
+        /// A job ability's name by id (the id S2C 0x028 and 0x029 carry, LandSandBoat's ability id): <paramref name="customResolver"/>,
+        /// else the client's command name table (ROM/181/72, row = 512 + id) through <see cref="ActionCatalog"/>, else "Ability #N".
         /// </summary>
-        public static string ResolveAbilityName(ushort abilityId, Func<ushort, string?>? customResolver = null)
+        public static string ResolveAbilityName(ushort abilityId, Func<ushort, string?>? customResolver = null, ActionCatalog? catalog = null)
         {
             if (customResolver != null && customResolver(abilityId) is { } resolved && !string.IsNullOrWhiteSpace(resolved))
             {
                 return resolved;
             }
-            if (WellKnownJobAbilities.TryGetValue(abilityId, out var name))
-            {
-                return name;
-            }
-            return $"Ability #{abilityId}";
+            return CatalogOrDefault(catalog)?.JobAbilityName(abilityId) ?? $"Ability #{abilityId}";
         }
 
         /// <summary>
@@ -192,17 +153,19 @@ namespace Gordian.Core.Network.Packets
             Func<ushort, string?>? resolveSpellName = null,
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
-            Func<int, EventMessage?>? battleMessages = null)
+            Func<int, EventMessage?>? battleMessages = null,
+            ActionCatalog? catalog = null)
         {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
+            catalog = CatalogOrDefault(catalog);
 
             string caster = resolveEntityName(record.CasterId) ?? $"Entity_{record.CasterId:X}";
             string target = resolveEntityName(record.TargetId) ?? $"Entity_{record.TargetId:X}";
 
             if (record.MessageId is < 170 or > 178
                 && (battleMessages ?? BattleMessages)?.Invoke(record.MessageId) is { } message
-                && FormatFromTable(message, record, caster, target, resolveSpellName, resolveAbilityName, entityTakesArticle) is { } fromTable)
+                && FormatFromTable(message, record, caster, target, resolveSpellName, resolveAbilityName, entityTakesArticle, catalog) is { } fromTable)
             {
                 return fromTable;
             }
@@ -210,12 +173,12 @@ namespace Gordian.Core.Network.Packets
             return record.MessageId switch
             {
                 1 => $"{caster} hits {target} for {record.Param} points of damage.",
-                2 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)}.\n{target} takes {record.Value} points of damage.",
-                3 => $"{caster} starts casting {ResolveSpellName((ushort)record.Param, resolveSpellName)}.",
+                2 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.\n{target} takes {record.Value} points of damage.",
+                3 => $"{caster} starts casting {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.",
                 4 => $"{target} is out of range.",
                 5 => $"Unable to see {target}.",
                 6 => $"{caster} defeats {target}.",
-                7 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)}.\n{target} recovers {record.Value} HP.",
+                7 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.\n{target} recovers {record.Value} HP.",
                 8 => $"{caster} gains {record.Param} experience points.",
                 9 => $"{caster} attains level {record.Param}!",
                 11 => $"{caster} falls to level {record.Param}.",
@@ -238,7 +201,7 @@ namespace Gordian.Core.Network.Packets
                 36 => $"You lose sight of {target}.",
                 37 => "You are too far from the battle to gain experience.",
                 38 => $"{target}'s {SkillName(record.Param)} skill rises {FormatSkillTenths(record.Value)} points.",
-                43 => $"{caster} readies {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}.",
+                43 => $"{caster} readies {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}.",
                 44 => $"{target}'s spikes deal {record.Param} damage to {caster}.",
                 47 => $"{caster} cannot cast spells.",
                 50 => $"{caster} earns a merit point! (Total: {record.Param})",
@@ -248,38 +211,38 @@ namespace Gordian.Core.Network.Packets
                 75 => $"{caster}'s spell has no effect on {target}.",
                 78 => $"{target} is too far away.",
                 84 => $"{target} is paralyzed.",
-                85 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)}.\n{target} resists the spell.",
+                85 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.\n{target} resists the spell.",
                 87 or 88 => "Unable to use job ability.",
                 89 => "Unable to use weaponskill.",
                 94 => "You must wait longer to perform that action.",
                 97 => $"{caster} was defeated by {target}.",
-                100 or 101 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName)}.",
-                102 or 103 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName)}.\n{target} recovers {record.Value} HP.",
-                110 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName)}.\n{target} takes {record.Value} points of damage.",
-                114 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)} on {target}, but the spell fails to take effect.",
+                100 or 101 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName, catalog)}.",
+                102 or 103 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName, catalog)}.\n{target} recovers {record.Value} HP.",
+                110 => $"{caster} uses {ResolveAbilityName((ushort)record.Param, resolveAbilityName, catalog)}.\n{target} takes {record.Value} points of damage.",
+                114 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)} on {target}, but the spell fails to take effect.",
                 158 => $"{caster} uses ability, but misses.",
                 161 => $"Additional effect: {record.Param} HP drained from {target}.",
                 162 => $"Additional effect: {record.Param} MP drained from {target}.",
                 163 => $"Additional effect: {record.Param} points of damage.",
                 >= 170 and <= 178 => FormatCheck(target, record.MessageId, (int)record.Param, (int)record.Value),
                 249 => $"The {target}'s strength is impossible to gauge!",
-                185 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}.\n{target} takes {record.Value} points of damage.",
-                186 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}. {target} gains effect.",
-                187 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}.\n{record.Value} HP drained from {target}.",
-                188 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}, but misses {target}.",
-                189 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName)}. No effect on {target}.",
+                185 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}.\n{target} takes {record.Value} points of damage.",
+                186 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}. {target} gains effect.",
+                187 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}.\n{record.Value} HP drained from {target}.",
+                188 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}, but misses {target}.",
+                189 => $"{caster} uses {ResolveWeaponSkillName((ushort)record.Param, resolveAbilityName, catalog)}. No effect on {target}.",
                 191 => "The player is unable to use weapon skills.",
                 192 => "Not enough TP.",
                 224 => $"{caster} uses ability. {target} recovers {record.Param} MP.",
-                227 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)}.\n{record.Value} HP drained from {target}.",
+                227 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.\n{record.Value} HP drained from {target}.",
                 229 => $"Additional effect: {target} takes {record.Param} additional points of damage.",
-                252 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName)}.\nMagic Burst! {target} takes {record.Value} points of damage.",
+                252 => $"{caster} casts {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)}.\nMagic Burst! {target} takes {record.Value} points of damage.",
                 253 => $"EXP chain #{record.Value}! {caster} gains {record.Param} experience points.",
                 264 => $"{target} takes {record.Param} points of damage.",
                 282 => $"{target} evades.",
                 317 => $"{caster} uses ability. {target} takes {record.Param} points of damage.",
                 324 => $"{caster} uses ability, but misses {target}.",
-                327 => $"{caster} starts casting {ResolveSpellName((ushort)record.Param, resolveSpellName)} on {target}.",
+                327 => $"{caster} starts casting {ResolveSpellName((ushort)record.Param, resolveSpellName, catalog)} on {target}.",
                 343 => $"{target}'s effect disappears!",
                 352 => $"{caster} ranged attack hits {target} for {record.Param} points of damage.",
                 353 => $"{caster} ranged attack scores a critical hit!\n{target} takes {record.Param} points of damage.",
@@ -300,9 +263,10 @@ namespace Gordian.Core.Network.Packets
         /// the packet does not carry (S2C 0x029 has two, Data and Data2), so the caller falls back to its own text.
         /// </summary>
         private static string? FormatFromTable(EventMessage message, CombatMessageRecord record, string caster, string target,
-            Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle) =>
+            Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle,
+            ActionCatalog? catalog) =>
             FormatFromTable(message, new[] { unchecked((int)record.Param), unchecked((int)record.Value) }, record.CasterId, caster,
-                record.TargetId, target, resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None);
+                record.TargetId, target, resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog);
 
         /// <summary>
         /// A basic-message table message with the given number parameters (none above the last one may be read) and the
@@ -311,7 +275,7 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         private static string? FormatFromTable(EventMessage message, int[] numbers, uint casterId, string caster, uint targetId, string target,
             Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle,
-            ActionResultFlags flags)
+            ActionResultFlags flags, ActionCatalog? catalog)
         {
             if (message.Segments.Count == 0 || ReadsNumberAbove(message, numbers.Length - 1)) return null;
             var context = new SimpleMessageContext(numbers, string.Empty, string.Empty, EventDialogController.NameResolver)
@@ -325,9 +289,9 @@ namespace Gordian.Core.Network.Packets
                 ActionNames = (code, id) => code switch
                 {
                     0x05 => SkillName(unchecked((uint)id)),
-                    0x10 => ResolveSpellName(unchecked((ushort)id), resolveSpellName),
-                    0x16 => ResolveWeaponSkillName(unchecked((ushort)id), resolveAbilityName),
-                    0x8F => ResolveAbilityName(unchecked((ushort)id), resolveAbilityName),
+                    0x10 => ResolveSpellName(unchecked((ushort)id), resolveSpellName, catalog),
+                    0x16 => ResolveWeaponSkillName(unchecked((ushort)id), resolveAbilityName, catalog),
+                    0x8F => ResolveAbilityName(unchecked((ushort)id), resolveAbilityName, catalog),
                     _ => null,
                 },
             };
@@ -362,12 +326,12 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         private static string[]? ActionLinesFromTable(Func<int, EventMessage?>? table, ushort messageId, CombatActionRecord record,
             in CombatActionResult result, uint targetId, string actor, string target, Func<ushort, string?>? resolveSpellName,
-            Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle, ActionResultFlags flags)
+            Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle, ActionResultFlags flags, ActionCatalog? catalog)
         {
             if (table == null || messageId == 0 || table(messageId) is not { } message) return null;
             int[] numbers = { unchecked((int)record.ActionId), result.Param, result.ProcParam, result.ReactionParam };
             string? text = FormatFromTable(message, numbers, record.ActorId, actor, targetId, target, resolveSpellName, resolveAbilityName,
-                entityTakesArticle, flags);
+                entityTakesArticle, flags, catalog);
             return text?.Split('\n');
         }
 
@@ -404,9 +368,10 @@ namespace Gordian.Core.Network.Packets
             Func<ushort, string?>? resolveSpellName = null,
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
-            Func<int, EventMessage?>? battleMessages = null)
+            Func<int, EventMessage?>? battleMessages = null,
+            ActionCatalog? catalog = null)
         {
-            var detailed = FormatActionLines(record, resolveEntityName, resolveSpellName, resolveAbilityName, entityTakesArticle, battleMessages);
+            var detailed = FormatActionLines(record, resolveEntityName, resolveSpellName, resolveAbilityName, entityTakesArticle, battleMessages, catalog);
             var lines = new List<string>(detailed.Count);
             foreach (var line in detailed) lines.Add(line.Text);
             return lines;
@@ -432,10 +397,12 @@ namespace Gordian.Core.Network.Packets
             Func<ushort, string?>? resolveSpellName = null,
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
-            Func<int, EventMessage?>? battleMessages = null)
+            Func<int, EventMessage?>? battleMessages = null,
+            ActionCatalog? catalog = null)
         {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
+            catalog = CatalogOrDefault(catalog);
 
             var table = battleMessages ?? BattleMessages;
             var lines = new List<CombatLogLine>(record.Targets.Count);
@@ -461,8 +428,8 @@ namespace Gordian.Core.Network.Packets
 
                     // Primary action resolution line(s)
                     var primary = ActionLinesFromTable(table, result.MessageId, record, result, targetId, actor, target,
-                            resolveSpellName, resolveAbilityName, entityTakesArticle, result.Flags)
-                        ?? FormatActionResult(record, actor, target, result, resolveSpellName, resolveAbilityName).Split('\n');
+                            resolveSpellName, resolveAbilityName, entityTakesArticle, result.Flags, catalog)
+                        ?? FormatActionResult(record, actor, target, result, resolveSpellName, resolveAbilityName, catalog).Split('\n');
                     AddAll(primary, record.ActorId, targetId, result.MessageId, result.Resolution, CombatLogLinePart.Primary);
 
                     // Additional effect proc
@@ -470,7 +437,7 @@ namespace Gordian.Core.Network.Packets
                     {
                         // On a weapon skill the proc kind is the skillchain, not an additional effect.
                         var proc = ActionLinesFromTable(table, result.ProcMessageId, record, result, targetId, actor, target,
-                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None)
+                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog)
                             ?? new[]
                             {
                                 record.Category == ActionCategory.SkillFinish
@@ -486,7 +453,7 @@ namespace Gordian.Core.Network.Packets
                     if (result.HasReaction)
                     {
                         var react = ActionLinesFromTable(table, result.ReactionMessageId, record, result, targetId, actor, target,
-                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None)
+                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog)
                             ?? new[]
                             {
                                 result.ReactionKind == ActionReactKind.Counter
@@ -517,7 +484,8 @@ namespace Gordian.Core.Network.Packets
             string target,
             in CombatActionResult result,
             Func<ushort, string?>? resolveSpellName,
-            Func<ushort, string?>? resolveAbilityName)
+            Func<ushort, string?>? resolveAbilityName,
+            ActionCatalog? catalog)
         {
             return record.Category switch
             {
@@ -541,15 +509,15 @@ namespace Gordian.Core.Network.Packets
                     _ => $"{actor} ranged attack misses {target}."
                 },
 
-                ActionCategory.MagicFinish => FormatMagicFinish(actor, target, record.ActionId, result.Param, result.MessageId, resolveSpellName),
+                ActionCategory.MagicFinish => FormatMagicFinish(actor, target, record.ActionId, result.Param, result.MessageId, resolveSpellName, catalog),
 
                 ActionCategory.SkillFinish => result.Resolution == ActionResolution.Miss || result.MessageId == 188
-                    ? $"{actor} uses {ResolveWeaponSkillName((ushort)record.ActionId, resolveAbilityName)}, but misses {target}."
-                    : $"{actor} uses {ResolveWeaponSkillName((ushort)record.ActionId, resolveAbilityName)}.\n{target} takes {result.Param} points of damage.",
+                    ? $"{actor} uses {ResolveWeaponSkillName((ushort)record.ActionId, resolveAbilityName, catalog)}, but misses {target}."
+                    : $"{actor} uses {ResolveWeaponSkillName((ushort)record.ActionId, resolveAbilityName, catalog)}.\n{target} takes {result.Param} points of damage.",
 
                 ActionCategory.AbilityFinish => result.Param > 0
-                    ? $"{actor} uses {ResolveAbilityName((ushort)record.ActionId, resolveAbilityName)}.\n{target} takes {result.Param} points of damage."
-                    : $"{actor} uses {ResolveAbilityName((ushort)record.ActionId, resolveAbilityName)} on {target}.",
+                    ? $"{actor} uses {ResolveAbilityName((ushort)record.ActionId, resolveAbilityName, catalog)}.\n{target} takes {result.Param} points of damage."
+                    : $"{actor} uses {ResolveAbilityName((ushort)record.ActionId, resolveAbilityName, catalog)} on {target}.",
 
                 ActionCategory.ItemFinish => $"{actor} uses item on {target}.",
 
@@ -563,9 +531,10 @@ namespace Gordian.Core.Network.Packets
             uint spellId,
             int param,
             ushort messageId,
-            Func<ushort, string?>? resolveSpellName)
+            Func<ushort, string?>? resolveSpellName,
+            ActionCatalog? catalog)
         {
-            string spell = ResolveSpellName((ushort)spellId, resolveSpellName);
+            string spell = ResolveSpellName((ushort)spellId, resolveSpellName, catalog);
 
             // Healing spells (Cure, Curaga, etc.)
             if (messageId == 7 || messageId == 24 || (spellId >= 1 && spellId <= 11))
