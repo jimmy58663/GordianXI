@@ -139,7 +139,7 @@ namespace Gordian.Core.Resources.Vfs
                 if (configUpdated)
                 {
                     _config.Save(configPath);
-                    try { _ownConfigWriteUtc = File.GetLastWriteTimeUtc(configPath); } catch (IOException) { }
+                    try { _ownConfigText = File.ReadAllText(configPath); } catch (IOException) { _ownConfigText = null; }
                 }
 
                 // 1. Mount enabled DAT overlay packs
@@ -227,9 +227,14 @@ namespace Gordian.Core.Resources.Vfs
         public const string ConfigFileName = "vfs.json";
 
         /// <summary>Last write time of vfs.json as this VFS saved it (pack discovery), so that save does not reload again.</summary>
-        private DateTime _ownConfigWriteUtc;
+        /// <summary>
+        /// The text of vfs.json as this VFS last saved it (null when it has not saved it). Compared by content, not by
+        /// the last-write time: a save by the player within the same file-system clock tick as ours has the same
+        /// time stamp, and was taken for our own.
+        /// </summary>
+        private string? _ownConfigText;
 
-        /// <summary>True when the only change is vfs.json and it is still the file this VFS wrote itself.</summary>
+        /// <summary>True when the only change is vfs.json and it still holds exactly what this VFS wrote itself.</summary>
         private bool IsOwnConfigWrite(IReadOnlyList<string> paths)
         {
             foreach (var path in paths)
@@ -239,7 +244,7 @@ namespace Gordian.Core.Resources.Vfs
             string configPath = Path.Combine(_resourcesDirectory, ConfigFileName);
             try
             {
-                return File.Exists(configPath) && File.GetLastWriteTimeUtc(configPath) == _ownConfigWriteUtc;
+                return _ownConfigText != null && File.Exists(configPath) && File.ReadAllText(configPath) == _ownConfigText;
             }
             catch (IOException)
             {
