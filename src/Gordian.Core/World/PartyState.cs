@@ -49,6 +49,17 @@ namespace Gordian.Core.World
         /// </summary>
         public bool IsInOtherZone(ushort currentZoneId) => ZoneId != 0 && ZoneId != currentZoneId;
 
+        /// <summary>
+        /// Player characters have server ids below 0x01000000; a Trust is a dynamic entity of the zone (id
+        /// <c>0x01000000 | zone &lt;&lt; 12 | (targid + 0x100)</c>), the only kind of non-player party member.
+        /// Id layout referenced from LandSandBoat (https://github.com/LandSandBoat/server,
+        /// src/map/zone_entities.cpp AssignDynamicTargIDandLongID, used by InsertTRUST).
+        /// </summary>
+        public const uint FirstNonPlayerId = 0x01000000;
+
+        /// <summary>Whether the member is a Trust rather than a player (#373; see <see cref="FirstNonPlayerId"/>).</summary>
+        public bool IsTrust => ServerId >= FirstNonPlayerId;
+
         public JobId MainJob { get; set; } = JobId.None;
         public byte MainJobLevel { get; set; }
         public JobId SubJob { get; set; } = JobId.None;
@@ -395,6 +406,30 @@ namespace Gordian.Core.World
                 _members.RemoveAll(m => !serverIds.Contains(m.ServerId));
             }
             foreach (uint id in removed) MemberLeft?.Invoke(id);
+        }
+
+        /// <summary>
+        /// Drops every Trust from the party (#373), raising <see cref="MemberLeft"/> for each; returns how many left.
+        /// Trusts never survive a zone change: LandSandBoat dismisses them as the character leaves the zone (C2S 0x05E
+        /// <c>ClearTrusts</c>, <c>CZoneEntities::DecreaseZoneCounter</c>) and only flags a party reload, which runs while the
+        /// character is already zoning, so the updated group table never reaches the client; a party the Trusts formed is
+        /// disbanded there too (<c>charutils::ReloadParty</c>: <c>IsFormedByTrusts</c> with no Trusts left), and on the new
+        /// zone's GAMEOK the server sends a group table only when the character is still in a player party. The client
+        /// therefore drops the Trusts itself at zone-in; a remaining player party is then rebuilt from the server's packets.
+        /// Behaviour referenced from LandSandBoat (https://github.com/LandSandBoat/server, src/map/entities/char_entity.cpp,
+        /// src/map/zone_entities.cpp, src/map/utils/charutils.cpp, src/map/packets/c2s/0x00c_gameok.cpp).
+        /// </summary>
+        public int RemoveTrusts()
+        {
+            List<uint> removed;
+            lock (_lock)
+            {
+                removed = _members.Where(m => m.IsTrust).Select(m => m.ServerId).ToList();
+                if (removed.Count == 0) return 0;
+                _members.RemoveAll(m => m.IsTrust);
+            }
+            foreach (uint id in removed) MemberLeft?.Invoke(id);
+            return removed.Count;
         }
 
         /// <summary>

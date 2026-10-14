@@ -180,6 +180,17 @@ namespace Gordian.App.Audio
             _actors[actor.Id] = new Tracked(actor.ActionSerial, actor.ActionTicks, actor.ReactionSerial, actor.IsDead);
         }
 
+        /// <summary>
+        /// Forgets every actor (#377: the heard character changed). Each session has its own world, so the same server id
+        /// there is another object whose action and reaction serials differ: without this the first frame after a switch
+        /// took every actor's last action as new and replayed its sounds (a Trust's summon, the last swing).
+        /// </summary>
+        public void Clear()
+        {
+            _actors.Clear();
+            _seen.Clear();
+        }
+
         /// <summary>Drops the actors not stepped since the last call.</summary>
         public void Forget()
         {

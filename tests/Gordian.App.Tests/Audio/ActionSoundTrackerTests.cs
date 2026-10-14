@@ -56,6 +56,30 @@ namespace Gordian.App.Tests.Audio
             Assert.Equal(new[] { 6062 }, Step(tracker, Actor(1, Monster, "ati0", 2, 1)));    // the same routine again
         }
 
+        /// <summary>
+        /// #377: after a character switch the same server id is another world's actor with other serials. Without the clear
+        /// its last action read as a new one and replayed; cleared, it is first seen and stays quiet until its next action.
+        /// </summary>
+        [Fact]
+        public void Clear_AfterASwitch_DoesNotReplayTheOtherWorldsLastAction()
+        {
+            var tracker = NewTracker();
+            Step(tracker, Actor(1, Monster));
+            Step(tracker, Actor(1, Monster, "ati0", 1, 30));
+            Assert.Equal(new[] { 6062, 6064 }, Step(NewTrackerSeeing(Actor(1, Monster, "ati0", 1, 30)), Actor(1, Monster, "ati0", 7, 25))); // the replay
+
+            tracker.Clear();
+            Assert.Empty(Step(tracker, Actor(1, Monster, "ati0", 7, 25)));                   // other world: first seen
+            Assert.Equal(new[] { 6062 }, Step(tracker, Actor(1, Monster, "ati0", 8, 1)));    // its next action plays
+        }
+
+        private static ActionSoundTracker NewTrackerSeeing(ActorSoundState actor)
+        {
+            var tracker = NewTracker();
+            Step(tracker, actor);
+            return tracker;
+        }
+
         /// <summary>A presentation's own sounds (#132: a weapon skill's main) play on its clock instead of a model routine's.</summary>
         [Fact]
         public void Presentation_PlaysItsOwnCues()

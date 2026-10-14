@@ -139,6 +139,7 @@ namespace Gordian.Core.Resources.Vfs
                 if (configUpdated)
                 {
                     _config.Save(configPath);
+                    try { _ownConfigWriteUtc = File.GetLastWriteTimeUtc(configPath); } catch (IOException) { }
                 }
 
                 // 1. Mount enabled DAT overlay packs
@@ -205,19 +206,45 @@ namespace Gordian.Core.Resources.Vfs
             _hotReloadWatcher = new VfsHotReloadWatcher();
             _hotReloadWatcher.WatchDirectory(Path.Combine(_resourcesDirectory, "dats"));
             _hotReloadWatcher.WatchDirectory(Path.Combine(_resourcesDirectory, "assets"));
+            // Pack toggles and priorities take effect when vfs.json is saved (#374).
+            _hotReloadWatcher.WatchFile(_resourcesDirectory, ConfigFileName);
 
-            _hotReloadWatcher.OnPacksStructureChanged += () =>
+            // Every settled burst of changes re-mounts the packs (#374): a pack copied in or removed, a file added to,
+            // replaced in or deleted from a mounted pack (each pack indexes its files when mounted, so a cache clear alone
+            // missed added files and kept resolving deleted ones), or vfs.json edited. Reload raises OnReloaded, and the
+            // resource manager drops every cache built from the DATs.
+            _hotReloadWatcher.OnChanged += paths =>
             {
-                GordianLog.Info("VFS", "Hot-reload triggered: Re-mounting packs.");
+                if (IsOwnConfigWrite(paths))
+                {
+                    return;
+                }
+                GordianLog.Info("VFS", $"Hot-reload triggered by {paths.Count} change(s): re-mounting packs.");
                 Reload();
             };
+        }
 
-            _hotReloadWatcher.OnAssetsChanged += (files) =>
+        public const string ConfigFileName = "vfs.json";
+
+        /// <summary>Last write time of vfs.json as this VFS saved it (pack discovery), so that save does not reload again.</summary>
+        private DateTime _ownConfigWriteUtc;
+
+        /// <summary>True when the only change is vfs.json and it is still the file this VFS wrote itself.</summary>
+        private bool IsOwnConfigWrite(IReadOnlyList<string> paths)
+        {
+            foreach (var path in paths)
             {
-                GordianLog.Info("VFS", $"Hot-reload triggered: Evicting {files.Count} files from cache.");
-                ClearCache();
-                OnReloaded?.Invoke();
-            };
+                if (!string.Equals(Path.GetFileName(path), ConfigFileName, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            string configPath = Path.Combine(_resourcesDirectory, ConfigFileName);
+            try
+            {
+                return File.Exists(configPath) && File.GetLastWriteTimeUtc(configPath) == _ownConfigWriteUtc;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
