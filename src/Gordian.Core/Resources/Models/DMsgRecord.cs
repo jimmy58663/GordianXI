@@ -58,6 +58,11 @@ namespace Gordian.Core.Resources.Models
         /// ("Select an item.", "Use an item."), shown in the help bar (<c>helpwind</c>).
         /// </summary>
         MenuHelp,
+        /// <summary>
+        /// The menus' own message texts (ROM/165/72.DAT): "Examine %s?" (95), "You do not possess any key items." (96), the
+        /// equipment set editor's "Remove piece." / "Keep same piece." (275, 276) and its prompts (277-279) (#91, #92).
+        /// </summary>
+        MenuMessages,
         Custom
     }
 

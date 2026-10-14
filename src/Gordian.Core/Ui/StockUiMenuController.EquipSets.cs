@@ -48,6 +48,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>A list or grid that scrolls and pages as the action lists do (the end rows link to themselves).</summary>
         internal bool PagesAsList => IsKeyItemWindow || IsEquipSetList;
+
+        /// <summary>A set slot list's storage choice (<see cref="StockUiEquipSets.StorageMenu"/>).</summary>
+        public bool IsEquipSetStorage { get; init; }
+
+        /// <summary>Whether a set's slot list is open over this grid (it then takes the cursor, and the grid draws no list or help bar).</summary>
+        public bool IsEquipSetListOpen => ItemOwner?.HasChild(this, m => m.IsItemList) == true;
     }
 
     public sealed partial class StockUiMenuController
@@ -110,6 +116,11 @@ namespace Gordian.Core.Ui
 
         private int _lastEquipSet = 1;
 
+        /// <summary>The menu message table (ROM/165/72) by id ("Remove piece.", "Examine %s?", ...); set by the HUD.</summary>
+        public Func<int, string?>? MenuMessageText { get; set; }
+
+        private string MenuText(int id, string fallback) => MenuMessageText?.Invoke(id) is { Length: > 0 } text ? text : fallback;
+
         /// <summary>Confirm in an Equipment Sets window; false when the top menu is none of them.</summary>
         private bool TryActivateEquipSets(StockUiOpenMenu top, UiMenuButton button)
         {
@@ -128,15 +139,34 @@ namespace Gordian.Core.Ui
                 OpenEquipSetSlotList(top, button);
                 return true;
             }
-            if (top.IsItemList && top.EquipSetNumber > 0 && top.SelectedItemRow is { IsStorageOptions: false } row)
+            if (top.IsEquipSetStorage)
             {
-                PlaceInSet(top, row);
+                ActivateEquipSetStorage(top, button);
+                return true;
+            }
+            if (top.IsItemList && top.EquipSetNumber > 0 && top.SelectedItemRow is { } row)
+            {
+                if (row.IsStorageOptions) OpenEquipSetStorage(top);
+                else PlaceInSet(top, row);
                 return true;
             }
             return false;
         }
 
-        /// <summary>The options (<c>mcresmn</c>) for the set under the list's cursor, left of the list and level with the row.</summary>
+        /// <summary>
+        /// Left / right on the set list turn the page, wrapping from the last page to the first and back (the maintainer's
+        /// round 1 note, 2026-10-13); the cursor keeps its row.
+        /// </summary>
+        internal static bool TurnEquipSetPage(StockUiOpenMenu list, bool forward)
+        {
+            int page = list.FirstRow / StockUiEquipSets.VisibleRows;
+            page = (page + (forward ? 1 : -1) + EquipmentSetBook.PageCount) % EquipmentSetBook.PageCount;
+            list.FirstRow = page * StockUiEquipSets.VisibleRows;
+            list.ScrollFrom = list.FirstRow;
+            return true;
+        }
+
+        /// <summary>The options (<c>mcresmn</c>) for the set under the list's cursor, right against the list's left edge, level with the row.</summary>
         private void OpenEquipSetOptions(StockUiOpenMenu list)
         {
             var library = _library;
@@ -146,28 +176,7 @@ namespace Gordian.Core.Ui
             var row = list.SelectedButton;
             int y = list.Menu.Frame.Y + (row?.Y ?? 0) - 6;
             y = Math.Clamp(y, 0, UiResourceLibrary.LayoutHeight - template.Frame.Height);
-            var definition = new UiMenuDefinition
-            {
-                DatId = template.DatId,
-                Category = template.Category,
-                Name = template.Name,
-                MenuType = template.MenuType,
-                Frame = new UiMenuFrame
-                {
-                    X = StockUiEquipSets.OptionsX,
-                    Y = (short)y,
-                    Width = template.Frame.Width,
-                    Height = template.Frame.Height,
-                    Anchor = UiAnchor.TopLeft,
-                    Shapes = template.Frame.Shapes,
-                    CursorOffsetX = template.Frame.CursorOffsetX,
-                    CursorOffsetY = template.Frame.CursorOffsetY,
-                    HelpTextId = template.Frame.HelpTextId,
-                    TitleTextId = template.Frame.TitleTextId,
-                },
-                Buttons = template.Buttons,
-            };
-            var options = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null)
+            var options = new StockUiOpenMenu(Placed(template, StockUiEquipSets.OptionsX, y, UiAnchor.TopRight), list, Array.Empty<string>(), null)
             {
                 IsEquipSetOptions = true,
                 EquipSetBook = list.EquipSetBook,
@@ -181,7 +190,30 @@ namespace Gordian.Core.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Paste is greyed until a set is copied, Style Lock and Equip while the set is empty (PROVISIONAL).</summary>
+        /// <summary>A DAT window moved to (<paramref name="x"/>, <paramref name="y"/>) in the 512 x 448 layout, with its anchor.</summary>
+        private static UiMenuDefinition Placed(UiMenuDefinition template, int x, int y, UiAnchor anchor = UiAnchor.TopLeft) => new()
+        {
+            DatId = template.DatId,
+            Category = template.Category,
+            Name = template.Name,
+            MenuType = template.MenuType,
+            Frame = new UiMenuFrame
+            {
+                X = (short)x,
+                Y = (short)y,
+                Width = template.Frame.Width,
+                Height = template.Frame.Height,
+                Anchor = anchor,
+                Shapes = template.Frame.Shapes,
+                CursorOffsetX = template.Frame.CursorOffsetX,
+                CursorOffsetY = template.Frame.CursorOffsetY,
+                HelpTextId = template.Frame.HelpTextId,
+                TitleTextId = template.Frame.TitleTextId,
+            },
+            Buttons = template.Buttons,
+        };
+
+        /// <summary>Paste is greyed until a set is copied (image-11 shows it greyed), Equip and Style Lock while the set is empty (PROVISIONAL).</summary>
         private void RefreshEquipSetOptions(StockUiOpenMenu options)
         {
             var greyed = new HashSet<int>();
@@ -205,13 +237,20 @@ namespace Gordian.Core.Ui
                 NoticePosted?.Invoke(button.ButtonId == StockUiEquipSets.PasteButton ? "No set has been copied." : $"Equipment set {number} ({set.Name}) is empty.");
                 return;
             }
+            void Confirm(int textId, Action yes) => OpenYesNo(MenuText(textId, StockUiEquipSets.FallbackText(textId)), defaultYes: false, answer =>
+            {
+                if (answer != true) return;
+                yes();
+                RefreshEquipSetOptions(options);
+                Changed?.Invoke();
+            });
             switch (button.ButtonId)
             {
                 case StockUiEquipSets.EditButton:
                     OpenEquipSetGrid(options);
                     break;
                 case StockUiEquipSets.ChangeNameButton:
-                    // Retail opens its text input here; GordianXI has none for menus yet (#92 follow-up).
+                    // Retail opens its text input here; GordianXI has none for menus yet (#384).
                     NoticePosted?.Invoke("Naming equipment sets is not available yet.");
                     break;
                 case StockUiEquipSets.CopyButton:
@@ -221,26 +260,13 @@ namespace Gordian.Core.Ui
                     Changed?.Invoke();
                     break;
                 case StockUiEquipSets.PasteButton:
-                    if (_copiedSet is { } copied)
-                    {
-                        book.Set(number, copied);
-                        RefreshEquipSetOptions(options);
-                        Changed?.Invoke();
-                    }
+                    if (_copiedSet is { } copied) Confirm(StockUiEquipSets.PastePromptText, () => book.Set(number, copied));
                     break;
                 case StockUiEquipSets.DeleteButton:
-                    OpenYesNo(StockUiEquipSets.DeletePrompt(number, set), defaultYes: false, yes =>
-                    {
-                        if (yes != true) return;
-                        book.Clear(number);
-                        RefreshEquipSetOptions(options);
-                        Changed?.Invoke();
-                    });
+                    Confirm(StockUiEquipSets.DeletePromptText, () => book.Clear(number));
                     break;
                 case StockUiEquipSets.UseCurrentButton:
-                    book.Set(number, StockUiEquipSets.FromWorn(set, Inventory));
-                    RefreshEquipSetOptions(options);
-                    Changed?.Invoke();
+                    Confirm(StockUiEquipSets.UseCurrentPromptText, () => book.Set(number, StockUiEquipSets.FromWorn(book.Get(number), Inventory)));
                     break;
                 case StockUiEquipSets.EquipButton:
                     _ = RunEquipSetAsync(EquipSetEquip, number, "Equip");
@@ -270,11 +296,24 @@ namespace Gordian.Core.Ui
             }
         }
 
-        /// <summary>Edit: the set's slot grid (<c>mcresed</c>) takes the cursor, on Main.</summary>
+        /// <summary>
+        /// Edit (image-12): the set's slot grid (<c>mcresed</c>) takes the cursor, on Main, with the storage's equipment right of
+        /// it (the storage the set's first item is in, else the inventory) and the slot's item under it.
+        /// </summary>
         private void OpenEquipSetGrid(StockUiOpenMenu options)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiEquipSets.GridMenu, out var definition)) return;
+            var container = ContainerId.Inventory;
+            if (options.EquipSet is { } set)
+            {
+                foreach (var piece in set.Pieces)
+                {
+                    if (!piece.HasItem) continue;
+                    container = piece.Container;
+                    break;
+                }
+            }
             var grid = new StockUiOpenMenu(definition, options, Array.Empty<string>(), null)
             {
                 IsEquipSetGrid = true,
@@ -283,71 +322,106 @@ namespace Gordian.Core.Ui
                 ItemLookup = ItemLookup,
                 ItemOwner = this,
             };
+            grid.EquipContainer = container;
             grid.SelectedButtonId = FirstSelectable(definition);
-            lock (_sync) PushOpen(grid);
-            Changed?.Invoke();
-        }
-
-        /// <summary>Confirm on a grid slot: the equipment that fits it, right of the grid (the Equipment window's list, with Storage Options).</summary>
-        private void OpenEquipSetSlotList(StockUiOpenMenu grid, UiMenuButton button)
-        {
-            var library = _library;
-            if (!StockUiCheck.TryGetSlot(button.ButtonId, out var slot) || library == null || !library.TryGetMenu(StockUiItems.ListMenu, out var template)) return;
-            var frame = new UiMenuFrame
-            {
-                X = StockUiEquipSets.SlotListX,
-                Y = template.Frame.Y,
-                Width = template.Frame.Width,
-                Height = template.Frame.Height,
-                Anchor = template.Frame.Anchor,
-                Shapes = template.Frame.Shapes,
-                CursorOffsetX = template.Frame.CursorOffsetX,
-                CursorOffsetY = template.Frame.CursorOffsetY,
-                HelpTextId = template.Frame.HelpTextId,
-                TitleTextId = template.Frame.TitleTextId,
-            };
-            var definition = new UiMenuDefinition
-            {
-                DatId = template.DatId,
-                Category = template.Category,
-                Name = template.Name,
-                MenuType = template.MenuType,
-                Frame = frame,
-                Buttons = template.Buttons,
-            };
-            var current = grid.EquipSet?[slot] ?? default;
-            var list = new StockUiOpenMenu(definition, grid, Array.Empty<string>(), null, VisibleRowsOf(definition))
-            {
-                ItemListKind = StockUiItemListKind.Equipment,
-                ItemEquipSlot = slot,
-                ItemContainer = current.HasItem ? current.Container : ContainerId.Inventory,
-                ItemLookup = ItemLookup,
-                ItemOwner = this,
-                EquipSetNumber = grid.EquipSetNumber,
-                EquipSetBook = grid.EquipSetBook,
-            };
             lock (_sync)
             {
-                FillItemRows(list);
-                list.SelectedButtonId = list.ItemRows.Count > 1 ? 2 : 1;
-                if (current.HasItem)
-                {
-                    var rows = list.ItemRows;
-                    for (int i = 1; i < rows.Count && i < list.VisibleRows; i++)
-                    {
-                        if (rows[i].Container == current.Container && rows[i].Slot == current.Index && rows[i].ItemId == current.ItemId) list.SelectedButtonId = i + 1;
-                    }
-                }
-                PushOpen(list);
+                grid.CompanionRows = StockUiEquipSets.SetRows(Inventory, container, null, ItemLookup, MenuMessageText);
+                PushOpen(grid);
             }
             Changed?.Invoke();
         }
 
         /// <summary>
-        /// Confirm on an item in a set slot's list: the item goes into the set (the one already there is taken out instead),
-        /// the list closes, and C2S 0x052 asks the server to check the set; its answer (S2C 0x116) can take out pieces that
-        /// do not go together (a two-handed weapon and a shield, ...). Items the main job cannot wear are allowed (retail's
-        /// sets are not checked against the job; LandSandBoat checks ownership only when the set is used).
+        /// Confirm on a grid slot: the list right of the grid takes the cursor with that slot's equipment (Storage Options,
+        /// Remove piece., Keep same piece., then the items), from the storage the set's item is in, else the storage shown;
+        /// the cursor on the set's item, else on the first item, else on "Remove piece.".
+        /// </summary>
+        private void OpenEquipSetSlotList(StockUiOpenMenu grid, UiMenuButton button)
+        {
+            var library = _library;
+            if (!StockUiCheck.TryGetSlot(button.ButtonId, out var slot) || library == null || !library.TryGetMenu(StockUiItems.ListMenu, out var template)) return;
+            var current = grid.EquipSet?[slot] ?? default;
+            var definition = Placed(template, StockUiEquipSets.SlotListX, template.Frame.Y);
+            var list = new StockUiOpenMenu(definition, grid, Array.Empty<string>(), null, VisibleRowsOf(definition))
+            {
+                ItemListKind = StockUiItemListKind.Equipment,
+                ItemEquipSlot = slot,
+                ItemLookup = ItemLookup,
+                ItemOwner = this,
+                EquipSetNumber = grid.EquipSetNumber,
+                EquipSetBook = grid.EquipSetBook,
+            };
+            list.ItemContainer = current.HasItem ? current.Container : grid.EquipContainer;
+            lock (_sync)
+            {
+                FillItemRows(list);
+                var rows = list.ItemRows;
+                int select = rows.Count > 3 ? 3 : 1;
+                for (int i = 3; i < rows.Count && current.HasItem; i++)
+                {
+                    if (rows[i].Container == current.Container && rows[i].Slot == current.Index && rows[i].ItemId == current.ItemId) select = i;
+                }
+                list.FirstRow = Math.Clamp(select - list.VisibleRows + 1, 0, Math.Max(0, rows.Count - list.VisibleRows));
+                list.ScrollFrom = list.FirstRow;
+                list.SelectedButtonId = select - list.FirstRow + 1;
+                PushOpen(list);
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>Storage Options in a set's list (image-14): <c>mcrmogc</c> at the top right; storages without slots greyed.</summary>
+        private void OpenEquipSetStorage(StockUiOpenMenu list)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiEquipSets.StorageMenu, out var definition)) return;
+            var storage = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null) { IsEquipSetStorage = true };
+            var greyed = new HashSet<int>();
+            foreach (var b in definition.Buttons)
+            {
+                if (StockUiEquipSets.TryGetStorage(b.ButtonId, out var c) && !StockUiItems.IsAvailable(Inventory, c)) greyed.Add(b.ButtonId);
+            }
+            storage.SetGreyed(greyed.Count > 0 ? greyed : null);
+            int at = StockUiEquipSets.StorageButtonOf(list.ItemContainer);
+            storage.SelectedButtonId = at > 0 ? at : FirstSelectable(definition);
+            lock (_sync) PushOpen(storage);
+            Changed?.Invoke();
+        }
+
+        /// <summary>A storage chosen: the list (and the grid's list) show its equipment, the cursor back on the list.</summary>
+        private void ActivateEquipSetStorage(StockUiOpenMenu storage, UiMenuButton button)
+        {
+            if (!StockUiEquipSets.TryGetStorage(button.ButtonId, out var container)) return;
+            if (storage.IsGreyed(button.ButtonId))
+            {
+                NoticePosted?.Invoke($"{StockUiItems.ContainerName(container)} is not available.");
+                return;
+            }
+            var list = storage.Parent;
+            CloseMenu(storage);
+            if (list is not { IsItemList: true }) return;
+            lock (_sync)
+            {
+                list.ItemContainer = container;
+                if (list.Parent is { IsEquipSetGrid: true } grid)
+                {
+                    grid.EquipContainer = container;
+                    grid.CompanionRows = StockUiEquipSets.SetRows(Inventory, container, null, ItemLookup, MenuMessageText);
+                }
+                list.FirstRow = 0;
+                list.ScrollFrom = 0;
+                list.SelectedButtonId = 1;
+                FillItemRows(list);
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Confirm in a set slot's list: "Remove piece." marks the slot (red X), "Keep same piece." empties it, an item goes in
+        /// (the maintainer's notes and image-13, 2026-10-13). The list closes. An item or a Remove mark is checked with C2S
+        /// 0x052 (the change and the rest of the set); the server's S2C 0x116 can take out pieces that do not go together (a
+        /// two-handed weapon and a shield, ...). "Keep same piece." sends nothing: LandSandBoat answers a change without an item
+        /// as "Remove piece". Items the main job cannot wear are allowed (LandSandBoat checks the set only when it is used).
         /// </summary>
         private void PlaceInSet(StockUiOpenMenu list, StockUiItemRow row)
         {
@@ -356,14 +430,17 @@ namespace Gordian.Core.Ui
             if (book == null || !EquipmentSetBook.IsValidNumber(number)) return;
             var slot = list.ItemEquipSlot;
             var set = book.Get(number);
-            var current = set[slot];
-            bool remove = current.HasItem && current.ItemId == row.ItemId && current.Container == row.Container && current.Index == row.Slot;
-            var piece = remove ? EquipmentSetPiece.Empty : EquipmentSetPiece.Item(row.Container, row.Slot, row.ItemId);
+            var piece = row.SetAction switch
+            {
+                StockUiSetRowAction.RemovePiece => EquipmentSetPiece.Remove,
+                StockUiSetRowAction.KeepSamePiece => EquipmentSetPiece.Empty,
+                _ => EquipmentSetPiece.Item(row.Container, row.Slot, row.ItemId),
+            };
             CloseMenu(list);
             book.Set(number, set.WithPiece(slot, piece));
-            GordianLog.Info("EQUIPSET", remove ? $"Set {number}: {slot} emptied." : $"Set {number}: {row.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) in {slot}.");
+            GordianLog.Info("EQUIPSET", $"Set {number}: {slot} = {piece.Kind}{(piece.HasItem ? $" {row.Name} (item {row.ItemId}, {row.Container} slot {row.Slot})" : string.Empty)}.");
             Changed?.Invoke();
-            if (remove || EquipSetCheck is not { } check) return;
+            if (piece.Kind == EquipmentSetPieceKind.Empty || EquipSetCheck is not { } check) return;
             lock (_sync) _pendingCheck = (number, EquipSetValidation?.Invoke() ?? Array.Empty<EquipsetSlotEntry>());
             _ = SendItemAsync(() => check(slot, piece.ToRequestItem(), StockUiEquipSets.CheckEntries(set, slot)), "Equipment set check");
         }
@@ -394,3 +471,4 @@ namespace Gordian.Core.Ui
         }
     }
 }
+

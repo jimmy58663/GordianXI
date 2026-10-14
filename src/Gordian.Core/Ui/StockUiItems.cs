@@ -31,10 +31,11 @@ namespace Gordian.Core.Ui
     /// the Equipment list's first row, "Storage Options ▶", which opens the storage choice.
     /// </summary>
     public readonly record struct StockUiItemRow(ushort ItemId, string Name, uint Count, ContainerId Container, byte Slot,
-        int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsStorageOptions = false)
+        int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsStorageOptions = false,
+        StockUiSetRowAction SetAction = StockUiSetRowAction.None)
     {
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
-        public bool ShowsCount => !IsStorageOptions && (StackSize > 1 || Count > 1);
+        public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
     }
 
     /// <summary>What the Equipment list checks an item against: the main job and its level (race is not known to the client state yet).</summary>

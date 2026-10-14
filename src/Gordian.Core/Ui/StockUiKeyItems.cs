@@ -8,8 +8,8 @@ namespace Gordian.Core.Ui
     /// <summary>One Key Items category: its name and its key items, in the table's order.</summary>
     public sealed record StockUiKeyItemCategory(string Name, IReadOnlyList<ushort> Ids);
 
-    /// <summary>One row of a Key Items list: the key item, its name, and whether it has not been read yet.</summary>
-    public readonly record struct StockUiKeyItemRow(ushort Id, string Name, bool IsNew);
+    /// <summary>One row of a Key Items list: the key item, its name as listed (capitalised), whether it has not been read yet, and its name as the table writes it (for "Examine %s?").</summary>
+    public readonly record struct StockUiKeyItemRow(ushort Id, string Name, bool IsNew, string TableName = "");
 
     /// <summary>
     /// The key item table (ROM/175/35, English) as the Key Items window lists it (#91). The table is sparse and stored in
@@ -98,17 +98,26 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>
-    /// The Key Items window (#91; main menu page 2 > Key Items). PROVISIONAL layout, no retail capture yet: the English menu
-    /// DAT's only windows titled "Key Items" (title 59, ROM/165/76) are <c>evitem</c> / <c>evitem01</c> (16,48, 366 x 248),
-    /// whose rows reference an <c>evitem</c> element group the DATs do not hold, so the window keeps <c>evitem</c>'s frame and
-    /// takes the quest log's list rows (<c>quset</c>: fifteen 356 x 16 rows from (0,4)). First the categories with the
-    /// number of key items held in each, then a category's held key items in the table's order, new (unread) ones marked;
-    /// the description of the key item under the cursor shows at the bottom left. The first time the cursor rests on a new
-    /// key item it is marked read (C2S 0x064, as retail does when a yellow-bubble key item is first viewed).
+    /// The Key Items window (#91; main menu page 2 > Key Items), as the maintainer's retail captures 2026-10-13 show it
+    /// (image-6 ... image-10, UI 1:1) on the English menu DAT's <c>evitem</c> (16,48, 366 x 248, title 59 "Key Items"):
+    /// <list type="bullet">
+    /// <item>The help bar: "Key Items" in <c>titlewin</c>; the category's name in <c>helpwind</c> once one is open.</item>
+    /// <item>Eight rows at <c>evitem</c>'s own buttons (x 40, y 13 + 29 n, 256 x 18; their <c>evitem</c> element group is a
+    /// plain <c>hfr1</c> band): a bullet, then the name in the log font, white, the row under the cursor pink. The categories
+    /// carry the small bullet (<c>windowps</c> #71: the <c>colorbal</c> earth ball at 6 x 6); key items not read yet the big one
+    /// (<c>keytops3</c> #104: the same ball at 14 x 14), read ones the small one. No counts, nothing greyed.</item>
+    /// <item>Confirm on a key item not read yet asks "Examine %s?" (ROM/165/72 #95, the table's name) in <c>evitem01</c> (the
+    /// same frame, Yes at (55,74), No at (55,112), the question above; image-9); Yes sends C2S 0x064 (marks it read) and shows
+    /// its description. Confirm on a read one shows the description at once.</item>
+    /// <item>The description replaces the list in the same window (image-10): the bullet and the name on the first line,
+    /// the description under it, wrapped to the window.</item>
+    /// <item>A category with none held says "You do not possess any key items." (ROM/165/72 #96; PROVISIONAL that retail
+    /// opens the list for it).</item>
+    /// </list>
     /// </summary>
     public static class StockUiKeyItems
     {
-        public const string WindowMenu = "evitem", RowsMenu = "quset";
+        public const string WindowMenu = "evitem", PromptMenu = "evitem01";
 
         /// <summary>The window title (ROM/165/76 #59).</summary>
         public const string Title = "Key Items";
@@ -116,11 +125,22 @@ namespace Gordian.Core.Ui
         /// <summary>Main menu page 2's Key Items help (ROM/165/75 #470): "View list of key items. ..."</summary>
         public const int HelpKeyItems = 470;
 
-        /// <summary>The rows the list shows at once (<c>quset</c>'s row buttons).</summary>
-        public const int VisibleRows = 15;
+        /// <summary>The rows <c>evitem</c> shows at once.</summary>
+        public const int VisibleRows = 8;
 
-        /// <summary>The marker drawn before a new key item's name (PROVISIONAL: retail's yellow speech bubble is not identified in the DATs).</summary>
-        public const string NewMarker = "!";
+        /// <summary><c>evitem</c>'s rows: x 40, y 13 + 29 n, 256 x 18.</summary>
+        public const int RowX = 40, RowY = 13, RowPitch = 29, RowWidth = 256, RowHeight = 18;
+
+        /// <summary><c>evitem01</c>'s Yes and No.</summary>
+        public const int YesButton = 1, NoButton = 2;
+
+        /// <summary>The menu message table's (ROM/165/72) key item texts.</summary>
+        public const int ExamineText = 95, NoKeyItemsText = 96;
+
+        public const string ExamineFallback = "Examine %s?", NoKeyItemsFallback = "You do not possess any key items.";
+
+        /// <summary>The Examine question for a key item ("Examine job gesture: warrior?").</summary>
+        public static string ExaminePrompt(string format, string name) => format.Replace("%s", name, StringComparison.Ordinal);
 
         /// <summary>A category's held key items, new ones flagged; names fall back to "Key item #id".</summary>
         public static List<StockUiKeyItemRow> Rows(StockUiKeyItemCatalog catalog, StockUiKeyItemCategory category, Func<ushort, bool> held, Func<ushort, bool> seen)
@@ -130,45 +150,44 @@ namespace Gordian.Core.Ui
             {
                 if (!held(id)) continue;
                 string name = catalog.TryGetName(id, out var n) ? n : "Key item #" + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                rows.Add(new StockUiKeyItemRow(id, Capitalize(name), !seen(id)));
+                rows.Add(new StockUiKeyItemRow(id, Capitalize(name), !seen(id), name));
             }
             return rows;
-        }
-
-        /// <summary>How many key items of a category are held, and how many of them are new.</summary>
-        public static (int Held, int New) Count(StockUiKeyItemCategory category, Func<ushort, bool> held, Func<ushort, bool> seen)
-        {
-            int count = 0, fresh = 0;
-            foreach (ushort id in category.Ids)
-            {
-                if (!held(id)) continue;
-                count++;
-                if (!seen(id)) fresh++;
-            }
-            return (count, fresh);
         }
 
         /// <summary>The table's names start lower case ("airship pass"); the list shows them as titles start ("Airship pass").</summary>
         public static string Capitalize(string name) =>
             name.Length > 0 && char.IsLower(name[0]) ? char.ToUpperInvariant(name[0]) + name[1..] : name;
 
-        /// <summary>The description wrapped into lines of at most <paramref name="columns"/> characters (at most <paramref name="maxLines"/>).</summary>
-        public static List<string> Wrap(string text, int columns = 42, int maxLines = StockUiItemDescription.MaxLines)
+        /// <summary>
+        /// Text wrapped to <paramref name="width"/> by <paramref name="measure"/>, at spaces, keeping the text's own line
+        /// breaks; at most <paramref name="maxLines"/> lines.
+        /// </summary>
+        public static List<string> Wrap(string text, Func<string, float> measure, float width, int maxLines = 12)
         {
             var lines = new List<string>();
             foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
             {
-                string rest = paragraph.Trim();
-                while (rest.Length > columns && lines.Count < maxLines)
+                string line = string.Empty;
+                foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    int cut = rest.LastIndexOf(' ', columns);
-                    if (cut <= 0) cut = columns;
-                    lines.Add(rest[..cut].TrimEnd());
-                    rest = rest[cut..].TrimStart();
+                    string candidate = line.Length == 0 ? word : line + " " + word;
+                    if (line.Length > 0 && measure(candidate) > width)
+                    {
+                        lines.Add(line);
+                        line = word;
+                    }
+                    else
+                    {
+                        line = candidate;
+                    }
                 }
-                if (rest.Length > 0 && lines.Count < maxLines) lines.Add(rest);
+                lines.Add(line);
+                if (lines.Count >= maxLines) break;
             }
-            return lines;
+            while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+            while (lines.Count > 0 && lines[0].Length == 0) lines.RemoveAt(0);
+            return lines.Count > maxLines ? lines.GetRange(0, maxLines) : lines;
         }
     }
 }

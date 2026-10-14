@@ -108,7 +108,7 @@ namespace Gordian.Core.Ui
         /// <summary>The item whose description the window shows: the list's row under the cursor, or the grid's worn item.</summary>
         public ushort DescribedItem => IsItemList
             ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
-            : EquippedItemIn(SelectedButtonId);
+            : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId) : EquippedItemIn(SelectedButtonId);
 
         /// <summary>The description pages of <see cref="DescribedItem"/> (empty without an item or its record).</summary>
         public IReadOnlyList<StockUiItemDescriptionPage> DescriptionPages =>
@@ -338,6 +338,7 @@ namespace Gordian.Core.Ui
             var before = menu.SelectedItemRow;
             var rows = menu.ItemListKind switch
             {
+                StockUiItemListKind.Equipment when menu.EquipSetNumber > 0 => StockUiEquipSets.SetRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, MenuMessageText),
                 StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
                 StockUiItemListKind.Usable => OrderedRows(ContainerId.Inventory, usableOnly: true),
                 _ => OrderedRows(menu.ItemContainer),
@@ -389,6 +390,11 @@ namespace Gordian.Core.Ui
                     else if (menu.IsEquipment)
                     {
                         menu.CompanionRows = StockUiItems.EquipRows(Inventory, menu.EquipContainer, null, ItemLookup, Character());
+                        changed = true;
+                    }
+                    else if (menu.IsEquipSetGrid)
+                    {
+                        menu.CompanionRows = StockUiEquipSets.SetRows(Inventory, menu.EquipContainer, null, ItemLookup, MenuMessageText);
                         changed = true;
                     }
                     else if (menu.ItemAction is { } action && closeFrom == null)
@@ -455,12 +461,13 @@ namespace Gordian.Core.Ui
             StockUiOpenMenu? baseWindow = null;
             for (int i = open.Length - 1; i >= 0 && baseWindow == null; i--)
             {
-                if (open[i].IsItemList || open[i].IsEquipment) baseWindow = open[i];
+                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid) baseWindow = open[i];
             }
             if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
             var top = open[^1];
             string title = top.IsQuantity ? StockUiItems.TitleQuantity
                 : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
+                : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
                 : StockUiItems.TitleItems;
             int? numerator = null, denominator = null;

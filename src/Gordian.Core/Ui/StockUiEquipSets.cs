@@ -6,26 +6,47 @@ using Gordian.Core.World;
 
 namespace Gordian.Core.Ui
 {
+    /// <summary>What a set slot list's extra rows do (<see cref="StockUiItemRow.SetAction"/>).</summary>
+    public enum StockUiSetRowAction : byte
+    {
+        None = 0,
+
+        /// <summary>"Remove piece." (ROM/165/72 #275): the slot takes off whatever it holds when the set is used (red X).</summary>
+        RemovePiece,
+
+        /// <summary>"Keep same piece." (#276): the slot is left empty, so using the set leaves it as it is.</summary>
+        KeepSamePiece,
+    }
+
     /// <summary>
-    /// The Equipment Sets windows (#92), as the English menu DAT (ROM/119/51) authors them; read 2026-10-12 with the menu
-    /// dump (<c>GORDIAN_UI_DUMP_MENUS=mcr*</c>) and the title (ROM/165/76) and help (ROM/165/75) tables:
+    /// The Equipment Sets windows (#92), as the English menu DAT (ROM/119/51) authors them (read with the menu dump and the
+    /// title ROM/165/76 and help ROM/165/75 tables) and the maintainer's retail captures 2026-10-13 (image-11 ... image-14,
+    /// UI 1:1) lay them out:
     /// <list type="bullet">
     /// <item>Main menu page 2 > Macros opens <c>mcrmenu</c> (384,48 top right, "Macro"): Edit Macro (help 829) and Edit
     /// Equip. Set (help 830, "Edit equipment sets.").</item>
     /// <item><c>mcres20</c> (384,48, 112 x 330, title band "Equipment"): twenty blank capsules (<c>keytops3</c> #86) at a 16 px
-    /// pitch, the set names drawn by the client, page arrows (buttons 21 / 22) for the next twenty.</item>
-    /// <item><c>mcresmn</c> ("Equipment Sets", title 172; authored at 0,0, so the client places it): Edit (831), Change Name
-    /// (832), Copy (833), Paste (834, with a greyed look), Delete (835), Use Current (836), Equip (837), Style Lock (921, with
-    /// a greyed look).</item>
-    /// <item><c>mcresed</c> (16,48, 182 x 190, title 172, cursor <c>anc_equi</c>): the 4 x 4 slot grid in the check window's
-    /// order (help 243-258).</item>
+    /// pitch with the set names over them, all white (image-11: empty sets are not greyed), page arrows (buttons 21 / 22);
+    /// right on the last page wraps to the first and left on the first to the last (round 1 note).</item>
+    /// <item><c>mcresmn</c> ("Options", authored at 0,0): Edit (831), Change Name (832), Copy (833), Paste (834), Delete
+    /// (835), Use Current (836), Equip (837), Style Lock (921); image-11 shows it right against the list's left edge, its top
+    /// level with the list's.</item>
+    /// <item>Edit (image-12, -13): the help bar "Equipment Sets" with the slot's help, <c>mcresed</c> (16,48, the check window's
+    /// 4 x 4 slot order) with the set's items, "Remove piece" slots under a red X (<c>keytops3</c> #429, the <c>marker</c>
+    /// texture's X stretched over the 32 x 32 slot), the storage's equipment right of it at x 198 (Storage Options, then
+    /// "Remove piece." and "Keep same piece." from ROM/165/72 #275 / #276, then the items), and the item info window under
+    /// the grid (16,240) for the slot's item.</item>
+    /// <item>Storage Options (image-14) opens <c>mcrmogc</c> (384,48 top right, title 169 "Storage Options", help 802 "Select
+    /// a form of storage."): Inventory, Mog Safe, Mog Safe 2, Storage, Mog Locker, Mog Satchel, Mog Sack, Mog Case, Mog
+    /// Wardrobe 1-8.</item>
     /// </list>
-    /// PROVISIONAL (no retail capture): where <c>mcresmn</c> goes (left of the list, level with the chosen set), that the set
-    /// grid shows beside it, and the item list's place (right of the grid).
     /// </summary>
     public static class StockUiEquipSets
     {
-        public const string MacroMenu = "mcrmenu", ListMenu = "mcres20", OptionsMenu = "mcresmn", GridMenu = "mcresed";
+        public const string MacroMenu = "mcrmenu", ListMenu = "mcres20", OptionsMenu = "mcresmn", GridMenu = "mcresed", StorageMenu = "mcrmogc";
+
+        /// <summary>The help bar's title while a set is edited (ROM/165/76 #172).</summary>
+        public const string Title = "Equipment Sets";
 
         /// <summary><c>mcrmenu</c>'s buttons.</summary>
         public const int EditMacroButton = 1, EditEquipSetButton = 2;
@@ -40,18 +61,82 @@ namespace Gordian.Core.Ui
         /// <summary>The rows <c>mcres20</c> shows at once (its buttons 1-20).</summary>
         public const int VisibleRows = EquipmentSetBook.SetsPerPage;
 
-        /// <summary>The options window's place: left of the list (384 - 112), its top level with the chosen row (PROVISIONAL).</summary>
+        /// <summary>The options window's place: right against the list's left edge (384 - 112, anchored top right as the list is), its top level with the chosen row (image-11).</summary>
         public const int OptionsX = 272;
 
-        /// <summary>The slot's item list beside the grid (16 + 182 + 2; PROVISIONAL).</summary>
-        public const int SlotListX = 200;
+        /// <summary>The storage's equipment right of the grid (16 + 182; image-12).</summary>
+        public const int SlotListX = 198;
 
-        /// <summary>The set names start this far into a capsule (PROVISIONAL).</summary>
-        public const float NameInset = 8;
+        /// <summary>
+        /// The set names: 6 px into a capsule, upright and white in the log font at 0.67 of its size, so "Set001" is 34 px wide and
+        /// about 10 px tall as in image-11, and "BehavResearch" fits the 88 px capsule (round 1 found it overflowing).
+        /// </summary>
+        public const float NameInset = 6, NameScale = 0.67f;
 
-        /// <summary>The Delete prompt.</summary>
-        public static string DeletePrompt(int number, EquipmentSet set) => $"Delete equipment set {number} ({set.Name})?";
+        /// <summary>The menu message table's (ROM/165/72) set texts.</summary>
+        public const int RemovePieceText = 275, KeepSamePieceText = 276, PastePromptText = 277, DeletePromptText = 278, UseCurrentPromptText = 279;
 
+        /// <summary>The texts when the table is not read (tests): the same words.</summary>
+        public static string FallbackText(int id) => id switch
+        {
+            RemovePieceText => "Remove piece.",
+            KeepSamePieceText => "Keep same piece.",
+            PastePromptText => "Performing this action will overwrite the current set with a new one. Proceed?",
+            DeletePromptText => "Truly delete this set?",
+            UseCurrentPromptText => "Proceed with overwriting this set with your current equipment?",
+            _ => string.Empty,
+        };
+
+        /// <summary><c>mcrmogc</c>'s buttons by container (the buttons in their authored top-to-bottom order, image-14).</summary>
+        private static readonly (int Button, ContainerId Container)[] StorageButtons =
+        {
+            (1, ContainerId.Inventory), (2, ContainerId.MogSafe), (9, ContainerId.MogSafe2), (3, ContainerId.Storage), (4, ContainerId.MogLocker),
+            (5, ContainerId.MogSatchel), (6, ContainerId.MogSack), (7, ContainerId.MogCase), (8, ContainerId.Wardrobe), (10, ContainerId.Wardrobe2),
+            (11, ContainerId.Wardrobe3), (12, ContainerId.Wardrobe4), (13, ContainerId.Wardrobe5), (14, ContainerId.Wardrobe6),
+            (15, ContainerId.Wardrobe7), (16, ContainerId.Wardrobe8),
+        };
+
+        public static bool TryGetStorage(int buttonId, out ContainerId container)
+        {
+            foreach (var (button, c) in StorageButtons)
+            {
+                if (button == buttonId)
+                {
+                    container = c;
+                    return true;
+                }
+            }
+            container = default;
+            return false;
+        }
+
+        public static int StorageButtonOf(ContainerId container)
+        {
+            foreach (var (button, c) in StorageButtons)
+            {
+                if (c == container) return button;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// A set's item list: the Equipment list's rows (Storage Options, then the storage's equipment, for one slot or all), with
+        /// "Remove piece." and "Keep same piece." after Storage Options, and nothing greyed or marked worn (image-12: every name
+        /// white; a set may hold what the job cannot wear).
+        /// </summary>
+        public static List<StockUiItemRow> SetRows(InventoryState? inventory, ContainerId container, EquipSlotId? slot, Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? lookup,
+            Func<int, string?>? text = null)
+        {
+            var rows = StockUiItems.EquipRows(inventory, container, slot, lookup, default);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (!rows[i].IsStorageOptions) rows[i] = rows[i] with { Greyed = false, GreyedReason = null, Equipped = false };
+            }
+            string Text(int id) => text?.Invoke(id) is { Length: > 0 } t ? t : FallbackText(id);
+            rows.Insert(1, new StockUiItemRow(0, Text(RemovePieceText), 0, container, 0, SetAction: StockUiSetRowAction.RemovePiece));
+            rows.Insert(2, new StockUiItemRow(0, Text(KeepSamePieceText), 0, container, 0, SetAction: StockUiSetRowAction.KeepSamePiece));
+            return rows;
+        }
         /// <summary>The Use Current set: every slot's worn item (where it is now), empty slots empty.</summary>
         public static EquipmentSet FromWorn(EquipmentSet set, InventoryState? inventory)
         {

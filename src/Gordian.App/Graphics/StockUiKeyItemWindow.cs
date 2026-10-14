@@ -1,66 +1,81 @@
 // src/Gordian.App/Graphics/StockUiKeyItemWindow.cs
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.Ui;
+using Gordian.Core.World;
 
 namespace Gordian.App.Graphics
 {
     /// <summary>
-    /// Draws the client content of the Key Items window (#91) and the Equipment Sets windows (#92) over their DAT frames.
-    /// PROVISIONAL throughout (no retail capture yet; see <see cref="StockUiKeyItems"/> and <see cref="StockUiEquipSets"/>):
+    /// Draws the client content of the Key Items window (#91) and the Equipment Sets windows (#92) over their DAT frames, as
+    /// the maintainer's retail captures 2026-10-13 (image-6 ... image-14, UI 1:1) show them (see <see cref="StockUiKeyItems"/>
+    /// and <see cref="StockUiEquipSets"/>):
     /// <list type="bullet">
-    /// <item>Key Items: one row per category (its name, and the number held right-aligned) or per held key item (its name;
-    /// new ones in yellow after a "!" marker), in the log font as the Magic and Abilities lists draw their names; the
-    /// selected row in the menus' orange, categories with nothing held greyed; the scrollbar; the help bar ("Key Items"
-    /// and the main menu's help); the description of the key item under the cursor at the bottom left, in the item info
-    /// window sized to its lines.</item>
-    /// <item>Equipment Sets: the set names over <c>mcres20</c>'s capsules (the page's twenty sets) and its page arrows;
-    /// beside the options, and in the grid while it is edited, the set's items as icons over <c>mcresed</c>'s slots,
-    /// "Remove piece" slots with a red X.</item>
+    /// <item>Key Items: per row a bullet (small <c>windowps</c> #71 for categories and read key items, big <c>keytops3</c> #104
+    /// for key items not read yet) and the name in the log font 35 px into the row, white, pink under the cursor; the help
+    /// bar ("Key Items" and the main menu's help, or the category's name); the "Examine ...?" question with Yes / No; the
+    /// description page (bullet and name, then the text wrapped to the window).</item>
+    /// <item>Equipment Sets: the set names over <c>mcres20</c>'s capsules, all white, and its page arrows; the set's grid
+    /// (beside the options, and while it is edited) with the items' icons and the red X (<c>keytops3</c> #429) on "Remove
+    /// piece" slots; while the grid has the cursor, the help bar, the storage's equipment right of it and the slot's item
+    /// info under it.</item>
     /// </list>
     /// </summary>
     public static class StockUiKeyItemWindow
     {
         private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
-        private static readonly UiColor GreyTint = new(0x4F, 0x4F, 0x65, 0x80);
-        private static readonly UiColor NewTint = new(0x80, 0x80, 0x30, 0x80);
-        private static readonly UiColor RemoveTint = new(0x80, 0x18, 0x18, 0x80);
 
-        /// <summary>Rows: text from 0 px into the row button (the cursor arrow sits left of it), the count ending 12 px before the frame's right edge.</summary>
-        private const float RowTextInset = 0, ValueRightPad = 14, MarkerWidth = 10;
+        /// <summary>The row under the cursor (image-6: pink, as the Magic list's).</summary>
+        private static readonly UiColor SelectedTint = new(0x80, 0x41, 0x64, 0x80);
 
-        /// <summary>An empty list's text, as the action lists write theirs.</summary>
-        private const float EmptyTextX = 11, EmptyTextY = 20;
+        /// <summary>Row text 35 px into the row button; the small bullet's 6 x 6 at 20 px in, 6 down; the big one's 14 x 14 at 16, 2 (image-6, -7, -8).</summary>
+        private const float RowTextInset = 35, SmallBulletX = 20, SmallBulletY = 6, BigBulletX = 16, BigBulletY = 2;
 
-        /// <summary>Text in the description window: log font lines 16 px apart from (8, 4) (no icon, unlike the item info window's 48).</summary>
-        private const float InfoTextX = 8, InfoTextY = 4;
+        /// <summary>The bullets: <c>windowps</c> #71 and <c>keytops3</c> #104, the <c>colorbal</c> earth ball at 6 and 14 px.</summary>
+        private const string SmallBulletGroup = "windowps", BigBulletGroup = "keytops3";
+        private const int SmallBulletImage = 71, BigBulletImage = 104;
+
+        /// <summary>The red X over a "Remove piece" slot (<c>keytops3</c> #429: the <c>marker</c> X stretched over 32 x 32; image-13).</summary>
+        private const string RemoveGroup = "keytops3";
+        private const int RemoveImage = 429;
+
+        /// <summary>The Examine question at (28, 32) (image-9).</summary>
+        private const float QuestionX = 28, QuestionY = 32;
+
+        /// <summary>The description page (image-10): the bullet at (38, 23), the name from (51, 18), the text from (42, 49), 16 px lines.</summary>
+        private const float DescBulletX = 38, DescBulletY = 23, DescNameX = 51, DescNameY = 18, DescTextX = 42, DescTextY = 49, DescRightPad = 16;
 
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, long timestamp, StockUiScreen screen)
         {
             if (menu.IsKeyItemWindow) DrawKeyItems(renderer, library, font, logFont, menu, placement, timestamp, screen);
-            else if (menu.IsEquipSetList) DrawSetList(renderer, library, font, menu, placement);
+            else if (menu.IsEquipSetList) DrawSetList(renderer, library, font, logFont, menu, placement);
             else if (menu.IsEquipSetOptions && !menu.IsEquipSetGridOpen && library.TryGetMenu(StockUiEquipSets.GridMenu, out var grid))
             {
-                // The set's grid beside its options (PROVISIONAL), at its authored place relative to the options'.
+                // The set's grid beside its options (PROVISIONAL: image-11 is cropped to the options and the list), at its
+                // authored place relative to the options'.
+                var g = grid.Frame;
                 var frame = menu.Menu.Frame;
-                var at = new StockUiPlacement(placement.X + (grid.Frame.X - frame.X) * placement.Scale, placement.Y + (grid.Frame.Y - frame.Y) * placement.Scale, placement.Scale, false);
+                var at = screen.Width > 0 && screen.Height > 0
+                    ? StockUiLayout.Place(g.Anchor, g.X, g.Y, g.Width, g.Height, placement.Scale, screen.Width, screen.Height)
+                    : new StockUiPlacement(placement.X + (g.X - frame.X) * placement.Scale, placement.Y + (g.Y - frame.Y) * placement.Scale, placement.Scale, false);
                 renderer.DrawMenu(grid, at, includeButtons: true, opaqueBody: true);
-                DrawSetGrid(renderer, font, menu, grid, at);
+                DrawSetGrid(renderer, library, menu, grid, at);
             }
-            else if (menu.IsEquipSetGrid) DrawSetGrid(renderer, font, menu, menu.Menu, placement);
+            else if (menu.IsEquipSetGrid) DrawEditedGrid(renderer, library, font, logFont, menu, placement, timestamp, screen);
         }
 
-        private static void Text(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s, UiColor color, float rowHeight)
+        private static void Text(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s, UiColor color)
         {
-            if (logFont != null) logFont.Draw(renderer, text, x, y + 1 * s, s, color);
-            else renderer.DrawText(font, text, x, y + (rowHeight * s - font.LineHeight * s) * 0.5f, s, color);
+            if (logFont != null) logFont.Draw(renderer, text, x, y, s, color);
+            else renderer.DrawText(font, text, x, y, s, color);
         }
 
-        private static float Measure(UiFont font, StockUiLogFont? logFont, string text) => logFont != null ? logFont.MeasureWidth(text) : font.MeasureWidth(text);
+        private static void Image(StockUiRenderer renderer, UiResourceLibrary library, string group, int index, float x, float y, float s)
+        {
+            if (library.TryGetGroup(group, out var g) && index < g.Images.Count) renderer.DrawImage(g.Images[index], x, y, s);
+        }
 
         private static void DrawKeyItems(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, long timestamp, StockUiScreen screen)
@@ -70,89 +85,101 @@ namespace Gordian.App.Graphics
             var frame = definition.Frame;
             if (screen.Width > 0 && screen.Height > 0)
             {
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, StockUiKeyItems.Title, menu.ItemHelpText(StockUiKeyItems.HelpKeyItems), s, (uint)screen.Width, (uint)screen.Height);
+                // "Key Items", then the main menu's help on the categories, the category's name in it (image-7 ... -10).
+                string? line = menu.KeyItemCategory?.Name ?? menu.ItemHelpText(StockUiKeyItems.HelpKeyItems);
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, StockUiKeyItems.Title, line, s, (uint)screen.Width, (uint)screen.Height);
             }
+
+            if (menu.IsKeyItemExamine)
+            {
+                if (menu.KeyItemQuestion is { } question) Text(renderer, font, logFont, question, placement.X + QuestionX * s, placement.Y + QuestionY * s, s, White);
+                foreach (var button in definition.Buttons)
+                {
+                    string label = button.ButtonId == StockUiKeyItems.YesButton ? "Yes" : button.ButtonId == StockUiKeyItems.NoButton ? "No" : string.Empty;
+                    if (label.Length == 0) continue;
+                    Text(renderer, font, logFont, label, placement.X + button.X * s, placement.Y + (button.Y + 1) * s, s,
+                        button.ButtonId == menu.SelectedButtonId ? SelectedTint : White);
+                }
+                return;
+            }
+
+            if (menu.IsKeyItemDescription && menu.KeyItemShown is { } shown)
+            {
+                Image(renderer, library, SmallBulletGroup, SmallBulletImage, placement.X + DescBulletX * s, placement.Y + DescBulletY * s, s);
+                Text(renderer, font, logFont, shown.Name, placement.X + DescNameX * s, placement.Y + DescNameY * s, s, White);
+                Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
+                var lines = StockUiKeyItems.Wrap(menu.KeyItemDescription, measure, frame.Width - DescTextX - DescRightPad);
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    Text(renderer, font, logFont, lines[i], placement.X + DescTextX * s, placement.Y + (DescTextY + i * StockUiLogFont.CellHeight) * s, s, White);
+                }
+                return;
+            }
+
             if (menu.Rows.Count == 0)
             {
-                if (menu.EmptyText is { } empty) Text(renderer, font, logFont, empty, placement.X + EmptyTextX * s, placement.Y + EmptyTextY * s, s, White, 16);
+                if (menu.EmptyText is { } empty)
+                {
+                    Text(renderer, font, logFont, empty, placement.X + (StockUiKeyItems.RowX + RowTextInset) * s, placement.Y + (StockUiKeyItems.RowY + 1) * s, s, White);
+                }
                 return;
             }
             if (definition.FindButton(1) is not { } firstRow) return;
-            var secondRow = definition.FindButton(2);
-            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+            float pitch = StockUiKeyItems.RowPitch;
             float first = menu.FirstRow;
             if (menu.ScrollFrom != menu.FirstRow)
             {
                 double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
                 if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
             }
-            float areaY = placement.Y + firstRow.Y * s;
+            float areaY = placement.Y + (firstRow.Y - 4) * s;
             renderer.SetClip(placement.X, areaY, frame.Width * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
-            float textX = placement.X + (firstRow.X + RowTextInset) * s;
-            float valueRight = placement.X + (frame.Width - ValueRightPad) * s;
+            float bx = placement.X + firstRow.X * s;
             for (int i = from; i <= to; i++)
             {
                 var row = menu.Rows[i];
-                float ry = areaY + (i - first) * pitch * s;
-                bool greyed = menu.IsKeyItemCategories && menu.IsKeyItemCategoryEmpty(i);
-                UiColor color = i == selected ? StockUiMenuWindow.SelectedGlyphTint : greyed ? GreyTint : row.Marked && menu.IsKeyItemList ? NewTint : White;
-                float x = textX;
-                if (row.Marked)
-                {
-                    // New key items (and the categories holding some) carry the marker before the name.
-                    Text(renderer, font, logFont, StockUiKeyItems.NewMarker, x - MarkerWidth * s, ry, s, NewTint, firstRow.Height);
-                }
-                Text(renderer, font, logFont, row.Text, x, ry, s, color, firstRow.Height);
-                if (row.Value is { Length: > 0 } value)
-                {
-                    Text(renderer, font, logFont, value, valueRight - Measure(font, logFont, value) * s, ry, s, color, firstRow.Height);
-                }
+                float by = placement.Y + (firstRow.Y + (i - first) * pitch) * s;
+                if (menu.IsKeyItemList && row.Marked) Image(renderer, library, BigBulletGroup, BigBulletImage, bx + BigBulletX * s, by + BigBulletY * s, s);
+                else Image(renderer, library, SmallBulletGroup, SmallBulletImage, bx + SmallBulletX * s, by + SmallBulletY * s, s);
+                Text(renderer, font, logFont, row.Text, bx + RowTextInset * s, by + 1 * s, s, i == selected ? SelectedTint : White);
             }
             renderer.ClearClip();
             if (menu.CanScroll) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
-
-            // The description of the key item under the cursor, at the bottom left on Window 1 (as the Items window's).
-            var lines = menu.KeyItemDescriptionLines;
-            if (lines.Count == 0 || !library.TryGetMenu(StockUiItemDescription.FrameFor(lines.Count), out var info)) return;
-            float x0 = placement.X + (info.Frame.X - frame.X) * s;
-            float y0 = screen.Height > 0 || screen.Window1Top != null
-                ? StockUiItemWindow.BottomOf(screen, s) - info.Frame.Height * s
-                : placement.Y + (StockUiItemWindow.DescriptionTop - frame.Y) * s;
-            var at = new StockUiPlacement(x0, Math.Max(0, y0), s, false);
-            renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            for (int i = 0; i < lines.Count; i++)
-            {
-                float ly = at.Y + (InfoTextY + i * StockUiLogFont.CellHeight) * s;
-                if (logFont != null) logFont.Draw(renderer, lines[i], at.X + InfoTextX * s, ly, s, White);
-                else renderer.DrawText(font, lines[i], at.X + InfoTextX * s, ly, s);
-            }
         }
 
-        /// <summary>The page's set names over the capsules, and the page arrows.</summary>
-        private static void DrawSetList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        /// <summary>The page's set names over the capsules (all white, image-11), and the page arrows.</summary>
+        private static void DrawSetList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiPlacement placement)
         {
             float s = placement.Scale;
             var definition = menu.Menu;
             var book = menu.EquipSetBook;
             if (book == null) return;
-            int selected = menu.EntryIndex(menu.SelectedButtonId);
+            float ns = s * StockUiEquipSets.NameScale;
             for (int b = 1; b <= menu.VisibleRows; b++)
             {
                 int index = menu.FirstRow + b - 1;
-                if (index >= Gordian.Core.World.EquipmentSetBook.SetCount || definition.FindButton(b) is not { } button) continue;
+                if (index >= EquipmentSetBook.SetCount || definition.FindButton(b) is not { } button) continue;
                 var set = book.Get(index + 1);
-                UiColor color = index == selected ? StockUiMenuWindow.SelectedGlyphTint : set.IsEmpty ? GreyTint : White;
-                float y = placement.Y + button.Y * s + (button.Height * s - font.LineHeight * s) * 0.5f;
-                renderer.DrawText(font, set.Name, placement.X + (button.X + StockUiEquipSets.NameInset) * s, y, s, color);
+                float x = placement.X + (button.X + StockUiEquipSets.NameInset) * s;
+                // Names longer than the capsule are cut at its end (retail's names fit; up to 15 characters can be stored).
+                renderer.SetClip(x, placement.Y + button.Y * s, (button.Width - StockUiEquipSets.NameInset - 4) * s, button.Height * s);
+                if (logFont != null)
+                {
+                    logFont.Draw(renderer, set.Name, x, placement.Y + button.Y * s + (button.Height * s - StockUiLogFont.CellHeight * ns) * 0.5f, ns, White);
+                }
+                else
+                {
+                    renderer.DrawText(font, set.Name, x, placement.Y + button.Y * s + (button.Height * s - font.LineHeight * ns) * 0.5f, ns, White);
+                }
+                renderer.ClearClip();
             }
-            // The DAT's page arrows (buttons 21 / 22, outside the frame): the generic drawing shows them only for the main
-            // menu's pages, so they are drawn here, each while there is a page that way.
-            int pageIndex = menu.FirstRow / StockUiEquipSets.VisibleRows;
-            foreach (var (id, show) in new[] { (StockUiEquipSets.PreviousPageButton, pageIndex > 0), (StockUiEquipSets.NextPageButton, pageIndex < Gordian.Core.World.EquipmentSetBook.PageCount - 1) })
+            // The DAT's page arrows (buttons 21 / 22, outside the frame): the generic drawing shows them only for the main menu's
+            // pages, so they are drawn here; the pages wrap, so both always show.
+            foreach (int id in new[] { StockUiEquipSets.PreviousPageButton, StockUiEquipSets.NextPageButton })
             {
-                if (!show || definition.FindButton(id) is not { } arrow) continue;
+                if (definition.FindButton(id) is not { } arrow) continue;
                 foreach (var shape in arrow.Shapes)
                 {
                     if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
@@ -162,8 +189,8 @@ namespace Gordian.App.Graphics
             }
         }
 
-        /// <summary>The set's items as 32 x 32 icons over the grid's slots; "Remove piece" slots with a red X.</summary>
-        private static void DrawSetGrid(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, UiMenuDefinition grid, StockUiPlacement at)
+        /// <summary>The set's items as 32 x 32 icons over the grid's slots; "Remove piece" slots under the red X.</summary>
+        private static void DrawSetGrid(StockUiRenderer renderer, UiResourceLibrary library, StockUiOpenMenu menu, UiMenuDefinition grid, StockUiPlacement at)
         {
             float s = at.Scale;
             foreach (var button in grid.Buttons)
@@ -171,12 +198,42 @@ namespace Gordian.App.Graphics
                 float x = at.X + button.X * s, y = at.Y + button.Y * s;
                 ushort item = menu.EquipSetItemIn(button.ButtonId);
                 if (item != 0) StockUiMenuWindow.DrawItemIcon(renderer, menu, item, x, y, 32 * s);
-                else if (menu.IsEquipSetRemoved(button.ButtonId))
-                {
-                    const string Mark = "X";
-                    float w = font.MeasureWidth(Mark) * 2 * s;
-                    renderer.DrawText(font, Mark, x + (button.Width * s - w) * 0.5f, y + (button.Height * s - font.LineHeight * 2 * s) * 0.5f, 2 * s, RemoveTint);
-                }
+                else if (menu.IsEquipSetRemoved(button.ButtonId)) Image(renderer, library, RemoveGroup, RemoveImage, x, y, s);
+            }
+        }
+
+        /// <summary>
+        /// The grid while a set is edited (image-12, -13): the items and red X marks; while the grid has the cursor, the help bar
+        /// ("Equipment Sets" and the slot's help), the storage's equipment right of the grid (x 198) and the slot's item info
+        /// under it (16,240; the empty info window for an empty slot).
+        /// </summary>
+        private static void DrawEditedGrid(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+            StockUiPlacement placement, long timestamp, StockUiScreen screen)
+        {
+            float s = placement.Scale;
+            var frame = menu.Menu.Frame;
+            DrawSetGrid(renderer, library, menu, menu.Menu, placement);
+            if (menu.IsEquipSetListOpen) return;
+            if (menu.ItemHelpBar is { } bar && screen.Width > 0 && screen.Height > 0)
+            {
+                string? text = bar.HelpTextId >= 0 ? menu.ItemHelpText(bar.HelpTextId)?.Replace("\n", " ") : null;
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, bar.Title, text, s, (uint)screen.Width, (uint)screen.Height);
+            }
+            if (library.TryGetMenu(StockUiItems.ListMenu, out var inventor))
+            {
+                var at = new StockUiPlacement(placement.X + (StockUiEquipSets.SlotListX - frame.X) * s, placement.Y + (inventor.Frame.Y - frame.Y) * s, s, false);
+                StockUiItemWindow.DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
+            }
+            var pages = menu.DescriptionPages;
+            if (pages.Count > 0)
+            {
+                var page = pages[Math.Clamp(menu.DescriptionPage, 0, pages.Count - 1)];
+                StockUiItemWindow.DrawDescriptionPage(renderer, library, font, logFont, menu, menu.DescribedItem, page, placement, frame, timestamp);
+            }
+            else if (library.TryGetMenu(StockUiItemDescription.FrameFor(0), out var info))
+            {
+                var at = new StockUiPlacement(placement.X + (info.Frame.X - frame.X) * s, placement.Y + (StockUiItemWindow.DescriptionTop - frame.Y) * s, s, false);
+                renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             }
         }
     }

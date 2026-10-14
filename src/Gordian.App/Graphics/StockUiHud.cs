@@ -158,6 +158,8 @@ namespace Gordian.App.Graphics
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
+                // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
+                menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
             }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {

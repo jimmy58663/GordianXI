@@ -366,7 +366,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(2, prompt.SelectedButtonId); // No under the cursor
 
             menus.Activate(); // No
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.Empty(h.SentSnapshot());
             Assert.Equal(StockUiDeathMenu.MenuName, Assert.Single(menus.OpenMenus).Name);
 
@@ -407,7 +407,7 @@ namespace Gordian.Core.Tests.Network
             h.Player.ApplyDeathMenu(DeathMenuType.Tractor);
             Assert.Equal(StockUiDeathMenu.TractorQuestion, menus.Top!.Message);
             menus.CloseTop(); // Cancel: no answer
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.Empty(h.SentSnapshot());
             Assert.Equal(DeathMenuType.Tractor, h.Player.DeathMenu);
 

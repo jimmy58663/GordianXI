@@ -89,6 +89,8 @@ namespace Gordian.Core.Tests.Ui
         {
             List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 12),
             List(StockUiKeyItems.WindowMenu, 16, 48, UiAnchor.TopLeft, 8, 366),
+            List(StockUiKeyItems.PromptMenu, 16, 48, UiAnchor.TopLeft, 2, 366),
+            List(StockUiEquipSets.StorageMenu, 384, 48, UiAnchor.TopRight, 16),
             List(StockUiEquipSets.MacroMenu, 384, 48, UiAnchor.TopRight, 2),
             List(StockUiEquipSets.ListMenu, 384, 48, UiAnchor.TopRight, 20),
             List(StockUiEquipSets.OptionsMenu, 0, 0, UiAnchor.TopLeft, 8),
@@ -141,27 +143,29 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void KeyItems_MainMenuOpensTheCategoriesWithTheCountsHeld()
+        public void KeyItems_MainMenuOpensTheCategories_EvenEmptyOnesOpen()
         {
             var h = new KeyItemHarness();
             var categories = h.Open();
             Assert.True(categories.IsKeyItemCategories);
+            // image-6: the category names only, no counts, nothing greyed.
             Assert.Equal(new[] { "Temporary Key Items", "Permanent Key Items", "Mounts" }, categories.Rows.Select(r => r.Text));
-            Assert.Equal(new[] { "2", "0", "1" }, categories.Rows.Select(r => r.Value));
-            // A category holding a new key item is marked; one with nothing held is greyed and posts a notice.
-            Assert.Equal(new[] { true, false, false }, categories.Rows.Select(r => r.Marked));
-            Assert.True(categories.IsKeyItemCategoryEmpty(1));
-            categories.SelectedButtonId = 2;
-            h.Menus.Activate();
-            Assert.Same(categories, h.Menus.Top);
-            Assert.Single(h.Notices);
-            // The window keeps evitem's frame (title "Key Items") with fifteen 16 px rows.
+            Assert.All(categories.Rows, r => Assert.Null(r.Value));
+            // evitem's frame and its own eight rows at a 29 px pitch from (40,13).
             Assert.Equal((16, 48, 366), (categories.Menu.Frame.X, categories.Menu.Frame.Y, categories.Menu.Frame.Width));
             Assert.Equal(StockUiKeyItems.VisibleRows, categories.Menu.Buttons.Count);
+            Assert.Equal((40, 13 + 29), (categories.Menu.FindButton(2)!.X, categories.Menu.FindButton(2)!.Y));
+
+            // A category with none held opens with "You do not possess any key items." (ROM/165/72 #96).
+            categories.SelectedButtonId = 2;
+            h.Menus.Activate();
+            var empty = h.Menus.Top!;
+            Assert.True(empty.IsKeyItemList);
+            Assert.Equal(StockUiKeyItems.NoKeyItemsFallback, empty.EmptyText);
         }
 
         [Fact]
-        public void KeyItems_ACategoryListsTheHeldOnes_AndViewingANewOneMarksItReadOnce()
+        public void KeyItems_ANewOneAsksExamine_YesMarksItReadAndShowsTheDescription()
         {
             var h = new KeyItemHarness();
             var categories = h.Open();
@@ -170,24 +174,52 @@ namespace Gordian.Core.Tests.Ui
             var list = h.Menus.Top!;
             Assert.True(list.IsKeyItemList);
             Assert.Equal(new[] { "Zeruhn report", "Blue acidity tester" }, list.Rows.Select(r => r.Text));
-            Assert.Equal(new[] { false, true }, list.KeyItemRows.Select(r => r.IsNew));
-            Assert.Equal(new[] { "Zeruhn report", "A report on the Zeruhn Mines." }, list.KeyItemDescriptionLines);
+            Assert.Equal(new[] { false, true }, list.Rows.Select(r => r.Marked)); // big bullet for the new one
+
+            // Moving the cursor marks nothing (round 1: retail asks first).
+            h.Menus.Move(InputAction.MenuDown);
             Assert.Empty(h.Viewed);
 
-            // The cursor comes to the new key item: C2S 0x064 for it, once, and the row is no longer new.
-            h.Menus.Move(InputAction.MenuDown);
-            Assert.Equal(new ushort[] { 5 }, h.Viewed);
-            Assert.False(list.KeyItemRows[1].IsNew);
-            h.Menus.Move(InputAction.MenuUp);
-            h.Menus.Move(InputAction.MenuDown);
-            Assert.Equal(new ushort[] { 5 }, h.Viewed);
+            // Confirm on the new one: "Examine blue acidity tester?" (the table's name), Yes under the cursor (image-9).
+            h.Menus.Activate();
+            var prompt = h.Menus.Top!;
+            Assert.True(prompt.IsKeyItemExamine);
+            Assert.Equal("Examine blue acidity tester?", prompt.KeyItemQuestion);
+            Assert.Equal(StockUiKeyItems.YesButton, prompt.SelectedButtonId);
 
-            // Cancel goes back to the categories, which no longer mark Temporary Key Items.
+            // No returns to the list, still new.
+            prompt.SelectedButtonId = StockUiKeyItems.NoButton;
+            h.Menus.Activate();
+            Assert.Same(list, h.Menus.Top);
+            Assert.Empty(h.Viewed);
+
+            // Yes: C2S 0x064 for it, then its description in the same window (image-10); Cancel returns to the list, now read.
+            h.Menus.Activate();
+            h.Menus.Activate();
+            Assert.Equal(new ushort[] { 5 }, h.Viewed);
+            var page = h.Menus.Top!;
+            Assert.True(page.IsKeyItemDescription);
+            Assert.Equal("Blue acidity tester", page.KeyItemShown!.Value.Name);
+            Assert.Equal("Tests acidity.", page.KeyItemDescription);
+            Assert.Equal(page.Menu.Frame.X, list.Menu.Frame.X);
             h.Menus.CloseTop();
-            Assert.Same(categories, h.Menus.Top);
-            Assert.False(categories.Rows[0].Marked);
+            Assert.Same(list, h.Menus.Top);
+            Assert.False(list.KeyItemRows[1].IsNew);
+
+            // A read key item shows its description at once.
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.True(h.Menus.Top!.IsKeyItemDescription);
+            Assert.Equal(new ushort[] { 5 }, h.Viewed);
         }
 
+        [Fact]
+        public void KeyItems_Wrap_BreaksAtSpacesToTheWidth()
+        {
+            var lines = StockUiKeyItems.Wrap("Strike a pose befitting a mighty warrior.", t => t.Length * 9f, 300);
+            Assert.Equal(new[] { "Strike a pose befitting a mighty", "warrior." }, lines);
+            Assert.Equal(new[] { "One", "Two" }, StockUiKeyItems.Wrap("One\nTwo", t => t.Length, 300));
+        }
         [Fact]
         public void KeyItems_WithoutTheTable_PostsANotice()
         {
@@ -409,7 +441,7 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void EquipSets_MacrosOpensTheListOfTwentyAPage_AndRightTurnsThePage()
+        public void EquipSets_MacrosOpensTheListOfTwentyAPage_AndThePagesWrap()
         {
             var h = new SetHarness();
             h.Book.Set(22, new EquipmentSet("Page2"));
@@ -425,10 +457,26 @@ namespace Gordian.Core.Tests.Ui
             // Up from the first row wraps within the page (the DAT links 1 to 20).
             h.Menus.Move(InputAction.MenuUp);
             Assert.Equal(40, list.SelectedEquipSet);
+            // Left twice from page 2: page 1, then the last page (round 1: the pages wrap both ways).
+            h.Menus.Move(InputAction.MenuLeft);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal(EquipmentSetBook.SetCount - StockUiEquipSets.VisibleRows, list.FirstRow);
+            Assert.Equal(200, list.SelectedEquipSet);
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.Equal(0, list.FirstRow);
+            Assert.Equal(20, list.SelectedEquipSet);
+        }
+
+        /// <summary>Answers the yes / no prompt on top of the menus with Yes.</summary>
+        private static async Task AnswerYesAsync(SetHarness h, Func<bool> done)
+        {
+            Assert.True(h.Menus.Top!.IsPrompt);
+            h.Choose(1);
+            for (int i = 0; i < 50 && !done(); i++) await Task.Delay(10, TestContext.Current.CancellationToken);
         }
 
         [Fact]
-        public void EquipSets_OptionsBesideTheList_UseCurrentEquipAndStyleLock()
+        public async Task EquipSets_OptionsBesideTheList_UseCurrentEquipAndStyleLock()
         {
             var h = new SetHarness();
             h.Inventory.SetEquip(EquipSlotId.Main, ContainerId.Wardrobe, 1);
@@ -441,7 +489,10 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(options.IsGreyed(StockUiEquipSets.EquipButton));
             Assert.True(options.IsGreyed(StockUiEquipSets.PasteButton));
 
+            // Use Current asks first (ROM/165/72 #279).
             h.Choose(StockUiEquipSets.UseCurrentButton);
+            Assert.Equal(StockUiEquipSets.FallbackText(StockUiEquipSets.UseCurrentPromptText), h.Menus.Top!.Message);
+            await AnswerYesAsync(h, () => !h.Book.Get(3).IsEmpty);
             var set = h.Book.Get(3);
             Assert.Equal(EquipmentSetPiece.Item(ContainerId.Wardrobe, 1, BronzeSword), set[EquipSlotId.Main]);
             Assert.Equal(EquipmentSetPiece.Item(ContainerId.Inventory, 4, BronzeCap), set[EquipSlotId.Head]);
@@ -452,7 +503,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(new[] { 3 }, h.Equipped);
             Assert.Equal(new[] { 3 }, h.Locked);
 
-            // Copy, then Paste into another set.
+            // Copy, then Paste into another set (it asks, #277).
             h.Choose(StockUiEquipSets.CopyButton);
             Assert.False(options.IsGreyed(StockUiEquipSets.PasteButton));
             h.Menus.CloseTop();
@@ -460,6 +511,8 @@ namespace Gordian.Core.Tests.Ui
             list.SelectedButtonId = 5;
             h.Menus.Activate();
             h.Choose(StockUiEquipSets.PasteButton);
+            Assert.Equal(StockUiEquipSets.FallbackText(StockUiEquipSets.PastePromptText), h.Menus.Top!.Message);
+            await AnswerYesAsync(h, () => !h.Book.Get(5).IsEmpty);
             Assert.Equal(set[EquipSlotId.Main], h.Book.Get(5)[EquipSlotId.Main]);
         }
 
@@ -472,16 +525,15 @@ namespace Gordian.Core.Tests.Ui
             h.Choose(StockUiEquipSets.DeleteButton);
             var prompt = h.Menus.Top!;
             Assert.True(prompt.IsPrompt);
-            Assert.Equal("Delete equipment set 2 (Doomed)?", prompt.Message);
+            Assert.Equal("Truly delete this set?", prompt.Message);
             Assert.Equal(2, prompt.SelectedButtonId); // No under the cursor
-            h.Choose(1);
-            for (int i = 0; i < 50 && h.Book.Get(2).Name != "Set002"; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            await AnswerYesAsync(h, () => h.Book.Get(2).Name == "Set002");
             Assert.True(h.Book.Get(2).IsEmpty);
             Assert.Equal("Set002", h.Book.Get(2).Name);
         }
 
         [Fact]
-        public void EquipSets_EditPutsAnItemInASlot_ChecksIt_AndTakesTheServersAnswer()
+        public void EquipSets_EditShowsTheStoragesEquipment_PutsAnItemInASlot_ChecksIt_AndTakesTheServersAnswer()
         {
             var h = new SetHarness();
             h.Book.Set(1, new EquipmentSet("Tank").WithPiece(EquipSlotId.Sub, EquipmentSetPiece.Item(ContainerId.Inventory, 5, Shield)));
@@ -490,19 +542,32 @@ namespace Gordian.Core.Tests.Ui
             var grid = h.Menus.Top!;
             Assert.True(grid.IsEquipSetGrid);
             Assert.Equal(Shield, grid.EquipSetItemIn(StockUiCheck.ButtonOf(EquipSlotId.Sub)));
+            // image-12: the storage's equipment beside the grid (the set's first item is in the inventory): Storage Options,
+            // Remove piece., Keep same piece., then the items; the grid's help bar is "Equipment Sets" with the slot's help.
+            Assert.Equal(new[] { StockUiItems.StorageOptionsText, "Remove piece.", "Keep same piece.", "Bronze Cap", "Lauan Shield" },
+                grid.CompanionRows.Select(r => r.Name));
+            Assert.Equal(StockUiEquipSets.Title, grid.ItemHelpBar!.Value.Title);
+            grid.SelectedButtonId = StockUiCheck.ButtonOf(EquipSlotId.Sub);
+            Assert.Equal(Shield, grid.DescribedItem);
+            // The options and the set list give way to the grid and its list (image-12).
+            Assert.True(grid.OverlapsAuthored(h.Menus.OpenMenus.First(m => m.IsEquipSetOptions)));
+            Assert.True(grid.OverlapsAuthored(h.Menus.OpenMenus.First(m => m.IsEquipSetList)));
 
-            // Main: the list right of the grid holds the swords (Storage Options first, then the inventory's; the sword is in
-            // the wardrobe, so Storage Options switches to it).
+            // Main: the list right of the grid (x 198) takes the cursor; Storage Options opens mcrmogc (image-14), the wardrobe there.
             h.Choose(StockUiCheck.ButtonOf(EquipSlotId.Main));
             var slotList = h.Menus.Top!;
             Assert.True(slotList.IsItemList);
             Assert.Equal(StockUiEquipSets.SlotListX, slotList.Menu.Frame.X);
+            Assert.Equal(StockUiEquipSets.Title, slotList.ItemHelpBar!.Value.Title);
             slotList.SelectedButtonId = 1; // Storage Options
             h.Menus.Activate();
-            h.Choose(StockUiItems.EquipStorageButtonOf(ContainerId.Wardrobe));
+            Assert.True(h.Menus.Top!.IsEquipSetStorage);
+            Assert.Equal(StockUiEquipSets.StorageMenu, h.Menus.Top!.Name);
+            h.Choose(StockUiEquipSets.StorageButtonOf(ContainerId.Wardrobe));
             Assert.Same(slotList, h.Menus.Top);
+            Assert.Equal(ContainerId.Wardrobe, grid.EquipContainer);
             int sword = slotList.ItemRows.ToList().FindIndex(r => r.ItemId == BronzeSword);
-            Assert.True(sword > 0);
+            Assert.Equal(3, sword);
             h.Choose(sword + 1);
 
             Assert.Same(grid, h.Menus.Top);
@@ -526,16 +591,22 @@ namespace Gordian.Core.Tests.Ui
             h.Menus.OnEquipSetValidated(answer);
             Assert.Equal(EquipmentSetPieceKind.Remove, h.Book.Get(1)[EquipSlotId.Sub].Kind);
 
-            // Confirm on the item the slot already holds takes it out (no check).
+            // The list opens on the set's item; "Remove piece." marks the slot and asks the server (RemoveItemFlg).
             h.Choose(StockUiCheck.ButtonOf(EquipSlotId.Main));
             var again = h.Menus.Top!;
-            int at = again.ItemRows.ToList().FindIndex(r => r.ItemId == BronzeSword);
-            Assert.Equal(at + 1, again.SelectedButtonId); // the cursor starts on the set's item
-            h.Menus.Activate();
-            Assert.Equal(EquipmentSetPieceKind.Empty, h.Book.Get(1)[EquipSlotId.Main].Kind);
-            Assert.Single(h.Checks);
-        }
+            Assert.Equal(sword + 1, again.SelectedButtonId);
+            h.Choose(2);
+            Assert.Equal(EquipmentSetPieceKind.Remove, h.Book.Get(1)[EquipSlotId.Main].Kind);
+            Assert.True(grid.IsEquipSetRemoved(StockUiCheck.ButtonOf(EquipSlotId.Main)));
+            Assert.Equal(2, h.Checks.Count);
+            Assert.Equal(new EquipsetRequestItem(false, true, ContainerId.Inventory, 0, 0), h.Checks[1].Change);
 
+            // "Keep same piece." empties it and sends nothing.
+            h.Choose(StockUiCheck.ButtonOf(EquipSlotId.Main));
+            h.Choose(3);
+            Assert.Equal(EquipmentSetPieceKind.Empty, h.Book.Get(1)[EquipSlotId.Main].Kind);
+            Assert.Equal(2, h.Checks.Count);
+        }
         [Fact]
         public void RetailMenus_KeyItemAndEquipSetWindowsResolve()
         {
@@ -557,6 +628,24 @@ namespace Gordian.Core.Tests.Ui
             // The grid's buttons are the check window's order (help 243 Main ... 258 Feet).
             Assert.Equal(244, grid.FindButton(StockUiCheck.ButtonOf(EquipSlotId.Head))!.HelpTextId);
             Assert.Equal(258, grid.FindButton(StockUiCheck.ButtonOf(EquipSlotId.Feet))!.HelpTextId);
+
+            Assert.True(library.TryGetMenu(StockUiKeyItems.PromptMenu, out var examine));
+            Assert.Equal((55, 74, 55, 112), (examine.FindButton(1)!.X, examine.FindButton(1)!.Y, examine.FindButton(2)!.X, examine.FindButton(2)!.Y));
+            Assert.True(library.TryGetMenu(StockUiEquipSets.StorageMenu, out var storage));
+            Assert.Equal((384, 48, 802, 16), (storage.Frame.X, storage.Frame.Y, storage.Frame.HelpTextId, storage.Buttons.Count));
+            // The menus' own texts (ROM/165/72).
+            Assert.True(rm.TryGetString(DMsgCategory.MenuMessages, StockUiKeyItems.ExamineText, out var examineText));
+            Assert.Equal(StockUiKeyItems.ExamineFallback, examineText);
+            foreach (int id in new[] { StockUiKeyItems.NoKeyItemsText })
+            {
+                Assert.True(rm.TryGetString(DMsgCategory.MenuMessages, id, out var text));
+                Assert.Equal(StockUiKeyItems.NoKeyItemsFallback, text);
+            }
+            foreach (int id in new[] { StockUiEquipSets.RemovePieceText, StockUiEquipSets.KeepSamePieceText, StockUiEquipSets.PastePromptText, StockUiEquipSets.DeletePromptText, StockUiEquipSets.UseCurrentPromptText })
+            {
+                Assert.True(rm.TryGetString(DMsgCategory.MenuMessages, id, out var text));
+                Assert.Equal(StockUiEquipSets.FallbackText(id), text);
+            }
 
             // The flows run on the retail frames.
             var h = new SetHarness();
@@ -730,6 +819,28 @@ namespace Gordian.Core.Tests.Ui
             Assert.Empty(h.Sent);
         }
 
+        [Fact]
+        public void StyleLockMessages_PrintFromTheSystemMessageTable()
+        {
+            var previous = StandardMessages.TableText;
+            try
+            {
+                StandardMessages.TableText = (id, _) => id == 267 ? "Style lock mode enabled." : null;
+                Assert.Equal("Style lock mode enabled.", StandardMessages.FormatMessage(new SystemMessage(0, 0, 267, 0, string.Empty, DateTime.UtcNow)));
+                Assert.Equal("Msg#268", StandardMessages.FormatMessage(new SystemMessage(0, 0, 268, 0, string.Empty, DateTime.UtcNow)));
+            }
+            finally
+            {
+                StandardMessages.TableText = previous;
+            }
+
+            // The retail table (ROM/27/76, file 7031) holds MsgStd 267-270 (round 1 printed them as "Msg#267" / "Msg#268").
+            string path = Path.Combine(GameDirectory, "ROM", "27", "76.DAT");
+            if (!File.Exists(path)) return;
+            var tables = new Gordian.Core.Resources.Tables.ClientMessageTables(id => id == Gordian.Core.Resources.Tables.ClientMessageTables.SystemMessagesFileId ? File.ReadAllBytes(path) : null);
+            Assert.Equal("Style lock mode enabled.", tables.SystemMessages!.GetPlainText(267).Trim());
+            Assert.Equal("Style lock mode disabled.", tables.SystemMessages!.GetPlainText(268).Trim());
+        }
         #endregion
     }
 }
