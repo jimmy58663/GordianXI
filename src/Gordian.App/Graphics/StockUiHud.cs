@@ -164,6 +164,8 @@ namespace Gordian.App.Graphics
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
+                // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
+                menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
             }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
@@ -176,6 +178,12 @@ namespace Gordian.App.Graphics
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
                 Gordian.Core.Network.Packets.StandardMessages.ItemLookup ??= menus.ItemLookup;
+            }
+            if (menus.KeyItemCatalog == null && _resources is { } keyItems)
+            {
+                // The Key Items window's categories, names and descriptions (ROM/175/35, #91), read once when first opened.
+                var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
+                menus.KeyItemCatalog = () => catalog.Value;
             }
 
             renderer.Begin(library);

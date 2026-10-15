@@ -579,6 +579,17 @@ namespace Gordian.App
             // A hidden stock chat (#29, /stockui) takes no keys: they go to the game (or whatever replaces the chat).
             bool chatHidden = session.ActionService.UiVisibility.IsHidden(StockUiElement.Chat);
             if (chatHidden && chat.Input.IsOpen) chat.Input.Cancel();
+            var menus = session.ActionService.Menus;
+            if (menus.IsEditingName)
+            {
+                // An equipment set's Change Name (#384) takes the keyboard: text arrives as text input (OnGameTextInput).
+                if (typed) return;
+                if (e.Key is Key.Enter or Key.Return) menus.NameEditCommit();
+                else if (e.Key == Key.Escape) menus.NameEditCancel();
+                else if (e.Key == Key.Back) menus.NameEditBackspace();
+                e.Handled = true;
+                return;
+            }
             if (chat.Input.IsOpen)
             {
                 // Tab / Shift+Tab still cycle targets while typing.
@@ -645,6 +656,12 @@ namespace Gordian.App
                 return;
             }
             var textSession = _viewModel?.ActiveTab?.Session;
+            if (textSession?.ActionService.Menus is { IsEditingName: true } naming)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) naming.NameEditInsert(e.Text);
+                e.Handled = true;
+                return;
+            }
             var input = textSession?.Chat.Input;
             if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
             if (textSession!.ActionService.UiVisibility.IsHidden(StockUiElement.Chat)) return;

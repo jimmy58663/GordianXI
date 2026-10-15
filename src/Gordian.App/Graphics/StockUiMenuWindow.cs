@@ -41,8 +41,9 @@ namespace Gordian.App.Graphics
             // shows about 20%); it is left out so the fill drawn for the value is the only one.
             renderer.DrawMenu(definition, placement, includeButtons: false,
                 excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage,
-                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge.
-                opaqueTop: menu.ListKind == StockUiListKind.FontColors ? 0 : StockUiRenderer.MenuBandHeight);
+                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
+                // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
+                opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
 
             foreach (var button in definition.Buttons)
             {
@@ -137,6 +138,10 @@ namespace Gordian.App.Graphics
             {
                 DrawActionList(renderer, library, font, logFont, menu, placement, firstActionRow, timestamp);
             }
+            else if (font != null && (menu.IsKeyItemWindow || menu.IsEquipSetWindow))
+            {
+                StockUiKeyItemWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
                 // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's
@@ -219,9 +224,25 @@ namespace Gordian.App.Graphics
 
             if (menu.Message is { Length: > 0 } message && font != null)
             {
-                float textWidth = font.MeasureWidth(message) * s;
-                float x = placement.X + Math.Max(8 * s, (frame.Width * s - textWidth) * 0.5f);
-                renderer.DrawText(font, message, x, placement.Y + 24 * s, s);
+                // A prompt's message, centred at y 24. One wider than the window wraps at spaces onto more lines, each centred,
+                // kept between the frame's top and the buttons (round 3: the equipment set Paste prompt, "Performing this
+                // action will overwrite the current set with a new one. Proceed?", ran out of the 252 px comyn window).
+                var lines = StockUiTreasureWindow.Wrap(t => font.MeasureWidth(t), message, frame.Width - 2 * MessageMargin, MessageMaxLines);
+                float pitch = font.LineHeight;
+                float buttonsTop = frame.Height;
+                foreach (var b in definition.Buttons)
+                {
+                    if (StockUiMenuController.IsSelectable(b)) buttonsTop = Math.Min(buttonsTop, b.Y);
+                }
+                float top = MessageTop + pitch * 0.5f * (1 - lines.Count);
+                top = Math.Min(top, buttonsTop - MessageButtonGap - lines.Count * pitch);
+                top = Math.Max(MessageMinTop, top);
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    float textWidth = font.MeasureWidth(lines[i]) * s;
+                    float x = placement.X + Math.Max(MessageMargin * s, (frame.Width * s - textWidth) * 0.5f);
+                    renderer.DrawText(font, lines[i], x, placement.Y + (top + i * pitch) * s, s);
+                }
             }
 
             var selected = menu.SelectedButton;
@@ -237,6 +258,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         /// <summary>Top of the title line's text (the "Time Left:" glyphs of the dead window start at y 5).</summary>
         private const float TitleSuffixY = 5;
+
+        /// <summary>
+        /// A prompt's message: the first line's top at y 24 (one line, as before), 8 px clear of the window's sides, at most three
+        /// lines, never above y 6 nor closer than 2 px to the buttons.
+        /// </summary>
+        private const float MessageTop = 24, MessageMargin = 8, MessageMinTop = 6, MessageButtonGap = 2;
+        private const int MessageMaxLines = 3;
 
         private const float QueryCommentX = 14, QueryCommentY = 8, QueryCommentPitch = 16, QueryOptionTextInset = 9;
 

@@ -66,8 +66,10 @@ namespace Gordian.Core.Network
         PerformanceOverlay,
         /// <summary><c>/lockstyle [on|off]</c>: queries, enables or disables the style lock (C2S 0x053).</summary>
         Lockstyle,
-        /// <summary><c>/lockstyleset [n]</c>: without a set number enables the style lock (C2S 0x053).</summary>
+        /// <summary><c>/lockstyleset [n [echo]]</c>: without a set number enables the style lock, with one locks it to that equipment set (C2S 0x053, #92).</summary>
         LockstyleSet,
+        /// <summary><c>/equipset &lt;n&gt;</c>: equips an equipment set (C2S 0x051, #92).</summary>
+        Equipset,
         /// <summary><c>/item "&lt;name&gt;" &lt;target&gt;</c>: uses an item (C2S 0x037, #351).</summary>
         ItemUse,
         /// <summary><c>/equip &lt;slot&gt; ["&lt;name&gt;"]</c>: equips an item, or without a name removes the slot's (C2S 0x050, #352).</summary>
@@ -290,6 +292,7 @@ namespace Gordian.Core.Network
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
                     "lockstyleset" => new ChatCommandResult { Kind = ChatCommandResultKind.LockstyleSet, Message = args },
+                    "equipset" => new ChatCommandResult { Kind = ChatCommandResultKind.Equipset, Message = args },
 
                     // Items and equipment (#351, #352)
                     "item" => new ChatCommandResult { Kind = ChatCommandResultKind.ItemUse, Message = args },

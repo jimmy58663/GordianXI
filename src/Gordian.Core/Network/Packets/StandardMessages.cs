@@ -62,6 +62,13 @@ namespace Gordian.Core.Network.Packets
         /// <summary>Item records for the messages that name items (their log names and plurals); set once the item DATs are available.</summary>
         public static System.Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? ItemLookup { get; set; }
 
+        /// <summary>
+        /// The text of a message id the dictionary above does not know, from the client's system message table (ROM/27/76,
+        /// file id 7031, whose ids are LandSandBoat's <c>MsgStd</c>), with the message's parameter string; set by the session.
+        /// The style lock messages 267-270 ("Style lock mode enabled." ...) print through it (#92).
+        /// </summary>
+        public static System.Func<ushort, string, string?>? TableText { get; set; }
+
         /// <summary>Reads the first two numbers of a "Para0 n Para1 m" parameter string.</summary>
         public static bool TryGetNumbers(string parameters, out uint first, out uint second)
         {
@@ -105,6 +112,11 @@ namespace Gordian.Core.Network.Packets
             if (TryGetMessage(msg.MessageId, out string knownText))
             {
                 return !string.IsNullOrEmpty(msg.Parameters) ? $"{knownText} ({msg.Parameters})" : knownText;
+            }
+
+            if (TableText?.Invoke(msg.MessageId, msg.Parameters) is { Length: > 0 } fromTable)
+            {
+                return fromTable;
             }
 
             return !string.IsNullOrEmpty(msg.Parameters)

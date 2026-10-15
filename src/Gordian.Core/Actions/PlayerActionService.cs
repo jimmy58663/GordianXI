@@ -1443,7 +1443,9 @@ namespace Gordian.Core.Actions
                     case "lockstyle":
                         return LockstyleUsage;
                     case "lockstyleset":
-                        return "Usage: /lockstyleset - Lock your equipment's appearance (equipment set numbers are not supported yet).";
+                        return LockstyleSetUsage;
+                    case "equipset":
+                        return EquipsetUsage;
                     case "item":
                         return ItemUsage;
                     case "equip" or "eq":
@@ -1476,6 +1478,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /item \"<name>\" [target]   - Use an item (<me>, <t> or a name; yourself or your target without one)");
             sb.AppendLine("  /equip <slot> [\"<name>\"]  - Equip an item in a slot, or without a name remove the slot's item (/eq)");
+            sb.AppendLine("  /equipset <n>             - Equip an equipment set; /lockstyleset <n> [echo] locks your look to one");
             sb.AppendLine("  /servmes                  - Show the server message");
             sb.AppendLine("  /lot [slot], /pass [slot] - Lot or pass on a treasure pool item (all undecided items without a slot)");
             sb.AppendLine("  /synth <crystal slot> <slot> [slot ...] - Synthesize with inventory slots (repeat a slot to use several of a stack)");
@@ -1561,25 +1564,13 @@ namespace Gordian.Core.Actions
             if (module == null) return PlayerActionResult.Fail("Style lock is unavailable: no inventory module.", ChatCommandResultKind.Lockstyle);
 
             await module.SetLockstyleAsync(mode.Value).ConfigureAwait(false);
+            NoteStyleLockSent(mode.Value);
             return PlayerActionResult.Ok(mode switch
             {
                 LockstyleMode.Enable => "Style lock on requested.",
                 LockstyleMode.Disable => "Style lock off requested.",
                 _ => "Style lock status requested.",
             }, ChatCommandResultKind.Lockstyle);
-        }
-
-        /// <summary>
-        /// <c>/lockstyleset</c>: without a set number retail sends C2S 0x053 mode Enable. A numbered set needs the
-        /// client-side equipment sets, which GordianXI does not store yet.
-        /// </summary>
-        public async Task<PlayerActionResult> LockstyleSetAsync(string args)
-        {
-            if (!string.IsNullOrWhiteSpace(args))
-            {
-                return PlayerActionResult.Warn("/lockstyleset <n> needs equipment sets, which are not supported yet. Use /lockstyle on to lock your current look.", ChatCommandResultKind.LockstyleSet);
-            }
-            return await LockstyleAsync("on").ConfigureAwait(false);
         }
 
         #region Items and equipment (/item, /equip, the Items window's targets; #351, #352)
@@ -2729,6 +2720,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.LockstyleSet:
                     return await LockstyleSetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Equipset:
+                    return await EquipsetAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
 
                 case ChatCommandResultKind.ItemUse:
                     return await UseItemCommandAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
