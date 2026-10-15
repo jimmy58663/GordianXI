@@ -141,6 +141,31 @@ namespace Gordian.App.Audio
                 v.StopWhenFaded = true;
             });
 
+        /// <summary>
+        /// Eases a voice's own fade gain to <paramref name="target"/> (0-1) over <paramref name="seconds"/> without stopping
+        /// it: a voice faded to 0 keeps playing silently, its position advancing (a multi-box character's music not heard).
+        /// </summary>
+        public void FadeVoice(int handle, float target, float seconds) =>
+            _commands.Enqueue(() =>
+            {
+                if (Find(handle) is not Voice v)
+                {
+                    return;
+                }
+
+                target = Math.Clamp(target, 0f, 1f);
+                v.StopWhenFaded = false;
+                v.FadeTarget = target;
+                if (seconds <= 0)
+                {
+                    v.Fade = target;
+                    v.FadeStep = 0;
+                    return;
+                }
+
+                v.FadeStep = Math.Max(Math.Abs(target - v.Fade), 1e-6f) / (seconds * OutputRate);
+            });
+
         /// <summary>Stops every voice of a category.</summary>
         public void StopCategory(AudioCategory category, float fadeSeconds = 0f) =>
             _commands.Enqueue(() =>

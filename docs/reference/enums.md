@@ -193,9 +193,9 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 6 | fishing | |
 | 8 / 9 | open_door / close_door | `ZoneDoors.StatusOpen` / `StatusClosed`: `DoorAnimator` plays the door's routines and `ZoneDoors` blocks the doorway while not 8 (#15); events set them as `WorldEntity.EventStatus` (0x4C / 0x4D, #200) |
 | 10 / 11 | elevator_up / elevator_down | `MovingPlatforms.AnimationUp` / `AnimationDown` pick the leg direction |
-| 33 | healing | |
+| 33 | healing | `RestPosture.StatusHealing`: `AnimationStateClassifier` plays the resting posture (`res0` / `res1` / `res2`, #343); the player's own comes from 0x037 onto its entity; moving sends /heal off (`PlayerLocomotionController.UpdateHealCancel`) |
 | 44 | synth | |
-| 47 | sit | |
+| 47 | sit | `RestPosture.StatusSitting`: the sitting posture (`sit0` / `sit1` / `sit2`, #343) |
 | 48 | ranged | |
 | 63-73 | sitchair_0-10 | |
 | 85 | mount | |

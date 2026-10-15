@@ -70,6 +70,12 @@ namespace Gordian.App.Graphics
         /// <summary>The row under the cursor (retail capture: peak (255, 255, 220), pale yellow).</summary>
         private static readonly UiColor SelectedRowTint = new(0x80, 0x80, 0x6E, 0x80);
 
+        /// <summary>A set list's "Remove piece." and "Keep same piece." (maintainer retail capture 2026-10-13, image-12: pale yellow).</summary>
+        private static readonly UiColor SetActionTint = new(0x80, 0x80, 0x5C, 0x80);
+
+        /// <summary>A set slot list's description: under the set's grid at x 16 (image-13).</summary>
+        private const float EquipSetDescriptionX = 16;
+
         /// <summary>The item picked to move in Manual sort (orange, as the selected label look; PROVISIONAL).</summary>
         private static readonly UiColor PickedTint = new(0x80, 0x60, 0x2E, 0x80);
 
@@ -106,7 +112,7 @@ namespace Gordian.App.Graphics
 
             if (menu.ItemHelpBar is { } bar) DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
             if (menu.ItemListKind == StockUiItemListKind.Equipment) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
-                StockUiItems.EquipDescriptionX, placement.Y + (DescriptionTop - frame.Y) * s);
+                menu.EquipSetNumber > 0 ? EquipSetDescriptionX : StockUiItems.EquipDescriptionX, placement.Y + (DescriptionTop - frame.Y) * s);
             else if (menu.ShowsQuantity) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 StockUiItems.EquipDescriptionX, null, screen);
             else if (menu.HasItemActionOver) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
@@ -145,7 +151,8 @@ namespace Gordian.App.Graphics
                     string count = row.Count.ToString(CultureInfo.InvariantCulture);
                     renderer.DrawText(font, count, areaX + CountRight * s - font.MeasureWidth(count) * ts, ry + CountBottom * s - font.LineHeight * ts, ts);
                 }
-                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Equipped ? EquippedTint : null;
+                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Equipped ? EquippedTint
+                    : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
                 renderer.DrawText(font, row.Name, areaX + NameInset * s, textY, s, tint);
             }
             renderer.ClearClip();
@@ -170,7 +177,7 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>A list drawn beside another window without the cursor: its frame, slot boxes and rows from the first.</summary>
-        private static void DrawCompanion(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, UiMenuDefinition inventor,
+        internal static void DrawCompanion(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, UiMenuDefinition inventor,
             StockUiPlacement at, IReadOnlyList<StockUiItemRow> rows)
         {
             renderer.DrawMenu(inventor, at, includeButtons: true, opaqueBody: true);

@@ -700,8 +700,27 @@ namespace Gordian.Core.World
         /// <summary>The server's SingleFlag (0x00E Flags2 bit 30): referred to in the plural (XiPackets). Nothing reads it yet.</summary>
         public bool IsPlural { get; set; }
 
-        /// <summary>The server's PetNewFlag (0x00E Flags3 bit 2): a pet being spawned (another spawn animation). Nothing reads it yet.</summary>
-        public bool IsPetSpawning { get; set; }
+        /// <summary>
+        /// The server's PetNewFlag (0x00E Flags3 bit 2): a pet or Trust being spawned, whose model then plays its appearance
+        /// (<c>spop</c>, <c>ActionEffectTracker</c>). The flag stays as last sent: see <see cref="PetSpawnTimestamp"/>.
+        /// </summary>
+        public bool IsPetSpawning
+        {
+            get => _isPetSpawning;
+            set
+            {
+                if (value && !_isPetSpawning) PetSpawnTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                _isPetSpawning = value;
+            }
+        }
+        private bool _isPetSpawning;
+
+        /// <summary>
+        /// When <see cref="IsPetSpawning"/> was last raised (<see cref="System.Diagnostics.Stopwatch"/> ticks; 0 never). The
+        /// server stops sending the flag only with the entity's next general update, which a Trust standing still may not
+        /// get for a long time, so the appearance is played only while the spawn is recent (#377: shown later, it replayed).
+        /// </summary>
+        public long PetSpawnTimestamp { get; set; }
 
         /// <summary>
         /// The server's MotStopFlag (Flags3 bit 4): the motion is paused, so the entity freezes in its current pose (petrify,

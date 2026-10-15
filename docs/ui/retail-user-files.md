@@ -82,3 +82,12 @@ Differences between the fresh files and the configured ones, for the next diffin
 ### Not read yet
 
 The 4240-byte files (`b2`, `bs`, `ca`, `cl`, `is`, `mb`, `sb`, `sk`, `ti`, `wr`, `wr_2`..`wr_8`), `aix` / `eix` / `mix` / `moix` / `acq` / `pec.dat`, `gst`, `timestamp.dat`, `ffxiusr.msg`, `AUCSORT.DAT`, `M*.MRK`.
+
+## Equipment set files (`es<n>.dat`, [#92](https://github.com/jimmy58663/GordianXI/issues/92))
+
+`RetailEquipSets` reads them for `/importretail <folder>` (the sets the files hold replace the character's; see [stock-ui.md](stock-ui.md#key-items-and-equipment-sets-windows-91-92)). Evidence: seven `es0.dat` files of 1624 bytes in the maintainer's install (2026-10-12); no `es1.dat` or later.
+
+- **0x00: header, 24 bytes.** u32 1 (a version?), u32 0, then the **MD5 of the rest of the file** (checked: it matches in all seven files). PROVISIONAL: what the second u32 is (0 in every file seen).
+- **0x18: twenty sets of 80 bytes.** The name (16 bytes, ASCII, NUL-padded; sets never named hold "Set001" ... "Set020"), then sixteen u32 slots in `EquipSlotId` order: main, sub, range, ammo, head, body, hands, legs, feet, neck, waist, ear 1, ear 2, ring 1, ring 2, back. Confirmed: every item in every file fits its slot in the item DATs (`RetailEquipSets_MaintainersFiles_EveryItemFitsItsSlot`; the Bard set "BrdLock" holds item 17652 (Joyeuse) in main and 17367 in range).
+- **Each slot is XiPackets' `equipsetrequestitem_t`** (the C2S 0x052 / S2C 0x116 slot): byte 0 bit 0 "has item", bit 1 "Remove piece", bits 2-7 the container (seen: 0 inventory, 8 Wardrobe, 10-12 Wardrobes 2-4); byte 1 the index in the container; u16 the item id. The "PLD", "WAR" and "NIN" sets of one character hold `02 00 00 00` (Remove piece) in one to three slots each.
+- PROVISIONAL: `es<n>.dat` holds sets `20 n + 1` to `20 n + 20` (the `mcres20` window lists twenty a page); with ten files that is 200 sets.

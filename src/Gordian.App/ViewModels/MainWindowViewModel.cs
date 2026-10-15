@@ -63,9 +63,10 @@ namespace Gordian.App.ViewModels
         public InventoryViewModel Inventory { get; } = new();
 
         /// <summary>
-        /// ViewModel driving the interactive character command console (CLI) tab.
+        /// ViewModel driving the interactive character command console (CLI) tab, on this view model's session registry.
+        /// It follows the character shown in the main viewport window (<see cref="FollowViewportCharacter"/>).
         /// </summary>
-        public CommandConsoleViewModel Console { get; } = new();
+        public CommandConsoleViewModel Console { get; }
 
         /// <summary>
         /// ViewModel driving the cross-platform Controls & Input configuration and telemetry tab.
@@ -259,6 +260,7 @@ namespace Gordian.App.ViewModels
         public MainWindowViewModel(SessionRegistry? registry = null)
         {
             _sessionRegistry = registry ?? SessionRegistry.Default;
+            Console = new CommandConsoleViewModel(_sessionRegistry);
 
             CancelDeleteModalCommand = new RelayCommand(() => IsConfirmDeleteModalVisible = false);
             OpenProfilesDirectoryCommand = new RelayCommand(OpenProfilesDirectory);
@@ -287,8 +289,17 @@ namespace Gordian.App.ViewModels
                 }
             };
 
+            // The console acts on the character the main viewport shows (#29 round 3: with two characters it stayed on
+            // the first registered one, so /stockui show chat restored the other character's chat).
+            Viewport.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(ViewportViewModel.ActiveTab)) FollowViewportCharacter();
+            };
+
             // Wire ViewportWindowManager to use our ViewportViewModel
             ViewportWindowManager.Default.SetPrimaryViewModel(Viewport);
+            // ...and a pop-out window's character when that window gets the focus (#29 round 4).
+            AttachViewportFocus(ViewportWindowManager.Default.WindowFocus);
 
             // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
             ProxyStager.SelfHealStartup();
@@ -1318,10 +1329,13 @@ namespace Gordian.App.ViewModels
                                 targetCharacterSlot: profile.CharacterSlot
                             ).ConfigureAwait(false);
 
-                            // A dropped connection goes to the character select screen, as retail does (#235); Log Out keeps the fast path.
-                            Func<Task> lobbyOnTimeout = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
+                            // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
+                            // though this launch skipped it: LandSandBoat ends the map session on Log Out, so the launcher logs in
+                            // to the lobby servers again (a new xi_data / xi_view session) exactly as after a character select
+                            // launch (round 2 of #368 / #377 testing: before, Log Out on the fast path ended the session).
+                            Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
                                 !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
-                            await StartLsbSessionAsync(profile, ticket, lobbyOnTimeout: lobbyOnTimeout).ConfigureAwait(false);
+                            await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1467,8 +1481,7 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
-            Func<Task>? lobbyOnTimeout = null)
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1540,12 +1553,12 @@ namespace Gordian.App.ViewModels
                 });
             };
 
-            // A session goes back to the character select screen on Log Out (/logout or the menu), as retail does, when it
-            // came through that screen (afterLogout); a shutdown does not. The server answers Log Out and Shut Down with the
-            // same S2C 0x00B state, so the client's own request decides (#270). When the map server stops answering for the
-            // timeout (#235), retail also tries to go back to the lobby, and shuts down when that fails (maintainer,
-            // 2026-10-07); a fast-path session uses lobbyOnTimeout for that. If the lobby cannot be reached, the error is
-            // shown and the session ends; Online goes off when the registry drops it.
+            // A session goes back to the character select screen on Log Out (/logout or the menu), as retail does
+            // (afterLogout: a launch through character select and a direct fast-path launch alike); a shutdown does not. The
+            // server answers Log Out and Shut Down with the same S2C 0x00B state, so the client's own request decides (#270).
+            // When the map server stops answering for the timeout (#235), retail also tries to go back to the lobby, and shuts
+            // down when that fails (maintainer, 2026-10-07). If the lobby cannot be reached, the error is shown and the
+            // session ends; Online goes off when the registry drops it.
             netManager.LoggedOut += logout =>
             {
                 bool timeout = logout.State == Gordian.Core.Network.Packets.LogoutState.Timeout;
@@ -1554,7 +1567,7 @@ namespace Gordian.App.ViewModels
                     GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
                     timedOut = true;
                 }
-                Func<Task>? toLobby = timeout ? afterLogout ?? lobbyOnTimeout : afterLogout;
+                Func<Task>? toLobby = afterLogout;
                 if (toLobby == null) return;
                 if (!logout.ReturnsToLobby)
                 {
@@ -1670,6 +1683,55 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        /// <summary>
+        /// Selects the main viewport's shown character in the Command Console, so a command typed there (such as
+        /// <c>/stockui show chat</c> while the in-game chat line is hidden) reaches the character on screen. Picking another
+        /// character in the console still works until the viewport switches character again (Ctrl+Tab, a switcher click).
+        /// </summary>
+        private void FollowViewportCharacter()
+        {
+            if (Viewport.ActiveTab?.Session is { } shown && !ReferenceEquals(Console.SelectedSession, shown))
+            {
+                Console.SelectedSession = shown;
+            }
+        }
+
+        private WindowFocusTracker? _viewportFocus;
+
+        /// <summary>The focused viewport's character the console last switched to; cleared when no viewport has the focus.</summary>
+        private CharacterSession? _followedFocus;
+
+        /// <summary>
+        /// Makes the Command Console follow the character of whichever viewport window is active: the main window's or a
+        /// pop-out's, when that window gets the focus or switches character (#29 round 4: focusing a pop-out left the
+        /// console on the main window's character). A character picked by hand in the console holds while the focus is
+        /// outside the viewports (in the main window, using the console) and until a viewport window is focused again or
+        /// switches character.
+        /// </summary>
+        internal void AttachViewportFocus(WindowFocusTracker tracker)
+        {
+            ArgumentNullException.ThrowIfNull(tracker);
+            if (_viewportFocus != null) _viewportFocus.Changed -= OnViewportFocusChanged;
+            _viewportFocus = tracker;
+            _followedFocus = null;
+            tracker.Changed += OnViewportFocusChanged;
+        }
+
+        private void OnViewportFocusChanged(object? sender, EventArgs e)
+        {
+            if (_viewportFocus is not { } tracker) return;
+            if (!tracker.IsViewportFocused)
+            {
+                // The focus left the viewports (perhaps to this console): the next viewport focus is followed again.
+                _followedFocus = null;
+                return;
+            }
+            var focused = tracker.FocusedSession;
+            if (focused == null || ReferenceEquals(focused, _followedFocus)) return;
+            _followedFocus = focused;
+            if (!ReferenceEquals(Console.SelectedSession, focused)) Console.SelectedSession = focused;
+        }
+
         private void OnSessionRegistryChanged(object? sender, CharacterSession session)
         {
             RefreshAllStatuses();
@@ -1772,6 +1834,7 @@ namespace Gordian.App.ViewModels
         {
             _sessionRegistry.SessionRegistered -= OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered -= OnSessionRegistryChanged;
+            if (_viewportFocus != null) _viewportFocus.Changed -= OnViewportFocusChanged;
             Inspector.Dispose();
             StateInspector.Dispose();
             Chat.Dispose();

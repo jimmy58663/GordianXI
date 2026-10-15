@@ -323,6 +323,8 @@ namespace Gordian.Core.Ui
                 if (ItemListKind == StockUiItemListKind.Items) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
                 if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
                 if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
+                // A set's grid while it is edited: the storage's list beside it, and the options and set list gone (image-12).
+                if (IsEquipSetGrid) return (f.X, f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 return (f.X, f.Y, right, bottom);
             }
         }
@@ -1123,6 +1125,7 @@ namespace Gordian.Core.Ui
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
+            if (IsEditingName) return true; // Change Name has the keyboard (the window routes it)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1294,11 +1297,12 @@ namespace Gordian.Core.Ui
                         // (inventor) is authored the same way.
                         changed = ScrollList(top, direction == InputAction.MenuDown);
                     }
-                    else if (top.IsActionList)
+                    else if (top.IsActionList || top.PagesAsList)
                     {
                         // The spell and ability lists' end rows link to themselves, as the shop list's do: up and down
                         // past them scroll (wrapping), left and right page.
-                        changed = horizontal ? PageList(top, direction == InputAction.MenuRight) : ScrollList(top, direction == InputAction.MenuDown);
+                        changed = horizontal && top.IsEquipSetList ? TurnEquipSetPage(top, direction == InputAction.MenuRight)
+                            : horizontal ? PageList(top, direction == InputAction.MenuRight) : ScrollList(top, direction == InputAction.MenuDown);
                     }
                     else if (horizontal && (top.IsShopList || top.IsItemList))
                     {
@@ -1543,7 +1547,7 @@ namespace Gordian.Core.Ui
                 return;
             }
 
-            if (TryActivateMacroWindow(top, button)) return;
+            if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
             if (TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
@@ -1870,6 +1874,14 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.Equipment:
                     OpenEquipment(from);
+                    break;
+
+                case StockUiMenuCommand.KeyItems:
+                    OpenKeyItems(from);
+                    break;
+
+                case StockUiMenuCommand.EquipmentSets:
+                    OpenEquipmentSets(from);
                     break;
 
                 case StockUiMenuCommand.MacroBooks:

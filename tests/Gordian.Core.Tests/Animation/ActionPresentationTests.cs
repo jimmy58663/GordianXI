@@ -495,6 +495,28 @@ namespace Gordian.Core.Tests.Animation
         }
 
         /// <summary>
+        /// #377: a Trust first drawn long after its spawn flag arrived (the viewport switched to the character who saw it
+        /// appear while hidden; the flag stays set until the Trust's next general update) does not appear again, and a new
+        /// tracker (a switch clears it) stays quiet for an actor whose last action is long under way.
+        /// </summary>
+        [Fact]
+        public void Tracker_DoesNotReplayAnOldSpawn_OrAnActionUnderWay()
+        {
+            var model = Caster();
+            var trust = new WorldEntity(9, 9, EntityType.Trust) { IsPetSpawning = true };
+            trust.PetSpawnTimestamp = Stopwatch.GetTimestamp() - (long)((ActionEffectTracker.MaxSpawnEffectDelaySeconds + 1) * Stopwatch.Frequency);
+            trust.Animation.Advance(0f, AnimationCategory.Idle, 0, model);
+            Assert.Empty(Step(new ActionEffectTracker(), trust));
+            Assert.False(ActionEffectTracker.IsFreshSpawn(new WorldEntity(10, 10, EntityType.Trust), Stopwatch.GetTimestamp()));
+
+            var caster = new WorldEntity(1, 1, EntityType.Player);
+            caster.Animation.Advance(0f, AnimationCategory.Idle, 0, model);
+            caster.Animation.EnqueueAction(new ActionRequest { Motion = ActionMotion.Routine, Routine = "cawh", ReceivedTimestamp = Stopwatch.GetTimestamp() });
+            for (int i = 0; i < 30; i++) caster.Animation.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Empty(Step(new ActionEffectTracker(), caster));
+        }
+
+        /// <summary>
         /// A cast's start and finish in one datagram (an instant cast, round 1 C7 / D3): the chant gives way to the waiting
         /// release after a few ticks instead of holding the body for 30 s until the release went stale.
         /// </summary>

@@ -426,6 +426,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
             DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
+            DMsgCategory.MenuMessages => Path.Combine("ROM", "165", "72.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),
@@ -837,6 +838,7 @@ namespace Gordian.Core.Resources
                 _sharedEffects = null;
             }
             ZoneEntityNames.Reset();
+            ZoneDatLoader.Invalidate();
             Interlocked.Increment(ref _cacheGeneration);
             GordianLog.Info("RES", "Resource caches cleared; DATs will be read again.");
         }

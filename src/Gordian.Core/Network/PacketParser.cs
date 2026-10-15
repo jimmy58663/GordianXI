@@ -96,6 +96,9 @@ namespace Gordian.Core.Network
             {
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
+                // Trusts are dismissed by every zone change and the server never tells the client (#373, PartyState.RemoveTrusts).
+                int trusts = _party.RemoveTrusts();
+                if (trusts > 0) GordianLog.Info("PARTY", $"Zone-in: dismissed {trusts} Trust(s) from the party.");
                 // The S2C 0x00A login position (set just before) is settled onto this zone's floor once its collision loads (#350).
                 _localPlayer.RequestGroundSettle();
             };

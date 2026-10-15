@@ -33,7 +33,11 @@ namespace Gordian.App.Audio
         private readonly AudioEngine _engine;
         private readonly SoundLibrary? _library;
         private readonly ResourceManager? _resources;
-        private readonly MusicDirector _music;
+        private readonly MusicVoicePool _musicPool;
+        private readonly MusicDirector _idleMusic;
+        private readonly Dictionary<CharacterSession, MusicDirector> _directors = new();
+        private readonly List<CharacterSession> _musicSessions = new();
+        private readonly List<CharacterSession> _goneSessions = new();
         private readonly ZoneEmitterAudio _emitters;
         private volatile IReadOnlyList<ZoneSoundEmitter>? _pendingEmitters;
         private object? _owner;
@@ -47,6 +51,8 @@ namespace Gordian.App.Audio
         private uint _cueTarget;
         private readonly FootstepTracker _footsteps = new();
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, FootwearInfo> _footwear = new();
+        /// <summary>ResourceManager.CacheGeneration <see cref="_footwear"/> was read under; a VFS reload reads it again (#374).</summary>
+        private int _footwearGeneration;
         private readonly System.Collections.Generic.List<FootstepEvent> _steps = new();
         private Vector3 _listenerPosition;
         private int _appliedMusicVolume = -1;
@@ -70,9 +76,10 @@ namespace Gordian.App.Audio
                 }
             }
 
-            _music = new MusicDirector(_engine.Mixer, id => _library?.OpenMusic(id));
+            _musicPool = new MusicVoicePool(_engine.Mixer, id => _library?.OpenMusic(id));
+            _idleMusic = new MusicDirector(_engine.Mixer, _musicPool) { Heard = false };
             _emitters = new ZoneEmitterAudio(_engine.Mixer, id => _library?.GetEffectAsync(id) ?? Task.FromResult<PcmClip?>(null));
-            Gordian.Core.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || _music.IsSettled;
+            Gordian.Core.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || Music.IsSettled;
 
             // Tell cues come from every session (#265: the cue of a character not heard can be let through).
             SessionRegistry.Default.SessionRegistered += (_, s) => WatchTells(s);
@@ -109,8 +116,21 @@ namespace Gordian.App.Audio
         /// <summary>The mixer.</summary>
         public AudioMixer Mixer => _engine.Mixer;
 
-        /// <summary>The music director (event overrides go through it).</summary>
-        public MusicDirector Music => _music;
+        /// <summary>
+        /// The heard character's music director (the debug override goes through it); an idle one while no character is
+        /// heard. Every logged-in character has its own (<see cref="UpdateMusic"/>).
+        /// </summary>
+        public MusicDirector Music
+        {
+            get
+            {
+                CharacterSession? heard = Session;
+                lock (_directors)
+                {
+                    return heard is not null && _directors.TryGetValue(heard, out MusicDirector? director) ? director : _idleMusic;
+                }
+            }
+        }
 
         /// <summary>The current zone's sound pointers (empty until loaded).</summary>
         public ZoneSoundTable ZoneSounds => _zoneSounds;
@@ -153,7 +173,7 @@ namespace Gordian.App.Audio
                 _heardIsPreferred = false;
                 DetachSession(_session);
                 Volatile.Write(ref _session, null);
-                _music.StopAll(1f);
+                SilenceMusic(1f);
                 StopAmbient(1f);
                 _emitters.StopAll(1f);
                 _zoneId = 0;
@@ -184,15 +204,10 @@ namespace Gordian.App.Audio
 
             if (!ReferenceEquals(session, _session))
             {
-                DetachSession(_session);
-                Volatile.Write(ref _session, session);
-                AttachSession(session);
-                _music.StopAll(1f);
-                StopAmbient(1f);
-                _emitters.StopAll(1f);
-                _zoneId = 0;
+                SwitchSession(session);
             }
 
+            UpdateMusic(session, deltaSeconds);
             if (session is null)
             {
                 return;
@@ -212,8 +227,6 @@ namespace Gordian.App.Audio
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);
-            var context = new MusicContext(MusicStatus(session.LocalPlayer.ServerStatus, session.Combat.IsEngaged), session.Party.Members.Count > 1, hour);
-            _music.Update(world.Music, context, deltaSeconds);
             UpdateAmbient(world, hour);
             UpdateFootsteps(world, session.LocalPlayer.ServerId);
             UpdateActionSounds(world);
@@ -224,6 +237,136 @@ namespace Gordian.App.Audio
             }
 
             _emitters.Update(_listenerPosition, hour / 24f);
+        }
+
+        /// <summary>
+        /// Per-frame update from a viewport that shows no world: the character lobby, or the black screen between a Log Out
+        /// and the lobby (#368). The zone's music, ambience, zone sounds and the last character's sound effects fade out,
+        /// leaving the lobby as quiet as on the first launch (its title music is not played yet, #378). Does nothing
+        /// while the service was never created (a first launch's lobby opens no audio device) or another viewport is heard.
+        /// </summary>
+        public static void UpdateWithoutWorldIfCreated(object owner, ViewportCamera camera, double deltaSeconds)
+        {
+            if (_created)
+            {
+                _instance.Value.Update(owner, null, camera, deltaSeconds);
+            }
+        }
+
+        /// <summary>
+        /// Moves the sound to another session (or to none: <see cref="UpdateWithoutWorldIfCreated"/>). Everything the last
+        /// one was playing fades: ambience, zone sounds, scene sounds and sound effects. The music is not stopped: each
+        /// character's director keeps its track playing, and <see cref="UpdateMusic"/> crossfades to the new one's (or keeps
+        /// playing when both are on the same track).
+        /// The trackers forget their actors and the new session's pending scene sounds are dropped, so a switch plays only
+        /// what happens after it (#377): each session has its own world, whose actors would otherwise all look new.
+        /// </summary>
+        private void SwitchSession(CharacterSession? session)
+        {
+            DetachSession(_session);
+            Volatile.Write(ref _session, session);
+            AttachSession(session);
+            StopAmbient(1f);
+            _emitters.StopAll(1f);
+            StopSceneLoops(1f);
+            _engine.Mixer.StopCategory(AudioCategory.Effects, 0.5f);
+            _actionSounds.Clear();
+            _footsteps.Clear();
+            _zoneId = 0;
+            if (session is not null)
+            {
+                var presentation = session.Events.Presentation;
+                _sceneSoundResets = presentation.SoundResets;
+                _sceneSounds.Clear();
+                presentation.TakeDueSounds(_sceneSounds);
+                _sceneSounds.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Music for every logged-in character (round 2 of #368 / #377): each has its own <see cref="MusicDirector"/>, updated
+        /// every frame from its own situation whether it is heard or not, and holding its track in the shared
+        /// <see cref="MusicVoicePool"/>. Only <paramref name="heard"/>'s director is audible; the others play silently, so a
+        /// switch resumes a character's music where it is (characters on the same track share one voice and the music simply
+        /// continues; otherwise a short crossfade). With no character heard (the lobby) every track fades to silence, and a
+        /// character that logs out lets its track go.
+        /// </summary>
+        private void UpdateMusic(CharacterSession? heard, double deltaSeconds)
+        {
+            _musicSessions.Clear();
+            _musicSessions.AddRange(SessionRegistry.Default.ActiveSessions);
+            if (heard is not null && !_musicSessions.Contains(heard))
+            {
+                _musicSessions.Add(heard);
+            }
+
+            lock (_directors)
+            {
+                _goneSessions.Clear();
+                foreach (CharacterSession known in _directors.Keys)
+                {
+                    if (!_musicSessions.Contains(known))
+                    {
+                        _goneSessions.Add(known);
+                    }
+                }
+
+                foreach (CharacterSession gone in _goneSessions)
+                {
+                    _directors[gone].StopAll(1f);
+                    _directors.Remove(gone);
+                }
+
+                foreach (CharacterSession s in _musicSessions)
+                {
+                    if (!_directors.TryGetValue(s, out MusicDirector? director))
+                    {
+                        director = new MusicDirector(_engine.Mixer, _musicPool) { Heard = false };
+                        _directors[s] = director;
+                    }
+
+                    director.Heard = ReferenceEquals(s, heard);
+                }
+            }
+
+            if (heard is null)
+            {
+                _musicPool.SetAudible(0, 1f, 0f);
+            }
+
+            DateTime now = DateTime.UtcNow;
+            foreach (CharacterSession s in _musicSessions)
+            {
+                MusicDirector? director;
+                lock (_directors)
+                {
+                    _directors.TryGetValue(s, out director);
+                }
+
+                if (director is null)
+                {
+                    continue;
+                }
+
+                WorldState world = s.World;
+                var context = new MusicContext(MusicStatus(s.LocalPlayer.ServerStatus, s.Combat.IsEngaged), s.Party.Members.Count > 1,
+                    world.GetTimeOfDayHours(now));
+                director.Update(world.Music, context, deltaSeconds);
+            }
+        }
+
+        /// <summary>Makes every character's music silent (no viewport heard); their tracks keep their places.</summary>
+        private void SilenceMusic(float fadeSeconds)
+        {
+            lock (_directors)
+            {
+                foreach (MusicDirector director in _directors.Values)
+                {
+                    director.Heard = false;
+                }
+            }
+
+            _musicPool.SetAudible(0, fadeSeconds, 0f);
         }
 
         /// <summary>Near / far range of footsteps (provisional).</summary>
@@ -238,6 +381,12 @@ namespace Gordian.App.Audio
             if (_resources is null)
             {
                 return FootwearInfo.Default;
+            }
+            int generation = _resources.CacheGeneration;
+            if (generation != _footwearGeneration)
+            {
+                _footwearGeneration = generation;
+                _footwear.Clear();
             }
 
             int fileId;
@@ -583,7 +732,7 @@ namespace Gordian.App.Audio
             {
                 if (arg.Equals("stop", StringComparison.OrdinalIgnoreCase))
                 {
-                    _music.ClearOverride();
+                    Music.ClearOverride();
                     return "Debug: back to the zone music.";
                 }
 
@@ -592,7 +741,7 @@ namespace Gordian.App.Audio
                     return "Usage: /playmusic <n> | stop";
                 }
 
-                _music.SetOverride(track);
+                Music.SetOverride(track);
                 return $"Debug: playing music {track} ({Describe(_library?.Locator.FindMusic(track))}).";
             }
 

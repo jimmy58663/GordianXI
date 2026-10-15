@@ -122,6 +122,12 @@ namespace Gordian.Core.Ui
         /// <summary>A Trust's command menu Release: releases that Trust (as <c>/refa</c>).</summary>
         ReleaseTrust,
 
+        /// <summary>Main menu Key Items: opens the Key Items window (<see cref="StockUiKeyItems"/>, #91).</summary>
+        KeyItems,
+
+        /// <summary>Macros' Edit Equip. Set: opens the Equipment Sets list (<see cref="StockUiEquipSets"/>, #92).</summary>
+        EquipmentSets,
+
         /// <summary>The Macros menu's Edit Macro: opens the macro book list (<see cref="StockUiMacroMenus"/>, #339).</summary>
         MacroBooks,
     }
@@ -188,10 +194,10 @@ namespace Gordian.Core.Ui
             // Commands, page 2.
             [(MainMenuPage2, 1)] = new("Missions", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 2)] = new("Quests", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.KeyItems),
             [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 5)] = new("Bazaar", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenuPage2, 6)] = new("Macros", Opens: "mcrmenu"),
+            [(MainMenuPage2, 6)] = new("Macros", Opens: StockUiEquipSets.MacroMenu),
             [(MainMenuPage2, 7)] = new("Config", Opens: ConfigMenu),
             [(MainMenuPage2, 8)] = new("Help Desk", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 10)] = new("Current Time", Command: StockUiMenuCommand.CurrentTime),
@@ -199,9 +205,9 @@ namespace Gordian.Core.Ui
             [(MainMenuPage2, 11)] = new("Shut Down", Command: StockUiMenuCommand.ShutDown),
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
-            // Macros (#339): "mcrmenu" (labels windowps #698 Edit Macro, #699 Edit Equip. Set).
-            [("mcrmenu", 1)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
-            [("mcrmenu", 2)] = new("Edit Equip. Set", Command: StockUiMenuCommand.NotAvailable),
+            // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
+            [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).

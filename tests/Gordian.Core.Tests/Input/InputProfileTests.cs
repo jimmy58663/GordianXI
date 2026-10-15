@@ -243,5 +243,78 @@ namespace Gordian.Core.Tests.Input
 
             Assert.False(InputChord.TryParse("InvalidKey_xyz", out _));
         }
+
+        /// <summary>
+        /// #358: the gamepad and camera settings survive a restart, even when the file was written by another build that
+        /// knows actions or chords this one does not (a newer branch's action names). Such a file used to fail to load,
+        /// and the load then saved the default profile over it, losing every setting.
+        /// </summary>
+        [Fact]
+        public void LoadOrCreate_KeepsSettings_WhenTheFileHasUnknownActionsOrChords()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"gordian_profile_{Guid.NewGuid():N}.json");
+            try
+            {
+                var profile = InputProfile.CreateCompact();
+                profile.GamepadSettings.InvertCameraX = true;
+                profile.GamepadSettings.InvertCameraY = true;
+                profile.GamepadSettings.SeparateFirstPersonCamera = true;
+                profile.GamepadSettings.FirstPersonInvertCameraY = true;
+                profile.InvertMouseY = true;
+                profile.SaveToFile(path);
+
+                // Another build's names: an action and a chord this build does not know.
+                string json = File.ReadAllText(path).Replace("\"bindings\": {", "\"bindings\": {\n    \"SomeFutureAction\": [ \"Pad:FutureButton\" ],");
+                json = json.Replace("\"MoveForward\": [", "\"MoveForward\": [\n      \"NotAKey\",");
+                File.WriteAllText(path, json);
+
+                var loaded = InputProfile.LoadOrCreate(path);
+                Assert.True(loaded.GamepadSettings.InvertCameraX);
+                Assert.True(loaded.GamepadSettings.InvertCameraY);
+                Assert.True(loaded.GamepadSettings.SeparateFirstPersonCamera);
+                Assert.True(loaded.GamepadSettings.FirstPersonInvertCameraY);
+                Assert.True(loaded.InvertMouseY);
+                Assert.Equal(new[] { new InputChord(GordianKey.W) }, loaded.GetChords(InputAction.MoveForward));
+
+                // What this build cannot read is written back unchanged, for the build that can.
+                loaded.SaveToFile(path);
+                string saved = File.ReadAllText(path);
+                Assert.Contains("SomeFutureAction", saved);
+                Assert.Contains("Pad:FutureButton", saved);
+                Assert.Contains("NotAKey", saved);
+                Assert.Equal(new[] { new InputChord(GordianKey.W) }, InputProfile.LoadOrCreate(path).GetChords(InputAction.MoveForward));
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>An unreadable file is set aside (".bad") rather than overwritten with the defaults, and the save is atomic.</summary>
+        [Fact]
+        public void LoadOrCreate_SetsAnUnreadableFileAside_InsteadOfOverwritingIt()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"gordian_profile_{Guid.NewGuid():N}.json");
+            string bad = path + ".bad";
+            try
+            {
+                File.WriteAllText(path, "{ \"gamepadSettings\": { \"invertCameraX\": tr");
+                var loaded = InputProfile.LoadOrCreate(path);
+                Assert.False(loaded.GamepadSettings.InvertCameraX);
+                Assert.True(File.Exists(bad));
+                Assert.StartsWith("{ \"gamepadSettings\"", File.ReadAllText(bad));
+
+                loaded.GamepadSettings.InvertCameraX = true;
+                loaded.SaveToFile(path);
+                Assert.True(InputProfile.LoadOrCreate(path).GamepadSettings.InvertCameraX);
+                Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + "*.tmp"));
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(bad)) File.Delete(bad);
+            }
+        }
+
     }
 }

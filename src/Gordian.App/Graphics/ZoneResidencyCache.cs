@@ -94,7 +94,13 @@ namespace Gordian.App.Graphics
                 lock (_gate)
                 {
                     ObjectDisposedException.ThrowIf(_disposed, this);
-                    _latestGeneration = Math.Max(_latestGeneration, generation);
+                    if (generation > _latestGeneration)
+                    {
+                        // The first zone read after a VFS reload (#374): its textures must upload anew, not share the
+                        // uploads of the files they replace.
+                        _latestGeneration = generation;
+                        _shared.ZoneTextures.ForgetSources();
+                    }
                     if (_entries.TryGetValue(zone, out var entry))
                     {
                         entry.References++;
@@ -351,20 +357,18 @@ namespace Gordian.App.Graphics
                 kept = _entries.Values.Select(e => e.Zone).ToList();
             }
 
-            var keepSources = new HashSet<string>(StringComparer.Ordinal);
+            // Uploads a kept zone draws with stay (zones share uploads by DAT source; after a VFS reload a stale zone and
+            // its reread copy have different uploads for one source, #374).
+            var keepTextures = new List<DecodedTexture>();
             foreach (var zone in kept)
             {
-                if (zone.Textures == null) continue;
-                foreach (var texture in zone.Textures.Values)
-                {
-                    if (texture.Source.Length > 0) keepSources.Add(texture.Source);
-                }
+                if (zone.Textures != null) keepTextures.AddRange(zone.Textures.Values);
             }
             lock (_shared.GpuLock)
             {
                 foreach (var zone in dropped)
                 {
-                    int textures = zone.Textures != null ? _shared.ZoneTextures.Evict(zone.Textures.Values, keepSources) : 0;
+                    int textures = zone.Textures != null ? _shared.ZoneTextures.Evict(zone.Textures.Values, keepTextures) : 0;
                     zone.Dispose();
                     GordianLog.Info("Graphics", $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; zone cache budget {BudgetBytes >> 20} MB).");
                 }

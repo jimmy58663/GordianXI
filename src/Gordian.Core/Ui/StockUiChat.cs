@@ -523,6 +523,9 @@ namespace Gordian.Core.Ui
         /// <summary>The character's id, whose hex form is the likely name of its retail USER folder.</summary>
         public Func<uint> CharacterId { get; set; } = () => 0;
 
+        /// <summary>Imports a USER folder's equipment sets for <c>/importretail</c> (#92); returns what was imported.</summary>
+        public Func<string, IReadOnlyList<string>>? ImportEquipmentSets { get; set; }
+
         /// <summary>The character's stock UI settings, which <c>/importretail</c> overwrites.</summary>
         public Func<StockUiSettings?> Settings { get; set; } = () => null;
 
@@ -587,7 +590,9 @@ namespace Gordian.Core.Ui
                 Log.Add(ChatLogChannel.Error, $"Import retail settings: USER/{chosen.Name} has no readable cnf.dat.");
                 return true;
             }
-            var applied = RetailUserSettings.Apply(cnf, settings);
+            var applied = new List<string>(RetailUserSettings.Apply(cnf, settings));
+            // The folder's equipment set files (es<n>.dat, #92), when the session takes them.
+            if (ImportEquipmentSets?.Invoke(chosen.Path) is { } sets) applied.AddRange(sets);
             Log.Add(ChatLogChannel.Notice, applied.Count == 0
                 ? $"Imported nothing from USER/{chosen.Name}."
                 : $"Imported {string.Join(" and ", applied)} from USER/{chosen.Name}.");

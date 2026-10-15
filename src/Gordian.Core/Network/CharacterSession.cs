@@ -11,7 +11,7 @@ namespace Gordian.Core.Network
     /// Represents an active, in-memory character session connection, encapsulating
     /// character identity, connection state, and the dedicated network pipeline.
     /// </summary>
-    public sealed class CharacterSession : IDisposable
+    public sealed partial class CharacterSession : IDisposable
     {
         public Guid SessionId { get; } = Guid.NewGuid();
         public string CharacterName { get; }
@@ -432,6 +432,7 @@ namespace Gordian.Core.Network
             {
                 if (open) InputState.Reset();
             };
+            AttachKeyItemsAndEquipmentSets();
         }
 
         /// <summary>
