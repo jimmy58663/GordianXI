@@ -145,5 +145,61 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(screen.HasLightPixel(editShot, (int)gp.X + 182 + 20, (int)gp.X + 182 + 140, (int)gp.Y + 6 + 18 * 3 + 8), "no item row beside the grid");
             Assert.True(screen.HasLightPixel(editShot, (int)gp.X + 48, (int)gp.X + 300, (int)gp.Y + 192 + 8), "no item info under the grid");
         }
-    }
+
+        /// <summary>Whether any light pixel lies right of a window, on its rows (text running out of it).</summary>
+        private static bool SpillsRight(StockUiOffscreen screen, byte[] shot, StockUiPlacement at, Gordian.Core.Resources.Ui.UiMenuFrame frame)
+        {
+            int right = (int)(at.X + frame.Width * at.Scale) + 2;
+            for (int y = (int)at.Y; y < (int)(at.Y + frame.Height * at.Scale); y++)
+            {
+                if (screen.HasLightPixel(shot, right, (int)screen.Width - 1, y)) return true;
+            }
+            return false;
+        }
+
+        [Fact]
+        public void LongPromptsStayInsideTheirWindows()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var layout = new StockUiScreen(screen.Width, screen.Height, null);
+            // The equipment set prompts (ROM/165/72 #277-279) in the comyn yes / no window (round 3: Paste's ran out of it).
+            foreach (int id in new[] { StockUiEquipSets.PastePromptText, StockUiEquipSets.DeletePromptText, StockUiEquipSets.UseCurrentPromptText })
+            {
+                var menus = new StockUiMenuController { Library = screen.Library };
+                Assert.True(screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var text));
+                var prompt = menus.OpenYesNo(text, defaultYes: false, _ => { });
+                Assert.NotNull(prompt);
+                var f = prompt!.Menu.Frame;
+                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, 1, screen.Width, screen.Height);
+                byte[] shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, prompt, at, 0, logFont: screen.LogFont, screen: layout), $"gpu_set_prompt_{id}.png");
+                Assert.False(SpillsRight(screen, shot, at, f), $"prompt {id} runs out of its window");
+                Assert.True(screen.HasLightPixel(shot, (int)at.X + 8, (int)(at.X + f.Width) - 8, (int)at.Y + 30), $"no text in prompt {id}");
+            }
+
+            // "Examine ...?" with the longest key item name in the table.
+            var catalog = StockUiKeyItemCatalog.FromTable(screen.Resources.GetDMsgTable(DMsgCategory.KeyItems))!;
+            var longest = catalog.Categories.SelectMany(c => c.Ids).Select(id => catalog.TryGetName(id, out var n) ? (id, n) : (id, string.Empty))
+                .OrderByDescending(p => screen.LogFont!.MeasureWidth(p.Item2)).First();
+            var keyMenus = new StockUiMenuController
+            {
+                Library = screen.Library,
+                KeyItemCatalog = () => catalog,
+                KeyItemHeld = id => id == longest.id,
+                KeyItemSeen = _ => false,
+                MenuMessageText = id => screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var t) ? t : null,
+            };
+            var categories = keyMenus.OpenKeyItems(null)!;
+            int index = catalog.Categories.ToList().FindIndex(c => c.Ids.Contains(longest.id));
+            categories.FirstRow = index / StockUiKeyItems.VisibleRows * StockUiKeyItems.VisibleRows;
+            categories.SelectedButtonId = index - categories.FirstRow + 1;
+            keyMenus.Activate();
+            keyMenus.Activate();
+            var examine = keyMenus.Top!;
+            Assert.True(examine.IsKeyItemExamine);
+            var ef = examine.Menu.Frame;
+            var ep = StockUiLayout.Place(ef.Anchor, ef.X, ef.Y, ef.Width, ef.Height, 1, screen.Width, screen.Height);
+            byte[] examineShot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, examine, ep, 0, logFont: screen.LogFont, screen: layout), "gpu_key_item_examine_long.png");
+            Assert.False(SpillsRight(screen, examineShot, ep, ef), $"\"{examine.KeyItemQuestion}\" runs out of its window");
+        }    }
 }

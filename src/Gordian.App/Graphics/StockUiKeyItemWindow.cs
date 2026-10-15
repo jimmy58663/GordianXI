@@ -45,6 +45,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>The Examine question at (28, 32) (image-9).</summary>
         private const float QuestionX = 28, QuestionY = 32;
+        private const int QuestionMaxLines = 2;
 
         /// <summary>The description page (image-10): the bullet at (38, 23), the name from (51, 18), the text from (42, 49), 16 px lines.</summary>
         private const float DescBulletX = 38, DescBulletY = 23, DescNameX = 51, DescNameY = 18, DescTextX = 42, DescTextY = 49, DescRightPad = 16;
@@ -84,7 +85,16 @@ namespace Gordian.App.Graphics
 
             if (menu.IsKeyItemExamine)
             {
-                if (menu.KeyItemQuestion is { } question) Text(renderer, font, logFont, question, placement.X + QuestionX * s, placement.Y + QuestionY * s, s, White);
+                if (menu.KeyItemQuestion is { } question)
+                {
+                    // A long key item name wraps the question onto a second line (16 px down), still above Yes at y 74 (round 3).
+                    Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
+                    var lines = StockUiKeyItems.Wrap(question, measure, frame.Width - QuestionX - DescRightPad, QuestionMaxLines);
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        Text(renderer, font, logFont, lines[i], placement.X + QuestionX * s, placement.Y + (QuestionY + i * StockUiLogFont.CellHeight) * s, s, White);
+                    }
+                }
                 foreach (var button in definition.Buttons)
                 {
                     string label = button.ButtonId == StockUiKeyItems.YesButton ? "Yes" : button.ButtonId == StockUiKeyItems.NoButton ? "No" : string.Empty;
