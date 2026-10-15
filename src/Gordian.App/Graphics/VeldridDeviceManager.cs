@@ -174,6 +174,8 @@ namespace Gordian.App.Graphics
                 GraphicsBackendPreference.Vulkan => [GraphicsBackend.Vulkan, GraphicsBackend.Direct3D11],
                 // NeoVeldrid has no Metal backend: macOS runs Vulkan through its bundled MoltenVK.
                 GraphicsBackendPreference.Metal => [GraphicsBackend.Vulkan],
+                // OpenGL is no longer a choice (#390): a saved OpenGL preference means Auto.
+                GraphicsBackendPreference.OpenGL => GetAutoCandidates(),
                 _ => GetAutoCandidates()
             };
         }

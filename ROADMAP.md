@@ -3,7 +3,7 @@
 ## Current State Summary
 - **Target Framework:** .NET 10 (C# 14) + Avalonia UI 12.1.3 + Dear ImGui (Hexa.NET.ImGui)
 - **Test Status:** every PR must pass `dotnet test` on Windows and Ubuntu CI (counts are in each PR's test report).
-- **Active Focus:** finishing Phase 5 (MVP): the remaining stock UI windows and menus (5E Tier 2), the Tier 3 overlays, and the open issues in the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up). Stock UI details: [docs/ui/stock-ui.md](docs/ui/stock-ui.md).
+- **Active Focus:** finishing Phase 5 (MVP): the remaining stock UI windows and menus (5E Tier 2), the rest of the Tier 3 overlays, and the open issues in the [MVP milestone](https://github.com/jimmy58663/GordianXI/milestones). Next up: issues labelled [`next-up`](https://github.com/jimmy58663/GordianXI/issues?q=is%3Aopen+label%3Anext-up). Stock UI details: [docs/ui/stock-ui.md](docs/ui/stock-ui.md).
 - **North Star Goal:** High-performance, clean-room 64-bit cross-platform client replacement for Final Fantasy XI.
 
 ## How This Repo Tracks Work
@@ -49,7 +49,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5D.1 Transient combat & action animation | ✅ (weapon skill, monster move, job ability and spell presentations with their cast and summon effects; follow-ups #307, #308) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (open: retail brightness checks) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
 | 5E Tier 2: stock DAT 2D UI | ⏳ HUD, chat and log, config pages, command menu, shop, name plates, event dialog, check window, treasure pool, magic / abilities and items / equipment windows done; remaining windows and menus in the MVP milestone | [ui/stock-ui.md](docs/ui/stock-ui.md) |
-| 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⬜ | [ui/stock-ui.md](docs/ui/stock-ui.md) |
+| 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⏳ ImGui layer, performance overlay (Ctrl+F12 / `/perf`) and the stock UI visibility API (`/stockui`) done; open: ImGui input #380, Vulkan GPU timings #381 | [ui/stock-ui.md](docs/ui/stock-ui.md), [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |
 | 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; sound controls and combat / action sounds done; open: footprints #40, more combat sounds #328, dual-wield sounds #308 | [design/audio.md](docs/design/audio.md) |

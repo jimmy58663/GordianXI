@@ -25,7 +25,7 @@ namespace Gordian.App.Graphics
     /// Avalonia control embedding a native hardware-accelerated Veldrid 3D viewport surface.
     /// Supports Direct3D 11 (Windows) and Vulkan (Windows, Linux, and macOS through MoltenVK).
     /// </summary>
-    public class VeldridViewportControl : NativeControlHost
+    public partial class VeldridViewportControl : NativeControlHost
     {
         public static readonly StyledProperty<GraphicsBackendPreference> BackendPreferenceProperty =
             AvaloniaProperty.Register<VeldridViewportControl, GraphicsBackendPreference>(
@@ -716,6 +716,7 @@ namespace Gordian.App.Graphics
                 _stockUiRenderer = null;
                 _lobbyRenderer?.Dispose();
                 _lobbyRenderer = null;
+                DisposeOverlays();
                 _blackCommands?.Dispose();
                 _blackCommands = null;
 
@@ -868,6 +869,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 UpdateSwapchainSync(mode);
+                RecordPerformanceFrame(frameStart);
 
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
@@ -999,6 +1001,7 @@ namespace Gordian.App.Graphics
                             }
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
+                            BeginPerformancePasses();
                             _renderer.Render(
                                 Camera,
                                 Environment,
@@ -1014,11 +1017,16 @@ namespace Gordian.App.Graphics
                                 present: false,
                                 targetFramebuffer: _deviceManager.Framebuffer);
 
+                            EndPerformancePass(ViewportPass.Scene);
+
                             // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
                             RenderTier2_StockUi();
+                            EndPerformancePass(ViewportPass.StockUi);
 
                             // Tier 3: ImGui Overlays & Addons Pass
                             RenderTier3_ImGuiOverlays();
+                            EndPerformancePass(ViewportPass.Overlay);
+                            EndPerformanceFrame();
 
                             // Final composite present
                             _deviceManager.Present();
@@ -1579,8 +1587,13 @@ namespace Gordian.App.Graphics
                         _lobbyShownAt = now;
                     }
                     float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
+                    BeginPerformancePasses();
                     _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, framebuffer,
                         _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
+                    EndPerformancePass(ViewportPass.Scene);
+                    RenderTier3_ImGuiOverlays();
+                    EndPerformancePass(ViewportPass.Overlay);
+                    EndPerformanceFrame();
                     _deviceManager.Present();
                 }
                 catch (Exception ex)
@@ -1699,15 +1712,6 @@ namespace Gordian.App.Graphics
             if (clip.W <= 0.0001f) return null;
             float x = clip.X / clip.W, y = clip.Y / clip.W;
             return new Vector2((x * 0.5f + 0.5f) * width, (clipSpaceYInverted ? y * 0.5f + 0.5f : 0.5f - y * 0.5f) * height);
-        }
-
-        /// <summary>
-        /// Tier 3: ImGui Overlays and Addons render pass.
-        /// Reserved hook for Phase 5E Tier 3.
-        /// </summary>
-        private void RenderTier3_ImGuiOverlays()
-        {
-            // Future Phase 5E Tier 3 implementation: Translucent HUD overlays, performance graphs, addon canvases
         }
 
         /// <summary>

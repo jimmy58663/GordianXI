@@ -148,6 +148,9 @@ void main()
         /// <summary>Quads submitted in the last frame.</summary>
         public int LastQuadCount { get; private set; }
 
+        /// <summary>Draw calls (batches) submitted in the last frame, for the performance overlay (#30).</summary>
+        public int LastDrawCalls { get; private set; }
+
         public StockUiRenderer(GraphicsDevice gd, OutputDescription outputs)
         {
             _gd = gd ?? throw new ArgumentNullException(nameof(gd));
@@ -556,6 +559,7 @@ void main()
         public void End(Framebuffer framebuffer, uint width, uint height)
         {
             LastQuadCount = _vertices.Count / 6;
+            LastDrawCalls = _vertices.Count == 0 ? 0 : _batches.Count;
             if (_disposed || _vertices.Count == 0 || width == 0 || height == 0) return;
 
             EnsureVertexCapacity((uint)_vertices.Count);

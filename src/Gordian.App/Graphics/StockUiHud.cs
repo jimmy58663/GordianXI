@@ -66,6 +66,12 @@ namespace Gordian.App.Graphics
 
         private long _loadingIndicatorSince;
 
+        /// <summary>The stock elements hidden at run time this frame (<see cref="StockUiVisibilityState"/>, #29).</summary>
+        private StockUiElement _hiddenElements;
+
+        /// <summary>Whether the character is in a party this frame: the party window then counts as Party, else as Vitals.</summary>
+        private bool _inParty;
+
         /// <summary>
         /// Starts loading the UI resources in the background (idempotent).
         /// </summary>
@@ -179,13 +185,16 @@ namespace Gordian.App.Graphics
             renderer.DrawScreenFlash(width, height, presentation.SceneFlash);
             renderer.Opacity = presentation.InterfaceOpacity;
             var groups = GroupParty(session);
+            // Elements an addon, an ImGui replacement or /stockui hides this frame (#29); hidden like a /uilayout hide.
+            _hiddenElements = session.ActionService.UiVisibility.Hidden;
+            _inParty = groups.InGroup;
             // An event's message mode (opcode 0x67) hides the HUD windows and shows the event's lines on the screen instead; name plates stay (the retail recording shows them through the aerial shots).
             bool cutscene = session.Events.IsCutsceneHud;
             NamePlateBounds? targetPlate = null, subTargetPlate = null;
             // Zoning (#350): retail closes the interface and the name plates the moment the player crosses, before the scene
             // fades, and opens them again as the next zone starts to fade in (the 2026-10-11 retail recording).
             bool zoning = InterfaceHidden;
-            if (namePlates != null && _font is { } plateFont && !zoning)
+            if (namePlates != null && _font is { } plateFont && !zoning && (_hiddenElements & StockUiElement.NamePlates) == 0)
             {
                 var ownParty = new List<uint>();
                 foreach (var member in groups.Own) ownParty.Add(member.ServerId);
@@ -197,12 +206,13 @@ namespace Gordian.App.Graphics
             }
             long now = Stopwatch.GetTimestamp();
             Vector2? targetTip = null;
-            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene && !zoning)
+            bool cursorsHidden = (_hiddenElements & StockUiElement.TargetCursor) != 0;
+            if (targetCursor is { } cursor && session.ActionService.CurrentTarget != null && !cutscene && !zoning && !cursorsHidden)
             {
                 targetTip = CursorTip(cursor, targetPlate);
                 StockUiTargetWindow.DrawCursor(renderer, library, targetTip.Value, Layout.Scale, now);
             }
-            if (subTargetCursor is { } subCursor && session.ActionService.SubTargeting is { } picking && !cutscene)
+            if (subTargetCursor is { } subCursor && session.ActionService.SubTargeting is { } picking && !cutscene && !cursorsHidden)
             {
                 // The sub-target cursor (#240): the target cursor in violet; on your own target it sits 12 px above
                 // that target's cursor (retail capture 2026-10-11, maintainer: video frames at 2556 x 1434, 1:1).
@@ -232,7 +242,7 @@ namespace Gordian.App.Graphics
             if (!zoning)
             {
                 DrawMenus(renderer, library, session, menus, width, height);
-                if (!cutscene) DrawActionHelpBar(renderer, library, session, width, height);
+                if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
             }
             bool unlocked = Drag.Unlocked;
             if (unlocked)
@@ -354,6 +364,7 @@ namespace Gordian.App.Graphics
         private StockUiPlacement ResolveWindow(string windowId, UiMenuFrame frame, uint width, uint height, out bool moved)
         {
             var placement = Layout.Resolve(windowId, frame, width, height);
+            if (StockUiVisibilityState.HidesWindow(_hiddenElements, windowId, _inParty)) placement = placement with { Hidden = true };
             moved = Layout.HasPositionOverride(windowId);
             if (Drag.TryGetDragPosition(windowId, out float x, out float y))
             {

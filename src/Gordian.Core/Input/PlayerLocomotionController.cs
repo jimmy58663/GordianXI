@@ -338,8 +338,11 @@ namespace Gordian.Core.Input
 
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
             //    navigation bindings win over the camera/party-targeting keys they share (retail behaviour).
-            var menus = _actionService?.Menus;
-            var chat = Chat;
+            // Stock elements hidden at run time (#29) take no input: the keys are left for whatever replaces them.
+            var hidden = _actionService?.UiVisibility.Hidden ?? Ui.StockUiElement.None;
+            var menus = (hidden & Ui.StockUiElement.Menus) != 0 ? null : _actionService?.Menus;
+            var chat = (hidden & Ui.StockUiElement.Chat) != 0 ? null : Chat;
+            if (chat == null && Chat is { } hiddenChat) ReleaseHiddenChat(hiddenChat);
             // The sub-target cursor (an action waiting for its target) takes the menu keys as a menu does.
             bool subTargeting = _actionService?.SubTargeting != null;
             bool menuOpen = (menus?.IsOpen ?? false) || subTargeting;
@@ -429,6 +432,17 @@ namespace Gordian.Core.Input
 
         /// <summary>The session's stock chat (null outside a session).</summary>
         public Ui.StockUiChat? Chat { get; set; }
+
+        /// <summary>
+        /// The stock chat was hidden (#29): its input line, a selected log window and the full-screen log let go of the
+        /// keyboard, so nothing typed or pressed goes to a chat the player cannot see.
+        /// </summary>
+        private static void ReleaseHiddenChat(Ui.StockUiChat chat)
+        {
+            if (chat.Input.IsOpen) chat.Input.Cancel();
+            if (chat.FullLogOpen) chat.CloseFullLog();
+            if (chat.IsSelecting) chat.ReleaseLogWindow();
+        }
 
         /// <summary>The session's event dialog (null outside a session); ticked here so the dialog runs with the input.</summary>
         public Events.EventDialogController? Events { get; set; }

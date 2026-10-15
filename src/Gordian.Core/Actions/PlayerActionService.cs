@@ -649,7 +649,8 @@ namespace Gordian.Core.Actions
         public bool OpenTargetCommandMenu()
         {
             var target = CurrentTarget;
-            if (target == null) return false;
+            // A hidden stock menu layer (#29) opens nothing: Confirm is left for whatever replaces the menus.
+            if (target == null || UiVisibility.IsHidden(StockUiElement.Menus)) return false;
             var kind = target.Type switch
             {
                 EntityType.Player => target.ServerId == _localPlayer.ServerId ? StockUiTargetKind.Self : StockUiTargetKind.Player,
@@ -1413,6 +1414,10 @@ namespace Gordian.Core.Actions
                         return "Usage: /kick <player> - Remove player from party.";
                     case "uilayout" or "uil":
                         return UiLayoutUsage;
+                    case "stockui":
+                        return StockUiUsage;
+                    case "perf":
+                        return PerformanceOverlayUsage;
                     case "heal":
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
@@ -1466,6 +1471,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
+            sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
+            sb.AppendLine("  /perf [off|fps|full]      - Viewport performance overlay (Ctrl+F12 cycles)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /item \"<name>\" [target]   - Use an item (<me>, <t> or a name; yourself or your target without one)");
             sb.AppendLine("  /equip <slot> [\"<name>\"]  - Equip an item in a slot, or without a name remove the slot's item (/eq)");
@@ -2642,6 +2649,12 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.StockUiVisibility:
+                    return ApplyStockUiCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.PerformanceOverlay:
+                    return PerformanceOverlayCommandResult(cmd.Message ?? string.Empty);
 
                 case ChatCommandResultKind.TreasureLot:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);

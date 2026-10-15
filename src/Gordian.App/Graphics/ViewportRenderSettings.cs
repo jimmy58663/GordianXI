@@ -19,6 +19,25 @@ namespace Gordian.App.Graphics
         private static volatile int s_backgroundFrameRate = DefaultBackgroundFrameRate;
         private static volatile int s_zoneCacheBudgetMb = DefaultZoneCacheBudgetMb;
         private static volatile bool s_vsync = true;
+        private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
+
+        /// <summary>
+        /// What the performance overlay shows in every viewport window (#30); hidden by default. Setting a new value raises
+        /// <see cref="PerformanceOverlayChanged"/> on the setting thread (the shortcut, <c>/perf</c> or Settings), which
+        /// the main window's view model saves.
+        /// </summary>
+        public static PerformanceOverlayMode PerformanceOverlay
+        {
+            get => (PerformanceOverlayMode)s_performanceOverlay;
+            set
+            {
+                int mode = Enum.IsDefined(value) ? (int)value : (int)PerformanceOverlayMode.Hidden;
+                if (System.Threading.Interlocked.Exchange(ref s_performanceOverlay, mode) != mode) PerformanceOverlayChanged?.Invoke((PerformanceOverlayMode)mode);
+            }
+        }
+
+        /// <summary>Raised after <see cref="PerformanceOverlay"/> changes.</summary>
+        public static event Action<PerformanceOverlayMode>? PerformanceOverlayChanged;
 
         /// <summary>Frames per second of a background viewport window (clamped to 1-240).</summary>
         public static int BackgroundFrameRate
@@ -52,6 +71,7 @@ namespace Gordian.App.Graphics
             BackgroundFrameRate = settings.BackgroundFrameRate;
             ZoneCacheBudgetMb = settings.ZoneCacheBudgetMb;
             VsyncEnabled = settings.IsVsyncEnabled;
+            PerformanceOverlay = settings.PerformanceOverlay;
         }
     }
 }

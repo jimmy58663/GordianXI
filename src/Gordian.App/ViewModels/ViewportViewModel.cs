@@ -30,6 +30,11 @@ namespace Gordian.App.ViewModels
         private bool _isVsyncEnabled = true;
         private int _backgroundFrameRate = ViewportRenderSettings.DefaultBackgroundFrameRate;
         private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
+        private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
+        private readonly object _saveLock = new();
+
+        /// <summary>Whether the notice for a saved OpenGL backend was logged (once per run, not once per view model).</summary>
+        private static int s_openGlNoticeLogged;
         private CameraMode _activeCameraMode = CameraMode.ThirdPersonOrbital;
         private int _drawCalls;
         private int _visibleMeshes;
@@ -60,7 +65,9 @@ namespace Gordian.App.ViewModels
                 _settings.IsVsyncEnabled = _isVsyncEnabled;
                 _settings.BackgroundFrameRate = _backgroundFrameRate;
                 _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
-                _settings.SaveToFile(_settingsPath);
+                _settings.PerformanceOverlay = _performanceOverlay;
+                // The overlay mode can change on a viewport's render or key thread (Ctrl+F12, /perf).
+                lock (_saveLock) _settings.SaveToFile(_settingsPath);
             }
             catch (Exception ex)
             {
@@ -81,6 +88,16 @@ namespace Gordian.App.ViewModels
                 : ViewportSettings.LoadOrDefault(_settingsPath);
 
             _selectedBackend = _settings.SelectedBackend;
+            if (_selectedBackend == GraphicsBackendPreference.OpenGL)
+            {
+                // OpenGL is no longer a choice (#390; it always ran the automatic backend): the saved setting loads as Auto,
+                // saved as Auto at the next settings change.
+                if (System.Threading.Interlocked.Exchange(ref s_openGlNoticeLogged, 1) == 0)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info("VIEWPORT", "The saved OpenGL backend is no longer offered (#390); using Auto (Direct3D 11 on Windows, Vulkan elsewhere).");
+                }
+                _selectedBackend = GraphicsBackendPreference.Auto;
+            }
             _selectedDisplayMode = _settings.SelectedDisplayMode;
             _selectedTabStyle = _settings.SelectedTabStyle;
             _autoLaunchOnConnect = _settings.AutoLaunchOnConnect;
@@ -89,8 +106,14 @@ namespace Gordian.App.ViewModels
             _isVsyncEnabled = _settings.IsVsyncEnabled;
             _backgroundFrameRate = ViewportRenderSettings.ClampFrameRate(_settings.BackgroundFrameRate);
             _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
+            _performanceOverlay = _settings.PerformanceOverlay;
             // Every viewport window reads these each frame (#301, #322).
             ViewportRenderSettings.Apply(_settings);
+            if (_enableAutoSave)
+            {
+                // The shortcut and /perf set the overlay mode directly (#30); the saving view model keeps the file current.
+                ViewportRenderSettings.PerformanceOverlayChanged += OnPerformanceOverlayChanged;
+            }
 
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
             ToggleCameraModeCommand = new RelayCommand(() =>
@@ -191,6 +214,7 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _selectedBackend, value))
                 {
+                    OnPropertyChanged(nameof(BackendStatus));
                     AutoSaveSettings();
                 }
             }
@@ -298,7 +322,24 @@ namespace Gordian.App.ViewModels
         public string ActiveBackend
         {
             get => _activeBackend;
-            set => SetProperty(ref _activeBackend, value);
+            set
+            {
+                if (SetProperty(ref _activeBackend, value)) OnPropertyChanged(nameof(BackendStatus));
+            }
+        }
+
+        /// <summary>
+        /// The backend the viewport really runs, for Settings, with the reason when it is not the selected one (a failed
+        /// or unimplemented backend, or the shared device already open with another; the device is chosen again when
+        /// every viewport window has closed and one opens).
+        /// </summary>
+        public string BackendStatus
+        {
+            get
+            {
+                if (!Enum.TryParse<NeoVeldrid.GraphicsBackend>(_activeBackend, out var running)) return "Running: no viewport open yet.";
+                return SharedGraphicsDevice.FallbackNote(_selectedBackend, running) is { } note ? "Running: " + note : $"Running: {running}.";
+            }
         }
 
         public string GpuName
@@ -352,6 +393,36 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        /// <summary>What the viewport performance overlay shows (#30): Settings, Ctrl+F12 or /perf; every window at once.</summary>
+        public PerformanceOverlayMode PerformanceOverlay
+        {
+            get => _performanceOverlay;
+            set
+            {
+                if (SetProperty(ref _performanceOverlay, value))
+                {
+                    ViewportRenderSettings.PerformanceOverlay = value;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The performance overlay modes offered in Settings.</summary>
+        public ObservableCollection<PerformanceOverlayMode> AvailablePerformanceOverlayModes { get; } = new()
+        {
+            PerformanceOverlayMode.Hidden,
+            PerformanceOverlayMode.Fps,
+            PerformanceOverlayMode.Detailed,
+        };
+
+        private void OnPerformanceOverlayChanged(PerformanceOverlayMode mode)
+        {
+            if (_performanceOverlay == mode) return;
+            _performanceOverlay = mode;
+            AutoSaveSettings();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(PerformanceOverlay)));
+        }
+
         /// <summary>The background frame rates offered in Settings.</summary>
         public ObservableCollection<int> AvailableBackgroundFrameRates { get; } = new() { 10, 15, 20, 30, 60 };
 
@@ -397,7 +468,6 @@ namespace Gordian.App.ViewModels
             GraphicsBackendPreference.Auto,
             GraphicsBackendPreference.Direct3D11,
             GraphicsBackendPreference.Vulkan,
-            GraphicsBackendPreference.OpenGL
         };
 
         public ObservableCollection<ViewportDisplayMode> AvailableDisplayModes { get; } = new()
