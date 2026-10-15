@@ -183,6 +183,49 @@ namespace Gordian.App.Tests.ViewModels
             }
         }
 
+        /// <summary>
+        /// #358: the gamepad and first-person camera settings (#306) survive a restart all the way to a character's
+        /// session: saved by the Controls &amp; Input page, loaded by a new page on a new hub, copied into a new session.
+        /// </summary>
+        [Fact]
+        public void GamepadAndCameraSettings_SurviveARestart_IntoTheSession()
+        {
+            string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
+            try
+            {
+                var vm1 = new ControlsInputViewModel(tempFile, new InputProfileHub());
+                vm1.InvertGamepadCameraX = true;
+                vm1.InvertGamepadCameraY = true;
+                vm1.SeparateFirstPersonGamepadCamera = true;
+                vm1.FirstPersonInvertGamepadCameraX = false;
+                vm1.FirstPersonGamepadCameraSensitivity = 2.5f;
+                vm1.SeparateFirstPersonMouse = true;
+                vm1.FirstPersonInvertMouseY = true;
+                vm1.IsCameraRelativeLocomotion = false;
+
+                // Restart: a new hub and page read the file; a character logging in copies the profile.
+                var hub = new InputProfileHub();
+                var vm2 = new ControlsInputViewModel(tempFile, hub);
+                Assert.True(vm2.InvertGamepadCameraX);
+                Assert.True(vm2.InvertGamepadCameraY);
+                Assert.True(vm2.SeparateFirstPersonGamepadCamera);
+                Assert.False(vm2.FirstPersonInvertGamepadCameraX);
+                Assert.Equal(2.5f, vm2.FirstPersonGamepadCameraSensitivity);
+                Assert.True(vm2.FirstPersonInvertMouseY);
+                Assert.False(vm2.IsCameraRelativeLocomotion);
+
+                using var session = new Gordian.Core.Network.CharacterSession("RestartTest", 1, "user1",
+                    new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+                var pad = session.Locomotion.Profile.GamepadSettings;
+                Assert.Equal(new CameraAxisSettings(1f, 1f, true, true), pad.Camera(firstPerson: false));
+                Assert.Equal(new CameraAxisSettings(2.5f, 2.5f, false, true), pad.Camera(firstPerson: true));
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
         [Fact]
         public void GamepadDisabled_TelemetryReportsDisabled()
         {

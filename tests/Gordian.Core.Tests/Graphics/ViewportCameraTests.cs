@@ -92,6 +92,25 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
+        public void ViewportCamera_FirstPerson_UsesTheCharactersEyeHeight()
+        {
+            // #305: the drawn character's eye level (an Elvaan male's 1.94 yalms) wins over the fixed eye offset; the
+            // orbit camera keeps the offset.
+            var camera = new ViewportCamera
+            {
+                Mode = CameraMode.FirstPerson,
+                EyeOffset = new Vector3(0, 1.3f, 0),
+                FirstPersonEyeHeight = 1.94f,
+            };
+            camera.Update(new Vector3(10, 0, 20), pitch: 0.0f, yaw: 270.0f, distance: 6.0f, aspectRatio: 16.0f / 9.0f);
+            Assert.Equal(new Vector3(10, 1.94f, 20), camera.Position);
+
+            camera.FirstPersonEyeHeight = null;
+            camera.Update(new Vector3(10, 0, 20), pitch: 0.0f, yaw: 270.0f, distance: 6.0f, aspectRatio: 16.0f / 9.0f);
+            Assert.Equal(new Vector3(10, 1.3f, 20), camera.Position);
+        }
+
+        [Fact]
         public void ViewportCamera_FreeCam_MovesIndependentOfPlayer()
         {
             var camera = new ViewportCamera

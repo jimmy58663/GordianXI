@@ -874,6 +874,7 @@ namespace Gordian.App.Graphics
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
                 {
+                    SilenceWorldAudio(deltaSeconds);
                     RenderLobbyFrame(lobby, deltaSeconds);
                     ThrottleFrame(frameStart, mode, cancellationToken);
                     continue;
@@ -884,6 +885,7 @@ namespace Gordian.App.Graphics
                 // same window, which the lobby then fades in over.
                 if (HoldBlack)
                 {
+                    SilenceWorldAudio(deltaSeconds);
                     RenderBlackFrame();
                     if (mode == ViewportRenderMode.Background) ThrottleFrame(frameStart, mode, cancellationToken);
                     else Thread.Sleep(15);
@@ -989,7 +991,14 @@ namespace Gordian.App.Graphics
                             // No input moves the player while the screen is black for a zone change (#350, as retail).
                             if (_activeSession?.Locomotion is { } blockedLocomotion) blockedLocomotion.InputBlocked = _loadingScreen.IsLoading && _loadingScreen.Opacity >= 1f;
                             // Never the placeholder model while the screen is not fully clear (it showed during the fade).
-                            if (_renderer.EntityRenderer is { } fadeEntities) fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+                            if (_renderer.EntityRenderer is { } fadeEntities)
+                            {
+                                fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
+                                // First person looks out of the character's eyes, so its own body is not drawn (#305), except
+                                // while an event's camera holds the view.
+                                fadeEntities.HideLocalPlayer = Camera.Mode == CameraMode.FirstPerson
+                                    && !(_activeSession?.Events.Presentation.TryGetCamera(out _) ?? false);
+                            }
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
                             BeginPerformancePasses();
@@ -1120,6 +1129,17 @@ namespace Gordian.App.Graphics
             session.LocalPlayer.ServerId != 0 ? session.LocalPlayer.ServerId : session.CharacterId;
 
         /// <summary>
+        /// Where the first-person camera sits above the character's feet: its own model's eye level times its size scale
+        /// (#305), or null (the camera's fixed eye offset) while the model has not loaded.
+        /// </summary>
+        private float? FirstPersonEyeHeight(WorldEntity? entity)
+        {
+            if (entity == null || ResourceManager is not { } resources || !resources.TryLoadEntityModel(entity, out var model) || model == null) return null;
+            float size = entity.Type == EntityType.Player ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+            return Gordian.Core.Animation.FirstPersonEye.HeightOf(model) * size;
+        }
+
+        /// <summary>
         /// Advances one character's camera: its player position (tick-smoothed, on a ridden lift's live height), the
         /// locomotion orbit (yaw unwrapped, tick-smoothed), lock-on aim, collision against its own zone, an event's camera
         /// or the free camera. <paramref name="deltaSeconds"/> 0 places the camera outright.
@@ -1145,6 +1165,7 @@ namespace Gordian.App.Graphics
             Vector3 playerPos = Vector3.Zero;
             bool hasPlayerPos = false;
             uint localPlayerServerId = 0;
+            WorldEntity? cameraEntity = null;
             if (session != null)
             {
                 localPlayerServerId = LocalPlayerServerId(session);
@@ -1152,6 +1173,7 @@ namespace Gordian.App.Graphics
                 {
                     playerPos = localEnt.Position;
                     hasPlayerPos = true;
+                    cameraEntity = localEnt;
                 }
             }
             if (!hasPlayerPos && world != null)
@@ -1254,6 +1276,7 @@ namespace Gordian.App.Graphics
             else if (camera.Mode != CameraMode.FreeCam)
             {
                 view.FreeCamActive = false;
+                camera.FirstPersonEyeHeight = camera.Mode == CameraMode.FirstPerson ? FirstPersonEyeHeight(cameraEntity) : null;
                 if (displayPlayerPos.HasValue)
                 {
                     camera.Update(displayPlayerPos.Value, camera.Pitch, camera.Yaw, camera.Distance, aspect, deltaSeconds);
@@ -1274,7 +1297,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Keeps the cameras of the logged-in characters not on screen moving with them (about 30 times a second), each
-        /// against its own zone's collision, so a Ctrl+Tab to one shows its settled view on the first frame.
+        /// against its own zone's collision, so a Ctrl+Tab to one shows its settled view on the first frame. Their action
+        /// hits and log window sizing keep up too (#377).
         /// </summary>
         private void TickHiddenCameras(float aspect)
         {
@@ -1288,6 +1312,10 @@ namespace Gordian.App.Graphics
                 {
                     float delta = view.NeedsSnap() ? 0.0f : (float)Stopwatch.GetElapsedTime(view.LastUpdate, now).TotalSeconds;
                     UpdateSessionCamera(view, session, session.World, delta, aspect);
+                    // #377: the hits of its actions land now (not all at once when it is shown, replaying their
+                    // reactions), and its log windows keep their size, so a switch shows the character as it already is.
+                    session.ActionPlayback.Update();
+                    StockUi.TickHiddenLog(session);
                 }
                 catch (Exception ex)
                 {
@@ -1388,6 +1416,11 @@ namespace Gordian.App.Graphics
             catch (Exception ex)
             {
                 GordianLog.Debug("Graphics", $"Paused camera update failed: {ex.Message}");
+            }
+            if (Lobby != null || HoldBlack)
+            {
+                SilenceWorldAudio(deltaSeconds);
+                return;
             }
             try
             {
@@ -1491,6 +1524,23 @@ namespace Gordian.App.Graphics
         /// <summary>The lobby being drawn and when it first was (render thread only), for its fade in.</summary>
         private Gordian.Core.Ui.Lobby.LobbyController? _lobbyShown;
         private long _lobbyShownAt;
+
+        /// <summary>
+        /// The lobby and the black screen of a Log Out show no world, so the last zone's music, ambience and sounds stop
+        /// there (#368) when this viewport is the one heard; before, the render loop skipped the audio update on those
+        /// frames and the zone music played on in the character select screen.
+        /// </summary>
+        private void SilenceWorldAudio(float deltaSeconds)
+        {
+            try
+            {
+                Audio.GameAudioService.UpdateWithoutWorldIfCreated(this, Camera, deltaSeconds);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+            }
+        }
 
         private void RenderBlackFrame()
         {

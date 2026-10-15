@@ -105,6 +105,13 @@ namespace Gordian.Core.Animation
             if (model == null || model.Animations.Count == 0) return null;
             var anims = model.Animations;
 
+            // Resting (/heal) and sitting (/sit) loop the model's seated clip (#343); a model without one stands idle.
+            if (RestPosture.IsSeated(category))
+            {
+                if (RestPosture.LoopClip(model, category) is { } seated) return seated;
+                category = AnimationCategory.Idle;
+            }
+
             // Death is universal across stances unless specialized death clips exist. Stems come before their part 0:
             // a death stored in body-region parts (ded0 legs, ded1 upper body...) is joined under the stem (#75).
             if (category == AnimationCategory.Death)

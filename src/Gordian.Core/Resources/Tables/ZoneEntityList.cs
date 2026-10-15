@@ -69,6 +69,18 @@ namespace Gordian.Core.Resources.Tables
     public static class ZoneDatLoader
     {
         public static Func<int, byte[]?>? Load { get; set; }
+
+        private static int _generation;
+
+        /// <summary>
+        /// Advances on every resource cache clear (a VFS reload or <c>/reloaddats</c>, <see cref="ResourceManager.ClearCache"/>,
+        /// #374). Holders of tables read through <see cref="Load"/> compare it with the value they read them under and
+        /// read them again when it changed (the client message tables, the zone's event scripts and dialog).
+        /// </summary>
+        public static int Generation => System.Threading.Volatile.Read(ref _generation);
+
+        /// <summary>Marks every table read through <see cref="Load"/> as stale.</summary>
+        public static void Invalidate() => System.Threading.Interlocked.Increment(ref _generation);
     }
 
     /// <summary>NPC names per zone from the zone entity lists, cached; empty when the DATs are not available.</summary>

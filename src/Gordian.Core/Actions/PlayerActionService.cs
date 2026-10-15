@@ -155,6 +155,13 @@ namespace Gordian.Core.Actions
         /// </summary>
         public Func<bool, string, string>? DebugAudioCommand { get; set; }
 
+        /// <summary>
+        /// <c>/reloaddats</c> (#374): re-indexes the VFS packs (<c>resources/dats</c>, <c>resources/assets</c>, <c>vfs.json</c>)
+        /// and drops every cache built from the DATs, so the zone, models, textures, stock UI and tables are read again;
+        /// returns the reply. Set by the app (null without the game's resources).
+        /// </summary>
+        public static Func<string>? DatReloader { get; set; }
+
         private StockUiSettings _uiSettings = new();
         private ConfigPacketModule? _configModule;
 
@@ -1327,6 +1334,8 @@ namespace Gordian.Core.Actions
                         return "Usage: /playsound <id> | stop - Debug: play sound effect <id> on this client (looped files loop until stop).";
                     case "playmusic":
                         return "Usage: /playmusic <n> | stop - Debug: play music track <n> on this client instead of the zone music.";
+                    case "reloaddats" or "reloaddat":
+                        return "Usage: /reloaddats - Re-read the VFS packs (resources/dats, resources/assets, vfs.json) and every DAT: the zone, models, textures and UI reload. GordianXI command.";
                     case "pos" or "where" or "loc":
                         return "Usage: /pos - Print current player coordinates, heading, and server ID.";
                     case "target" or "ta":
@@ -1474,6 +1483,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("[Debug: audio, client only]");
             sb.AppendLine("  /playsound <id> | stop    - Play sound effect <id> (seNNNNNN.spw) centred; looped files loop until stop");
             sb.AppendLine("  /playmusic <n> | stop     - Play musicNNN.bgw instead of the zone music; stop returns to it");
+            sb.AppendLine("  /reloaddats               - Re-read the VFS packs and every DAT (zone, models, textures, UI)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -2733,6 +2743,15 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.DebugPlayRoutine:
                     return PlayRoutineCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.ReloadDats:
+                {
+                    // Client only, never sent to the server.
+                    var reload = DatReloader;
+                    return reload is null
+                        ? PlayerActionResult.Warn("The game's resources are not loaded; nothing to reload.", cmd.Kind)
+                        : PlayerActionResult.Info(reload(), cmd.Kind);
+                }
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

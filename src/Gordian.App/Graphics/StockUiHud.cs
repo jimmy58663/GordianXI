@@ -643,14 +643,11 @@ namespace Gordian.App.Graphics
             chat.SetMultiWindow(multi != 0);
             var logFont = _logFont;
             _window1Top = null;
+            UseLogSession(session);
             // Reactive sizing picks each window's line count (and so its frame) from the lines arriving; it shows the
             // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
             double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-            bool typing = chat.Input.IsOpen;
-            _logSizing[0].Update(now, chat.Log.AddedCount(1), Settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
-                Settings.GetValue(StockUiSettingKey.Window1MinLines), Settings.GetValue(StockUiSettingKey.Window1MaxLines),
-                StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
-                expanded: typing || Drag.Unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0);
+            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now);
             // The drawn height follows the line count smoothly: the frame is the next whole line count up, drawn
             // shorter, its rows held against the bottom edge (StockUiChatWindow.DrawLog's riseRows).
             float display1 = _logSizing[0].DisplayLines;
@@ -724,10 +721,6 @@ namespace Gordian.App.Graphics
                 Drag.Register(StockUiWindowIds.Log, menu1.Frame, placement, window1.X, window1.Y, width1 * s, height1 * s);
             }
 
-            if (multi != 0) _logSizing[1].Update(now, chat.Log.AddedCount(2), Settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
-                Settings.GetValue(StockUiSettingKey.Window2MinLines), Settings.GetValue(StockUiSettingKey.Window2MaxLines),
-                StockUiLogSizing.ResizeSeconds(Settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
-                expanded: Drag.Unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0);
             float display2 = _logSizing[1].DisplayLines;
             if (multi != 0 && display2 > 0.01f && TryGetLogFrame(library, (int)Math.Ceiling(display2), out var menu2, out int maxRows2))
             {
@@ -784,8 +777,67 @@ namespace Gordian.App.Graphics
         /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
         private bool _dialogWaiting;
 
-        /// <summary>Each log window's reactive sizing (Window 1, Window 2).</summary>
-        private readonly StockUiLogSizing[] _logSizing = { new(), new() };
+        /// <summary>The drawn session's log windows' reactive sizing (Window 1, Window 2): one of <see cref="_logSizings"/>.</summary>
+        private StockUiLogSizing[] _logSizing = { new(), new() };
+
+        /// <summary>
+        /// Each character's own log window sizing (#377). One HUD draws whichever character the viewport shows; with a shared
+        /// sizing a switch read the other log's arrived-line counter as that many new lines and grew the window line by line,
+        /// as if the log replayed. The characters not shown keep theirs up to date (<see cref="TickHiddenLog"/>).
+        /// </summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CharacterSession, StockUiLogSizing[]> _logSizings = new();
+
+        /// <summary>The session whose log was drawn last (render thread).</summary>
+        private CharacterSession? _logSession;
+
+        private StockUiLogSizing[] LogSizingFor(CharacterSession session) =>
+            _logSizings.GetValue(session, _ => new StockUiLogSizing[] { new(), new() });
+
+        /// <summary>A character's reactive sizing of log window 1 or 2 (its own, #377).</summary>
+        public StockUiLogSizing LogSizing(CharacterSession session, int window) => LogSizingFor(session)[window == 2 ? 1 : 0];
+
+        /// <summary>
+        /// Takes the drawn session's log state. On a switch the rows' slide starts over from the log as it stands, so the
+        /// other character's lines do not slide in as new ones (#377).
+        /// </summary>
+        private void UseLogSession(CharacterSession session)
+        {
+            if (ReferenceEquals(session, _logSession)) return;
+            _logSession = session;
+            _logSizing = LogSizingFor(session);
+            foreach (var scroll in _logScroll) scroll.Reset();
+        }
+
+        /// <summary>
+        /// Advances a log's reactive sizing (Window 2's only while the log is split); it shows the maximum while the player
+        /// reads the window (selected, scrolled back, typing, or placing the UI).
+        /// </summary>
+        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now)
+        {
+            sizing[0].Update(now, chat.Log.AddedCount(1), settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
+                settings.GetValue(StockUiSettingKey.Window1MinLines), settings.GetValue(StockUiSettingKey.Window1MaxLines),
+                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
+                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0);
+            if (multi != 0) sizing[1].Update(now, chat.Log.AddedCount(2), settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
+                settings.GetValue(StockUiSettingKey.Window2MinLines), settings.GetValue(StockUiSettingKey.Window2MaxLines),
+                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
+                expanded: unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0);
+        }
+
+        /// <summary>
+        /// Keeps the log windows of a character not on screen sized as its lines arrive (#377), so a switch to it shows its
+        /// log at once, as it already was. Render thread; the session being drawn is skipped.
+        /// </summary>
+        public void TickHiddenLog(CharacterSession session)
+        {
+            ArgumentNullException.ThrowIfNull(session);
+            if (ReferenceEquals(session, _logSession)) return;
+            var settings = session.ActionService.UiSettings;
+            int multi = settings.GetValue(StockUiSettingKey.LogMultiWindow);
+            session.Chat.SetMultiWindow(multi != 0);
+            UpdateLogSizing(LogSizingFor(session), session.Chat, settings, session.ActionService.UiDrag.Unlocked, multi,
+                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
+        }
 
         /// <summary>
         /// The frame for a log window showing <paramref name="lines"/> lines ("log1".."log8"; "logwindo" is the same

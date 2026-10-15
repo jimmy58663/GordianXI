@@ -47,10 +47,15 @@ public partial class App : Application
         var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
         Gordian.Core.Network.Packets.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
 
+        // /reloaddats (#374): re-index the VFS packs and read every DAT again.
+        Gordian.Core.Actions.PlayerActionService.DatReloader = Gordian.App.Services.DatReload.Reload;
+
         // Spells, job abilities and weapon skills by name (/ma, /ja, /ws and the Magic / Abilities windows, #240 / #353):
-        // the client's spell and command tables with their name tables, read once per resource manager.
+        // the client's spell and command tables with their name tables, read once per resource manager and again after
+        // a VFS reload or /reloaddats (#374).
         object catalogGate = new();
         object? catalogSource = null;
+        int catalogGeneration = -1;
         Gordian.Core.Actions.ActionCatalog? catalog = null;
         Gordian.Core.Actions.ActionCatalog.Provider = () =>
         {
@@ -58,9 +63,10 @@ public partial class App : Application
             if (rm == null) return null;
             lock (catalogGate)
             {
-                if (!ReferenceEquals(catalogSource, rm))
+                if (!ReferenceEquals(catalogSource, rm) || catalogGeneration != rm.CacheGeneration)
                 {
                     catalogSource = rm;
+                    catalogGeneration = rm.CacheGeneration;
                     catalog = Gordian.Core.Actions.ActionCatalog.Load(rm);
                 }
                 return catalog;

@@ -95,6 +95,12 @@ namespace Gordian.App.Graphics
         /// clear, #36), so the player never shows as the placeholder before its look arrives.
         /// </summary>
         public bool HideFallbackProxies { get; set; }
+
+        /// <summary>
+        /// Leaves out the local player's body (set in first person, #305: the camera is at its eyes, inside the head). Its
+        /// motion still advances, so its effects and anchors follow it.
+        /// </summary>
+        public bool HideLocalPlayer { get; set; }
         private GpuEntityModel? _fallbackNpcProxy;
         private GpuEntityModel? _fallbackMonsterProxy;
         private bool _loggedPaletteOverflow;
@@ -394,7 +400,7 @@ namespace Gordian.App.Graphics
                 // The resource cache was cleared (a VFS reload): its models are rebuilt from the new files, so the
                 // GPU copies of the old ones would never be drawn again. Free them rather than keep them to exit.
                 _shared.EntityModelGeneration = resourceManager.CacheGeneration;
-                _shared.ClearEntityModels();
+                _shared.ReloadEntityResources();
             }
 
             int draws = 0;
@@ -650,6 +656,8 @@ namespace Gordian.App.Graphics
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
                 if (SubTargetServerId != 0 && entity.ServerId == SubTargetServerId) SubTargetAnchor = overhead;
+
+                if (HideLocalPlayer && entity.ServerId == localPlayerServerId) continue;
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
                 if (faded)

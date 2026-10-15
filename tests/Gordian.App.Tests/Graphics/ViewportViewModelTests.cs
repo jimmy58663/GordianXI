@@ -20,6 +20,26 @@ namespace Gordian.App.Tests.Graphics
             return (vm, tempFile);
         }
 
+        /// <summary>The Reload DATs button (#374) runs the reload and shows its report.</summary>
+        [Fact]
+        public void ReloadDatsButton_RunsTheReloadAndShowsItsReport()
+        {
+            var (vm, tempFile) = CreateIsolatedViewModel();
+            try
+            {
+                int runs = 0;
+                vm.DatReloader = () => $"reloaded {++runs}";
+                Assert.Equal(string.Empty, vm.DatReloadStatus);
+                vm.ReloadDatsCommand.Execute(null);
+                Assert.Equal(1, runs);
+                Assert.Equal("reloaded 1", vm.DatReloadStatus);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
         [Fact]
         public void DefaultState_HasAutoBackendAndTelemetryDefaults()
         {

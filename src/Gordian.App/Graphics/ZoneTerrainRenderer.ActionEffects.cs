@@ -40,6 +40,9 @@ namespace Gordian.App.Graphics
         private readonly List<ActionEffectEvent> _actionEffectEvents = new();
         private readonly List<uint> _finishedSharedEffects = new();
 
+        /// <summary>The world whose actors the action effects follow (render thread).</summary>
+        private WorldState? _actionEffectsWorld;
+
         private int ActionEffectCount => _actionEffects.Count + _sharedActorEffects.Count;
 
         private void ClearActionEffects()
@@ -63,6 +66,16 @@ namespace Gordian.App.Graphics
             {
                 ClearActionEffects();
                 return;
+            }
+
+            // #377: another character's world is shown (a multi-box switch). Its actors are other objects whose action
+            // serials the tracker never saw, so it would take every one's last action as new and replay its effects; the
+            // effects playing belong to the world left. Start over: actors are then first seen, which starts only actions
+            // just begun (MaxLateStartTicks) and appearances just spawned (IsFreshSpawn).
+            if (!ReferenceEquals(World, _actionEffectsWorld))
+            {
+                _actionEffectsWorld = World;
+                ClearActionEffects();
             }
 
             if (entities != null && resourceManager != null)
