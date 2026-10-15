@@ -8,7 +8,8 @@
 
 - Typed on the stock chat line (2026-10-04, awaiting the in-game test). `/importretail` lists the USER folders, newest first, with each `cnf.dat`'s last-modified time, marking the folder named after this character's id in hex ("<- this character?"; a guess, see below) and those without a `cnf.dat`. `/importretail <folder>` reads that folder's `cnf.dat` and overwrites the character's GordianXI settings with what it understands: every Font Colors row and the Log page's routing (`RetailUserSettings`, `RetailCnf`), then prints what it imported. Nothing is imported automatically and nothing is ever written to the game folder (maintainer's decision, 2026-09-27); file and folder names are looked up in their exact case (`USER`, `cnf.dat`).
 - The guess uses `CharacterSession.CharacterId` (the server's character id), which equals the content id on LSB; the lobby's content id (`LsbCharacterInfo.ContentId`) is not carried into the session yet, nor is whatever the xiloader / pol handoff passes.
-- Not imported yet: the window settings (log lines, timestamps, multi-window), volumes and the other config fields (not decoded, below) and macros.
+- `/importretail <folder> macros` (#339) imports that folder's macros instead (the list marks folders with macro files "(macros)"); the files and the import are in [macros.md](macros.md#retail-macro-files-retailmacrofiles).
+- Not imported yet: the window settings (log lines, timestamps, multi-window), volumes and the other config fields (not decoded, below).
 
 ## Folders
 
@@ -74,9 +75,13 @@ Differences between the fresh files and the configured ones, for the next diffin
 - 0x1F8 u32 1000-2000, different per character.
 - 0x244 "stak", 0x24C "nihs" (four-character tags), the same everywhere.
 
+### Macro files
+
+`mcr*.dat`, `mcr.ttl` / `mcr_2.ttl` and `mcr.sys` are decoded (2026-10-12): [macros.md](macros.md#retail-macro-files-retailmacrofiles).
+
 ### Not read yet
 
-`mcr*.dat` (7624 bytes) and `mcr.ttl` / `mcr_2.ttl` (macro books and their titles), the 4240-byte files (`b2`, `bs`, `ca`, `cl`, `is`, `mb`, `sb`, `sk`, `ti`, `wr`, `wr_2`..`wr_8`), `aix` / `eix` / `mix` / `moix` / `acq` / `pec.dat`, `gst`, `mcr.sys`, `timestamp.dat`, `ffxiusr.msg`, `AUCSORT.DAT`, `M*.MRK`.
+The 4240-byte files (`b2`, `bs`, `ca`, `cl`, `is`, `mb`, `sb`, `sk`, `ti`, `wr`, `wr_2`..`wr_8`), `aix` / `eix` / `mix` / `moix` / `acq` / `pec.dat`, `gst`, `timestamp.dat`, `ffxiusr.msg`, `AUCSORT.DAT`, `M*.MRK`.
 
 ## Equipment set files (`es<n>.dat`, [#92](https://github.com/jimmy58663/GordianXI/issues/92))
 

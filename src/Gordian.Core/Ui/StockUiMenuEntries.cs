@@ -127,6 +127,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Macros' Edit Equip. Set: opens the Equipment Sets list (<see cref="StockUiEquipSets"/>, #92).</summary>
         EquipmentSets,
+
+        /// <summary>The Macros menu's Edit Macro: opens the macro book list (<see cref="StockUiMacroMenus"/>, #339).</summary>
+        MacroBooks,
     }
 
     /// <summary>
@@ -202,8 +205,8 @@ namespace Gordian.Core.Ui
             [(MainMenuPage2, 11)] = new("Shut Down", Command: StockUiMenuCommand.ShutDown),
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
-            // Macros ("mcrmenu", "Macro"): Edit Macro (help 829) and Edit Equip. Set (help 830, #92).
-            [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.NotAvailable),
+            // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,

@@ -352,6 +352,12 @@ namespace Gordian.Core.Input
             _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
             _inputState.Update(_profile, elapsed);
 
+            // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,
+            //     the chat line or a selected log window has the input.
+            //     The command menu alone does not block them: it stays up while fighting (round 1, A16: macros did nothing in combat).
+            string? macroBlock = Gordian.Core.Macros.MacroController.BlockReason(menus, chat, subTargeting);
+            Macros?.Update(_inputState, blocked: macroBlock != null, _profile, macroBlock);
+
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):
             //     the gamepad's cancel button drops it as Escape does, and Tab / Shift+Tab still cycle targets. The
             //     chat button opens it; keypad + (gamepad Y) cycles the log window selected for scrolling.
@@ -370,22 +376,26 @@ namespace Gordian.Core.Input
                     chat.Input.Open();
                     return;
                 }
-                if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !menuOpen) chat.CycleLogWindow();
-                if (chat.FullLogOpen && !menuOpen)
+                // The engaged target command menu alone (always up in combat) does not keep keypad + / Y from selecting the
+                // log or the status icons, nor the selection from taking the keys (round 4: retail lets you read back and
+                // cancel a buff mid-fight). Any other open menu keeps + / Y for itself (item options, Button / Line Edit).
+                bool chatGated = menuOpen && !(menus is { OpenMenus.Count: 1 } && menus.Top is { IsCommandMenu: true } && !subTargeting);
+                if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !chatGated) chat.CycleLogWindow();
+                if (chat.FullLogOpen && !chatGated)
                 {
                     UpdateFullLog(chat, elapsed);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
                 }
-                if (chat.SelectedLogWindow != 0 && !menuOpen)
+                if (chat.SelectedLogWindow != 0 && !chatGated)
                 {
                     UpdateLogScroll(chat, elapsed);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
                 }
-                if (chat.SelectedStatusIcon >= 0 && !menuOpen)
+                if (chat.SelectedStatusIcon >= 0 && !chatGated)
                 {
                     UpdateStatusSelection(chat);
                     UpdateCamera(elapsed);
@@ -432,6 +442,9 @@ namespace Gordian.Core.Input
 
         /// <summary>The session's stock chat (null outside a session).</summary>
         public Ui.StockUiChat? Chat { get; set; }
+
+        /// <summary>The session's macro palettes (null outside a session); fed each tick (#339).</summary>
+        public Macros.MacroController? Macros { get; set; }
 
         /// <summary>
         /// The stock chat was hidden (#29): its input line, a selected log window and the full-screen log let go of the

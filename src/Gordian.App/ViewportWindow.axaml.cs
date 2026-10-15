@@ -579,6 +579,16 @@ namespace Gordian.App
             // A hidden stock chat (#29, /stockui) takes no keys: they go to the game (or whatever replaces the chat).
             bool chatHidden = session.ActionService.UiVisibility.IsHidden(StockUiElement.Chat);
             if (chatHidden && chat.Input.IsOpen) chat.Input.Cancel();
+            // A macro title, line or book name being typed (#339) owns the keyboard as the chat line does.
+            var macroField = session.ActionService.Menus.MacroField;
+            if (macroField.IsOpen)
+            {
+                if (typed) return;
+                if (gKey == GordianKey.V && mods == InputModifiers.Control) _ = PasteIntoFieldAsync(macroField);
+                else macroField.HandleKey(gKey, mods);
+                e.Handled = true;
+                return;
+            }
             var menus = session.ActionService.Menus;
             if (menus.IsEditingName)
             {
@@ -656,6 +666,12 @@ namespace Gordian.App
                 return;
             }
             var textSession = _viewModel?.ActiveTab?.Session;
+            if (textSession?.ActionService.Menus.MacroField is { IsOpen: true } field)
+            {
+                if (!string.IsNullOrEmpty(e.Text)) field.InsertText(e.Text);
+                e.Handled = true;
+                return;
+            }
             if (textSession?.ActionService.Menus is { IsEditingName: true } naming)
             {
                 if (!string.IsNullOrEmpty(e.Text)) naming.NameEditInsert(e.Text);
@@ -667,6 +683,14 @@ namespace Gordian.App
             if (textSession!.ActionService.UiVisibility.IsHidden(StockUiElement.Chat)) return;
             input.InsertText(e.Text);
             e.Handled = true;
+        }
+
+        private async System.Threading.Tasks.Task PasteIntoFieldAsync(StockUiTextField field)
+        {
+            var clipboard = Clipboard;
+            if (clipboard == null) return;
+            string? text = await clipboard.TryGetTextAsync();
+            if (!string.IsNullOrEmpty(text)) field.InsertText(text.Replace("\r", string.Empty).Replace('\n', ' '));
         }
 
         private async System.Threading.Tasks.Task PasteIntoChatAsync(StockUiChatInput input)

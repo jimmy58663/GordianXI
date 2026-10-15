@@ -722,5 +722,33 @@ namespace Gordian.Core.Tests.Network
             Assert.Contains("Hidden", result.Message);
             Assert.Contains("2 player(s)", result.Message);
         }
+
+        /// <summary>
+        /// <c>/pcmd add</c> and <c>/acmd add</c> for a player in another zone (#362 round 2): the character id comes from a name
+        /// search, and C2S 0x06E goes out with it and ActIndex 0 (XiPackets world/client/0x006E; LandSandBoat finds the character by id).
+        /// </summary>
+        [Fact]
+        public async Task PcmdAdd_InvitesAPlayerInAnotherZoneByCharacterId()
+        {
+            var session = NewSession(_ => new[] { (EntityAnswer(0, 1, true, false, ("Ayame", 230, 3, 4, 75, 37, 0, 0x1234, 0)), 0) });
+            var actions = session.Parser.ActionService;
+            actions.SearchService = session.Parser.Search;
+
+            var result = await actions.ExecuteCommandAsync("/pcmd add Ayame");
+            Assert.True(result.Success, result.Message);
+            var invite = session.Sent[^1];
+            Assert.Equal(0x06E, Header(invite).Id);
+            Assert.Equal(0x1234u, BinaryPrimitives.ReadUInt32LittleEndian(invite.AsSpan(4)));
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(invite.AsSpan(8)));
+            Assert.Equal(0, invite[10]);
+
+            result = await actions.ExecuteCommandAsync("/acmd add Ayame");
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(5, session.Sent[^1][10]);
+
+            result = await actions.ExecuteCommandAsync("/pcmd add Nobody");
+            Assert.False(result.Success);
+            Assert.Contains("not online", result.Message);
+        }
     }
 }

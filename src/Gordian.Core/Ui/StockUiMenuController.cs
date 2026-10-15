@@ -1124,6 +1124,7 @@ namespace Gordian.Core.Ui
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
+            if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
             if (IsEditingName) return true; // Change Name has the keyboard (the window routes it)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
@@ -1159,7 +1160,7 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
-            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions() || ToggleActionOptions()))
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions() || ToggleActionOptions() || ToggleMacroOptions()))
             {
                 // The Treasure Pool's + / Y: the cursor to Done and back; the Items window's: to its options and back.
                 SoundCue?.Invoke(StockUiSoundCue.CursorMove);
@@ -1225,7 +1226,11 @@ namespace Gordian.Core.Ui
                 if (top == null || button == null) return;
 
                 bool horizontal = direction is InputAction.MenuLeft or InputAction.MenuRight;
-                if (top.IsQuantity)
+                if (TryMoveMacro(top, direction, ref changed))
+                {
+                    // The macro windows' own moves (#339): the book list's pages, the palette editor's sets.
+                }
+                else if (top.IsQuantity)
                 {
                     // The quantity control: + / - step the count (up/down), "All" (left) and "1" (right) jump to the ends.
                     changed = AdjustQuantity(top, direction switch
@@ -1542,7 +1547,7 @@ namespace Gordian.Core.Ui
                 return;
             }
 
-            if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button)) return;
+            if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
             if (TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
@@ -1877,6 +1882,10 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.EquipmentSets:
                     OpenEquipmentSets(from);
+                    break;
+
+                case StockUiMenuCommand.MacroBooks:
+                    OpenMacroBooks(from);
                     break;
 
                 case StockUiMenuCommand.JobTraitList:

@@ -2148,6 +2148,7 @@ namespace Gordian.Core.Actions
             try
             {
                 await module.SynthesizeAsync(crystal.ItemId, slots[0], ingredients).ConfigureAwait(false);
+                RememberSynthesis(crystal.ItemId, ingredients);
                 // Retail prints nothing for the request; the animation and the result lines follow.
                 return PlayerActionResult.Ok(string.Empty, kind);
             }
@@ -2838,7 +2839,8 @@ namespace Gordian.Core.Actions
                         await _partyModule.SendInviteAsync(cmd.TargetServerId, cmd.TargetIndex).ConfigureAwait(false);
                         return PlayerActionResult.Ok($"Invited {cmd.TargetName} to party.", cmd.Kind);
                     }
-                    return PlayerActionResult.Warn($"Player '{cmd.TargetName}' not found in area.", cmd.Kind);
+                    // Not in this zone: invited by character id, found through the search server (#362 round 2).
+                    return await InviteOutOfZoneAsync(cmd.TargetName, PartyKind.Party, cmd.Kind).ConfigureAwait(false);
 
                 case ChatCommandResultKind.PartyLeave:
                     await _partyModule.LeavePartyAsync().ConfigureAwait(false);
@@ -2860,6 +2862,16 @@ namespace Gordian.Core.Actions
                 case ChatCommandResultKind.ServerCommand:
                     await _chatModule.SendChatAsync(ChatSendKind.Say, cmd.Message).ConfigureAwait(false);
                     return PlayerActionResult.Ok($"Sent server command: {cmd.Message}", cmd.Kind);
+
+                case ChatCommandResultKind.Macro:
+                case ChatCommandResultKind.Wait:
+                case ChatCommandResultKind.Recast:
+                case ChatCommandResultKind.TargetNpc:
+                case ChatCommandResultKind.TargetBattleNpc:
+                case ChatCommandResultKind.LastSynth:
+                case ChatCommandResultKind.AllianceCommand:
+                case ChatCommandResultKind.PartyLeader:
+                    return await ExecuteMacroCommandAsync(cmd).ConfigureAwait(false);
 
                 case ChatCommandResultKind.LocalEcho:
                     return PlayerActionResult.Info(cmd.Message, cmd.Kind);

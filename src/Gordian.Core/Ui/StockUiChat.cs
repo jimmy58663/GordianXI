@@ -122,12 +122,27 @@ namespace Gordian.Core.Ui
             {
                 if (_selectedStatus < 0) return -1;
                 int count = StatusIds().Count;
-                return count == 0 ? -1 : Math.Min(_selectedStatus, count - 1);
+                if (count == 0)
+                {
+                    // The last icon went away: the selection ends. Left pending, it came back with the next icon (often one
+                    // gained in combat) and silently took the arrows / d-pad and blocked the macro palettes (#339 round 2).
+                    _selectedStatus = -1;
+                    return -1;
+                }
+                return Math.Min(_selectedStatus, count - 1);
             }
         }
 
         /// <summary>Whether the log, a status icon or the full-screen log is selected (the menu keys are then the selection's).</summary>
         public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0 || FullLogOpen;
+
+        /// <summary>
+        /// True while an exclusive view covers the screen (the full-screen log): the open menus (the target command menu,
+        /// which stays up while engaged, being the only one that can be) are not drawn and take no input until it closes, then
+        /// come back as they were (#339 round 5). The full log only opens with no menu or that command menu open; the input
+        /// tick gives it the keys before the menus.
+        /// </summary>
+        public bool HidesMenus => FullLogOpen;
 
         /// <summary>
         /// The full-screen log (the <c>fulllog</c> window with <c>fep</c> tabs; retail capture 2026-10-04): opened
@@ -366,6 +381,16 @@ namespace Gordian.Core.Ui
 
             var kind = SendKindOf(mode);
             var parsed = ChatCommandRouter.Parse(raw, kind);
+            if (ExpandTokens is { } expand && parsed.Kind is ChatCommandResultKind.SendChat or ChatCommandResultKind.SendTell or ChatCommandResultKind.LocalEcho)
+            {
+                // Chat text carries its placeholders filled in (<hp>, <t> ...; #362), as retail sends and shows it.
+                string expanded = expand(raw);
+                if (!string.Equals(expanded, raw, StringComparison.Ordinal))
+                {
+                    raw = expanded;
+                    parsed = ChatCommandRouter.Parse(raw, kind);
+                }
+            }
             if (parsed.Kind == ChatCommandResultKind.SendChat && string.IsNullOrWhiteSpace(parsed.Message)) return;
 
             var execute = Execute;
@@ -407,7 +432,9 @@ namespace Gordian.Core.Ui
             // Basic system messages); other client results keep GordianXI's notice colour.
             var channel = result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error
                 ? ChatLogChannel.Error
-                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System : ChatLogChannel.Notice;
+                : IsSystemReply(parsed.Kind) ? ChatLogChannel.System
+                : parsed.Kind is ChatCommandResultKind.LocalEcho or ChatCommandResultKind.Recast ? ChatLogChannel.Echo
+                : ChatLogChannel.Notice;
             foreach (var row in result.Message.Split('\n'))
             {
                 string text = row.TrimEnd('\r');
@@ -484,6 +511,12 @@ namespace Gordian.Core.Ui
             return true;
         }
 
+        /// <summary>Fills chat text placeholders (<c>&lt;hp&gt;</c>, <c>&lt;t&gt;</c> ...) before a line is sent (#362); null leaves them.</summary>
+        public Func<string, string>? ExpandTokens { get; set; }
+
+        /// <summary>The character's macros, which <c>/importretail &lt;folder&gt; macros</c> replaces (#339).</summary>
+        public Func<Gordian.Core.Macros.MacroLibrary?> Macros { get; set; } = () => null;
+
         /// <summary>The retail install folder (for <c>/importretail</c>); null when unknown.</summary>
         public Func<string?> GameDirectory { get; set; } = () => null;
 
@@ -527,8 +560,10 @@ namespace Gordian.Core.Ui
                 {
                     string mark = folder.Name.Equals(guess, StringComparison.Ordinal) ? "  <- this character?" : string.Empty;
                     string config = folder.HasConfig ? string.Empty : " (no cnf.dat)";
-                    Log.Add(ChatLogChannel.Notice, $"  {folder.Name}  {folder.LastModifiedUtc.ToLocalTime():yyyy-MM-dd HH:mm}{config}{mark}");
+                    string macros = Gordian.Core.Macros.RetailMacroFiles.HasMacroFiles(folder.Path) ? " (macros)" : string.Empty;
+                    Log.Add(ChatLogChannel.Notice, $"  {folder.Name}  {folder.LastModifiedUtc.ToLocalTime():yyyy-MM-dd HH:mm}{config}{macros}{mark}");
                 }
+                Log.Add(ChatLogChannel.Notice, "Import a folder's macros (replacing this character's) with /importretail <folder> macros.");
                 return true;
             }
 
@@ -541,6 +576,11 @@ namespace Gordian.Core.Ui
             if (chosen == null)
             {
                 Log.Add(ChatLogChannel.Error, $"Import retail settings: there is no USER folder \"{name}\". Type /importretail to list them.");
+                return true;
+            }
+            if (words.Length > 2 && words[2].Equals("macros", StringComparison.OrdinalIgnoreCase))
+            {
+                ImportRetailMacros(chosen);
                 return true;
             }
             var settings = Settings();
@@ -557,6 +597,25 @@ namespace Gordian.Core.Ui
                 ? $"Imported nothing from USER/{chosen.Name}."
                 : $"Imported {string.Join(" and ", applied)} from USER/{chosen.Name}.");
             return true;
+        }
+
+        /// <summary>Replaces the character's macros with a retail USER folder's (the folder is only read; #339).</summary>
+        private void ImportRetailMacros(RetailUserFolder folder)
+        {
+            var library = Macros();
+            if (library == null)
+            {
+                Log.Add(ChatLogChannel.Error, "Import retail macros: macros are not available.");
+                return;
+            }
+            if (!Gordian.Core.Macros.RetailMacroFiles.HasMacroFiles(folder.Path))
+            {
+                Log.Add(ChatLogChannel.Error, $"Import retail macros: USER/{folder.Name} has no macro files.");
+                return;
+            }
+            var imported = Gordian.Core.Macros.RetailMacroFiles.Import(folder.Path, library);
+            string dropped = imported.DroppedPhrases > 0 ? $" ({imported.DroppedPhrases} auto-translate phrases left out)" : string.Empty;
+            Log.Add(ChatLogChannel.Notice, $"Imported {imported.Macros} macros in {imported.Sets} sets and {imported.BookTitles} book titles from USER/{folder.Name}{dropped}.");
         }
 
         /// <summary>The commands whose replies are the server's answers (<c>/sea</c>, <c>/itemsearch</c>, <c>/blacklist</c>), logged as system text.</summary>

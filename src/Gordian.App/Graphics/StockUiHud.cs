@@ -251,6 +251,7 @@ namespace Gordian.App.Graphics
             {
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
+                if (!cutscene) DrawMacros(renderer, library, session, width, height);
             }
             bool unlocked = Drag.Unlocked;
             if (unlocked)
@@ -317,6 +318,41 @@ namespace Gordian.App.Graphics
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The macro palette in play while Ctrl / Alt (LT / RT) is held, and the help bar over it and over the macro windows
+        /// (#339): "Edit Macros" (or "MacroPalette" in play) and "Macro Set &lt;book&gt; (#&lt;set&gt;)", as the maintainer's retail
+        /// captures (2026-10-13) show; over a window whose selected entry has a help line (the book options, Line / Button
+        /// Edit), that line.
+        /// </summary>
+        private void DrawMacros(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font) return;
+            var menus = session.ActionService.Menus;
+            if (menus.Suspended) return;
+            var top = menus.OpenMenus.LastOrDefault(m => m.IsMacroWindow);
+            if (top != null)
+            {
+                string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+                string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
+                if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
+                StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+                return;
+            }
+            var macros = session.Macros;
+            // The same rule as the input tick: the target command menu alone, which stays up while engaged, does not hide the
+            // palette (round 2, A22: this check hid it whenever any menu was open, so never while engaged).
+            if (macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None
+                || Gordian.Core.Macros.MacroController.IsBlockedBy(menus, session.Chat, session.ActionService.SubTargeting != null)) return;
+            var settings = session.ActionService.UiSettings;
+            bool compact = settings.GetValue(StockUiSettingKey.MacroPaletteSize) == 1;
+            // Static: always shifted right; Dynamic: while engaged, when retail draws your own HP / MP / TP bars at its left.
+            bool shifted = settings.GetValue(StockUiSettingKey.MacroPalettePosition) == 1 || session.ActionService.Combat?.IsEngaged == true;
+            StockUiMacroWindow.DrawPlayPalette(renderer, library, font, macros, compact, shifted, Layout.Scale, width, height);
+            var library2 = macros.Library;
+            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, StockUiMacroMenus.PaletteTitle,
+                $"Macro Set {library2.GetBookTitle(library2.CurrentBook)} (#{library2.CurrentSet + 1})", Layout.Scale, width, height);
         }
 
         /// <summary>The cursor's tip above the name plate (when the entity has one), else on the overhead point.</summary>
@@ -404,10 +440,12 @@ namespace Gordian.App.Graphics
         {
             var open = menus.OpenMenus;
             _menuPlacements.Clear();
-            // While the sub-target cursor picks the target of an action chosen in the menus they step aside (#240).
-            if (open.Count == 0 || menus.Suspended)
+            // While the sub-target cursor picks the target of an action chosen in the menus they step aside (#240); an exclusive
+            // view (the full-screen log) hides them too, and with no placements published the mouse cannot reach them (#339 round 5).
+            if (open.Count == 0 || menus.Suspended || session.Chat.HidesMenus)
             {
                 menus.SetScreenPlacements(_menuPlacements);
+                if (open.Count > 0) return;
                 if (Drag.Unlocked && library.TryGetMenu("menuwind", out var closedMenu))
                 {
                     DrawPlaceholder(renderer, StockUiWindowIds.MainMenu, closedMenu, ResolveWindow(StockUiWindowIds.MainMenu, closedMenu.Frame, width, height, out _));
@@ -462,7 +500,8 @@ namespace Gordian.App.Graphics
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
                     // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow;
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow
+                        || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
@@ -476,6 +515,14 @@ namespace Gordian.App.Graphics
                         var own = ResolveWindow(StockUiWindowIds.MainMenu, frame, width, height, out _);
                         x = own.X;
                         y = own.Y;
+                    }
+                    else if (menu.MacroView == StockUiMacroView.BookOptions && menu.Parent is { } bookList
+                        && _menuPlacements.FirstOrDefault(p => ReferenceEquals(p.Menu, bookList)) is { Menu: not null } listAt
+                        && bookList.Menu.FindButton(bookList.SelectedButtonId) is { } bookRow)
+                    {
+                        // A book's options open beside its row, left of the book list (PROVISIONAL: authored at 0,0; retail's place not captured).
+                        x = Math.Max(0, listAt.X - (frame.Width + 4) * root.Scale);
+                        y = Math.Clamp(listAt.Y + (bookRow.Y - 6) * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
                     else if (menu.IsActionList && _window1Top is { } listTop)
                     {
@@ -498,6 +545,14 @@ namespace Gordian.App.Graphics
                     // The Items window's options ("+ : Sort") stand at the top right while the list takes input; + / Y puts the cursor on them.
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
+                    && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
+                {
+                    // Button Edit beside the palettes and Line Edit beside the editor stand at their authored places at the top right
+                    // whenever those windows have the cursor (maintainer retail capture 2026-10-13); + / Y puts the cursor on them.
+                    var f = macroOptions.Frame;
+                    StockUiMacroWindow.DrawOptions(renderer, library, macroOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
                 if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
                     && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))

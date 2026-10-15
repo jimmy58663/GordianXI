@@ -247,6 +247,10 @@ namespace Gordian.Core.Ui
         {
             ChatLogChannel.ServerMessage => new UiColor(0x64, 0x32, 0x7F, 0x7F),
             ChatLogChannel.Notice => new UiColor(0x68, 0x70, 0x7F, 0x7F),
+            // /echo and /recast: pale yellow, the timestamps' colour (glyph bodies FFFFE0-FFFFF0, edges FFFF9A-FFFFC5, in the
+            // maintainer's retail captures 2026-10-13 of "/echo 9999/9999" and "[Provoke] 0:00"; round 1 sampled the help bar's
+            // lavender by mistake). No Font Colors row has this colour, so it is fixed (#362).
+            ChatLogChannel.Echo => new UiColor(0x7F, 0x7F, 0x72, 0x7F),
             ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
             _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
         };
