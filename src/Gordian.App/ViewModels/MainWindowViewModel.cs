@@ -298,6 +298,8 @@ namespace Gordian.App.ViewModels
 
             // Wire ViewportWindowManager to use our ViewportViewModel
             ViewportWindowManager.Default.SetPrimaryViewModel(Viewport);
+            // ...and a pop-out window's character when that window gets the focus (#29 round 4).
+            AttachViewportFocus(ViewportWindowManager.Default.WindowFocus);
 
             // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
             ProxyStager.SelfHealStartup();
@@ -1692,6 +1694,42 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        private WindowFocusTracker? _viewportFocus;
+
+        /// <summary>The focused viewport's character the console last switched to; cleared when no viewport has the focus.</summary>
+        private CharacterSession? _followedFocus;
+
+        /// <summary>
+        /// Makes the Command Console follow the character of whichever viewport window is active: the main window's or a
+        /// pop-out's, when that window gets the focus or switches character (#29 round 4: focusing a pop-out left the
+        /// console on the main window's character). A character picked by hand in the console holds while the focus is
+        /// outside the viewports (in the main window, using the console) and until a viewport window is focused again or
+        /// switches character.
+        /// </summary>
+        internal void AttachViewportFocus(WindowFocusTracker tracker)
+        {
+            ArgumentNullException.ThrowIfNull(tracker);
+            if (_viewportFocus != null) _viewportFocus.Changed -= OnViewportFocusChanged;
+            _viewportFocus = tracker;
+            _followedFocus = null;
+            tracker.Changed += OnViewportFocusChanged;
+        }
+
+        private void OnViewportFocusChanged(object? sender, EventArgs e)
+        {
+            if (_viewportFocus is not { } tracker) return;
+            if (!tracker.IsViewportFocused)
+            {
+                // The focus left the viewports (perhaps to this console): the next viewport focus is followed again.
+                _followedFocus = null;
+                return;
+            }
+            var focused = tracker.FocusedSession;
+            if (focused == null || ReferenceEquals(focused, _followedFocus)) return;
+            _followedFocus = focused;
+            if (!ReferenceEquals(Console.SelectedSession, focused)) Console.SelectedSession = focused;
+        }
+
         private void OnSessionRegistryChanged(object? sender, CharacterSession session)
         {
             RefreshAllStatuses();
@@ -1794,6 +1832,7 @@ namespace Gordian.App.ViewModels
         {
             _sessionRegistry.SessionRegistered -= OnSessionRegistryChanged;
             _sessionRegistry.SessionUnregistered -= OnSessionRegistryChanged;
+            if (_viewportFocus != null) _viewportFocus.Changed -= OnViewportFocusChanged;
             Inspector.Dispose();
             StateInspector.Dispose();
             Chat.Dispose();

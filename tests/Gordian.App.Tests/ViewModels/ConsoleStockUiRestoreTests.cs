@@ -68,5 +68,50 @@ namespace Gordian.App.Tests.ViewModels
             Assert.Equal(StockUiElement.None, shown.ActionService.UiVisibility.Hidden);
             Assert.Equal(StockUiElement.None, first.ActionService.UiVisibility.Hidden);
         }
+
+        [Fact]
+        public async Task Console_FollowsTheFocusedPopOut_AndKeepsAHandPickUntilTheNextFocus()
+        {
+            using var vm = new MainWindowViewModel(_registry);
+            var main = Session("Gordian", 1001);
+            var popped = Session("Knot", 1002);
+            var third = Session("Claude", 1003);
+            _registry.RegisterSession(main);
+            _registry.RegisterSession(popped);
+            _registry.RegisterSession(third);
+
+            // The windows as ViewportWindowManager reports them: the main window shows Gordian, a pop-out shows Knot.
+            var tracker = new Gordian.App.Services.WindowFocusTracker();
+            vm.AttachViewportFocus(tracker);
+            object mainWindow = new(), popOut = new();
+            tracker.SetWindowSession(mainWindow, main);
+            tracker.SetWindowSession(popOut, popped);
+
+            tracker.Activated(popOut);
+            Assert.Same(popped, vm.Console.SelectedSession);
+
+            // /stockui from the console reaches the pop-out's character.
+            await popped.ActionService.ExecuteCommandAsync("/stockui hide chat");
+            await vm.Console.ExecuteSlashCommandAsync("/stockui show chat");
+            Assert.False(popped.ActionService.UiVisibility.IsHidden(StockUiElement.Chat));
+
+            // The player clicks into the main window and picks Claude by hand: it holds while no viewport has the focus.
+            tracker.Deactivated(popOut);
+            vm.Console.SelectedSession = third;
+            tracker.SetAnyWindowActive(false);
+            tracker.SetAnyWindowActive(true);
+            Assert.Same(third, vm.Console.SelectedSession);
+
+            // Focusing a viewport again follows it, the same pop-out included.
+            tracker.Activated(popOut);
+            Assert.Same(popped, vm.Console.SelectedSession);
+            tracker.Deactivated(popOut);
+            tracker.Activated(mainWindow);
+            Assert.Same(main, vm.Console.SelectedSession);
+
+            // The focused main window switching character (Ctrl+Tab) is followed too.
+            tracker.SetWindowSession(mainWindow, third);
+            Assert.Same(third, vm.Console.SelectedSession);
+        }
     }
 }
