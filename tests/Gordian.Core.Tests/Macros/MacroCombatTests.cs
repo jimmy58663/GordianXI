@@ -203,5 +203,56 @@ namespace Gordian.Core.Tests.Macros
             Pad(GamepadButton.None);
             Assert.False(_chat.IsSelecting);
         }
+
+        /// <summary>
+        /// Round 5: the full-screen log (Confirm on the selected log) hides the engaged command menu and takes all the keys; when
+        /// it closes the menu is back with the same selection, still engaged. The same holds out of combat with a target's
+        /// command menu up.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void FullLog_HidesTheCommandMenuAndGivesItBackAsItWas(bool engaged)
+        {
+            if (engaged) Engage();
+            else
+            {
+                Assert.True(_service.SetTargetByServerId(0x01000022));
+                Assert.True(_service.OpenTargetCommandMenu());
+                Tick();
+            }
+            var menu = _service.Menus.Top!;
+            Assert.True(menu.IsCommandMenu);
+            Pad(GamepadButton.DPadDown);
+            Pad(GamepadButton.None);
+            int selected = menu.SelectedButtonId;
+            Assert.False(_chat.HidesMenus);
+
+            Pad(GamepadButton.Y); // select the log
+            Pad(GamepadButton.None);
+            Pad(GamepadButton.A); // the full-screen log
+            Pad(GamepadButton.None);
+            Assert.True(_chat.FullLogOpen);
+            Assert.True(_chat.HidesMenus);
+
+            // The keys are the full log's: the hidden command menu does not move or act.
+            Pad(GamepadButton.DPadDown);
+            Pad(GamepadButton.None);
+            Pad(GamepadButton.A);
+            Pad(GamepadButton.None);
+            Assert.Same(menu, _service.Menus.Top);
+            Assert.Equal(selected, menu.SelectedButtonId);
+            Assert.True(_chat.FullLogOpen);
+
+            Pad(GamepadButton.B); // close the full log: back to the selected log
+            Pad(GamepadButton.None);
+            Assert.False(_chat.HidesMenus);
+            Pad(GamepadButton.B); // release the log
+            Pad(GamepadButton.None);
+            Assert.False(_chat.IsSelecting);
+            Assert.Same(menu, Assert.Single(_service.Menus.OpenMenus));
+            Assert.Equal(selected, menu.SelectedButtonId);
+            Assert.Equal(engaged, _combat.IsEngaged);
+        }
     }
 }

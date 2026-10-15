@@ -254,7 +254,8 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(2, menus.Top.SelectedButtonId); // No by default
             menus.Move(InputAction.MenuUp);
             menus.Activate();
-            await Task.Delay(50, TestContext.Current.CancellationToken);
+            // The reset runs on the prompt's continuation: wait for it rather than a fixed 50 ms (it raced under load).
+            for (int i = 0; i < 200 && menus.Settings.HasFontColor(StockUiFontColorId.Tell); i++) await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.False(menus.Settings.HasFontColor(StockUiFontColorId.Tell));
         }
 

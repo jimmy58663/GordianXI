@@ -421,10 +421,12 @@ namespace Gordian.App.Graphics
         {
             var open = menus.OpenMenus;
             _menuPlacements.Clear();
-            // While the sub-target cursor picks the target of an action chosen in the menus they step aside (#240).
-            if (open.Count == 0 || menus.Suspended)
+            // While the sub-target cursor picks the target of an action chosen in the menus they step aside (#240); an exclusive
+            // view (the full-screen log) hides them too, and with no placements published the mouse cannot reach them (#339 round 5).
+            if (open.Count == 0 || menus.Suspended || session.Chat.HidesMenus)
             {
                 menus.SetScreenPlacements(_menuPlacements);
+                if (open.Count > 0) return;
                 if (Drag.Unlocked && library.TryGetMenu("menuwind", out var closedMenu))
                 {
                     DrawPlaceholder(renderer, StockUiWindowIds.MainMenu, closedMenu, ResolveWindow(StockUiWindowIds.MainMenu, closedMenu.Frame, width, height, out _));

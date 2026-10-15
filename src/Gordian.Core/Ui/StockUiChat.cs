@@ -137,6 +137,14 @@ namespace Gordian.Core.Ui
         public bool IsSelecting => SelectedLogWindow != 0 || SelectedStatusIcon >= 0 || FullLogOpen;
 
         /// <summary>
+        /// True while an exclusive view covers the screen (the full-screen log): the open menus (the target command menu,
+        /// which stays up while engaged, being the only one that can be) are not drawn and take no input until it closes, then
+        /// come back as they were (#339 round 5). The full log only opens with no menu or that command menu open; the input
+        /// tick gives it the keys before the menus.
+        /// </summary>
+        public bool HidesMenus => FullLogOpen;
+
+        /// <summary>
         /// The full-screen log (the <c>fulllog</c> window with <c>fep</c> tabs; retail capture 2026-10-04): opened
         /// with Confirm while the log is selected, its tabs cycled with keypad + / gamepad Y, closed with Cancel.
         /// </summary>
