@@ -1,6 +1,7 @@
 // tests/Gordian.App.Tests/Graphics/SharedDeviceAndZoneCacheTests.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
@@ -319,12 +320,56 @@ namespace Gordian.App.Tests.Graphics
                 Assert.Same(droppedSet, cache.GetOrCreateResourceSet(reread));
                 Assert.Equal(2, cache.UploadCount);
 
-                Assert.Equal(1, cache.Evict(new[] { kept, dropped }, new HashSet<string> { "file1@0" }));
+                Assert.Equal(1, cache.Evict(new[] { kept, dropped }, new[] { kept }));
                 Assert.Equal(1, cache.UploadCount);
                 Assert.Same(keptSet, cache.GetOrCreateResourceSet(kept));
                 // The evicted source uploads again when next drawn (for any decoded instance of it).
                 Assert.NotSame(droppedSet, cache.GetOrCreateResourceSet(reread));
                 Assert.Equal(2, cache.UploadCount);
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
+        /// <summary>
+        /// #374: after a VFS reload a DAT read again keeps its texture sources, so the reread textures must upload anew
+        /// (<see cref="GpuTextureCache.ForgetSources"/>) instead of drawing the old pixels; dropping the stale zone then
+        /// frees only the old uploads, and the entity textures are cleared with the entity models.
+        /// </summary>
+        [Fact]
+        public void TextureCache_AfterAReload_RereadTexturesUploadAnew_AndTheOldOnesAreEvicted()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            IntPtr hwnd = HiddenWindow();
+            var devices = new VeldridDeviceManager();
+            try
+            {
+                devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 64, 64, GraphicsBackendPreference.Direct3D11, vsync: false);
+                using var shared = new GpuSharedResources(devices.Device!);
+                var cache = shared.ZoneTextures;
+                var old = new DecodedTexture("a", 2, 2, new byte[16]) { Source = "file1@0" };
+                var oldSet = cache.GetOrCreateResourceSet(old);
+
+                cache.ForgetSources();
+                var reread = new DecodedTexture("a", 2, 2, Enumerable.Repeat((byte)0xFF, 16).ToArray()) { Source = "file1@0" };
+                var newSet = cache.GetOrCreateResourceSet(reread);
+                Assert.NotSame(oldSet, newSet);
+                Assert.Same(oldSet, cache.GetOrCreateResourceSet(old)); // still drawn until its zone goes
+                Assert.Equal(2, cache.UploadCount);
+
+                // The stale zone leaves while its reread copy stays: only the old upload is freed.
+                Assert.Equal(1, cache.Evict(new[] { old }, new[] { reread }));
+                Assert.Same(newSet, cache.GetOrCreateResourceSet(reread));
+                Assert.Equal(1, cache.UploadCount);
+
+                var entity = new DecodedTexture("b", 2, 2, new byte[16]) { Source = "file2@0" };
+                shared.EntityTextures.GetOrCreateResourceSet(entity);
+                Assert.Equal(1, shared.EntityTextures.UploadCount);
+                shared.ReloadEntityResources();
+                Assert.Equal(0, shared.EntityTextures.UploadCount);
             }
             finally
             {

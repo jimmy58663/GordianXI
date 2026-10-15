@@ -245,6 +245,22 @@ namespace Gordian.Core.Animation
         /// </summary>
         public void Advance(float dt, AnimationCategory newCategory, byte subAnimation, EntityModel? model)
         {
+            AdvanceCore(dt, newCategory, subAnimation, model);
+            _standingUp = IsPlayingTransition && _transitionIsStandUp;
+        }
+
+        /// <summary>
+        /// Whether the entity is standing up out of /heal or /sit (#343): from the moment its category leaves the seated
+        /// posture until the stand-up clip ends. The player stays rooted meanwhile (<see cref="Input.SeatedMovementHold"/>),
+        /// read from the input thread.
+        /// </summary>
+        public bool IsStandingUp => _standingUp;
+
+        private volatile bool _standingUp;
+        private bool _transitionIsStandUp;
+
+        private void AdvanceCore(float dt, AnimationCategory newCategory, byte subAnimation, EntityModel? model)
+        {
             if (model == null)
             {
                 _lastModel = null;
@@ -313,6 +329,10 @@ namespace Gordian.Core.Animation
             else if (categoryChanged || stanceChanged)
             {
                 byte fromStance = CurrentStance;
+                AnimationCategory fromCategory = Current;
+                bool standingUp = RestPosture.IsSeated(fromCategory) && !RestPosture.IsSeated(newCategory) && !isLocomotionOrDeath;
+                // Said before the category changes, so a reader on another thread never sees neither seated nor standing up.
+                if (standingUp) _standingUp = true;
                 Current = newCategory;
                 SubAnimation = subAnimation;
                 CurrentStance = targetStance;
@@ -324,10 +344,19 @@ namespace Gordian.Core.Animation
                     transClip = NpcStanceResolver.ResolveTransitionClip(model, fromStance, targetStance);
                 }
 
+                // Sitting down into /heal or /sit, or standing up out of it (#343), plays once, then the new stance.
+                bool restTransition = false;
+                if (transClip == null && categoryChanged && !isLocomotionOrDeath)
+                {
+                    transClip = RestPosture.ResolveTransition(model, fromCategory, newCategory);
+                    restTransition = transClip != null;
+                }
+
                 if (transClip != null)
                 {
                     // Start one-shot transition clip
                     StartTransition(transClip);
+                    _transitionIsStandUp = standingUp && restTransition;
                 }
                 else if (combatFlipped && !isLocomotionOrDeath && TryStartWeaponMotion(model, IsCombat(newCategory), now))
                 {
@@ -984,6 +1013,7 @@ namespace Gordian.Core.Animation
         {
             IsPlayingTransition = true;
             TransitionClip = transClip;
+            _transitionIsStandUp = false;
             _activeBlendDuration = BlendDuration;
 
             // Initiate smooth blend into transition clip from whatever clip was previously playing

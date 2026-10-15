@@ -60,6 +60,10 @@ namespace Gordian.Core.Network
         /// <summary><c>/anchor [on|off]</c>: ignore knockback, unless the server forbids it.</summary>
         AnchorToggle,
         UiLayout,
+        /// <summary><c>/stockui [hide|show &lt;element&gt;...] | reset</c>: hides stock HUD elements at run time (#29); client only.</summary>
+        StockUiVisibility,
+        /// <summary><c>/perf [off|fps|full|next]</c>: the viewport's performance overlay (#30); client only.</summary>
+        PerformanceOverlay,
         /// <summary><c>/lockstyle [on|off]</c>: queries, enables or disables the style lock (C2S 0x053).</summary>
         Lockstyle,
         /// <summary><c>/lockstyleset [n [echo]]</c>: without a set number enables the style lock, with one locks it to that equipment set (C2S 0x053, #92).</summary>
@@ -81,6 +85,8 @@ namespace Gordian.Core.Network
 
         /// <summary>Debug: <c>/playroutine &lt;name&gt;</c> plays a motion routine of the character's model on the client (not sent to the server).</summary>
         DebugPlayRoutine,
+        /// <summary><c>/reloaddats</c>: re-indexes the VFS packs and reads every DAT again (client only, #374).</summary>
+        ReloadDats,
         /// <summary><c>/lot [slot]</c>: lots on a treasure pool item (C2S 0x041); without a slot, on every item not yet entered.</summary>
         TreasureLot,
         /// <summary><c>/pass [slot]</c>: passes on a treasure pool item (C2S 0x042); without a slot, on every item not yet entered.</summary>
@@ -280,6 +286,8 @@ namespace Gordian.Core.Network
 
                     // Stock UI layout
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },
+                    "stockui" => new ChatCommandResult { Kind = ChatCommandResultKind.StockUiVisibility, Message = args },
+                    "perf" => new ChatCommandResult { Kind = ChatCommandResultKind.PerformanceOverlay, Message = args },
 
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
@@ -297,6 +305,9 @@ namespace Gordian.Core.Network
                     "playsound" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlaySound, Message = args },
                     "playmusic" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlayMusic, Message = args },
                     "playroutine" => new ChatCommandResult { Kind = ChatCommandResultKind.DebugPlayRoutine, Message = args },
+
+                    // Resources (client only)
+                    "reloaddats" or "reloaddat" => new ChatCommandResult { Kind = ChatCommandResultKind.ReloadDats, Message = args },
 
                     // Command Discovery & Help
                     "help" or "commands" or "cmds" or "?" => args.Equals("gm", StringComparison.OrdinalIgnoreCase)

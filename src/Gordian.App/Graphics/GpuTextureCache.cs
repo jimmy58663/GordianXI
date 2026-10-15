@@ -285,29 +285,51 @@ namespace Gordian.App.Graphics
         public int UploadCount => _uploads.Count;
 
         /// <summary>
-        /// Frees the uploads of these textures (a zone leaving the GPU, #322), except sources in
-        /// <paramref name="keepSources"/> (still used by another resident zone). Returns how many uploads were freed.
-        /// Call under the device lock: no frame may be recording with them.
+        /// Stops sharing the current uploads with textures decoded from now on (a VFS reload or <c>/reloaddats</c>, #374):
+        /// a DAT read again has the same <see cref="DecodedTexture.Source"/> but may have new pixels, so its textures upload
+        /// again instead of drawing the old upload. Textures already drawn keep their uploads until evicted. Nothing is
+        /// uploaded here: the new textures upload as they are drawn or as their zone is built, like any other.
         /// </summary>
-        public int Evict(IEnumerable<DecodedTexture> textures, ISet<string>? keepSources = null)
+        public void ForgetSources() => _bySource.Clear();
+
+        /// <summary>
+        /// Frees the uploads of these textures (a zone leaving the GPU, #322), except uploads that
+        /// <paramref name="keepTextures"/> (the textures of the zones still resident) draw with. Returns how many uploads
+        /// were freed. Compared by upload, not by source: after <see cref="ForgetSources"/> one source can have an old
+        /// upload (a stale zone) and a new one (the same zone read again). Call under the device lock: no frame may be
+        /// recording with them.
+        /// </summary>
+        public int Evict(IEnumerable<DecodedTexture> textures, IEnumerable<DecodedTexture>? keepTextures = null)
         {
             ArgumentNullException.ThrowIfNull(textures);
+            var keep = new HashSet<ResourceSet>(ReferenceEqualityComparer.Instance);
+            if (keepTextures != null)
+            {
+                foreach (var texture in keepTextures)
+                {
+                    if (texture != null && UploadOf(texture) is { } set) keep.Add(set);
+                }
+            }
+
             var victims = new HashSet<ResourceSet>(ReferenceEqualityComparer.Instance);
             foreach (var texture in textures)
             {
                 if (texture == null) continue;
-                if (texture.Source.Length > 0)
-                {
-                    if (keepSources != null && keepSources.Contains(texture.Source)) continue;
-                    if (_bySource.TryRemove(texture.Source, out var shared)) victims.Add(shared.Set);
-                }
-                if (_byTexture.TryRemove(texture, out var set) && set != _defaultResourceSet) victims.Add(set);
+                var set = UploadOf(texture);
+                // The dropped texture is forgotten either way (its pixels are not kept alive by the cache).
+                _byTexture.TryRemove(texture, out _);
+                if (set == null || keep.Contains(set)) continue;
+                victims.Add(set);
             }
             if (victims.Count == 0) return 0;
-            // Other decoded instances of an evicted source (a reread DAT) point at the same set.
+            // Other decoded instances of an evicted upload (a reread DAT) and its source entry point at the same set.
             foreach (var (texture, set) in _byTexture)
             {
                 if (victims.Contains(set)) _byTexture.TryRemove(texture, out _);
+            }
+            foreach (var (source, entry) in _bySource)
+            {
+                if (victims.Contains(entry.Set)) _bySource.TryRemove(source, out _);
             }
             int freed = 0;
             foreach (var set in victims)
@@ -319,6 +341,14 @@ namespace Gordian.App.Graphics
                 freed++;
             }
             return freed;
+        }
+
+        /// <summary>The upload a texture draws with (its own, else its source's current one), or null when it has none.</summary>
+        private ResourceSet? UploadOf(DecodedTexture texture)
+        {
+            if (_byTexture.TryGetValue(texture, out var set)) return set == _defaultResourceSet ? null : set;
+            if (texture.Source.Length > 0 && _bySource.TryGetValue(texture.Source, out var shared)) return shared.Set;
+            return null;
         }
 
         public void Clear()

@@ -656,6 +656,9 @@ namespace Gordian.Core.Network.Packets
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
                 localEnt.NamePlate = charStatus.NamePlate;
+                // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
+                // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
+                localEnt.AnimationState = charStatus.ServerStatus;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a
                 // standing player play a step on every status update.

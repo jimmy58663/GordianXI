@@ -531,6 +531,18 @@ namespace Gordian.App
                 case ViewportShortcut.ToggleOceanWater: _viewportControl?.ToggleOceanWater(); break;
                 case ViewportShortcut.CycleWeather: _viewportControl?.CycleWeather(); break;
                 case ViewportShortcut.CycleTimeOfDay: _viewportControl?.CycleTimeOfDay(); break;
+                case ViewportShortcut.RestoreStockUi:
+                    // The way back from /stockui hide chat (#29): every hide of the shown character's stock UI is dropped.
+                    if (_viewModel?.ActiveTab?.Session is { } restored)
+                    {
+                        restored.ActionService.UiVisibility.ReleaseAll();
+                        restored.ActionService.Menus.PostNotice("Stock UI restored (Ctrl+Shift+F12).");
+                        GordianLog.Info("Viewport", $"Ctrl+Shift+F12: stock UI restored for {restored.CharacterName}.");
+                    }
+                    break;
+                case ViewportShortcut.CyclePerformanceOverlay:
+                    ViewportRenderSettings.PerformanceOverlay = PerformanceOverlayModes.Next(ViewportRenderSettings.PerformanceOverlay);
+                    break;
             }
         }
 
@@ -564,6 +576,9 @@ namespace Gordian.App
             // are not handled here.
             var chat = session.Chat;
             bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
+            // A hidden stock chat (#29, /stockui) takes no keys: they go to the game (or whatever replaces the chat).
+            bool chatHidden = session.ActionService.UiVisibility.IsHidden(StockUiElement.Chat);
+            if (chatHidden && chat.Input.IsOpen) chat.Input.Cancel();
             var menus = session.ActionService.Menus;
             if (menus.IsEditingName)
             {
@@ -597,14 +612,16 @@ namespace Gordian.App
             // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
             // The sub-target cursor (#240) takes Enter as Confirm too.
             bool confirmTaken = session.ActionService.CurrentTarget != null || session.ActionService.SubTargeting != null || session.Events.IsActive || chat.IsSelecting;
-            if (gKey != GordianKey.None && chat.TryOpen(gKey, mods, session.Locomotion.Profile, session.ActionService.Menus.IsOpen, e.KeySymbol, confirmTaken))
+            bool menusShown = !session.ActionService.UiVisibility.IsHidden(StockUiElement.Menus);
+            if (gKey != GordianKey.None && !chatHidden
+                && chat.TryOpen(gKey, mods, session.Locomotion.Profile, menusShown && session.ActionService.Menus.IsOpen, e.KeySymbol, confirmTaken))
             {
                 e.Handled = true;
                 return;
             }
 
             // Escape locks an unlocked stock UI (once no menu is open for it to cancel first).
-            if (e.Key == Key.Escape && !session.ActionService.Menus.IsOpen && session.ActionService.UiDrag.Unlocked)
+            if (e.Key == Key.Escape && !(menusShown && session.ActionService.Menus.IsOpen) && session.ActionService.UiDrag.Unlocked)
             {
                 session.ActionService.UiLayout.SetUnlocked(false);
                 e.Handled = true;
@@ -638,14 +655,16 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
-            if (_viewModel?.ActiveTab?.Session?.ActionService.Menus is { IsEditingName: true } naming)
+            var textSession = _viewModel?.ActiveTab?.Session;
+            if (textSession?.ActionService.Menus is { IsEditingName: true } naming)
             {
                 if (!string.IsNullOrEmpty(e.Text)) naming.NameEditInsert(e.Text);
                 e.Handled = true;
                 return;
             }
-            var input = _viewModel?.ActiveTab?.Session?.Chat.Input;
+            var input = textSession?.Chat.Input;
             if (input == null || !input.IsOpen || string.IsNullOrEmpty(e.Text)) return;
+            if (textSession!.ActionService.UiVisibility.IsHidden(StockUiElement.Chat)) return;
             input.InsertText(e.Text);
             e.Handled = true;
         }

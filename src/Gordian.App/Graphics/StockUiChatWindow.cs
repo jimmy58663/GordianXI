@@ -137,6 +137,14 @@ namespace Gordian.App.Graphics
             public ChatLogLine? Newest;
             public float OffsetRows;
             public long LastTimestamp;
+
+            /// <summary>Starts over: the next frame takes the log as it stands, with nothing sliding in (a character switch, #377).</summary>
+            public void Reset()
+            {
+                Newest = null;
+                OffsetRows = 0;
+                LastTimestamp = 0;
+            }
         }
 
         /// <summary>Seconds a new row takes to slide up one pitch (about ten 30 fps frames in the recording).</summary>

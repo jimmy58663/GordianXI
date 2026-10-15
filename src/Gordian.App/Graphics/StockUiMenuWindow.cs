@@ -528,9 +528,14 @@ namespace Gordian.App.Graphics
         /// <summary>Item icons decoded from the item DATs, by item id (null when the record has none).</summary>
         private static readonly ConcurrentDictionary<ushort, DecodedTexture?> ItemIcons = new();
 
+        /// <summary>The resource generation <see cref="ItemIcons"/> was read under; a VFS reload reads the icons again (#374).</summary>
+        private static int _itemIconGeneration = Gordian.Core.Resources.Tables.ZoneDatLoader.Generation;
+
         private static DecodedTexture? ItemIcon(StockUiOpenMenu menu, ushort itemId)
         {
             if (itemId == 0) return null;
+            int generation = Gordian.Core.Resources.Tables.ZoneDatLoader.Generation;
+            if (System.Threading.Interlocked.Exchange(ref _itemIconGeneration, generation) != generation) ItemIcons.Clear();
             if (ItemIcons.TryGetValue(itemId, out var cached)) return cached;
             var record = menu.ItemLookup?.Invoke(itemId);
             var pixels = record?.IconRgbaPixels;

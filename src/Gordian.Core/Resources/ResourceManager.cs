@@ -838,6 +838,7 @@ namespace Gordian.Core.Resources
                 _sharedEffects = null;
             }
             ZoneEntityNames.Reset();
+            ZoneDatLoader.Invalidate();
             Interlocked.Increment(ref _cacheGeneration);
             GordianLog.Info("RES", "Resource caches cleared; DATs will be read again.");
         }

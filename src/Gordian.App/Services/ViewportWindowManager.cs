@@ -237,6 +237,8 @@ namespace Gordian.App.Services
 
         private void OnSessionRegistered(object? sender, CharacterSession session)
         {
+            // /perf drives the viewport performance overlay (#30), a process-wide viewport setting.
+            session.ActionService.PerformanceOverlayCommand = Gordian.App.Graphics.PerformanceOverlayModes.HandleCommand;
             PostToUi(() =>
             {
                 _primaryViewModel.AddSession(session);

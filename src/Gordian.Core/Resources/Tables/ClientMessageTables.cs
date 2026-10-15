@@ -42,6 +42,7 @@ namespace Gordian.Core.Resources.Tables
         private bool _systemTried;
         private bool _emotesTried;
         private bool _battleTried;
+        private int _generation = ZoneDatLoader.Generation;
 
         /// <summary>Tables read through <paramref name="loader"/>, or through <see cref="ZoneDatLoader.Load"/> when null.</summary>
         public ClientMessageTables(Func<int, byte[]?>? loader = null)
@@ -79,6 +80,16 @@ namespace Gordian.Core.Resources.Tables
         {
             lock (_sync)
             {
+                // A resource cache clear (VFS reload, /reloaddats, #374) reads every table again.
+                int generation = ZoneDatLoader.Generation;
+                if (generation != _generation)
+                {
+                    _generation = generation;
+                    _system = _emotes = _battle = null;
+                    _systemTried = _emotesTried = _battleTried = false;
+                    table = null;
+                    tried = false;
+                }
                 if (tried) return table;
                 var loader = _loader ?? ZoneDatLoader.Load;
                 // Not marked as tried without a loader: the app sets it after the sessions start.

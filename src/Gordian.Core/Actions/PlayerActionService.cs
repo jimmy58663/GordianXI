@@ -155,6 +155,13 @@ namespace Gordian.Core.Actions
         /// </summary>
         public Func<bool, string, string>? DebugAudioCommand { get; set; }
 
+        /// <summary>
+        /// <c>/reloaddats</c> (#374): re-indexes the VFS packs (<c>resources/dats</c>, <c>resources/assets</c>, <c>vfs.json</c>)
+        /// and drops every cache built from the DATs, so the zone, models, textures, stock UI and tables are read again;
+        /// returns the reply. Set by the app (null without the game's resources).
+        /// </summary>
+        public static Func<string>? DatReloader { get; set; }
+
         private StockUiSettings _uiSettings = new();
         private ConfigPacketModule? _configModule;
 
@@ -642,7 +649,8 @@ namespace Gordian.Core.Actions
         public bool OpenTargetCommandMenu()
         {
             var target = CurrentTarget;
-            if (target == null) return false;
+            // A hidden stock menu layer (#29) opens nothing: Confirm is left for whatever replaces the menus.
+            if (target == null || UiVisibility.IsHidden(StockUiElement.Menus)) return false;
             var kind = target.Type switch
             {
                 EntityType.Player => target.ServerId == _localPlayer.ServerId ? StockUiTargetKind.Self : StockUiTargetKind.Player,
@@ -1326,6 +1334,8 @@ namespace Gordian.Core.Actions
                         return "Usage: /playsound <id> | stop - Debug: play sound effect <id> on this client (looped files loop until stop).";
                     case "playmusic":
                         return "Usage: /playmusic <n> | stop - Debug: play music track <n> on this client instead of the zone music.";
+                    case "reloaddats" or "reloaddat":
+                        return "Usage: /reloaddats - Re-read the VFS packs (resources/dats, resources/assets, vfs.json) and every DAT: the zone, models, textures and UI reload. GordianXI command.";
                     case "pos" or "where" or "loc":
                         return "Usage: /pos - Print current player coordinates, heading, and server ID.";
                     case "target" or "ta":
@@ -1404,6 +1414,10 @@ namespace Gordian.Core.Actions
                         return "Usage: /kick <player> - Remove player from party.";
                     case "uilayout" or "uil":
                         return UiLayoutUsage;
+                    case "stockui":
+                        return StockUiUsage;
+                    case "perf":
+                        return PerformanceOverlayUsage;
                     case "heal":
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
@@ -1459,6 +1473,8 @@ namespace Gordian.Core.Actions
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
+            sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
+            sb.AppendLine("  /perf [off|fps|full]      - Viewport performance overlay (Ctrl+F12 cycles)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /item \"<name>\" [target]   - Use an item (<me>, <t> or a name; yourself or your target without one)");
             sb.AppendLine("  /equip <slot> [\"<name>\"]  - Equip an item in a slot, or without a name remove the slot's item (/eq)");
@@ -1470,6 +1486,7 @@ namespace Gordian.Core.Actions
             sb.AppendLine("[Debug: audio, client only]");
             sb.AppendLine("  /playsound <id> | stop    - Play sound effect <id> (seNNNNNN.spw) centred; looped files loop until stop");
             sb.AppendLine("  /playmusic <n> | stop     - Play musicNNN.bgw instead of the zone music; stop returns to it");
+            sb.AppendLine("  /reloaddats               - Re-read the VFS packs and every DAT (zone, models, textures, UI)");
             sb.AppendLine("[Combat & Abilities]");
             sb.AppendLine("  /attack [target]          - Engage target in melee combat (/a)");
             sb.AppendLine("  /attackoff                - Disengage from combat (/disengage, /aoff)");
@@ -2624,6 +2641,12 @@ namespace Gordian.Core.Actions
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);
 
+                case ChatCommandResultKind.StockUiVisibility:
+                    return ApplyStockUiCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.PerformanceOverlay:
+                    return PerformanceOverlayCommandResult(cmd.Message ?? string.Empty);
+
                 case ChatCommandResultKind.TreasureLot:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);
 
@@ -2714,6 +2737,15 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.DebugPlayRoutine:
                     return PlayRoutineCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.ReloadDats:
+                {
+                    // Client only, never sent to the server.
+                    var reload = DatReloader;
+                    return reload is null
+                        ? PlayerActionResult.Warn("The game's resources are not loaded; nothing to reload.", cmd.Kind)
+                        : PlayerActionResult.Info(reload(), cmd.Kind);
+                }
 
                 // Synthetic Locomotion
                 case ChatCommandResultKind.SyntheticMoveTo:

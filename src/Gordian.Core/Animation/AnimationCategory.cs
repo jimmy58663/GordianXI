@@ -18,6 +18,12 @@ namespace Gordian.Core.Animation
         MoveRight,
         CombatMoveBackward,
         CombatMoveLeft,
-        CombatMoveRight
+        CombatMoveRight,
+
+        /// <summary>Resting with /heal (server status 33): sat down in the healing pose (<see cref="RestPosture"/>).</summary>
+        Healing,
+
+        /// <summary>Sitting with /sit (server status 47): sat on the ground (<see cref="RestPosture"/>).</summary>
+        Sitting
     }
 }

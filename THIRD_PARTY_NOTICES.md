@@ -135,6 +135,64 @@ NeoVeldrid pulls in Silk.NET packages (MIT, see Silk.NET above) that ship these 
 
 The packages declare the licence as `Apache-2.0` but carry no licence or NOTICE file, so the text is at https://www.apache.org/licenses/LICENSE-2.0 and the copyright and NOTICE text are in each linked project.
 
+### Hexa.NET.ImGui & HexaGen.Runtime
+* **Project:** [Hexa.NET.ImGui](https://github.com/HexaEngine/Hexa.NET.ImGui) 2.2.9 (C# bindings for Dear ImGui, with its native `cimgui` libraries) and its runtime [HexaGen.Runtime](https://github.com/HexaEngine/HexaGen) 1.1.21, for the Tier 3 overlays (#30)
+* **License:** MIT License
+* **Copyright:** Copyright (c) 2023 Juna Meinhold (Hexa.NET.ImGui, HexaGen.Runtime)
+* **Notice:**
+```text
+MIT License
+
+Copyright (c) 2023 Juna Meinhold
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Dear ImGui and cimgui (native, through Hexa.NET.ImGui)
+* **Project:** [Dear ImGui](https://github.com/ocornut/imgui) 1.92.2b, compiled with its C wrapper [cimgui](https://github.com/cimgui/cimgui) into the `cimgui` native library that Hexa.NET.ImGui ships per platform (`cimgui.dll`, `cimgui.so`, `cimgui.dylib`), loaded dynamically
+* **License:** MIT License (both)
+* **Copyright:** Copyright (c) 2014-2025 Omar Cornut (Dear ImGui); cimgui: copyright as stated in the linked project's LICENSE
+* **Notice:**
+```text
+The MIT License (MIT)
+
+Copyright (c) 2014-2025 Omar Cornut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### ppy.SDL3-CS
 * **Project:** [SDL3-CS](https://github.com/ppy/SDL3-CS) (ppy.SDL3-CS 2026.1002.1: C# bindings for SDL3, with the native SDL3 libraries below)
 * **License:** MIT License

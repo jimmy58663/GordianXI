@@ -28,7 +28,9 @@ namespace Gordian.App.Graphics
         Metal = 3,
 
         /// <summary>
-        /// Universal OpenGL / OpenGLES fallback.
+        /// Legacy value kept so saved settings still load: OpenGL was never implemented and is no longer a choice
+        /// (maintainer decision 2026-10-13, #390; macOS runs Vulkan through MoltenVK). A saved OpenGL setting loads as
+        /// <see cref="Auto"/> with a one-time notice (<c>ViewportViewModel</c>). Not offered in the settings list.
         /// </summary>
         OpenGL = 4
     }
