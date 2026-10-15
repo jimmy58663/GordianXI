@@ -30,6 +30,9 @@ namespace Gordian.Core.Tests.Macros
         private readonly PlayerLocomotionController _locomotion;
         private readonly MacroController _macros;
         private readonly List<string> _ran = new();
+        private readonly StockUiChat _chat = new();
+        private readonly List<ushort> _icons = new() { 56, 13 };
+        private readonly List<ushort> _cancelled = new();
 
         public MacroCombatTests()
         {
@@ -53,10 +56,12 @@ namespace Gordian.Core.Tests.Macros
                 return Task.CompletedTask;
             };
             var inputProfile = InputProfile.CreateGamepadDefault();
+            _chat.StatusIds = () => _icons;
+            _chat.CancelStatus = id => _cancelled.Add(id);
             _locomotion = new PlayerLocomotionController(_input, inputProfile, _world, _player, _service)
             {
                 Macros = _macros,
-                Chat = new StockUiChat(),
+                Chat = _chat,
             };
         }
 
@@ -152,6 +157,51 @@ namespace Gordian.Core.Tests.Macros
             Assert.Equal(-1, chat.SelectedStatusIcon);
             Assert.False(chat.IsSelecting);
             Assert.Null(MacroController.BlockReason(null, chat));
+        }
+
+        private void Pad(GamepadButton buttons)
+        {
+            _input.SetGamepadState(new GamepadState(true, buttons, default, default, 0f, 0f));
+            Tick();
+        }
+
+        /// <summary>
+        /// Round 4: while engaged (the target command menu always up) Y / keypad + still select the log, then the status icons,
+        /// and the selection takes the keys: Confirm cancels the buff under the cursor; the command menu is left alone.
+        /// </summary>
+        [Fact]
+        public void Engaged_YSelectsTheLogAndTheStatusIcons()
+        {
+            Engage();
+            var menu = _service.Menus.Top;
+            Pad(GamepadButton.Y);
+            Pad(GamepadButton.None);
+            Assert.Equal(1, _chat.SelectedLogWindow);
+            Pad(GamepadButton.Y);
+            Pad(GamepadButton.None);
+            Assert.Equal(0, _chat.SelectedLogWindow);
+            Assert.Equal(0, _chat.SelectedStatusIcon);
+            Pad(GamepadButton.DPadRight);
+            Pad(GamepadButton.None);
+            Assert.Equal(1, _chat.SelectedStatusIcon);
+            Pad(GamepadButton.A);
+            Pad(GamepadButton.None);
+            Assert.Equal(new ushort[] { 13 }, _cancelled);
+            Pad(GamepadButton.B);
+            Pad(GamepadButton.None);
+            Assert.False(_chat.IsSelecting);
+            Assert.Same(menu, _service.Menus.Top); // the command menu took none of it
+            Assert.Single(_service.Menus.OpenMenus);
+        }
+
+        /// <summary>Any other open menu keeps Y / keypad + for itself (item options, Button / Line Edit): the log is not selected.</summary>
+        [Fact]
+        public void OtherMenuOpen_YDoesNotSelectTheLog()
+        {
+            Assert.True(_service.Menus.Open(StockUiMenuEntries.ConfigMenu));
+            Pad(GamepadButton.Y);
+            Pad(GamepadButton.None);
+            Assert.False(_chat.IsSelecting);
         }
     }
 }

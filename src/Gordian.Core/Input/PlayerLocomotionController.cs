@@ -373,22 +373,26 @@ namespace Gordian.Core.Input
                     chat.Input.Open();
                     return;
                 }
-                if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !menuOpen) chat.CycleLogWindow();
-                if (chat.FullLogOpen && !menuOpen)
+                // The engaged target command menu alone (always up in combat) does not keep keypad + / Y from selecting the
+                // log or the status icons, nor the selection from taking the keys (round 4: retail lets you read back and
+                // cancel a buff mid-fight). Any other open menu keeps + / Y for itself (item options, Button / Line Edit).
+                bool chatGated = menuOpen && !(menus is { OpenMenus.Count: 1 } && menus.Top is { IsCommandMenu: true } && !subTargeting);
+                if (_inputState.WasActionTriggered(InputAction.CycleLogWindow) && !chatGated) chat.CycleLogWindow();
+                if (chat.FullLogOpen && !chatGated)
                 {
                     UpdateFullLog(chat, elapsed);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
                 }
-                if (chat.SelectedLogWindow != 0 && !menuOpen)
+                if (chat.SelectedLogWindow != 0 && !chatGated)
                 {
                     UpdateLogScroll(chat, elapsed);
                     UpdateCamera(elapsed);
                     UpdateLocomotion(elapsed);
                     return;
                 }
-                if (chat.SelectedStatusIcon >= 0 && !menuOpen)
+                if (chat.SelectedStatusIcon >= 0 && !chatGated)
                 {
                     UpdateStatusSelection(chat);
                     UpdateCamera(elapsed);
