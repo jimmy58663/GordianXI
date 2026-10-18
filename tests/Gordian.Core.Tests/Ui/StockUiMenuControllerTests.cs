@@ -146,6 +146,26 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void EngagedCommandMenu_RightOnDisengage_SwapsToCallForHelpAndBack()
+        {
+            var menus = Controller();
+            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster, engaged: true, engagedWithTarget: true)));
+            for (int i = 0; i < 5; i++) menus.Move(InputAction.MenuDown); // Disengage, the sixth row
+            Assert.Equal(6, menus.Top!.SelectedButtonId);
+            menus.Move(InputAction.MenuRight);
+            Assert.Equal(new[] { "Switch Target", "Magic", "Abilities", "Trust", "Items", "Call for Help", "Check" }, Labels(menus.Top!));
+            Assert.Equal(StockUiMenuCommand.CallForHelp, menus.Top!.CommandRows[5].Entry.Command);
+            Assert.Equal(6, menus.Top.SelectedButtonId);
+            Assert.True(menus.Top.IsCommandMenu);
+            Assert.Equal(StockUiTargetKind.Monster, menus.CommandMenuTarget!.Value.Kind);
+            menus.Move(InputAction.MenuRight);
+            Assert.Equal("Disengage", Labels(menus.Top!).ElementAt(5));
+            menus.Move(InputAction.MenuUp); // other rows' Right does nothing to the list
+            menus.Move(InputAction.MenuRight);
+            Assert.Equal("Disengage", Labels(menus.Top!).ElementAt(5));
+        }
+
+        [Fact]
         public void MainMenu_Right_TurnsThePageOnAnArrowedEntry_OnlyConfirmOpensTheSubMenu()
         {
             var menus = Controller();

@@ -716,6 +716,8 @@ namespace Gordian.Core.Actions
                     return attack;
                 case StockUiMenuCommand.Disengage:
                     return await DisengageAsync().ConfigureAwait(false);
+                case StockUiMenuCommand.CallForHelp:
+                    return await CallForHelpAsync().ConfigureAwait(false);
                 case StockUiMenuCommand.Invite:
                     await _partyModule.SendInviteAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);

@@ -24,8 +24,9 @@ namespace Gordian.Core.Ui
         bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true, bool HasTreasure = false);
 
     /// <summary>A label sprite of the command menus: the DAT menu and button that carry it.</summary>
-    /// <param name="Sprite">A <c>windowps</c> image to draw instead of a DAT button's label, for labels no menu carries (Release, #668); -1 for none.</param>
-    public readonly record struct StockUiCommandLabel(string Text, string Menu, int Button, int Sprite = -1);
+    /// <param name="Sprite">An image of <paramref name="SpriteGroup"/> (<c>windowps</c> unless given) to draw instead of a DAT button's label, for labels no menu button carries (Release, #668; Call for Help, <c>keytops3</c> 23); -1 for none.</param>
+    /// <param name="SpriteGroup">The element group <paramref name="Sprite"/> is in.</param>
+    public readonly record struct StockUiCommandLabel(string Text, string Menu, int Button, int Sprite = -1, string SpriteGroup = "menu    windowps");
 
     /// <summary>One row of a composed command menu: its label sprite, what it does, and whether it is greyed.</summary>
     public readonly record struct StockUiCommandRow(StockUiCommandLabel Label, StockUiMenuEntry Entry, bool Greyed = false);
@@ -72,6 +73,17 @@ namespace Gordian.Core.Ui
         public static readonly StockUiCommandLabel Attack = new("Attack", "battlemo", 1);
         public static readonly StockUiCommandLabel SwitchTarget = new("Switch Target", "attackmo", 1);
         public static readonly StockUiCommandLabel Disengage = new("Disengage", "attackmo", 5); // retail draws the arrowed sprite; "mp_pmode" 6 is the plain one
+
+        /// <summary>
+        /// Call for Help ▶ (retail, maintainer 2026-10-18: Right on the engaged list's Disengage ▶ swaps the row to this and Right
+        /// again swaps it back): the <c>keytops3</c> 23 label, which no <c>attackmo</c> button carries.
+        /// </summary>
+        public static readonly StockUiCommandLabel CallForHelp = new("Call for Help", "attackmo", 5, Sprite: 23, SpriteGroup: "menu    keytops3");
+
+        /// <summary>The engaged list's Disengage row, or its Call for Help alternate (<paramref name="callForHelp"/>).</summary>
+        public static StockUiCommandRow DisengageRow(bool callForHelp = false) => callForHelp
+            ? Row(CallForHelp, StockUiMenuCommand.CallForHelp)
+            : Row(Disengage, StockUiMenuCommand.Disengage);
 
         /// <summary>
         /// Release (a Trust's command menu, retail image-25, 2026-10-12): the <c>windowps</c> #668 label, which no DAT menu uses
@@ -121,7 +133,7 @@ namespace Gordian.Core.Ui
                 rows.Add(AbilitiesRow);
                 rows.Add(TrustRow);
                 rows.Add(ItemsRow);
-                rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
+                rows.Add(DisengageRow());
                 if (context.HasTreasure) rows.Add(TreasureRow);
                 rows.Add(Row(Check, StockUiMenuCommand.Check));
                 return rows;
@@ -206,7 +218,7 @@ namespace Gordian.Core.Ui
                     NavDown = (sbyte)(i == rows.Count - 1 ? 1 : i + 2),
                     NavLeft = (sbyte)(i + 1),
                     NavRight = (sbyte)(i + 1),
-                    Shapes = label.Sprite >= 0 ? new[] { new UiShapeReference(0, (ushort)label.Sprite, "menu    windowps") }
+                    Shapes = label.Sprite >= 0 ? new[] { new UiShapeReference(0, (ushort)label.Sprite, label.SpriteGroup) }
                         : source?.Shapes ?? Array.Empty<UiShapeReference>(),
                     HelpTextId = label.Sprite >= 0 ? -1 : source?.HelpTextId ?? -1,
                 });

@@ -1285,6 +1285,10 @@ namespace Gordian.Core.Ui
                         Refresh(top);
                         changed = true;
                     }
+                    else if (direction == InputAction.MenuRight && ToggleHelpRow(top, button.ButtonId))
+                    {
+                        changed = true;
+                    }
                     else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
                         && !top.IsGreyed(button.ButtonId) && (top.IsCommandMenu || top.PageRing.Count <= 1))
                     {
@@ -1335,6 +1339,37 @@ namespace Gordian.Core.Ui
                 changed = true;
             }
             if (changed) Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Right on the engaged command list's Disengage ▶ swaps the row to Call for Help ▶, and Right on that back (retail, the
+        /// maintainer's note 2026-10-18). The open menu is rebuilt with the other label under the same cursor; the greyed
+        /// set, target and frame art stay.
+        /// </summary>
+        private bool ToggleHelpRow(StockUiOpenMenu top, int buttonId)
+        {
+            if (!top.IsCommandMenu || _library is not { } library || buttonId < 1 || buttonId > top.CommandRows.Count) return false;
+            var command = top.CommandRows[buttonId - 1].Entry.Command;
+            if (command is not (StockUiMenuCommand.Disengage or StockUiMenuCommand.CallForHelp)) return false;
+            var rows = new List<StockUiCommandRow>(top.CommandRows);
+            rows[buttonId - 1] = StockUiCommandMenu.DisengageRow(callForHelp: command == StockUiMenuCommand.Disengage);
+            var definition = StockUiCommandMenu.Build(library, rows, out var frameImage);
+            if (definition == null) return false;
+            var menu = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
+            {
+                CommandRows = rows,
+                Target = top.Target,
+                FrameImage = frameImage,
+            };
+            menu.SetGreyed(null);
+            menu.SelectedButtonId = buttonId;
+            var open = (StockUiOpenMenu[])_open.Clone();
+            for (int i = 0; i < open.Length; i++)
+            {
+                if (ReferenceEquals(open[i], top)) open[i] = menu;
+            }
+            _open = open;
+            return true;
         }
 
         private static bool IsChatModeTell(StockUiOpenMenu menu, int buttonId) =>
@@ -1913,6 +1948,7 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.Attack:
                 case StockUiMenuCommand.Disengage:
+                case StockUiMenuCommand.CallForHelp:
                 case StockUiMenuCommand.Invite:
                 case StockUiMenuCommand.Check:
                 case StockUiMenuCommand.ReleaseTrust:
