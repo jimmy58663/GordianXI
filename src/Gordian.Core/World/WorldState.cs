@@ -218,13 +218,21 @@ namespace Gordian.Core.World
         /// Queues a zone routine start, or with <paramref name="stop"/> its end (an event's 0x51, CodeENDMAPSCHEDULOR), for
         /// the viewport that draws the current zone (<see cref="PostMapScheduler(string, uint, uint)"/>).
         /// </summary>
-        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop)
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop) =>
+            PostMapScheduler(routine, casterServerId, targetServerId, stop, sceneZone: false);
+
+        /// <summary>
+        /// Queues a zone routine start or end; with <paramref name="sceneZone"/> (an event's 0x2D / 0x51) for the zone the
+        /// scene shows: the event zone while one is open (#233: a cutscene stage's own routines), else the current zone.
+        /// </summary>
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop, bool sceneZone)
         {
             if (string.IsNullOrEmpty(routine)) return;
             lock (_syncRoot)
             {
                 if (_mapSchedulers.Count >= MaxPendingMapSchedulers) _mapSchedulers.RemoveAt(0);
-                _mapSchedulers.Add(new MapSchedulerRequest(_currentZoneId, routine, casterServerId, targetServerId, stop));
+                ushort zone = sceneZone && _eventZoneId != 0 ? (ushort)_eventZoneId : _currentZoneId;
+                _mapSchedulers.Add(new MapSchedulerRequest(zone, routine, casterServerId, targetServerId, stop));
             }
         }
 
@@ -243,7 +251,8 @@ namespace Gordian.Core.World
                     if (_mapSchedulers[i].ZoneId == zoneId) into.Add(_mapSchedulers[i]);
                 }
                 ushort current = _currentZoneId;
-                _mapSchedulers.RemoveAll(r => r.ZoneId == zoneId || r.ZoneId != current);
+                int scene = _eventZoneId;
+                _mapSchedulers.RemoveAll(r => r.ZoneId == zoneId || (r.ZoneId != current && r.ZoneId != scene));
             }
         }
 

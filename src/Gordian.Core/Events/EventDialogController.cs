@@ -1446,7 +1446,7 @@ namespace Gordian.Core.Events
         int IEventVmHost.StartZoneScheduler(string routine, uint casterServerId, uint targetServerId)
         {
             if (_world == null || string.IsNullOrEmpty(routine)) return 0;
-            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false);
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false, sceneZone: true);
             // A door's open / clos is the door's own routine, not one of the zone's by name (#233: Mamook's doors).
             int frames = Gordian.Core.Graphics.DoorEffectTrigger.IsDoorRoutine(routine) && _world.TryGetByServerId(casterServerId, out var door) &&
                          door.Type == EntityType.Door && door.TransportId.Length > 0
@@ -1459,7 +1459,7 @@ namespace Gordian.Core.Events
         void IEventVmHost.StopZoneScheduler(string routine, uint casterServerId, uint targetServerId)
         {
             if (_world == null) return;
-            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true);
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true, sceneZone: true);
             GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
         }
 

@@ -42,6 +42,30 @@ namespace Gordian.Core.Graphics
         public IReadOnlyDictionary<string, WeatherRoutineVariant> Routines { get; }
 
         public IReadOnlyDictionary<string, DecodedTexture> Textures { get; }
+
+        /// <summary>The routine a state-driven model plays for its idle state (<see cref="StateTriggered"/>).</summary>
+        public const string IdleStateRoutine = "ids0";
+
+        /// <summary>
+        /// Auto-running generators that wait for a routine to start them instead of emitting from spawn (#257): in a model
+        /// whose effects follow its state, those its routines start. Empty for other models.
+        /// <para>
+        /// A model is state-driven when it has the state routines <c>ids0</c>, <c>ids1</c>...: its <c>init</c> links a
+        /// state routine (<c>mse0</c>-<c>mse3</c>) that picks one of them by the actor's state (ops 0x69 / 0x6B / 0x64 /
+        /// 0x67 / 0x6A, not read yet). Their auto-run flag does not mean idle there: Synthesis Focuser II (model 2335,
+        /// <c>ROM/.../52630</c>) flags all fifteen of its blue, yellow and red generators <c>md_s/?gp0</c>-<c>?fl0</c>
+        /// auto-running, and <c>ids1</c> / <c>ids2</c> / <c>ids3</c> start one colour each (<c>bslp</c>, <c>yslp</c>,
+        /// <c>rslp</c>) while <c>ids0</c> kills them all (<c>alkl</c>); the Synergy Furnace (model 2348, file 52643) flags
+        /// 52 of its 163 synthesis effects <c>ren_/8???</c> auto-running, and its <c>ids0</c> stops <c>s112</c> /
+        /// <c>s013</c> and kills the rest (<c>0kil</c>). Drawn from spawn, all three colours of orbs showed at once on an
+        /// idle focuser, where the maintainer's retail capture of an idle furnace (Aht Urhgan Whitegate, 2026-10-17) shows
+        /// no effect at all. A scan of models 1-3499 (2026-10-18) finds 437 models with auto-running drawn generators, 412
+        /// of them started by a routine as well, 153 of those with <c>ids0</c>; the others (the Home Point's idle
+        /// <c>bind</c> layers, which its <c>aper</c> also starts; the elementals' <c>aper</c>) keep emitting from spawn.
+        /// *Inference* from the data; which state values select which routine is not known.
+        /// </para>
+        /// </summary>
+        public IReadOnlySet<ZoneEmitterTemplate> StateTriggered { get; init; } = new HashSet<ZoneEmitterTemplate>();
     }
 
     /// <summary>
@@ -58,10 +82,12 @@ namespace Gordian.Core.Graphics
         {
             if (datBytes.IsEmpty) return null;
             // Most models carry no generators: skip the full parse (and a second decode of their body textures).
-            bool hasGenerator = false;
+            bool hasGenerator = false, stateDriven = false;
             foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
             {
-                if (header.TypeCode == DatSectionType.ParticleGenerator) { hasGenerator = true; break; }
+                if (header.TypeCode == DatSectionType.ParticleGenerator) hasGenerator = true;
+                // ids0 starts nothing itself, so the parse below (routines with spawns) does not list it.
+                else if (header.TypeCode == DatSectionType.EffectRoutine && string.Equals(header.DatId, ActorEffectSet.IdleStateRoutine, StringComparison.OrdinalIgnoreCase)) stateDriven = true;
             }
             if (!hasGenerator) return null;
 
@@ -81,7 +107,19 @@ namespace Gordian.Core.Graphics
                     if (name.Length > 0 && !textures.ContainsKey(name) && FindTexture(decoded, name) is { } texture) textures[name] = texture;
                 }
             }
-            return layers.Count == 0 ? null : new ActorEffectSet(layers, parsed.ActorRoutines, textures);
+            if (layers.Count == 0) return null;
+            var stateTriggered = new HashSet<ZoneEmitterTemplate>(ReferenceEqualityComparer.Instance);
+            if (stateDriven)
+            {
+                foreach (var routine in parsed.ActorRoutines)
+                {
+                    foreach (var spawn in routine.Spawns)
+                    {
+                        if (spawn.Template.Definition.AutoRun) stateTriggered.Add(spawn.Template);
+                    }
+                }
+            }
+            return new ActorEffectSet(layers, parsed.ActorRoutines, textures) { StateTriggered = stateTriggered };
         }
 
         private static DecodedTexture? FindTexture(Dictionary<string, DecodedTexture> decoded, string name)
@@ -115,6 +153,8 @@ namespace Gordian.Core.Graphics
             {
                 var layer = effects.Layers[i];
                 var emitter = new ZoneParticleEmitter(layer.Emitter!, seed + i);
+                // A state-driven model's state effects wait for their routine (#257).
+                if (effects.StateTriggered.Contains(emitter.Template)) emitter.StartsOnTrigger = true;
                 _emitters.Add((layer, emitter));
                 _byTemplate[emitter.Template] = emitter;
             }

@@ -28,6 +28,8 @@ Zone z, where 0 ≤ z ≤ 299. The formulas switch at zone 256 (Western Adoulin)
 | 6420 + z; 85591 + (z - 256) (EN). 6120 + z; 85291 + (z - 256) (JP) | 6650 = `ROM/25/39` (230, 16,941 messages); 85591 = `ROM9/5/101` | Zone dialog table | `ZoneDialogTable`, `EventMessageDecoder` | XiEvents; [stock-ui.md](../ui/stock-ui.md#dialog-text-chunk-6) |
 | 6720 + z; 86491 + (z - 256) | 6950 = `ROM/27/39` (230); 86491 = `ROM9/6/45` | Zone entity list: NPC names by server id (32-byte records) | `ZoneEntityList` | XiEvents "Zone Entities" |
 
+| 604-700 (with gaps) | 641 (`e_cr`, 5,991,504 bytes, 214 routines), 616 / 617 / 619 (`e_zi`), 643 / 646 (`e_op`), 644 / 645 (`e_si`), 659 (`e_at`) | Cutscene stage zones: full zone containers with their own ZoneDef (`e_cr/door/_f11`, `e_cr/effe/cry1/kaks`...); zone 14's event 50 names routines of 641. Files 600-603, 620 / 621, 647-650, 655-658 in the range are other containers without a ZoneDef (`x_ba`, `x_sa`, `x_sh`, `x_dr`, `x_go`). Which event zone number loads which file is not known ([#233](https://github.com/jimmy58663/GordianXI/issues/233)) | not loaded | scan of the retail file table, 2026-10-18; [particles.md](../rendering/particles.md#routines-outside-the-zone-dat-233) |
+
 Checked: every ROM path in XiEvents' zone list resolves to these ids in the retail file table (2026-09-28). The first 256-299 formulas were 256 ids too low ([#71](https://github.com/jimmy58663/GordianXI/issues/71)).
 
 ### Event resources

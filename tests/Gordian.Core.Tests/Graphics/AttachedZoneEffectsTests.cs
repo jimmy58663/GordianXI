@@ -190,6 +190,22 @@ namespace Gordian.Core.Tests.Graphics
             }
         }
 
+        /// <summary>An event's zone scheduler plays in the zone the scene shows (an event zone), a server's in the current zone.</summary>
+        [Fact]
+        public void EventZoneScheduler_GoesToTheSceneZone()
+        {
+            var world = new WorldState { CurrentZoneId = 14 };
+            world.EventZoneId = 241;
+            world.PostMapScheduler("kaks", 1, 1, stop: false, sceneZone: true);
+            world.PostMapScheduler("1pa1", 0, 0);
+            var scene = new List<MapSchedulerRequest>();
+            world.TakeMapSchedulers(241, scene);
+            Assert.Equal("kaks", Assert.Single(scene).Routine);
+            var current = new List<MapSchedulerRequest>();
+            world.TakeMapSchedulers(14, current);
+            Assert.Equal("1pa1", Assert.Single(current).Routine);
+        }
+
         // ── retail zone DATs ─────────────────────────────────────────────────────
 
         private static ZoneGeometry? LoadZone(int zoneId)

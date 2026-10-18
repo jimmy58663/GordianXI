@@ -95,5 +95,57 @@ namespace Gordian.App.Tests.Graphics
                 DestroyWindow(hwnd);
             }
         }
+            /// <summary>
+        /// Alzadaal's door _20t (#227, #232): with its door entity in the world, the door's intc plays map1 and its idle
+        /// meshes g000-g009 (ZoneActor0xA) are bound to the door and drawn there; opening plays stat on the door.
+        /// </summary>
+        [Fact]
+        public void AlzadaalDoor_DrawsItsIdleMeshesOnTheDoorEntity()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(72, out var zone, out var textures) || !zone.DoorLeaves.TryGetValue("_20t", out var leaves)) return;
+            var at = leaves[0].Placement.Position;
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 640, 480, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 640, 480, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device!;
+            try
+            {
+                var world = new WorldState { CurrentZoneId = 72 };
+                var door = new WorldEntity(0x01048123, 0x123, EntityType.Door) { TransportId = "_20t", Position = at };
+                world.UpsertEntity(door);
+                var renderer = new ZoneTerrainRenderer(gd) { World = world };
+                renderer.LoadZone(zone, textures);
+                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                camera.Update(new Vector3(-at.X, -at.Y + 2f, at.Z), 10.0f, 0.0f, 10.0f, 640f / 480f);
+                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                env.WeatherId = "fine";
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var fb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
+                void Run(int frames) { for (int i = 0; i < frames; i++) renderer.Render(camera, env, 1 / 60f, 640, 480, entities: world.GetAllEntities(), resourceManager: rm, present: false, targetFramebuffer: fb); }
+
+                Run(20);
+                int bound = renderer.BoundAttachedEmitters;
+                int closedDraws = renderer.DrawCalls;
+                _out.WriteLine($"door _20t closed: {bound} bound emitters, {closedDraws} draws");
+                Assert.True(bound >= 10, $"intc / map1 should bind g000-g009 to the door: {bound}");
+
+                door.AnimationState = Gordian.Core.World.Collision.ZoneDoors.StatusOpen;
+                Run(30);
+                _out.WriteLine($"door _20t opening: {renderer.BoundAttachedEmitters} bound emitters, {renderer.DrawCalls} draws");
+                Assert.True(renderer.BoundAttachedEmitters > bound, "open / stat should bind its burst to the door");
+                renderer.Dispose();
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
     }
 }
