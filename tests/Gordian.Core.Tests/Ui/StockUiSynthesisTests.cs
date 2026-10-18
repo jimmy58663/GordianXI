@@ -305,7 +305,7 @@ namespace Gordian.Core.Tests.Ui
             h.Place(grid, 1, Seashell, 3);
             grid.SelectedButtonId = StockUiSynthesis.OkButton;
             h.Menus.Activate();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             var sent = Assert.Single(h.Synths);
             Assert.Equal((WindCrystal, (byte)2), (sent.Crystal, sent.Slot));
             Assert.Equal(new[] { (Seashell, (byte)5), (Seashell, (byte)5), (Seashell, (byte)5) }, sent.Items);
