@@ -51,6 +51,27 @@ namespace Gordian.Core.Resources.Graphics
             _ranks[name] = rank;
         }
 
+        /// <summary>
+        /// Adds a 0x2E section to the by-section-id table that generators link their meshes through. The first section with
+        /// an id is kept, except that a later section whose own name is that id replaces one named otherwise. South
+        /// Gustaberg (zone 107) has the sea-cliff terrain meshes <c>umigake01_m</c>-<c>umigake03_m</c> in sections
+        /// <c>umi1</c>-<c>umi3</c> and, later, the flat wave-foam meshes named <c>umi1</c>-<c>umi3</c> (texture
+        /// <c>umna</c>) in sections of the same ids. The wave generators <c>nam1</c>-<c>nam5</c> link <c>umi1</c>-<c>umi3</c>;
+        /// taking the first section drew the cliffs, stretched 16-17 times, as dark slabs over the bay (#341).
+        /// </summary>
+        public static void AddSection(Dictionary<string, List<MeshGroup>> sections, string key, string sectionId, List<MeshGroup> meshes)
+        {
+            if (meshes.Count == 0) return;
+            if (!sections.TryGetValue(key, out var existing) ||
+                (!IsNamed(existing, sectionId) && IsNamed(meshes, sectionId)))
+            {
+                sections[key] = meshes;
+            }
+        }
+
+        private static bool IsNamed(List<MeshGroup> meshes, string sectionId) =>
+            meshes.Count > 0 && string.Equals(meshes[0].Name, sectionId, StringComparison.OrdinalIgnoreCase);
+
         private static int VertexCount(List<MeshGroup> meshes)
         {
             int count = 0;

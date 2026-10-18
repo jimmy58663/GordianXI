@@ -419,9 +419,9 @@ namespace Gordian.Core.Resources
                             string? currentWeather = ResolveCurrentWeather(dirStack);
                             if (!string.IsNullOrEmpty(currentWeather))
                             {
-                                zoneMeshSections.TryAdd($"{currentWeather}/{header.DatId}", submeshes);
+                                ZoneMeshTemplates.AddSection(zoneMeshSections, $"{currentWeather}/{header.DatId}", header.DatId, submeshes);
                             }
-                            zoneMeshSections.TryAdd(header.DatId, submeshes);
+                            ZoneMeshTemplates.AddSection(zoneMeshSections, header.DatId, header.DatId, submeshes);
 
                             if (ZoneDefDecoder.IsSkyMesh(primaryName) || ZoneDefDecoder.IsSkyMesh(header.DatId))
                             {
