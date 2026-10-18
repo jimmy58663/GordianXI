@@ -36,7 +36,7 @@ namespace Gordian.App.Graphics
     /// joint-palette skeletal skinning, authentic FFXI orientation, lighting, and distance fog.
     /// Clean-room implementation referencing FFXI entity rendering conventions and xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
-    public sealed class EntityRenderer : IDisposable
+    public sealed partial class EntityRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
         // Layouts, texture cache and GPU models shared by every window on the device (#300).
@@ -660,6 +660,7 @@ namespace Gordian.App.Graphics
                 if (HideLocalPlayer && entity.ServerId == localPlayerServerId) continue;
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
+                if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.
@@ -670,6 +671,7 @@ namespace Gordian.App.Graphics
                 }
             }
 
+            draws += DrawBlurAuras(cl, deltaSeconds);
             DrawCalls = draws;
             VisibleEntities = visible;
             CulledEntities = culled;
@@ -1128,6 +1130,7 @@ namespace Gordian.App.Graphics
             _skinnedDepthPipeline?.Dispose();
             _fadePipeline?.Dispose();
             _skinnedFadePipeline?.Dispose();
+            DisposeBlurAura();
             // GPU models, textures and layouts are the shared resources'.
             if (_ownsShared) _shared.Dispose();
         }

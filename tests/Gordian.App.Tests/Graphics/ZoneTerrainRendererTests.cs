@@ -8,11 +8,11 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected352ByteLayout()
+        public void ZoneSceneUniform_HasExpected368ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) + MoonColor(16) = 352 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) + MoonColor(16) + TerrainTone(16) = 368 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(352, size);
+            Assert.Equal(368, size);
             Assert.Equal(ZoneSceneUniform.SizeInBytes, (uint)size);
         }
 
@@ -27,6 +27,7 @@ namespace Gordian.App.Tests.Graphics
             { "ZoneEffect", ZoneShaders.VertexShaderZoneEffectGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
             { "StockUi", StockUiRenderer.VertexShaderGlsl, StockUiRenderer.FragmentShaderGlsl },
+            { "BlurAura", BlurAuraShaders.SkinnedVertexShaderGlsl, BlurAuraShaders.FragmentShaderGlsl },
         };
 
         /// <summary>
@@ -706,6 +707,43 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("int slot = LightSlots[i];", fragmentGlsl);
             Assert.Contains("max(dot(N, -L), 0.0) * MoonColor.rgb", fragmentGlsl);
             Assert.DoesNotContain("0.5 * amb", fragmentGlsl);
+        }
+
+        [Theory]
+        [MemberData(nameof(TerrainFragmentShaders))]
+        public void TerrainFragmentShaders_ToneHighlightsBeforeFog(string fragmentGlsl)
+        {
+            // #7: the lit colour rolls off above the knee instead of clipping; TerrainTone.y <= x keeps the plain clamp.
+            Assert.Contains("vec4 TerrainTone;", fragmentGlsl);
+            Assert.Contains("vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);", fragmentGlsl);
+            Assert.True(fragmentGlsl.IndexOf("ToneTerrain(2.0", StringComparison.Ordinal) < fragmentGlsl.IndexOf("mix(litColor, FogColor.rgb", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void TerrainTone_DefaultsToTheShoulder_AndRetailBrightnessTurnsItOff()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+            static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern bool DestroyWindow(IntPtr hWnd);
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 64, 64, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            try
+            {
+                devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 64, 64, GraphicsBackendPreference.Direct3D11, vsync: false);
+                if (devMgr.Device == null) return;
+                using var renderer = new ZoneTerrainRenderer(devMgr.Device);
+                Assert.Equal(new System.Numerics.Vector4(0.65f, 0.9f, 0f, 0f), renderer.TerrainTone);
+                renderer.RetailTerrainBrightness = true;
+                Assert.Equal(System.Numerics.Vector4.Zero, renderer.TerrainTone);
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
         }
 
         public static TheoryData<string> TerrainFragmentShaders => new()
