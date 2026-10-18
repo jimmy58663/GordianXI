@@ -190,22 +190,24 @@ namespace Gordian.Core.Ui
             Toggle(StockUiSettingKey.WindowEffect, true);
 
             Toggle(StockUiSettingKey.Window1ReactiveSizing, true);
-            Slider(StockUiSettingKey.Window1MaxLines, 8, 1, 8, 1);
-            Slider(StockUiSettingKey.Window1MinLines, 0, 0, 8, 1); // retail default 0 (in-game comparison 2026-10-04)
+            // Retail defaults (captures 2026-10-16, #24): Maximum lines 10 (the bar filled 48 %, which fits a 1-20 range;
+            // the top of the range is inferred), Minimum 0, Resize Time near its minimum (14 of 200 px = 7 %).
+            Slider(StockUiSettingKey.Window1MaxLines, 10, 1, 20, 1);
+            Slider(StockUiSettingKey.Window1MinLines, 0, 0, 20, 1);
             Slider(StockUiSettingKey.Window1Width, 100);
-            Slider(StockUiSettingKey.Window1ResizeTime, 50);
+            Slider(StockUiSettingKey.Window1ResizeTime, 7);
             Toggle(StockUiSettingKey.Window2ReactiveSizing, true);
-            Slider(StockUiSettingKey.Window2MaxLines, 8, 1, 8, 1); // retail default 8 for both windows
-            Slider(StockUiSettingKey.Window2MinLines, 0, 0, 8, 1);
+            Slider(StockUiSettingKey.Window2MaxLines, 10, 1, 20, 1); // the same defaults for both windows
+            Slider(StockUiSettingKey.Window2MinLines, 0, 0, 20, 1);
             Slider(StockUiSettingKey.Window2Width, 100);
-            Slider(StockUiSettingKey.Window2ResizeTime, 50);
+            Slider(StockUiSettingKey.Window2ResizeTime, 7);
 
             Add(StockUiSettingKey.DamageDisplay, 1, 0, 2);
             Toggle(StockUiSettingKey.CharacterInfoHidden, false, StockUiSettingScope.Server);
             Add(StockUiSettingKey.Shadows, 1, 0, 2);
             Toggle(StockUiSettingKey.WeatherEffects, true);
             Slider(StockUiSettingKey.CharacterModelsDisplayed, 100);
-            Add(StockUiSettingKey.IconType, 1, 1, 2);
+            Add(StockUiSettingKey.IconType, 2, 1, 2); // retail default 2 (capture 2026-10-16, #24)
             Add(StockUiSettingKey.PcArmorDisplay, 0, 0, 1);
 
             Slider(StockUiSettingKey.ClippingPlane, 100);

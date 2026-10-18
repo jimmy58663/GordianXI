@@ -42,6 +42,15 @@ namespace Gordian.Core.Resources.Ui
         public short CursorOffsetY { get; init; }
         public short Width { get; init; }
         public short Height { get; init; }
+
+        /// <summary>
+        /// The height the frame's images were authored for when <see cref="Height"/> is a client-grown size (log windows
+        /// past eight lines), or 0 when they match. Vertical stretching measures from this.
+        /// </summary>
+        public short AuthoredHeight { get; init; }
+
+        /// <summary><see cref="AuthoredHeight"/> when set, else <see cref="Height"/>.</summary>
+        public short ImageHeight => AuthoredHeight > 0 ? AuthoredHeight : Height;
         public short DrawOffsetX { get; init; }
         public short DrawOffsetY { get; init; }
         public UiAnchor Anchor { get; init; }

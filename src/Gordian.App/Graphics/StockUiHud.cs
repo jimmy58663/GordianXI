@@ -908,10 +908,37 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static bool TryGetLogFrame(UiResourceLibrary library, int lines, out UiMenuDefinition menu, out int rows)
         {
-            rows = Math.Clamp(lines, 1, 8);
+            rows = Math.Clamp(lines, 1, 20);
+            if (rows > 8)
+            {
+                // The UI DAT authors "log1".."log8" only (checked 2026-10-18); retail's way past 8 lines is not known,
+                // so the log8 frame grows 16 px per extra line (the pitch of log1..log8), bottom edge fixed.
+                if (!library.TryGetMenu("log8", out var log8)) { menu = null!; return false; }
+                var cache = TallLogFrames.GetValue(library, _ => new Dictionary<int, UiMenuDefinition>());
+                if (!cache.TryGetValue(rows, out menu!)) cache[rows] = menu = StretchedLogFrame(log8, rows);
+                return true;
+            }
             if (library.TryGetMenu($"log{rows}", out menu)) return true;
             rows = 8;
             return library.TryGetMenu("logwindo", out menu);
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UiResourceLibrary, Dictionary<int, UiMenuDefinition>> TallLogFrames = new();
+
+        private static UiMenuDefinition StretchedLogFrame(UiMenuDefinition log8, int rows)
+        {
+            short extra = (short)((rows - 8) * 16);
+            var f = log8.Frame;
+            return new UiMenuDefinition
+            {
+                DatId = log8.DatId, Category = log8.Category, Name = $"log{rows}", MenuType = log8.MenuType, Buttons = log8.Buttons,
+                Frame = new UiMenuFrame
+                {
+                    X = f.X, Y = (short)(f.Y - extra), CursorOffsetX = f.CursorOffsetX, CursorOffsetY = f.CursorOffsetY,
+                    Width = f.Width, Height = (short)(f.Height + extra), AuthoredHeight = f.Height, DrawOffsetX = f.DrawOffsetX, DrawOffsetY = f.DrawOffsetY,
+                    Anchor = f.Anchor, Shapes = f.Shapes, HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
+                },
+            };
         }
 
         /// <summary>A window's "Window Width" setting (percent of its full width; never narrower than 128 px).</summary>

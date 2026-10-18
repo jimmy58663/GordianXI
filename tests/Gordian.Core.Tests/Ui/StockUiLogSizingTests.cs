@@ -55,13 +55,18 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Defaults_AreZeroToEightLines_AndTheResizeTimeIsTwentiethsOfTheSlider()
+        public void Defaults_AreZeroToTenLines_AndTheResizeTimeIsTwentiethsOfTheSlider()
         {
             var settings = new StockUiSettings();
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window1MinLines));
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window2MinLines));
-            Assert.Equal(8, settings.GetValue(StockUiSettingKey.Window1MaxLines));
-            Assert.Equal(8, settings.GetValue(StockUiSettingKey.Window2MaxLines));
+            Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window2MaxLines));
+            Assert.Equal(7, settings.GetValue(StockUiSettingKey.Window1ResizeTime));
+            Assert.Equal(7, settings.GetValue(StockUiSettingKey.Window2ResizeTime));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.IconType));
+            settings.SetValue(StockUiSettingKey.Window1MaxLines, 99);
+            Assert.Equal(20, settings.GetValue(StockUiSettingKey.Window1MaxLines));
             Assert.Equal(2.5, StockUiLogSizing.ResizeSeconds(50));
             var sizing = new StockUiLogSizing();
             Assert.Equal(4, sizing.Update(0, 0, true, 8, 4, 5, false));        // a minimum above the maximum is the maximum

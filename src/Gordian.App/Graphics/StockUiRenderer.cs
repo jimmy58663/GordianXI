@@ -486,8 +486,8 @@ void main()
             if (frameHeight is { } fh)
             {
                 stretch = frameWidth is null
-                    ? new UiStretch(float.MaxValue, 0, menu.Frame.Height * 0.5f, fh - menu.Frame.Height)
-                    : stretch with { PivotY = menu.Frame.Height * 0.5f, ExtraY = fh - menu.Frame.Height };
+                    ? new UiStretch(float.MaxValue, 0, menu.Frame.ImageHeight * 0.5f, fh - menu.Frame.ImageHeight)
+                    : stretch with { PivotY = menu.Frame.ImageHeight * 0.5f, ExtraY = fh - menu.Frame.ImageHeight };
             }
             float borderWidth = frameWidth ?? menu.Frame.Width;
             float borderHeight = frameHeight ?? menu.Frame.Height;
