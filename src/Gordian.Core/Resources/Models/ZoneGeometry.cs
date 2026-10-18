@@ -154,6 +154,13 @@ namespace Gordian.Core.Resources.Models
         public Dictionary<string, ZoneDoorRoutines> DoorRoutines { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// The directory of each door that carries effect routines (<c>d_at/door/_20t</c>), keyed by door id: the door's
+        /// <c>open</c> / <c>clos</c> / <c>into</c> / <c>intc</c> there play through <see cref="MapRoutines"/> on the door
+        /// entity when its leaves move (#227).
+        /// </summary>
+        public Dictionary<string, string> DoorDirectories { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none.
         /// </summary>
         public World.Collision.ZoneCollisionMesh? Collision { get; set; }
@@ -164,8 +171,10 @@ namespace Gordian.Core.Resources.Models
         public List<Gordian.Core.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();
 
         /// <summary>
-        /// The zone's routines outside the weather and door directories with the emitters they start, which the client
-        /// plays when a trigger names them (S2C 0x039 map schedulers, <see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>).
+        /// The zone's routines outside the weather directories with the emitters they start, which the client plays when a
+        /// trigger names them (S2C 0x039 map schedulers, <see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>). Door
+        /// directories' routines are in it by path only (<see cref="DoorDirectories"/>): a map scheduler's name never
+        /// starts a door's <c>open</c>.
         /// </summary>
         public Gordian.Core.Graphics.ZoneRoutineLibrary MapRoutines { get; } = new();
 

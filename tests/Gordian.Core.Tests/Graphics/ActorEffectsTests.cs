@@ -55,11 +55,16 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
-        public void ZoneParse_StillSkipsActorAttachedGenerators()
+        public void ZoneParse_KeepsRoutineStartedActorGenerators_AsAttachedEmitters()
         {
+            // Read as a zone DAT (#232): act0 (TargetActor), which the routine BIND starts, waits as an actor-attached
+            // emitter for the entity a trigger names; idl0 auto-runs on an actor no zone routine names, so it is skipped.
             var zone = ZoneDataLoader.ParseZoneContainer(BuildModelDat(), zoneId: 4);
 
-            Assert.Empty(zone.EffectLayers);
+            var layer = Assert.Single(zone.EffectLayers);
+            Assert.Equal("act0", layer.Name);
+            Assert.True(layer.IsActorAttached);
+            Assert.Equal(ParticleAttachType.TargetActor, layer.AttachType);
             Assert.Empty(zone.ActorRoutines);
         }
 

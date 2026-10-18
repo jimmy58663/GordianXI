@@ -204,6 +204,40 @@ namespace Gordian.Core.Resources
             return false;
         }
 
+        /// <summary>
+        /// Whether a zone DAT generator of this attach type is drawn where the zone places it: unattached ones, and
+        /// TargetActorSourceFacing (#121). The base positions of the latter are zone positions: of the 669 in zones 0-299
+        /// (survey 2026-10-18), 658 lie tens to thousands of yalms from the origin along their zone's features (Phanauet
+        /// Channel's birds <c>weat/*/tobi/wbi0</c>-<c>wbi6</c> 45 yalms over the river, its fireflies
+        /// <c>hota/htr1</c>-<c>ht10</c> just over the water, owls, waterfalls, Manaclipper's <c>shio</c> shore effects),
+        /// where an offset from an actor would put them out of sight. The few near the origin (Manaclipper's
+        /// <c>umi1/g000</c>, the manta <c>mant</c>) are read the same way. *Inference* from the data: which actor retail
+        /// binds them to is not known; the zone origin is their frame.
+        /// </summary>
+        internal static bool IsZonePlaced(ParticleAttachType attachType) =>
+            attachType is ParticleAttachType.None or ParticleAttachType.TargetActorSourceFacing;
+
+        /// <summary>
+        /// Whether a zone DAT generator of this attach type rides an actor (#232): the source and target types, their
+        /// basis and facing variants, the weapon, and the zone actor types 0xA-0xC. Their base positions are offsets of a
+        /// few yalms (Alzadaal's door <c>_20t</c>: <c>door/g000</c>-<c>g009</c> about 2 yalms up), so they are placed on
+        /// the entity the routine names. Sun and moon belong to the sky; see <see cref="IsZonePlaced"/> for the rest.
+        /// </summary>
+        internal static bool IsActorAttached(ParticleAttachType attachType) =>
+            attachType is not (ParticleAttachType.None or ParticleAttachType.TargetActorSourceFacing or ParticleAttachType.Sun or ParticleAttachType.Moon);
+
+        /// <summary>The door id of a path under <c>&lt;zone code&gt;/door/&lt;door id&gt;</c> (<c>_20t</c>), else null.</summary>
+        internal static string? DoorIdOfPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            var parts = path.Split('/');
+            for (int i = 0; i + 1 < parts.Length; i++)
+            {
+                if (string.Equals(parts[i], "door", StringComparison.OrdinalIgnoreCase) && parts[i + 1].Length > 0 && parts[i + 1][0] == '_') return parts[i + 1];
+            }
+            return null;
+        }
+
         /// <summary>The open directories as a path from the outermost, e.g. <c>d_at/effe/pba1/1pba</c>.</summary>
         private static string DirectoryPath(Stack<string> dirStack)
         {
@@ -552,7 +586,8 @@ namespace Gordian.Core.Resources
                     case DatSectionType.EffectRoutine:
                     {
                         // A door's routines live in <zone code>/door/<door id>/ (open, clos, into, intc).
-                        if (IsDoorDirectory(dirStack, out string doorId) && DoorRoutineDecoder.Decode(payload) is { } doorRoutine)
+                        bool isDoorRoutine = IsDoorDirectory(dirStack, out string doorId);
+                        if (isDoorRoutine && DoorRoutineDecoder.Decode(payload) is { } doorRoutine)
                         {
                             if (!zone.DoorRoutines.TryGetValue(doorId, out var doorRoutines)) zone.DoorRoutines[doorId] = doorRoutines = new ZoneDoorRoutines();
                             doorRoutines.Set(header.DatId, doorRoutine);
@@ -572,11 +607,15 @@ namespace Gordian.Core.Resources
                             }
                             inPath.TryAdd(routine.DatId, routine);
                         }
-                        if (!actorEffects && routineWeather == null && !IsInDoorDirectory(dirStack) &&
+                        // A door directory's routines (and the effects under it, Alzadaal's door/_20t/door/stat) play on
+                        // the door entity when its leaves move (#227): they join the library by path only, so a map
+                        // scheduler's name never starts them.
+                        if (!actorEffects && routineWeather == null &&
                             Events.SceneRoutine.Decode(payload, header.DatId) is { HasEffects: true } onDemand)
                         {
-                            zone.MapRoutines.AddRoutine(routinePath, onDemand);
+                            zone.MapRoutines.AddRoutine(routinePath, onDemand, byName: !IsInDoorDirectory(dirStack));
                             onDemandRoutines.Add((routinePath, onDemand));
+                            if (isDoorRoutine) zone.DoorDirectories.TryAdd(doorId, routinePath);
                         }
                         break;
                     }
@@ -1101,11 +1140,14 @@ namespace Gordian.Core.Resources
                 bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
                 if (skyGenerators.Contains(gen)) continue;
-                if (actorEffects ? gen.AttachType is ParticleAttachType.Sun or ParticleAttachType.Moon : gen.AttachType != ParticleAttachType.None) continue;
+                // In a zone DAT, a generator attached to an actor rides the entity its routine names (#232); one placed by
+                // TargetActorSourceFacing is drawn where the zone puts it (IsZonePlaced, #121).
+                bool actorAttached = !actorEffects && IsActorAttached(gen.AttachType);
+                if (actorEffects ? gen.AttachType is ParticleAttachType.Sun or ParticleAttachType.Moon : !IsZonePlaced(gen.AttachType) && !actorAttached) continue;
                 bool isWeather = !string.IsNullOrEmpty(genWeather);
                 // Sprite-sheet and weighted-mesh particles always run through the emitter (billboarding, card selection and
                 // morph weights are per particle); an actor's generators always do, so each actor runs its own instance.
-                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || isWeighted || actorEffects;
+                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || isWeighted || actorEffects || actorAttached;
                 // Camera-following generators are weather emitters; the persistent ones are the sky layers above. A cutscene
                 // scene DAT's (cameraEffects) are screen overlays the scene plays in front of the camera (Port Jeuno 324's blink).
                 if (setup.FollowCamera && !cameraEffects && (!isWeather || setup.MaxLifeSpan == 0)) continue;
@@ -1116,8 +1158,15 @@ namespace Gordian.Core.Resources
                 int scheduleLoop = 0;
                 generatorPaths.TryGetValue(gen, out string? genPath);
                 genPath ??= string.Empty;
+                string? ownerDoor = DoorIdOfPath(genPath);
+                if (actorAttached)
+                {
+                    // Attached to an actor: a weather effect has none, and no zone-load schedule names one. It waits for
+                    // an on-demand routine to name its actor or, auto-running under a door, rides that door.
+                    if (isWeather || (gen.AutoRun ? ownerDoor == null : !StartedOnDemand(genId, gen))) continue;
+                }
                 // An actor's non-auto-running generators wait for the client to play one of its routines on the actor.
-                if (!gen.AutoRun && !actorEffects)
+                else if (!gen.AutoRun && !actorEffects)
                 {
                     bool sporadic = false;
                     foreach (var ambient in ambientSpawns)
@@ -1149,6 +1198,12 @@ namespace Gordian.Core.Resources
 
                 var effect = BuildEffectLayer(genId, genWeather, genPath, gen, isEmitter, schedule, scheduleLoop, childOnly: false);
                 if (effect == null) continue;
+                if (actorAttached)
+                {
+                    effect.IsActorAttached = true;
+                    effect.AttachType = gen.AttachType;
+                }
+                effect.OwnerDoorId = ownerDoor;
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;
                 if (!actorEffects && !isWeather && effect.Emitter != null)
@@ -1284,6 +1339,11 @@ namespace Gordian.Core.Resources
                         generatorPaths.TryGetValue(child.Generator, out string? childPath);
                         var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true);
                         if (built == null) continue;
+                        // A child takes its parent's place (xi-tools docs/fx/effect_system.md "Child generators"), so it
+                        // rides the parent's actor.
+                        built.IsActorAttached = parentLayer.IsActorAttached;
+                        if (parentLayer.IsActorAttached) built.AttachType = parentLayer.AttachType;
+                        built.OwnerDoorId = parentLayer.OwnerDoorId;
                         childLayer = built;
                         childLayers[child.Generator] = childLayer;
                         layerDirectories[childLayer] = childPath;
