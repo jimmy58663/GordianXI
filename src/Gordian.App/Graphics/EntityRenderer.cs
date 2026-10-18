@@ -529,6 +529,12 @@ namespace Gordian.App.Graphics
 
                 // An event faded it out completely (0x6C to alpha 0): nothing to draw.
                 int eventAlpha = entity.EventAlpha;
+                // A routine's colour fade (0x29: kesu on a despawning entity, the battlefield warps; #206 / #311).
+                if (entity.ActorColor.IsActive)
+                {
+                    float routineAlpha = Math.Clamp(entity.ActorColor.Sample(ActorColorTrack.Now).W, 0f, 1f);
+                    eventAlpha = Math.Min(eventAlpha, (int)MathF.Round(routineAlpha * WorldEntity.OpaqueEventAlpha));
+                }
                 if (eventAlpha <= 0) continue;
                 // 0x00E Flags3 bit 31 (LandSandBoat ghost_phase): retail draws the entity at alpha 0.5 (XiPackets 0x000E).
                 if (entity.IsHalfTransparent) eventAlpha = Math.Min(eventAlpha, WorldEntity.OpaqueEventAlpha / 2);

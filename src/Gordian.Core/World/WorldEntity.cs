@@ -839,6 +839,12 @@ namespace Gordian.Core.World
             set => _eventAlpha = value;
         }
 
+        /// <summary>
+        /// The colour the entity's routines draw it with: op 0x29 fades and 0x2E holds from S2C 0x038 actor schedulers
+        /// (<c>kesu</c> fades a despawning entity out) and from event scene routines (the battlefield warps), #206 / #311.
+        /// </summary>
+        public ActorColorTrack ActorColor { get; } = new ActorColorTrack();
+
         private int _spokenLines;
 
         /// <summary>

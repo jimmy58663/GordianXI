@@ -84,8 +84,14 @@ namespace Gordian.Core.Animation
         /// </summary>
         public ActionAsset? Asset { get; init; }
 
+        /// <summary>
+        /// The target of a request without hits (an S2C 0x03A magic scheduler, #311): where target-side effects play when
+        /// no result names one. 0 for none.
+        /// </summary>
+        public uint TargetId { get; init; }
+
         /// <summary>The server id of the first target the action shows a result on (where target-side effects play), or 0.</summary>
-        public uint PrimaryTargetId => Hits.Count > 0 ? Hits[0].TargetId : 0;
+        public uint PrimaryTargetId => Hits.Count > 0 ? Hits[0].TargetId : TargetId;
 
         /// <summary><see cref="System.Diagnostics.Stopwatch"/> timestamp the request was built at.</summary>
         public long ReceivedTimestamp { get; init; }

@@ -159,6 +159,37 @@ namespace Gordian.Core.Tests.Graphics
             Assert.Equal(live, emitter.Particles.Count);
         }
 
+        /// <summary>
+        /// An event's 0x2D naming a door's open (Mamook's doors, #233) takes its length from the door, not from a zone
+        /// routine of that name, so 0x54 waits while the door moves.
+        /// </summary>
+        [Fact]
+        public void ZoneScheduler_OnADoor_TakesTheDoorsLength()
+        {
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new Gordian.Core.Events.EventDialogController();
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
+                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            parser.World.UpsertEntity(new WorldEntity(0x01118123, 0x123, EntityType.Door) { TransportId = "_ij0" });
+            parser.World.UpsertEntity(new WorldEntity(0x01118124, 0x124, EntityType.Npc));
+            var zoneFrames = Gordian.Core.Events.EventDialogController.ZoneRoutineFrames;
+            var doorFrames = Gordian.Core.Events.EventDialogController.DoorRoutineFrames;
+            try
+            {
+                Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = (_, _) => 7;
+                Gordian.Core.Events.EventDialogController.DoorRoutineFrames = (_, door, routine) => door == "_ij0" && routine == "open" ? 45 : 0;
+                var host = (Gordian.Core.Events.IEventVmHost)controller;
+                Assert.Equal(45, host.StartZoneScheduler("open", 0x01118123, 0x01118123));
+                Assert.Equal(7, host.StartZoneScheduler("open", 0x01118124, 0x01118124)); // not a door
+                Assert.Equal(7, host.StartZoneScheduler("sc00", 0x01118123, 0x01118123)); // not a door routine
+            }
+            finally
+            {
+                Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = zoneFrames;
+                Gordian.Core.Events.EventDialogController.DoorRoutineFrames = doorFrames;
+            }
+        }
+
         // ── retail zone DATs ─────────────────────────────────────────────────────
 
         private static ZoneGeometry? LoadZone(int zoneId)

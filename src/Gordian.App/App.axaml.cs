@@ -37,6 +37,24 @@ public partial class App : Application
             foreach (var (_, found) in zone.MapRoutines.Find(routine)) frames = System.Math.Max(frames, found.TotalFrames);
             return frames;
         };
+        // A door's open / clos an event starts and waits on (0x2D / 0x54, #233): the length of its leaves' move.
+        Gordian.Core.Events.EventDialogController.DoorRoutineFrames = (zoneId, doorId, routine) =>
+        {
+            var zone = AppResourceManager.Instance?.TryGetLoadedZone(zoneId);
+            if (zone == null) return 0;
+            int frames = 0;
+            if (zone.DoorRoutines.TryGetValue(doorId, out var leaves))
+            {
+                var move = routine switch { "open" => leaves.Open, "clos" => leaves.Close, "into" => leaves.InitOpen, _ => leaves.InitClose };
+                frames = move?.TotalFrames ?? 0;
+            }
+            // A door without leaf routines: its effect routine's own length (not the routines it starts, which run on).
+            if (frames == 0 && zone.DoorDirectories.TryGetValue(doorId, out var directory) && zone.MapRoutines.TryGetRoutine(directory, routine, out var effect))
+            {
+                frames = effect.TotalFrames;
+            }
+            return frames;
+        };
         Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;

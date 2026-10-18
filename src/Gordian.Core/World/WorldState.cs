@@ -88,6 +88,7 @@ namespace Gordian.Core.World
                         _collision = null;
                         _eventZoneId = 0;
                         _mapSchedulers.Clear();
+                        _actorEffects.Clear();
                         changed = true;
                     }
                 }
@@ -172,6 +173,36 @@ namespace Gordian.Core.World
         }
 
         private readonly List<MapSchedulerRequest> _mapSchedulers = new();
+        private readonly List<ActorEffectRequest> _actorEffects = new();
+
+        /// <summary>
+        /// Queues an effect for the viewport to play on an actor (S2C 0x038 / 0x03A, #311): a routine's model and shared
+        /// <c>ROM/0/0</c> effects, or a presentation file's. Bounded like the map schedulers; a zone change drops them.
+        /// </summary>
+        public void PostActorEffect(ActorEffectRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            lock (_syncRoot)
+            {
+                if (_actorEffects.Count >= MaxPendingMapSchedulers) _actorEffects.RemoveAt(0);
+                _actorEffects.Add(request with { ZoneId = _currentZoneId });
+            }
+        }
+
+        /// <summary>Moves the queued actor effects of <paramref name="zoneId"/> into <paramref name="into"/> and drops those of other zones.</summary>
+        public void TakeActorEffects(ushort zoneId, List<ActorEffectRequest> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_syncRoot)
+            {
+                if (_actorEffects.Count == 0) return;
+                foreach (var request in _actorEffects)
+                {
+                    if (request.ZoneId == zoneId) into.Add(request);
+                }
+                _actorEffects.Clear();
+            }
+        }
 
         /// <summary>Most map schedulers kept for a zone the viewport has not loaded yet.</summary>
         public const int MaxPendingMapSchedulers = 64;
@@ -663,4 +694,16 @@ namespace Gordian.Core.World
     /// viewport to play or end, with the two actors it names (0 = none / the player).
     /// </summary>
     public readonly record struct MapSchedulerRequest(ushort ZoneId, string Routine, uint CasterServerId, uint TargetServerId, bool Stop = false);
+
+    /// <summary>
+    /// An effect the viewport plays on actor <paramref name="ActorServerId"/> toward <paramref name="TargetServerId"/>
+    /// (#311): the effects of the actor's routine <paramref name="Routine"/> (an S2C 0x038 actor scheduler: the model's own
+    /// generators and the shared <c>ROM/0/0</c> routine of that name), or of the presentation file
+    /// <paramref name="Asset"/> (an S2C 0x03A magic scheduler).
+    /// </summary>
+    public sealed record ActorEffectRequest(uint ActorServerId, uint TargetServerId, string Routine, Animation.ActionAsset? Asset = null)
+    {
+        /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostActorEffect"/>).</summary>
+        public ushort ZoneId { get; init; }
+    }
 }
