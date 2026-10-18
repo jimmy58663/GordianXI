@@ -4,6 +4,9 @@ using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
 {
+    /// <summary>A synthesis as sent in C2S 0x096: the crystal's item id and each ingredient item (one entry per item).</summary>
+    public sealed record SynthesisRequest(ushort CrystalItemId, ushort[] IngredientItemIds);
+
     /// <summary>
     /// What the server has told the client about crafting: the character's last synthesis result (S2C 0x06F),
     /// the last result seen from another character (0x070), and the last recipe or recipe list a guild NPC sent (0x031).
@@ -55,6 +58,18 @@ namespace Gordian.Core.World
                     return false;
                 }
             }
+        }
+
+        private SynthesisRequest? _lastRequest;
+
+        /// <summary>The last synthesis the character sent (C2S 0x096): what the History window records when it succeeds.</summary>
+        public SynthesisRequest? LastRequest { get { lock (_gate) return _lastRequest; } }
+
+        /// <summary>C2S 0x096 is going out with this crystal and these ingredients: the synthesis lock starts.</summary>
+        public void BeginSynthesis(SynthesisRequest request)
+        {
+            lock (_gate) _lastRequest = request;
+            BeginSynthesis();
         }
 
         /// <summary>C2S 0x096 was sent: the synthesis lock starts.</summary>

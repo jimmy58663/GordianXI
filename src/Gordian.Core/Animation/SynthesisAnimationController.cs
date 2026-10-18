@@ -6,13 +6,16 @@ using Gordian.Core.World;
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// The hand-off of the synthesis animation (S2C 0x030). It does <b>not</b> play an animation yet: the routine retail
-    /// plays has not been identified. The lc0n / ls0n routines of the race motion DATs are the ranged attack start and
-    /// finish (calg / shlg reach them through ops 0x76 / 0x77, n the ranged weapon's RangeType, #158), not a synthesis,
-    /// and no routine of those DATs or of ROM/0/0 is named or shaped like a crafting pose. Better no animation than a
-    /// wrong one; <c>/playroutine</c> remains for trying routines in game. What it does: the character's own 0x030
-    /// confirms the synthesis lock (<see cref="CraftingState.IsSynthesizing"/>), and a zone change drops it. The
-    /// element (<c>EffectNum</c>) and result (<c>Type</c>) stay in <see cref="CombatState"/> for the day the routine is found.
+    /// The hand-off of the synthesis animation (S2C 0x030, #315). The crafter's body plays the seated posture of its server
+    /// status 44 (<see cref="RestPosture.StatusSynthesis"/>, the Healing routines <c>res0</c> / <c>res2</c>): the packet's
+    /// <c>Status</c> is put on the crafter's entity at once, so it sits down with the effect rather than with the next entity
+    /// update, and the status update that ends the synthesis stands it up. The character's own 0x030 also confirms the
+    /// synthesis lock (<see cref="CraftingState.IsSynthesizing"/>), and a zone change drops it. NOT done: the crystal in the
+    /// raised hand and the element effect (wind ribbons, fire flame, lightning sphere; success flash and rays, break shatter):
+    /// no routine for them was found in the DATs (2026-10-18: every routine and clip name of the install, the shared effects
+    /// DAT ROM/0/0, the race bases and motion packs, files and directories named after synthesis); the element
+    /// (<c>EffectNum</c> 0x10-0x17: water, wind, fire, earth, lightning, ice, light, dark, LandSandBoat
+    /// <c>SynthesisEffect</c>) and result (<c>Type</c>) stay in <see cref="CombatState"/> for when it is found.
     /// </summary>
     public sealed class SynthesisAnimationController
     {
@@ -34,8 +37,14 @@ namespace Gordian.Core.Animation
         private void OnCraftEffect(CraftEffectInfo info)
         {
             if (info.Effect == SynthesisEffect.None || _player == null) return;
-            bool own = info.ServerId == _player.ServerId
-                || (info.ServerId == 0 && _world != null && _world.TryGetByTargetIndex(info.TargetIndex, out var e) && e != null && e.ServerId == _player.ServerId);
+            WorldEntity? entity = null;
+            if (_world != null && (info.ServerId == 0 || !_world.TryGetByServerId(info.ServerId, out entity) || entity == null))
+            {
+                _world.TryGetByTargetIndex(info.TargetIndex, out entity);
+            }
+            bool own = info.ServerId == _player.ServerId || (entity != null && entity.ServerId == _player.ServerId);
+            // The crafter sits down now (status 44); the server's later status update stands it up.
+            if (entity != null && info.ServerStatus == RestPosture.StatusSynthesis) entity.AnimationState = info.ServerStatus;
             if (own) _crafting?.ConfirmSynthesis();
         }
     }

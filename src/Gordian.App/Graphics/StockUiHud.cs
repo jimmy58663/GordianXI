@@ -546,6 +546,13 @@ namespace Gordian.App.Graphics
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
+                if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory && i == open.Count - 1 && library.TryGetMenu(StockUiSynthesis.OptionsMenu, out var synthesisOptions))
+                {
+                    // "+ : Synthesis Options" (Favorite / Unfavorite) stands at the top right while the History list takes input
+                    // (capture Synthesis_History.png); + / Y puts the cursor on it.
+                    var f = synthesisOptions.Frame;
+                    renderer.DrawMenu(synthesisOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
+                }
                 if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
                     && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
                 {

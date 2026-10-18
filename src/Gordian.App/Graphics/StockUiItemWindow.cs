@@ -76,6 +76,9 @@ namespace Gordian.App.Graphics
         /// <summary>A set slot list's description: under the set's grid at x 16 (image-13).</summary>
         private const float EquipSetDescriptionX = 16;
 
+        /// <summary>A material already in the synthesis grid (the video, 2026-10-16: the seashells' name turned red; PROVISIONAL shade).</summary>
+        private static readonly UiColor SynthesisPlacedTint = new(0x80, 0x34, 0x34, 0x80);
+
         /// <summary>The item picked to move in Manual sort (orange, as the selected label look; PROVISIONAL).</summary>
         private static readonly UiColor PickedTint = new(0x80, 0x60, 0x2E, 0x80);
 
@@ -115,6 +118,12 @@ namespace Gordian.App.Graphics
                 menu.EquipSetNumber > 0 ? EquipSetDescriptionX : StockUiItems.EquipDescriptionX, placement.Y + (DescriptionTop - frame.Y) * s);
             else if (menu.ShowsQuantity) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 StockUiItems.EquipDescriptionX, null, screen);
+            else if (menu.ItemListKind is StockUiItemListKind.SynthesisMaterials or StockUiItemListKind.SynthesisHistory)
+            {
+                // Under the synthesis grid at (16, 240), as the video and the History capture show it.
+                DrawDescription(renderer, library, font, logFont, menu, placement, timestamp, StockUiSynthesis.DescriptionX,
+                    placement.Y + (DescriptionTop - frame.Y) * s);
+            }
             else if (menu.HasItemActionOver) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 frame.X, placement.Y + (frame.Height + 2) * s, screen, aboveLog: true);
             else DrawDescription(renderer, library, font, logFont, menu, placement, timestamp, frame.X, null, screen);
@@ -151,7 +160,7 @@ namespace Gordian.App.Graphics
                     string count = row.Count.ToString(CultureInfo.InvariantCulture);
                     renderer.DrawText(font, count, areaX + CountRight * s - font.MeasureWidth(count) * ts, ry + CountBottom * s - font.LineHeight * ts, ts);
                 }
-                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Equipped ? EquippedTint
+                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
                     : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
                 renderer.DrawText(font, row.Name, areaX + NameInset * s, textY, s, tint);
             }
@@ -304,7 +313,7 @@ namespace Gordian.App.Graphics
         /// the maintainer asked for it inline after rounds 2 and 3, 2026-10-12); the help line in <c>helpwind</c> (130,16)
         /// stretched toward the screen's right edge.
         /// </summary>
-        private static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+        internal static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiItemHelpBar bar, StockUiPlacement placement, StockUiScreen screen)
         {
             const float BarTextX = 8, HelpRightMargin = 16, DenominatorX = 88, DenominatorY = 12;
@@ -341,7 +350,7 @@ namespace Gordian.App.Graphics
         /// The described item's page in the item info window sized to its lines at layout x <paramref name="layoutX"/>: at
         /// <paramref name="top"/> (screen px) when given, else with its bottom at <see cref="BottomOf"/>.
         /// </summary>
-        private static void DrawDescription(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+        internal static void DrawDescription(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, long timestamp, float layoutX, float? top, StockUiScreen screen = default, bool aboveLog = false)
         {
             var pages = menu.DescriptionPages;

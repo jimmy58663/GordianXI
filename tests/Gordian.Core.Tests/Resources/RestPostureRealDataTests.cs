@@ -106,5 +106,27 @@ namespace Gordian.Core.Tests.Resources
             float top = idle.Translations.Max(t => -t.Y);
             Assert.InRange(eye.Value, head, top);
         }
+
+        /// <summary>
+        /// The synthesis posture (#315, status 44 = Healing's routines): retail's crafter (a Tarutaru in the maintainer's video,
+        /// 2026-10-16) rocks back onto its back before standing up, which Tarutaru's rx2 does: the head joint falls below
+        /// 0.2 yalms and 0.5 behind the root in the middle of the clip, then ends standing.
+        /// </summary>
+        [Fact]
+        public void TarutaruStandUp_RocksBackOntoItsBack_AsRetailsSynthesisEnds()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            var model = Assemble(rm, CharacterRace.TaruMale);
+            var skeleton = model.Skeleton!;
+            int head = HeadLook.HeadJoint(skeleton);
+            var clip = RestPosture.ExitClip(model, RestPosture.CategoryFor(RestPosture.StatusSynthesis)!.Value)!;
+            var lowest = Enumerable.Range(0, 20).Select(i => SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, clip.DurationSeconds * i / 19f, false).Translations[head])
+                .OrderBy(t => -t.Y).First();
+            Assert.True(-lowest.Y < 0.2f, $"head {-lowest.Y:F2}");
+            Assert.True(lowest.X < -0.5f, $"head x {lowest.X:F2}");
+            float end = -SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, clip.DurationSeconds, false).Translations[head].Y;
+            Assert.True(end > 0.55f, $"standing head {end:F2}");
+        }
     }
 }

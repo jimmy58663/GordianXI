@@ -126,6 +126,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
+            else if (font != null && menu.IsSynthesisGrid)
+            {
+                StockUiSynthesisWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.IsEquipment)
             {
                 StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
