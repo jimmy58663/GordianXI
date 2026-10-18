@@ -133,23 +133,10 @@ namespace Gordian.App.Graphics
             }
         }
 
-        /// <summary>The field being typed in: its text, scrolled to keep the caret in view, and the blinking caret.</summary>
+        /// <summary>The field being typed in (<see cref="StockUiTextFieldView"/>).</summary>
         private static void DrawField(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiTextField field, float x, float y, float s,
-            long timestamp, float maxWidth = float.MaxValue)
-        {
-            string text = field.Text;
-            int caret = Math.Clamp(field.Caret, 0, text.Length);
-            Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-            float caretX = measure(text[..caret]);
-            float shift = caretX > maxWidth ? caretX - maxWidth : 0;
-            DrawLine(renderer, font, logFont, text, x - shift * s, y, s);
-            bool on = (timestamp / (long)(Stopwatch.Frequency * CaretBlinkSeconds)) % 2 == 0;
-            if (on)
-            {
-                float height = logFont != null ? StockUiLogFont.CellHeight - 2 : font.LineHeight;
-                renderer.DrawTextureRect("colorbal", 7, 23, 1, 1, x + (caretX - shift) * s, y + 1 * s, 1 * s, height * s, White);
-            }
-        }
+            long timestamp, float maxWidth = float.MaxValue) =>
+            StockUiTextFieldView.Draw(renderer, font, logFont, field, x, y, s, timestamp, maxWidth);
 
         private static void DrawLine(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s)
         {

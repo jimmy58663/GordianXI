@@ -234,7 +234,7 @@ namespace Gordian.Core.Ui
         /// <summary>The character's macros (#339); the macro windows edit them. Null: the Macros entry posts a notice.</summary>
         public MacroLibrary? Macros { get; set; }
 
-        /// <summary>The field the macro windows type into; the viewport feeds it the keyboard while it is open.</summary>
+        /// <summary>The one text field the stock windows type into (the macro windows, Change Name); the viewport feeds it the keyboard while it is open.</summary>
         public StockUiTextField MacroField { get; } = new();
 
         /// <summary>Whether the Compact macro palette is chosen (Misc. 2 "Macro Palette Size").</summary>
@@ -301,13 +301,15 @@ namespace Gordian.Core.Ui
         private bool ProcessMacroField(InputState input)
         {
             if (!MacroField.IsOpen) return false;
-            if (!HasMacroWindow)
+            if (!HasMacroWindow && !_namingSet)
             {
                 MacroField.Cancel();
                 return false;
             }
-            // Cancel keeps the text as Confirm does (retail, the maintainer's check 2026-10-13).
-            if (input.WasActionTriggered(InputAction.Cancel) || input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
+            // Cancel does what Escape does: a macro line keeps its text as Confirm does (retail, the maintainer's check
+            // 2026-10-13); Change Name drops it.
+            if (input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
+            else if (input.WasActionTriggered(InputAction.Cancel)) MacroField.Escape();
             return true;
         }
 

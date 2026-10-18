@@ -39,15 +39,7 @@ namespace Gordian.App.Graphics
         /// <summary>What the viewport performance overlay shows (#30): hidden by default, like the retail client.</summary>
         public PerformanceOverlayMode PerformanceOverlay { get; set; } = PerformanceOverlayMode.Hidden;
 
-        public static string GetDefaultSettingsPath()
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-            {
-                return Path.Combine(localAppData, "GordianXI", "viewport_settings.json");
-            }
-            return Path.Combine(GordianStorage.RootDataDirectory, "viewport_settings.json");
-        }
+        public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "viewport_settings.json");
 
         public void SaveToFile(string filePath)
         {

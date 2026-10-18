@@ -126,6 +126,39 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Cancel_KeepsTheCommandMenuUpWhileEngaged_ButClosesItOutOfCombat()
+        {
+            // #325: B / Cancel does not dismiss the engaged command menu (keyboard and pad share the action).
+            var profile = InputProfile.CreateCompact();
+            foreach (bool engaged in new[] { true, false })
+            {
+                var menus = Controller();
+                menus.InCombat = () => engaged;
+                Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Monster, engaged: engaged, engagedWithTarget: engaged)));
+                var input = new InputState();
+                var dt = TimeSpan.FromMilliseconds(20);
+                input.SetKeyDown(GordianKey.Escape);
+                input.MenuContext = true;
+                input.Update(profile, dt);
+                menus.ProcessInput(input, dt);
+                Assert.Equal(engaged, menus.IsOpen);
+            }
+        }
+
+        [Fact]
+        public void MainMenu_Right_TurnsThePageOnAnArrowedEntry_OnlyConfirmOpensTheSubMenu()
+        {
+            var menus = Controller();
+            menus.OpenMainMenu();
+            menus.Move(InputAction.MenuDown);
+            menus.Move(InputAction.MenuDown); // row 3: Magic, which opens a list
+            Assert.Equal(3, menus.Top!.SelectedButtonId);
+            menus.Move(InputAction.MenuRight);
+            Assert.Equal(StockUiMenuEntries.MainMenuPage2, menus.Top!.Name); // #375: the page turned, nothing opened
+            Assert.Single(menus.OpenMenus);
+        }
+
+        [Fact]
         public void LeftRight_FlipMainMenuPages_KeepingTheRow_AndRememberThePage()
         {
             var menus = Controller();
@@ -215,9 +248,17 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(menus.CommandMenuTarget, Target(StockUiTargetKind.Self));
             menus.CloseAll();
 
-            Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Self, engaged: true)));
-            Assert.Contains("Disengage", Labels(menus.Top!));
-            menus.CloseAll();
+            // Engaged = one list for any target (retail captures 2026-10-16/17, #63), Disengage with its arrow sprite.
+            var engagedList = new[] { "Switch Target", "Magic", "Abilities", "Trust", "Items", "Disengage", "Check" };
+            foreach (var kind in new[] { StockUiTargetKind.Self, StockUiTargetKind.Player, StockUiTargetKind.Monster })
+            {
+                Assert.True(menus.OpenCommandMenu(Target(kind, engaged: true)));
+                Assert.Equal(engagedList, Labels(menus.Top!));
+                menus.CloseAll();
+            }
+            Assert.Equal(("attackmo", 5), (StockUiCommandMenu.Disengage.Menu, StockUiCommandMenu.Disengage.Button));
+            Assert.Equal(new[] { "Magic", "Abilities", "Trust", "Items" },
+                StockUiCommandMenu.Compose(Target(StockUiTargetKind.Pet)).Select(r => r.Label.Text)); // no Check
 
             // Another player shows the same list as yourself (retail, in-game check 2026-09-28).
             Assert.True(menus.OpenCommandMenu(Target(StockUiTargetKind.Player, canInvite: false)));

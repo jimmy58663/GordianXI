@@ -159,6 +159,8 @@ namespace Gordian.App.Graphics
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
+            renderer.HintLabel = menus.HintLabel;
+            renderer.HintFont = _font;
             if (menus.ConfigRowText == null && _resources is { } strings)
             {
                 // The list pages' row text comes from the config row table (ROM/165/74).
@@ -243,9 +245,11 @@ namespace Gordian.App.Graphics
                 DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
                 DrawStatusIcons(renderer, library, session, width, height);
             }
-            else if (session.Events.EventText is { } eventText)
+            else
             {
-                DrawEventText(renderer, eventText, width, height);
+                // The log stays up while an event line waits for Confirm, even in the event message mode (#369).
+                if (session.Events.IsWaitingForConfirm) DrawLogWindows(renderer, library, session, null, width, height);
+                if (session.Events.EventText is { } eventText) DrawEventText(renderer, eventText, width, height);
             }
             if (!zoning)
             {
@@ -710,7 +714,7 @@ namespace Gordian.App.Graphics
             // Reactive sizing picks each window's line count (and so its frame) from the lines arriving; it shows the
             // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
             double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now);
+            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now, session.Events.IsWaitingForConfirm);
             // The drawn height follows the line count smoothly: the frame is the next whole line count up, drawn
             // shorter, its rows held against the bottom edge (StockUiChatWindow.DrawLog's riseRows).
             float display1 = _logSizing[0].DisplayLines;
@@ -875,12 +879,12 @@ namespace Gordian.App.Graphics
         /// Advances a log's reactive sizing (Window 2's only while the log is split); it shows the maximum while the player
         /// reads the window (selected, scrolled back, typing, or placing the UI).
         /// </summary>
-        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now)
+        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now, bool dialogWaiting)
         {
             sizing[0].Update(now, chat.Log.AddedCount(1), settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
                 settings.GetValue(StockUiSettingKey.Window1MinLines), settings.GetValue(StockUiSettingKey.Window1MaxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
-                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0);
+                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0, hold: dialogWaiting);
             if (multi != 0) sizing[1].Update(now, chat.Log.AddedCount(2), settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
                 settings.GetValue(StockUiSettingKey.Window2MinLines), settings.GetValue(StockUiSettingKey.Window2MaxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
@@ -899,7 +903,7 @@ namespace Gordian.App.Graphics
             int multi = settings.GetValue(StockUiSettingKey.LogMultiWindow);
             session.Chat.SetMultiWindow(multi != 0);
             UpdateLogSizing(LogSizingFor(session), session.Chat, settings, session.ActionService.UiDrag.Unlocked, multi,
-                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
+                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, session.Events.IsWaitingForConfirm);
         }
 
         /// <summary>

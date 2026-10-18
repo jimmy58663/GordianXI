@@ -173,14 +173,10 @@ namespace Gordian.App.Graphics
                 if (editing && menu.EquipSetNameEdit is { } typing)
                 {
                     float es = s * StockUiEquipSets.EditScale;
-                    float caret = StockUiEquipSets.CaretWidth * s;
-                    float width = (logFont != null ? logFont.MeasureWidth(typing.Text) : font.MeasureWidth(typing.Text)) * es;
-                    float tx = x - Math.Max(0, width + caret - clipWidth);
                     float ty = placement.Y + button.Y * s + (button.Height * s - StockUiLogFont.CellHeight * es) * 0.5f;
-                    if (logFont != null) logFont.Draw(renderer, typing.Text, tx, ty, es, White);
-                    else renderer.DrawText(font, typing.Text, tx, ty, es, White);
-                    // The caret: a thin bar after the text.
-                    renderer.DrawTextureRect("colorbal", 7, 23, 1, 1, tx + width + 1 * s, ty + 2 * s, 1 * s, (StockUiLogFont.CellHeight - 4) * es, White);
+                    // The shared text field draws the text scrolled to keep the caret in view, and the blinking caret (#400).
+                    StockUiTextFieldView.Draw(renderer, font, logFont, typing.Field, x, ty, es, System.Diagnostics.Stopwatch.GetTimestamp(),
+                        StockUiEquipSets.EditFieldWidth - StockUiEquipSets.CaretWidth);
                 }
                 else if (logFont != null)
                 {

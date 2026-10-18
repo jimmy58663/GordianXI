@@ -529,12 +529,39 @@ void main()
                     hasBackground = true;
                 }
                 if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
+                // A baked "+ : ..." hint's key glyph is left out and the key or button in use drawn in its place (#360).
+                string? hint = HintFont != null && HintLabel?.Invoke() is { Length: > 0 } label && StockUiButtonHints.HasHintGlyph(image) ? label : null;
                 foreach (var part in image.Parts)
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
+                    if (hint != null && StockUiButtonHints.IsHintGlyph(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
                 }
+                if (hint != null) DrawHint(hint, placement.X, placement.Y, placement.Scale);
             }
+        }
+
+        /// <summary>Where the key / button hint text comes from (null leaves the DAT's glyph); set by the HUD each frame (#360).</summary>
+        public Func<string>? HintLabel { get; set; }
+
+        /// <summary>The font the hint text is drawn with.</summary>
+        public UiFont? HintFont { get; set; }
+
+        /// <summary>
+        /// Draws the hint text in the key glyph's room (x 4 to 22, y 4 to 20 of the frame), shrunk to fit and centred;
+        /// <paramref name="x"/> and <paramref name="y"/> are the frame's origin.
+        /// </summary>
+        private void DrawHint(string text, float x, float y, float scale)
+        {
+            var font = HintFont!;
+            float width = 0;
+            foreach (char c in text) width += font.GetAdvance(c);
+            float room = StockUiButtonHints.GlyphRight - StockUiButtonHints.GlyphLeft;
+            float fit = width <= room || width <= 0 ? 1f : Math.Max(0.4f, room / width);
+            float textScale = scale * fit;
+            float left = x + (StockUiButtonHints.GlyphLeft + Math.Max(0, (room - width * fit)) * 0.5f) * scale;
+            float top = y + ((StockUiButtonHints.GlyphTop + StockUiButtonHints.GlyphBottom) * 0.5f - font.LineHeight * fit * 0.5f) * scale;
+            DrawText(font, text, left, top, textScale);
         }
 
         /// <summary>

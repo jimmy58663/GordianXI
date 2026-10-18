@@ -71,7 +71,7 @@ namespace Gordian.Core.Ui
         public static readonly StockUiCommandLabel Request = new("Request", Template, 10);
         public static readonly StockUiCommandLabel Attack = new("Attack", "battlemo", 1);
         public static readonly StockUiCommandLabel SwitchTarget = new("Switch Target", "attackmo", 1);
-        public static readonly StockUiCommandLabel Disengage = new("Disengage", "mp_pmode", 6); // "attackmo" 5 is the arrowed variant
+        public static readonly StockUiCommandLabel Disengage = new("Disengage", "attackmo", 5); // retail draws the arrowed sprite; "mp_pmode" 6 is the plain one
 
         /// <summary>
         /// Release (a Trust's command menu, retail image-25, 2026-10-12): the <c>windowps</c> #668 label, which no DAT menu uses
@@ -112,16 +112,29 @@ namespace Gordian.Core.Ui
         public static IReadOnlyList<StockUiCommandRow> Compose(in StockUiTargetContext context)
         {
             var rows = new List<StockUiCommandRow>(8);
+            // Engaged = one menu (retail captures 2026-10-16/17, #63): whatever is targeted (yourself, a player, a
+            // monster), the engaged list shows. Pets and trusts keep their own lists.
+            if (context.Engaged && context.Kind is StockUiTargetKind.Self or StockUiTargetKind.Player or StockUiTargetKind.Monster)
+            {
+                rows.Add(Unavailable(SwitchTarget));
+                rows.Add(MagicRow);
+                rows.Add(AbilitiesRow);
+                rows.Add(TrustRow);
+                rows.Add(ItemsRow);
+                rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
+                if (context.HasTreasure) rows.Add(TreasureRow);
+                rows.Add(Row(Check, StockUiMenuCommand.Check));
+                return rows;
+            }
             switch (context.Kind)
             {
                 case StockUiTargetKind.Self:
                 case StockUiTargetKind.Player:
-                    // Retail (the maintainer's in-game checks, 2026-09-28): yourself and another player both show
-                    // Chat, Magic, Abilities, Trust, Items, Trade, Check. Disengage's place while engaged is a guess.
+                    // Retail (captures 2026-09-28, 2026-10-16): yourself and another player both show
+                    // Chat, Magic, Abilities, Trust, Items, Trade, Check.
                     rows.Add(new StockUiCommandRow(Chat, new StockUiMenuEntry(Chat.Text, Opens: ChatMenu)));
                     rows.Add(MagicRow);
                     rows.Add(AbilitiesRow);
-                    if (context.Engaged) rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
                     rows.Add(TrustRow);
                     rows.Add(ItemsRow);
                     rows.Add(Unavailable(Trade));
@@ -130,45 +143,32 @@ namespace Gordian.Core.Ui
                     break;
 
                 case StockUiTargetKind.Monster:
-                    if (context.EngagedWithTarget)
-                    {
-                        // "attackmo" (Switch Target, Abilities, Magic, Items, Disengage, Treasure, Check) with the
-                        // unengaged list's order: Magic before Abilities, Trust after them (in-game check 2026-09-28).
-                        rows.Add(Unavailable(SwitchTarget));
-                        rows.Add(MagicRow);
-                        rows.Add(AbilitiesRow);
-                        rows.Add(TrustRow);
-                        rows.Add(ItemsRow);
-                        rows.Add(Row(Disengage, StockUiMenuCommand.Disengage));
-                        if (context.HasTreasure) rows.Add(TreasureRow);
-                        rows.Add(Row(Check, StockUiMenuCommand.Check));
-                    }
-                    else
-                    {
-                        // Retail (in-game check 2026-09-28): Attack, Magic, Abilities, Trust, Items, Check.
-                        rows.Add(Row(Attack, StockUiMenuCommand.Attack));
-                        rows.Add(MagicRow);
-                        rows.Add(AbilitiesRow);
-                        rows.Add(TrustRow);
-                        rows.Add(ItemsRow);
-                        if (context.HasTreasure) rows.Add(TreasureRow);
-                        rows.Add(Row(Check, StockUiMenuCommand.Check));
-                    }
-                    break;
-
-                case StockUiTargetKind.Pet:
-                    rows.Add(MagicRow);
-                    rows.Add(AbilitiesRow);
-                    rows.Add(ItemsRow);
-                    rows.Add(Row(Check, StockUiMenuCommand.Check));
-                    break;
-
-                case StockUiTargetKind.Trust:
-                    // Retail image-25 (2026-10-12): Magic ▶, Abilities, Trust, Items, Release.
+                    // Retail (in-game check 2026-09-28): Attack, Magic, Abilities, Trust, Items, Check.
+                    rows.Add(Row(Attack, StockUiMenuCommand.Attack));
                     rows.Add(MagicRow);
                     rows.Add(AbilitiesRow);
                     rows.Add(TrustRow);
-                    rows.Add(Unavailable(Items));
+                    rows.Add(ItemsRow);
+                    if (context.HasTreasure) rows.Add(TreasureRow);
+                    rows.Add(Row(Check, StockUiMenuCommand.Check));
+                    break;
+
+                case StockUiTargetKind.Pet:
+                    // Retail Command_Pet.png (2026-10-16): Magic, Abilities, Trust, Items; no Check.
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
+                    rows.Add(TrustRow);
+                    rows.Add(ItemsRow);
+                    if (context.HasTreasure) rows.Add(TreasureRow);
+                    break;
+
+                case StockUiTargetKind.Trust:
+                    // Retail Command_Trust.png: Magic, Abilities, Trust, Items (white, usable), Release.
+                    rows.Add(MagicRow);
+                    rows.Add(AbilitiesRow);
+                    rows.Add(TrustRow);
+                    rows.Add(ItemsRow);
+                    if (context.HasTreasure) rows.Add(TreasureRow);
                     rows.Add(Row(Release, StockUiMenuCommand.ReleaseTrust));
                     break;
             }

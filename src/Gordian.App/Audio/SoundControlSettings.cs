@@ -116,16 +116,7 @@ namespace Gordian.App.Audio
         };
 
         /// <summary>The default file: <c>%LocalAppData%/GordianXI/sound_settings.json</c> (or the storage root).</summary>
-        public static string GetDefaultSettingsPath()
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-            {
-                return Path.Combine(localAppData, "GordianXI", "sound_settings.json");
-            }
-
-            return Path.Combine(GordianStorage.RootDataDirectory, "sound_settings.json");
-        }
+        public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "sound_settings.json");
 
         /// <summary>Writes the settings as JSON.</summary>
         public void SaveToFile(string filePath)
