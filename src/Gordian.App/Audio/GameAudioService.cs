@@ -552,7 +552,11 @@ namespace Gordian.App.Audio
         /// </summary>
         public static readonly (float Near, float Far) ActionSoundRange = (5f, ActionSoundTracker.HearingRange);
 
-        private readonly ActionSoundTracker _actionSounds = new();
+        private ActionSoundTracker? _actionSoundTracker;
+
+        /// <summary>The combat sound tracker, with the shared hit routines read from the game's <c>ROM/0/0</c> (#328).</summary>
+        private ActionSoundTracker _actionSounds => _actionSoundTracker ??= new ActionSoundTracker(sharedHitSounds: reaction =>
+            _resources?.GetSharedHitRoutines()?.MeleeHitSounds(reaction.Result) ?? Array.Empty<int>());
         private readonly List<ActionSoundEvent> _actionEvents = new();
 
         /// <summary>Combat and action sounds of the actors near the listener (#41), on the Effects bus.</summary>
