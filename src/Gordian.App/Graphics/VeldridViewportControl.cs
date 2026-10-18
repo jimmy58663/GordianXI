@@ -939,6 +939,7 @@ namespace Gordian.App.Graphics
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
+                        _renderer.RetailTerrainBrightness = ViewportRenderSettings.RetailTerrainBrightness;
                     }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {

@@ -343,8 +343,9 @@ namespace Gordian.Core.Resources
             var headers = DatSectionWalker.ReadHeaders(datBytes);
 
             int texCount = 0, meshSectionCount = 0;
-            var templates = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
-            var realMeshNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var meshTemplates = new ZoneMeshTemplates();
+            var templates = meshTemplates.Templates;
+            var realMeshNames = meshTemplates.RealNames;
             var raw0x2ESubmeshes = new List<MeshGroup>();
             var pendingSkyMeshes = new List<(string Name, string DatId, string? Weather, List<MeshGroup> Submeshes)>();
             var generatorPlacements = new List<(string DatId, string? Weather, string? ParentDir, ParticleGeneratorDefinition Generator)>();
@@ -361,29 +362,6 @@ namespace Gordian.Core.Resources
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
-
-            void RegisterTemplate(string name, List<MeshGroup> meshList, bool isRealName)
-            {
-                if (string.IsNullOrWhiteSpace(name)) return;
-                if (isRealName) realMeshNames.Add(name);
-
-                if (templates.TryGetValue(name, out var existing))
-                {
-                    int existingVerts = 0;
-                    for (int v = 0; v < existing.Count; v++) existingVerts += existing[v].Vertices.Length;
-                    int newVerts = 0;
-                    for (int v = 0; v < meshList.Count; v++) newVerts += meshList[v].Vertices.Length;
-
-                    if (newVerts > existingVerts)
-                    {
-                        templates[name] = meshList;
-                    }
-                }
-                else
-                {
-                    templates[name] = meshList;
-                }
-            }
 
             for (int i = 0; i < headers.Count; i++)
             {
@@ -450,7 +428,7 @@ namespace Gordian.Core.Resources
                                 pendingSkyMeshes.Add((primaryName, header.DatId, currentWeather, submeshes));
                             }
 
-                            RegisterTemplate(primaryName, submeshes, isRealName: true);
+                            meshTemplates.Register(primaryName, submeshes, ZoneMeshTemplates.NameRank);
 
                             int spaceIdx = primaryName.LastIndexOf(' ');
                             if (spaceIdx >= 0 && spaceIdx < primaryName.Length - 1)
@@ -458,13 +436,13 @@ namespace Gordian.Core.Resources
                                 string tail = primaryName.Substring(spaceIdx + 1).Trim();
                                 if (!string.IsNullOrEmpty(tail))
                                 {
-                                    RegisterTemplate(tail, submeshes, isRealName: true);
+                                    meshTemplates.Register(tail, submeshes, ZoneMeshTemplates.NameTailRank);
                                 }
                             }
 
                             if (!string.IsNullOrEmpty(header.DatId) && !header.DatId.Equals(primaryName, StringComparison.OrdinalIgnoreCase))
                             {
-                                RegisterTemplate(header.DatId, submeshes, isRealName: false);
+                                meshTemplates.Register(header.DatId, submeshes, ZoneMeshTemplates.SectionIdRank);
                             }
                         }
                         break;
