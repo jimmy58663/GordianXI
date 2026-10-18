@@ -776,18 +776,20 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "suimen"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "river_flow"));
 
-            // Japanese stems used in retail FFXI DATs (Bibiki Bay, Qufim, etc.)
+            // Japanese stems used in retail FFXI DATs (Bibiki Bay, Kazham, the airships' seas)
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "umi1"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "umw1"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "shir"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "nami"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "kiwa"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "quf1"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "kawa01"));
+            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "model   namiuchi"));
+            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("water", "muz     muzu"));
 
-            // Non-water textures
+            // Non-water textures: Qufim's general prefix, bark (kawa) and castle walls (shiro) are not water (#255).
             Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "per_sna"));
             Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "bri_wood"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("qfim_24", "model   quf_wll1"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("_uge_ie03b", "model   kawa_hos"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("shiro01", "model   shiro"));
         }
 
         [Fact]
