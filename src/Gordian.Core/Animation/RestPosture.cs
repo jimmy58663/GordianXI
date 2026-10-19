@@ -27,9 +27,8 @@ namespace Gordian.Core.Animation
     /// the crafter sits in one short motion, holds a seated pose with the hands together at the chest and, after the result,
     /// rocks back onto its back and stands up; Tarutaru's <c>rx2</c> does exactly that (the head joint drops from 0.43 to
     /// 0.12 yalms and 0.59 behind the root at 0.4-0.5 s, then rises to the standing 0.62), and <c>rx0</c> lowers the head
-    /// from 0.63 to 0.44 between 0.3 and 0.5 s. No synthesis routine or clip exists in the race motion DATs (a scan of every
-    /// routine and clip name of the install, 2026-10-18). PROVISIONAL: the raised right hand holding the crystal during the
-    /// effect is not played (no clip found).
+    /// from 0.63 to 0.44 between 0.3 and 0.5 s. The raised right hand holding the crystal is the race's <c>ri0?</c>, which the synthesis
+    /// effect file's <c>frst</c> plays (<see cref="SynthesisAnimationController"/>).
     /// </para>
     /// </summary>
     public static class RestPosture
