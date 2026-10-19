@@ -446,6 +446,13 @@ namespace Gordian.Core.Resources.Graphics
                                 : 1;
                             def.KeyFrameLinks[allocationOffset] = new ParticleKeyFrameLink(curveId, cycles);
                         }
+                        // PointListPositionSetup (0x54): the progress curve sits at +4, the point list at +16
+                        // (xi-model-viewer ui/js/particle/ops/initializers.js PointListPositionSetup).
+                        if (opCode == 0x54 && opPayload.Length >= 8 && ReadDatId(opPayload.Slice(4, 4)) is { Length: > 0 } pathCurve &&
+                            BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(4, 4)) != 0)
+                        {
+                            def.KeyFrameLinks[allocationOffset] = new ParticleKeyFrameLink(pathCurve, 1);
+                        }
                         if (opCode == 0x0B && opPayload.Length >= 16) // RotationVelocitySetup
                         {
                             rotationVelocities[allocationOffset] = ReadVector3(opPayload.Slice(4));

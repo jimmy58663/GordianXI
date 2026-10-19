@@ -231,6 +231,9 @@ namespace Gordian.Core.Tests.Graphics
             Assert.Contains(birds, b => Vector3.Distance(b.Emitter!.RawBasePosition, new Vector3(-176.7f, -45f, -256.4f)) < 0.1f);
             // The fireflies hota/htr* too.
             Assert.Contains(zone.EffectLayers, l => l.Name == "htr1" && l.Emitter != null && !l.IsActorAttached);
+            // The divers dw01-dw03 follow the dive path tbi1 (a 12-yalm circle) with the height curve psy2.
+            var diver = Assert.Single(zone.EffectLayers, l => l.Name == "dw01" && l.WeatherIds.Contains("clod") && l.Emitter != null);
+            Assert.Equal(7, diver.Emitter!.PointLists.Values.Single().Length);
         }
 
         /// <summary>
@@ -254,6 +257,43 @@ namespace Gordian.Core.Tests.Graphics
             Assert.Same(g000[0].Emitter, template);
             // The portals still answer to their names.
             Assert.Single(zone.MapRoutines.Find("1pa1"));
+        }
+            /// <summary>
+        /// The birds' spawners follow their point list (0x54 / 0x34, round 1 E1): Phanauet Channel's and Carpenters'
+        /// Landing's <c>wbi0</c> circle about 40 yalms around their base instead of hovering, and face along the circle.
+        /// </summary>
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void WeatherBirds_CircleAlongTheirPath(int zoneId)
+        {
+            if (LoadZone(zoneId) is not { } zone) return;
+            var layer = zone.EffectLayers.First(l => l.Name == "wbi0" && l.WeatherIds.Contains("clod") && l.Emitter != null);
+            Assert.True(layer.Emitter!.PointLists.Values.Single().Length == 7);
+            var emitter = new ZoneParticleEmitter(layer.Emitter!);
+            var basePos = layer.Emitter!.RawBasePosition;
+            var frame = new ZoneParticleFrame(basePos, 0.5f, Vector3.One);
+            emitter.Update(1f, frame);
+            var bird = Assert.Single(emitter.Particles);
+            emitter.Update(1f, frame);
+            var min = bird.WorldPosition;
+            var max = min;
+            float travelled = 0f;
+            var last = min;
+            for (int i = 0; i < 3000; i++)
+            {
+                emitter.Update(1f, frame);
+                travelled += Vector3.Distance(last, bird.WorldPosition);
+                last = bird.WorldPosition;
+                min = Vector3.Min(min, last);
+                max = Vector3.Max(max, last);
+            }
+            // Across the ~40-yalm circle in the horizontal plane (X and Z), level in height.
+            Assert.InRange(max.X - min.X, 70f, 90f);
+            Assert.InRange(max.Z - min.Z, 70f, 90f);
+            Assert.True(max.Y - min.Y < 1f, $"height spread {max.Y - min.Y:F2}");
+            Assert.True(travelled > 150f, $"travelled {travelled:F1}");
+            Assert.True(bird.LastMovement.LengthSquared() > 0f);
         }
     }
 }

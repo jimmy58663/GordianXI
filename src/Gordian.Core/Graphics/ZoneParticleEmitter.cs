@@ -70,6 +70,12 @@ namespace Gordian.Core.Graphics
         public IReadOnlyDictionary<ushort, KeyFrameCurve> Curves { get; }
 
         public Vector3 RawBasePosition => Definition.Setup?.BasePosition ?? Vector3.Zero;
+
+        /// <summary>
+        /// The Section 0x3E point lists the generator's initializers 0x54 name, by allocation slot: updater 0x34 moves the
+        /// particle along one over its life (<see cref="Resources.Graphics.PointListDecoder"/>).
+        /// </summary>
+        public Dictionary<ushort, Vector3[]> PointLists { get; } = new();
     }
 
     /// <summary>
@@ -1025,6 +1031,14 @@ namespace Gordian.Core.Graphics
             ushort slot = op.Allocation;
             switch (op.OpCode)
             {
+                case 0x34: // PointListPositionUpdater: along the slot's path (0x54) by its curve, else the particle's progress
+                    if (Template.PointLists.TryGetValue(slot, out var path))
+                    {
+                        float along = p.Progress;
+                        if (Template.Curves.TryGetValue(slot, out var pathCurve)) along = pathCurve.Evaluate(Math.Clamp(along, 0f, 1f));
+                        p.Position = Resources.Graphics.PointListDecoder.Sample(path, along);
+                    }
+                    break;
                 case 0x02: // PositionUpdater (sub-particles drift along their own relative velocity)
                     if (p.Transforms.TryGetValue(slot, out var moving)) p.Position += TotalVelocity(p, moving.State) * frames;
                     if (p.SubOffsets is { } drifting && p.SubRelativeVelocities is { } driftVelocities)

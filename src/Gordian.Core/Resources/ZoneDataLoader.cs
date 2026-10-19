@@ -226,6 +226,21 @@ namespace Gordian.Core.Resources
         internal static bool IsActorAttached(ParticleAttachType attachType) =>
             attachType is not (ParticleAttachType.None or ParticleAttachType.TargetActorSourceFacing or ParticleAttachType.Sun or ParticleAttachType.Moon);
 
+        /// <summary>A FourCC stored in an opcode argument (little-endian ASCII, NUL-padded); empty when it is not printable.</summary>
+        private static string FourCcOf(uint value)
+        {
+            Span<char> chars = stackalloc char[4];
+            int length = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                byte b = (byte)(value >> (8 * i));
+                if (b == 0) break;
+                if (b < 0x20 || b > 0x7E) return string.Empty;
+                chars[length++] = (char)b;
+            }
+            return new string(chars.Slice(0, length));
+        }
+
         /// <summary>The door id of a path under <c>&lt;zone code&gt;/door/&lt;door id&gt;</c> (<c>_20t</c>), else null.</summary>
         internal static string? DoorIdOfPath(string path)
         {
@@ -385,6 +400,7 @@ namespace Gordian.Core.Resources
             var spriteSheets = new Dictionary<string, SpriteSheetMesh>(StringComparer.OrdinalIgnoreCase);
             var particleMeshes = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
             var weightedMeshes = new Dictionary<string, WeightedMesh>(StringComparer.OrdinalIgnoreCase);
+            var pointLists = new Dictionary<string, Vector3[]>(StringComparer.OrdinalIgnoreCase);
             var zoneRoutines = new List<(string Path, string? Weather, EffectRoutine Routine)>();
             var routinesByPath = new Dictionary<string, Dictionary<string, EffectRoutine>>(StringComparer.OrdinalIgnoreCase);
             var generatorPaths = new Dictionary<ParticleGeneratorDefinition, string>(ReferenceEqualityComparer.Instance);
@@ -616,6 +632,17 @@ namespace Gordian.Core.Resources
                             zone.MapRoutines.AddRoutine(routinePath, onDemand, byName: !IsInDoorDirectory(dirStack));
                             onDemandRoutines.Add((routinePath, onDemand));
                             if (isDoorRoutine) zone.DoorDirectories.TryAdd(doorId, routinePath);
+                        }
+                        break;
+                    }
+
+                    case DatSectionType.PointList:
+                    {
+                        // Particle paths (initializer 0x54 / updater 0x34): Phanauet Channel's bird circle tobi/tbil.
+                        if (PointListDecoder.Decode(payload) is { } points)
+                        {
+                            pointLists.TryAdd($"dir:{DirectoryPath(dirStack)}/{header.DatId}", points);
+                            pointLists.TryAdd(header.DatId, points);
                         }
                         break;
                     }
@@ -1427,6 +1454,24 @@ namespace Gordian.Core.Resources
                 {
                     effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
                         schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly, isWeather: !string.IsNullOrEmpty(genWeather));
+                    // Paths (0x54 names a point list at +16): the generator's directory and its parents, then anywhere.
+                    foreach (var op in gen.Initializers)
+                    {
+                        if (op.OpCode != 0x54 || op.Args.Length < 5) continue;
+                        string listId = FourCcOf(op.Args[4]);
+                        if (listId.Length == 0) continue;
+                        Vector3[]? path = null;
+                        string dir = parentDir ?? string.Empty;
+                        while (path == null)
+                        {
+                            pointLists.TryGetValue($"dir:{dir}/{listId}", out path);
+                            if (dir.Length == 0) break;
+                            int slash = dir.LastIndexOf('/');
+                            dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
+                        }
+                        if (path == null) pointLists.TryGetValue(listId, out path);
+                        if (path != null) effect.Emitter.PointLists[op.Allocation] = path;
+                    }
                 }
                 AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
                 return effect;

@@ -16,6 +16,31 @@ namespace Gordian.Core.Animation
     public static class NpcStanceResolver
     {
         /// <summary>
+        /// Whether the model's stance follows its state routines: it has the idle-state routine <c>ids0</c> (the furnaces'
+        /// <c>init</c> links <c>mse0</c>, which picks <c>ids0</c>-<c>ids3</c> by the actor's state; each sets the stance with
+        /// op 0x8C: 0 <c>idl</c>, 1 <c>1dl</c>, 2 <c>2dl</c>, 3 <c>3dl</c>). See <see cref="Graphics.ActorEffectSet.StateTriggered"/>.
+        /// </summary>
+        public static bool IsStateDriven(EntityModel model) => model.RawMotionRoutines.ContainsKey(Graphics.ActorEffectSet.IdleStateRoutine);
+
+        /// <summary>
+        /// A state-driven model's stance (round 1 E7, 2026-10-19): sub-animation 1 or 2 picks <c>1dl</c> / <c>2dl</c> when the
+        /// model has them; any other value rests on <c>1dl</c> when it has one, else the default stance. The Synergy Furnace
+        /// (model 2348, file 52643) rests with its cap raised in retail (the maintainer's Whitegate capture, 2026-10-17: lid
+        /// open at rest, closed while in use), which is <c>1dl0</c> (joint 3, the cap, 0.74 yalms higher and tilted 0.61 rad
+        /// against <c>idl0</c> / <c>2dl0</c> / <c>3dl0</c>; its appearance clip <c>pop0</c> ends there). LandSandBoat's captured NPC
+        /// data sends every furnace with sub-animation 5, a value the state routines (0-3) do not name; the Hpemde family rule
+        /// read 5 as "diving" and drew the closed <c>2dl</c>. *Inference*: which actor field the state routines read (+0x3A /
+        /// +0x3C) and how the server's values reach it are not known.
+        /// </summary>
+        internal static byte ResolveStateDrivenStance(IReadOnlyDictionary<string, AnimationClip> anims, byte animationSub)
+        {
+            bool open = anims.ContainsKey("1dl0") || anims.ContainsKey("1dl");
+            if (animationSub == 2 && (anims.ContainsKey("2dl0") || anims.ContainsKey("2dl"))) return 2;
+            if (animationSub == 1 && open) return 1;
+            return open ? (byte)1 : (byte)0;
+        }
+
+        /// <summary>
         /// Resolves the effective stance index (0 = default, 1 = alternate/standing/defense, 2 = submerged/specialized)
         /// based on the model's available animation clips and the entity's network AnimationSub byte.
         /// </summary>
@@ -23,6 +48,9 @@ namespace Gordian.Core.Animation
         {
             if (model == null || model.Animations.Count == 0) return 0;
             var anims = model.Animations;
+
+            // 0. State-driven models (the crafting furnaces): their state routines pick the stance, not a family pattern.
+            if (IsStateDriven(model)) return ResolveStateDrivenStance(anims, animationSub);
 
             // 1. Check for Uragnite and defense/shell sub-animation 5 pattern: inShell = 5, outOfShell = 4
             // Protocol specification referenced from LandSandBoat scripts/mixins/families/uragnite.lua
