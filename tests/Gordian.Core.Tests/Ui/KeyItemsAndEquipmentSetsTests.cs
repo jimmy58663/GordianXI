@@ -669,6 +669,25 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(h.Menus.ProcessInput(input, TimeSpan.FromMilliseconds(16)));
             Assert.False(h.Menus.IsEditingName);
             Assert.Equal("ZSet004", h.Book.Get(4).Name);
+            // The gamepad's d-pad moves the caret (left / right) in the field, and up / down do nothing in Change Name (#400).
+            h.Choose(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            var pad = InputProfile.CreateGamepadDefault();
+            var padInput = new InputState { MenuContext = true };
+            void Press(GamepadButton button)
+            {
+                padInput.SetGamepadState(new GamepadState(true, button, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0, 0));
+                padInput.Update(pad, TimeSpan.FromMilliseconds(16));
+                h.Menus.ProcessInput(padInput, TimeSpan.FromMilliseconds(16));
+                padInput.SetGamepadState(new GamepadState(true, GamepadButton.None, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0, 0));
+                padInput.Update(pad, TimeSpan.FromMilliseconds(16));
+            }
+            Press(GamepadButton.DPadLeft);
+            Press(GamepadButton.DPadDown);
+            Assert.True(h.Menus.IsEditingName);
+            Assert.Equal(h.Book.Get(4).Name.Length - 1, h.Menus.MacroField.Caret);
+            h.Menus.MacroField.Escape();
+
             var macroLine = new StockUiTextField();
             string? kept = null;
             macroLine.Open("abc", 10, (text, _) => kept = text);

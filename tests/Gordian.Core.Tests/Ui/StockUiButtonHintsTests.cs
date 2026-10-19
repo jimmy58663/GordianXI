@@ -35,6 +35,20 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal("-", StockUiButtonHints.Label(keyboardOnly, action, gamepad: false));
         }
 
+        [Fact]
+        public void Hint_UsesTheRoundFaceButtonSpriteForAPadFaceButton()
+        {
+            var profile = InputProfile.CreateGamepadDefault();
+            const InputAction action = StockUiButtonHints.OptionsAction;
+            var pad = StockUiButtonHints.Hint(profile, action, gamepad: true);
+            Assert.True(pad.HasSprite);
+            Assert.Equal((16, 16), (pad.SpriteX, pad.SpriteY)); // Y sits where the PlayStation's Triangle does
+            Assert.False(StockUiButtonHints.Hint(profile, action, gamepad: false).HasSprite);
+            profile.Unbind(action, new InputChord(GamepadButton.Y));
+            profile.Bind(action, new InputChord(GamepadButton.LeftShoulder));
+            Assert.False(StockUiButtonHints.Hint(profile, action, gamepad: true).HasSprite); // a shoulder button stays text
+        }
+
         [Theory]
         [InlineData("Xbox 360 Controller", false)]
         [InlineData("PS5 Controller", true)]

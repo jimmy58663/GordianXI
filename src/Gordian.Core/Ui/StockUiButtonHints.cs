@@ -14,8 +14,50 @@ namespace Gordian.Core.Ui
     /// keyboard is in use, the bound gamepad button (Xbox names, PlayStation names for a PlayStation controller) while a
     /// gamepad is, following the user's mapping and updating live.
     /// </summary>
+    /// <summary>
+    /// A hint to draw in the key glyph's place: text, or (when <see cref="SpriteX"/> is not negative) the round button sprite
+    /// at that cell of the <c>marubatu</c> texture (the PS2 symbols the DAT's own Triangle hint comes from).
+    /// </summary>
+    public readonly record struct StockUiHint(string Text, int SpriteX = -1, int SpriteY = -1)
+    {
+        public bool HasSprite => SpriteX >= 0;
+    }
+
     public static class StockUiButtonHints
     {
+        /// <summary>
+        /// The 16 x 16 cells of <c>marubatu</c> (32 x 32, measured from the texture): Circle (0, 0), Cross (16, 0), Square (0, 16),
+        /// Triangle (16, 16).
+        /// </summary>
+        public static (int X, int Y)? FaceSprite(GamepadButton button) => button switch
+        {
+            GamepadButton.A => (16, 0),
+            GamepadButton.B => (0, 0),
+            GamepadButton.X => (0, 16),
+            GamepadButton.Y => (16, 16),
+            _ => null,
+        };
+
+        /// <summary>
+        /// The hint for <paramref name="action"/>: while a gamepad is in use and its bound button is a face button (A / B / X /
+        /// Y, which sit where the PlayStation's Cross / Circle / Square / Triangle do), that button's round sprite as retail's
+        /// PS2 hint draws it (#360); otherwise <see cref="Label"/> as text.
+        /// </summary>
+        public static StockUiHint Hint(InputProfile profile, InputAction action, bool gamepad, bool playStation = false)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            string text = Label(profile, action, gamepad, playStation);
+            if (!gamepad) return new StockUiHint(text);
+            foreach (var chord in profile.GetChords(action))
+            {
+                if (chord.IsGamepadChord && chord.Modifiers == InputModifiers.None && FaceSprite(chord.GamepadButton) is { } cell)
+                {
+                    return new StockUiHint(text, cell.X, cell.Y);
+                }
+            }
+            return new StockUiHint(text);
+        }
+
         /// <summary>The action every baked hint stands for: select log window / the menus' "options" key (keypad +, gamepad Y).</summary>
         public const InputAction OptionsAction = InputAction.CycleLogWindow;
 

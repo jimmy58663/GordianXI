@@ -466,7 +466,7 @@ namespace Gordian.Core.Ui
         /// The text of the key / button hint the windows with a baked "+ : ..." hint show (#360), from the device in use and
         /// the user's mapping (<see cref="StockUiButtonHints.Label"/>); null keeps the DAT's own glyph.
         /// </summary>
-        public Func<string>? HintLabel { get; set; }
+        public Func<StockUiHint>? HintLabel { get; set; }
 
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
@@ -1290,10 +1290,11 @@ namespace Gordian.Core.Ui
                         changed = true;
                     }
                     else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
-                        && !top.IsGreyed(button.ButtonId) && (top.IsCommandMenu || top.PageRing.Count <= 1))
+                        && !top.IsGreyed(button.ButtonId) && top.IsCommandMenu)
                     {
-                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail). The paged
-                        // main menu is the exception: its Right turns the page, only Confirm opens a sub-menu (#375).
+                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail). Only the command
+                        // menu's drawn arrows do this: every other menu (the main menu, Config and its pages) opens a sub-menu
+                        // with Confirm alone, and the main menu's Right turns the page (#375).
                         Push(arrowed.Opens, top, Array.Empty<string>(), null, null);
                     }
                     else if (horizontal && top.PageRing.Count > 1)

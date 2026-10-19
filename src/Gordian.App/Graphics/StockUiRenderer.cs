@@ -530,19 +530,19 @@ void main()
                 }
                 if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
                 // A baked "+ : ..." hint's key glyph is left out and the key or button in use drawn in its place (#360).
-                string? hint = HintFont != null && HintLabel?.Invoke() is { Length: > 0 } label && StockUiButtonHints.HasHintGlyph(image) ? label : null;
+                StockUiHint? hint = HintFont != null && HintLabel?.Invoke() is { Text.Length: > 0 } label && StockUiButtonHints.HasHintGlyph(image) ? label : null;
                 foreach (var part in image.Parts)
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
                     if (hint != null && StockUiButtonHints.IsHintGlyph(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
                 }
-                if (hint != null) DrawHint(hint, placement.X, placement.Y, placement.Scale);
+                if (hint is { } shown) DrawHint(shown, placement.X, placement.Y, placement.Scale);
             }
         }
 
         /// <summary>Where the key / button hint text comes from (null leaves the DAT's glyph); set by the HUD each frame (#360).</summary>
-        public Func<string>? HintLabel { get; set; }
+        public Func<StockUiHint>? HintLabel { get; set; }
 
         /// <summary>The font the hint text is drawn with.</summary>
         public UiFont? HintFont { get; set; }
@@ -551,8 +551,22 @@ void main()
         /// Draws the hint text in the key glyph's room (x 4 to 22, y 4 to 20 of the frame), shrunk to fit and centred;
         /// <paramref name="x"/> and <paramref name="y"/> are the frame's origin.
         /// </summary>
-        private void DrawHint(string text, float x, float y, float scale)
+        private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
+            if (hint.HasSprite)
+            {
+                // A face button: its round sprite (as the PS2 Triangle hint), 16 x 16 at (4, 4) of the frame.
+                var white = UiColor.Neutral;
+                DrawPart(new UiSpritePart
+                {
+                    TopLeft = new UiPoint(4, 4), TopRight = new UiPoint(20, 4), BottomLeft = new UiPoint(4, 20), BottomRight = new UiPoint(20, 20),
+                    SourceX = (ushort)hint.SpriteX, SourceY = (ushort)hint.SpriteY, SourceWidth = 16, SourceHeight = 16,
+                    ColorTopLeft = white, ColorTopRight = white, ColorBottomLeft = white, ColorBottomRight = white,
+                    TextureName = "menu    marubatu",
+                }, x, y, scale);
+                return;
+            }
+            string text = hint.Text;
             var font = HintFont!;
             float width = 0;
             foreach (char c in text) width += font.GetAdvance(c);

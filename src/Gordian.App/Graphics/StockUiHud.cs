@@ -881,15 +881,22 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now, bool dialogWaiting)
         {
-            sizing[0].Update(now, chat.Log.AddedCount(1), settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
-                settings.GetValue(StockUiSettingKey.Window1MinLines), settings.GetValue(StockUiSettingKey.Window1MaxLines),
-                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
-                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0, hold: dialogWaiting);
-            if (multi != 0) sizing[1].Update(now, chat.Log.AddedCount(2), settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
-                settings.GetValue(StockUiSettingKey.Window2MinLines), settings.GetValue(StockUiSettingKey.Window2MaxLines),
-                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
-                expanded: unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0);
+            // Window 2 is a copy of Window 1 with its own settings: one routine, configured per window (#369: an NPC line
+            // waiting for Confirm keeps either window up, whichever the dialog channel is routed to).
+            UpdateWindowSizing(sizing[0], 1, chat, settings, unlocked || chat.Input.IsOpen, now, dialogWaiting,
+                StockUiSettingKey.Window1ReactiveSizing, StockUiSettingKey.Window1MinLines, StockUiSettingKey.Window1MaxLines, StockUiSettingKey.Window1ResizeTime);
+            if (multi != 0)
+            {
+                UpdateWindowSizing(sizing[1], 2, chat, settings, unlocked, now, dialogWaiting,
+                    StockUiSettingKey.Window2ReactiveSizing, StockUiSettingKey.Window2MinLines, StockUiSettingKey.Window2MaxLines, StockUiSettingKey.Window2ResizeTime);
+            }
         }
+
+        private static void UpdateWindowSizing(StockUiLogSizing sizing, int window, StockUiChat chat, StockUiSettings settings, bool expanded, double now,
+            bool dialogWaiting, StockUiSettingKey reactive, StockUiSettingKey minLines, StockUiSettingKey maxLines, StockUiSettingKey resizeTime) =>
+            sizing.Update(now, chat.Log.AddedCount(window), settings.IsOn(reactive), settings.GetValue(minLines), settings.GetValue(maxLines),
+                StockUiLogSizing.ResizeSeconds(settings.GetValue(resizeTime)),
+                expanded: expanded || chat.IsLogSelected || chat.Log.ScrollOffset(window) > 0, hold: dialogWaiting);
 
         /// <summary>
         /// Keeps the log windows of a character not on screen sized as its lines arrive (#377), so a switch to it shows its

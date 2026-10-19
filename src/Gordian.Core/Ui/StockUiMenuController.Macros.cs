@@ -296,7 +296,8 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// While a macro field is typed in, Confirm keeps it and Cancel drops it (the gamepad's A / B; the keyboard's keys
-        /// reach the field directly). Returns true while the field has the input.
+        /// reach the field directly); the d-pad does what the arrow keys do: up / down keep the text and move to the field above /
+        /// below (the macro editor), left / right move the caret. Returns true while the field has the input.
         /// </summary>
         private bool ProcessMacroField(InputState input)
         {
@@ -310,6 +311,10 @@ namespace Gordian.Core.Ui
             // 2026-10-13); Change Name drops it.
             if (input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
             else if (input.WasActionTriggered(InputAction.Cancel)) MacroField.Escape();
+            else if (input.WasActionTriggered(InputAction.MenuUp)) MacroField.HandleKey(GordianKey.Up, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuDown)) MacroField.HandleKey(GordianKey.Down, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuLeft)) MacroField.HandleKey(GordianKey.Left, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuRight)) MacroField.HandleKey(GordianKey.Right, InputModifiers.None);
             return true;
         }
 
