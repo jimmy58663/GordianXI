@@ -227,8 +227,11 @@ Implementation: `MotionRoutineDecoder` also records these commands in `RawMotion
 
 **Spell, ability and weapon skill sounds (#328).** A presentation's sounds are its `main`'s sound commands (above) plus its **audio generators**: the generators `main` and the routines it starts (0x03, one pass of 0x73, four deep) spawn or swap in whose linked data is a sound pointer, each at its start tick (`ActionAsset.GeneratorSounds`, merged by tick in `ActionAsset.GetSoundsOnModel`). Most spells and job abilities sound this way: Fire (spell 144, file 2944) `gs00` → 3032 at tick 1, Berserk (job ability 0, file 4412) `g00s` → 7001; Cure (file 2801) has no generator and plays its pointer `0303` (3037) as a sound command (`Retail_SpellsAndAbilities_SoundThroughTheirGeneratorsOrCommands`). A presentation gives the body back before its routine ends (Cure: 121 of 245 ticks), so `ActionSoundTracker` keeps the presentation's clock on wall time after that (a per-actor tail) and still plays its late cues. Generators play one pass (`PlayEffect`), whatever their file's loop flag.
 
+**Which results play a reaction (#328, in-game test D8).** The target's `damg` / `gurd` / `pary` / `gur1` and the attacker's `chit` play only for melee and ranged results (`ActionSoundTracker.PlaysReactionRoutine`): `dada` (through `dam0`) and `ldad` (through `daml`) pick them by `miss`, while `mdam`, the result routine of spells, job abilities and weapon skills, runs none (retail `ROM/0/0`: its only commands are 0x01 and 0x2B). Round 1 played a hit's sounds when a Cure landed.
+
+**Target sound variants (D8).** 0x0B plays a sound at the target; 0x4A (PS2 `IdlePlayerTargetSound`) and 0x53 (`IdleNearTargetSound`) are variants of it for different viewers (xi-tools `docs/reference/ps2_beta_2001.md`). Which one retail picks for which viewer is not known, so the variants of one pointer at one tick play once (`RoutineSoundCollector.DropTargetSoundVariants`): Cure's `main` carries 0x53 and 0x0B on `0303` at tick 2, which round 1 played twice.
+
 Provisional: a random choice is uniform; reactions play their routine from its start when applied; the 0x0B "at the target" sounds play at the actor. Not done:
-- Cure's `main` plays its pointer twice at tick 2 (op 0x53 and op 0x0B on `0303`): what 0x53 means (a variant for one viewer?) is not known, so both play.
 - Ranged attack sounds (`ldad`).
 
 ## Phase 5H plan

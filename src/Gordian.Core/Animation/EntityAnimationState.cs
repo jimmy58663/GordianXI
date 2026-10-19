@@ -47,26 +47,35 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// How long a character's melee swing plays at base attack speed (#307): its whole routine is played at the speed
-        /// that makes it this long, never slower than authored. Calibrated from the retail captures (2026-10-16/17): hits of
-        /// one round land about 0.9 s apart (Tarutaru MNK, swing routines of 82-84 ticks, so about 1.6x the authored
-        /// speed) and 0.67-0.87 s apart (DNC dual wield); see docs/reference/calibrations.md.
+        /// that makes it this long, never slower than authored. Round 1 used 0.9 s, which the maintainer's side-by-side
+        /// check found about 0.1 s too fast (2026-10-18, TESTING D1); see docs/reference/calibrations.md.
         /// </summary>
-        public const float BaseSwingSeconds = 0.9f;
+        public const float BaseSwingSeconds = 1.0f;
+
+        /// <summary>
+        /// How far apart the hits of one round start at base attack speed (#307): retail MNK hits of a round land about
+        /// 0.9 s apart (maintainer's capture 2026-10-16/17), so a swing slightly longer than this blends its last moments
+        /// into the next.
+        /// </summary>
+        public const float BaseHitSpacingSeconds = 0.9f;
+
+        /// <summary>
+        /// A hasted swing may run this much longer than the spacing of its round's hits; the next swing blends in over its
+        /// tail (retail full-haste strikes fill their slot, maintainer's side-by-side capture 2026-10-18).
+        /// </summary>
+        public const float SwingOverlapSeconds = 0.1f;
 
         /// <summary>A swing never plays faster than this (routine ticks per 60 Hz tick).</summary>
         public const float MaxSwingSpeed = 4f;
-
-        /// <summary>A swing is fitted into this share of the time per hit its actor's rounds leave (some slack for arrival jitter).</summary>
-        public const float SwingBudgetShare = 0.9f;
 
         /// <summary>Rounds further apart than this are not one fight's cadence (the actor stopped attacking in between).</summary>
         public const float MaxRoundGapSeconds = 8f;
 
         /// <summary>
-        /// Once its hit has landed, a swing with another action waiting finishes within this many 60 Hz ticks (it speeds up
-        /// its return to guard rather than being cut off: retail shows no swing cut short, #307).
+        /// A playing swing whose hit has landed gives way to the next one when at most this much of it is left (the next
+        /// one's blend-in covers its last moments); longer tails play out first.
         /// </summary>
-        public const float SwingCatchUpTicks = 12f;
+        public const float SwingTailSeconds = 0.3f;
 
         public AnimationCategory Current { get; private set; } = AnimationCategory.Idle;
         public byte SubAnimation { get; private set; }
@@ -189,6 +198,9 @@ namespace Gordian.Core.Animation
         private float _actionTicks;
         private float _actionSpeed = 1f;
         private bool _actionIsMeleeSwing;
+        private float _clockSeconds;
+        private long _lastSwingRound;
+        private float _nextSameRoundSwingAt;
         private long _roundTimestamp;
         private int _roundHits;
         private float _swingBudgetSeconds;
@@ -310,6 +322,7 @@ namespace Gordian.Core.Animation
             }
 
             long now = Stopwatch.GetTimestamp();
+            _clockSeconds += dt;
             AcceptIncoming(now);
 
             byte targetStance = NpcStanceResolver.ResolveEffectiveStance(model, subAnimation);
@@ -580,13 +593,27 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>
-        /// The routine clock speed of a melee swing (#307). Retail plays every strike whole (guard, strike, back to guard)
-        /// and never cuts one off; with haste the strikes come closer and play faster, the pause in guard between them
-        /// going first (the maintainer's MNK and DNC captures, 2026-10-16/17). The swing clips hold that pause themselves,
-        /// near the guard pose at their start and end (Tarutaru <c>ati0</c>: still until tick 21 and from tick 75 of 84),
-        /// so the whole routine is played faster rather than cut: a character's at the base pace
-        /// (<see cref="BaseSwingSeconds"/>), any actor's at least fast enough to fit the time per hit its rounds leave
-        /// (<see cref="SwingBudgetSeconds"/>), at most <see cref="MaxSwingSpeed"/>. Other actions play at 1.
+        /// How far apart the hits of one round start (#307): the time per hit the actor's rounds leave
+        /// (<see cref="SwingBudgetSeconds"/>), at most <see cref="BaseHitSpacingSeconds"/>; for a character without a known
+        /// cadence <see cref="BaseHitSpacingSeconds"/>, for a fixed model without one 0 (back to back, as authored).
+        /// Retail spreads a round's hits over the round rather than playing them back to back: in the maintainer's
+        /// full-haste side-by-side capture (2026-10-18) two-hit rounds about 1.55 s apart land one hit about every 0.78 s.
+        /// </summary>
+        internal float HitSpacing(EntityModel model)
+        {
+            if (_swingBudgetSeconds > 0f) return Math.Min(_swingBudgetSeconds, BaseHitSpacingSeconds);
+            return model.IsCharacter ? BaseHitSpacingSeconds : 0f;
+        }
+
+        /// <summary>
+        /// The routine clock speed of a melee swing (#307). Retail plays every strike whole (guard, strike, back to guard),
+        /// one per slot of its round: at base speed in about 1 s, with haste in about the spacing of its round's hits, the
+        /// pause in guard going first (the maintainer's MNK and DNC captures, 2026-10-16/17, and the side-by-side capture,
+        /// 2026-10-18). The swing clips hold that pause themselves, near the guard pose at their start and end (Tarutaru
+        /// <c>ati0</c>: still until tick 21 and from tick 75 of 84), so the whole routine is played faster rather than cut:
+        /// a character's in <see cref="BaseSwingSeconds"/> or the spacing plus <see cref="SwingOverlapSeconds"/>, whichever
+        /// is shorter; a fixed model's at its authored speed unless its rounds need it faster; at most
+        /// <see cref="MaxSwingSpeed"/>. Other actions play at 1.
         /// </summary>
         internal float SwingSpeed(EntityModel model, ActionRequest? request, MotionRoutine routine)
         {
@@ -594,16 +621,25 @@ namespace Gordian.Core.Animation
             bool basicAttack = IsBasicAttackSwing(request);
             if (!basicAttack && request.Motion != ActionMotion.Counter) return 1f;
             float seconds = RoutineEndTick(routine) / RoutineTicksPerSecond;
-            float speed = model.IsCharacter ? seconds / BaseSwingSeconds : 1f;
-            if (basicAttack && _swingBudgetSeconds > 0f) speed = Math.Max(speed, seconds / (_swingBudgetSeconds * SwingBudgetShare));
-            return Math.Clamp(speed, 1f, MaxSwingSpeed);
+            float length = model.IsCharacter ? BaseSwingSeconds : float.MaxValue;
+            if (basicAttack && _swingBudgetSeconds > 0f) length = Math.Min(length, HitSpacing(model) + SwingOverlapSeconds);
+            return Math.Clamp(seconds / length, 1f, MaxSwingSpeed);
         }
+
+        /// <summary>
+        /// Whether a waiting basic-attack swing may start: the next hit of the round already started waits for its slot
+        /// (<see cref="HitSpacing"/> after the last one started); a new round's first hit goes at once.
+        /// </summary>
+        private bool SwingSlotReached(ActionRequest request) =>
+            !IsBasicAttackSwing(request) || request.ReceivedTimestamp != _lastSwingRound || _clockSeconds >= _nextSameRoundSwingAt;
 
         private bool TryStartNextAction(EntityModel model, bool isMoving, long now)
         {
             while (_queuedActions.Count > 0)
             {
                 var request = _queuedActions[0];
+                // The round's next hit waits for its slot, the actor in guard meanwhile (#307).
+                if (!SwingSlotReached(request) && Seconds(request.ReceivedTimestamp, now) <= StaleActionSeconds) return false;
                 _queuedActions.RemoveAt(0);
 
                 // An event gesture is never stale: the renderer advances only entities on screen, and a gesture given while
@@ -684,6 +720,11 @@ namespace Gordian.Core.Animation
             _actionTicks = 0f;
             _actionSpeed = SwingSpeed(model, request, routine);
             _actionIsMeleeSwing = request != null && (IsBasicAttackSwing(request) || request.Motion == ActionMotion.Counter);
+            if (request != null && IsBasicAttackSwing(request))
+            {
+                _lastSwingRound = request.ReceivedTimestamp;
+                _nextSameRoundSwingAt = _clockSeconds + HitSpacing(model);
+            }
             _segmentIndex = -1;
             _actionAllowsLocomotion = allowsLocomotion;
             _weaponMotion = weaponMotion;
@@ -735,11 +776,14 @@ namespace Gordian.Core.Animation
         {
             var routine = ActiveRoutine!;
 
-            // A swing with something waiting behind it whose hit has landed finishes its return to guard quickly (#307).
-            if (_actionIsMeleeSwing && _queuedActions.Count > 0 && (_actionHitTick < 0 || _actionTicks >= _actionHitTick))
+            // A swing whose hit has landed gives way to the next one once that one's slot has come and little of it is left:
+            // the next swing blends in over its last moments, as retail's hasted strikes run into each other (#307).
+            if (_actionIsMeleeSwing && _queuedActions.Count > 0 && SwingSlotReached(_queuedActions[0])
+                && (_actionHitTick < 0 || _actionTicks >= _actionHitTick)
+                && (RoutineEndTick(routine) - _actionTicks) / RoutineTicksPerSecond / _actionSpeed <= SwingTailSeconds)
             {
-                float remaining = RoutineEndTick(routine) - _actionTicks;
-                _actionSpeed = Math.Clamp(Math.Max(_actionSpeed, remaining / SwingCatchUpTicks), 1f, MaxSwingSpeed);
+                EndAction(model, blend: true);
+                return;
             }
             _actionTicks += dt * RoutineTicksPerSecond * _actionSpeed;
 

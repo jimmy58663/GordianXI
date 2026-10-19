@@ -188,8 +188,9 @@ namespace Gordian.App.Tests.Audio
             Assert.Equal(new[] { 6031, 7001, 5031 }, Step(tracker, Actor(1, Monster, reactions: 1, reaction: critical), attacker));
             Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 1, reaction: critical), attacker));
 
+            // A spell's result runs mdam, which plays no reaction (D8: Cure landing sounded like a hit).
             var spell = critical with { Category = ActionCategory.MagicFinish };
-            Assert.Equal(new[] { 6031, 7001 }, Step(tracker, Actor(1, Monster, reactions: 2, reaction: spell), attacker));
+            Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 2, reaction: spell), attacker));
         }
 
         [Fact]

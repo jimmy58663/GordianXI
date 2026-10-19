@@ -115,8 +115,32 @@ namespace Gordian.Core.Tests.Resources
             Assert.StartsWith("i0", draw.Segments[0].ClipName, StringComparison.Ordinal);
             Assert.StartsWith("i1", draw.Segments[1].ClipName, StringComparison.Ordinal);
             var sheathe = model.MotionRoutines["out0"];
-            Assert.StartsWith("o1", sheathe.Segments[0].ClipName, StringComparison.Ordinal);
-            Assert.StartsWith("o0", sheathe.Segments[1].ClipName, StringComparison.Ordinal);
+            Assert.StartsWith("o0", sheathe.Segments[0].ClipName, StringComparison.Ordinal);
+            Assert.StartsWith("o1", sheathe.Segments[1].ClipName, StringComparison.Ordinal);
+            // 36 + 36 ticks, no hold after the second hand (round 1, D5: the sheathe held its pose for another 72 ticks).
+            Assert.Equal(72, draw.TotalTicks);
+            Assert.Equal(72, sheathe.TotalTicks);
+            Assert.Equal(72f, EntityAnimationState.OnePassTicks(sheathe));
+
+            // The order chains pose to pose: the sheathe starts at the battle stance with the off hand's o0?, which ends where
+            // the main hand's o1? starts (round 1 had them the other way round, D5); the draw's i0? ends where i1? starts.
+            var sk = model.Skeleton!;
+            float Gap(string a, bool aEnd, string b, bool bEnd)
+            {
+                var ca = model.Animations[a]; var cb = model.Animations[b];
+                var pa = SkeletonPoseEvaluator.EvaluatePose(sk, ca, aEnd ? ca.DurationSeconds : 0f, false);
+                var pb = SkeletonPoseEvaluator.EvaluatePose(sk, cb, bEnd ? cb.DurationSeconds : 0f, false);
+                float sum = 0f;
+                for (int j = 1; j < sk.Count; j++) sum += Vector3.Distance(pa.Translations[j], pb.Translations[j]);
+                return sum;
+            }
+            string o0 = sheathe.Segments[0].ClipName, o1 = sheathe.Segments[1].ClipName, i0 = draw.Segments[0].ClipName, i1 = draw.Segments[1].ClipName;
+            _output.WriteLine($"btl~{o0} start {Gap("btl", false, o0, false):F2} (btl~{o1} start {Gap("btl", false, o1, false):F2}); {o0} end~{o1} start {Gap(o0, true, o1, false):F2}; " +
+                $"{i0} end~{i1} start {Gap(i0, true, i1, false):F2}; {i1} end~btl {Gap(i1, true, "btl", false):F2}");
+            Assert.True(Gap("btl", false, o0, false) < Gap("btl", false, o1, false), "the sheathe starts with the off hand");
+            Assert.True(Gap(o0, true, o1, false) < 6.0f, "the main hand's sheathe starts where the off hand's ends");
+            Assert.True(Gap(i0, true, i1, false) < 6.0f, "the off hand's draw starts where the main hand's ends");
+
             // The off-hand draw and swings link the sub weapon's own sounds (sinl, skal).
             Assert.Contains(model.GetRoutineSounds("bti1"), c => c.Choices.Count > 0 && c.Choices[0] > 0);
 

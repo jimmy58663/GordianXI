@@ -561,7 +561,8 @@ namespace Gordian.Core.Tests.Animation
                 _output.WriteLine($"{asset}: generators [{string.Join(", ", asset.GeneratorSounds.Select(c => $"{c.Tick}:{c.Choices[0]}"))}], " +
                     $"all [{string.Join(", ", all.Where(c => !c.IsTargetLink).Select(c => $"{c.Tick}:{string.Join("/", c.Choices)}"))}]");
                 Assert.Equal(generator, asset.GeneratorSounds.Any(c => c.Choices.Contains(sound)));
-                Assert.Contains(all, c => c.Choices.Contains(sound));
+                // Once: Cure's 0x53 and 0x0B on the same pointer at the same tick are one target sound (D8).
+                Assert.Single(all, c => c.Choices.Contains(sound));
                 Assert.Equal(all.OrderBy(c => c.Tick).Select(c => c.Tick), all.Select(c => c.Tick));
             }
         }

@@ -270,8 +270,9 @@ namespace Gordian.Core.Resources
         /// clip (72 ticks); each hand has its own 36-tick routine instead: <c>in1N</c> / <c>ot1N</c> in the main-hand pack,
         /// <c>in2N</c> / <c>ot2N</c> in the off-hand pack, N the weapon's sub-type (Info byte 4; Tarutaru's pack for type 1
         /// has <c>in20</c>-<c>in22</c> for its three sub-types). Their clips say the order: the draw is the main hand's
-        /// <c>i0?</c> (none drawn to one) then the off hand's <c>i1?</c> (one to two), the sheathe the main hand's <c>o1?</c>
-        /// (two to one) then the off hand's <c>o0?</c>. So <c>in 0</c> / <c>out0</c> become the two in turn (blocking links).
+        /// <c>i0?</c> (none drawn to one) then the off hand's <c>i1?</c>; the sheathe the off hand's <c>o0?</c> first, then the main
+        /// hand's <c>o1?</c>: <c>o0?</c> starts at the battle stance and ends where <c>o1?</c> starts (checked by evaluating
+        /// the retail clips, 2026-10-18; round 1 had the main hand first, and its sheathe started from the wrong pose, D5). So <c>in 0</c> / <c>out0</c> become the two in turn (the second linked at the first's length).
         /// Read from the retail packs (2026-10-18); the retail draw itself was not captured.
         /// </summary>
         internal static void AddDualWieldDrawRoutines(EntityModel model, int mainSubType, int subSubType)
@@ -284,26 +285,30 @@ namespace Gordian.Core.Resources
 
             void Add(string name, string first, string second)
             {
-                if (!model.RawMotionRoutines.ContainsKey(first) || !model.RawMotionRoutines.ContainsKey(second)) return;
-                const byte LinkWait = 0x3B;
+                if (!model.RawMotionRoutines.TryGetValue(first, out var head) || !model.RawMotionRoutines.ContainsKey(second)) return;
+                // Plain links at explicit ticks: a blocking link (0x3B) would count the first routine's length twice in the
+                // flattened total and hold the last pose for another 72 ticks (round 1, D5: the sheathe "got stuck").
+                const byte Link = 0x03;
+                int at = head.TotalTicks;
                 model.RawMotionRoutines[name] = new RawMotionRoutine
                 {
                     Name = name,
+                    TotalTicks = at + model.RawMotionRoutines[second].TotalTicks,
                     Commands =
                     [
-                        new MotionRoutineCommand(LinkWait, 0, 0, first, 0, 0, 1, 1f, -1, 0),
-                        new MotionRoutineCommand(LinkWait, 0, 0, second, 0, 0, 1, 1f, -1, 0)
+                        new MotionRoutineCommand(Link, 0, 0, first, 0, 0, 1, 1f, -1, 0),
+                        new MotionRoutineCommand(Link, at, 0, second, 0, 0, 1, 1f, -1, 0)
                     ],
                     SoundCommands =
                     [
-                        new RoutineSoundCommand(LinkWait, 0, first, 0, -1),
-                        new RoutineSoundCommand(LinkWait, 0, second, 0, -1)
+                        new RoutineSoundCommand(Link, 0, first, 0, -1),
+                        new RoutineSoundCommand(Link, at, second, 0, -1)
                     ]
                 };
             }
 
             Add("in 0", Pick("in1", mainSubType), Pick("in2", subSubType));
-            Add("out0", Pick("ot1", mainSubType), Pick("ot2", subSubType));
+            Add("out0", Pick("ot2", subSubType), Pick("ot1", mainSubType));
         }
 
         /// <summary>

@@ -96,6 +96,17 @@ namespace Gordian.App.Audio
             _sharedHitSounds = sharedHitSounds;
         }
 
+        /// <summary>
+        /// Whether a result of this action category runs the target's reaction routine (<c>damg</c>, <c>gurd</c>...) and the
+        /// attacker's <c>chit</c>. Only the physical hit routines do: a melee swing's <c>dada</c> (through <c>dam0</c>) and a
+        /// ranged attack's <c>ldad</c> (through <c>daml</c>) pick them by the result's <c>miss</c>; the magic hit routine
+        /// <c>mdam</c>, which spells, job abilities and weapon skills link at their result, runs none (retail <c>ROM/0/0</c>,
+        /// read 2026-10-18: its only commands are 0x01 and 0x2B). Round 1 played <c>damg</c> and the caster's hit sound when a
+        /// Cure landed (#328, in-game test D8). An unknown category (0) keeps the reaction.
+        /// </summary>
+        public static bool PlaysReactionRoutine(ActionCategory category) =>
+            category is ActionCategory.None or ActionCategory.BasicAttack or ActionCategory.RangedFinish;
+
         /// <summary>The routine whose sounds a hit reaction plays, by its resolution.</summary>
         public static string? ReactionRoutine(ActionResolution resolution) => resolution switch
         {
@@ -200,7 +211,8 @@ namespace Gordian.App.Audio
                 }
             }
 
-            if (model is not null && actor.ReactionSerial != last.ReactionSerial && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
+            if (model is not null && actor.ReactionSerial != last.ReactionSerial && PlaysReactionRoutine(actor.LastReaction.Category)
+                && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
             {
                 foreach (RoutineSoundCue cue in _sounds(model, reaction, false))
                 {

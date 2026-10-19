@@ -48,6 +48,19 @@ namespace Gordian.Core.Tests.Audio
         private static RawMotionRoutine Resolve(RawMotionRoutine routine, params (string Name, int Id)[] pointers) =>
             RoutineSoundCollector.ResolveSoundIds(routine, pointers.ToDictionary(p => p.Name, p => p.Id));
 
+        /// <summary>
+        /// The target-sound variants 0x0B / 0x4A / 0x53 of one pointer at one tick play once (Cure's <c>main</c>, D8); a
+        /// source sound 0x0A of the same pointer, or a variant at another tick, still plays (a command's delay comes after it).
+        /// </summary>
+        [Fact]
+        public void TargetSoundVariants_AtOneTick_PlayOnce()
+        {
+            var main = Resolve(Routine("main", Cmd(0x01, 2, delay: 2), Cmd(0x53, 8, reference: "0303"), Cmd(0x0B, 8, reference: "0303"),
+                Cmd(0x0A, 8, delay: 5, reference: "0303"), Cmd(0x0B, 8, reference: "0303")), ("0303", 3037));
+            var cues = RoutineSoundCollector.Collect(new Dictionary<string, RawMotionRoutine> { ["main"] = main }, "main");
+            Assert.Equal(new[] { (2, (byte)0x53), (2, (byte)0x0A), (7, (byte)0x0B) }, cues.Select(c => (c.Tick, c.Op)).ToArray());
+        }
+
         [Fact]
         public void SoundCommand_ResolvesByNameAndKeepsItsTick()
         {
