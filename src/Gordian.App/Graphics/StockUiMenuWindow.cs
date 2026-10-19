@@ -85,7 +85,7 @@ namespace Gordian.App.Graphics
                 {
                     // Client text beside a label (the chat-mode list: the tell partner after Tell's red arrow, "No
                     // Linkshell" / "No Unity" beside greyed modes), centred on the row.
-                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f, s);
+                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f + side.Y * s, s);
                 }
 
                 if (menu.SliderFractions.TryGetValue(button.ButtonId, out float fraction) && fraction > 0)

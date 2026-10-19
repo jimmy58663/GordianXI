@@ -43,7 +43,7 @@ namespace Gordian.Core.Ui
     public readonly record struct StockUiQueryOption(int Number, string Text);
 
     /// <summary>Client text drawn beside a button's label, starting at layout <paramref name="X"/> from the frame's left edge.</summary>
-    public readonly record struct StockUiSideText(string Text, float X);
+    public readonly record struct StockUiSideText(string Text, float X, float Y = 0);
 
     /// <summary>
     /// Where the HUD drew an open menu on the last frame (its frame's top-left in screen pixels and the UI scale),
@@ -974,6 +974,8 @@ namespace Gordian.Core.Ui
             }
         }
 
+        private const float SliderValueRight = 181, SliderValueDigitWidth = 8.5f, SliderValueRise = -16;
+
         /// <summary>Rebuilds a menu's markers, slider fills and list rows from the current settings.</summary>
         private void Refresh(StockUiOpenMenu menu)
         {
@@ -981,6 +983,7 @@ namespace Gordian.Core.Ui
             {
                 var marked = new HashSet<int>();
                 var sliders = new Dictionary<int, float>();
+                Dictionary<int, StockUiSideText>? values = null;
                 foreach (var row in page.Rows)
                 {
                     int value = GetSetting(row.Key);
@@ -992,11 +995,19 @@ namespace Gordian.Core.Ui
                             break;
                         case StockUiSliderRow slider:
                             sliders[slider.ButtonId] = slider.Fraction(value);
+                            if (slider.ShowValue && menu.Menu.FindButton(slider.ButtonId) is { } bar)
+                            {
+                                // The value in numbers above the bar's right end, right-aligned to its last digit (retail's
+                                // Maximum / Minimum lines rows; placed from a capture, 2026-10-18).
+                                string text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                (values ??= new())[slider.ButtonId] = new StockUiSideText(text, bar.X + SliderValueRight - SliderValueDigitWidth * text.Length, SliderValueRise);
+                            }
                             break;
                     }
                 }
                 menu.SetMarks(marked);
                 menu.SliderFractions = sliders;
+                if (values != null) menu.SideTexts = values;
                 if (page.Menu.Equals(StockUiConfigPages.FontColorEditPage, StringComparison.OrdinalIgnoreCase))
                 {
                     // The colour editor shows the row being set in the colour of its sliders (provisional: where retail

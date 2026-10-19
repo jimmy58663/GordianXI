@@ -269,6 +269,10 @@ namespace Gordian.Core.Network.Packets
 
             player.PetActorIndex = pc.PetActorIndex;
             player.Appearance.CostumeId = pc.CostumeId;
+            // A costume draws the player as the NPC / monster model with that id (setCostume / !costume; the id is
+            // sent in every 0x00D update). Retail capture 2026-10-17 (#83): 3000 draws a model, 3193 draws nothing.
+            // Clearing it returns the player to the race model.
+            player.Appearance.ModelId = pc.CostumeId is 0 or 0xFFFF ? 0u : pc.CostumeId;
 
             if (pc.HasModel)
             {

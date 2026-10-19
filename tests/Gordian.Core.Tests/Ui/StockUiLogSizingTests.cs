@@ -55,19 +55,25 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Defaults_AreZeroToTenLines_AndTheResizeTimeIsTwentiethsOfTheSlider()
+        public void Defaults_AreZeroToTenLines_AndTheResizeTimeIsThreeSecondsPlusOnePerStep()
         {
             var settings = new StockUiSettings();
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window1MinLines));
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window2MinLines));
             Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window1MaxLines));
             Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window2MaxLines));
-            Assert.Equal(7, settings.GetValue(StockUiSettingKey.Window1ResizeTime));
-            Assert.Equal(7, settings.GetValue(StockUiSettingKey.Window2ResizeTime));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.Window1ResizeTime));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.Window2ResizeTime));
             Assert.Equal(2, settings.GetValue(StockUiSettingKey.IconType));
             settings.SetValue(StockUiSettingKey.Window1MaxLines, 99);
             Assert.Equal(20, settings.GetValue(StockUiSettingKey.Window1MaxLines));
-            Assert.Equal(2.5, StockUiLogSizing.ResizeSeconds(50));
+            Assert.Equal(3, StockUiLogSizing.ResizeSeconds(0));
+            Assert.Equal(30, StockUiLogSizing.ResizeSeconds(27));
+            Assert.Equal(30, StockUiLogSizing.ResizeSeconds(99));
+            settings.SetValue(StockUiSettingKey.Window1MaxLines, 1);
+            Assert.Equal(4, settings.GetValue(StockUiSettingKey.Window1MaxLines)); // the floor
+            settings.SetValue(StockUiSettingKey.Window1MinLines, 15);
+            Assert.Equal(15, settings.GetValue(StockUiSettingKey.Window1MaxLines)); // Min pushes Max up
             var sizing = new StockUiLogSizing();
             Assert.Equal(4, sizing.Update(0, 0, true, 8, 4, 5, false));        // a minimum above the maximum is the maximum
         }

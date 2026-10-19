@@ -12,8 +12,8 @@ namespace Gordian.Core.Ui
     /// <para>
     /// The window's height follows the line count smoothly (<see cref="DisplayLines"/> moves towards
     /// <see cref="Lines"/> at <see cref="LinesPerSecond"/>, easing in the last line). Behaviour from the maintainer's
-    /// in-game comparison (2026-10-04, #48); the timings are GordianXI's (the maintainer: they need not match retail):
-    /// Resize Time is the slider value / 20 seconds per line (the default 50 = 2.5 s). New lines count one line each,
+    /// in-game comparison (2026-10-04, #48); the resize timing follows retail videos (2026-10-18):
+    /// Resize Time is 3 s plus 1 s per slider step (0-27) per line, measured from retail videos. New lines count one line each,
     /// however many rows they wrap to.
     /// </para>
     /// </summary>
@@ -32,8 +32,12 @@ namespace Gordian.Core.Ui
         /// <summary>The lines' worth of height drawn now, moving smoothly towards <see cref="Lines"/>.</summary>
         public float DisplayLines { get; private set; }
 
-        /// <summary>The "Resize Time" slider (0-100) as the seconds the window waits before giving back each line.</summary>
-        public static double ResizeSeconds(int sliderValue) => Math.Max(0, sliderValue) / 20.0;
+        /// <summary>
+        /// The "Resize Time" slider (0-27) as the seconds the window waits before giving back each line: 3 s at Min,
+        /// 1 s more per step, 30 s at Max. Measured in retail videos (2026-10-18): about 3 s per line drop at Min and
+        /// about 30 s at Max (27 steps between, per the maintainer).
+        /// </summary>
+        public static double ResizeSeconds(int sliderValue) => 3 + Math.Clamp(sliderValue, 0, 27);
 
         /// <summary>
         /// Advances the sizing to <paramref name="now"/> (seconds, any monotonic clock) given the window's arrived-line

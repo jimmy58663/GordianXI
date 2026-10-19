@@ -870,9 +870,9 @@ namespace Gordian.Core.Tests.Ui
             // Button 3 ("Maximum lines displayed", 1-20) spans x 16..104 at scale 2 = 32..208 on screen.
             float y = Row(0, 0, 2).Y;
             Assert.True(menus.OnMouseDown(MouseButton.Left, 33, y));
-            Assert.Equal(1, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
-            menus.OnMouseMove(120, y); // halfway: 1 + 9.5 steps rounds to 11
-            Assert.Equal(11, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(4, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines)); // the bar spans 0-20 but Maximum lines floors at 4
+            menus.OnMouseMove(120, y); // halfway of 0-20
+            Assert.Equal(10, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
             menus.OnMouseMove(400, y); // past the end: clamped
             Assert.Equal(20, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
             menus.OnMouseUp(MouseButton.Left, 400, y);
