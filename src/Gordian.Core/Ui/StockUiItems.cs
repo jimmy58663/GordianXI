@@ -31,6 +31,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Synthesis > History: the recipes done; the grid shows the one under the cursor (#330).</summary>
         SynthesisHistory,
+
+        /// <summary>The guild Sell list's "Select from your inventory.": the items the guild buys; Confirm asks the count to sell (#330).</summary>
+        GuildSell,
     }
 
     /// <summary>

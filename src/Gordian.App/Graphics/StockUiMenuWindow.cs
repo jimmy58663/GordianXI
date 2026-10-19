@@ -645,6 +645,12 @@ namespace Gordian.App.Graphics
             StockUiPlacement at, ushort itemId, string fallbackName)
         {
             float s = at.Scale;
+            if (itemId == 0)
+            {
+                // No item (the guild Sell list's "Select from your inventory."): the empty window with its slot box (image-5).
+                renderer.DrawMenu(info, at, includeButtons: true, opaqueBody: true);
+                return;
+            }
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
             var record = menu.ItemLookup?.Invoke(itemId);

@@ -347,6 +347,7 @@ namespace Gordian.Core.Ui
                 StockUiItemListKind.SynthesisMaterials when menu.Parent is { IsSynthesisGrid: true } grid =>
                     StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),
                 StockUiItemListKind.SynthesisHistory => StockUiSynthesis.HistoryRows(HistoryEntries(), ItemLookup),
+                StockUiItemListKind.GuildSell => StockUiGuildShop.InventoryRows(Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>(), OrderedRows(ContainerId.Inventory)),
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
@@ -581,6 +582,9 @@ namespace Gordian.Core.Ui
                     return;
                 case StockUiItemListKind.SynthesisHistory:
                     ChooseHistoryRecipe(list);
+                    return;
+                case StockUiItemListKind.GuildSell:
+                    PickGuildSale(list, row);
                     return;
             }
             if (list.IsManualSort)

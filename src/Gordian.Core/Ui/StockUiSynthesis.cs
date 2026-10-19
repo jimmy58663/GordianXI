@@ -264,14 +264,18 @@ namespace Gordian.Core.Ui
             return (new StockUiSynthesisCrystal(crystalId, crystalSlot), slots);
         }
 
-        /// <summary>The History list's rows: each recipe's result, its name and icon (no count).</summary>
+        /// <summary>
+        /// The History list's rows: each recipe's result, its name and icon (no count); a recipe that has only broken (its result
+        /// not known to the client) shows its first ingredient (PROVISIONAL: what retail shows for it is not captured).
+        /// </summary>
         public static List<StockUiItemRow> HistoryRows(IReadOnlyList<SynthesisHistoryEntry> entries, Func<ushort, ItemRecord?>? lookup)
         {
             var rows = new List<StockUiItemRow>(entries.Count);
             foreach (var e in entries)
             {
-                var record = StockUiShop.Lookup(lookup, e.ResultItemId);
-                rows.Add(new StockUiItemRow(e.ResultItemId, record.Name, 1, ContainerId.Inventory, 0, 1));
+                ushort shown = e.ResultItemId != 0 ? e.ResultItemId : e.Ingredients.Count > 0 ? e.Ingredients[0].ItemId : e.CrystalItemId;
+                var record = StockUiShop.Lookup(lookup, shown);
+                rows.Add(new StockUiItemRow(shown, record.Name, 1, ContainerId.Inventory, 0, 1));
             }
             return rows;
         }

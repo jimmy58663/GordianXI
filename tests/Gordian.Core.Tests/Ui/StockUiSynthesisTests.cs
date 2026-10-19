@@ -430,6 +430,15 @@ namespace Gordian.Core.Tests.Ui
             Assert.Equal(history.Entries.Select(e => (e.CrystalItemId, e.ResultItemId, e.Favorite)), copy.Entries.Select(e => (e.CrystalItemId, e.ResultItemId, e.Favorite)));
             history.Record(new SynthesisRequest(FireCrystal, Array.Empty<ushort>()), ZincOxide); // nothing to record
             Assert.Equal(2, history.Entries.Count);
+
+            // A break (round 1, 2026-10-18) is recorded too: its result unknown (0) until a success names it, and a break of a
+            // recipe that once succeeded keeps that result. The list shows a broken-only recipe by its first ingredient.
+            history.Record(new SynthesisRequest(LightningCrystal, new[] { Seashell }), 0);
+            Assert.Equal((LightningCrystal, (ushort)0), (history.Entries[1].CrystalItemId, history.Entries[1].ResultItemId));
+            Assert.Equal(Seashell, StockUiSynthesis.HistoryRows(history.Entries, null)[1].ItemId);
+            history.Record(new SynthesisRequest(FireCrystal, new[] { ZincOre, ZincOre, ZincOre }), 0);
+            Assert.Equal(ZincOxide, history.Entries.Single(e => e.CrystalItemId == FireCrystal).ResultItemId);
+            Assert.Equal(3, SynthesisHistory.FromJson(history.ToJson()).Entries.Count);
         }
 
         [Fact]
@@ -491,7 +500,7 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void GuildShop_SellList_ShowsWhatYouHold_AndSellsFromTheLargestStack()
+        public void GuildShop_SellList_ShowsEverythingTheGuildBuys_AndSellsFromTheInventory()
         {
             var h = new Harness();
             h.Menus.OnGuildStatus(ShopOpenStatus.Open);
@@ -500,15 +509,39 @@ namespace Gordian.Core.Tests.Ui
             var list = h.Menus.Top!;
             h.Inventory.AddGuildSellItems(0, new[] { new GuildItemEntry(Seashell, 3, 40, 12), new GuildItemEntry(Chestnut, 0, 40, 5), new GuildItemEntry(ZincOre, 40, 40, 90) });
             h.Menus.OnGuildListChanged();
-            Assert.Equal(new ushort[] { Seashell, ZincOre }, list.ShopRows.Select(r => r.ItemId)); // no chestnuts held
-            Assert.Equal((12u, (byte)5, 12u), (list.ShopRows[0].Count, list.ShopRows[0].Slot, list.ShopRows[0].Price));
-            Assert.True(list.ShopRows[1].Greyed); // the guild's stock of zinc ore is full
+            // image-5 (retail): "Select from your inventory." first, then every item the guild buys with its price, held or not.
+            Assert.Equal(StockUiGuildShop.SelectFromInventoryText, list.ShopRows[0].Name);
+            Assert.Equal(new ushort[] { 0, Seashell, Chestnut, ZincOre }, list.ShopRows.Select(r => r.ItemId));
+            Assert.Equal((12u, (byte)5, 12u, false), (list.ShopRows[1].Count, list.ShopRows[1].Slot, list.ShopRows[1].Price, list.ShopRows[1].Greyed));
+            Assert.Equal((5u, true), (list.ShopRows[2].Price, list.ShopRows[2].Greyed)); // no chestnuts held
+            Assert.True(list.ShopRows[3].Greyed); // the guild's stock of zinc ore is full
+            Assert.Equal(1, list.SelectedButtonId);
 
-            list.SelectedButtonId = 1;
+            list.SelectedButtonId = 3;
+            h.Menus.Activate();
+            Assert.Contains("You do not have any Ronfaure chestnuts.", h.Notices);
+
+            // A held row sells from its largest stack.
+            list.SelectedButtonId = 2;
             h.Menus.Activate();
             h.Menus.Top!.Quantity = 4;
             h.Menus.Activate();
             SpinUntil(() => h.GuildSent.Contains($"sell {Seashell} 5 4"));
+
+            // "Select from your inventory." lists the inventory's items the guild buys; Confirm asks the count.
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var inventory = h.Menus.Top!;
+            Assert.Equal(StockUiItemListKind.GuildSell, inventory.ItemListKind);
+            Assert.Equal(new ushort[] { ZincOre, Seashell, Seashell }, inventory.ItemRows.Select(r => r.ItemId));
+            Assert.True(inventory.ItemRows[0].Greyed);
+            inventory.SelectedButtonId = 3; // the stack of two in slot 7
+            h.Menus.Activate();
+            var prompt = h.Menus.Top!;
+            Assert.Equal(2u, prompt.QuantityMax);
+            prompt.Quantity = 2;
+            h.Menus.Activate();
+            SpinUntil(() => h.GuildSent.Contains($"sell {Seashell} 7 2"));
 
             h.Menus.CloseGuildShop();
             Assert.False(h.Menus.IsGuildShopOpen);

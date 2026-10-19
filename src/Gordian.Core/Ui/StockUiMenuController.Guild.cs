@@ -16,9 +16,16 @@ namespace Gordian.Core.Ui
     /// merchant inside its hours sends S2C 0x086 (open); Buy asks for the stock with C2S 0x0AB (answer S2C 0x083: item,
     /// price, stock, maximum) and buys with 0x0AA (item, count; answer 0x082); Sell asks with 0x0AD what the guild takes
     /// (answer 0x085) and sells one inventory stack with 0x0AC (item, slot, count; answer 0x084). PROVISIONAL (no retail
-    /// capture of a guild shop): the list's columns (here the item and its price, as the NPC shop; the stock is not drawn),
-    /// that the Sell list shows only what the character holds of the guild's list, from its largest stack, and that the list
-    /// is asked for again after each purchase or sale to show the new stock.
+    /// capture of the Buy list): its columns (here the item and its price, as the NPC shop; the stock is not drawn), and that
+    /// the list is asked for again after each purchase or sale to show the new stock.
+    /// <para>
+    /// The Sell list (the maintainer's retail capture, round 1 image-5, 2026-10-18; help bar "Guild Shop"): "Select from your
+    /// inventory." as the first row, then every item the guild buys with its price right-aligned ("Dhalmel Hide 300 G",
+    /// "Manticore Hide 1,140 G"), whether the character holds it or not, in the guild's order, under it the "Current Gil"
+    /// window and the item info. The item rows are drawn lavender (greyed); here those the character holds and the guild still
+    /// takes are drawn white and sell from their largest stack on Confirm (PROVISIONAL), and the first row opens the inventory's
+    /// items the guild buys (PROVISIONAL: what retail's first row opens is not captured).
+    /// </para>
     /// </summary>
     public static class StockUiGuildShop
     {
@@ -27,6 +34,9 @@ namespace Gordian.Core.Ui
 
         /// <summary>Help text 51 (ROM/165/75): "Select an item from the guild's buy list."</summary>
         public const int HelpBuyList = 51;
+
+        /// <summary>The Sell list's first row (image-5); Confirm opens the inventory's items the guild buys.</summary>
+        public const string SelectFromInventoryText = "Select from your inventory.";
 
         /// <summary>The Buy list: the guild's stock in its order; rows out of stock greyed.</summary>
         public static List<StockUiShopRow> BuyRows(IReadOnlyList<GuildItemEntry> items, Func<ushort, Resources.Models.ItemRecord?>? lookup)
@@ -44,14 +54,14 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// The Sell list: each item of the guild's list the inventory holds, with the guild's price and the largest stack of it
-        /// (C2S 0x0AC sells from one slot); rows of items whose guild stock is full greyed.
+        /// The Sell list (image-5): "Select from your inventory." (item 0, shop index -1), then every item of the guild's list
+        /// with the guild's price and the largest stack the inventory holds of it (C2S 0x0AC sells from one slot); items not
+        /// held, or whose guild stock is full, greyed.
         /// </summary>
         public static List<StockUiShopRow> SellRows(IReadOnlyList<GuildItemEntry> items, InventoryState? inventory, Func<ushort, Resources.Models.ItemRecord?>? lookup)
         {
-            var rows = new List<StockUiShopRow>();
-            if (inventory == null) return rows;
-            var held = inventory.SnapshotItems(ContainerId.Inventory);
+            var rows = new List<StockUiShopRow> { new(0, SelectFromInventoryText, 0, 0, -1, 0, 1) };
+            var held = inventory?.SnapshotItems(ContainerId.Inventory) ?? Array.Empty<InventoryItem>();
             for (int i = 0; i < items.Count; i++)
             {
                 var entry = items[i];
@@ -64,10 +74,29 @@ namespace Gordian.Core.Ui
                     slot = item.Slot;
                     count = item.Count;
                 }
-                if (slot == 0) continue;
                 var record = StockUiShop.Lookup(lookup, entry.ItemId);
                 rows.Add(new StockUiShopRow(entry.ItemId, record.Name, (uint)Math.Max(0, entry.Price), count, i, slot,
-                    Math.Max(1, (int)record.StackSize), Greyed: entry.Max > 0 && entry.Stock >= entry.Max));
+                    Math.Max(1, (int)record.StackSize), Greyed: slot == 0 || IsFull(entry)));
+            }
+            return rows;
+        }
+
+        /// <summary>Whether the guild's stock of an item it buys is full (it takes no more).</summary>
+        public static bool IsFull(GuildItemEntry entry) => entry.Max > 0 && entry.Stock >= entry.Max;
+
+        /// <summary>
+        /// The inventory's items the guild buys (the Sell list's "Select from your inventory."), in slot order; those whose guild
+        /// stock is full greyed.
+        /// </summary>
+        public static List<StockUiItemRow> InventoryRows(IReadOnlyList<GuildItemEntry> items, List<StockUiItemRow> inventoryRows)
+        {
+            var rows = new List<StockUiItemRow>();
+            foreach (var row in inventoryRows)
+            {
+                GuildItemEntry? accepted = null;
+                foreach (var entry in items) if (entry.ItemId == row.ItemId) accepted = entry;
+                if (accepted is not { } a || row.Equipped) continue;
+                rows.Add(IsFull(a) ? row with { Greyed = true, GreyedReason = "The guild would not buy that from you. Its stock of that item is full." } : row);
             }
             return rows;
         }
@@ -208,6 +237,11 @@ namespace Gordian.Core.Ui
                         FillGuildRows(menu);
                         changed = true;
                     }
+                    else if (menu.ItemListKind == StockUiItemListKind.GuildSell)
+                    {
+                        FillItemRows(menu);
+                        changed = true;
+                    }
                     else if (menu.IsGuild && menu.IsQuantity)
                     {
                         menu.Gil = Gil;
@@ -244,9 +278,14 @@ namespace Gordian.Core.Ui
                     else if (Gil < row.Price) notice = "You do not have enough gil.";
                     else changed = OpenGuildQuantity(list, row, StockUiGuildShop.MaxBuyCount(row, Gil)) != null;
                 }
+                else if (row.ShopIndex < 0)
+                {
+                    changed = OpenGuildInventory(list) != null;
+                }
                 else if (row.Greyed)
                 {
-                    notice = "The guild would not buy that from you. Its stock of that item is full.";
+                    notice = row.Slot == 0 ? $"You do not have any {StockUiShop.PluralName(StockUiShop.Lookup(ItemLookup, row.ItemId))}."
+                        : "The guild would not buy that from you. Its stock of that item is full.";
                 }
                 else
                 {
@@ -257,7 +296,46 @@ namespace Gordian.Core.Ui
             if (changed) Changed?.Invoke();
         }
 
-        private StockUiOpenMenu? OpenGuildQuantity(StockUiOpenMenu list, in StockUiShopRow row, uint max)
+        /// <summary>"Select from your inventory.": the inventory's items the guild buys, in the item list (under the lock).</summary>
+        private StockUiOpenMenu? OpenGuildInventory(StockUiOpenMenu sellList)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiItems.ListMenu, out var definition)) return null;
+            var list = new StockUiOpenMenu(definition, sellList, Array.Empty<string>(), null, VisibleRowsOf(definition))
+            {
+                ItemListKind = StockUiItemListKind.GuildSell,
+                ItemContainer = ContainerId.Inventory,
+                ItemLookup = ItemLookup,
+                ItemOwner = this,
+                IsGuild = true,
+                ShopSide = null,
+            };
+            FillItemRows(list);
+            list.SelectedButtonId = 1;
+            PushOpen(list);
+            return list;
+        }
+
+        /// <summary>Confirm on an inventory item to sell to the guild: the count prompt, at most what the slot holds.</summary>
+        private void PickGuildSale(StockUiOpenMenu list, StockUiItemRow row)
+        {
+            if (row.Greyed)
+            {
+                NoticePosted?.Invoke(row.GreyedReason ?? $"{row.Name} cannot be sold.");
+                return;
+            }
+            uint price = 0;
+            foreach (var entry in Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>())
+            {
+                if (entry.ItemId == row.ItemId) price = (uint)Math.Max(0, entry.Price);
+            }
+            var shopRow = new StockUiShopRow(row.ItemId, row.Name, price, row.Count, 0, row.Slot, row.StackSize);
+            bool opened;
+            lock (_sync) opened = OpenGuildQuantity(list, shopRow, Math.Max(1, Math.Min(row.Count, 99u)), StockUiShopSide.Sell) != null;
+            if (opened) Changed?.Invoke();
+        }
+
+        private StockUiOpenMenu? OpenGuildQuantity(StockUiOpenMenu list, in StockUiShopRow row, uint max, StockUiShopSide? side = null)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition)) return null;
@@ -265,10 +343,10 @@ namespace Gordian.Core.Ui
             {
                 IsQuantity = true,
                 IsGuild = true,
-                ShopSide = list.ShopSide,
+                ShopSide = side ?? list.ShopSide,
                 QuantityRow = row,
                 QuantityMax = Math.Max(1, max),
-                QuantityTotal = list.ShopSide == StockUiShopSide.Buy ? (uint)Math.Max(1, row.StackSize) : Math.Max(1, row.Count),
+                QuantityTotal = (side ?? list.ShopSide) == StockUiShopSide.Buy ? (uint)Math.Max(1, row.StackSize) : Math.Max(1, row.Count),
                 UnitPrice = row.Price,
                 ItemLookup = ItemLookup,
             };

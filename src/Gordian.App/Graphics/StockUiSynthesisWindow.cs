@@ -12,11 +12,12 @@ namespace Gordian.App.Graphics
     /// over its bottom right ("3" of three zinc ore), the inventory (or the History recipes) in the list beside the grid at
     /// x 198 while the grid has the cursor, the help bar, and the slot's item (History: the recipe's result) described under
     /// the grid at (16, 240); an empty slot shows the empty description window. Measured on 2x crops: the icon's left edge
-    /// about 20 px into the frame, the word from about 36 px, both in the 16 px band (PROVISIONAL to a pixel).
+    /// about 20 px into the frame, the word from about 36 px; the icon 5 px and the word 6 px below the frame's top, under its white border
+    /// line (round 1, 2026-10-18: 2 and 3 px overlapped the line).
     /// </summary>
     public static class StockUiSynthesisWindow
     {
-        private const float CrystalIconX = 20, CrystalIconY = 2, CrystalIconSize = 14, WordX = 37, WordY = 3;
+        private const float CrystalIconX = 20, CrystalIconY = 5, CrystalIconSize = 14, WordX = 37, WordY = 6;
         private const float SlotIconSize = 32, CountRight = 31, CountBottom = 33;
 
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,

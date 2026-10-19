@@ -7,7 +7,7 @@ namespace Gordian.Core.Network
     {
         /// <summary>
         /// The Synthesis windows and the guild shop window (#330): the grid sends C2S 0x096 through the crafting module and is
-        /// refused while a synthesis runs (<see cref="CraftingState.IsSynthesizing"/>); a successful synthesis (S2C 0x06F) is
+        /// refused while a synthesis runs (<see cref="CraftingState.IsSynthesizing"/>); a synthesis that ran (S2C 0x06F: a success or a break) is
         /// recorded in the character's History (<see cref="SynthesisHistoryStore"/>). An open guild (S2C 0x086) opens the guild
         /// shop window, whose lists and purchases go out as C2S 0x0AA-0x0AD; a zone change closes it.
         /// </summary>
@@ -20,7 +20,10 @@ namespace Gordian.Core.Network
             menus.SynthesisRequested = (crystal, slot, ingredients) => CraftingModule.SynthesizeAsync(crystal, slot, ingredients);
             Crafting.SynthesisCompleted += outcome =>
             {
-                if (outcome.IsSuccess && Crafting.LastRequest is { } request) history.Record(request, outcome.ItemId);
+                // Successes and breaks (crystal, or crystal and materials, lost) go into the History; cancels did not synthesize.
+                bool ran = outcome.IsSuccess || outcome.Result is Packets.SynthesisAnswer.Failed or Packets.SynthesisAnswer.Interrupted
+                    or Packets.SynthesisAnswer.InterruptedCritical;
+                if (ran && Crafting.LastRequest is { } request) history.Record(request, outcome.IsSuccess ? outcome.ItemId : (ushort)0);
             };
 
             menus.GuildRequestBuyList = () => InventoryModule.RequestGuildBuyListAsync();

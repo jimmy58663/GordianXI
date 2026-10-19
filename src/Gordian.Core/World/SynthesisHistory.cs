@@ -13,7 +13,8 @@ namespace Gordian.Core.World
 
     /// <summary>
     /// One synthesis the character has done (the History window's row): the crystal, the ingredients grouped by item (at most
-    /// eight items in all, the C2S 0x096 limit), the item it made, and whether the player marked it a favourite.
+    /// eight items in all, the C2S 0x096 limit), the item it made (0 while unknown: a break names only Mangled Mess), and
+    /// whether the player marked it a favourite.
     /// </summary>
     public sealed record SynthesisHistoryEntry(ushort CrystalItemId, IReadOnlyList<SynthesisIngredient> Ingredients, ushort ResultItemId, bool Favorite = false)
     {
@@ -45,7 +46,8 @@ namespace Gordian.Core.World
 
     /// <summary>
     /// The character's synthesis history (main menu > Synthesis > History; retail capture <c>Synthesis_History.png</c>,
-    /// 2026-10-16): the recipes the character synthesized successfully, newest first, with favourites (Synthesis Options:
+    /// 2026-10-16): every recipe the character synthesized, successes and breaks alike (the maintainer's round 1, 2026-10-18:
+    /// a break must show up too), newest first, with favourites (Synthesis Options:
     /// Favorite / Unfavorite) listed before the rest. LandSandBoat has no packet for it, so the client keeps it, as retail
     /// appears to. PROVISIONAL: how many recipes retail keeps (<see cref="MaxEntries"/>) and where favourites sort are not
     /// captured; the history is saved per character to <c>synthesis_history/&lt;character&gt;.json</c>.
@@ -77,20 +79,25 @@ namespace Gordian.Core.World
         }
 
         /// <summary>
-        /// Records a successful synthesis: the recipe moves to the top (keeping its favourite mark); the oldest non-favourite
-        /// drops off past <see cref="MaxEntries"/>. Ignored without ingredients or a result.
+        /// Records a synthesis that ran (a success, or a break with <paramref name="resultItemId"/> 0: S2C 0x06F names only Mangled
+        /// Mess then): the recipe moves to the top, keeping its favourite mark and, when this one is 0, the result an earlier
+        /// success named; the oldest non-favourite drops off past <see cref="MaxEntries"/>. Ignored without ingredients.
         /// </summary>
         public void Record(SynthesisRequest request, ushort resultItemId)
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (resultItemId == 0 || request.IngredientItemIds.Length == 0) return;
+            if (request.IngredientItemIds.Length == 0) return;
             var entry = new SynthesisHistoryEntry(request.CrystalItemId, SynthesisHistoryEntry.Group(request.IngredientItemIds), resultItemId);
             lock (_sync)
             {
                 int index = _entries.FindIndex(e => e.SameRecipe(entry));
                 if (index >= 0)
                 {
-                    entry = entry with { Favorite = _entries[index].Favorite };
+                    entry = entry with
+                    {
+                        Favorite = _entries[index].Favorite,
+                        ResultItemId = resultItemId != 0 ? resultItemId : _entries[index].ResultItemId,
+                    };
                     _entries.RemoveAt(index);
                 }
                 _entries.Insert(0, entry);
@@ -164,7 +171,7 @@ namespace Gordian.Core.World
             if (model?.Entries == null) return history;
             foreach (var m in model.Entries)
             {
-                if (m == null || m.Items == null || m.Counts == null || m.Items.Count == 0 || m.Items.Count != m.Counts.Count || m.Result == 0) continue;
+                if (m == null || m.Items == null || m.Counts == null || m.Items.Count == 0 || m.Items.Count != m.Counts.Count) continue;
                 var ingredients = new List<SynthesisIngredient>(m.Items.Count);
                 for (int i = 0; i < m.Items.Count; i++) ingredients.Add(new SynthesisIngredient(m.Items[i], m.Counts[i]));
                 if (history._entries.Count < MaxEntries) history._entries.Add(new SynthesisHistoryEntry(m.Crystal, ingredients, m.Result, m.Favorite));
