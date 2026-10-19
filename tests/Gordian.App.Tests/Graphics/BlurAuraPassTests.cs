@@ -24,6 +24,24 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void ShadowLight_UsesTheSunWhileUp_TheMoonWhileDown_AndNeverDropsBelowTheMinimumElevation()
+        {
+            var noon = EntityRenderer.ShadowLightDirection(new Vector3(0f, 1f, 0f));
+            Assert.Equal(Vector3.UnitY, noon);
+
+            // 16:26: the sun at elevation 0.40 toward +X is raised to the minimum, keeping its bearing.
+            var late = EntityRenderer.ShadowLightDirection(Vector3.Normalize(new Vector3(0.917f, 0.399f, 0f)));
+            Assert.Equal(EntityRenderer.ShadowMinElevation, late.Y, 4);
+            Assert.True(late.X > 0f);
+            Assert.Equal(1f, late.Length(), 4);
+
+            // Night: the sun is below the horizon, so the shadow follows the moon opposite it.
+            var night = EntityRenderer.ShadowLightDirection(Vector3.Normalize(new Vector3(0.5f, -0.8f, 0f)));
+            Assert.True(night.Y >= EntityRenderer.ShadowMinElevation);
+            Assert.True(night.X < 0f);
+        }
+
+        [Fact]
         public void RingParams_DriftStaysWithinTheGhostOffset_AndMovesOverTime()
         {
             var a = EntityRenderer.AuraRingParams(Garuda, 0, 0f);

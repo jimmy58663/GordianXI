@@ -661,6 +661,7 @@ namespace Gordian.App.Graphics
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
                 if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
+                if (!faded && paletteSet != null && !entity.HidesShadow) QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos.Y);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.
@@ -671,6 +672,7 @@ namespace Gordian.App.Graphics
                 }
             }
 
+            draws += DrawShadows(cl);
             draws += DrawBlurAuras(cl, deltaSeconds);
             DrawCalls = draws;
             VisibleEntities = visible;
@@ -1131,6 +1133,7 @@ namespace Gordian.App.Graphics
             _fadePipeline?.Dispose();
             _skinnedFadePipeline?.Dispose();
             DisposeBlurAura();
+            DisposeShadows();
             // GPU models, textures and layouts are the shared resources'.
             if (_ownsShared) _shared.Dispose();
         }

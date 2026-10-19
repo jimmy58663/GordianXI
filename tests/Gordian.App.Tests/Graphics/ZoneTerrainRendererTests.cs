@@ -28,6 +28,7 @@ namespace Gordian.App.Tests.Graphics
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
             { "StockUi", StockUiRenderer.VertexShaderGlsl, StockUiRenderer.FragmentShaderGlsl },
             { "BlurAura", BlurAuraShaders.SkinnedVertexShaderGlsl, BlurAuraShaders.FragmentShaderGlsl },
+            { "ActorShadow", ActorShadowShaders.SkinnedVertexShaderGlsl, ActorShadowShaders.FragmentShaderGlsl },
         };
 
         /// <summary>

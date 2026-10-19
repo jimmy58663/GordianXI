@@ -28,16 +28,16 @@ namespace Gordian.App.Graphics
     public sealed partial class EntityRenderer
     {
         /// <summary>Shell width per unit of a ring's radius, in yalms.</summary>
-        public const float AuraWidthPerRadius = 0.0005f;
+        public const float AuraWidthPerRadius = 0.00015f;
 
         /// <summary>Largest screen drift of a ring's ghost copy, in NDC (about 3 px at 1080p), at 11 layers.</summary>
-        public const float AuraGhostOffset = 0.0035f;
+        public const float AuraGhostOffset = 0.0012f;
 
         /// <summary>A ring's strength per unit of its alpha byte.</summary>
         public const float AuraStrengthPerAlpha = 1.0f / 96.0f;
 
         /// <summary>Rim exponent per unit of the section's falloff (400 for most models).</summary>
-        public const float AuraRimPerFalloff = 1.0f / 120.0f;
+        public const float AuraRimPerFalloff = 1.0f / 60.0f;
 
         /// <summary>Shimmer phase speed per unit of the section's frequency byte, in radians per second.</summary>
         public const float AuraShimmerRate = 0.6f;
