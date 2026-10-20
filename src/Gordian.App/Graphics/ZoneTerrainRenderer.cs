@@ -458,31 +458,32 @@ namespace Gordian.App.Graphics
             _waterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _waterUniformBuffer));
             _textureCache = _shared.ZoneTextures;
 
-            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky)
+            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky). Zone meshes
+            // are lit per vertex like the legacy fixed-function client (TerrainShaders, #7 round 2).
             var vsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderGlsl),
                 "main");
             var fsOpaqueDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderOpaqueGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderOpaqueGlsl),
                 "main");
             var fsCutoutDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderCutoutGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderCutoutGlsl),
                 "main");
             var fsBlendDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderBlendGlsl),
                 "main");
 
             var vsDecalDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderDecalGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderDecalGlsl),
                 "main");
             var vsWaterDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderWaterGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderWaterGlsl),
                 "main");
             var vsWeatherSkyDesc = new ShaderDescription(
                 ShaderStages.Vertex,
@@ -491,7 +492,7 @@ namespace Gordian.App.Graphics
 
             var fsWaterDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderBlendGlsl),
                 "main");
             var fsWeatherSkyDesc = new ShaderDescription(
                 ShaderStages.Fragment,
@@ -1531,6 +1532,10 @@ namespace Gordian.App.Graphics
                 }
                 currentBoundBlendPipeline = null;
             }
+
+            // Actor shadows, after the water and world-effect layers so ground overlays drawn there (Bibiki Bay's cave
+            // floor gradients) do not cover them (#7 round 2, F11).
+            if (_entityRenderer != null) draws += _entityRenderer.DrawQueuedShadows(_commandList);
 
             // Pass 3b: Optional synthetic sea-level ocean water plane (enhancement, not in the legacy client)
             // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.

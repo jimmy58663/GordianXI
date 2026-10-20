@@ -48,6 +48,12 @@ namespace Gordian.Core.Resources.Models
         /// <see cref="GearOcclusion"/>.
         /// </summary>
         public byte DisplayType { get; init; }
+
+        /// <summary>
+        /// How strongly the ambient light lights the piece (+16 of the 0x8010 render-properties block in force; 1 when none
+        /// preceded it). Avatars author 1.0-2.0 (Ifrit 1.4, Leviathan's fins 2.0), most monsters 1.0.
+        /// </summary>
+        public float AmbientMultiplier { get; init; } = 1.0f;
     }
 
     /// <summary>

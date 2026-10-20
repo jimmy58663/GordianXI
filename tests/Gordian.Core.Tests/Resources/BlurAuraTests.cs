@@ -85,5 +85,21 @@ namespace Gordian.Core.Tests.Resources
             var rabbit = EntityModelLoader.LoadMonsterModel(269, rm.LoadDatBytesByFileId);
             if (rabbit != null) Assert.Null(rabbit.BlurAura);
         }
+
+        [Fact]
+        public void AvatarMeshPieces_CarryTheirAuthoredLightMultipliers()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!Directory.Exists(gameDir)) return;
+            var rm = new ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            var ifrit = EntityModelLoader.LoadMonsterModel(18, rm.LoadDatBytesByFileId);
+            var rabbit = EntityModelLoader.LoadMonsterModel(269, rm.LoadDatBytesByFileId);
+            if (ifrit == null || rabbit == null) return;
+
+            // 0x8010 +16: Ifrit authors 1.4 on its body (#7 round 2); an ordinary monster 1.0.
+            Assert.Contains(ifrit.AnimatedMeshGroups, g => Math.Abs(g.AmbientMultiplier - 1.4f) < 0.01f);
+            Assert.All(rabbit.AnimatedMeshGroups, g => Assert.Equal(1.0f, g.AmbientMultiplier, 3));
+        }
     }
 }

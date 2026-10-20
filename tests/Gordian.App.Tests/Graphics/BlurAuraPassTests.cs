@@ -41,6 +41,34 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(night.X < 0f);
         }
 
+        [Theory]
+        [InlineData(ActorShadowMode.High, true, true)]
+        [InlineData(ActorShadowMode.High, false, true)]
+        [InlineData(ActorShadowMode.Normal, true, true)]
+        [InlineData(ActorShadowMode.Normal, false, false)]
+        public void ShadowMode_PicksSilhouettesOrCircles(ActorShadowMode mode, bool isLocalPlayer, bool silhouette)
+        {
+            Assert.Equal(silhouette, EntityRenderer.CastsSilhouette(mode, isLocalPlayer));
+            Assert.Null(EntityRenderer.CastsSilhouette(ActorShadowMode.Off, isLocalPlayer));
+        }
+
+        [Fact]
+        public void PieceLightMultiplier_ScalesTheActorLightsAndTheirCap()
+        {
+            var uniform = new ZoneSceneUniform
+            {
+                SunColor = new Vector4(0.4f, 0.3f, 0.2f, 1f),
+                MoonColor = new Vector4(0.1f, 0.1f, 0.2f, 1f),
+                AmbientColor = new Vector4(0.2f, 0.2f, 0.2f, 1f),
+                WeatherParams = new Vector4(0f, 0f, 0.75f, 0f)
+            };
+            var scaled = EntityRenderer.ScaledActorLight(uniform, 1.4f);
+            Assert.Equal(0.56f, scaled.SunColor.X, 4);
+            Assert.Equal(0.28f, scaled.AmbientColor.Y, 4);
+            Assert.Equal(1.05f, scaled.WeatherParams.Z, 4);
+            Assert.Equal(1f, scaled.AmbientColor.W);
+        }
+
         [Fact]
         public void RingParams_DriftStaysWithinTheGhostOffset_AndMovesOverTime()
         {

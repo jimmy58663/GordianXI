@@ -940,6 +940,9 @@ namespace Gordian.App.Graphics
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
                         _renderer.RetailTerrainBrightness = ViewportRenderSettings.RetailTerrainBrightness;
+                        // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
+                        if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
+                            shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Core.Ui.StockUiSettingKey.Shadows);
                     }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {

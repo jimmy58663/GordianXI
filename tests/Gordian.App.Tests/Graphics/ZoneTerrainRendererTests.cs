@@ -29,6 +29,12 @@ namespace Gordian.App.Tests.Graphics
             { "StockUi", StockUiRenderer.VertexShaderGlsl, StockUiRenderer.FragmentShaderGlsl },
             { "BlurAura", BlurAuraShaders.SkinnedVertexShaderGlsl, BlurAuraShaders.FragmentShaderGlsl },
             { "ActorShadow", ActorShadowShaders.SkinnedVertexShaderGlsl, ActorShadowShaders.FragmentShaderGlsl },
+            { "ActorShadowDisc", ActorShadowShaders.DiscVertexShaderGlsl, ActorShadowShaders.DiscFragmentShaderGlsl },
+            { "TerrainOpaque", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderOpaqueGlsl },
+            { "TerrainCutout", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderCutoutGlsl },
+            { "TerrainBlend", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderBlendGlsl },
+            { "TerrainDecal", TerrainShaders.VertexShaderDecalGlsl, TerrainShaders.FragmentShaderBlendGlsl },
+            { "TerrainWater", TerrainShaders.VertexShaderWaterGlsl, TerrainShaders.FragmentShaderBlendGlsl },
         };
 
         /// <summary>
@@ -718,6 +724,23 @@ namespace Gordian.App.Tests.Graphics
             Assert.Contains("vec4 TerrainTone;", fragmentGlsl);
             Assert.Contains("vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);", fragmentGlsl);
             Assert.True(fragmentGlsl.IndexOf("ToneTerrain(2.0", StringComparison.Ordinal) < fragmentGlsl.IndexOf("mix(litColor, FogColor.rgb", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void TerrainShaders_LightPerVertex_AndToneAfterTheModulate2x()
+        {
+            // Fixed-function parity (#7 round 2): ambient + sun + moon + point lights clamped at the vertex, interpolated.
+            foreach (var vs in new[] { TerrainShaders.VertexShaderGlsl, TerrainShaders.VertexShaderDecalGlsl, TerrainShaders.VertexShaderWaterGlsl })
+            {
+                Assert.Contains("fsin_Lit = clamp(amb + df0 + df1 + PointLighting(worldPos.xyz, N, Color.rgb), 0.0, 1.0);", vs);
+            }
+            Assert.Contains("clipPos.z - 0.00015 * clipPos.w", TerrainShaders.VertexShaderDecalGlsl);
+            Assert.Contains("clipPos.z - 0.00025 * clipPos.w", TerrainShaders.VertexShaderWaterGlsl);
+            foreach (var fs in new[] { TerrainShaders.FragmentShaderOpaqueGlsl, TerrainShaders.FragmentShaderCutoutGlsl, TerrainShaders.FragmentShaderBlendGlsl })
+            {
+                Assert.Contains("ToneTerrain(2.0 * fsin_Lit * texel)", fs);
+                Assert.DoesNotContain("PointLighting", fs);
+            }
         }
 
         [Fact]
