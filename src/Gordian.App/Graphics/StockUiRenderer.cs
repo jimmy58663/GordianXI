@@ -553,8 +553,8 @@ void main()
         /// </summary>
         // Nudges (authored pixels) that put the font's letters at the middle of the disc.
         private const float XboxLetterDx = 0.5f, XboxLetterDy = 1.25f;
-        // The maintainer's placement of the letter on the disc (2026-10-19), in screen pixels: down 1, right 5.
-        private const float XboxLetterShiftX = 5, XboxLetterShiftY = 1;
+        // The maintainer's placement of the letter on the disc (2026-10-19), in screen pixels: down 1, right 2 (5, then back 3).
+        private const float XboxLetterShiftX = 2, XboxLetterShiftY = 1;
 
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
