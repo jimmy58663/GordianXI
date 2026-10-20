@@ -905,10 +905,23 @@ namespace Gordian.Core.Events
         private static string? ResolveName(byte kind, int id) => NameResolver?.Invoke(kind, id);
 
         /// <summary>Prints the lines of a message; the first carries the speaker's name when there is one.</summary>
+        /// <summary>
+        /// How many lines each log window had received (<see cref="StockUiChatLog.AddedCount"/>) before the event line now waiting
+        /// for Confirm was printed: the lines after it are that dialog, which the log never shrinks below (#369).
+        /// </summary>
+        public (long Window1, long Window2) DialogLogMark => (Volatile.Read(ref _dialogMark1), Volatile.Read(ref _dialogMark2));
+
+        private long _dialogMark1, _dialogMark2;
+
         private void PrintLines(IReadOnlyList<string> lines, string? speaker, ChatLogChannel channel)
         {
             var chat = _chat;
             if (chat == null) return;
+            if (_scene != null)
+            {
+                Volatile.Write(ref _dialogMark1, chat.Log.AddedCount(1));
+                Volatile.Write(ref _dialogMark2, chat.Log.AddedCount(2));
+            }
             for (int i = 0; i < lines.Count; i++)
             {
                 string line = i == 0 && !string.IsNullOrEmpty(speaker) ? $"{speaker} : {lines[i]}" : lines[i];

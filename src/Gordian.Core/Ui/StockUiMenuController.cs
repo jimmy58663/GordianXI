@@ -913,6 +913,7 @@ namespace Gordian.Core.Ui
         }
 
         private string? _lastCommandLabel;
+        private readonly Dictionary<(StockUiActionList List, int Category), ushort> _lastAction = new();
 
         private void Remember(StockUiOpenMenu menu)
         {
@@ -926,6 +927,13 @@ namespace Gordian.Core.Ui
             {
                 int index = menu.SelectedButtonId - 1;
                 if (index >= 0 && index < menu.CommandRows.Count) _lastCommandLabel = menu.CommandRows[index].Label.Text;
+                return;
+            }
+            if (menu.IsActionList)
+            {
+                // A spell or ability list remembers the action the cursor was on, by list and category, so Abilities > Weapon Skill
+                // opens on the weapon skill last used (maintainer D16 note, 2026-10-18); rows change, so it is the id, not the row.
+                if (menu.SelectedActionRow is { } row) _lastAction[(menu.ActionList, menu.ActionCategory)] = row.Id;
                 return;
             }
             _lastSelection[menu.Name] = menu.SelectedButtonId;

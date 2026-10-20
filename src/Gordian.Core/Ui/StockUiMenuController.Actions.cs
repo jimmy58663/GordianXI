@@ -104,6 +104,17 @@ namespace Gordian.Core.Ui
             };
             SetActionRows(menu, rows);
             menu.SelectedButtonId = rows.Count > 0 ? 1 : 0;
+            if (_lastAction.TryGetValue((list, category), out ushort lastId))
+            {
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].Id != lastId) continue;
+                    menu.FirstRow = Math.Clamp(i - menu.VisibleRows + 1, 0, Math.Max(0, rows.Count - menu.VisibleRows));
+                    menu.ScrollFrom = menu.FirstRow;
+                    menu.SelectedButtonId = i - menu.FirstRow + 1;
+                    break;
+                }
+            }
             lock (_sync)
             {
                 var open = new StockUiOpenMenu[_open.Length + 1];

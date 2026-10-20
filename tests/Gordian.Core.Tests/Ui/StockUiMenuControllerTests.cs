@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Input;
+using Gordian.Core.Actions;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
@@ -143,6 +144,27 @@ namespace Gordian.Core.Tests.Ui
                 menus.ProcessInput(input, dt);
                 Assert.Equal(engaged, menus.IsOpen);
             }
+        }
+
+        [Fact]
+        public void ActionList_RemembersItsCursorByListAndCategory()
+        {
+            var library = UiResourceLibrary.FromDefinitions(new[] { List(StockUiActionMenu.AbilityListMenu, 16, 48, UiAnchor.TopLeft, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10) });
+            var rows = new List<StockUiActionRow>();
+            for (int i = 0; i < 14; i++) rows.Add(new(StockUiActionType.WeaponSkill, (ushort)(20 + i), $"Skill {i}", ActionTargetFlags.Enemy, 0, 0, 0, null));
+            var menus = new StockUiMenuController { Library = library, ActionRowsProvider = (_, _, _) => rows };
+            var list = menus.OpenActionList(StockUiActionList.JobAbilities, 1, null)!;
+            Assert.Equal(1, list.SelectedButtonId); // nothing remembered yet: the first row
+            list.FirstRow = 4; // scrolled: row 3 of the window is entry 6
+            list.SelectedButtonId = 9;
+            Assert.Equal("Skill 12", list.SelectedActionRow!.Value.Name);
+            menus.CloseAll();
+
+            // Reopened (the maintainer's D16 note): the cursor is on the same action, scrolled into view; another category starts at the top.
+            var again = menus.OpenActionList(StockUiActionList.JobAbilities, 1, null)!;
+            Assert.Equal("Skill 12", again.SelectedActionRow!.Value.Name);
+            menus.CloseAll();
+            Assert.Equal(1, menus.OpenActionList(StockUiActionList.JobAbilities, 2, null)!.SelectedButtonId);
         }
 
         [Fact]

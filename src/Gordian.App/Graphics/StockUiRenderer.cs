@@ -553,6 +553,24 @@ void main()
         /// </summary>
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
+            if (hint.HasXboxFace)
+            {
+                // An Xbox face button: a round disc (the photo button's white circle, "photobut" (0, 0) 20 x 20) in the button's colour
+                // with its letter in the stock font; the DATs carry no lettered sprite.
+                var tint = hint.XboxFace switch
+                {
+                    'A' => new UiColor(0x20, 0x90, 0x30, 0x80),
+                    'B' => new UiColor(0x90, 0x20, 0x20, 0x80),
+                    'X' => new UiColor(0x30, 0x50, 0xA0, 0x80),
+                    _ => new UiColor(0xA0, 0x90, 0x10, 0x80),
+                };
+                DrawTextureRect("photobut", 0, 0, 20, 20, x + 4 * scale, y + 4 * scale, 16 * scale, 16 * scale, tint);
+                string letter = hint.XboxFace.ToString();
+                var letterFont = HintFont!;
+                float lw = letterFont.MeasureWidth(letter);
+                DrawText(letterFont, letter, x + (12 - lw * 0.5f) * scale, y + (12 - letterFont.LineHeight * 0.5f) * scale, scale);
+                return;
+            }
             if (hint.HasSprite)
             {
                 // A face button: its round sprite (as the PS2 Triangle hint), 16 x 16 at (4, 4) of the frame.

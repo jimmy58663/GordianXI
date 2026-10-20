@@ -38,10 +38,11 @@ namespace Gordian.Core.Ui
         /// <summary>
         /// Advances the sizing to <paramref name="now"/> (seconds, any monotonic clock) given the window's arrived-line
         /// counter (<see cref="StockUiChatLog.AddedCount"/>) and its settings; returns the target line count. Read
-        /// <see cref="DisplayLines"/> for the height to draw. <paramref name="hold"/> keeps the window up (at least one
-        /// line, no giving lines back) while an event line waits for Confirm (#369).
+        /// <see cref="DisplayLines"/> for the height to draw. <paramref name="floor"/> is the least lines
+        /// the window may shrink to while an event line waits for Confirm: the rows of that dialog (#369, retail: the window still
+        /// shrinks and grows, but never below the line the NPC's dialog started on).
         /// </summary>
-        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, bool hold = false)
+        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, int floor = 0)
         {
             maxLines = Math.Max(1, maxLines);
             minLines = Math.Clamp(minLines, 0, maxLines);
@@ -68,17 +69,13 @@ namespace Gordian.Core.Ui
                 Lines = (int)Math.Min(maxLines, Math.Max(Lines, minLines) + added);
                 _lastStep = now;
             }
-            else if (hold)
-            {
-                _lastStep = now;
-            }
-            else if (Lines > minLines && now - _lastStep >= resizeSeconds)
+            else if (Lines > Math.Max(minLines, floor) && now - _lastStep >= resizeSeconds)
             {
                 // One line per Resize Time: wait, drop a line, wait again.
                 Lines--;
                 _lastStep = now;
             }
-            Lines = Math.Clamp(Lines, hold ? Math.Max(minLines, 1) : minLines, maxLines);
+            Lines = Math.Clamp(Lines, Math.Clamp(Math.Max(minLines, floor), 0, maxLines), maxLines);
 
             float target = Lines;
             float step = (float)(elapsed * LinesPerSecond);

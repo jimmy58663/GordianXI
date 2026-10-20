@@ -24,17 +24,20 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Hold_KeepsTheLogUpWhileAnEventLineWaits()
+        public void Floor_LetsTheLogShrinkOnlyToTheDialogRowsWhileAnEventLineWaits()
         {
             var sizing = new StockUiLogSizing();
             sizing.Update(0, 0, true, 0, 8, 2, false);
-            Assert.Equal(3, sizing.Update(0.1, 3, true, 0, 8, 2, false));
-            for (double t = 0.2; t < 30; t += 0.1) Assert.Equal(3, sizing.Update(t, 3, true, 0, 8, 2, false, hold: true)); // #369: no giving lines back
-            Assert.Equal(3, sizing.Update(30.1, 3, true, 0, 8, 2, false));
-            Assert.Equal(2, sizing.Update(32.3, 3, true, 0, 8, 2, false)); // released: it gives lines back again
+            Assert.Equal(5, sizing.Update(0.1, 5, true, 0, 8, 2, false));
+            // The NPC's dialog is 2 rows: the window still shrinks, one line per Resize Time, but stops at 2 (#369).
+            for (double t = 0.2; t < 30; t += 0.1) sizing.Update(t, 5, true, 0, 8, 2, false, floor: 2);
+            Assert.Equal(2, sizing.Lines);
+            // A closed log opens to the dialog's rows; released, it gives them back.
             var closed = new StockUiLogSizing();
             closed.Update(0, 0, true, 0, 8, 2, false);
-            Assert.Equal(1, closed.Update(0.1, 0, true, 0, 8, 2, false, hold: true)); // even a quiet, closed log shows a line
+            Assert.Equal(2, closed.Update(0.1, 0, true, 0, 8, 2, false, floor: 2));
+            for (double t = 0.2; t < 10; t += 0.1) closed.Update(t, 0, true, 0, 8, 2, false);
+            Assert.Equal(0, closed.Lines);
         }
 
         [Fact]

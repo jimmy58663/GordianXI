@@ -40,9 +40,13 @@ namespace Gordian.Core.Tests.Ui
         {
             var profile = InputProfile.CreateGamepadDefault();
             const InputAction action = StockUiButtonHints.OptionsAction;
-            var pad = StockUiButtonHints.Hint(profile, action, gamepad: true);
+            var xbox = StockUiButtonHints.Hint(profile, action, gamepad: true);
+            Assert.True(xbox.HasXboxFace); // an Xbox controller: the lettered button
+            Assert.Equal('Y', xbox.XboxFace);
+            Assert.False(xbox.HasSprite);
+            var pad = StockUiButtonHints.Hint(profile, action, gamepad: true, playStation: true);
             Assert.True(pad.HasSprite);
-            Assert.Equal((16, 16), (pad.SpriteX, pad.SpriteY)); // Y sits where the PlayStation's Triangle does
+            Assert.Equal((16, 16), (pad.SpriteX, pad.SpriteY)); // a PlayStation controller: Y sits where the Triangle does
             Assert.False(StockUiButtonHints.Hint(profile, action, gamepad: false).HasSprite);
             profile.Unbind(action, new InputChord(GamepadButton.Y));
             profile.Bind(action, new InputChord(GamepadButton.LeftShoulder));
