@@ -636,7 +636,8 @@ namespace Gordian.App.Graphics
                     // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion.
                     if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
                     {
-                        entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
+                        // Once per frame in wall time, however many viewports draw this world (#307).
+                        entity.Animation.Advance(entity.Animation.ClaimFrameTime(deltaSeconds), category, entity.AnimationSub, skinnedModel);
                     }
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.

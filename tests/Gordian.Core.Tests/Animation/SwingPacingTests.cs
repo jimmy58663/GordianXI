@@ -66,8 +66,9 @@ namespace Gordian.Core.Tests.Animation
             return frames;
         }
 
+        /// <summary>A character's swing plays whole at twice its authored speed: 98 ticks in 49 frames.</summary>
         [Fact]
-        public void CharacterSwing_PlaysWholeAtTheBasePace()
+        public void CharacterSwing_PlaysWholeAtTwiceItsAuthoredSpeed()
         {
             var model = Model(character: true);
             var state = new EntityAnimationState();
@@ -75,14 +76,14 @@ namespace Gordian.Core.Tests.Animation
             state.EnqueueAction(Swing(Stopwatch.GetTimestamp()));
             state.Advance(Tick, AnimationCategory.Combat, 0, model);
 
-            Assert.Equal(98 / 60f / EntityAnimationState.BaseSwingSeconds, state.ActionSpeed, 3);
+            Assert.Equal(EntityAnimationState.CharacterSwingSpeed, state.ActionSpeed);
             int frames = 0;
             while (state.IsPlayingAction && frames < 200)
             {
                 state.Advance(Tick, AnimationCategory.Combat, 0, model);
                 frames++;
             }
-            Assert.InRange(frames * Tick, EntityAnimationState.BaseSwingSeconds - 0.05f, EntityAnimationState.BaseSwingSeconds + 0.05f);
+            Assert.InRange(frames, 47, 50);
         }
 
         [Fact]
@@ -96,12 +97,9 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(1f, state.ActionSpeed);
         }
 
-        /// <summary>
-        /// The hits of one round start <see cref="EntityAnimationState.BaseHitSpacingSeconds"/> apart at base speed: the
-        /// second waits for its slot, then blends in over the first swing's last 0.1 s (round 1 played them back to back).
-        /// </summary>
+        /// <summary>The hits of one round play back to back, each swing whole: the second starts as the first ends.</summary>
         [Fact]
-        public void HitsOfARound_StartOneSpacingApart()
+        public void HitsOfARound_PlayBackToBack()
         {
             var model = Model(character: true);
             var sink = new CountingSink();
@@ -111,37 +109,47 @@ namespace Gordian.Core.Tests.Animation
             state.EnqueueAction(Swing(t0, sink));
             state.EnqueueAction(Swing(t0, sink));
             state.Advance(Tick, AnimationCategory.Combat, 0, model);
-            int frames = FramesUntilNextSwing(state, model);
-            Assert.InRange(frames, 52, 56); // 0.9 s
+            Assert.InRange(FramesUntilNextSwing(state, model), 47, 50);
             Assert.Equal(1, sink.Deliveries);
         }
 
         /// <summary>
-        /// The maintainer's full-haste side-by-side capture (2026-10-18): two-hit rounds about 1.55 s apart. Retail lands a
-        /// hit about every 0.78 s; each swing fills its slot (plus <see cref="EntityAnimationState.SwingOverlapSeconds"/>).
+        /// Rounds that leave more time per hit than the swing takes (the full-haste side-by-side capture: two hits every
+        /// 1.6-2.0 s) keep the character's speed; haste only shortens the wait between rounds.
         /// </summary>
         [Fact]
-        public void HastedRounds_SpreadTheirHitsOverTheRound()
+        public void RoundsWithTimeToSpare_KeepTheCharacterSpeed()
         {
             var model = Model(character: true);
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
             long t1 = Stopwatch.GetTimestamp();
-            long t0 = t1 - Seconds(1.55);
-            state.EnqueueAction(Swing(t0));
-            state.EnqueueAction(Swing(t0));
+            state.EnqueueAction(Swing(t1 - Seconds(1.8)));
+            state.EnqueueAction(Swing(t1 - Seconds(1.8)));
             state.Advance(Tick, AnimationCategory.Combat, 0, model);
-            // The next round arrives 1.55 s after the first: two hits per 1.55 s.
-            state.EnqueueAction(Swing(t1));
             state.EnqueueAction(Swing(t1));
             state.Advance(Tick, AnimationCategory.Combat, 0, model);
-            Assert.Equal(0.775f, state.SwingBudgetSeconds, 2);
+            Assert.Equal(0.9f, state.SwingBudgetSeconds, 2);
+            FramesUntilNextSwing(state, model);
+            Assert.Equal(EntityAnimationState.CharacterSwingSpeed, state.ActionSpeed);
+        }
 
-            FramesUntilNextSwing(state, model); // round 1's second hit (its slot was set before the cadence was known)
-            FramesUntilNextSwing(state, model); // round 2's first hit, as round 1's second swing ends
-            float expectedSpeed = 98 / 60f / (0.775f + EntityAnimationState.SwingOverlapSeconds);
-            Assert.Equal(expectedSpeed, state.ActionSpeed, 2);
-            Assert.InRange(FramesUntilNextSwing(state, model), 45, 49); // round 2's second hit 0.775 s after its first
+        /// <summary>Rounds closer than their swings (two hits every 0.6 s: 0.3 s per hit) speed the swings up to fit, at most 4x.</summary>
+        [Fact]
+        public void RoundsCloserThanTheirSwings_SpeedThemUp()
+        {
+            var model = Model(character: true);
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Combat, 0, model);
+            long t1 = Stopwatch.GetTimestamp();
+            state.EnqueueAction(Swing(t1 - Seconds(0.6)));
+            state.EnqueueAction(Swing(t1 - Seconds(0.6)));
+            state.Advance(Tick, AnimationCategory.Combat, 0, model);
+            state.EnqueueAction(Swing(t1));
+            state.Advance(Tick, AnimationCategory.Combat, 0, model);
+            Assert.Equal(0.3f, state.SwingBudgetSeconds, 2);
+            FramesUntilNextSwing(state, model);
+            Assert.Equal(System.Math.Min(98 / 60f / 0.3f, EntityAnimationState.MaxSwingSpeed), state.ActionSpeed, 2);
         }
 
         [Fact]
@@ -157,19 +165,18 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(0f, state.SwingBudgetSeconds);
         }
 
-        /// <summary>A fixed model without a known cadence plays its round's swings back to back, each whole.</summary>
+        /// <summary>
+        /// Two viewports drawing one world each claim the frame's time: the second gets about none, so the entity advances
+        /// once per frame (round 2, D11: a pop-out viewport and the main window on one character doubled every motion).
+        /// </summary>
         [Fact]
-        public void FixedModel_PlaysItsRoundBackToBack()
+        public void ClaimFrameTime_GivesTheSecondViewportOfAFrameNothing()
         {
-            var model = Model(character: false);
             var state = new EntityAnimationState();
-            state.Advance(0f, AnimationCategory.Combat, 0, model);
-            long now = Stopwatch.GetTimestamp();
-            state.EnqueueAction(Swing(now));
-            state.EnqueueAction(Swing(now));
-            state.Advance(Tick, AnimationCategory.Combat, 0, model);
-            // It gives way once its hit has landed and at most 0.3 s (18 ticks) of it is left: tick 80 of 98.
-            Assert.InRange(FramesUntilNextSwing(state, model), 78, 82);
+            Assert.Equal(Tick, state.ClaimFrameTime(Tick)); // first claim: the frame's own time
+            Assert.True(state.ClaimFrameTime(Tick) < Tick / 2); // same frame, second viewport
+            System.Threading.Thread.Sleep(20);
+            Assert.Equal(Tick, state.ClaimFrameTime(Tick), 3); // next frame: capped at its delta
         }
     }
 }
