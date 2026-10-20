@@ -22,7 +22,7 @@ namespace Gordian.Core.Ui
         /// <summary>How fast the drawn height follows the line count, in lines per second.</summary>
         public const double LinesPerSecond = 8;
 
-        private long _seen = -1;
+        private long _seen = -1, _shrinkSeen = -1;
         private double _lastStep, _lastUpdate = double.NaN;
         private bool _started;
 
@@ -44,7 +44,7 @@ namespace Gordian.Core.Ui
         /// counter (<see cref="StockUiChatLog.AddedCount"/>) and its settings; returns the target line count. Read
         /// <see cref="DisplayLines"/> for the height to draw.
         /// </summary>
-        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded)
+        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, long shrinkRequests = 0)
         {
             maxLines = Math.Max(1, maxLines);
             minLines = Math.Clamp(minLines, 0, maxLines);
@@ -52,6 +52,9 @@ namespace Gordian.Core.Ui
             _seen = addedCount;
             double elapsed = double.IsNaN(_lastUpdate) ? 0 : Math.Max(0, now - _lastUpdate);
             _lastUpdate = now;
+
+            long shrinks = _shrinkSeen < 0 ? 0 : Math.Max(0, shrinkRequests - _shrinkSeen);
+            _shrinkSeen = shrinkRequests;
 
             if (!_started)
             {
@@ -75,6 +78,12 @@ namespace Gordian.Core.Ui
             {
                 // One line per Resize Time: wait, drop a line, wait again.
                 Lines--;
+                _lastStep = now;
+            }
+            // Cancel with nothing to cancel: drop a line now (only a reactive window gives lines back).
+            if (reactive && !expanded && shrinks > 0 && Lines > minLines)
+            {
+                Lines = (int)Math.Max(minLines, Lines - shrinks);
                 _lastStep = now;
             }
             Lines = Math.Clamp(Lines, minLines, maxLines);

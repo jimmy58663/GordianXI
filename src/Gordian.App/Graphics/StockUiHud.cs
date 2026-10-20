@@ -880,11 +880,11 @@ namespace Gordian.App.Graphics
             sizing[0].Update(now, chat.Log.AddedCount(1), settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
                 settings.GetValue(StockUiSettingKey.Window1MinLines), settings.GetValue(StockUiSettingKey.Window1MaxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
-                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0);
+                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0, shrinkRequests: chat.LogShrinkRequests);
             if (multi != 0) sizing[1].Update(now, chat.Log.AddedCount(2), settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
                 settings.GetValue(StockUiSettingKey.Window2MinLines), settings.GetValue(StockUiSettingKey.Window2MaxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
-                expanded: unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0);
+                expanded: unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0, shrinkRequests: chat.LogShrinkRequests);
         }
 
         /// <summary>

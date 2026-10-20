@@ -660,6 +660,9 @@ namespace Gordian.Core.Network.Packets
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
                 localEnt.NamePlate = charStatus.NamePlate;
+                // The server sends the player's own costume (!costume, setCostume) in this packet, not in a 0x00D of their own.
+                localEnt.Appearance.CostumeId = charStatus.CostumeId;
+                localEnt.Appearance.ModelId = charStatus.CostumeId is 0 or 0xFFFF ? 0u : charStatus.CostumeId;
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 localEnt.AnimationState = charStatus.ServerStatus;

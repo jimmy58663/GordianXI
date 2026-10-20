@@ -79,6 +79,18 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void ShrinkRequest_DropsOneLineAtOnce_WhenReactive()
+        {
+            var sizing = new StockUiLogSizing();
+            Assert.Equal(6, sizing.Update(0, 0, true, 0, 6, 30, true));                        // expanded: all six lines
+            Assert.Equal(6, sizing.Update(1, 0, true, 0, 6, 30, false));                       // released, waiting 30 s
+            Assert.Equal(5, sizing.Update(2, 0, true, 0, 6, 30, false, shrinkRequests: 1));    // Cancel: one line now
+            Assert.Equal(5, sizing.Update(3, 0, true, 0, 6, 30, false, shrinkRequests: 1));    // no repeat without a new request
+            Assert.Equal(3, sizing.Update(4, 0, true, 0, 6, 30, false, shrinkRequests: 3));    // two more requests
+            Assert.Equal(3, sizing.Update(5, 0, true, 3, 6, 30, false, shrinkRequests: 4));    // never below the minimum
+        }
+
+        [Fact]
         public void Log_CountsArrivedLinesPerWindow()
         {
             var log = new StockUiChatLog();

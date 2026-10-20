@@ -1575,6 +1575,11 @@ namespace Gordian.Core.Input
                 {
                     _actionService.ClearTarget();
                 }
+                else
+                {
+                    // Nothing targeted: Cancel gives back a line of the log windows.
+                    Chat?.RequestLogShrink();
+                }
             }
         }
 
