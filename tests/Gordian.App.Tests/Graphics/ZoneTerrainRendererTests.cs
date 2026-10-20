@@ -8,11 +8,11 @@ namespace Gordian.App.Tests.Graphics
     public class ZoneTerrainRendererTests
     {
         [Fact]
-        public void ZoneSceneUniform_HasExpected352ByteLayout()
+        public void ZoneSceneUniform_HasExpected368ByteLayout()
         {
-            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) + MoonColor(16) = 352 bytes
+            // std140 layout: World(64) + View(64) + Proj(64) + SunDir(16) + SunCol(16) + AmbCol(16) + FogCol(16) + FogParams(16) + EyePos(16) + WeatherParams(16) + SkyTextureFactor(16) + SkyLayerParams(16) + MoonColor(16) + TerrainTone(16) = 368 bytes
             int size = Marshal.SizeOf<ZoneSceneUniform>();
-            Assert.Equal(352, size);
+            Assert.Equal(368, size);
             Assert.Equal(ZoneSceneUniform.SizeInBytes, (uint)size);
         }
 
@@ -27,6 +27,14 @@ namespace Gordian.App.Tests.Graphics
             { "ZoneEffect", ZoneShaders.VertexShaderZoneEffectGlsl, ZoneShaders.FragmentShaderWeatherSkyGlsl },
             { "SkyDome", ZoneShaders.SkyDomeVertexShaderGlsl, ZoneShaders.SkyDomeFragmentShaderGlsl },
             { "StockUi", StockUiRenderer.VertexShaderGlsl, StockUiRenderer.FragmentShaderGlsl },
+            { "BlurAura", BlurAuraShaders.SkinnedVertexShaderGlsl, BlurAuraShaders.FragmentShaderGlsl },
+            { "ActorShadow", ActorShadowShaders.SkinnedVertexShaderGlsl, ActorShadowShaders.FragmentShaderGlsl },
+            { "ActorShadowDisc", ActorShadowShaders.DiscVertexShaderGlsl, ActorShadowShaders.DiscFragmentShaderGlsl },
+            { "TerrainOpaque", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderOpaqueGlsl },
+            { "TerrainCutout", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderCutoutGlsl },
+            { "TerrainBlend", TerrainShaders.VertexShaderGlsl, TerrainShaders.FragmentShaderBlendGlsl },
+            { "TerrainDecal", TerrainShaders.VertexShaderDecalGlsl, TerrainShaders.FragmentShaderBlendGlsl },
+            { "TerrainWater", TerrainShaders.VertexShaderWaterGlsl, TerrainShaders.FragmentShaderBlendGlsl },
         };
 
         /// <summary>
@@ -708,6 +716,60 @@ namespace Gordian.App.Tests.Graphics
             Assert.DoesNotContain("0.5 * amb", fragmentGlsl);
         }
 
+        [Theory]
+        [MemberData(nameof(TerrainFragmentShaders))]
+        public void TerrainFragmentShaders_ToneHighlightsBeforeFog(string fragmentGlsl)
+        {
+            // #7: the lit colour rolls off above the knee instead of clipping; TerrainTone.y <= x keeps the plain clamp.
+            Assert.Contains("vec4 TerrainTone;", fragmentGlsl);
+            Assert.Contains("vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);", fragmentGlsl);
+            Assert.True(fragmentGlsl.IndexOf("ToneTerrain(2.0", StringComparison.Ordinal) < fragmentGlsl.IndexOf("mix(litColor, FogColor.rgb", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void TerrainShaders_LightPerVertex_AndToneAfterTheModulate2x()
+        {
+            // Fixed-function parity (#7 round 2): ambient + sun + moon + point lights clamped at the vertex, interpolated.
+            foreach (var vs in new[] { TerrainShaders.VertexShaderGlsl, TerrainShaders.VertexShaderDecalGlsl, TerrainShaders.VertexShaderWaterGlsl })
+            {
+                Assert.Contains("fsin_Lit = clamp(amb + df0 + df1 + PointLighting(worldPos.xyz, N, Color.rgb), 0.0, 1.0);", vs);
+            }
+            Assert.Contains("clipPos.z - 0.00015 * clipPos.w", TerrainShaders.VertexShaderDecalGlsl);
+            Assert.Contains("clipPos.z - 0.00025 * clipPos.w", TerrainShaders.VertexShaderWaterGlsl);
+            foreach (var fs in new[] { TerrainShaders.FragmentShaderOpaqueGlsl, TerrainShaders.FragmentShaderCutoutGlsl, TerrainShaders.FragmentShaderBlendGlsl })
+            {
+                Assert.Contains("ToneTerrain(2.0 * fsin_Lit * texel)", fs);
+                Assert.DoesNotContain("PointLighting", fs);
+            }
+        }
+
+        [Fact]
+        public void TerrainTone_DefaultsToTheShoulder_AndRetailBrightnessTurnsItOff()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+            static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int X, int Y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            static extern bool DestroyWindow(IntPtr hWnd);
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, 64, 64, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            try
+            {
+                devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 64, 64, GraphicsBackendPreference.Direct3D11, vsync: false);
+                if (devMgr.Device == null) return;
+                using var renderer = new ZoneTerrainRenderer(devMgr.Device);
+                Assert.Equal(new System.Numerics.Vector4(0.65f, 0.9f, 0f, 0f), renderer.TerrainTone);
+                renderer.RetailTerrainBrightness = true;
+                Assert.Equal(System.Numerics.Vector4.Zero, renderer.TerrainTone);
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         public static TheoryData<string> TerrainFragmentShaders => new()
         {
             ZoneShaders.FragmentShaderOpaqueGlsl,
@@ -776,18 +838,20 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "suimen"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "river_flow"));
 
-            // Japanese stems used in retail FFXI DATs (Bibiki Bay, Qufim, etc.)
+            // Japanese stems used in retail FFXI DATs (Bibiki Bay, Kazham, the airships' seas)
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "umi1"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "umw1"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "shir"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "nami"));
             Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "kiwa"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "quf1"));
-            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "kawa01"));
+            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "model   namiuchi"));
+            Assert.True(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("water", "muz     muzu"));
 
-            // Non-water textures
+            // Non-water textures: Qufim's general prefix, bark (kawa) and castle walls (shiro) are not water (#255).
             Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "per_sna"));
             Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh(string.Empty, "bri_wood"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("qfim_24", "model   quf_wll1"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("_uge_ie03b", "model   kawa_hos"));
+            Assert.False(Gordian.Core.Resources.Graphics.ZoneDefDecoder.IsWaterMesh("shiro01", "model   shiro"));
         }
 
         [Fact]

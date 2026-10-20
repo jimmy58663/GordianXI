@@ -362,6 +362,15 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Checks whether a mesh or texture name represents an ocean, sea, river, or water surface.
         /// Protocol specification and naming conventions referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// <para>
+        /// GordianXI's own hint, not the client's (#251, #255); it only picks the water pass for blended (0x8000) submeshes.
+        /// A survey of every blended placed submesh in zones 0-299 (2026-10-18) found the texture hints <c>quf</c> and
+        /// <c>kawa</c> catching no water at all: 3,058 Qufim Island decals (<c>quf_f1</c>, <c>quf_wll1</c>, <c>quf_frs1</c>...,
+        /// zones 41, 126, 127) and Fort Ghelsba's bark (<c>kawa_hos</c>, zone 141). They and <c>shir</c> (castle walls,
+        /// <c>shiro</c>; no blended match) are gone. What still matches is water: <c>water</c>/<c>muzu</c> (186, 234, 295),
+        /// <c>suimen</c> (79), <c>namiuchi</c> (250), and the sea overlays <c>em_umi01</c> (223-226) and <c>sea_00</c>
+        /// (46, 47, 51, 52, 58, 59, 79).
+        /// </para>
         /// </summary>
         public static bool IsWaterMesh(string meshName, string textureName)
         {
@@ -375,8 +384,7 @@ namespace Gordian.Core.Resources.Graphics
             if (n.StartsWith("umw") || n.StartsWith("uma") || n.StartsWith("umb") || n.StartsWith("umn") || n.StartsWith("ucks"))
                 return true;
             if (t.Contains("water") || t.Contains("sea") || t.Contains("suimen") || t.Contains("river") ||
-                t.Contains("umi") || t.Contains("umw") || t.Contains("nami") || t.Contains("kiwa") ||
-                t.Contains("shir") || t.Contains("quf") || t.Contains("kawa"))
+                t.Contains("umi") || t.Contains("umw") || t.Contains("nami") || t.Contains("kiwa"))
                 return true;
 
             return false;
