@@ -1472,6 +1472,11 @@ namespace Gordian.Core.Resources
                         if (path == null) pointLists.TryGetValue(listId, out path);
                         if (path != null) effect.Emitter.PointLists[op.Allocation] = path;
                     }
+                    // Section 1 op 0x17: the emission count over the day (the birds' wabi, the fireflies' time).
+                    if (gen.EmissionClockKeyFrameId.Length > 0)
+                    {
+                        effect.Emitter.EmissionClockCurve = ResolveCurve(gen.EmissionClockKeyFrameId, genWeather, parentDir, envData);
+                    }
                 }
                 AddDisplayMeshGroups(effect, effectMeshes, string.Empty);
                 return effect;
@@ -1634,19 +1639,25 @@ namespace Gordian.Core.Resources
             var curves = new Dictionary<ushort, KeyFrameCurve>();
             foreach (var (slot, link) in gen.KeyFrameLinks)
             {
-                KeyFrameCurve? curve = null;
-                string dir = directoryPath ?? string.Empty;
-                while (curve == null && dir.Length > 0)
-                {
-                    envData.KeyFrameCurves.TryGetValue(DirectoryCurveKey(dir, link.CurveId), out curve);
-                    int slash = dir.LastIndexOf('/');
-                    dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
-                }
-                if (curve == null && !string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{link.CurveId}", out curve);
-                if (curve == null) envData.KeyFrameCurves.TryGetValue(link.CurveId, out curve);
-                if (curve != null) curves[slot] = curve;
+                if (ResolveCurve(link.CurveId, genWeather, directoryPath, envData) is { } curve) curves[slot] = curve;
             }
             return curves;
+        }
+
+        /// <summary>A curve as a generator in <paramref name="directoryPath"/> sees it: its directory and parents, its weather, then anywhere.</summary>
+        private static KeyFrameCurve? ResolveCurve(string curveId, string? genWeather, string? directoryPath, ZoneEnvironmentData envData)
+        {
+            KeyFrameCurve? curve = null;
+            string dir = directoryPath ?? string.Empty;
+            while (curve == null && dir.Length > 0)
+            {
+                envData.KeyFrameCurves.TryGetValue(DirectoryCurveKey(dir, curveId), out curve);
+                int slash = dir.LastIndexOf('/');
+                dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
+            }
+            if (curve == null && !string.IsNullOrEmpty(genWeather)) envData.KeyFrameCurves.TryGetValue($"{genWeather}/{curveId}", out curve);
+            if (curve == null) envData.KeyFrameCurves.TryGetValue(curveId, out curve);
+            return curve;
         }
 
         /// <summary>The key of a curve by its full directory path (<see cref="DirectoryPath"/>) and id.</summary>

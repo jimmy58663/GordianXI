@@ -270,6 +270,8 @@ namespace Gordian.Core.Tests.Graphics
             if (LoadZone(zoneId) is not { } zone) return;
             var layer = zone.EffectLayers.First(l => l.Name == "wbi0" && l.WeatherIds.Contains("clod") && l.Emitter != null);
             Assert.True(layer.Emitter!.PointLists.Values.Single().Length == 7);
+            // The path alone: the clock curve (op 0x17) would make the first bird a matter of chance.
+            layer.Emitter!.EmissionClockCurve = null;
             var emitter = new ZoneParticleEmitter(layer.Emitter!);
             var basePos = layer.Emitter!.RawBasePosition;
             var frame = new ZoneParticleFrame(basePos, 0.5f, Vector3.One);
@@ -294,6 +296,80 @@ namespace Gordian.Core.Tests.Graphics
             Assert.True(max.Y - min.Y < 1f, $"height spread {max.Y - min.Y:F2}");
             Assert.True(travelled > 150f, $"travelled {travelled:F1}");
             Assert.True(bird.LastMovement.LengthSquared() > 0f);
+        }
+            /// <summary>
+        /// Section 1 op 0x17 scales each emission by a curve over the day (round 2 E1): none while it is 0, every emission at
+        /// 1, about half at 0.5.
+        /// </summary>
+        [Fact]
+        public void EmissionClockCurve_ScalesTheEmissionsByTheTimeOfDay()
+        {
+            var template = Generator("bird", 2000);
+            template.Definition.AutoRun = true;
+            template.Definition.FramesPerEmission = 1;
+            template.EmissionClockCurve = new KeyFrameCurve("wabi", new[] { new KeyFrameEntry(0f, 0f), new KeyFrameEntry(0.5f, 0f), new KeyFrameEntry(0.5001f, 0.5f), new KeyFrameEntry(1f, 0.5f) });
+            int Emitted(float dayFraction)
+            {
+                var emitter = new ZoneParticleEmitter(template, seed: 7);
+                int born = 0;
+                for (int i = 0; i < 400; i++)
+                {
+                    int before = emitter.Particles.Count;
+                    emitter.Update(1f, new ZoneParticleFrame(Vector3.Zero, dayFraction, Vector3.One));
+                    born += Math.Max(0, emitter.Particles.Count - before);
+                }
+                return born;
+            }
+            Assert.Equal(0, Emitted(0.25f));
+            Assert.InRange(Emitted(0.75f), 120, 280); // about one emission in two
+        }
+
+        /// <summary>A retired weather emitter emits no more and fades its particles out, then drops them (round 2 E1).</summary>
+        [Fact]
+        public void Retire_FadesTheParticlesOut()
+        {
+            var template = Generator("rain", 1000);
+            template.Definition.AutoRun = true;
+            template.Definition.FramesPerEmission = 5;
+            var emitter = new ZoneParticleEmitter(template);
+            var frame = new ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One);
+            for (int i = 0; i < 30; i++) emitter.Update(1f, frame);
+            int live = emitter.Particles.Count;
+            Assert.True(live > 3);
+            emitter.Retire(60f);
+            emitter.Update(30f, frame);
+            Assert.Equal(live, emitter.Particles.Count);
+            Assert.All(emitter.Particles, p => Assert.InRange(p.ColorMultiplier.W, 0.3f, 0.7f));
+            emitter.Update(31f, frame);
+            Assert.Empty(emitter.Particles);
+            emitter.Resume();
+            for (int i = 0; i < 10; i++) emitter.Update(1f, frame);
+            Assert.NotEmpty(emitter.Particles);
+        }
+
+        /// <summary>Phanauet Channel's birds take their clock curve wabi: no bird at 03:00, some at noon.</summary>
+        [Fact]
+        public void PhanauetBirds_FlyOnlyByDay()
+        {
+            if (LoadZone(1) is not { } zone) return;
+            var layer = zone.EffectLayers.First(l => l.Name == "wbi0" && l.WeatherIds.Contains("clod") && l.Emitter != null);
+            Assert.Equal("wabi", layer.Emitter!.EmissionClockCurve!.DatId);
+            int Born(float dayFraction)
+            {
+                var emitter = new ZoneParticleEmitter(layer.Emitter!, seed: 3);
+                var frame = new ZoneParticleFrame(layer.Emitter!.RawBasePosition, dayFraction, Vector3.One);
+                int born = 0;
+                for (int i = 0; i < 60 * 600; i++)
+                {
+                    int before = emitter.Particles.Count;
+                    emitter.Update(1f, frame);
+                    born += Math.Max(0, emitter.Particles.Count - before);
+                }
+                return born;
+            }
+            Assert.Equal(0, Born(3f / 24f));
+            // 0.05 per emission, one emission every 334 frames: about 5 birds in ten minutes at noon.
+            Assert.InRange(Born(12f / 24f), 1, 14);
         }
     }
 }

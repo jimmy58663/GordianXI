@@ -2241,6 +2241,12 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// How long a weather emitter's live particles take to fade out when its weather ends (60 Hz frames): GordianXI's
+        /// choice, about the length of a sky blend; retail's is not measured.
+        /// </summary>
+        internal const float WeatherFadeOutFrames = 120f;
+
+        /// <summary>
         /// Advances every zone emitter on the 60 Hz effect clock; the first frame after a zone load pre-warms them so the
         /// shoreline is not empty while the first waves roll in. Weather emitters run only under their weather.
         /// </summary>
@@ -2277,12 +2283,18 @@ namespace Gordian.App.Graphics
             foreach (var (emitterLayer, emitter) in _emitters)
             {
                 if (emitterLayer.IsActorAttached) continue;
-                // Weather emitters run only under their weather; a weather change starts them afresh.
+                // Weather emitters run only under their weather. When it ends they stop emitting and their particles fade out
+                // (round 2 E1: the birds all vanished in one frame); when it returns they start afresh.
                 if (emitterLayer.WeatherIds.Count > 0 && !emitterLayer.WeatherIds.Contains(_effectWeather))
                 {
-                    if (emitter.Particles.Count > 0) emitter.Particles.Clear();
+                    if (emitter.Particles.Count > 0)
+                    {
+                        emitter.Retire(WeatherFadeOutFrames);
+                        emitter.Update(emitterFrames, frame);
+                    }
                     continue;
                 }
+                if (emitter.IsRetiring) emitter.Resume();
                 emitter.Update(emitterFrames, frame);
             }
             _emittersWarm = true;
