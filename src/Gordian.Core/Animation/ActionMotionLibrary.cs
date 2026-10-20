@@ -176,7 +176,10 @@ namespace Gordian.Core.Animation
         /// again, then <c>san3</c> scattering it, no rays), <c>edxx</c> high quality; <c>stcr</c> stops everything. The file's
         /// own test routines (<c>s000</c> / <c>t000</c>) run exactly this: <c>frst</c>, an ending at tick 630, then <c>stcr</c>.
         /// Its <c>main</c> links a template name (<c>ed x</c>) the client fills in, so the ending is picked here from
-        /// <c>Type</c>: 0 fail <c>edmm</c>, 1 success <c>ednn</c>, 2-4 high quality <c>edxx</c> (the eight files ROM/160/19-26
+        /// <c>Type</c>: 0 success <c>ednn</c>, 1 break <c>edmm</c>, 2-4 high quality <c>edxx</c>. <c>Type</c> is LandSandBoat's
+        /// <c>RESULT_*</c> value (synthutils.cpp: <c>RESULT_SUCCESS</c> 0, <c>RESULT_FAIL</c> 1, <c>RESULT_HQ</c> 2), not its
+        /// <c>SYNTHESIS_*</c> enum (fail 0, success 1); reading it as the latter swapped the endings in the maintainer's round 3
+        /// (2026-10-18: successes broke and breaks succeeded for wind, fire and lightning). (The eight files ROM/160/19-26
         /// carry the same endings named <c>ng00</c> / <c>ok00</c> / <c>okex</c>).
         /// </summary>
         public const string SynthesisStart = "frst", SynthesisSuccess = "ednn", SynthesisBreak = "edmm", SynthesisHighQuality = "edxx", SynthesisStop = "stcr";
@@ -184,8 +187,8 @@ namespace Gordian.Core.Animation
         /// <summary>The ending routine for 0x030's <c>Type</c> (the result the server computed up front).</summary>
         public static string SynthesisEnding(int type) => type switch
         {
-            0 => SynthesisBreak,
-            1 => SynthesisSuccess,
+            0 => SynthesisSuccess,
+            1 => SynthesisBreak,
             _ => SynthesisHighQuality,
         };
 

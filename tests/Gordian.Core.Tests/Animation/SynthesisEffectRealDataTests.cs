@@ -41,7 +41,7 @@ namespace Gordian.Core.Tests.Animation
             {
                 byte[] bytes = rm.LoadDatBytesByFileId(4912 + effect)!;
                 Assert.Contains(textures[effect - 0x10], System.Text.Encoding.ASCII.GetString(bytes));
-                foreach (var (type, ending) in new[] { (0, "edmm"), (1, "ednn"), (2, "edxx"), (4, "edxx") })
+                foreach (var (type, ending) in new[] { (0, "ednn"), (1, "edmm"), (2, "edxx"), (4, "edxx") })
                 {
                     var asset = library.ResolveSynthesis(effect, type)!;
                     Assert.Equal(ActionAssetKind.Synthesis, asset.Kind);

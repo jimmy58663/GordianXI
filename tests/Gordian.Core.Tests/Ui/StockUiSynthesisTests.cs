@@ -559,6 +559,22 @@ namespace Gordian.Core.Tests.Ui
             Assert.False(h.Menus.IsOpen);
         }
 
+        /// <summary>
+        /// S2C 0x030's Type is LandSandBoat's RESULT_* (0 success, 1 fail, 2 high quality), so 0 plays the success ending ednn
+        /// and 1 the break edmm (round 3, 2026-10-18: read as SYNTHESIS_RESULT, fail 0 / success 1, the endings were swapped).
+        /// </summary>
+        [Fact]
+        public void EffectType_ZeroIsSuccess_OneIsBreak_TwoUpIsHighQuality()
+        {
+            Assert.Equal("ednn", ActionMotionLibrary.SynthesisEnding(0));
+            Assert.Equal("edmm", ActionMotionLibrary.SynthesisEnding(1));
+            Assert.Equal("edxx", ActionMotionLibrary.SynthesisEnding(2));
+            Assert.Equal("edxx", ActionMotionLibrary.SynthesisEnding(4));
+            Assert.Equal(SynthesisResult.Success, (SynthesisResult)0);
+            Assert.Equal(SynthesisResult.Fail, (SynthesisResult)1);
+            Assert.Equal(SynthesisResult.HighQuality1, (SynthesisResult)2);
+        }
+
         [Fact]
         public void SynthesisStatus_TakesTheHealingPosture_AndTheEffectSitsTheCrafterDown()
         {
