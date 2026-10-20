@@ -266,6 +266,49 @@ namespace Gordian.App.Tests.Graphics
         private static Gordian.Core.Network.CharacterSession NewSession(string name, uint id) =>
             new(name, id, $"user_{name}", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230));
 
+        /// <summary>
+        /// D23 (#307): tearing off the only character opens no second window on its world; the main window switches to
+        /// Windowed instead (and stays so when it already is). With another character to move on to, it pops out as before.
+        /// </summary>
+        [Fact]
+        public void PopOut_OfTheOnlyCharacter_SwitchesThisWindowToWindowed()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false) { SelectedDisplayMode = ViewportDisplayMode.BorderlessWindow };
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            ViewportCharacterTabViewModel? popped = null;
+            vm.TabPoppedOut += (_, t) => popped = t;
+
+            a.PopOutCommand.Execute(null);
+            Assert.Null(popped);
+            Assert.Equal(ViewportDisplayMode.Windowed, vm.SelectedDisplayMode);
+            Assert.Equal(a, vm.ActiveTab);
+
+            a.PopOutCommand.Execute(null); // already windowed: nothing changes
+            Assert.Null(popped);
+            Assert.Equal(ViewportDisplayMode.Windowed, vm.SelectedDisplayMode);
+
+            var b = vm.AddSession(NewSession("Knot", 1));
+            b.PopOutCommand.Execute(null);
+            Assert.Equal(b, popped);
+        }
+
+        /// <summary>The last character not popped out stays in the main window too (the others have their own windows).</summary>
+        [Fact]
+        public void PopOut_OfTheLastCharacterNotPoppedOut_StaysInThisWindow()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false) { SelectedDisplayMode = ViewportDisplayMode.Fullscreen };
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            b.IsPoppedOut = true;
+            ViewportCharacterTabViewModel? popped = null;
+            vm.TabPoppedOut += (_, t) => popped = t;
+
+            a.PopOutCommand.Execute(null);
+            Assert.Null(popped);
+            Assert.Equal(ViewportDisplayMode.Windowed, vm.SelectedDisplayMode);
+            Assert.Equal(a, vm.ActiveTab);
+        }
+
         [Fact]
         public void CycleCharacter_WrapsBothWays()
         {

@@ -15,6 +15,7 @@ namespace Gordian.App.Tests.Audio
     {
         private static readonly EntityModel Monster = new() { Name = "monster" };
         private static readonly EntityModel Fighter = new() { Name = "fighter" };
+        private static readonly EntityModel Dummy = new() { Name = "dummy" };
 
         private static readonly Dictionary<(EntityModel, string, bool), RoutineSoundCue[]> Sounds = new()
         {
@@ -23,6 +24,7 @@ namespace Gordian.App.Tests.Audio
             [(Monster, "damg", false)] = new[] { new RoutineSoundCue(0, System.Array.Empty<int>(), 0x09, "chit"), new RoutineSoundCue(2, new[] { 0, 0, 7001 }, 0x0A) },
             [(Monster, "dead", false)] = new[] { new RoutineSoundCue(0, new[] { 7100 }, 0x0A) },
             [(Fighter, "chit", false)] = new[] { new RoutineSoundCue(0, new[] { 6031 }, 0x0A) },
+            [(Dummy, "damg", false)] = new[] { new RoutineSoundCue(2, new[] { 268007 }, 0x0A) },
             [(Fighter, "chit", true)] = new[] { new RoutineSoundCue(0, new[] { 6033 }, 0x0A) },
             [(Fighter, "ati0", false)] = new[] { new RoutineSoundCue(34, new[] { 6030 }, 0x0A) },
             [(Fighter, "ati0", true)] = new[] { new RoutineSoundCue(34, new[] { 6032 }, 0x0A) },
@@ -191,6 +193,21 @@ namespace Gordian.App.Tests.Audio
             // A spell's result runs mdam, which plays no reaction (D8: Cure landing sounded like a hit).
             var spell = critical with { Category = ActionCategory.MagicFinish };
             Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 2, reaction: spell), attacker));
+        }
+
+        /// <summary>
+        /// A target whose damg does not run the attacker's chit (the Macro Test dummies, model 431) still sounds the weapon's
+        /// hit on a hit, 0 damage included (round 3, #328); a miss does not.
+        /// </summary>
+        [Fact]
+        public void Hit_OnATargetWithoutChit_StillPlaysTheAttackersHitSound()
+        {
+            var tracker = NewTracker(pick: 0);
+            var attacker = Actor(7, Fighter);
+            Step(tracker, Actor(1, Dummy), attacker);
+            Assert.Equal(new[] { 268007, 6031 }, Step(tracker, Actor(1, Dummy, reactions: 1, reaction: HitFrom(7)), attacker));
+            var miss = HitFrom(7) with { Resolution = ActionResolution.Miss };
+            Assert.Empty(Step(tracker, Actor(1, Dummy, reactions: 2, reaction: miss), attacker));
         }
 
         [Fact]

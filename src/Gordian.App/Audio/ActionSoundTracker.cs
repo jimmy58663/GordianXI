@@ -58,6 +58,9 @@ namespace Gordian.App.Audio
         /// </summary>
         public const float HearingRange = 30f;
 
+        /// <summary>The attacker's routine a hit reaction runs for the hit sound (op 0x09 from the target's <c>damg</c>).</summary>
+        public const string AttackerHitRoutine = "chit";
+
         /// <summary>The routine retail runs for each melee attack (its sounds: the attack cry).</summary>
         public const string AttackRoundRoutine = "atk0";
 
@@ -214,21 +217,38 @@ namespace Gordian.App.Audio
             if (model is not null && actor.ReactionSerial != last.ReactionSerial && PlaysReactionRoutine(actor.LastReaction.Category)
                 && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
             {
+                bool attackerHitPlayed = false;
                 foreach (RoutineSoundCue cue in _sounds(model, reaction, false))
                 {
                     if (!cue.IsTargetLink)
                     {
                         Emit(cue, actor.Position, into);
                     }
-                    else if (lookup(actor.LastReaction.AttackerId) is { Model: { } attackerModel } attacker)
+                    else
                     {
                         // damg runs chit on the attacker: the hand's weapon (or its own) hit sound, heard where the hit lands.
-                        foreach (RoutineSoundCue hit in _sounds(attackerModel, cue.TargetRoutine, attacker.OffHand))
+                        PlayAttacker(cue.TargetRoutine);
+                        attackerHitPlayed = true;
+                    }
+                }
+
+                // A target whose damg does not run the attacker's chit (the Macro Test dummies, model 431: damg is sdam and
+                // the cry vdam only) still sounds the weapon's hit; without it a 0-damage hit sounded like a miss, only the
+                // swing's whoosh being heard (round 3, #328). Retail plays a hit sound there; which command does it is not
+                // known (the shared wapr's op 0x71, an op later than the 2001 op table, is the likely one).
+                if (!attackerHitPlayed && actor.LastReaction.Resolution == ActionResolution.Hit)
+                {
+                    PlayAttacker(AttackerHitRoutine);
+                }
+
+                void PlayAttacker(string routine)
+                {
+                    if (lookup(actor.LastReaction.AttackerId) is not { Model: { } attackerModel } attacker) return;
+                    foreach (RoutineSoundCue hit in _sounds(attackerModel, routine, attacker.OffHand))
+                    {
+                        if (!hit.IsTargetLink)
                         {
-                            if (!hit.IsTargetLink)
-                            {
-                                Emit(hit, actor.Position, into);
-                            }
+                            Emit(hit, actor.Position, into);
                         }
                     }
                 }
