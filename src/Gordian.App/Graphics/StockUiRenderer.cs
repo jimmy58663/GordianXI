@@ -551,24 +551,27 @@ void main()
         /// Draws the hint text in the key glyph's room (x 4 to 22, y 4 to 20 of the frame), shrunk to fit and centred;
         /// <paramref name="x"/> and <paramref name="y"/> are the frame's origin.
         /// </summary>
+        // Nudges (authored pixels) that put the font's letters at the middle of the disc.
+        private const float XboxLetterDx = 0.5f, XboxLetterDy = 1.25f;
+
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
             if (hint.HasXboxFace)
             {
-                // An Xbox face button: a round disc (the photo button's white circle, "photobut" (0, 0) 20 x 20) in the button's colour
-                // with its letter in the stock font; the DATs carry no lettered sprite.
-                var tint = hint.XboxFace switch
+                // An Xbox face button: a black round disc (the photo button's white circle, "photobut" (0, 0) 20 x 20, tinted) with its
+                // letter in the button's colour in the stock font; the DATs carry no lettered sprite.
+                var letterColor = hint.XboxFace switch
                 {
-                    'A' => new UiColor(0x20, 0x90, 0x30, 0x80),
-                    'B' => new UiColor(0x90, 0x20, 0x20, 0x80),
-                    'X' => new UiColor(0x30, 0x50, 0xA0, 0x80),
-                    _ => new UiColor(0xA0, 0x90, 0x10, 0x80),
+                    'A' => new UiColor(0x30, 0xC0, 0x50, 0x80),
+                    'B' => new UiColor(0xD0, 0x30, 0x30, 0x80),
+                    'X' => new UiColor(0x40, 0x70, 0xD8, 0x80),
+                    _ => new UiColor(0xE0, 0xC0, 0x20, 0x80),
                 };
-                DrawTextureRect("photobut", 0, 0, 20, 20, x + 4 * scale, y + 4 * scale, 16 * scale, 16 * scale, tint);
+                DrawTextureRect("photobut", 0, 0, 20, 20, x + 4 * scale, y + 4 * scale, 16 * scale, 16 * scale, new UiColor(0x10, 0x10, 0x10, 0x80));
                 string letter = hint.XboxFace.ToString();
                 var letterFont = HintFont!;
                 float lw = letterFont.MeasureWidth(letter);
-                DrawText(letterFont, letter, x + (12 - lw * 0.5f) * scale, y + (12 - letterFont.LineHeight * 0.5f) * scale, scale);
+                DrawText(letterFont, letter, x + (12 - lw * 0.5f + XboxLetterDx) * scale, y + (12 - letterFont.LineHeight * 0.5f + XboxLetterDy) * scale, scale, letterColor);
                 return;
             }
             if (hint.HasSprite)
