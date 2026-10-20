@@ -553,6 +553,8 @@ void main()
         /// </summary>
         // Nudges (authored pixels) that put the font's letters at the middle of the disc.
         private const float XboxLetterDx = 0.5f, XboxLetterDy = 1.25f;
+        // The maintainer's placement of the letter on the disc (2026-10-19), in screen pixels: down 1, right 5.
+        private const float XboxLetterShiftX = 5, XboxLetterShiftY = 1;
 
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
@@ -571,7 +573,7 @@ void main()
                 string letter = hint.XboxFace.ToString();
                 var letterFont = HintFont!;
                 float lw = letterFont.MeasureWidth(letter);
-                DrawText(letterFont, letter, x + (12 - lw * 0.5f + XboxLetterDx) * scale, y + (12 - letterFont.LineHeight * 0.5f + XboxLetterDy) * scale, scale, letterColor);
+                DrawText(letterFont, letter, x + (12 - lw * 0.5f + XboxLetterDx) * scale + XboxLetterShiftX, y + (12 - letterFont.LineHeight * 0.5f + XboxLetterDy) * scale + XboxLetterShiftY, scale, letterColor);
                 return;
             }
             if (hint.HasSprite)
