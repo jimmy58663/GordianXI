@@ -556,6 +556,9 @@ void main()
         // The maintainer's placement of the letter on the disc (2026-10-19), in screen pixels: down 1, right 2 (5, then back 3).
         private const float XboxLetterShiftX = 2, XboxLetterShiftY = 1; // X only for the Y (its glyph's ink sits left of its advance); A, B and X are centred by their width
 
+        /// <summary>Draws <paramref name="hint"/> in a 16 x 16 slot whose top-left is (<paramref name="x"/>, <paramref name="y"/>): the /buttonpreview picker's drawn candidates.</summary>
+        public void DrawHintGlyph(StockUiHint hint, float x, float y, float scale) => DrawHint(hint, x - 4 * scale, y - 4 * scale, scale);
+
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
             if (hint.HasXboxFace)

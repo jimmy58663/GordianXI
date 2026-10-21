@@ -1427,6 +1427,8 @@ namespace Gordian.Core.Actions
                         return StockUiUsage;
                     case "perf":
                         return PerformanceOverlayUsage;
+                    case "buttonpreview":
+                        return ButtonPreviewState.Usage;
                     case "heal":
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
@@ -2656,6 +2658,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.PerformanceOverlay:
                     return PerformanceOverlayCommandResult(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.ButtonPreview:
+                    return PlayerActionResult.Info(ButtonPreview.Apply(cmd.Message ?? string.Empty), ChatCommandResultKind.ButtonPreview);
 
                 case ChatCommandResultKind.TreasureLot:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);

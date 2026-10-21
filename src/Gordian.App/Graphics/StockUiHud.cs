@@ -257,6 +257,7 @@ namespace Gordian.App.Graphics
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
             }
+            if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
             if (unlocked)
             {
@@ -845,6 +846,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
         private bool _dialogWaiting;
+
+        /// <summary>The /buttonpreview picker (#360).</summary>
+        private readonly ButtonGlyphPreview _buttonPreview = new();
 
         /// <summary>The drawn session's log windows' reactive sizing (Window 1, Window 2): one of <see cref="_logSizings"/>.</summary>
         private StockUiLogSizing[] _logSizing = { new(), new() };
