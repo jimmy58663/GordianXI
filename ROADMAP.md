@@ -33,7 +33,7 @@ Four-tier monorepo, clean-room rules, Avalonia MVVM shell, encrypted account pro
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 86 S2C decoders / 77 C2S opcodes, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
 - Packet audit gaps closed (#1-#5); the UI that reads the new caches is tracked in #90-#95.
-- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #117 (scheduler playback: #311).
+- Open: the [XiPackets coverage audit](docs/network/session-and-packets.md#xipackets-coverage-audit-2026-09-28) gaps still open: #117 (scheduler playback from 0x038 / 0x03A done).
 
 ### ✅ Phase 4: World State, DAT Resource Pipeline & Modular VFS
 Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compatible VFS with hot reload. → [docs/world/world-state-and-resources.md](docs/world/world-state-and-resources.md)
@@ -44,7 +44,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | Console, action service & input | ✅ | [input/console-and-input.md](docs/input/console-and-input.md) |
 | 5A Graphics context & multi-box viewports | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5B Camera & zone terrain | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
-| 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; open: routine playback from the network, actor status visuals, actor-attached weather #121) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
+| 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; routine playback from the network (0x038 / 0x03A), generators riding actors, door effects and time-of-day weather effects done; open: actor status visuals) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D.1 Transient combat & action animation | ✅ (weapon skill, monster move, job ability and spell presentations with their cast and summon effects; melee swing pace and dual-wield packs with draw and sheathe) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5E Tier 1: sky, weather, lighting, particles | ✅ (character shadows with the Shadows setting, per-vertex terrain light with toned-down noon highlights, avatar blur aura; open: retail brightness checks #7) | [sky-and-weather](docs/rendering/sky-and-weather.md), [lighting](docs/rendering/lighting.md), [particles](docs/rendering/particles.md) |
