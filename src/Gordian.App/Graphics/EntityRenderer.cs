@@ -620,7 +620,8 @@ namespace Gordian.App.Graphics
                     bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
                     var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
 
-                    if (!isLocalPlayer && category != entity.Animation.Current)
+                    // A frozen entity's state does not follow its category: logging it would repeat every frame.
+                    if (!isLocalPlayer && category != entity.Animation.Current && !entity.IsMotionStopped)
                     {
                         double elapsedSincePacketMs = entity.LastPositionChangeUtc != DateTime.MinValue
                             ? (DateTime.UtcNow - entity.LastPositionChangeUtc).TotalMilliseconds
@@ -638,6 +639,11 @@ namespace Gordian.App.Graphics
                     {
                         // Once per frame in wall time, however many viewports draw this world (#307).
                         entity.Animation.Advance(entity.Animation.ClaimFrameTime(deltaSeconds), category, entity.AnimationSub, skinnedModel);
+                    }
+                    else
+                    {
+                        // Frozen, it still takes its hits: their sounds play (#328, D29: the Macro Test dummies).
+                        entity.Animation.TakeReactionsWhileStopped();
                     }
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.

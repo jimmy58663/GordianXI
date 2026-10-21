@@ -269,6 +269,23 @@ namespace Gordian.Core.Animation
             return routine.IsSustained ? onePass : Math.Max(routine.TotalTicks, onePass);
         }
 
+        /// <summary>
+        /// Takes the hit reactions that arrived while the entity's motion is stopped (the server's MotStopFlag: the renderer
+        /// does not advance it, so its pose stays frozen): each still counts as the last reaction, so its sounds play
+        /// (#328, round 4 test D29: the Macro Test dummies are frozen, and every hit on them played only the swing's whoosh).
+        /// No flinch or counter starts; the pose is frozen.
+        /// </summary>
+        public void TakeReactionsWhileStopped()
+        {
+            long now = Stopwatch.GetTimestamp();
+            while (_incomingReactions.TryDequeue(out var reaction))
+            {
+                if (Seconds(reaction.Timestamp, now) > StaleReactionSeconds) continue;
+                LastReaction = reaction;
+                ReactionSerial++;
+            }
+        }
+
         /// <summary>Queues a hit reaction for the target (thread-safe).</summary>
         public void EnqueueReaction(HitReaction reaction) => _incomingReactions.Enqueue(reaction);
 

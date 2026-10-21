@@ -178,5 +178,26 @@ namespace Gordian.Core.Tests.Animation
             System.Threading.Thread.Sleep(20);
             Assert.Equal(Tick, state.ClaimFrameTime(Tick), 3); // next frame: capped at its delta
         }
+
+        /// <summary>
+        /// A frozen entity (MotStopFlag: the renderer does not advance it) still takes its hit reactions, so their sounds play,
+        /// without a flinch (#328, D29: the Macro Test dummies are kept in Terror).
+        /// </summary>
+        [Fact]
+        public void FrozenEntity_StillTakesItsHitReactions()
+        {
+            var state = new EntityAnimationState();
+            var hit = new HitReaction(ActionResolution.Hit, 1f, 0, true, ActionReactKind.None, 3, 0f, 0f, Stopwatch.GetTimestamp(),
+                default, ActionCategory.BasicAttack);
+            state.EnqueueReaction(hit);
+            state.TakeReactionsWhileStopped();
+            Assert.Equal(1, state.ReactionSerial);
+            Assert.Equal(hit, state.LastReaction);
+            Assert.Null(state.Overlay);
+
+            state.EnqueueReaction(hit with { Timestamp = Stopwatch.GetTimestamp() - Seconds(5) }); // stale: dropped
+            state.TakeReactionsWhileStopped();
+            Assert.Equal(1, state.ReactionSerial);
+        }
     }
 }
