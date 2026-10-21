@@ -40,6 +40,19 @@ namespace Gordian.App.Graphics
     {
         public const float TextScale = 0.875f;
 
+        /// <summary>
+        /// The pending-invite orb at the left of a party window's title band while an invite waits (S2C 0x0DC; #397, retail
+        /// capture image-18): a small green orb left of "Solo". <b>Provisional:</b> the sprite is the <c>colorbal</c> Wind ball
+        /// (the sheet's green one), 9 px, at x 30, y -3 of the window; the capture is not in the repository.
+        /// </summary>
+        public static void DrawInviteIcon(StockUiRenderer renderer, StockUiPlacement placement)
+        {
+            float s = placement.Scale;
+            renderer.DrawTextureRect(BallTexture, 16, 1, 14, 14, placement.X + InviteIconX * s, placement.Y + InviteIconY * s, InviteIconSize * s, InviteIconSize * s, Neutral);
+        }
+
+        public const float InviteIconX = 30, InviteIconY = -3, InviteIconSize = 9;
+
         /// <summary>Right edge of the "(zone)" text on a party row's second line, from the row origin: the MP number's (layout pixels).</summary>
         public const float ZoneTextRight = 96;
 

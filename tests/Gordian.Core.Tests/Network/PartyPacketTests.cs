@@ -534,8 +534,8 @@ namespace Gordian.Core.Tests.Network
             parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
 
             Assert.Equal(101, parser.World.CurrentZoneId);
-            Assert.False(parser.Party.IsInParty);
-            Assert.Equal(0x00012345u, parser.Party.Members.Single().ServerId);
+            Assert.False(parser.Party.IsInParty); // a party of Trusts is gone with them: back to Solo (#397)
+            Assert.Empty(parser.Party.Members);
         }
 }
 }

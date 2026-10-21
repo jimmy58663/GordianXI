@@ -145,6 +145,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>The guild shop window's Sell: the inventory items the guild buys (<see cref="StockUiGuildShop"/>, #330).</summary>
         GuildSell,
+
+        /// <summary>The main menu's Party: opens the Party list that fits the character's state (<see cref="StockUiParty"/>, #397).</summary>
+        PartyMenu,
+
+        /// <summary>The Party menu's Disband: breaks the party up (leader, C2S 0x070) or, for a member, leaves it (C2S 0x06F), after a prompt.</summary>
+        PartyDisband,
     }
 
     /// <summary>
@@ -199,7 +205,7 @@ namespace Gordian.Core.Ui
             [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.Items),
             [(MainMenu, 10)] = new("Synthesis", Opens: StockUiSynthesis.Menu),
             [(MainMenu, 5)] = new("Abilities", Opens: StockUiActionMenu.AbilityMenu),
-            [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.PartyMenu),
             [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
@@ -231,6 +237,35 @@ namespace Gordian.Core.Ui
             // The guild shop window ("guildsho", opened by S2C 0x086; Buy windowps #149, Sell #150), #330.
             [(StockUiGuildShop.MenuName, StockUiGuildShop.BuyButton)] = new("Buy", Command: StockUiMenuCommand.GuildBuy),
             [(StockUiGuildShop.MenuName, StockUiGuildShop.SellButton)] = new("Sell", Command: StockUiMenuCommand.GuildSell),
+
+            // Party (#397): "prty1" not in a party, "prty2" a member, "prty3" the leader (label sprites read against the retail
+            // captures). Only Disband works so far; the rest post "not available yet".
+            [(StockUiParty.NotInPartyMenu, StockUiParty.SeekPartyButton)] = new("Seek Party", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedFindMemberButton)] = new("Find Member", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.AutogroupButton)] = new("Autogroup", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.LanguagesButton)] = new("Languages", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.AlarmTypeButton)] = new("Alarm Type", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberListButton)] = new("Member List", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberRearrangeButton)] = new("Rearrange", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberFocusButton)] = new("Focus", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberDistributionButton)] = new("Distribution", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberDisbandButton)] = new("Disband", Command: StockUiMenuCommand.PartyDisband),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFindMemberButton)] = new("Find Member", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderMemberListButton)] = new("Member List", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderDistributionButton)] = new("Distribution", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.ChangeLeaderButton)] = new("Chg. Leader", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderRearrangeButton)] = new("Rearrange", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFocusButton)] = new("Focus", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.RemoveMemberButton)] = new("Rmv. Member", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderDisbandButton)] = new("Disband", Command: StockUiMenuCommand.PartyDisband),
+            [(StockUiParty.LeaderMenu, StockUiParty.AllianceButton)] = new("Alliance", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LevelSyncButton)] = new("Level Sync", Command: StockUiMenuCommand.NotAvailable),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).

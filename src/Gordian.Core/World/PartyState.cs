@@ -149,11 +149,16 @@ namespace Gordian.Core.World
 
         public bool HasPendingInvite => PendingInvite != null;
 
+        /// <summary>
+        /// Whether the server says the character is in a party. A party of one counts: when the leader of two leaves,
+        /// LandSandBoat passes leadership to the remaining member, who stays in the party alone (#397). A character in no party
+        /// has no members here (the server sends none, and an empty S2C 0x0C8 clears them).
+        /// </summary>
         public bool IsInParty
         {
             get
             {
-                lock (_lock) return _members.Count > 1;
+                lock (_lock) return _members.Count > 0;
             }
         }
 
@@ -422,14 +427,26 @@ namespace Gordian.Core.World
         public int RemoveTrusts()
         {
             List<uint> removed;
+            int trusts;
+            bool disbanded = false;
             lock (_lock)
             {
                 removed = _members.Where(m => m.IsTrust).Select(m => m.ServerId).ToList();
                 if (removed.Count == 0) return 0;
                 _members.RemoveAll(m => m.IsTrust);
+                trusts = removed.Count;
+                // A party the Trusts formed is disbanded by the server (above), and a party of one now counts as a party
+                // (<see cref="IsInParty"/>), so the character left alone with no other player is back to Solo.
+                if (_members.Count <= 1)
+                {
+                    removed.AddRange(_members.Select(m => m.ServerId));
+                    _members.Clear();
+                    disbanded = true;
+                }
             }
             foreach (uint id in removed) MemberLeft?.Invoke(id);
-            return removed.Count;
+            if (disbanded) PartyDisbanded?.Invoke();
+            return trusts;
         }
 
         /// <summary>

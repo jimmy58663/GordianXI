@@ -1098,6 +1098,10 @@ namespace Gordian.Core.Ui
                 menu.Rows = rows;
                 menu.SetMarks(null);
             }
+            else if (StockUiParty.TitleOf(menu.Name) != null)
+            {
+                RefreshPartyMenu(menu);
+            }
             else if (menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase))
             {
                 // Chat modes: the tell partner's name after Tell's red arrow; Linkshell, Linkshell 2 and Unity greyed
@@ -1847,6 +1851,14 @@ namespace Gordian.Core.Ui
             {
                 case StockUiMenuCommand.NotAvailable:
                     NoticePosted?.Invoke($"{entry.Label}: this window is not available yet.");
+                    break;
+
+                case StockUiMenuCommand.PartyMenu:
+                    lock (_sync) OpenPartyMenu(from);
+                    break;
+
+                case StockUiMenuCommand.PartyDisband:
+                    _ = ConfirmPartyDisbandAsync(CurrentParty.IsLeader);
                     break;
 
                 case StockUiMenuCommand.CurrentTime:
