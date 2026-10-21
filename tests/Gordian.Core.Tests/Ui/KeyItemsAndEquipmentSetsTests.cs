@@ -618,32 +618,81 @@ namespace Gordian.Core.Tests.Ui
             var list = h.Menus.Top!;
             Assert.True(list.IsEquipSetList);
             Assert.True(h.Menus.IsEditingName);
-            Assert.Equal(new StockUiNameEdit(4, "Old"), list.EquipSetNameEdit);
-            // The menus take no input meanwhile (the window routes the keyboard to the field).
+            Assert.Equal(4, list.EquipSetNameEdit!.Number);
+            Assert.Equal("Old", list.EquipSetNameEdit.Text);
+            // The menus take no input meanwhile (the shared text field has the keyboard).
             var input = new InputState();
             Assert.True(h.Menus.ProcessInput(input, TimeSpan.FromMilliseconds(16)));
+            var field = h.Menus.MacroField;
+            void Key(GordianKey key) => field.HandleKey(key, InputModifiers.None);
 
-            h.Menus.NameEditBackspace();
-            h.Menus.NameEditBackspace();
-            h.Menus.NameEditBackspace();
-            h.Menus.NameEditBackspace(); // nothing left to delete
-            h.Menus.NameEditInsert("BehavResearch\u00e9\t!!!"); // non-ASCII and control characters are dropped; 15 at most
+            for (int i = 0; i < 4; i++) Key(GordianKey.Backspace); // the fourth has nothing left to delete
+            field.InsertText("BehavResearch\u00e9\t!!!"); // non-ASCII and control characters are dropped; 15 at most
             Assert.Equal("BehavResearch!!", h.Menus.NameEdit!.Text);
-            h.Menus.NameEditCommit();
+            Key(GordianKey.Up); // no neighbouring field: Up / Down do nothing
+            Key(GordianKey.Down);
+            Assert.True(h.Menus.IsEditingName);
+            Key(GordianKey.Enter);
             Assert.False(h.Menus.IsEditingName);
             Assert.Equal("BehavResearch!!", h.Book.Get(4).Name);
 
-            // Escape leaves the name; an empty name gives the set back its default.
+            // Escape leaves the name (the field's EscapeKeepsText is off here, #400); an empty name gives the set its default.
             h.OpenOptions(4);
             h.Choose(StockUiEquipSets.ChangeNameButton);
-            h.Menus.NameEditInsert("x");
-            h.Menus.NameEditCancel();
+            Assert.False(field.EscapeKeepsText);
+            field.InsertText("x");
+            Key(GordianKey.Escape);
+            Assert.False(h.Menus.IsEditingName);
             Assert.Equal("BehavResearch!!", h.Book.Get(4).Name);
             h.Choose(4); // the list's row 4 again
             h.Choose(StockUiEquipSets.ChangeNameButton);
-            for (int i = 0; i < 20; i++) h.Menus.NameEditBackspace();
-            h.Menus.NameEditCommit();
+            for (int i = 0; i < 20; i++) Key(GordianKey.Backspace);
+            Key(GordianKey.Enter);
             Assert.Equal("Set004", h.Book.Get(4).Name);
+
+            // The caret edits in place, as the macro editor's field does (#400).
+            h.Choose(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            Key(GordianKey.Home);
+            field.InsertText("Z");
+            Key(GordianKey.Enter);
+            Assert.Equal("ZSet004", h.Book.Get(4).Name);
+
+            // The gamepad's Cancel drops the edit, its Confirm keeps it; a macro line's field still keeps its text on Escape.
+            h.Choose(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            field.InsertText("!");
+            var profile = InputProfile.CreateCompact();
+            input.SetKeyDown(GordianKey.Escape);
+            input.MenuContext = true;
+            input.Update(profile, TimeSpan.FromMilliseconds(16));
+            Assert.True(h.Menus.ProcessInput(input, TimeSpan.FromMilliseconds(16)));
+            Assert.False(h.Menus.IsEditingName);
+            Assert.Equal("ZSet004", h.Book.Get(4).Name);
+            // The gamepad's d-pad moves the caret (left / right) in the field, and up / down do nothing in Change Name (#400).
+            h.Choose(4);
+            h.Choose(StockUiEquipSets.ChangeNameButton);
+            var pad = InputProfile.CreateGamepadDefault();
+            var padInput = new InputState { MenuContext = true };
+            void Press(GamepadButton button)
+            {
+                padInput.SetGamepadState(new GamepadState(true, button, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0, 0));
+                padInput.Update(pad, TimeSpan.FromMilliseconds(16));
+                h.Menus.ProcessInput(padInput, TimeSpan.FromMilliseconds(16));
+                padInput.SetGamepadState(new GamepadState(true, GamepadButton.None, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0, 0));
+                padInput.Update(pad, TimeSpan.FromMilliseconds(16));
+            }
+            Press(GamepadButton.DPadLeft);
+            Press(GamepadButton.DPadDown);
+            Assert.True(h.Menus.IsEditingName);
+            Assert.Equal(h.Book.Get(4).Name.Length - 1, h.Menus.MacroField.Caret);
+            h.Menus.MacroField.Escape();
+
+            var macroLine = new StockUiTextField();
+            string? kept = null;
+            macroLine.Open("abc", 10, (text, _) => kept = text);
+            macroLine.HandleKey(GordianKey.Escape, InputModifiers.None);
+            Assert.Equal("abc", kept);
         }
         [Fact]
         public void RetailMenus_KeyItemAndEquipSetWindowsResolve()

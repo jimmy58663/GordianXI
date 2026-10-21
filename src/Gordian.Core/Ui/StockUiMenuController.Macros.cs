@@ -234,7 +234,7 @@ namespace Gordian.Core.Ui
         /// <summary>The character's macros (#339); the macro windows edit them. Null: the Macros entry posts a notice.</summary>
         public MacroLibrary? Macros { get; set; }
 
-        /// <summary>The field the macro windows type into; the viewport feeds it the keyboard while it is open.</summary>
+        /// <summary>The one text field the stock windows type into (the macro windows, Change Name); the viewport feeds it the keyboard while it is open.</summary>
         public StockUiTextField MacroField { get; } = new();
 
         /// <summary>Whether the Compact macro palette is chosen (Misc. 2 "Macro Palette Size").</summary>
@@ -296,18 +296,25 @@ namespace Gordian.Core.Ui
 
         /// <summary>
         /// While a macro field is typed in, Confirm keeps it and Cancel drops it (the gamepad's A / B; the keyboard's keys
-        /// reach the field directly). Returns true while the field has the input.
+        /// reach the field directly); the d-pad does what the arrow keys do: up / down keep the text and move to the field above /
+        /// below (the macro editor), left / right move the caret. Returns true while the field has the input.
         /// </summary>
         private bool ProcessMacroField(InputState input)
         {
             if (!MacroField.IsOpen) return false;
-            if (!HasMacroWindow)
+            if (!HasMacroWindow && !_namingSet)
             {
                 MacroField.Cancel();
                 return false;
             }
-            // Cancel keeps the text as Confirm does (retail, the maintainer's check 2026-10-13).
-            if (input.WasActionTriggered(InputAction.Cancel) || input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
+            // Cancel does what Escape does: a macro line keeps its text as Confirm does (retail, the maintainer's check
+            // 2026-10-13); Change Name drops it.
+            if (input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
+            else if (input.WasActionTriggered(InputAction.Cancel)) MacroField.Escape();
+            else if (input.WasActionTriggered(InputAction.MenuUp)) MacroField.HandleKey(GordianKey.Up, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuDown)) MacroField.HandleKey(GordianKey.Down, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuLeft)) MacroField.HandleKey(GordianKey.Left, InputModifiers.None);
+            else if (input.WasActionTriggered(InputAction.MenuRight)) MacroField.HandleKey(GordianKey.Right, InputModifiers.None);
             return true;
         }
 

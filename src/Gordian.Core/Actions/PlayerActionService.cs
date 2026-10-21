@@ -654,7 +654,9 @@ namespace Gordian.Core.Actions
             var kind = target.Type switch
             {
                 EntityType.Player => target.ServerId == _localPlayer.ServerId ? StockUiTargetKind.Self : StockUiTargetKind.Player,
-                EntityType.Monster => StockUiTargetKind.Monster,
+                // Your own pet (an avatar, a jug or charmed pet, a wyvern) is an ordinary monster entity on the wire; the pet
+                // sync (S2C 0x068) says which one is yours, and retail gives all of them the pet list.
+                EntityType.Monster => PetSnapshot?.Invoke() is { } pet && pet.ServerId == target.ServerId ? StockUiTargetKind.Pet : StockUiTargetKind.Monster,
                 EntityType.Pet => StockUiTargetKind.Pet,
                 EntityType.Trust => StockUiTargetKind.Trust,
                 _ => StockUiTargetKind.None,
@@ -716,11 +718,18 @@ namespace Gordian.Core.Actions
                     return attack;
                 case StockUiMenuCommand.Disengage:
                     return await DisengageAsync().ConfigureAwait(false);
+                case StockUiMenuCommand.CallForHelp:
+                    var help = await CallForHelpAsync().ConfigureAwait(false);
+                    // The engaged command menu stays up after an entry, as after Attack (maintainer round 1, C6).
+                    if (Combat is { IsEngaged: true }) OpenTargetCommandMenu();
+                    return help;
                 case StockUiMenuCommand.Invite:
                     await _partyModule.SendInviteAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
                 case StockUiMenuCommand.Check:
-                    return await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    var check = await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    if (Combat is { IsEngaged: true }) OpenTargetCommandMenu();
+                    return check;
                 case StockUiMenuCommand.ReleaseTrust:
                     return await ReleaseTrustAsync(entity.Name).ConfigureAwait(false);
                 default:
@@ -1418,6 +1427,8 @@ namespace Gordian.Core.Actions
                         return StockUiUsage;
                     case "perf":
                         return PerformanceOverlayUsage;
+                    case "buttonpreview":
+                        return ButtonPreviewState.Usage;
                     case "heal":
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
@@ -2647,6 +2658,9 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.PerformanceOverlay:
                     return PerformanceOverlayCommandResult(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.ButtonPreview:
+                    return PlayerActionResult.Info(ButtonPreview.Apply(cmd.Message ?? string.Empty), ChatCommandResultKind.ButtonPreview);
 
                 case ChatCommandResultKind.TreasureLot:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);

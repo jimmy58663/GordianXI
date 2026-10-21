@@ -43,15 +43,7 @@ namespace Gordian.App.Services
             Load();
         }
 
-        public static string GetDefaultFilePath()
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-            {
-                return Path.Combine(localAppData, "GordianXI", "window_placements.json");
-            }
-            return Path.Combine(GordianStorage.RootDataDirectory, "window_placements.json");
-        }
+        public static string GetDefaultFilePath() => Path.Combine(GordianStorage.UserSettingsDirectory, "window_placements.json");
 
         public WindowPlacement? GetPlacement(string key)
         {

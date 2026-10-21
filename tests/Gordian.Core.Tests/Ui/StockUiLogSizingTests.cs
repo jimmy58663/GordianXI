@@ -24,6 +24,23 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
+        public void Floor_LetsTheLogShrinkOnlyToTheDialogRowsWhileAnEventLineWaits()
+        {
+            var sizing = new StockUiLogSizing();
+            sizing.Update(0, 0, true, 0, 8, 2, false);
+            Assert.Equal(5, sizing.Update(0.1, 5, true, 0, 8, 2, false));
+            // The NPC's dialog is 2 rows: the window still shrinks, one line per Resize Time, but stops at 2 (#369).
+            for (double t = 0.2; t < 30; t += 0.1) sizing.Update(t, 5, true, 0, 8, 2, false, floor: 2);
+            Assert.Equal(2, sizing.Lines);
+            // A closed log opens to the dialog's rows; released, it gives them back.
+            var closed = new StockUiLogSizing();
+            closed.Update(0, 0, true, 0, 8, 2, false);
+            Assert.Equal(2, closed.Update(0.1, 0, true, 0, 8, 2, false, floor: 2));
+            for (double t = 0.2; t < 10; t += 0.1) closed.Update(t, 0, true, 0, 8, 2, false);
+            Assert.Equal(0, closed.Lines);
+        }
+
+        [Fact]
         public void DisplayLines_FollowTheLineCountSmoothly()
         {
             var sizing = new StockUiLogSizing();

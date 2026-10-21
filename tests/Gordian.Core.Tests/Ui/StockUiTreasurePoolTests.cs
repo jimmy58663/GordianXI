@@ -604,8 +604,12 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(treasure >= 0);
             Assert.Equal(StockUiMenuCommand.Check, rows[treasure + 1].Entry.Command);
             Assert.Equal("Treasure", rows[treasure].Label.Text);
-            Assert.DoesNotContain(StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Pet, 1, "X", HasTreasure: true)),
-                r => r.Entry.Command == StockUiMenuCommand.TreasurePool);
+            // Pets and trusts list it too (#63); their position is provisional.
+            foreach (var other in new[] { StockUiTargetKind.Pet, StockUiTargetKind.Trust })
+            {
+                Assert.Contains(StockUiCommandMenu.Compose(new StockUiTargetContext(other, 1, "X", HasTreasure: true)),
+                    r => r.Entry.Command == StockUiMenuCommand.TreasurePool);
+            }
         }
 
         [Fact]

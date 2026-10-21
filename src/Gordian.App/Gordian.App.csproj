@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <EmbeddedResource Include="Assets\ButtonGlyphs\*.png" LogicalName="ButtonGlyphs.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

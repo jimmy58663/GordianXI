@@ -466,6 +466,12 @@ namespace Gordian.Core.Ui
         /// <summary>Whether the character is engaged: the target command menu cannot be cancelled then.</summary>
         public Func<bool>? InCombat { get; set; }
 
+        /// <summary>
+        /// The text of the key / button hint the windows with a baked "+ : ..." hint show (#360), from the device in use and
+        /// the user's mapping (<see cref="StockUiButtonHints.Label"/>); null keeps the DAT's own glyph.
+        /// </summary>
+        public Func<StockUiHint>? HintLabel { get; set; }
+
         /// <summary>Called after the player confirms "Log out?"; the argument is true for Shut Down.</summary>
         public Func<bool, Task>? LogoutRequested { get; set; }
 
@@ -914,6 +920,7 @@ namespace Gordian.Core.Ui
         }
 
         private string? _lastCommandLabel;
+        private readonly Dictionary<(StockUiActionList List, int Category), ushort> _lastAction = new();
 
         private void Remember(StockUiOpenMenu menu)
         {
@@ -927,6 +934,13 @@ namespace Gordian.Core.Ui
             {
                 int index = menu.SelectedButtonId - 1;
                 if (index >= 0 && index < menu.CommandRows.Count) _lastCommandLabel = menu.CommandRows[index].Label.Text;
+                return;
+            }
+            if (menu.IsActionList)
+            {
+                // A spell or ability list remembers the action the cursor was on, by list and category, so Abilities > Weapon Skill
+                // opens on the weapon skill last used (maintainer D16 note, 2026-10-18); rows change, so it is the id, not the row.
+                if (menu.SelectedActionRow is { } row) _lastAction[(menu.ActionList, menu.ActionCategory)] = row.Id;
                 return;
             }
             _lastSelection[menu.Name] = menu.SelectedButtonId;
@@ -1143,7 +1157,6 @@ namespace Gordian.Core.Ui
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
-            if (IsEditingName) return true; // Change Name has the keyboard (the window routes it)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1298,10 +1311,16 @@ namespace Gordian.Core.Ui
                         Refresh(top);
                         changed = true;
                     }
-                    else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
-                        && !top.IsGreyed(button.ButtonId))
+                    else if (direction == InputAction.MenuRight && ToggleHelpRow(top, button.ButtonId))
                     {
-                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail).
+                        changed = true;
+                    }
+                    else if (direction == InputAction.MenuRight && TryGetEntry(top, button.ButtonId, out var arrowed) && arrowed.Opens != null
+                        && !top.IsGreyed(button.ButtonId) && top.IsCommandMenu)
+                    {
+                        // Right on an arrowed entry (Chat ▶, Magic ▶) opens its list, as Confirm does (retail). Only the command
+                        // menu's drawn arrows do this: every other menu (the main menu, Config and its pages) opens a sub-menu
+                        // with Confirm alone, and the main menu's Right turns the page (#375).
                         Push(arrowed.Opens, top, Array.Empty<string>(), null, null);
                     }
                     else if (horizontal && top.PageRing.Count > 1)
@@ -1354,6 +1373,37 @@ namespace Gordian.Core.Ui
                 changed = true;
             }
             if (changed) Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Right on the engaged command list's Disengage ▶ swaps the row to Call for Help ▶, and Right on that back (retail, the
+        /// maintainer's note 2026-10-18). The open menu is rebuilt with the other label under the same cursor; the greyed
+        /// set, target and frame art stay.
+        /// </summary>
+        private bool ToggleHelpRow(StockUiOpenMenu top, int buttonId)
+        {
+            if (!top.IsCommandMenu || _library is not { } library || buttonId < 1 || buttonId > top.CommandRows.Count) return false;
+            var command = top.CommandRows[buttonId - 1].Entry.Command;
+            if (command is not (StockUiMenuCommand.Disengage or StockUiMenuCommand.CallForHelp)) return false;
+            var rows = new List<StockUiCommandRow>(top.CommandRows);
+            rows[buttonId - 1] = StockUiCommandMenu.DisengageRow(callForHelp: command == StockUiMenuCommand.Disengage);
+            var definition = StockUiCommandMenu.Build(library, rows, out var frameImage);
+            if (definition == null) return false;
+            var menu = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
+            {
+                CommandRows = rows,
+                Target = top.Target,
+                FrameImage = frameImage,
+            };
+            menu.SetGreyed(null);
+            menu.SelectedButtonId = buttonId;
+            var open = (StockUiOpenMenu[])_open.Clone();
+            for (int i = 0; i < open.Length; i++)
+            {
+                if (ReferenceEquals(open[i], top)) open[i] = menu;
+            }
+            _open = open;
+            return true;
         }
 
         private static bool IsChatModeTell(StockUiOpenMenu menu, int buttonId) =>
@@ -1949,6 +1999,7 @@ namespace Gordian.Core.Ui
 
                 case StockUiMenuCommand.Attack:
                 case StockUiMenuCommand.Disengage:
+                case StockUiMenuCommand.CallForHelp:
                 case StockUiMenuCommand.Invite:
                 case StockUiMenuCommand.Check:
                 case StockUiMenuCommand.ReleaseTrust:

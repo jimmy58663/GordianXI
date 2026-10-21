@@ -325,6 +325,9 @@ namespace Gordian.Core.Network
             // The gamepad key-assignment list edits the user's shared profile, so every character gets the change (#21, #314).
             ActionService.Menus.GamepadProfile = () => _inputProfiles.Profile;
             ActionService.Menus.GamepadProfileEdited = edit => _inputProfiles.Edit(edit, ActionService.Menus);
+            // The windows' "+ : Sort" style hints name the key or button in use (#360).
+            ActionService.Menus.HintLabel = () => Ui.StockUiButtonHints.Hint(Locomotion.Profile, Ui.StockUiButtonHints.OptionsAction,
+                InputState.UsingGamepad, Ui.StockUiButtonHints.IsPlayStation(InputState.CurrentGamepad.DeviceName));
             ActionService.Menus.Inventory = Inventory;
             ActionService.Menus.ShopBuy = (count, shopNo, index) => InventoryModule.BuyShopItemAsync(count, shopNo, index, 0);
             ActionService.Menus.ShopAppraise = (count, itemId, slot) => InventoryModule.AppraiseShopItemAsync(count, itemId, slot);

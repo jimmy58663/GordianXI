@@ -529,12 +529,86 @@ void main()
                     hasBackground = true;
                 }
                 if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
+                // A baked "+ : ..." hint's key glyph is left out and the key or button in use drawn in its place (#360).
+                StockUiHint? hint = HintFont != null && HintLabel?.Invoke() is { Text.Length: > 0 } label && StockUiButtonHints.HasHintGlyph(image) ? label : null;
                 foreach (var part in image.Parts)
                 {
                     if (IsBackground(part) || excludeFramePart?.Invoke(part) == true) continue;
+                    if (hint != null && StockUiButtonHints.IsHintGlyph(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
                 }
+                if (hint is { } shown) DrawHint(shown, placement.X, placement.Y, placement.Scale);
             }
+        }
+
+        /// <summary>Where the key / button hint text comes from (null leaves the DAT's glyph); set by the HUD each frame (#360).</summary>
+        public Func<StockUiHint>? HintLabel { get; set; }
+
+        /// <summary>The font the hint text is drawn with.</summary>
+        public UiFont? HintFont { get; set; }
+
+        /// <summary>
+        /// Draws the hint text in the key glyph's room (x 4 to 22, y 4 to 20 of the frame), shrunk to fit and centred;
+        /// <paramref name="x"/> and <paramref name="y"/> are the frame's origin.
+        /// </summary>
+        // Nudges (authored pixels) that put the font's letters at the middle of the disc.
+        private const float XboxLetterDx = 0.5f, XboxLetterDy = 1.25f;
+        // The maintainer's placement of the letter on the disc (2026-10-19), in screen pixels: down 1, right 2 (5, then back 3).
+        private const float XboxLetterShiftX = 2, XboxLetterShiftY = 1; // X only for the Y (its glyph's ink sits left of its advance); A, B and X are centred by their width
+
+        /// <summary>Draws <paramref name="hint"/> in a 16 x 16 slot whose top-left is (<paramref name="x"/>, <paramref name="y"/>): the /buttonpreview picker's drawn candidates.</summary>
+        public void DrawHintGlyph(StockUiHint hint, float x, float y, float scale) => DrawHint(hint, x - 4 * scale, y - 4 * scale, scale);
+
+        private void DrawHint(StockUiHint hint, float x, float y, float scale)
+        {
+            // The chosen button art (Xbox variant 3 / PS4 variant 2), a little larger than the DAT's 16 px slot.
+            if (ButtonGlyphArt.TryGet(hint, ButtonGlyphArt.Size * scale, out var art, out string artKey))
+            {
+                DrawTexture(artKey, art, x + ButtonGlyphArt.Left * scale, y + ButtonGlyphArt.Top * scale,
+                    ButtonGlyphArt.Size * scale, ButtonGlyphArt.Size * scale, UiColor.Neutral);
+                return;
+            }
+            if (hint.HasXboxFace)
+            {
+                // An Xbox face button: a black round disc (the photo button's white circle, "photobut" (0, 0) 20 x 20, tinted) with its
+                // letter in the button's colour in the stock font; the DATs carry no lettered sprite.
+                var letterColor = hint.XboxFace switch
+                {
+                    'A' => new UiColor(0x30, 0xC0, 0x50, 0x80),
+                    'B' => new UiColor(0xD0, 0x30, 0x30, 0x80),
+                    'X' => new UiColor(0x40, 0x70, 0xD8, 0x80),
+                    _ => new UiColor(0xE0, 0xC0, 0x20, 0x80),
+                };
+                DrawTextureRect("photobut", 0, 0, 20, 20, x + 4 * scale, y + 4 * scale, 16 * scale, 16 * scale, new UiColor(0x10, 0x10, 0x10, 0x80));
+                string letter = hint.XboxFace.ToString();
+                var letterFont = HintFont!;
+                float lw = letterFont.MeasureWidth(letter);
+                DrawText(letterFont, letter, x + (12 - lw * 0.5f + XboxLetterDx) * scale + (hint.XboxFace == 'Y' ? XboxLetterShiftX : 0), y + (12 - letterFont.LineHeight * 0.5f + XboxLetterDy) * scale + XboxLetterShiftY, scale, letterColor);
+                return;
+            }
+            if (hint.HasSprite)
+            {
+                // A face button: its round sprite (as the PS2 Triangle hint), 16 x 16 at (4, 4) of the frame.
+                var white = UiColor.Neutral;
+                DrawPart(new UiSpritePart
+                {
+                    TopLeft = new UiPoint(4, 4), TopRight = new UiPoint(20, 4), BottomLeft = new UiPoint(4, 20), BottomRight = new UiPoint(20, 20),
+                    SourceX = (ushort)hint.SpriteX, SourceY = (ushort)hint.SpriteY, SourceWidth = 16, SourceHeight = 16,
+                    ColorTopLeft = white, ColorTopRight = white, ColorBottomLeft = white, ColorBottomRight = white,
+                    TextureName = "menu    marubatu",
+                }, x, y, scale);
+                return;
+            }
+            string text = hint.Text;
+            var font = HintFont!;
+            float width = 0;
+            foreach (char c in text) width += font.GetAdvance(c);
+            float room = StockUiButtonHints.GlyphRight - StockUiButtonHints.GlyphLeft;
+            float fit = width <= room || width <= 0 ? 1f : Math.Max(0.4f, room / width);
+            float textScale = scale * fit;
+            float left = x + (StockUiButtonHints.GlyphLeft + Math.Max(0, (room - width * fit)) * 0.5f) * scale;
+            float top = y + ((StockUiButtonHints.GlyphTop + StockUiButtonHints.GlyphBottom) * 0.5f - font.LineHeight * fit * 0.5f) * scale;
+            DrawText(font, text, left, top, textScale);
         }
 
         /// <summary>

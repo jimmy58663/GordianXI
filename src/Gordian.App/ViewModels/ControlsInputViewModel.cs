@@ -48,15 +48,7 @@ namespace Gordian.App.ViewModels
         private string _activePresetName = "Compact (WASD)";
         private string _statusMessage = "Ready";
 
-        public static string GetDefaultProfilePath()
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-            {
-                return Path.Combine(localAppData, "GordianXI", "input_profile.json");
-            }
-            return Path.Combine(GordianStorage.RootDataDirectory, "input_profile.json");
-        }
+        public static string GetDefaultProfilePath() => Path.Combine(GordianStorage.UserSettingsDirectory, "input_profile.json");
 
         /// <summary>
         /// An edit made here: saved, and published to every character's session (each takes a fresh copy of the

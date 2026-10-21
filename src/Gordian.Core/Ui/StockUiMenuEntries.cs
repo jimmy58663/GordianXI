@@ -41,6 +41,9 @@ namespace Gordian.Core.Ui
         /// <summary>The command menu's Disengage.</summary>
         Disengage,
 
+        /// <summary>The engaged command menu's Call for Help (Disengage's alternate on Right).</summary>
+        CallForHelp,
+
         /// <summary>The command menu's Invite: a party invite to the targeted player.</summary>
         Invite,
 
