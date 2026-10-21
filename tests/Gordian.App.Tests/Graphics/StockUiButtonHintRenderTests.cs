@@ -12,6 +12,24 @@ namespace Gordian.App.Tests.Graphics
     public class StockUiButtonHintRenderTests
     {
         [Fact]
+        public void TheEightChosenGlyphsAreEmbedded_AtBothSizes()
+        {
+            foreach (char face in "ABXY")
+            {
+                Assert.True(ButtonGlyphArt.TryGet(new StockUiHint(face.ToString(), XboxFace: face), 20, out var small, out _));
+                Assert.Equal(48, small.Width);
+                Assert.True(ButtonGlyphArt.TryGet(new StockUiHint(face.ToString(), XboxFace: face), 60, out var large, out _));
+                Assert.Equal(96, large.Width);
+            }
+            foreach (var (x, y) in new[] { (16, 16), (0, 0), (0, 16), (16, 0) })
+            {
+                Assert.True(ButtonGlyphArt.TryGet(new StockUiHint(string.Empty, x, y), 20, out var art, out _));
+                Assert.Equal(art.Width, art.Height);
+            }
+            Assert.False(ButtonGlyphArt.TryGet(new StockUiHint("+"), 20, out _, out _)); // the keyboard's text hint has no art
+        }
+
+        [Fact]
         public void RendersTheHintForKeyboardXboxAndPlayStation()
         {
             using var screen = StockUiOffscreen.TryCreate();
@@ -36,7 +54,7 @@ namespace Gordian.App.Tests.Graphics
                 for (int y = y0; y < y1 && !coloured; y++)
                 {
                     var p = screen.Pixel(xbox, x, y);
-                    coloured = p.R > 120 && p.G > 100 && p.B < 80; // the yellow disc
+                    coloured = p.R > 120 && p.G > 100 && p.B < 80; // the yellow Y
                 }
             }
             Assert.True(coloured, "no Xbox Y disc");

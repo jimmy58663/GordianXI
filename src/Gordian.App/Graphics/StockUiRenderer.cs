@@ -561,6 +561,13 @@ void main()
 
         private void DrawHint(StockUiHint hint, float x, float y, float scale)
         {
+            // The chosen button art (Xbox variant 3 / PS4 variant 2), a little larger than the DAT's 16 px slot.
+            if (ButtonGlyphArt.TryGet(hint, ButtonGlyphArt.Size * scale, out var art, out string artKey))
+            {
+                DrawTexture(artKey, art, x + ButtonGlyphArt.Left * scale, y + ButtonGlyphArt.Top * scale,
+                    ButtonGlyphArt.Size * scale, ButtonGlyphArt.Size * scale, UiColor.Neutral);
+                return;
+            }
             if (hint.HasXboxFace)
             {
                 // An Xbox face button: a black round disc (the photo button's white circle, "photobut" (0, 0) 20 x 20, tinted) with its
