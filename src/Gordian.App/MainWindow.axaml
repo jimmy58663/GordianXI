@@ -1835,8 +1835,13 @@
                                               HorizontalAlignment="Stretch"/>
                                     <TextBlock Text="{Binding Viewport.BackendStatus}"
                                                Foreground="#DCDCDC" FontSize="11" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Auto: Direct3D 11 on Windows; Vulkan on Linux and on macOS (through MoltenVK). A change applies when every viewport window has closed and one opens again."
+                                    <TextBlock Text="Auto: Direct3D 11 on Windows; Vulkan on Linux and on macOS (through MoltenVK). A change applies when the viewport window is reopened."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                    <Button Content="Reopen viewport to apply"
+                                            Command="{Binding Viewport.ReopenViewportCommand}"
+                                            IsVisible="{Binding Viewport.BackendReopenNeeded}"
+                                            HorizontalAlignment="Left" Padding="10,4"
+                                            ToolTip.Tip="Closes and reopens the viewport window and any pop-outs. The characters stay connected."/>
                                 </StackPanel>
 
                                 <!-- VSync & Framerate -->
@@ -1889,8 +1894,11 @@
                                     <CheckBox IsChecked="{Binding Viewport.IsPipEnabled, Mode=TwoWay}"
                                               Content="Enable Picture-in-Picture (up to 5 alts in corner)"
                                               FontSize="12" Foreground="#DCDCDC"/>
-                                    <TextBlock Text="Cards for up to 5 background characters (job and HP) with 1-click ⇄ swapping into the main view. Live scene thumbnails are not rendered yet."
+                                    <TextBlock Text="One card per background character (up to 5) with a small live view of its scene (a few frames a second, drawn only while the deck is shown), job and HP, 1-click ⇄ swapping into the main view and tear-off."
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                    <CheckBox IsChecked="{Binding Viewport.LivePipThumbnails, Mode=TwoWay}"
+                                              Content="Live scene thumbnails (off: status cards only)"
+                                              FontSize="12" Foreground="#DCDCDC"/>
                                 </StackPanel>
 
                                 <Button Content="Open Viewport Window"

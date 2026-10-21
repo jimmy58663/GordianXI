@@ -14,7 +14,7 @@ namespace Gordian.App.Tests.Graphics
     /// </summary>
     public class ImGuiOverlayRenderTests
     {
-        private const uint Width = 800, Height = 600;
+        internal const uint Width = 800, Height = 600;
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int x, int y,
@@ -23,7 +23,7 @@ namespace Gordian.App.Tests.Graphics
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyWindow(IntPtr hwnd);
 
-        private sealed class Target : IDisposable
+        internal sealed class Target : IDisposable
         {
             private readonly IntPtr _hwnd;
             private readonly VeldridDeviceManager _devices;
