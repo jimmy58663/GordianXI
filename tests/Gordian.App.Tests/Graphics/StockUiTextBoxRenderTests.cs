@@ -25,7 +25,7 @@ namespace Gordian.App.Tests.Graphics
             try
             {
                 Assert.True(screen.Resources.TryGetItem(12440, out var bandana));
-                var page = StockUiItemDescription.Pages(bandana).First();
+                var page = StockUiItemDescription.Pages(bandana!).First();
                 Assert.All(page.Lines, l => Assert.True(logFont.MeasureWidth(l) <= StockUiItemDescription.TextWidth, l));
 
                 var inventory = new InventoryState();
