@@ -17,8 +17,13 @@ namespace Gordian.Core.Resources.Graphics
     /// <param name="Size">Record +0x18: the box's full extents along its own X (width), Y (height) and Z (depth).</param>
     /// <param name="LiftFloor0">Record +0x34 (s16): a lift's floor 0, in 1/256 yalm from <see cref="Center"/>.Y.</param>
     /// <param name="LiftFloor1">Record +0x36 (s16): a lift's floor 1, in the same units.</param>
-    public readonly record struct ZoneInteraction(string Id, Vector3 Center, float RotationY, Vector3 Size, short LiftFloor0 = 0, short LiftFloor1 = 0)
+    /// <param name="Param">Record +0x2C (u32, the PS2 client's <c>zone_no</c>): a sub-area's interior id (<c>'m'</c>), a zone
+    /// line's destination zone (xi-tools docs/zone/subareas.md).</param>
+    public readonly record struct ZoneInteraction(string Id, Vector3 Center, float RotationY, Vector3 Size, short LiftFloor0 = 0, short LiftFloor1 = 0, int Param = 0)
     {
+        /// <summary>A building interior's volume (<c>'m'</c>): standing in it shows the interior <see cref="Param"/> (#68).</summary>
+        public bool IsSubArea => Id.Length > 0 && Id[0] == 'm' && Param > 0;
+
         /// <summary>A door's volume: a thin box filling the doorway (Metalworks' guild doors: 2.01 x 2.83 x 0.07).</summary>
         public bool IsDoor => Id.Length > 0 && Id[0] == '_';
 
@@ -100,7 +105,8 @@ namespace Gordian.Core.Resources.Graphics
                     Single(entry, 0x10),
                     new Vector3(Single(entry, 0x18), Single(entry, 0x1C), Single(entry, 0x20)),
                     BinaryPrimitives.ReadInt16LittleEndian(entry.Slice(0x34)),
-                    BinaryPrimitives.ReadInt16LittleEndian(entry.Slice(0x36))));
+                    BinaryPrimitives.ReadInt16LittleEndian(entry.Slice(0x36)),
+                    BinaryPrimitives.ReadInt32LittleEndian(entry.Slice(0x2C))));
             }
             return result;
         }

@@ -796,6 +796,12 @@ namespace Gordian.Core.Network
         }
 
         private readonly World.Collision.ZoneLineMonitor _zoneLines = new();
+
+        /// <summary>
+        /// Shows the Mog House exit prompt when the player walks into the room's door (#354); null sends the exit at once.
+        /// The answer's Yes calls <see cref="RequestMogHouseExitAsync"/>.
+        /// </summary>
+        public Action? MogHouseExitPrompt { get; set; }
         private int _zoneLineCorrectionMark;
 
         /// <summary>The zone-line request state of this session (#350).</summary>
@@ -824,6 +830,14 @@ namespace Gordian.Core.Network
             if (line is not { } crossing) return;
             _zoneLineCorrectionMark = _parser.LocalPlayer.PositionCorrectionCount;
 
+            // The Mog House door asks first (#354): Yes sends the exit, No leaves the player in the room until they walk in again.
+            if (crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId && MogHouseExitPrompt is { } prompt)
+            {
+                _zoneLines.CancelPending();
+                GordianLog.Info("ZONE", $"Walked into the Mog House door at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); asking before leaving.");
+                prompt();
+                return;
+            }
             GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
             Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
                 ? RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom)

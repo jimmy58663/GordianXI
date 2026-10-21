@@ -165,8 +165,8 @@ namespace Gordian.App.Graphics
                     if (ShouldDeferSwitch(value))
                     {
                         _deferredSince = Stopwatch.GetTimestamp();
-                        PrepareZone(value!.World.CurrentZoneId);
-                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.CurrentZoneId} is not on the GPU yet; showing the current view while it loads.");
+                        PrepareZone(value!.World.MapZoneId);
+                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.MapZoneId} is not on the GPU yet; showing the current view while it loads.");
                         return;
                     }
                     ShowSession(value);
@@ -188,7 +188,7 @@ namespace Gordian.App.Graphics
                 {
                     if (_activeSession != null)
                     {
-                        _activeSession.World.ZoneChanged -= OnWorldZoneChanged;
+                        _activeSession.World.MapZoneChanged -= OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
                             _activeSession.Locomotion.CameraUpdated -= OnLocomotionCameraUpdated;
@@ -208,7 +208,7 @@ namespace Gordian.App.Graphics
                     if (_activeSession != null)
                     {
                         _activeSession.IsRendering3D = true;
-                        _activeSession.World.ZoneChanged += OnWorldZoneChanged;
+                        _activeSession.World.MapZoneChanged += OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
                             Camera.Pitch = _activeSession.Locomotion.CameraPitch;
@@ -217,9 +217,9 @@ namespace Gordian.App.Graphics
                             Camera.Mode = _activeSession.Locomotion.Camera.Mode;
                             _activeSession.Locomotion.CameraUpdated += OnLocomotionCameraUpdated;
                         }
-                        if (_activeSession.World.CurrentZoneId != 0)
+                        if (_activeSession.World.MapZoneId != 0)
                         {
-                            OnWorldZoneChanged(_activeSession.World.CurrentZoneId);
+                            OnWorldZoneChanged(_activeSession.World.MapZoneId);
                         }
                     }
                 }
@@ -241,7 +241,7 @@ namespace Gordian.App.Graphics
         {
             if (next == null || _activeSession == null || _renderer == null || Lobby != null || HoldBlack) return false;
             if (next.State != SessionState.ActiveInWorld) return false;
-            ushort zone = next.World.CurrentZoneId;
+            ushort zone = next.World.MapZoneId;
             return zone != 0 && zone != _loadedZoneId && !IsZoneResident(zone);
         }
 
@@ -303,15 +303,15 @@ namespace Gordian.App.Graphics
             if (ReferenceEquals(requested, _activeSession)) return;
             bool ready = requested == null
                          || requested.State != SessionState.ActiveInWorld
-                         || requested.World.CurrentZoneId == 0
-                         || requested.World.CurrentZoneId == _loadedZoneId
-                         || IsZoneResident(requested.World.CurrentZoneId)
+                         || requested.World.MapZoneId == 0
+                         || requested.World.MapZoneId == _loadedZoneId
+                         || IsZoneResident(requested.World.MapZoneId)
                          || Stopwatch.GetElapsedTime(_deferredSince) >= DeferredSwitchTimeout;
             if (!ready) return;
             lock (_sessionGate)
             {
                 if (!ReferenceEquals(requested, _requestedSession)) return;
-                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.CurrentZoneId}).");
+                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.MapZoneId}).");
                 ShowSession(requested);
             }
         }
@@ -326,15 +326,15 @@ namespace Gordian.App.Graphics
                 {
                     if (_worldState != null)
                     {
-                        _worldState.ZoneChanged -= OnWorldZoneChanged;
+                        _worldState.MapZoneChanged -= OnWorldZoneChanged;
                     }
                     _worldState = value;
                     if (_worldState != null)
                     {
-                        _worldState.ZoneChanged += OnWorldZoneChanged;
-                        if (_worldState.CurrentZoneId != 0)
+                        _worldState.MapZoneChanged += OnWorldZoneChanged;
+                        if (_worldState.MapZoneId != 0)
                         {
-                            OnWorldZoneChanged(_worldState.CurrentZoneId);
+                            OnWorldZoneChanged(_worldState.MapZoneId);
                         }
                     }
                 }
@@ -379,7 +379,7 @@ namespace Gordian.App.Graphics
             if (zone?.Collision == null || loaded == 0) return;
             foreach (var world in new[] { _activeSession?.World, _worldState })
             {
-                if (world != null && world.CurrentZoneId == loaded) world.Collision = zone.Collision;
+                if (world != null && world.MapZoneId == loaded) world.Collision = zone.Collision;
             }
         }
 
@@ -415,7 +415,7 @@ namespace Gordian.App.Graphics
         private bool ZoneSwapPending(Gordian.Core.Network.CharacterSession session)
         {
             ushort scene = session.World.SceneZoneId;
-            ushort wanted = scene != 0 ? scene : session.World.CurrentZoneId;
+            ushort wanted = scene != 0 ? scene : session.World.MapZoneId;
             if (_ungatedZoneSwap)
             {
                 // The switched-to session's zone is on screen already (or it has none yet): later swaps fade again.
@@ -461,13 +461,13 @@ namespace Gordian.App.Graphics
             if (session == null || !_loadingScreen.IsLoading || _loadingScreen.IsFullyBlack)
             {
                 _presentationHeld = false;
-                if (session != null) _fadeStartZone = session.World.CurrentZoneId;
+                if (session != null) _fadeStartZone = session.World.MapZoneId;
                 return false;
             }
             if (!_presentationHeld)
             {
                 _presentationHeld = session.State != SessionState.ActiveInWorld || session.NetworkManager.PositionUpdatesSuspended
-                    || session.World.CurrentZoneId != _fadeStartZone || ZoneSwapPending(session);
+                    || session.World.MapZoneId != _fadeStartZone || ZoneSwapPending(session);
             }
             return _presentationHeld;
         }
@@ -682,7 +682,7 @@ namespace Gordian.App.Graphics
                         _renderer = new ZoneTerrainRenderer(sharedDevice.Resources, outputs);
                         _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, outputs);
 
-                        ushort initialZone = _activeSession?.World.CurrentZoneId ?? _worldState?.CurrentZoneId ?? 0;
+                        ushort initialZone = _activeSession?.World.MapZoneId ?? _worldState?.MapZoneId ?? 0;
                         if (initialZone != 0)
                         {
                             OnWorldZoneChanged(initialZone);
@@ -985,7 +985,7 @@ namespace Gordian.App.Graphics
                             // Zoning (#36), worked out before the scene so this frame already hides the placeholder: black while the session connects or zones and until its zone and the player's
                             // own model are on screen.
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
-                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
+                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.MapZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
                                     loadingSession.NetworkManager.ZoneLines.PendingId != null, ZoneSwapPending(loadingSession),
                                     loadingSession.World.EventZoneId != 0 && !loadingSession.Events.Presentation.TryGetCamera(out _))

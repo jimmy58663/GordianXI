@@ -43,6 +43,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public int[] PointLightSlots { get; set; } = Array.Empty<int>();
 
+        /// <summary>
+        /// The sub-area (building interior) whose closed exterior this placement is (<see cref="ZonePlacement.FileIdLink"/>):
+        /// hidden while that interior is shown (#68); 0 for everything else.
+        /// </summary>
+        public int SubAreaLink { get; set; }
+
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"SubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";
@@ -55,6 +61,8 @@ namespace Gordian.Core.Resources.Models
     /// <param name="PointLightSlots">Zero-based light-table indices from the four 1-based references at record +0x54.</param>
     /// <param name="BlockId">Record +0x34 FourCC: empty for a static object; one starting <c>_</c>/<c>@</c> marks a part of
     /// an animated multi-part object (a door or an elevator) moved by the client.</param>
+    /// <param name="FileIdLink">Record +0x50: the sub-area (building interior) this placement stands in for, hidden while
+    /// that interior is shown; 0 for none (xi-tools docs/zone/subareas.md, #68).</param>
     public readonly record struct ZonePlacement(
         string MeshId,
         Vector3 Position,
@@ -63,7 +71,8 @@ namespace Gordian.Core.Resources.Models
         float DrawDistance,
         string EnvironmentId = "",
         int[]? PointLightSlots = null,
-        string BlockId = ""
+        string BlockId = "",
+        int FileIdLink = 0
     )
     {
         /// <summary>
@@ -117,6 +126,30 @@ namespace Gordian.Core.Resources.Models
     }
 
     /// <summary>
+    /// A ship zone's vessel: a second ZoneDef under the zone's <c>mode/ship</c> directory with its own meshes and collision,
+    /// in the vessel's frame (the frame the server places the passengers in: Phanauet Channel spawns them at (0, -2, -1)
+    /// on the barge, LandSandBoat scripts/zones/Phanauet_Channel/Zone.lua). The zone's main ZoneDef is the scenery the
+    /// vessel travels through, along the <c>mode/c000</c>-<c>c003</c> Routes (Section 0x06): each key's eye is the
+    /// vessel's place in scenery coordinates, its look-at the next place. Found in the retail DATs (2026-10-20, #403):
+    /// the ship zones 1, 3, 46, 47, 58-60, 220, 221 and 223-228 are the only files of the install with two ZoneDefs.
+    /// **Beyond xi-tools / xi-model-viewer**, which read one ZoneDef per zone.
+    /// </summary>
+    public sealed class ZoneVessel
+    {
+        /// <summary>The vessel's submeshes in its own frame, display space (-X, -Y, Z) like the zone's.</summary>
+        public List<MeshGroup> MeshGroups { get; } = new();
+
+        /// <summary>The vessel ZoneDef's collision block (the deck); null when it has none.</summary>
+        public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+
+        /// <summary>The scenery Routes the vessel follows (<c>mode/cNNN</c>), in file order; empty at a dock zone.</summary>
+        public List<Events.CameraRoute> Routes { get; } = new();
+
+        /// <summary>A voyage zone: the vessel stays put and the scenery moves past along <see cref="Routes"/>.</summary>
+        public bool IsVoyage => Routes.Count > 0;
+    }
+
+    /// <summary>
     /// Represents a complete zone terrain model composed of multiple submeshes.
     /// </summary>
     public sealed class ZoneGeometry
@@ -161,9 +194,17 @@ namespace Gordian.Core.Resources.Models
         public Dictionary<string, string> DoorDirectories { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none.
+        /// The zone's player-collision mesh from the ZoneDef collision block; null when the zone has none. In a voyage zone
+        /// (<see cref="Vessel"/> with scenery routes) it is the vessel's collision: the player walks the deck.
         /// </summary>
         public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+
+        /// <summary>
+        /// The vessel of a ship zone or of a zone whose DAT carries one (the second ZoneDef, under a <c>ship</c>
+        /// directory: Phanauet Channel's barge <c>s_ju/mode/ship/ship</c>, the Manaclipper's <c>s_pa/mode/ship/ship</c>);
+        /// null for every other zone.
+        /// </summary>
+        public ZoneVessel? Vessel { get; set; }
 
         /// <summary>
         /// Short weather routines (lightning strikes) grouped by directory, played one random routine at a time.

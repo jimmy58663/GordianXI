@@ -408,6 +408,12 @@ namespace Gordian.Core.Network
             {
                 if (status != Packets.ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             };
+            // The Mog House door asks "Heading outside, kupo?" (No under the cursor) before the exit is sent (#354).
+            NetworkManager.MogHouseExitPrompt = () => ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+            {
+                if (answer != true || World.MogHouseRoom == 0) return;
+                _ = NetworkManager.RequestMogHouseExitAsync(Packets.MogHouseExitBit.Default, Packets.MogHouseExitMode.AreaEnteredFrom);
+            });
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();

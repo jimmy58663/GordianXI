@@ -30,6 +30,7 @@ namespace Gordian.Core.World
         public WorldState()
         {
             _grid = new SpatialPartitionGrid(performance: _performance.Spatial);
+            SubAreas = new SubAreaTracker(this);
         }
         public int Count
         {
@@ -54,16 +55,39 @@ namespace Gordian.Core.World
 
         private ushort _currentZoneId;
         private volatile Collision.ZoneCollisionMesh? _collision;
+        private volatile Collision.ZoneCollisionMesh? _subAreaCollision;
 
         /// <summary>
         /// The current zone's player-collision mesh, set once the zone's geometry is loaded and cleared on zone change;
-        /// null while unavailable, in which case movement is not collision-checked.
+        /// null while unavailable, in which case movement is not collision-checked. While building interiors are near the
+        /// player it reads the zone's mesh with their collision added (<see cref="SubAreas"/>, #68); setting it sets the
+        /// zone's own mesh and drops the interiors.
         /// </summary>
         public Collision.ZoneCollisionMesh? Collision
         {
-            get => _collision;
-            set => _collision = value;
+            get => _subAreaCollision ?? _collision;
+            set
+            {
+                _collision = value;
+                _subAreaCollision = null;
+                SubAreas.Reset();
+            }
         }
+
+        /// <summary>The zone's own collision mesh, without building interiors.</summary>
+        public Collision.ZoneCollisionMesh? ZoneCollision => _collision;
+
+        /// <summary>
+        /// Puts the zone's mesh with interiors added in front of it (<see cref="SubAreaTracker"/>); ignored when the zone's
+        /// mesh has changed since the merge started, null to drop it.
+        /// </summary>
+        internal void SetSubAreaCollision(Collision.ZoneCollisionMesh? zone, Collision.ZoneCollisionMesh? merged)
+        {
+            if (ReferenceEquals(zone, _collision)) _subAreaCollision = merged;
+        }
+
+        /// <summary>The building interior the local player is in and those near them (#68).</summary>
+        public SubAreaTracker SubAreas { get; }
 
         /// <summary>
         /// Learned gap (seconds) between a transport leg's stamp and when its update arrives on this session's clock
@@ -96,6 +120,7 @@ namespace Gordian.Core.World
                 if (changed)
                 {
                     ZoneChanged?.Invoke(value);
+                    RefreshMapZone();
                 }
             }
         }
@@ -163,8 +188,44 @@ namespace Gordian.Core.World
             set => _eventZoneId = value;
         }
 
-        /// <summary>The zone the viewport should draw for this session: the event's zone, else the current one.</summary>
-        public ushort SceneZoneId => EventZoneId != 0 ? EventZoneId : CurrentZoneId;
+        /// <summary>The zone the viewport should draw for this session: the event's zone, else the map zone.</summary>
+        public ushort SceneZoneId => EventZoneId != 0 ? EventZoneId : MapZoneId;
+
+        private int _mogHouseRoom;
+        private int _lastMapZoneId;
+
+        /// <summary>
+        /// The zone whose geometry is drawn and walked (#354): <see cref="CurrentZoneId"/>, or in the Mog House the room's
+        /// key (<see cref="MogHouseRooms.ZoneKey"/>), since the server keeps the city as the zone there.
+        /// </summary>
+        public ushort MapZoneId
+        {
+            get
+            {
+                int room = Volatile.Read(ref _mogHouseRoom);
+                return room != 0 ? MogHouseRooms.ZoneKey(room) : CurrentZoneId;
+            }
+        }
+
+        /// <summary>The Mog House room number shown (<see cref="ZoneLoginInfo"/>'s <c>MyroomMapNumber</c>), 0 outside it.</summary>
+        public int MogHouseRoom => Volatile.Read(ref _mogHouseRoom);
+
+        /// <summary>Raised with the new <see cref="MapZoneId"/> when it changes (a zone change, or going into or out of the Mog House).</summary>
+        public event Action<ushort>? MapZoneChanged;
+
+        /// <summary>
+        /// Raises <see cref="MapZoneChanged"/> when <see cref="MapZoneId"/> differs from the last one raised; a change into or
+        /// out of the Mog House within one zone drops the collision as a zone change does. The network thread calls it after
+        /// S2C 0x00A's login info and zone are both in.
+        /// </summary>
+        public void RefreshMapZone()
+        {
+            ushort map = MapZoneId;
+            int previous = Interlocked.Exchange(ref _lastMapZoneId, map);
+            if (previous == map) return;
+            if (MogHouseRooms.TryGetRoomOfKey(map, out _) || MogHouseRooms.TryGetRoomOfKey(previous, out _)) Collision = null;
+            MapZoneChanged?.Invoke(map);
+        }
 
         /// <summary>The zone whose terrain a viewport last finished loading for this session (0 while none has).</summary>
         public ushort DisplayedZoneId
@@ -348,6 +409,10 @@ namespace Gordian.Core.World
                 _zoneLoginInfo = info;
                 _hasZoneLoginInfo = true;
             }
+            // The Mog House room to draw (#354); a model number this client cannot draw leaves the city's terrain.
+            int room = info.InMogHouse && MogHouseRooms.IsKnownRoom(info.MyroomMapNumber) ? info.MyroomMapNumber : 0;
+            if (info.InMogHouse && room == 0) GordianLog.Warning("WORLD", $"Mog House room 0x{info.MyroomMapNumber:X3} has no known room DAT; drawing the zone instead.");
+            Volatile.Write(ref _mogHouseRoom, room);
         }
 
         public void UpdateWeather(ushort weatherNumber)

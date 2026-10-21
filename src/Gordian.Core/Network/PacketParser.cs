@@ -102,6 +102,8 @@ namespace Gordian.Core.Network
                 if (trusts > 0) GordianLog.Info("PARTY", $"Zone-in: dismissed {trusts} Trust(s) from the party.");
                 // The S2C 0x00A login position (set just before) is settled onto this zone's floor once its collision loads (#350).
                 _localPlayer.RequestGroundSettle();
+                // Into or out of the Mog House within the same city changes what is drawn and walked, not the zone (#354).
+                _world.RefreshMapZone();
             };
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
             _lifecycleModule.ServerGameTimeReceived += gameTime => _world.Clock.SynchronizeServerTime(gameTime);

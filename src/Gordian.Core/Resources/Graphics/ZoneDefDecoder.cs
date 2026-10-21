@@ -183,9 +183,11 @@ namespace Gordian.Core.Resources.Graphics
                 string blockId = b + 0x38 <= payload.Length ? ReadCString(payload.Slice(b + 0x34, 4)) : string.Empty;
                 string environmentId = string.Empty;
                 int[] lightSlots = Array.Empty<int>();
+                int fileIdLink = 0;
                 if (stride >= StrideModern && b + 0x64 <= payload.Length)
                 {
                     environmentId = ReadCString(payload.Slice(b + 0x4C, 4));
+                    fileIdLink = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(b + 0x50, 4));
                     lightSlots = ReadLightReferences(payload.Slice(b + 0x54, 16));
                 }
 
@@ -197,7 +199,8 @@ namespace Gordian.Core.Resources.Graphics
                     drawDist,
                     environmentId,
                     lightSlots,
-                    blockId
+                    blockId,
+                    fileIdLink
                 ));
             }
 

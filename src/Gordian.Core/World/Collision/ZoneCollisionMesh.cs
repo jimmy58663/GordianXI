@@ -126,6 +126,33 @@ namespace Gordian.Core.World.Collision
         public ReadOnlySpan<CollisionTriangle> Triangles => _triangles;
 
         /// <summary>
+        /// A zone's collision with building interiors added (#68): the zone's triangles first (their indices are kept), then
+        /// each interior's, and the zone's platforms, doors, zone lines and sub-area volumes.
+        /// </summary>
+        public static ZoneCollisionMesh Merge(ZoneCollisionMesh zone, IReadOnlyList<ZoneCollisionMesh> interiors)
+        {
+            ArgumentNullException.ThrowIfNull(zone);
+            ArgumentNullException.ThrowIfNull(interiors);
+            int count = zone._triangles.Length;
+            foreach (var interior in interiors) count += interior._triangles.Length;
+            var triangles = new CollisionTriangle[count];
+            zone._triangles.CopyTo(triangles, 0);
+            int at = zone._triangles.Length;
+            foreach (var interior in interiors)
+            {
+                interior._triangles.CopyTo(triangles, at);
+                at += interior._triangles.Length;
+            }
+            return new ZoneCollisionMesh(triangles)
+            {
+                MovingPlatforms = zone.MovingPlatforms,
+                Doors = zone.Doors,
+                ZoneLineVolumes = zone.ZoneLineVolumes,
+                SubAreaVolumes = zone.SubAreaVolumes,
+            };
+        }
+
+        /// <summary>
         /// The zone's moving platforms (elevators); set once when the zone loads.
         /// </summary>
         public IReadOnlyList<MovingPlatform> MovingPlatforms { get; internal set; } = Array.Empty<MovingPlatform>();
@@ -139,6 +166,12 @@ namespace Gordian.Core.World.Collision
         /// The zone's zone-line volumes (Section 0x36 <c>z</c> records from every table), see <see cref="ZoneLines"/>.
         /// </summary>
         public IReadOnlyList<Resources.Graphics.ZoneInteraction> ZoneLineVolumes { get; internal set; } = Array.Empty<Resources.Graphics.ZoneInteraction>();
+
+        /// <summary>
+        /// The zone's building-interior volumes (Section 0x36 <c>'m'</c> records, <see cref="ZoneSubAreas"/>, #68): standing in
+        /// one shows its interior.
+        /// </summary>
+        public IReadOnlyList<Resources.Graphics.ZoneInteraction> SubAreaVolumes { get; internal set; } = Array.Empty<Resources.Graphics.ZoneInteraction>();
 
         /// <summary>
         /// The level walkable floors (|normal.Y| above 0.7) whose centroid lies in the XZ rectangle: height, area, XZ centroid.
