@@ -590,7 +590,7 @@ namespace Gordian.App.ViewModels
             var newTab = new ViewportCharacterTabViewModel(
                 session,
                 onSelect: SelectTab,
-                onPopOut: tab => TabPoppedOut?.Invoke(this, tab)
+                onPopOut: RequestPopOut
             );
 
             CharacterTabs.Add(newTab);
@@ -639,6 +639,28 @@ namespace Gordian.App.ViewModels
         /// switchers are popups that never activate it, and the gamepad follows the focused window).
         /// </summary>
         public event EventHandler? WindowActivationRequested;
+
+        /// <summary>
+        /// Tears a character off into its own window (the switchers' <c>⧉</c>), when this window has another character to
+        /// move on to. Otherwise (the only character, or the last one not already popped out) a pop-out would leave this
+        /// window drawing the same world as the new one, and every per-frame entity update ran twice (movement, head turns,
+        /// animation: round 3 test D23, #307). Then the character stays here and this window switches to Windowed instead,
+        /// which is what the tear-off is for (a movable window); already windowed, nothing changes. The maintainer's design
+        /// (2026-10-20).
+        /// </summary>
+        public void RequestPopOut(ViewportCharacterTabViewModel tab)
+        {
+            ArgumentNullException.ThrowIfNull(tab);
+            if (tab.IsPoppedOut || CharacterTabs.Any(t => !ReferenceEquals(t, tab) && !t.IsPoppedOut))
+            {
+                TabPoppedOut?.Invoke(this, tab);
+                return;
+            }
+
+            ActiveTab = tab;
+            SelectedDisplayMode = ViewportDisplayMode.Windowed;
+            WindowActivationRequested?.Invoke(this, EventArgs.Empty);
+        }
 
         /// <summary>
         /// Chooses a character from a switcher or Ctrl+Tab: one popped out into its own window brings that window to the

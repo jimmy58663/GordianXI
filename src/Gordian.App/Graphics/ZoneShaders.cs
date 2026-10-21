@@ -7,12 +7,12 @@ namespace Gordian.App.Graphics
     /// <summary>
     /// Uniform buffer structure containing scene transform matrices, directional sun/moon lighting,
     /// authentic FFXI distance fog parameters, and dynamic weather / cloud scroll parameters.
-    /// Matched to GLSL std140 layout (352 bytes).
+    /// Matched to GLSL std140 layout (368 bytes).
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Size = (int)SizeInBytes)]
     public struct ZoneSceneUniform
     {
-        public const uint SizeInBytes = 352;
+        public const uint SizeInBytes = 368;
 
         public Matrix4x4 World;
         public Matrix4x4 View;
@@ -27,6 +27,7 @@ namespace Gordian.App.Graphics
         public Vector4 SkyTextureFactor; // Weather-sky generator color (texture factor), read only by the weather-sky shaders
         public Vector4 SkyLayerParams; // Weather-sky: X = fog enabled, Y = fog toward black (additive layers); actors: Z = target flash, W = event transparency (1 - alpha)
         public Vector4 MoonColor; // Moonlight color; the moon shines opposite SunDirection
+        public Vector4 TerrainTone; // Terrain highlight shoulder: X = knee, Y = ceiling (Y <= X: plain clamp, as retail); actors leave it 0
     }
 
     /// <summary>
@@ -423,6 +424,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 SkyTextureFactor;
     vec4 SkyLayerParams;
     vec4 MoonColor;
+    vec4 TerrainTone;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -461,6 +463,17 @@ vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
     return sum;
 }
 
+// TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
+// Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
+// clipping at white. y <= x keeps the plain clamp (the retail look). See ZoneTerrainRenderer.TerrainHighlightKnee.
+vec3 ToneTerrain(vec3 c)
+{
+    float span = TerrainTone.y - TerrainTone.x;
+    if (span <= 0.0) return c;
+    vec3 over = max(c - TerrainTone.x, vec3(0.0));
+    return min(c, TerrainTone.x + over / (1.0 + over / span));
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -477,7 +490,7 @@ void main()
     vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
-    vec3 litColor = 2.0 * lit * tex.rgb;
+    vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);
 
     // Authentic FFXI distance fog blending (active when FogParams.y > 0.0)
     vec3 finalRgb = litColor;
@@ -517,6 +530,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 SkyTextureFactor;
     vec4 SkyLayerParams;
     vec4 MoonColor;
+    vec4 TerrainTone;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -555,6 +569,17 @@ vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
     return sum;
 }
 
+// TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
+// Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
+// clipping at white. y <= x keeps the plain clamp (the retail look). See ZoneTerrainRenderer.TerrainHighlightKnee.
+vec3 ToneTerrain(vec3 c)
+{
+    float span = TerrainTone.y - TerrainTone.x;
+    if (span <= 0.0) return c;
+    vec3 over = max(c - TerrainTone.x, vec3(0.0));
+    return min(c, TerrainTone.x + over / (1.0 + over / span));
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -582,7 +607,7 @@ void main()
     lit += vec3(SkyLayerParams.z);
 
     // Authentic FFXI PS2 modulate2x color combination
-    vec3 litColor = 2.0 * lit * tex.rgb;
+    vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);
 
     // Authentic FFXI distance fog blending (active when FogParams.y > 0.0 and not a celestial disc)
     vec3 finalRgb = litColor;
@@ -623,6 +648,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
     vec4 SkyTextureFactor;
     vec4 SkyLayerParams;
     vec4 MoonColor;
+    vec4 TerrainTone;
 };
 
 layout(set = 1, binding = 0) uniform texture2D uTexture;
@@ -661,6 +687,17 @@ vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
     return sum;
 }
 
+// TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
+// Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
+// clipping at white. y <= x keeps the plain clamp (the retail look). See ZoneTerrainRenderer.TerrainHighlightKnee.
+vec3 ToneTerrain(vec3 c)
+{
+    float span = TerrainTone.y - TerrainTone.x;
+    if (span <= 0.0) return c;
+    vec3 over = max(c - TerrainTone.x, vec3(0.0));
+    return min(c, TerrainTone.x + over / (1.0 + over / span));
+}
+
 void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
@@ -683,7 +720,7 @@ void main()
     vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, 1.0);
 
     // Authentic FFXI PS2 modulate2x color combination
-    vec3 litColor = 2.0 * lit * tex.rgb;
+    vec3 litColor = ToneTerrain(2.0 * lit * tex.rgb);
 
     // Authentic FFXI distance fog blending (active when FogParams.y > 0.0 and not a celestial disc)
     vec3 finalRgb = litColor;

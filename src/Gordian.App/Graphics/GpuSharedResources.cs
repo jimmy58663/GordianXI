@@ -39,8 +39,8 @@ namespace Gordian.App.Graphics
 
             // Set 2 (zones): the frame's point-light table and the placement's light slots.
             LightLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("PointLightTable", ResourceKind.UniformBuffer, ShaderStages.Fragment),
-                new ResourceLayoutElementDescription("PointLightRefs", ResourceKind.UniformBuffer, ShaderStages.Fragment)));
+                new ResourceLayoutElementDescription("PointLightTable", ResourceKind.UniformBuffer, ShaderStages.Vertex | ShaderStages.Fragment),
+                new ResourceLayoutElementDescription("PointLightRefs", ResourceKind.UniformBuffer, ShaderStages.Vertex | ShaderStages.Fragment)));
 
             // Set 2 (skinned entities): the joint palette.
             JointPaletteLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(

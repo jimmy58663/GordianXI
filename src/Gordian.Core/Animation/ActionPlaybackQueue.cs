@@ -299,7 +299,7 @@ namespace Gordian.Core.Animation
             {
                 if (!_world.TryGetByServerId(hit.TargetId, out var target) || target == null) continue;
 
-                var reaction = BuildReaction(actor, target, hit, now);
+                var reaction = BuildReaction(actor, target, hit, now, request.Category);
                 target.Animation.EnqueueReaction(reaction);
                 HitLanded?.Invoke(target, reaction);
             }
@@ -309,7 +309,8 @@ namespace Gordian.Core.Animation
         /// Builds a target's reaction: which damage pose (the attacker in front of the target or behind), how hard, and the
         /// direction a knockback pushes (away from the attacker).
         /// </summary>
-        internal static HitReaction BuildReaction(WorldEntity? actor, WorldEntity target, ActionHit hit, long timestamp)
+        internal static HitReaction BuildReaction(WorldEntity? actor, WorldEntity target, ActionHit hit, long timestamp,
+            ActionCategory category = default)
         {
             bool fromFront = true;
             Vector2 push = WorldEntity.ForwardOf(target.HeadingRadians) * -1f;
@@ -334,7 +335,9 @@ namespace Gordian.Core.Animation
                 actor?.ServerId ?? 0,
                 push.X,
                 push.Y,
-                timestamp);
+                timestamp,
+                result,
+                category);
         }
 
         public void Dispose()

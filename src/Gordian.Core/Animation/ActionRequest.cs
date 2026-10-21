@@ -154,6 +154,8 @@ namespace Gordian.Core.Animation
     /// <param name="PushDirectionX">Ground-plane (X, Z) unit vector pushing the target away from the attacker (for knockback).</param>
     /// <param name="PushDirectionZ">See <paramref name="PushDirectionX"/>.</param>
     /// <param name="Timestamp"><see cref="System.Diagnostics.Stopwatch"/> timestamp the hit landed at.</param>
+    /// <param name="Result">The whole result (#328: the shared hit routines choose their sounds by its fields).</param>
+    /// <param name="Category">The action's category (a melee hit runs the shared <c>dada</c> routines).</param>
     public readonly record struct HitReaction(
         ActionResolution Resolution,
         float Distortion,
@@ -163,5 +165,7 @@ namespace Gordian.Core.Animation
         uint AttackerId,
         float PushDirectionX,
         float PushDirectionZ,
-        long Timestamp);
+        long Timestamp,
+        CombatActionResult Result = default,
+        ActionCategory Category = default);
 }

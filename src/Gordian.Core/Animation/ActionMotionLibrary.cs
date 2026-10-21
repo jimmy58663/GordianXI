@@ -69,6 +69,64 @@ namespace Gordian.Core.Animation
         public EventSceneResource? Effects { get; }
 
         public override string ToString() => $"{Kind} {Animation} (file {FileId})";
+
+        private IReadOnlyList<RoutineSoundCue>? _generatorSounds;
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, IReadOnlyList<RoutineSoundCue>> _soundsOnModel = new();
+
+        /// <summary>
+        /// The sounds of the presentation's audio generators (#328): the generators <see cref="MainRoutine"/> and the
+        /// routines it starts (0x03, one pass of 0x73, four deep) spawn or swap in whose linked data is a sound pointer, each
+        /// at its start on the routine clock (60 Hz). Most spells and job abilities carry their sound this way rather than as
+        /// a sound command; the walk and the generator-to-sound reading are the cutscene scene files' (EventPresentation).
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GeneratorSounds => _generatorSounds ??= CollectGeneratorSounds(Effects);
+
+        /// <summary>
+        /// Everything the presentation plays on an actor: the sound commands of <see cref="MainRoutine"/> through the DAT's
+        /// and the actor's routines (<see cref="EventMotionBank.GetSoundsOnModel"/>) and the <see cref="GeneratorSounds"/>,
+        /// by tick; cached per model.
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GetSoundsOnModel(EntityModel model)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            if (_soundsOnModel.TryGetValue(model, out var cached)) return cached;
+            var commands = Motion?.GetSoundsOnModel(model, MainRoutine) ?? Array.Empty<RoutineSoundCue>();
+            var generators = GeneratorSounds;
+            IReadOnlyList<RoutineSoundCue> all = generators.Count == 0 ? commands
+                : [.. System.Linq.Enumerable.OrderBy(System.Linq.Enumerable.Concat(commands, generators), c => c.Tick)];
+            _soundsOnModel.AddOrUpdate(model, all);
+            return all;
+        }
+
+        internal static IReadOnlyList<RoutineSoundCue> CollectGeneratorSounds(EventSceneResource? resource)
+        {
+            if (resource == null || !resource.TryGetRoutine(MainRoutine, out var main)) return Array.Empty<RoutineSoundCue>();
+            var cues = new List<RoutineSoundCue>();
+            void Walk(SceneRoutine routine, int start, int depth)
+            {
+                foreach (var command in routine.Commands)
+                {
+                    int at = start + command.StartFrame;
+                    switch (command.Kind)
+                    {
+                        case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out var spawned):
+                            cues.Add(new RoutineSoundCue(at, [spawned.SoundId], 0x02));
+                            break;
+                        case SceneCommandKind.ReplaceGenerator when resource.TryGetGeneratorSound(command.Reference2, out var replacement):
+                            cues.Add(new RoutineSoundCue(at, [replacement.SoundId], 0x02));
+                            break;
+                        case SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine when depth < 4
+                            && command.Reference != routine.Name && resource.TryGetRoutine(command.Reference, out var child):
+                            Walk(child, at, depth + 1);
+                            break;
+                    }
+                }
+            }
+            Walk(main, 0, 0);
+            if (cues.Count == 0) return Array.Empty<RoutineSoundCue>();
+            cues.Sort((a, b) => a.Tick.CompareTo(b.Tick));
+            return cues;
+        }
     }
 
     /// <summary>

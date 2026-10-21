@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
@@ -45,6 +46,22 @@ namespace Gordian.Core.Animation
         /// <summary>Pose flash length when the model's guard routine does not say (the retail PC routines use 16 ticks).</summary>
         public const int DefaultPoseFlashTicks = 16;
 
+        /// <summary>
+        /// How fast a character's melee swing routine plays (#307): twice its authored speed (routine ticks per 60 Hz tick),
+        /// one swing after another. Measured on the maintainer's side-by-side capture of one base-speed fight in retail and
+        /// GordianXI (2026-10-20, Elvaan male MNK, Godhands): the round's two contacts land 0.70-0.73 s apart, where its
+        /// swings <c>ati2</c> (hit tick 36 of 90) and <c>bti0</c> (hit 32) put 86 ticks between them (1.43 s at authored
+        /// speed: 1.96x); the full-haste capture of round 1 fits the same speed (two-hit rounds 1.6-2.0 s apart, hits
+        /// 0.63-1.03 s apart: haste shortens the wait between rounds, not the strikes). See docs/reference/calibrations.md.
+        /// </summary>
+        public const float CharacterSwingSpeed = 2f;
+
+        /// <summary>A swing never plays faster than this (routine ticks per 60 Hz tick).</summary>
+        public const float MaxSwingSpeed = 4f;
+
+        /// <summary>Rounds further apart than this are not one fight's cadence (the actor stopped attacking in between).</summary>
+        public const float MaxRoundGapSeconds = 8f;
+
         public AnimationCategory Current { get; private set; } = AnimationCategory.Idle;
         public byte SubAnimation { get; private set; }
         public byte CurrentStance { get; private set; }
@@ -76,6 +93,18 @@ namespace Gordian.Core.Animation
 
         /// <summary>Routine ticks (60 Hz) since <see cref="ActiveRoutine"/> started (the sounds follow this clock, #41).</summary>
         public float ActionTicks => _actionTicks;
+
+        /// <summary>
+        /// How fast the routine clock of the playing action runs (routine ticks per 60 Hz tick): 1, or more for a melee
+        /// swing fitted to its actor's attack pace (#307). Clips, hits, sounds and weapon changes all follow the clock.
+        /// </summary>
+        public float ActionSpeed => _actionSpeed;
+
+        /// <summary>
+        /// The time per hit the actor's last two melee rounds left (round interval / hits of the earlier round), or 0 when
+        /// not known (#307).
+        /// </summary>
+        public float SwingBudgetSeconds => _swingBudgetSeconds;
 
         /// <summary>Counts every new <see cref="ActiveRoutine"/> start, so a routine restarted by name can be told apart (#41).</summary>
         public int ActionSerial { get; private set; }
@@ -152,6 +181,10 @@ namespace Gordian.Core.Animation
 
         private ActionRequest? _actionRequest;
         private float _actionTicks;
+        private float _actionSpeed = 1f;
+        private long _roundTimestamp;
+        private int _roundHits;
+        private float _swingBudgetSeconds;
         private int _segmentIndex = -1;
         private bool _actionAllowsLocomotion;
         private int _actionHitTick = -1;
@@ -236,8 +269,42 @@ namespace Gordian.Core.Animation
             return routine.IsSustained ? onePass : Math.Max(routine.TotalTicks, onePass);
         }
 
+        /// <summary>
+        /// Takes the hit reactions that arrived while the entity's motion is stopped (the server's MotStopFlag: the renderer
+        /// does not advance it, so its pose stays frozen): each still counts as the last reaction, so its sounds play
+        /// (#328, round 4 test D29: the Macro Test dummies are frozen, and every hit on them played only the swing's whoosh).
+        /// No flinch or counter starts; the pose is frozen.
+        /// </summary>
+        public void TakeReactionsWhileStopped()
+        {
+            long now = Stopwatch.GetTimestamp();
+            while (_incomingReactions.TryDequeue(out var reaction))
+            {
+                if (Seconds(reaction.Timestamp, now) > StaleReactionSeconds) continue;
+                LastReaction = reaction;
+                ReactionSerial++;
+            }
+        }
+
         /// <summary>Queues a hit reaction for the target (thread-safe).</summary>
         public void EnqueueReaction(HitReaction reaction) => _incomingReactions.Enqueue(reaction);
+
+        private long _lastFrameClaim;
+
+        /// <summary>
+        /// The share of <paramref name="dt"/> this entity has not been advanced by yet in wall time (#307, round 2 test D11):
+        /// every viewport that draws the entity advances it, so two viewports on one world (the main window and a pop-out
+        /// viewport) played every motion twice as fast. Returns at most <paramref name="dt"/>, and only the wall time since
+        /// the last claim, so the second viewport drawing the same frame gets about 0. Renderers call it before
+        /// <see cref="Advance(float, AnimationCategory, byte, EntityModel?)"/>; tests drive <c>Advance</c> directly.
+        /// </summary>
+        public float ClaimFrameTime(float dt)
+        {
+            long now = Stopwatch.GetTimestamp();
+            long last = Interlocked.Exchange(ref _lastFrameClaim, now);
+            if (last == 0 || dt <= 0f) return Math.Max(dt, 0f);
+            return Math.Clamp(Seconds(last, now), 0f, dt);
+        }
 
         /// <summary>
         /// Advances playback time by dt using generalized stance resolution and dual-channel blending.
@@ -461,6 +528,7 @@ namespace Gordian.Core.Animation
             _isPresentation = false;
             _holdsLastClip = false;
             _weaponMotion = WeaponMotion.None;
+            _actionSpeed = 1f;
             _overlayClip = null;
         }
 
@@ -498,6 +566,8 @@ namespace Gordian.Core.Animation
                     continue;
                 }
 
+                if (IsBasicAttackSwing(request)) CountRoundHit(request.ReceivedTimestamp);
+
                 // A sustained action (a chant) or a held event pose gives way at once to whatever comes next (its release, a swing).
                 if ((ActiveRoutine is { IsSustained: true } || _holdsLastClip) && _queuedActions.Count == 0 && _lastModel != null)
                 {
@@ -511,6 +581,48 @@ namespace Gordian.Core.Animation
                     _queuedActions.RemoveAt(0);
                 }
             }
+        }
+
+        private static bool IsBasicAttackSwing(ActionRequest request) =>
+            request.Motion == ActionMotion.Swing && request.Category == ActionCategory.BasicAttack;
+
+        /// <summary>
+        /// Counts a melee hit into its round: the hits of one S2C 0x028 basic attack share their arrival timestamp. A new
+        /// round sets the time per hit the last one left (its interval / its hits), which the next swings fit into (#307).
+        /// </summary>
+        private void CountRoundHit(long timestamp)
+        {
+            if (timestamp != _roundTimestamp)
+            {
+                if (_roundTimestamp != 0 && _roundHits > 0)
+                {
+                    float interval = Seconds(_roundTimestamp, timestamp);
+                    _swingBudgetSeconds = interval is > 0f and <= MaxRoundGapSeconds ? interval / _roundHits : 0f;
+                }
+                _roundTimestamp = timestamp;
+                _roundHits = 0;
+            }
+            _roundHits++;
+        }
+
+        /// <summary>
+        /// The routine clock speed of a melee swing (#307). Retail plays every strike whole (guard, strike, back to guard),
+        /// one after another: a character's at <see cref="CharacterSwingSpeed"/>, a fixed model's at its authored speed, and
+        /// either faster only when its rounds come closer than its swings (the time per hit they leave,
+        /// <see cref="SwingBudgetSeconds"/>, is shorter than the swing), at most <see cref="MaxSwingSpeed"/>. Other actions
+        /// play at 1.
+        /// </summary>
+        internal float SwingSpeed(EntityModel model, ActionRequest? request, MotionRoutine routine)
+        {
+            if (request == null) return 1f;
+            bool basicAttack = IsBasicAttackSwing(request);
+            if (!basicAttack && request.Motion != ActionMotion.Counter) return 1f;
+            float speed = model.IsCharacter ? CharacterSwingSpeed : 1f;
+            if (basicAttack && _swingBudgetSeconds > 0f)
+            {
+                speed = Math.Max(speed, RoutineEndTick(routine) / RoutineTicksPerSecond / _swingBudgetSeconds);
+            }
+            return Math.Clamp(speed, 1f, MaxSwingSpeed);
         }
 
         private bool TryStartNextAction(EntityModel model, bool isMoving, long now)
@@ -596,6 +708,8 @@ namespace Gordian.Core.Animation
             ActionSerial++;
             _actionRequest = request;
             _actionTicks = 0f;
+            _actionSpeed = SwingSpeed(model, request, routine);
+
             _segmentIndex = -1;
             _actionAllowsLocomotion = allowsLocomotion;
             _weaponMotion = weaponMotion;
@@ -640,13 +754,14 @@ namespace Gordian.Core.Animation
             AnimationClip? clip = null;
             if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
             else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
-            SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond, previousLoops, restart: true);
+            SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond / _actionSpeed, previousLoops, restart: true);
         }
 
         private void AdvanceAction(float dt, EntityModel model)
         {
             var routine = ActiveRoutine!;
-            _actionTicks += dt * RoutineTicksPerSecond;
+
+            _actionTicks += dt * RoutineTicksPerSecond * _actionSpeed;
 
             // A chant (or a held event pose) with something already waiting behind it gives way at once: a cast's start and
             // finish can arrive in one datagram (an instant cast, #132 round 1), and the chant would otherwise hold the body
@@ -722,8 +837,9 @@ namespace Gordian.Core.Animation
             }
 
             float blendOut = routine != null && routine.Segments.Count > 0
-                ? Math.Max(routine.Segments[^1].BlendOutTicks / RoutineTicksPerSecond, 0.1f)
+                ? Math.Max(routine.Segments[^1].BlendOutTicks / RoutineTicksPerSecond / _actionSpeed, 0.05f)
                 : BlendDuration;
+            _actionSpeed = 1f;
             AnimationClip? stanceClip = NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance);
             if (blend)
             {
@@ -748,7 +864,11 @@ namespace Gordian.Core.Animation
             switch (request.Motion)
             {
                 case ActionMotion.Swing:
-                    return ResolveSwing(model, SwingPrefix(model, request.SubKind), "atf0", "atb0", "atl0", "atr0", isMoving);
+                    string prefix = SwingPrefix(model, request.SubKind);
+                    // The dual-wield off-hand pack has its own moving swings (#308); the hand-to-hand packs' bti* do not.
+                    return prefix == "bti" && routines.ContainsKey("btf0")
+                        ? ResolveSwing(model, prefix, "btf0", "btb0", "btl0", "btr0", isMoving)
+                        : ResolveSwing(model, prefix, "atf0", "atb0", "atl0", "atr0", isMoving);
 
                 case ActionMotion.Counter:
                     var counter = ResolveSwing(model, "cni", "cnf0", "cnb0", "cnl0", "cnr0", isMoving);
@@ -819,15 +939,19 @@ namespace Gordian.Core.Animation
         /// 0 main hand, 1 off hand, 2 right foot, 3 left foot, 4 throw): <c>ati*</c>, <c>bti*</c>, <c>cti*</c>, <c>dti*</c>,
         /// the letter counting up from <c>a</c>. Only the hand-to-hand packs carry the others (Hume male <c>ROM/32/15</c>:
         /// <c>bti0</c> / <c>bti1</c> play <c>at2?</c> / <c>at4?</c>, led by the left hand; <c>cti0</c> plays <c>wa4?</c>, a right
-        /// kick; <c>dti0</c> <c>wa5?</c>, a left kick; measured 2026-10-07, #138); every other pack and sub_kind falls back to
-        /// <c>ati*</c>, so a dual-wield off-hand hit swings like a main-hand one.
+        /// kick; <c>dti0</c> <c>wa5?</c>, a left kick; measured 2026-10-07, #138), and a dual-wielding character's off-hand
+        /// pack carries <c>bti*</c> (#308); every other pack and sub_kind falls back to <c>ati*</c>.
         /// </summary>
         internal static string SwingPrefix(EntityModel model, ushort subKind)
         {
             if (subKind is >= 1 and <= 3)
             {
                 string prefix = (char)('a' + subKind) + "ti";
-                if (model.MotionRoutines.TryGetValue(prefix + "0", out var routine) && routine.Segments.Count > 0) return prefix;
+                // Any variant: a pack need not start at 0 (the Hume male dual-wield dagger packs carry bti1-bti3, ati0 / ati2 / ati3).
+                for (int i = 0; i < 10; i++)
+                {
+                    if (model.MotionRoutines.TryGetValue(prefix + (char)('0' + i), out var routine) && routine.Segments.Count > 0) return prefix;
+                }
             }
             return "ati";
         }
