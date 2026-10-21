@@ -101,5 +101,30 @@ namespace Gordian.App.Tests.Graphics
             var shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, at, 0, logFont: screen.LogFont), "gpu_mount_list.png");
             Assert.True(screen.HasLightPixel(shot, (int)at.X + 11, (int)at.X + 120, (int)at.Y + 20 + 8), "no empty-list text");
         }
+
+        /// <summary>
+        /// The mount list (#87) in the DAT's <c>mount</c> window, as the retail capture (Mounts.mp4, 30 s): every owned mount's
+        /// name in the log font 35 px in, and the scrollbar past twelve rows.
+        /// </summary>
+        [Fact]
+        public void RendersMountList()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            string[] names = { "Chocobo", "Raptor", "Tiger", "Crab", "Red Crab", "Bomb", "Sheep", "Morbol", "Crawler", "Fenrir", "Beetle", "Moogle", "Magic Pot" };
+            var unlocked = new List<int>();
+            for (int i = 0; i < names.Length; i++) unlocked.Add(i);
+            var rows = StockUiActionMenu.MountRows(unlocked, id => names[id], _ => null, System.TimeSpan.Zero, 0);
+            var menus = new StockUiMenuController { Library = screen.Library, ActionRowsProvider = (_, _, _) => rows };
+            var list = menus.OpenActionList(StockUiActionList.Mounts, 0, null)!;
+            Assert.Equal(StockUiActionMenu.MountListMenu, list.Menu.Name);
+            Assert.True(list.CanScroll);
+            var frame = list.Menu.Frame;
+            var at = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
+            var shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, at, 0, logFont: screen.LogFont), "gpu_mount_list_rows.png");
+            int px = (int)at.X, py = (int)at.Y;
+            Assert.True(screen.HasLightPixel(shot, px + 35, px + 120, py + 20 + 8), "no mount name on the second row");
+            // The paw icon retail draws before each mount is not drawn yet (its sprite is not found, #87).
+        }
     }
 }

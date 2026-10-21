@@ -32,6 +32,10 @@ namespace Gordian.Core.Network
         Sprint,
         /// <summary><c>/dig</c>: chocobo digging (C2S 0x01A ChocoboDig).</summary>
         ChocoboDig,
+        /// <summary><c>/mount &lt;name&gt;</c>: calls forth a mount (C2S 0x01A Mount, #87); the message is the mount's name.</summary>
+        Mount,
+        /// <summary><c>/dismount</c>: gets off the mount (C2S 0x01A Dismount, #87).</summary>
+        Dismount,
         /// <summary><c>/blockaid [on|off]</c> (C2S 0x01A Blockaid); <see cref="ChatCommandResult.ActionParam"/> is the <see cref="BlockaidMode"/>.</summary>
         Blockaid,
         /// <summary><c>/callforhelp</c> (C2S 0x01A Help).</summary>
@@ -250,6 +254,8 @@ namespace Gordian.Core.Network
                     "fish" => new ChatCommandResult { Kind = ChatCommandResultKind.Fish },
                     "sprint" => new ChatCommandResult { Kind = ChatCommandResultKind.Sprint },
                     "dig" => new ChatCommandResult { Kind = ChatCommandResultKind.ChocoboDig },
+                    "mount" => new ChatCommandResult { Kind = ChatCommandResultKind.Mount, Message = args.Trim() },
+                    "dismount" => new ChatCommandResult { Kind = ChatCommandResultKind.Dismount },
                     "blockaid" => ParseBlockaid(args),
                     "callforhelp" or "cfh" => new ChatCommandResult { Kind = ChatCommandResultKind.CallForHelp },
                     "monsterskill" or "ms" => ParseMonsterSkill(args, world),

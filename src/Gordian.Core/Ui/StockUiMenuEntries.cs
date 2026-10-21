@@ -125,6 +125,12 @@ namespace Gordian.Core.Ui
         /// <summary>A Trust's command menu Release: releases that Trust (as <c>/refa</c>).</summary>
         ReleaseTrust,
 
+        /// <summary>The mounted command menu's Dig (#87): chocobo digging (as <c>/dig</c>).</summary>
+        ChocoboDig,
+
+        /// <summary>The mounted command menu's Dismount (#87): asks "Dismount?", then gets off (as <c>/dismount</c>).</summary>
+        Dismount,
+
         /// <summary>Main menu Key Items: opens the Key Items window (<see cref="StockUiKeyItems"/>, #91).</summary>
         KeyItems,
 

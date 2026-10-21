@@ -321,6 +321,7 @@ namespace Gordian.Core.Tests.Actions
                 ListMenu(StockUiActionMenu.AbilityMenu, 6, 384, 48, 112, 106, UiAnchor.TopRight),
                 ListMenu(StockUiActionMenu.SpellListMenu, 12, 16, 96, 182, 200, UiAnchor.BottomLeft, 132, 4),
                 ListMenu(StockUiActionMenu.AbilityListMenu, 12, 16, 96, 182, 200, UiAnchor.BottomLeft, 132, 4),
+                ListMenu(StockUiActionMenu.MountListMenu, 12, 16, 96, 182, 200, UiAnchor.BottomLeft, 132, 4),
                 ListMenu(StockUiActionMenu.OptionsMenu, 2, 384, 48, 112, 58, UiAnchor.TopRight, 88, 22),
                 ListMenu(StockUiCommandMenu.Template, 10, 16, 136, 112, 160, UiAnchor.BottomLeft),
             });

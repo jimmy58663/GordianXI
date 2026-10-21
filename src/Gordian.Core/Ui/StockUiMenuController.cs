@@ -2003,9 +2003,13 @@ namespace Gordian.Core.Ui
                 case StockUiMenuCommand.Invite:
                 case StockUiMenuCommand.Check:
                 case StockUiMenuCommand.ReleaseTrust:
+                case StockUiMenuCommand.ChocoboDig:
                     var target = CommandMenuTarget;
                     CloseAll();
                     if (target is { } t) _ = RunTargetCommandAsync(entry, t);
+                    break;
+                case StockUiMenuCommand.Dismount:
+                    _ = ConfirmDismountAsync(entry);
                     break;
             }
         }

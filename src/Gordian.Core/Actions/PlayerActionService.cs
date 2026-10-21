@@ -675,7 +675,7 @@ namespace Gordian.Core.Actions
             }
             var context = new StockUiTargetContext(kind, target.ServerId, target.Name, engaged,
                 EngagedWithTarget: engaged && combat!.TargetServerId == target.ServerId, CanInvite: canInvite,
-                HasTreasure: TreasureModule?.Pool.Count > 0);
+                HasTreasure: TreasureModule?.Pool.Count > 0, Mounted: _localPlayer.IsMounted, CanDig: _localPlayer.Mount.CanDig);
             return Menus.OpenCommandMenu(context);
         }
 
@@ -732,6 +732,10 @@ namespace Gordian.Core.Actions
                     return check;
                 case StockUiMenuCommand.ReleaseTrust:
                     return await ReleaseTrustAsync(entity.Name).ConfigureAwait(false);
+                case StockUiMenuCommand.ChocoboDig:
+                    return await ChocoboDigAsync().ConfigureAwait(false);
+                case StockUiMenuCommand.Dismount:
+                    return await DismountAsync().ConfigureAwait(false);
                 default:
                     return PlayerActionResult.Warn($"{command} is not available yet.");
             }
@@ -974,6 +978,51 @@ namespace Gordian.Core.Actions
         /// </summary>
         public Task<PlayerActionResult> ChocoboDigAsync()
             => SelfActionAsync(CliActionId.ChocoboDig, 0, "Digging.", ChatCommandResultKind.ChocoboDig);
+
+        /// <summary>
+        /// Calls forth mount <paramref name="mountId"/> (the client's mount id: 0 Chocobo, 1 Raptor ...; the mount list and
+        /// <c>/mount</c>, #87): C2S 0x01A Mount with the id. LandSandBoat checks the mount's key item (3072 + id), the level
+        /// (20), the zone and the shared 60 s recast, and answers a refusal with a battle message.
+        /// </summary>
+        public Task<PlayerActionResult> MountAsync(int mountId)
+        {
+            string name = MountName?.Invoke(mountId) ?? $"mount {mountId}";
+            if (_localPlayer.IsMounted) return Task.FromResult(PlayerActionResult.Warn("You are already mounted.", ChatCommandResultKind.Mount));
+            return SelfActionAsync(CliActionId.Mount, (uint)mountId, $"Calling forth {name}.", ChatCommandResultKind.Mount);
+        }
+
+        /// <summary><c>/mount &lt;name&gt;</c>: the owned mount of that name (S2C 0x0AE), matched without case.</summary>
+        public Task<PlayerActionResult> MountAsync(string name)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.Mount;
+            name = name.Trim();
+            if (name.Length == 0) return Task.FromResult(PlayerActionResult.Warn("Usage: /mount <name>", Kind));
+            var names = MountName;
+            foreach (int id in UnlockedMounts)
+            {
+                if (string.Equals(names?.Invoke(id), name, StringComparison.OrdinalIgnoreCase)) return MountAsync(id);
+            }
+            return Task.FromResult(PlayerActionResult.Warn($"You do not have a mount named \"{name}\".", Kind));
+        }
+
+        /// <summary>The mounts S2C 0x0AE unlocked (client mount ids, lowest first); empty before it arrives.</summary>
+        public IReadOnlyList<int> UnlockedMounts => ProgressionModule?.State.GetUnlockedMounts() ?? (IReadOnlyList<int>)Array.Empty<int>();
+
+        /// <summary>The command menu's Dismount and <c>/dismount</c> (#87): C2S 0x01A Dismount.</summary>
+        public Task<PlayerActionResult> DismountAsync()
+        {
+            if (!_localPlayer.IsMounted) return Task.FromResult(PlayerActionResult.Warn("You are not mounted.", ChatCommandResultKind.Dismount));
+            return SelfActionAsync(CliActionId.Dismount, 0, "Dismounted.", ChatCommandResultKind.Dismount);
+        }
+
+        /// <summary>
+        /// A mount's name by client mount id (the mount name table, ROM/351/84), set by the app; null in tests and without
+        /// the game's tables.
+        /// </summary>
+        public Func<int, string?>? MountName { get; set; }
+
+        /// <summary>A mount's help line by client mount id (ROM/351/85), for the mount list's help bar; set by the app.</summary>
+        public Func<int, string?>? MountHelp { get; set; }
 
         /// <summary><c>/blockaid [on|off]</c> (0x01A Blockaid): refuses or accepts aid from outside the party; bare toggles.</summary>
         public Task<PlayerActionResult> BlockaidAsync(BlockaidMode mode)
@@ -1381,6 +1430,10 @@ namespace Gordian.Core.Actions
                         return "Usage: /sprint - Sprint.";
                     case "dig":
                         return "Usage: /dig - Dig with your chocobo (uses one Gysahl Greens).";
+                    case "mount":
+                        return "Usage: /mount <name> - Call forth a mount you own (e.g. /mount Raptor).";
+                    case "dismount":
+                        return "Usage: /dismount - Get off your mount.";
                     case "blockaid":
                         return "Usage: /blockaid [on|off] - Refuse or accept aid from outside your party; toggles without an argument.";
                     case "callforhelp" or "cfh":
@@ -2805,6 +2858,10 @@ namespace Gordian.Core.Actions
 
                 case ChatCommandResultKind.ChocoboDig:
                     return await ChocoboDigAsync().ConfigureAwait(false);
+                case ChatCommandResultKind.Mount:
+                    return await MountAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);
+                case ChatCommandResultKind.Dismount:
+                    return await DismountAsync().ConfigureAwait(false);
 
                 case ChatCommandResultKind.Blockaid:
                     return await BlockaidAsync((BlockaidMode)cmd.ActionParam).ConfigureAwait(false);

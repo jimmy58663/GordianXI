@@ -270,7 +270,9 @@ namespace Gordian.Core.Input
             byte baseRun;
             if (_localPlayer.Speed > 0)
             {
-                baseRun = (byte)Math.Clamp((int)_localPlayer.Speed, 1, 255);
+                // Mounted, the server reports half the mount's speed (#87, MountAppearance.ServerSpeedFactor).
+                int factor = _localPlayer.IsMounted ? MountAppearance.ServerSpeedFactor : 1;
+                baseRun = (byte)Math.Clamp(_localPlayer.Speed * factor, 1, 255);
             }
             else if (localEnt != null && localEnt.SpeedBase > 0)
             {
@@ -797,6 +799,7 @@ namespace Gordian.Core.Input
             }
             // The player's status (S2C 0x037) on its entity, also when the entity was made after the status came (#343).
             localEnt.AnimationState = _localPlayer.ServerStatus;
+            localEnt.Mount = _localPlayer.Mount;
 
             float dt = (float)elapsed.TotalSeconds;
             _tickSeconds = dt;

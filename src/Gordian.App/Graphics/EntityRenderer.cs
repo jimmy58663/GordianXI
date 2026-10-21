@@ -450,6 +450,7 @@ namespace Gordian.App.Graphics
                     {
                         stalePalette.Dispose();
                     }
+                    if (_jointPaletteByEntity.TryRemove(MountPaletteKey(entity.ServerId), out var staleMount)) staleMount.Dispose();
                     _entityEnvironments.Remove(entity.ServerId);
                     _actorAnchors.Remove(entity.ServerId);
                     _faces.Remove(entity.ServerId);
@@ -518,8 +519,10 @@ namespace Gordian.App.Graphics
                     ? entity.RenderHeadingRadians
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
-                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values).
-                var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
+                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); a rider
+                // is not scaled, so it stays on its saddle (#87; the mount is the same size under every race in retail).
+                bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
+                var sizeScale = entity.Type == EntityType.Player && !mounted ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
                 // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
                 _actorAnchors.TryGetValue(entity.ServerId, out var previousAnchor);
@@ -620,6 +623,8 @@ namespace Gordian.App.Graphics
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 
                 var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
+                // Mounted, the same meshes play the riding pack (#87).
+                if (skinnedModel != null && mounted) skinnedModel = RiderOrSelf(entity, skinnedModel, resourceManager);
                 bool isSkinned = skinnedModel != null;
 
                 cl.SetPipeline(faded ? (isSkinned ? _skinnedDepthPipeline : _depthPipeline) : (isSkinned ? _skinnedPipeline : _pipeline));
@@ -671,8 +676,15 @@ namespace Gordian.App.Graphics
                     hiddenWeapons = entity.Animation.HiddenWeaponSlots;
                 }
 
-                float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
-                var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y, 0.0f);
+                float sizeFactor = entity.Type == EntityType.Player && !isFallback && !mounted ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+                float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
+                // A rider's name plate sits over its raised head, or the mount's own overhead point if that is higher (#87).
+                if (mounted && isSkinned && resourceManager != null && resourceManager.TryLoadMountModel(entity.Mount, out var mountModel)
+                    && mountModel?.Skeleton is { Count: > 0 })
+                {
+                    overheadHeight = Math.Max(overheadHeight + RiderSeatRaise, CursorHeight(mountModel));
+                }
+                var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
                 if (SubTargetServerId != 0 && entity.ServerId == SubTargetServerId) SubTargetAnchor = overhead;
@@ -690,6 +702,13 @@ namespace Gordian.App.Graphics
                     cl.SetGraphicsResourceSet(0, _entityResourceSet);
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
                     draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
+                }
+                if (mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId)))
+                {
+                    bool isLocal = entity.ServerId == localPlayerServerId;
+                    bool engagedNow = isLocal ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
+                    draws += DrawMount(cl, entity, resourceManager, uniform, headingRot, pos, faded, engagedNow, isLocal, deltaSeconds,
+                        draw: !isFallback);
                 }
             }
 

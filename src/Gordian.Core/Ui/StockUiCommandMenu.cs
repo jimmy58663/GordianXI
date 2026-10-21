@@ -17,11 +17,12 @@ namespace Gordian.Core.Ui
     }
 
     /// <summary>
-    /// The target the command menu is composed for: its kind and id, whether you are engaged (with it), and whether
-    /// an Invite would be allowed (you lead your party, or have none).
+    /// The target the command menu is composed for: its kind and id, whether you are engaged (with it), whether
+    /// an Invite would be allowed (you lead your party, or have none), and whether you ride a mount (#87) and can dig on it.
     /// </summary>
     public readonly record struct StockUiTargetContext(StockUiTargetKind Kind, uint TargetServerId, string TargetName,
-        bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true, bool HasTreasure = false);
+        bool Engaged = false, bool EngagedWithTarget = false, bool CanInvite = true, bool HasTreasure = false,
+        bool Mounted = false, bool CanDig = false);
 
     /// <summary>A label sprite of the command menus: the DAT menu and button that carry it.</summary>
     /// <param name="Sprite">An image of <paramref name="SpriteGroup"/> (<c>windowps</c> unless given) to draw instead of a DAT button's label, for labels no menu button carries (Release, #668; Call for Help, <c>keytops3</c> 23); -1 for none.</param>
@@ -74,6 +75,11 @@ namespace Gordian.Core.Ui
         public static readonly StockUiCommandLabel SwitchTarget = new("Switch Target", "attackmo", 1);
         public static readonly StockUiCommandLabel Disengage = new("Disengage", "attackmo", 5); // retail draws the arrowed sprite; "mp_pmode" 6 is the plain one
 
+        /// <summary>The mounted list's labels (#87): the DAT's <c>choconor</c> list (Chat ▶, Dig, Treasure, Dismount).</summary>
+        public const string MountedTemplate = "choconor";
+        public static readonly StockUiCommandLabel Dig = new("Dig", MountedTemplate, 2); // help 106 "Make your chocobo dig a hole."
+        public static readonly StockUiCommandLabel Dismount = new("Dismount", MountedTemplate, 4); // help 36 "Dismount."
+
         /// <summary>
         /// Call for Help ▶ (retail, maintainer 2026-10-18: Right on the engaged list's Disengage ▶ swaps the row to this and Right
         /// again swaps it back): the <c>keytops3</c> 23 label, which no <c>attackmo</c> button carries.
@@ -124,6 +130,19 @@ namespace Gordian.Core.Ui
         public static IReadOnlyList<StockUiCommandRow> Compose(in StockUiTargetContext context)
         {
             var rows = new List<StockUiCommandRow>(8);
+            // Mounted (#87; retail capture Mounts.mp4, a Hume on a personal chocobo): Chat ▶, Dig, Dismount, whatever is
+            // targeted, in the order of the DAT's "choconor" list (Chat, Dig, Treasure, Dismount). Dig only on a chocobo.
+            // PROVISIONAL: Treasure's place (choconor's), the list for a monster target (the DAT's "chocobat" has
+            // "Dismount and attack", Dig, Treasure, Check; not captured), and Dig on a rental chocobo (LandSandBoat lets
+            // rentals dig; the capture is a personal one).
+            if (context.Mounted)
+            {
+                rows.Add(new StockUiCommandRow(Chat, new StockUiMenuEntry(Chat.Text, Opens: ChatMenu)));
+                if (context.CanDig) rows.Add(Row(Dig, StockUiMenuCommand.ChocoboDig));
+                if (context.HasTreasure) rows.Add(TreasureRow);
+                rows.Add(Row(Dismount, StockUiMenuCommand.Dismount));
+                return rows;
+            }
             // Engaged = one menu (retail captures 2026-10-16/17, #63): whatever is targeted (yourself, a player, a
             // monster), the engaged list shows. Pets and trusts keep their own lists.
             if (context.Engaged && context.Kind is StockUiTargetKind.Self or StockUiTargetKind.Player or StockUiTargetKind.Monster)

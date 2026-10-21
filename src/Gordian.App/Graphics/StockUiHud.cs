@@ -173,6 +173,12 @@ namespace Gordian.App.Graphics
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
             }
+            if (session.ActionService.MountName == null && _resources is { } mountStrings)
+            {
+                // The mount list and /mount (#87): names and help lines by mount id (ROM/351/84, 85).
+                session.ActionService.MountName = i => mountStrings.TryGetString(DMsgCategory.MountNames, i, out var name) ? name : null;
+                session.ActionService.MountHelp = i => mountStrings.TryGetString(DMsgCategory.MountHelp, i, out var help) ? help : null;
+            }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
                 // /importretail reads the install's USER folder (read-only).

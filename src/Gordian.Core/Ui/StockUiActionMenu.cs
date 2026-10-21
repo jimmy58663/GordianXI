@@ -37,6 +37,8 @@ namespace Gordian.Core.Ui
         Trait,
         /// <summary>A pet command that opens a list of its own (Blood Pact: Rage / Ward, Ready): Confirm opens it.</summary>
         PetList,
+        /// <summary>A mount of the mount list (#87): Confirm calls it forth (C2S 0x01A Mount with the mount id).</summary>
+        Mount,
     }
 
     /// <summary>
@@ -124,6 +126,12 @@ namespace Gordian.Core.Ui
         public const string SpellListMenu = "magic";
         public const string AbilityListMenu = "ability";
 
+        /// <summary>
+        /// The mount list window (#87): the DAT's own <c>mount</c> menu, laid out as <c>ability</c> (182 x 200, twelve 132 x 16
+        /// rows from (16, 4), each with the <c>keytops3</c> #49 icon), as the retail capture shows it (Mounts.mp4, 30 s).
+        /// </summary>
+        public const string MountListMenu = "mount";
+
         /// <summary>The main-menu spell lists' Options window (+ / Y): "+ : Sort", Auto, Manual; Blue Magic's adds a greyed "Set Spells".</summary>
         public const string OptionsMenu = "mgcsort", BlueOptionsMenu = "mgcsortw";
         public const int OptionsAutoButton = 1, OptionsManualButton = 2;
@@ -171,6 +179,26 @@ namespace Gordian.Core.Ui
             8 => "Trust",
             _ => "Magic",
         };
+
+        /// <summary>
+        /// The mount list (#87): the unlocked mounts of S2C 0x0AE in mount id order, named by the mount name table
+        /// (ROM/351/84, row = mount id) and skipping ids it has no name for (id 63, the reserved slots), with the help line
+        /// of ROM/351/85 for the help bar. Never greyed (retail capture Mounts.mp4: a GM with every mount, all white); one
+        /// recast for all (S2C 0x119 <c>MountRecast</c>), shown as the info window's "Next".
+        /// </summary>
+        public static List<StockUiActionRow> MountRows(IReadOnlyList<int> unlocked, Func<int, string?> name, Func<int, string?> help,
+            TimeSpan recast, long now)
+        {
+            long ends = recast > TimeSpan.Zero ? now + (long)(recast.TotalSeconds * System.Diagnostics.Stopwatch.Frequency) : 0;
+            var rows = new List<StockUiActionRow>(unlocked.Count);
+            foreach (int id in unlocked)
+            {
+                if (id is < 0 or > ushort.MaxValue || name(id) is not { Length: > 0 } mountName) continue;
+                rows.Add(new StockUiActionRow(StockUiActionType.Mount, (ushort)id, mountName, ActionTargetFlags.Self, -1, -1, ends, null,
+                    Help: help(id)));
+            }
+            return rows;
+        }
 
         /// <summary>
         /// What an empty list shows in its window: retail's "No mounts available." and "No abilities available." (Pet

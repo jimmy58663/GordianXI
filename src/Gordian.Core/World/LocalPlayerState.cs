@@ -273,6 +273,15 @@ namespace Gordian.Core.World
         public ushort PetActorIndex { get; private set; }
         public byte MountId { get; private set; }
 
+        /// <summary>S2C 0x037 <c>Chocobo_Index</c>: 1 on a rental chocobo, 2 on a personal one, set while mounted (#87).</summary>
+        public byte ChocoboIndex { get; private set; }
+
+        /// <summary>What the character rides (#87), from the 0x037 status, <see cref="MountId"/> and <see cref="ChocoboIndex"/>.</summary>
+        public MountAppearance Mount => MountAppearance.FromWire(ServerStatus, MountId, ChocoboIndex);
+
+        /// <summary>Whether the character rides a chocobo or another mount (0x037 status 5 or 85).</summary>
+        public bool IsMounted => Mount.IsMounted;
+
         /// <summary>
         /// The character's server status from S2C 0x037 (LandSandBoat <c>xi.animation</c>: 0 none, 1 engaged in battle,
         /// 2 despawning, 3 dead, 33 resting...).
@@ -526,6 +535,7 @@ namespace Gordian.Core.World
                 Hpp = status.Hpp;
                 PetActorIndex = status.PetActorIndex;
                 MountId = status.MountId;
+                ChocoboIndex = status.ChocoboIndex;
                 WardrobeMask = status.WardrobeMask;
                 CostumeId = status.CostumeId;
                 HomepointSecondsRemaining = status.HomepointSecondsRemaining;

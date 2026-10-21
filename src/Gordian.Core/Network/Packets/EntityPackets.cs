@@ -1126,6 +1126,13 @@ namespace Gordian.Core.Network.Packets
         public byte GmLevel => (byte)((Flags0 >> 29) & 0x07);
 
         /// <summary>
+        /// <c>Chocobo_Index</c> (flags0 bits 13-15): set while mounted, 1 on a rental chocobo, 2 on a personal one (#87).
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037; values from
+        /// LandSandBoat (https://github.com/LandSandBoat/server) <c>utils/mountutils.cpp</c>.
+        /// </summary>
+        public byte ChocoboIndex => (byte)((Flags0 >> 13) & 0x07);
+
+        /// <summary>
         /// FreezeFlag (flags1 bit 13): the client is locked in place and the compass is removed. Layout referenced from
         /// XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
         /// </summary>

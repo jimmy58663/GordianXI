@@ -91,6 +91,8 @@ namespace Gordian.Core.Animation
                 // (e.g. NPCs/monsters that don't transmit it). Speed <= 25 yalms/s walk, > 25 run.
                 int effectiveBase = entity.SpeedBase > 0 ? entity.SpeedBase : 50;
                 int walkThreshold = Math.Max(1, effectiveBase / 2);
+                // The local player moves mounted at twice the server's speed (#87): a mounted walk is not a run.
+                if (isLocalPlayer && entity.Mount.IsMounted) walkThreshold *= MountAppearance.ServerSpeedFactor;
                 int effectiveSpeed = (entity.Speed == 0 && isRemotePlayer && S2C_0x00D_CharPc.IsMovingMovTime(entity.LastMovTime))
                     ? (entity.LocomotionDirection == LocomotionDirection.Backward ? walkThreshold : effectiveBase)
                     : entity.Speed;
